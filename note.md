@@ -1,11 +1,12 @@
 # 当前任务
 
-目标：建立通用单元素 filter 训练框架，共享页面样本支持完整卡片、作者、搜索、我的个人入口、正文、评论、展开与跳转等目标。浏览器分语义使用和错误捕获/训练两种模式。首个实验只用微博完整卡片；外部程序负责页面遍历、节点取参、目标引用和 CDP 动作。filter 输入最小必要参数，输出 isTarget 与目标分数 confidence。class/id、账号名、完整 URL/图片名、绝对根路径与全局深度不输入模型；固定 UI 标记、语义属性与相对位置按目标声明并审计。
+目标：以有类型I/O的filter为节点，正式应用、数据准备与训练都由统一workflow编排；核心不内置DOM/微博业务，训练只处理目标节点I/O、参数及损失/后端合同。DOM是首应用，手写viewport/focus/白黑名单先筛候选，神经节点首期单标签且数组保序。class/id、账号名、完整URL/图片名、绝对根路径与全局深度不输入学生模型，标注/原始证据与其隔离。
 
 当前阶段：2026-10-17用户最新指令要求先完成整体规划设计，再由AGY Gemini 4整体评估/review，之后再决定推进。已停止实现。Git已初始化、本地main有设计基线，无remote。未提交的package/tsconfig、架构与测试草稿已归档到 /Volumes/Intel/playground/nnanything-runs/project-scaffold/unimplemented-scaffold-draft.tar.gz，未合入main；唯一外置worktree和自有分支已清理。没有src实现、依赖安装、采集、标注或训练。此前为脚手架启动实现早于用户期望，已纠正为设计优先；本轮不再实现。
 
 ## 已有材料
 
+- docs/node-workflows.md：修订4的统一架构；Node/Workflow/Profile、应用与训练workflow、节点I/O训练隔离、workflow连线不等于Handwired梯度连线。两个项目graph.json已静态validate/inspect：正式8节点8边，训练7节点8边；operator仅设计引用，尚无实现/注册或运行时接入。执行后端适配仍须审查，未恢复实现。
 - docs/focus-and-labeling.md：用户最新决定的设计增量。首期单任务单标签，数组保序；页面共享上下文→viewport/focus/deny/allow候选过滤→取参→分类。viewportOnly固定true，部分可见保留；排除当前节点不默认剪掉其后代；上下文不是额外分类目标；过滤记录不作为负例。总体设计修订3待审，修订2的Gemini4通过不自动覆盖新接口。
 - 用户进一步确认：页面必须先经过一系列手写ManualFilter（viewport/focus/白黑名单），才进入NeuralNode。前者输出pass/reason，后者语义标签/分数；只读基础过滤所需观测，放行后才做完整取参与网络计算。
 - docs/reviews/gemini4-design-review.md：用户指定AGY Gemini 4整体设计Review。新独立conversation 528f539f-1599-4673-83e1-9926c4d84689；首轮5P1+1P2，修订2后同Reviewer复核findings=[]。两轮SUCCESS/exit0、实际gemini-4-argon-medium，宿主校验schema/scope后裁决仅设计通过。原始结果已存docs/reviews/gemini4-design-v1.json和v2.json；不代表实现/训练验收。
@@ -38,4 +39,4 @@
 记录目录：/Volumes/Intel/playground/nnanything-runs/filter-wire-audit。
 Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Argon medium，独立 conversation a30e71c9-05d0-4af1-a470-20804f27e544 完成初稿和修订。初稿有未经测量的性能宣称及硬门零梯度问题，未采纳；当前用户审计稿已删去这些问题并压缩候选输入。外部进程均已退出。
 
-下一动作：继续对齐修订3的单任务标签、按序批处理与focus候选过滤，接口冻结/实现前纳入下一轮整体设计评估。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。
+下一动作：继续对齐修订4的通用节点/workflow主轴和修订3的单标签/focus合同，统一框架执行后端边界需在接口冻结/实现前纳入下一轮整体设计评估。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。

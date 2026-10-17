@@ -2,6 +2,8 @@
 
 状态：设计增量草案，2026-10-17。承接用户最新三项决定：页面可作为共享上下文；首期单任务单标签并支持按序数组；分类前有focus、白名单、黑名单，目标至少限制在viewport。未实现，尚未纳入上一轮Gemini 4设计复核。
 
+上层框架已调整为 [Filter节点与统一Workflow](node-workflows.md)。本文是DOM应用workflow的候选节点合同，不是通用框架的内置业务。
+
 ## 1. 输入层次
 
 入口明确分成手写filter链与神经网络节点两段。ManualFilter依次执行viewport、当前focus与白黑名单等确定规则，返回pass/reason；其中deny优先allow。NeuralNode只对放行节点做当前任务的单标签判断并返回label/confidence。前者是候选过滤，后者是可训练语义识别，不把两种结果混用。

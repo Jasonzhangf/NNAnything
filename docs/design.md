@@ -1,12 +1,14 @@
 # NNAnything 总体设计
 
-版本：设计修订3草案，2026-10-17。新增单任务单标签、按序批处理和viewport/focus/白黑名单入口，详见 [增量合同](focus-and-labeling.md)。AGY Gemini 4已通过的是修订2，该结论不自动覆盖本次接口变化；当前继续设计，不进入实现。历史评估见 [报告](reviews/gemini4-design-review.md)。
+版本：设计修订4草案，2026-10-17。以filter节点和统一workflow为框架主轴，正式应用与训练均使用workflow，详见 [节点与Workflow](node-workflows.md)。保留单标签、按序批处理和 [Focus入口](focus-and-labeling.md)。AGY Gemini 4已通过的是修订2，该结论不自动覆盖新增架构；当前继续设计，不进入实现。历史评估见 [报告](reviews/gemini4-design-review.md)。
 
 本文件是总体方案入口。research中的页面证据、分类合同和数值草案作为详细依据。方案通过设计review不等于电路已训练或整体产品可用；下一步推进由用户决定。
 
 ## 1. 目标与边界
 
-建立通用、可审计、按profile适配的单节点filter框架。外部程序把对象转为明确参数；手写数值结构组合这些参数，训练只更新已声明权重。第一个playground是微博DOM语义，跨站验证在后。
+建立以有类型输入输出的filter为节点、以workflow组合执行的通用框架。节点定义处理能力，workflow定义应用流程；正式执行、数据准备、训练与监督均按workflow组织。基础核心不内置DOM、微博或业务类别。第一个playground是微博DOM语义，跨站验证在后。
+
+手写filter、特征转换、神经网络、拟合与评估均可封装为节点，保留各自输入输出含义。不是每个节点都可训练。节点级训练只消费输入与期望输出以及该节点的参数/损失/后端合同，不直接消费应用整页或执行动作。Workflow连线表达步骤依赖，Handwired内部连线表达数值与梯度，不能混为同一张训练图。
 
 页面可作为浏览器识别层共享上下文，先按viewport、focus、白名单/黑名单产生候选。首期一个任务对每个节点输出一个标签，也支持节点数组按序返回；暂不做同节点多个标签同时输出。二分类是该任务合同的特例，isTarget可作为相应二分类视图。过滤掉的候选不是模型负例。
 
@@ -69,15 +71,15 @@ DOM节点、AX节点和可点击祖先可能不同。每个目标必须有规范
 | 路径 | 职责与禁止事项 |
 | --- | --- |
 | AGENTS.md | 项目边界、唯一owner、数据/标签/推理隔离；引用全局流程，不复制治理 |
-| src/core | FilterDefinition、FeatureSchema、NumericInput、FilterResult、Profile、后端适配合同 |
-| src/semantics | 固定目标目录、阶段与成分关系定义；不按自然语言临时创造类别 |
-| src/data | Snapshot、NodeObservation、LabelRecord、分组与分区；原始资料不直接成为输入 |
-| src/annotation | teacher/LLM/用户标注接口、来源、证据与复核；不耦合优化器 |
-| src/training | 拟合、校准、评估、配对版本报告及profile候选；不执行浏览器动作 |
-| src/supervision | 操作样本、失败归因与入集选择；不自行把预测当真值 |
-| src/browser | 候选枚举、局部取参、查询解析和读取/动作适配；filter不承担这些工作 |
+| src/core | 通用Node/Workflow输入输出、参数/Profile与后端合同；不内置DOM类别 |
+| src/workflow | 通用执行、静态校验、分支/过滤结果与记录适配；不放站点规则 |
+| src/data | 通用节点样本、标签来源、分组与分区；应用原始证据通过引用关联 |
+| src/training | 节点训练后端及拟合/校准/评估节点；训练流程由workflow连接，不执行浏览器动作 |
+| nodes/dom | 应用的固定语义目录、ManualFilter/特征/识别节点与成分合同；不放入核心 |
+| workflows | 正式识别、数据准备/teacher、训练、监督workflow定义；不重复造执行器 |
+| adapters/browser | DOM观测、候选枚举、引用及读取/动作处理，供应用节点调用 |
 | src/backends/handwired | 将已审电路映射至Handwired；不复制上游源码或假装已依赖公共包 |
-| src/index.ts | 稳定公开入口 |
+| src/index.ts | 通用节点与workflow稳定公开入口，应用通过对应workflow调用 |
 | adapters/weibo | class/content teacher规则及站点观察适配；禁止将teacher特征隐式送到模型 |
 | tests | 公共consumer、基础反例、后续真实入口回归；不测试假训练/假点击成功 |
 | docs / research | 当前方案与流程 / 原始调研依据；旧草案需明确适用范围 |
@@ -89,18 +91,18 @@ DOM节点、AX节点和可点击祖先可能不同。每个目标必须有规范
 
 ```mermaid
 flowchart TD
-  S([目标与数据合同]):::boundary --> C[core与semantics]:::action
-  C --> D[data与annotation]:::action
-  C --> B[browser与取参适配]:::action
-  C --> H[Handwired后端]:::action
-  D --> T[training与评估]:::action
+  S([通用节点与数据合同]):::boundary --> C[工作流定义与核心执行边界]:::action
+  C --> D[应用节点与数据准备定义]:::action
+  C --> B[浏览器及取参适配定义]:::action
+  C --> H[数值节点后端定义]:::action
+  D --> T[节点训练及评估定义]:::action
   H --> T
-  B --> U[supervision操作证据]:::action
+  B --> U[应用工作流及监督证据定义]:::action
   D --> U
-  T --> P[公共入口及consumer合同检查]:::action
+  T --> P[公共入口与消费合同检查]:::action
   U --> P
   H --> P
-  P --> Z([设计交付与待实现清单]):::boundary
+  P --> Z([框架设计与待实现清单]):::boundary
   classDef boundary fill:#E9EEF5,stroke:#64748B,color:#0F172A,stroke-width:1.5px
   classDef action fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.5px
   linkStyle default stroke:#475569
@@ -110,9 +112,11 @@ flowchart TD
 
 | 合同 | 必需含义 |
 | --- | --- |
-| FilterDefinition | target、语义/边界版本、阶段、按序输入定义及单位/变换、手写数值图、可训练参数名 |
+| NodeDefinition | 通用处理器的输入/输出、配置和参数合同；可选训练适配，不依赖应用 |
+| WorkflowDefinition | 节点实例、数据依赖、配置/profile绑定、执行结果及错误出口；不把日志当控制真源 |
+| FilterDefinition | 具体filter节点能力；神经网络节点另声明taskId/标签、按序特征/变换、手写数值图及可训练参数 |
 | NumericInput | inputContract、当前节点的数值向量；不含页面、DOM对象、class/id或账号文本 |
-| FilterResult | 首期每任务单标签label及分数；二分类可提供isTarget视图。批处理保序保长度，过滤/缺测/未判定由外层状态表达，不伪造分类 |
+| NodeResult / FilterResult | 按节点合同区分规则pass/reason、转换数据、语义label/分数、训练产物等；神经网络首期单标签，二分类可提供isTarget视图。应用批处理保序，不伪造分类 |
 | Profile | 普通版本标识、target、兼容的输入/电路合同、权重、阈值、校准状态/参数与训练来源引用 |
 | Snapshot | 采集批次、页面/帖子来源组、原始DOM/截图/布局等引用及各自时间；保留不同步限制 |
 | LabelRecord | snapshot/node/target、truth=true/false/unknown、规则/LLM/用户来源、证据、复核状态 |
@@ -145,7 +149,7 @@ FilterDefinition声明每个参数的符号/区间约束。旧卡片草案中明
 
 权重拟合始终使用未校准logit z；每次生成新候选后，旧校准状态先失效。独立校准需满足目标合同的正负类、分组覆盖条件，并约束alpha>0。条件不足则alpha=1、beta=0、calibrated=false，分数保持未校准解释；阈值保留预先声明值，不在黄金集上补调。若有独立校准数据才重新拟合alpha/beta与预定阈值。单快照阶段只能报告开发拟合，不提供独立校准/泛化成绩。
 
-先实现旧训练样本+新样本重拟合。当前权重可热启动，这不等于贝叶斯更新。顺序近似贝叶斯作为后续独立训练策略：后验近似作先验，只加入未吸收的新标签；更正已吸收标签时按规范真值重建，不叠加矛盾证据。若全量回放则从基础先验计入全量规范标签，不再重复施加吸收同批旧数据的后验罚项。
+训练workflow首先组织旧训练样本+新样本重拟合，各节点负责自身I/O及拟合/校准/评估能力。当前权重可热启动，这不等于贝叶斯更新。顺序近似贝叶斯作为后续独立训练策略：后验近似作先验，只加入未吸收的新标签；更正已吸收标签时按规范真值重建，不叠加矛盾证据。若全量回放则从基础先验计入全量规范标签，不再重复施加吸收同批旧数据的后验罚项。
 
 训练路径设计候选：每轮单入口单出口，跨轮采用的profile成为下一轮输入。
 
@@ -173,7 +177,7 @@ flowchart TD
 
 ## 7. 批量采集与teacher标注
 
-规则teacher与学生filter分开。微博teacher可用class token、结构、可见标记和内容定位规范节点，批量输出类别及真值；学生只接收已审白名单参数。teacher只在采集标注侧运行，非LLM查询执行不调用teacher。
+数据准备workflow中的teacher与学生训练节点分开。微博teacher可用class token、结构、可见标记和内容定位规范节点，批量输出类别及真值；转换成学生白名单I/O样本后才交训练workflow。teacher只在采集标注侧运行，非LLM查询执行不调用teacher。
 
 规则命中保留ruleId、源页面、节点边界和依据。抽查不同帖子形态及广告/推荐反例后提高规则标签可信度；未命中只能标unknown，只有证明某范围完整标注的target才可生成其余节点负例。标签冲突和等价包装边界待核实，不默认为负例。
 
@@ -205,7 +209,7 @@ LLM按episode回溯首次偏离，区分filter、枚举器、范围解析器、�
 
 ## 9. 开发与测试框架规划
 
-技术起点拟用TypeScript ES modules、Bun test、tsc。D1只定义本项目的后端合同，不导入上游私有类型。D2首次接入明确采用显式HANDWIRED_ROOT本地源码根，经独立适配层加载src/runtime/numeric-ui-core.ts；路径由本地配置指定，缺失时显式报错，不自动搜索或复制/vendor上游。类型边界由适配器承担，D1无此运行依赖。将来分发或上游接口变更需另审，不自行发包。
+节点及数值后端开发起点拟用TypeScript ES modules、Bun test、tsc。Workflow通用执行后端仍需评估与既有DAGpipe能力的适配，不因两类workflow就建立两套引擎，也不提前写跨语言桥。D1先定义节点/workflow合同，不导入上游私有类型。D2数值节点采用显式HANDWIRED_ROOT本地源码根，经独立适配层加载src/runtime/numeric-ui-core.ts；路径由本地配置指定，缺失时显式报错，不自动搜索或复制/vendor上游。将来分发或上游接口变更需另审，不自行发包。
 
 检查只覆盖本轮行为：
 
@@ -226,8 +230,8 @@ Git事实：本地main已初始化，已有研究文档基线提交；无remote�
 | 阶段 | 交付 | 推进条件 |
 | --- | --- | --- |
 | D0 当前设计 | 本文、详细合同、AGY Gemini 4整体评估与问题修订 | 用户决定下一步 |
-| D1 工程骨架 | core（含目标目录与最小查询DTO）、data、training最小合同及公开consumer，项目规则与基础测试 | 设计结论可支撑实现，接口consumer通过 |
-| D2 基础运行与训练 | 已审Handwired电路、profile、拟合/校准/评估、离线consumer | 数值图先审，基础黑盒可运行 |
+| D1 工程骨架 | 通用节点/workflow合同、data与training最小I/O、公开consumer及基础规则/测试；DOM类型归应用 | 新增架构经评估，执行后端边界已收敛，接口consumer通过 |
+| D2 基础运行与训练 | 同一workflow执行基础、已审Handwired节点/profile、最小正式与训练workflow、离线consumer | 两级连线先审，基础黑盒可运行 |
 | D3 微博采标实验 | teacher规则、独立样本、可复核标签、第一阶段目标训练报告 | 标签边界与teacher质量已检查 |
 | D4 关系与监督 | 预测上下文支路、回溯选择性入集、版本配对回归 | 基础版本有效，关系收益有独立证据 |
 | D5 跨站验证 | 新站profile及同类目标评估 | 单站结论明确，不预设迁移成功 |

@@ -1,0 +1,25 @@
+{
+  "id": "node-training-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id": "training_request", "schema": "Object"}],
+  "nodes": [
+    {"id":"准备节点输入与期望输出","operator":"training.prepare","operator_version":"0.1.0-design","inputs":["training_request"],"output":{"id":"samples","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按来源分组并划分用途","operator":"training.partition","operator_version":"0.1.0-design","inputs":["samples"],"output":{"id":"partitions","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"拟合目标节点参数","operator":"training.fit","operator_version":"0.1.0-design","inputs":["partitions"],"output":{"id":"candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按独立覆盖条件处理校准","operator":"training.calibrate","operator_version":"0.1.0-design","inputs":["candidate","partitions"],"output":{"id":"calibration_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"比较新旧节点在相同样本的输出","operator":"training.compare","operator_version":"0.1.0-design","inputs":["calibration_result","partitions"],"output":{"id":"comparison","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"评估修复退化与证据不足","operator":"training.assess","operator_version":"0.1.0-design","inputs":["comparison"],"output":{"id":"assessment","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总候选参数与报告","operator":"training.report","operator_version":"0.1.0-design","inputs":["assessment"],"output":{"id":"training_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"准备节点输入与期望输出","to":"按来源分组并划分用途","arc_id":"samples"},
+    {"from":"按来源分组并划分用途","to":"拟合目标节点参数","arc_id":"partitions"},
+    {"from":"拟合目标节点参数","to":"按独立覆盖条件处理校准","arc_id":"candidate"},
+    {"from":"按独立覆盖条件处理校准","to":"比较新旧节点在相同样本的输出","arc_id":"calibration_result"},
+    {"from":"比较新旧节点在相同样本的输出","to":"评估修复退化与证据不足","arc_id":"comparison"},
+    {"from":"评估修复退化与证据不足","to":"汇总候选参数与报告","arc_id":"assessment"},
+    {"from":"按来源分组并划分用途","to":"按独立覆盖条件处理校准","arc_id":"partitions"},
+    {"from":"按来源分组并划分用途","to":"比较新旧节点在相同样本的输出","arc_id":"partitions"}
+  ],
+  "outputs": ["training_result"]
+}

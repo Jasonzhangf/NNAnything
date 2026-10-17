@@ -1,0 +1,26 @@
+{
+  "id": "dom-recognition-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id": "request", "schema": "Object"}],
+  "nodes": [
+    {"id":"读取基础页面观测","operator":"dom.observe","operator_version":"0.1.0-design","inputs":["request"],"output":{"id":"observed","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"筛选视口内候选","operator":"dom.viewport","operator_version":"0.1.0-design","inputs":["observed"],"output":{"id":"viewport_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"限制当前关注范围","operator":"dom.focus","operator_version":"0.1.0-design","inputs":["viewport_slots"],"output":{"id":"focused_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"应用黑名单","operator":"dom.deny","operator_version":"0.1.0-design","inputs":["focused_slots"],"output":{"id":"denied_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"应用白名单","operator":"dom.allow","operator_version":"0.1.0-design","inputs":["denied_slots"],"output":{"id":"eligible_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"提取目标节点参数","operator":"dom.features","operator_version":"0.1.0-design","inputs":["eligible_slots"],"output":{"id":"features","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"执行单标签语义识别","operator":"node.classify","operator_version":"0.1.0-design","inputs":["features"],"output":{"id":"predictions","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按原位置组装结果与排除记录","operator":"dom.assemble","operator_version":"0.1.0-design","inputs":["predictions","eligible_slots"],"output":{"id":"result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"读取基础页面观测","to":"筛选视口内候选","arc_id":"observed"},
+    {"from":"筛选视口内候选","to":"限制当前关注范围","arc_id":"viewport_slots"},
+    {"from":"限制当前关注范围","to":"应用黑名单","arc_id":"focused_slots"},
+    {"from":"应用黑名单","to":"应用白名单","arc_id":"denied_slots"},
+    {"from":"应用白名单","to":"提取目标节点参数","arc_id":"eligible_slots"},
+    {"from":"提取目标节点参数","to":"执行单标签语义识别","arc_id":"features"},
+    {"from":"执行单标签语义识别","to":"按原位置组装结果与排除记录","arc_id":"predictions"},
+    {"from":"应用白名单","to":"按原位置组装结果与排除记录","arc_id":"eligible_slots"}
+  ],
+  "outputs": ["result"]
+}
