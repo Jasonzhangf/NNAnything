@@ -1,0 +1,14 @@
+// Browser entry deliberately excludes the Node filesystem loader and training backend.
+export * from "./adapters/browser/observation.js";
+export * from "./filters/focus.js";
+export * from "./filters/candidate-chain.js";
+export * from "./filters/basic-kinds.js";
+export * from "./training/basic-kind-samples.js";
+export * from "./adapters/browser/live-dom.js";
+export * from "./adapters/browser/weight-asset.js";
+export * from "./adapters/browser/capture-bundle.js";
+export * from "./nodes/browser-overlay.js";
+export * from "./core/contracts.js";
+export * from "./core/events.js";
+export * from "./workflow/compiler.js";
+export * from "./workflow/runner.js";

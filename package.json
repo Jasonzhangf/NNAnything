@@ -14,6 +14,10 @@
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
     },
+    "./browser-classify": {
+      "types": "./dist/browser-classify.d.ts",
+      "import": "./dist/browser-classify.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"

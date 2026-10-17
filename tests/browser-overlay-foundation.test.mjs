@@ -217,13 +217,6 @@ function validWeightAsset() {
   };
 }
 
-function runtimeGraph(raw) {
-  const clone = structuredClone(raw);
-  clone.version = clone.version.replace(/-design$/, "");
-  for (const node of clone.nodes) node.operator_version = node.operator_version.replace(/-design$/, "");
-  return clone;
-}
-
 test("browser weight assets reject reports and invalid compatibility without mutating old state", () => {
   const previous = {
     profile: DEFAULT_BASIC_KIND_PROFILE,
@@ -444,10 +437,10 @@ function fakeDom() {
 }
 
 test("public overlay graph runs through compileWorkflow and runWorkflow with a no-op present callback", async () => {
-  const graph = runtimeGraph(JSON.parse(readFileSync(
+  const graph = JSON.parse(readFileSync(
     new URL("../workflows/browser-visual-overlay.graph.json", import.meta.url),
     "utf8",
-  )));
+  ));
   const dom = fakeDom();
   let presentCalls = 0;
   const definitions = createBrowserOverlayNodeDefinitions({
@@ -487,10 +480,10 @@ test("public overlay graph runs through compileWorkflow and runWorkflow with a n
 });
 
 test("capture graph enforces effects and calls the explicit download callback only on export", async () => {
-  const graph = runtimeGraph(JSON.parse(readFileSync(
+  const graph = JSON.parse(readFileSync(
     new URL("../workflows/browser-capture.graph.json", import.meta.url),
     "utf8",
-  )));
+  ));
   const session = new BrowserCaptureSession({ sessionId: "session-node", createdAt: "2026-10-17T12:00:00.000Z" });
   let downloadCalls = 0;
   const download = async () => {

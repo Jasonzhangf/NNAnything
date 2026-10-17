@@ -1,11 +1,11 @@
 {
-  "id": "browser-visual-overlay", "version": "0.1.0-design",
+  "id": "browser-visual-overlay", "version": "0.1.0",
   "inputs": [{"id":"overlay_request","schema":"Object"}],
   "nodes": [
-    {"id":"采集实时DOM几何与局部测量","operator":"browser.observe_live","operator_version":"0.1.0-design","inputs":["overlay_request"],"output":{"id":"live_observation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"筛选当前视口与关注候选","operator":"browser.qualify_live","operator_version":"0.1.0-design","inputs":["live_observation"],"output":{"id":"live_candidates","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"判断DOM基础种类","operator":"browser.classify_live","operator_version":"0.1.0-design","inputs":["live_candidates"],"output":{"id":"classified_frame","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"显示分类边框与Focus焦点","operator":"overlay.present","operator_version":"0.1.0-design","inputs":["classified_frame"],"output":{"id":"overlay_frame","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+    {"id":"采集实时DOM几何与局部测量","operator":"browser.observe_live","operator_version":"0.1.0","inputs":["overlay_request"],"output":{"id":"live_observation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"筛选当前视口与关注候选","operator":"browser.qualify_live","operator_version":"0.1.0","inputs":["live_observation"],"output":{"id":"live_candidates","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"判断DOM基础种类","operator":"browser.classify_live","operator_version":"0.1.0","inputs":["live_candidates"],"output":{"id":"classified_frame","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"显示分类边框与Focus焦点","operator":"overlay.present","operator_version":"0.1.0","inputs":["classified_frame"],"output":{"id":"overlay_frame","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges":[{"from":"采集实时DOM几何与局部测量","to":"筛选当前视口与关注候选","arc_id":"live_observation"},{"from":"筛选当前视口与关注候选","to":"判断DOM基础种类","arc_id":"live_candidates"},{"from":"判断DOM基础种类","to":"显示分类边框与Focus焦点","arc_id":"classified_frame"}],
   "outputs":["overlay_frame"]
