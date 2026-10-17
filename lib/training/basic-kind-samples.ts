@@ -103,6 +103,7 @@ const PROPERTY_KEYS = [
   "positiveAreaChildCount",
   "repeatedChildGeometry",
   "inVerifiedListParent",
+  "svgGraphicChildren",
   "disabled",
   "hidden",
 ] as const;

@@ -61,7 +61,7 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 本节是第一层 DOM 基础种类算子 dom.basic_kinds@0.1.0 合同卡的唯一规范真源。
 合格输入的基础语义标签为 11 个具体类别或 other，单项只有一个主标签。unknown/conflict 描述评分状态；被排除或不可用的候选不作分类，标签为 null。SVG、hidden、presentation/none 等属性都进入统一评分路径，不提前否决。默认没有经验证的辨别权重的状态 wire 显式赋 0，可通过 profile 调整。
 算法完整设计与数值连线由 [docs/basic-kinds-wiring.md](../../docs/basic-kinds-wiring.md) 单一 owner 维护，本卡仅保留节点接口契约，不重复算法实现细节。
-公共 API 通过 `nnanything/browser` 导出：`domBasicKindsNode`、`classifyBasicKind`（纯单节点属性求值）、`classifyBasicKindBatch`、`validateBasicKindProfile`、`DEFAULT_BASIC_KIND_PROFILE`、`DEFAULT_BASIC_KIND_CONFIG`、`BASIC_KIND_FAMILIES`。
+`nnanything/browser`保留`domBasicKindsNode`、`classifyBasicKind`、`classifyBasicKindBatch`、`validateBasicKindProfile`、默认profile/config与类别集合等公开API。`nnanything/browser`和`nnanything/browser-classify`另导出`LEGACY_BASIC_KIND_PROFILE`与`migrateBasicKindProfile`；`nnanything/training`也导出这两个训练接点。通用`nnanything`入口不导出DOM profile或迁移函数。旧权重资产在解析时补缺失的新目标与wire 0，新默认使用id `dom-basic-kinds-handwritten-v2`。
 类型 SpecificBasicKindLabel 代表具体类别，BasicKindLabel 另含 other。other 预测保留具体类别区间和原因，不虚构置信度，也不自动成为监督真值。后续新增类别沿算法设计文档更新 taxonomy/wire/profile，并复核历史 other；不需要改通用 workflow 核心。
 
 ### 2.1 `dom.basic_kinds`（判断 DOM 基础种类）
@@ -69,11 +69,11 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 | 合同维度 | 规范内容 |
 | :--- | :--- |
 | 身份 | `operator: "dom.basic_kinds"`, `operator_version: "0.1.0"`。第一层 DOM 基础种类判断节点。<br>公开导出：`domBasicKindsNode`（通过 `nnanything/browser`）。内核纯函数 `classifyBasicKind`（单节点）与 `classifyBasicKindBatch`（批次）独立可用。<br>唯一 owner：`lib/filters/basic-kinds.ts`（求值内核）+ `lib/nodes/basic-kinds.ts`（节点定义）。<br>算法设计真源：[docs/basic-kinds-wiring.md](../../docs/basic-kinds-wiring.md)。 |
-| 输入 | 端口 `input`（工作流图中连线 ID 对应 `candidate_slots`），`schemaId: "dom/candidate-batch/v1"`，事件类型 `"dom.candidate-slots.v1"`。<br>接收现有 `CandidateBatch` 对象，支持在同一个根对象包含可选的 `itemObservations` 补充观测数组。<br>补充项仅允许 `nodeRef` 与可选的 `inputType`、`hrefPresent`、`contentEditable`、`directTextPresent`、`childElementCount`、`positiveAreaChildCount`、`repeatedChildGeometry`、`inVerifiedListParent`。禁止任意未知字段。<br>约束：补充项必须引用已有候选节点且 nodeRef 唯一；补充观测绝不能覆盖原始 tag、role 或候选资格。 |
+| 输入 | 端口 `input`（工作流图中连线 ID 对应 `candidate_slots`），`schemaId: "dom/candidate-batch/v1"`，事件类型 `"dom.candidate-slots.v1"`。<br>接收现有 `CandidateBatch` 对象，支持在同一个根对象包含可选的 `itemObservations` 补充观测数组。<br>补充项仅允许 `nodeRef` 与可选的 `inputType`、`hrefPresent`、`contentEditable`、`directTextPresent`、`childElementCount`、`positiveAreaChildCount`、`repeatedChildGeometry`、`inVerifiedListParent`、`svgGraphicChildren`。禁止任意未知字段。省略或 null 表示未测；false 表示已观测不存在。<br>约束：补充项必须引用已有候选节点且 nodeRef 唯一；补充观测绝不能覆盖原始 tag、role 或候选资格。 |
 | 输出 | 端口 `output`（工作流图中连线 ID 对应 `basic_kind_slots`），`schemaId: "dom/basic-kind-batch/v1"`，事件类型 `"dom.basic-kind-slots.v1"`。<br>payload 为 `{ taskId: string, profileId: string, slots: BasicKindSlot[] }`。<br>slots 保持输入顺序与长度。每项保留 `index`、`nodeRef`、`candidateStatus`、`candidateReasons`，以及来自核心算法的判断与证据字段：`familyStatus`、`family`、`familyScores`、`judgmentStatus`、`basicKind`、`leafScores`、`score`、`margin`、`confidenceState: "uncalibrated" \| "not_applicable"`、`calibratedConfidence: null`、`reasons`、`evidence: { stateFlags, wires, activeTerms, path }`。<br>无极性与无假置信度：节点不输出训练正负极性，不提供经过独立标定的概率或置信度。 |
 | 配置与状态 | 必填配置：`taskId: string`、`minScore: number`、`minMargin: number`。默认门限分别为 0.60 与 0.15（`DEFAULT_BASIC_KIND_CONFIG`）。<br>可选 profileId 绑定：通过 `compileWorkflow` 的 profiles 映射传入完整的稀疏数值 profile（`BasicKindProfile`，含 familyWeights 与 leafWeights）；若未配置 profileId，默认使用手写稀疏权重表（`DEFAULT_BASIC_KIND_PROFILE`）。<br>执行模式：执行真正的两阶段粗细计算（大类 family -> 细类 leaf）；大类未通过时没有 leafScores，通过后 leafScores 仅包含该大类的细类。缺测特征保留为区间，不把缺测填 0。 |
 | 副作用 | 无（`effects: []`），纯内存确定性转换。 |
-| 训练能力 | 数值参数通过显式 profile 配置。离线训练框架已通过六节点与 Handwired Circuit 实现了参数拟合，产出可被本节点加载的候选 profile；未校准（uncalibrated），候选 profile 不自动采用。 |
+| 训练能力 | 数值参数通过显式 profile 配置。离线训练框架已通过六节点与 Handwired Circuit 实现了参数拟合，产出可被本节点加载的候选 profile；新默认和迁移 profile 的零系数仍进入数值图，可被训练更新。未校准（uncalibrated），候选 profile 不自动采用。 |
 | 兼容条件 | 上游非 ok 事件按 Runner 默认规则判定为 skipped（`upstream_not_ok`），不产生副作用。<br>输入候选状态为 filtered_out 或 skipped 时映射为 excluded，unknown 保持 unknown，不因补充观测复活。<br>纯函数可做单属性诊断，但纯诊断调用不属于工作流合格分类。不包含第二层业务卡片语义（帖子、作者、评论、广告等），不执行活体网页采集。 |
 | 验收 | 验证两阶段（大类 -> 细类）执行路径；验证属性缺测区间计算与保守弃判；验证 tag 与 role 冲突输出 conflict；验证稀疏 profile 独立覆写；验证非法特征字段抛错拦截；验证上游候选排除状态保持 excluded 且不复活。公开 demo 入口 `npm run demo:basic-kinds` 使用 1 节点图与完整合成候选数据离线运行验证。 |
 

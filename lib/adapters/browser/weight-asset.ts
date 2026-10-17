@@ -1,4 +1,4 @@
-import { validateBasicKindConfig, validateBasicKindProfile, type BasicKindConfig, type BasicKindProfile } from "../../filters/basic-kinds.js";
+import { migrateBasicKindProfile, validateBasicKindConfig, type BasicKindConfig, type BasicKindProfile } from "../../filters/basic-kinds.js";
 import { expectRecord } from "../../core/schema.js";
 
 export interface BrowserWeightAsset {
@@ -15,7 +15,7 @@ export function parseBrowserWeightAsset(raw: unknown, sourceLabel = "本地权�
   if (value.taskId !== "dom.basic-kinds.v1" || value.calibrated !== false) throw new TypeError("Weight task or calibration contract differs");
   const config = validateBasicKindConfig(value.compatibility);
   if (config.taskId !== value.taskId) throw new TypeError("Weight compatibility task differs");
-  const profile = validateBasicKindProfile(value.profile);
+  const profile = migrateBasicKindProfile(value.profile);
   if (value.profileId !== profile.id) throw new TypeError("Weight profileId differs from profile.id");
   return { profile, config, sourceLabel, calibrated: false };
 }

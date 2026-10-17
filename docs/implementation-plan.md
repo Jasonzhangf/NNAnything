@@ -2,7 +2,7 @@
 
 状态：2026-10-17，L1 候选 7 节点与采样 3 节点保持已交付。当前用户明确要求实现第一层 DOM 基础种类判断算法（dom-basic-kinds）、dom.basic_kinds@0.1.0 节点封装及公开 workflow 验收。区分历史 L2 复合卡片（post.card）计划与当前已确认的基础种类判断前置需求：第一层输出基础结构与类型（control、media、navigation、text、structure），第二层再组合帖子、作者、评论、广告等业务语义。历史 L2-L4 设计保持完整并明确为后续规划。远端为 Jasonzhangf/NNAnything。
 
-本计划依据独立规划及其收敛决议。目录全图在第 2 节单一 owner 维护，工作流清单与真源索引见 [workflows/README.md](../workflows/README.md)，节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)，第一层基础种类算法真源见 [docs/basic-kinds-wiring.md](basic-kinds-wiring.md)。
+本计划依据独立规划及其收敛决议。架构、目录职责与根目录注册名单由 [AGENTS.md](../AGENTS.md)唯一维护，第2节保留实施文件导航。工作流清单与真源索引见 [workflows/README.md](../workflows/README.md)，节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)，第一层基础种类算法真源见 [docs/basic-kinds-wiring.md](basic-kinds-wiring.md)。
 
 2026-10-17 阶段更新：基础训练六节点闭环已实现（0.1.0），包含真实 Handwired Circuit evaluate/backprop 拟合、Adam 优化器、TypeScript 源码加载器、已有样本复核试验及回载验证。后续按需规划独立的 WebUI 阶段；UX 须单独设计后再实现。阶段顺序、范围与验收由第 8 节单一维护。
 
@@ -19,9 +19,9 @@
 
 当前没有AppSDK需求文件或控制面初始化。本轮采用其治理原则，不建占位文件、守护进程或受管状态。相关边界见[项目治理](project-governance.md)。
 
-## 2. 目录与唯一Owner
+## 2. 实施文件导航
 
-本节是 NNAnything 项目单一完整的目录分类与职责真源。已实现模块存放真实源码；未实现目录仅放置单个 `README.md` 说明职责与契约，不创建空 `.ts` 壳、假参数、重复注册表或插件服务。
+目录职责与根级写入边界以 [AGENTS.md](../AGENTS.md)为准。下列树仅提供实施文件导航，不是第二份根目录注册表。已实现模块存放真实源码；未实现目录仅放置单个 `README.md` 说明职责与契约，不创建空 `.ts` 壳、假参数、重复注册表或插件服务。
 
 ```text
 NNAnything/

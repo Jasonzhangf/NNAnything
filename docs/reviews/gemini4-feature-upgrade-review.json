@@ -1,0 +1,27 @@
+{
+  "contract_version": "1",
+  "findings": [],
+  "module_boundary_evidence": [
+    {
+      "edges": "权威需求(新增参数+旧样本回归+微博/小红书/知乎新页遍历+未知项诊断) -> live-dom.ts(补测inVerifiedListParent/repeatedChildGeometry与新增svgGraphicChildren) -> basic-kinds.ts(新增nat_svg/svg_graphic_children/div_single_child/div_leaf/div_direct_text共5条wire与10个目标系数,分离LEGACY_BASIC_KIND_PROFILE v1与DEFAULT_BASIC_KIND_PROFILE v2,实现migrateBasicKindProfile按目标与wire名对缺失新项补0) -> weight-asset.ts & basic-kind-training.ts(parseBrowserWeightAsset与loadTrainingProfiles接入迁移) -> 历史回归/零起点Handwired拟合/三站新页4节点回放闭环; 通用核心lib/index.ts不导出DOM迁移或profile.",
+      "gates": "full-test-final.log(105/105通过,含tests/basic-kinds.test.mjs、tests/basic-kind-training.test.mjs、tests/browser-overlay-foundation.test.mjs), implementation/red-wrapper-failure.log(红测证据), regression/compatibility.json & summary.md(existing-properties/incremental-map/legacy-default各357条历史确认样本输出逐字段完全不变,2条ambiguous排除), regression/zero-fit/zero-fit-summary.json & post-fit-compatibility.json(公开6节点Handwired拟合3条SVG合成fixture使4个零系数升至0.396023,回载分类image/judged且candidateAdoption=not_applied,再回归357条基线完全一致), traversal/results/scene-comparison.json & summary.md(微博热搜/知乎热榜/小红书美食5004节点公开4节点回放,1683合格候选中judged 463->673->1300,语义unknown 1219->1009->382,conflict 1不变,candidateUnknown 136独立核算,原已判断项0退化,383条待复核入训0条).",
+      "module": "dom-basic-kinds-feature-upgrade-and-migration",
+      "owner": "lib/adapters/browser/live-dom.ts, lib/filters/basic-kinds.ts, lib/adapters/browser/weight-asset.ts, lib/training/basic-kind-samples.ts, lib/training/basic-kind-training.ts, lib/training.ts, docs/basic-kinds-wiring.md, docs/training-workflow.md, docs/training-m1-results.md, lib/nodes/README.md",
+      "paths": "lib/adapters/browser/live-dom.ts; lib/filters/basic-kinds.ts; lib/adapters/browser/weight-asset.ts; lib/training/basic-kind-samples.ts; lib/training/basic-kind-training.ts; lib/training.ts; docs/basic-kinds-wiring.md; docs/training-workflow.md; docs/training-m1-results.md; lib/nodes/README.md; tests/basic-kinds.test.mjs; tests/basic-kind-training.test.mjs; tests/browser-overlay-foundation.test.mjs",
+      "resources": "用户权威需求1/3/4(新增参数、历史回归、三站未见页面遍历与未知诊断、保持分层wire与学生隐私/不自动采用硬约束); .appsdk/requirements.json不存在按规则跳过; 复用已验证闭合SESE图workflows/browser-visual-overlay.graph.json(4N3E)、browser-capture.graph.json(1N0E)、dom-basic-kinds.graph.json(1N0E)、node-training.graph.json(6N6E)."
+    },
+    {
+      "edges": "权威需求2/3(架构与目录分配入AGENTS.md、训练方法与增量策略入本地Skill、根目录编译锁防乱建目录/文件) -> AGENTS.md(唯一维护架构职责表与root-layout注册块) -> scripts/check-layout.mjs(读取AGENTS.md注册名单并在npm run build前拦截未注册根条目,不自动删除文件,不宣称OS权限隔离) -> package.json(build脚本前置执行check-layout.mjs) & .agents/skills/nnanything-training/{SKILL.md,references/incremental.md}(维护训练规则、特征升级与增量策略,引用docs算法与训练I/O真源不复制schema).",
+      "gates": "layout-red.log(未加编译锁前未注册根文件误放行红测), layout-green.log & tests/root-layout.test.mjs(3组正反例验证合法子集放行、未注册根文件/目录/隐藏项拦截且保留原文件、缺失或空注册块拒绝编译), verification.md(Skill格式、相对链接与git diff检查通过,UI typecheck与build:extension通过; 本轮同步完成规则/Skill经验审计,项目级方法已归入AGENTS.md与本地nnanything-training Skill,无新增跨项目全局规则事实).",
+      "module": "repo-root-layout-guard-and-training-skill",
+      "owner": "AGENTS.md, package.json, scripts/check-layout.mjs, .agents/skills/nnanything-training/SKILL.md, .agents/skills/nnanything-training/references/incremental.md, docs/implementation-plan.md, note.md",
+      "paths": "AGENTS.md; package.json; scripts/check-layout.mjs; tests/root-layout.test.mjs; .agents/skills/nnanything-training/SKILL.md; .agents/skills/nnanything-training/references/incremental.md; docs/implementation-plan.md; note.md",
+      "resources": "用户权威需求2/3(AGENTS.md目录职责、本地训练与增量Skill、根目录编译锁澄清); 全局与项目AGENTS.md唯一owner及消融约束(无SHA/hash清单或多余治理骨架)."
+    }
+  ],
+  "scope": {
+    "base": null,
+    "commit": null,
+    "mode": "uncommitted"
+  }
+}

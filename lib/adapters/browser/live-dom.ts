@@ -61,6 +61,34 @@ export interface LiveDomSnapshot {
 }
 
 const rectOf = (r: DOMRect | DOMRectReadOnly): Rect => ({ x: r.x, y: r.y, width: r.width, height: r.height });
+const roleTokens = (element: Element): string[] => String(element.getAttribute("role") ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+function listParentMeasured(element: Element): boolean {
+  const parent = element.parentElement;
+  if (!parent) return false;
+  return ["ul", "ol", "dl"].includes(parent.tagName.toLowerCase())
+    || roleTokens(parent).some(role => ["list", "feed", "menu", "tablist"].includes(role));
+}
+function repeatedChildGeometry(children: readonly Element[]): boolean | null {
+  const measured = children.map(child => child.getBoundingClientRect());
+  if (measured.some(box => ![box.x, box.y, box.width, box.height].every(Number.isFinite))) return null;
+  const boxes = measured.filter(box => box.width > 0 && box.height > 0);
+  if (boxes.length < 2) return false;
+  for (let left = 0; left < boxes.length; left++) {
+    for (let right = left + 1; right < boxes.length; right++) {
+      const a = boxes[left]!, b = boxes[right]!;
+      if (Math.abs(a.width - b.width) <= 2 && Math.abs(a.height - b.height) <= 2
+        && ((Math.abs(a.y - b.y) <= 2 && Math.abs(a.x - b.x) > 2)
+          || (Math.abs(a.x - b.x) <= 2 && Math.abs(a.y - b.y) > 2))) return true;
+    }
+  }
+  return false;
+}
+function svgGraphicChildren(element: Element, tag: string): boolean | null {
+  if (tag !== "svg") return false;
+  const children = Array.from(element.children ?? []);
+  if (element.childElementCount === 0) return false;
+  return children.some(child => ["path", "use", "g", "circle", "rect", "line", "polyline", "polygon", "ellipse", "image", "text"].includes(String(child.tagName ?? "").toLowerCase()));
+}
 function safeText(root: Element): string | null {
   let text = "";
   const stack: Node[] = [root];
@@ -129,14 +157,17 @@ export function observeLiveDom(input: {
     attributes.hidden = element.hasAttribute("hidden");
     const role = element.getAttribute("role");
     nodes.push({ nodeRef, parentRef: element.parentElement ? stableNodeRefFor(registry, element.parentElement) : null, tag, role, rect, fragments, clippedRect, attributes });
+    const positiveAreaChildren = children.filter(child => { const r = child.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
     const local: BasicKindMeasurements = {
       inputType: tag === "input" ? element.getAttribute("type") || "text" : null,
       hrefPresent: element.hasAttribute("href"),
       contentEditable: (element as HTMLElement).isContentEditable === true,
       directTextPresent: Array.from(element.childNodes).some(node => node.nodeType === 3 && Boolean(node.textContent?.trim())),
       childElementCount: children.length,
-      positiveAreaChildCount: children.filter(child => { const r = child.getBoundingClientRect(); return r.width > 0 && r.height > 0; }).length,
-      repeatedChildGeometry: null, inVerifiedListParent: null,
+      positiveAreaChildCount: positiveAreaChildren.length,
+      repeatedChildGeometry: repeatedChildGeometry(children),
+      inVerifiedListParent: listParentMeasured(element),
+      svgGraphicChildren: svgGraphicChildren(element, tag),
     };
     itemObservations.push({ nodeRef, ...local });
     properties.set(nodeRef, { ...local, tag, role, disabled: element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true", hidden: element.hasAttribute("hidden") || element.getAttribute("aria-hidden") === "true" });

@@ -9,6 +9,7 @@ import {
   BrowserCaptureSession,
   DEFAULT_BASIC_KIND_CONFIG,
   DEFAULT_BASIC_KIND_PROFILE,
+  LEGACY_BASIC_KIND_PROFILE,
   checkCandidates,
   classifyBasicKindBatch,
   compileWorkflow,
@@ -66,6 +67,7 @@ function basicProperties(tag, overrides = {}) {
     positiveAreaChildCount: 0,
     repeatedChildGeometry: null,
     inVerifiedListParent: null,
+    svgGraphicChildren: null,
     disabled: false,
     hidden: false,
     ...overrides,
@@ -115,6 +117,7 @@ function snapshotFixture({ pageRef = "page-fixture", nodes, properties, evidence
         positiveAreaChildCount: propertiesValue.positiveAreaChildCount,
         repeatedChildGeometry: propertiesValue.repeatedChildGeometry,
         inVerifiedListParent: propertiesValue.inVerifiedListParent,
+        svgGraphicChildren: propertiesValue.svgGraphicChildren,
       };
     }),
     properties: propertyMap,
@@ -249,6 +252,33 @@ test("browser weight assets reject reports and invalid compatibility without mut
   badScore.compatibility.minScore = 0;
   assert.throws(() => parseBrowserWeightAsset(badScore), /minScore/i);
   assert.deepEqual(previous, before);
+});
+
+test("browser weight loading migrates old DOM profiles without adopting new defaults", () => {
+  const asset = validWeightAsset();
+  asset.profile = structuredClone(LEGACY_BASIC_KIND_PROFILE);
+  delete asset.profile.familyWeights.media.nat_svg;
+  delete asset.profile.familyWeights.media.svg_graphic_children;
+  delete asset.profile.leafWeights.image.nat_svg;
+  delete asset.profile.leafWeights.image.svg_graphic_children;
+  delete asset.profile.familyWeights.structure.div_single_child;
+  delete asset.profile.leafWeights.container.div_single_child;
+  delete asset.profile.familyWeights.text.div_leaf;
+  delete asset.profile.leafWeights.text.div_leaf;
+  delete asset.profile.familyWeights.text.div_direct_text;
+  delete asset.profile.leafWeights.text.div_direct_text;
+  asset.profileId = asset.profile.id;
+  const before = structuredClone(asset);
+  const parsed = parseBrowserWeightAsset(asset);
+  assert.deepEqual(asset, before);
+  assert.equal(parsed.profile.id, LEGACY_BASIC_KIND_PROFILE.id);
+  assert.equal(parsed.profile.familyWeights.media.nat_svg, 0);
+  assert.equal(parsed.profile.leafWeights.image.svg_graphic_children, 0);
+  assert.equal(parsed.profile.familyWeights.structure.div_single_child, 0);
+  assert.equal(parsed.profile.leafWeights.container.div_single_child, 0);
+  assert.equal(parsed.profile.familyWeights.text.div_leaf, 0);
+  assert.equal(parsed.profile.leafWeights.text.div_direct_text, 0);
+  assert.equal(parsed.config.minScore, 0.7);
 });
 
 test("selected capture requires explicit confirmation and never auto-promotes a proposal", () => {
@@ -439,6 +469,28 @@ function fakeDom() {
   return { document, window };
 }
 
+function liveMeasurementDom() {
+  const html = {
+    nodeType: 1,
+    tagName: "HTML",
+    parentElement: null,
+    children: [],
+    childNodes: [],
+    childElementCount: 0,
+    id: "",
+    classList: [],
+    getAttribute: () => null,
+    hasAttribute: () => false,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+    getClientRects: () => [{ x: 0, y: 0, width: 800, height: 600 }],
+    querySelectorAll: () => [],
+  };
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/page" };
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto" };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  return { document, window, html };
+}
+
 test("translated cards retain measured clipping for descendants; non-translation transforms remain unknown", () => {
   for (const [transform, measured, individual = {}] of [
     ["none", true], ["matrix(1, 0, 0, 1, 0, 0)", true],
@@ -473,6 +525,48 @@ test("translated cards retain measured clipping for descendants; non-translation
     assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, child)).clippedRect,
       measured ? { x: 210, y: 85, width: 100, height: 22 } : null, `${transform}: child`);
   }
+});
+
+test("live DOM measures declared list parent, repeated geometry and SVG children without closest", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto" };
+  const list = { ...html, tagName: "UL", parentElement: html, children: [], childNodes: [], childElementCount: 0, getAttribute: () => null };
+  const first = { ...html, tagName: "DIV", parentElement: list, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 10, y: 20, width: 60, height: 30 }) };
+  const second = { ...html, tagName: "DIV", parentElement: list, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 72, y: 20, width: 60, height: 30 }) };
+  const svg = { ...html, tagName: "SVG", parentElement: html, children: [], childNodes: [], childElementCount: 1,
+    getAttribute: name => name === "role" ? null : null };
+  const path = { ...html, tagName: "PATH", parentElement: svg, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 20, y: 20, width: 10, height: 10 }) };
+  const emptySvg = { ...html, tagName: "SVG", parentElement: html, children: [], childNodes: [], childElementCount: 0 };
+  const unresolvedSvg = { ...html, tagName: "SVG", parentElement: html, children: [], childNodes: [], childElementCount: 0 };
+  list.children = [first, second]; first.children = []; second.children = [];
+  svg.children = [path]; path.parentElement = svg;
+  html.children = [list, svg, emptySvg, unresolvedSvg]; list.parentElement = html; svg.parentElement = html; emptySvg.parentElement = html; unresolvedSvg.parentElement = html;
+  dom.window.getComputedStyle = element => element === unresolvedSvg
+    ? { ...style, visibility: "hidden" }
+    : { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto" };
+  const registry = createStableNodeRefRegistry("measurement-test");
+  const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "measurements", documentRef: "fixture" });
+  const observation = node => snapshot.itemObservations.find(item => item.nodeRef === stableNodeRefFor(registry, node));
+  assert.equal(observation(second).inVerifiedListParent, true);
+  assert.equal(observation(second).repeatedChildGeometry, false);
+  assert.equal(observation(svg).svgGraphicChildren, true);
+  assert.equal(observation(emptySvg).svgGraphicChildren, false);
+  assert.equal(observation(path).svgGraphicChildren, false);
+  assert.equal(typeof first.closest, "undefined");
+
+  const repeatedParent = { ...html, tagName: "DIV", parentElement: html, children: [first, second], childNodes: [], childElementCount: 2 };
+  const alignedFirst = { ...first, parentElement: repeatedParent, getBoundingClientRect: () => ({ x: 10, y: 20, width: 60, height: 30 }) };
+  const alignedSecond = { ...second, parentElement: repeatedParent, getBoundingClientRect: () => ({ x: 72, y: 21, width: 62, height: 31 }) };
+  repeatedParent.children = [alignedFirst, alignedSecond];
+  html.children = [repeatedParent, svg];
+  const repeatedRegistry = createStableNodeRefRegistry("repeated-test");
+  dom.window.getComputedStyle = () => ({ display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto" });
+  const repeatedSnapshot = observeLiveDom({ ...dom, registry: repeatedRegistry, excludeRoot: null, snapshotRef: "repeated", documentRef: "fixture" });
+  assert.equal(repeatedSnapshot.itemObservations.find(item => item.nodeRef === stableNodeRefFor(repeatedRegistry, repeatedParent)).repeatedChildGeometry, true);
+  assert.equal(repeatedSnapshot.itemObservations.find(item => item.nodeRef === stableNodeRefFor(repeatedRegistry, alignedFirst)).repeatedChildGeometry, false);
 });
 
 test("public overlay graph runs through compileWorkflow and runWorkflow with a no-op present callback", async () => {

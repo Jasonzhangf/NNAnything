@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { compileWorkflow, createWorkflowInputEvent, loadWorkflow, runWorkflow } from "nnanything";
-import { classifyBasicKind, classifyBasicKindBatch, domBasicKindsNode, validateBasicKindProfile, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
+import { classifyBasicKind, classifyBasicKindBatch, domBasicKindsNode, migrateBasicKindProfile, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
 
-const complete = { contentEditable: false, directTextPresent: false, childElementCount: 0, positiveAreaChildCount: 0, repeatedChildGeometry: false, inVerifiedListParent: false };
+const complete = { contentEditable: false, directTextPresent: false, childElementCount: 0, positiveAreaChildCount: 0, repeatedChildGeometry: false, inVerifiedListParent: false, svgGraphicChildren: false };
 const classify = (tag, fields = {}, profile) => classifyBasicKind({ tag, role: null, ...complete, ...fields }, DEFAULT_BASIC_KIND_CONFIG, profile);
 const rect = { x: 10, y: 10, width: 80, height: 30 };
 function batch() {
@@ -73,13 +73,87 @@ test("neutral nodes need measured combinations; geometry is not semantic list pr
   assert.equal(classify("span", { directTextPresent: true }).basicKind, "text");
   assert.equal(classify("span", { directTextPresent: null }).basicKind, "other");
   assert.equal(classify("div").basicKind, "other");
-  assert.equal(classify("div", { childElementCount: 1, positiveAreaChildCount: 1 }).basicKind, "other");
+  assert.equal(classify("div", { childElementCount: 1, positiveAreaChildCount: 1 }, LEGACY_BASIC_KIND_PROFILE).basicKind, "other");
+  assert.equal(classify("div", { childElementCount: 1, positiveAreaChildCount: 1 }).basicKind, "container");
   const grouping = { childElementCount: 3, positiveAreaChildCount: 3 };
   assert.equal(classify("div", grouping).basicKind, "container");
   assert.equal(classify("div", { ...grouping, repeatedChildGeometry: true }).basicKind, "other");
   assert.equal(classify("div", { ...grouping, repeatedChildGeometry: null }).basicKind, "other");
   assert.equal(classify("svg").basicKind, "other");
   assert.equal(classify("svg", { role: "img" }).basicKind, "image");
+});
+
+test("evolved SVG and neutral-div wires retain three-valued evidence", () => {
+  const graphicSvg = classify("svg", { childElementCount: 1, positiveAreaChildCount: 1, svgGraphicChildren: true });
+  assert.equal(graphicSvg.basicKind, "image");
+  assert.equal(graphicSvg.judgmentStatus, "judged");
+  assert.equal(graphicSvg.evidence.wires.nat_svg, 1);
+  assert.equal(graphicSvg.evidence.wires.svg_graphic_children, 1);
+  assert.equal(graphicSvg.confidenceState, "uncalibrated");
+
+  const emptySvg = classify("svg", { childElementCount: 0, svgGraphicChildren: true });
+  assert.equal(emptySvg.basicKind, "other");
+  assert.equal(emptySvg.judgmentStatus, "unknown");
+  assert.equal(emptySvg.evidence.wires.svg_graphic_children, 0);
+  assert.equal(classify("svg", { childElementCount: 1, svgGraphicChildren: false }).evidence.wires.svg_graphic_children, 0);
+  assert.equal(classify("svg", { childElementCount: null, svgGraphicChildren: true }).evidence.wires.svg_graphic_children, null);
+  assert.equal(classify("path").basicKind, "other");
+  assert.equal(classify("use").basicKind, "other");
+
+  const leafText = classify("div", { childElementCount: 0, positiveAreaChildCount: 0, directTextPresent: true });
+  assert.equal(leafText.basicKind, "text");
+  assert.equal(leafText.judgmentStatus, "judged");
+  assert.equal(leafText.evidence.wires.div_leaf, 1);
+  assert.equal(leafText.evidence.wires.div_direct_text, 1);
+  assert.equal(classify("div").basicKind, "other");
+  assert.equal(classify("div").judgmentStatus, "unknown");
+  assert.equal(classify("div", { childElementCount: 1, positiveAreaChildCount: 1, directTextPresent: true }).basicKind, "other");
+  assert.equal(classify("div", { childElementCount: 1, positiveAreaChildCount: 1, directTextPresent: null }).judgmentStatus, "unknown");
+});
+
+test("legacy and evolved profiles stay explicit while migration fills only new cells", () => {
+  assert.equal(LEGACY_BASIC_KIND_PROFILE.id, "dom-basic-kinds-handwritten-v1");
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.id, "dom-basic-kinds-handwritten-v2");
+  assert.deepEqual(Object.keys(DEFAULT_BASIC_KIND_PROFILE).sort(), ["familyWeights", "id", "leafWeights"]);
+  assert.equal(LEGACY_BASIC_KIND_PROFILE.familyWeights.media.nat_svg, 0);
+  assert.equal(LEGACY_BASIC_KIND_PROFILE.leafWeights.image.svg_graphic_children, 0);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.familyWeights.media.nat_svg, 0.45);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.familyWeights.media.svg_graphic_children, 0.35);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.leafWeights.image.nat_svg, 0.45);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.leafWeights.image.svg_graphic_children, 0.35);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.familyWeights.structure.div_single_child, 0.45);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.leafWeights.container.div_single_child, 0.45);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.familyWeights.text.div_leaf, 0.3);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.leafWeights.text.div_leaf, 0.3);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.familyWeights.text.div_direct_text, 0.45);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.leafWeights.text.div_direct_text, 0.45);
+
+  const old = structuredClone(LEGACY_BASIC_KIND_PROFILE);
+  const newCells = [
+    ["familyWeights", "media", "nat_svg"], ["familyWeights", "media", "svg_graphic_children"],
+    ["leafWeights", "image", "nat_svg"], ["leafWeights", "image", "svg_graphic_children"],
+    ["familyWeights", "structure", "div_single_child"], ["leafWeights", "container", "div_single_child"],
+    ["familyWeights", "text", "div_leaf"], ["leafWeights", "text", "div_leaf"],
+    ["familyWeights", "text", "div_direct_text"], ["leafWeights", "text", "div_direct_text"],
+  ];
+  for (const [group, target, wire] of newCells) delete old[group][target][wire];
+  old.id = "old-asset-v1";
+  old.familyWeights.media.nat_svg = 0.12;
+  old.leafWeights.image.svg_graphic_children = 0.07;
+  const before = structuredClone(old);
+  const migrated = migrateBasicKindProfile(old);
+  assert.deepEqual(old, before);
+  assert.notEqual(migrated, old);
+  assert.equal(migrated.id, "old-asset-v1");
+  assert.equal(migrated.familyWeights.media.nat_svg, 0.12);
+  assert.equal(migrated.leafWeights.image.svg_graphic_children, 0.07);
+  assert.equal(migrated.familyWeights.media.svg_graphic_children, 0);
+  assert.equal(migrated.leafWeights.image.nat_svg, 0);
+  assert.equal(migrated.familyWeights.structure.div_single_child, 0);
+  assert.equal(migrated.leafWeights.container.div_single_child, 0);
+  assert.equal(migrated.familyWeights.text.div_leaf, 0);
+  assert.equal(migrated.leafWeights.text.div_direct_text, 0);
+  assert.throws(() => migrateBasicKindProfile({ ...old, extra: true }), /profile/i);
 });
 
 test("missing competition uses rival upper bound and configurable sparse coefficients", () => {
@@ -104,6 +178,8 @@ test("forbidden raw features and malformed measurements do not enter the model",
   assert.throws(() => classify("div", { childElementCount: -1 }), /childElementCount/);
   assert.throws(() => classifyBasicKindBatch({ ...batch(), itemObservations: [{ nodeRef: "one", tag: "img" }] }), /BASIC_KIND_FORBIDDEN_FEATURE/);
   assert.equal(JSON.stringify(classifyBasicKindBatch(batch())).includes("attributes"), false);
+  assert.equal(validateBasicKindProperties({ tag: "svg", role: null }).svgGraphicChildren, null);
+  assert.equal(validateBasicKindProperties({ tag: "svg", role: null, svgGraphicChildren: true }).svgGraphicChildren, true);
 });
 
 test("batch preserves duplicates, upstream exclusions and unknown without evaluating them", () => {

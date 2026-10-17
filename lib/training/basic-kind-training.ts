@@ -3,6 +3,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   BASIC_KIND_FAMILIES,
   classifyBasicKind,
+  migrateBasicKindProfile,
   validateBasicKindProfile,
   type BasicKindConfig,
   type BasicKindJudgment,
@@ -958,7 +959,7 @@ export function loadTrainingProfiles(input: {
   readonly profile: unknown;
 }): Readonly<Record<string, BasicKindProfile>> {
   const profileId = expectNonEmptyString(input.profileId, "profileId");
-  return { [profileId]: validateBasicKindProfile(input.profile) };
+  return { [profileId]: migrateBasicKindProfile(input.profile) };
 }
 
 async function ensureDirectory(root: string, relativePath: string): Promise<string> {

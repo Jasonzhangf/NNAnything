@@ -101,7 +101,7 @@ frameRef 是当前采集内的关联引用，不是根到节点的绝对路径�
 
 prepare 有两种显式输入范围。默认 candidate_qualified 要求原槽位为 ok。properties_offline 只做离线单节点属性试验，接收合法属性并保留缺测；原候选状态不改写，结果不能证明浏览器候选链通过。两种范围都要求 verified 且有明确期望标签，不增加未复核训练模式。全 null 的合法属性输入可保留为诊断，但若没有可区分信息，不承诺其可拟合。
 
-缺测保持 null，不以零子节点或零面积代替不完整采集。黄金 other 需复核确认不属于当前 11 个细类，并给出原因；未知真值留在待复核池。模型因为缺测输出 other，而复核真值是 input 时，训练目标仍为 input。
+缺测保持 null，不以零子节点或零面积代替不完整采集。旧样本没有 `svgGraphicChildren` 时，训练请求验证与 fit-row 投影补为 null，不把它当作 false。黄金 other 需复核确认不属于当前 11 个细类，并给出原因；未知真值留在待复核池。模型因为缺测输出 other，而复核真值是 input 时，训练目标仍为 input。
 
 prepare 输出保序槽位、每行纳入理由和可训练索引。partition 按共享 snapshot/post/asset 引用的传递关联形成来源组。相同背景的跨页面或跨 frame 也归同组；不得把每个 frame 自动当作独立来源。缺少关联证据时报告隔离不充分，不能声称已排除泄漏。组内保持原序和重复；不随机拆 DOM 行。按固定 seed 对来源组洗牌后划分 train/eval，不计算哈希或 checksum。
 
@@ -171,6 +171,8 @@ L/O 按复核标签选择损失，不表示同一个输入接受两个标签。�
 | 手写且固定 | 可训练 |
 | --- | --- |
 | 属性白名单、wire 条件与缺测适用性、五大类和类内标签、两层顺序、门限、稀疏连线键、损失与参数区间 | profile.familyWeights、profile.leafWeights 已声明键的系数，含显式声明的零系数 |
+
+旧 profile 迁移由 `migrateBasicKindProfile(raw)` 唯一维护。它在验证后克隆 id 与全部旧权重，只补齐十个新目标与 wire 条目的缺失 0：media/image 的 `nat_svg` 与 `svg_graphic_children`，structure/container 的 `div_single_child`，text/text 的 `div_leaf` 与 `div_direct_text` 在两个阶段各一项。已存在的新系数保留。训练 profile 加载显式调用迁移，sparse cells 因此为这些显式 0 键建立 `Circuit.source` 参数，可从零开始学习。迁移不增加 profile 版本、校准或门限字段，不修改旧对象，也不自动采用候选。
 
 初版不新增 bias、不自动加边、不训练门限。disabled/hidden 等初值为零的系数没有未经证据支持的否决权。没有激活或只有缺测的特征不能凭训练补出事实。
 

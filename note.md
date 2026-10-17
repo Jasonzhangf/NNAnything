@@ -1,5 +1,13 @@
 # 当前任务
 
+2026-10-17特征升级与标准流程：新增1项SVG子元素观测、5条wire、10个新增目标系数的按名零初始化迁移；补测现有列表父级／重复几何。旧默认LEGACY与新默认v2分开，浏览器资产和训练加载接入迁移，通用核心仍不含DOM。完整105测试、UI类型检查、扩展构建通过。目录根级登记直接由AGENTS唯一名单驱动npm编译前检查，3组红绿行为测试通过；本地训练Skill包含训练规则、特征升级、增量、缺测、先验与回归边界，格式和链接通过。
+
+GCM并行回归：两套旧权重和旧默认各357条历史确认输出完全不变，比较类别／状态／分数／余量／原因，2条历史未定仍排除。真实Handwired六节点合成consumer将新增SVG系数0→约0.396，保存回载得到image/judged；再回归其旧基线的357条结果不变。未用黄金或新页面拟合，候选not_applied。三站新场景5004节点经四节点真实公开consumer回放，1683合格候选；旧463明确分类→仅补测量673→新规则1300，未知1219→382，1个旧冲突不变，136个候选观测不足另计。原已判断项无类别变化或退回未知，资格逐索引不变。之前过程笔记曾误以UI未知包含候选观测不足，已依据实际counts实现纠正；最终报告分开计数。
+
+382未知按成分／wire分组检查：118SVG绘图子元素、100SPAN包装、89空／装饰候选、58DIV包装、10外包内层SVG、6根包装、1object。另存383条待复核请求（含1冲突），公开prepare入训0。原始与派生仅本地training/samples/feature-upgrade。完整范围与边界见docs/training-m1-results.md，过程证据在/Volumes/Intel/playground/nnanything-runs/feature-upgrade。6项中的实现、规则、回归及诊断已完成；最后交付项的独立整体Review也已通过，待main集成与资源收口。新扩展产物已在候选树构建；没有宣称用户当前页面已加载新版。
+
+独立Gemini4整体Review conversation93f34173-cb1d-4573-8979-8d9f7180abfb，实际gemini-4-argon-medium、SUCCESS/exit0，原始structured_output经统一controller裁pass、findings=[]。审查同时覆盖本地Skill/AGENTS归属与经验，无需新增跨项目全局规则。结果docs/reviews/gemini4-feature-upgrade-review.json；原始事件及controller在外置review目录。CLI response另附工具元数据，使用真实result.structured_output，没有改schema或删改审查字段。
+
 2026-10-17未知项采集与共性审计：用户确认重载后小红书卡片标注已恢复。实站当前观察到24个container框，以及43image/66link/66text等第一层标注；一键收集与实际下载成功。前序“等待重载”已结束，下面保留修复历史。用户随后要求收集未知、检查原因和分类，补充各页都有分割／包装容器的共性。
 
 本轮只做数据采集／只读诊断和标签提议，不改产品代码或运行图。复用已闭合的4N3E browser-visual-overlay与1N0E browser-capture图。小红书首页251未知、知乎回答页302未知+1冲突，共554条已导出并保存在本地training/samples/browser-unknown-20261017（Git忽略）。公开提取器与prepare读取全部请求成功，保留553 unreviewed+1 ambiguous，进入训练0条。当前微博首页未打开审查器，本批不声称覆盖微博或其他标签页。iframe/shadow内部也不声称覆盖。

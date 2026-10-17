@@ -1,6 +1,62 @@
 # NNAnything 项目规则
 
+## 架构与目录写入边界
+
+通用核心只负责事件、节点合同与DAG执行。浏览器适配器负责真实观测，filter负责纯判断，node负责workflow封装，训练模块负责拟合与评估。正式执行和训练复用workflow合同；节点内部数值wire与外部DAG分别管理。
+
+| 目录／入口 | 唯一职责 |
+| --- | --- |
+| `workflows/` | DAG图与持久绑定配置；不存节点实现或训练数据 |
+| `lib/core/`、`lib/workflow/` | 通用合同、事件、配置编译和Flowed执行；不内置站点语义 |
+| `lib/adapters/browser/` | DOM观测、测量、采集包和浏览器资产解析 |
+| `lib/filters/` | 候选过滤、规则匹配、基础种类、评分wire与profile迁移纯逻辑 |
+| `lib/nodes/` | 可复用节点封装与节点合同卡；不重复实现filter算法 |
+| `lib/nodes/trainable/` | 可训练节点结构；不存训练权重 |
+| `lib/training/` | 样本合同、数值后端、训练profile加载、拟合、分区和评估逻辑 |
+| `training/samples/` | 原始／派生训练样本和teacher证据；本地忽略 |
+| `training/results/`、`training/weights/` | 比较报告与候选权重；本地忽略，不自动采用 |
+| `extension/` | Chrome扩展入口和权限声明 |
+| `playground/`、`tests/` | 公开consumer、合成fixture、合同及黑盒回归 |
+| `scripts/`、`artifacts/`、`dist/` | 构建工具、浏览器构建产物、库编译产物；不作为业务源码目录 |
+| `docs/`、`research/` | 架构合同与调研；真实页面资料按现有忽略规则留本地 |
+| `.agents/skills/nnanything-training/` | 本项目训练方法、特征升级与增量策略的操作Skill |
+| `note.md` | 单一项目进度与证据入口；任务过程放仓库外独占run目录 |
+
+根目录条目只允许下列注册名单。Agent写入前先选择既有owner目录；禁止另建平行的src、tmp、output、runs或模型资产根。确需新增根级目录／文件时，先在当前授权方案中说明职责并更新本名单，再创建。子目录沿上表职责管理，不为每个样本文件建立注册表。`npm run build`在编译前执行`scripts/check-layout.mjs`，直接读取本名单；未注册项或登记源缺失会让构建失败，不自动删除或登记文件。目录边界检查只防根级漂移，不宣称是操作系统写权限隔离。
+
+<!-- root-layout:start -->
+```text
+.git
+.gitignore
+.agents
+AGENTS.md
+README.md
+note.md
+package.json
+package-lock.json
+tsconfig.json
+lib
+workflows
+extension
+playground
+scripts
+tests
+docs
+research
+training
+artifacts
+dist
+node_modules
+```
+<!-- root-layout:end -->
+
+## 本地训练Skill
+
+新增输入／wire、调整标签、训练、增量拟合和回归时，读取[训练Skill](.agents/skills/nnanything-training/SKILL.md)。算法合同仍由docs/basic-kinds-wiring.md维护，训练I/O合同由docs/training-workflow.md维护；Skill只维护操作方法，不复制第二套算法或规则正文。
+
 ## 当前交付边界
+
+当前授权包含第一层特征演进、旧profile按目标与wire名称迁移、历史样本回归和三站新场景诊断。新增输入保留缺测，旧系数不因新增wire错位；迁移补零与新规则默认系数分开。新页面留出，不因未知减少就宣称准确率提高。训练方法与增量标准流程由本地训练Skill维护，具体算法和I/O仍由既有合同文档维护。
 
 用户在训练交付后明确新增Chrome/Chromium本地扩展：页面基础类别彩色标注、Focus焦点、点击采集与纠错、一键收集当前未知项。当前增量沿docs/browser-overlay-m1.md实现，只复用第一层分类器和候选规则；新增样本进入本地采集包，不自动训练。正确类别需用户明确确认；未知/标错未定类不能变黄金other或负例。原训练结果和旧黄金回归保留。扩展、网页测量和导出均不上传页面数据；仅顶层文档，未读iframe/shadow内部不冒称覆盖。训练WebUI与第二层业务语义仍为后续范围。
 
