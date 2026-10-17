@@ -1,8 +1,10 @@
 # 当前任务
 
-2026-10-17：六节点离线训练已实现，作者自检和独立 Gemini4 整体 Review 完成，main 集成随后执行。公开入口为 `nnanything/training`、`npm run demo:training -- --handwired-root <源码根>`。使用真实 Handwired Circuit 求值、反传与 Adam；保留分层 wire、缺测区间、来源闭包与单标签边界。通用核心未加入站点分支。当前图六节点六边、绑定 0.1.0，DAGpipe validate/inspect 成功。88 个测试、typecheck、四个旧公开 consumer 及训练 consumer 通过。
+2026-10-17：六节点离线训练已实现，作者自检、独立 Gemini4 整体 Review、main 集成构建和远端推送均完成（实现提交33b1726）。公开入口为 `nnanything/training`、`npm run demo:training -- --handwired-root <源码根>`。使用真实 Handwired Circuit 求值、反传与 Adam；保留分层 wire、缺测区间、来源闭包与单标签边界。通用核心未加入站点分支。当前图六节点六边、绑定 0.1.0，DAGpipe validate/inspect 成功。88 个测试、typecheck、四个旧公开 consumer 及训练 consumer 通过。主树公开接口回载增量权重，357确认标签中356匹配，2未定标项不计分；其中309已知细类有308项judged，48个other标签匹配但仍unknown。
 
 独立 Reviewer conversation90507fad-92d6-4814-9de2-71ce301cf8b9，实际gemini-4-argon-medium，SUCCESS/exit0，findings=[]。宿主复用统一 classifyReviewOutput 与 schema/scope 合同裁决pass；CLI response附有工具元数据，采用原始result.structured_output，不删改审查字段或放宽schema。完整审查结果见docs/reviews/gemini4-training-m1-review.json，外置原始事件与controller回执保留。
+
+结案独立经验审计conversatione03e4b13-4f54-4327-9560-fe5bf3b71fa9已完成SUCCESS/exit0，覆盖实际技能链、项目规则、原始实验、审查与资源回执；无需新增全局规则或记忆。浏览器调度延迟、CUA返回截断和worker提前退出已纠正并在外置note记录事实，不将单次问题扩成长期门禁。两个worker临时home已移除，事件/结果/笔记保留。审计正文与最终工作树清理回执位于外置training-m1运行目录。
 
 已有样本试验：158 个 LLM 复核样本，properties_offline；小红书共享背景的 120 个训练样本从108匹配到120；独立来源的知乎38个从32到38。25 epochs、lr0.01、anchor0.01；18 fixed、0 regressed。实际手写 profile 起步，没有削弱基线。保存、回载及再次分类成功。只有两个来源组、无 audio/select，不能作为全站准确率。
 
