@@ -12,7 +12,11 @@ D0设计基线已合入main并正常推送origin/main；原framework-m1工作树
 
 父任务另通过公开包入口和真实Flowed消费本地微博保存观测：2000输入→2000槽位，605过滤、528自身跳过、867未知、0确定候选。缺fragments/clipping是观测证据不足，不能据此报告识别率或精确可见；原始登录态内容未进入Git。此项补充browser-expert的纯适配证据。
 
-独立整体Review完成：Gemini4 medium新会话a225d760-ee1c-4383-9928-d1d9a1ec1cd5，实际gemini-4-argon-medium，SUCCESS/exit0；按canonical reviewOutputSchema/classifyReviewOutput核对scope与字段后宿主裁决PASS，findings=[]。原始结果docs/reviews/gemini4-l1-review.json，过程review/。Goal六项验收前五项完成；第6项main集成、push、资源清理与结案经验审计待完成。独占过程目录保留必要证据，不将Review通过冒充已交付。
+独立整体Review完成：Gemini4 medium新会话a225d760-ee1c-4383-9928-d1d9a1ec1cd5，实际gemini-4-argon-medium，SUCCESS/exit0；按canonical reviewOutputSchema/classifyReviewOutput核对scope与字段后宿主裁决PASS，findings=[]。原始结果docs/reviews/gemini4-l1-review.json，过程review/。实现提交ac95c28已ff-only合入main，并正常推送origin/main。主目录npm ci、构建及两个公开consumer成功，证据main-build/main-demo-common/main-demo-browser.log；未重复运行未变的测试。
+
+独立结案经验审计完成：fresh oauth gpt-6.1-sol medium，只读审计相关规则链、原始失败、验收与交付记录；原文docs/reviews/l1-retrospective.md。已修project-governance.md四处失效D0状态，不新增门禁。npm条件交接、规则链未完成和文档虚构示例均归当轮执行与纠正，已有规则覆盖，不晋升模型永久能力。AGY文字编辑曾未按合同使用apply_patch；记为执行偏差，不为重建编辑过程重做正确文档，不复制已有编辑规则。未修改全局Skills、全局规则或受管记忆。
+
+L1范围已完成验收、独立Review、main远端交付和结案审计；不启动L2。资源owner是本Goal，路径为/Volumes/Intel/playground/nnanything/browser-l1及本轮临时child homes；同域仅此一树。关闭工作树、分支和临时执行环境的最终核销回执统一记录于/Volumes/Intel/playground/nnanything-runs/browser-l1/note.md；必要原始验收与审计证据保留于该run目录，原始私有页面仍仅本地保存。
 
 ## 2026-10-17 D0最终范围（最新，覆盖下方M1实施授权）
 
