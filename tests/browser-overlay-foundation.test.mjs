@@ -21,6 +21,7 @@ import {
   createWorkflowInputEvent,
   extractTrainingRequestFromBundle,
   observeCandidates,
+  observeLiveDom,
   parseBrowserWeightAsset,
   prepareBasicKindSamples,
   readBasicKindTrainingRequest,
@@ -437,6 +438,42 @@ function fakeDom() {
   };
   return { document, window };
 }
+
+test("translated cards retain measured clipping for descendants; non-translation transforms remain unknown", () => {
+  for (const [transform, measured, individual = {}] of [
+    ["none", true], ["matrix(1, 0, 0, 1, 0, 0)", true],
+    ["matrix(1, 0, 0, 1, 258.5, 384.59375)", true],
+    ["matrix(0.8, 0, 0, 0.8, 258.5, 0)", false],
+    ["matrix(0, 1, -1, 0, 0, 0)", false],
+    ["matrix(1, 0, 0.25, 1, 0, 0)", false],
+    ["matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 1, 1)", false],
+    ["none", false, { rotate: "10deg" }],
+    ["none", false, { scale: "1.7" }],
+    ["none", false, { perspective: "500px" }],
+    ["none", false, { translate: "10px 20px" }],
+  ]) {
+    const dom = fakeDom(), root = dom.document.documentElement;
+    root.clientLeft = 5; root.clientTop = 7;
+    root.clientWidth = 790; root.clientHeight = 100;
+    const card = { ...root, tagName: "SECTION", parentElement: root, children: [], childNodes: [],
+      getBoundingClientRect: () => ({ x: 200, y: 80, width: 300, height: 100 }),
+      getClientRects: () => [{ x: 200, y: 80, width: 300, height: 100 }],
+    };
+    const child = { ...card, tagName: "IMG", parentElement: card, children: [], childNodes: [],
+      getBoundingClientRect: () => ({ x: 210, y: 85, width: 100, height: 50 }),
+      getClientRects: () => [{ x: 210, y: 85, width: 100, height: 50 }],
+    };
+    root.children = [card]; card.children = [child];
+    const baseStyle = dom.window.getComputedStyle();
+    dom.window.getComputedStyle = el => ({ ...baseStyle, ...(el === card ? individual : {}), transform: el === card ? transform : "none", overflowY: el === root ? "hidden" : "visible" });
+    const registry = createStableNodeRefRegistry("translation-test");
+    const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "translated", documentRef: "fixture" });
+    assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, card)).clippedRect,
+      measured ? { x: 200, y: 80, width: 300, height: 27 } : null, transform);
+    assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, child)).clippedRect,
+      measured ? { x: 210, y: 85, width: 100, height: 22 } : null, `${transform}: child`);
+  }
+});
 
 test("public overlay graph runs through compileWorkflow and runWorkflow with a no-op present callback", async () => {
   const graph = JSON.parse(readFileSync(

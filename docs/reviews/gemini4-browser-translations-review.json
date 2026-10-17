@@ -1,0 +1,19 @@
+{
+  "contract_version": "1",
+  "findings": [],
+  "module_boundary_evidence": [
+    {
+      "edges": "workflows/browser-visual-overlay.graph.json (4N3E SESE unchanged): overlay_request -> browser.observe_live@0.1.0 (observeLiveDom -> clippedBox -> is2DTranslation) -> live_observation -> browser.qualify_live@0.1.0 -> live_candidates -> browser.classify_live@0.1.0 -> classified_frame -> overlay.present@0.1.0 -> overlay_frame; Fix DAG: XHS live feed observation (selected-before.json: candidateStatus=unknown, reasons=[candidate_unknown], saveDisabled=true; xhs-geometry.json: 1165 DOM nodes, 31 feed children = 30 section cards + 1 placeholder div, 24 visible cards with matrix(1, 0, 0, 1, tx, ty) & 6 offscreen) -> root cause in lib/adapters/browser/live-dom.ts clippedBox rejecting all non-none transforms -> fix in clippedBox/is2DTranslation accepting only finite 2D translation matrices matrix(1,0,0,1,tx,ty) while preserving unknown (null) for scale/rotate/skew/matrix3d, non-none individual translate/rotate/scale/perspective, clip-path, clip, and contain:paint -> tests/browser-overlay-foundation.test.mjs + playground/overlay/index.html -> red.log -> green.log + full-test.log + replay-before/intervention/after.json + browser-harness.json + browser-unsupported.json + browser-harness.png",
+      "gates": "red.log (1 failed: matrix(1, 0, 0, 1, 0, 0) returned null instead of clippedRect) -> green.log (8/8 pass: identity & fractional 2D translations retain parent border-adjusted overflow clipping for card and IMG child; scale/rotate/skew/matrix3d and individual translate/rotate/scale/perspective return null) -> full-test.log (96/96 pass including tsc build); UI typecheck & extension build pass; public 4-node consumer replay on xhs-geometry.json: replay-before.json (0 card boxes, 24 visible cards candidateStatus=unknown, feed ok=9/judged=0) vs replay-intervention.json (24 card boxes) vs replay-after.json (unmodified input -> 24 card boxes, 24 visible cards ok/judged, 6 offscreen filtered_out/excluded, feed ok 9->377, judged 0->191); live IAB harness QA: browser-harness.json & browser-harness.png (translated card IMG judged as image 0.850, candidate=ok, saveEnabled=true, 260x90 clipped by 220x75 bordered parent to exact {x:97.5, y:322.28125, width:220, height:75}) and browser-unsupported.json (scale(1.25) fixture remains candidateStatus=unknown, saveDisabled=true); live XHS tab retains old content script until user reloads extension via chrome://extensions, explicitly disclosed without claiming offline replay or local harness as live-site extension reload verification",
+      "module": "browser-live-dom-translation-clipping",
+      "owner": "lib/adapters/browser/live-dom.ts (sole product fix owner: is2DTranslation & clippedBox); tests/browser-overlay-foundation.test.mjs; playground/overlay/index.html; docs/browser-overlay-m1.md; note.md",
+      "paths": "lib/adapters/browser/live-dom.ts; tests/browser-overlay-foundation.test.mjs; playground/overlay/index.html; docs/browser-overlay-m1.md; note.md; workflows/browser-visual-overlay.graph.json",
+      "resources": "Authoritative requirements & contracts: AGENTS.md, docs/browser-overlay-m1.md, workflows/browser-visual-overlay.graph.json, note.md, /Volumes/Intel/playground/nnanything-runs/browser-translations/note.md (.appsdk/requirements.json absent at project root, skipped per review-standards.md); Verification & diagnostic evidence in /Volumes/Intel/playground/nnanything-runs/browser-translations/: selected-before.json, xhs-geometry.json (privacy-clean: no class/id/text/account/raw href/input.value/cookie), replay-before.json, replay-intervention.json, replay-after.json, red.log, green.log, full-test.log, browser-harness.json, browser-unsupported.json, browser-harness.png; Reused prior baseline review: docs/reviews/gemini4-browser-overlay-m1-review.json"
+    }
+  ],
+  "scope": {
+    "base": null,
+    "commit": null,
+    "mode": "uncommitted"
+  }
+}

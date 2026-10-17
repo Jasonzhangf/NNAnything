@@ -71,12 +71,24 @@ function safeText(root: Element): string | null {
   }
   return text.trim() || null;
 }
+function is2DTranslation(transform: string): boolean {
+  if (!transform || transform === "none") return true;
+  const match = /^matrix\(([^)]+)\)$/.exec(transform);
+  if (!match) return false;
+  const fields = match[1]!.split(",").map(value => value.trim());
+  const values = fields.map(Number);
+  return fields.length === 6 && fields.every(value => value.length > 0) && values.every(Number.isFinite)
+    && values[0] === 1 && values[1] === 0 && values[2] === 0 && values[3] === 1;
+}
 function clippedBox(element: Element, window: Window, rect: Rect): Rect | null {
   let left = rect.x, top = rect.y, right = rect.x + rect.width, bottom = rect.y + rect.height;
   for (let parent: Element | null = element; parent; parent = parent.parentElement) {
     const style = window.getComputedStyle(parent);
-    // These shapes cannot be represented faithfully by this first rectangular adapter.
-    if ((style.clipPath && style.clipPath !== "none") || (style.transform && style.transform !== "none") || (style.clip && style.clip !== "auto") || style.contain?.includes("paint")) return null;
+    // Viewport rects already include translation; client offsets retain their unit scale.
+    // Other transforms and unassessed clipping still cannot supply a trusted rectangle.
+    if (!is2DTranslation(style.transform)
+      || [style.translate, style.rotate, style.scale, style.perspective].some(value => value && value !== "none")
+      || (style.clipPath && style.clipPath !== "none") || (style.clip && style.clip !== "auto") || style.contain?.includes("paint")) return null;
     if (parent === element) continue;
     const clipsX = ["hidden", "clip", "scroll", "auto"].includes(style.overflowX);
     const clipsY = ["hidden", "clip", "scroll", "auto"].includes(style.overflowY);
