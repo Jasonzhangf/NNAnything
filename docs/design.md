@@ -4,6 +4,8 @@
 
 本文件是总体方案入口。具体目录、配置、节点与四层优先级以[实施计划](implementation-plan.md)、[节点合同](node-contract.md)和[项目治理](project-governance.md)为准；最新工作流真源见 [workflows/README.md](../workflows/README.md)，三类基础采样节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)。下方D1-D5为未来长期责任地图，不是当前执行授权。research保留详细依据，设计review不等于电路训练或产品可用。
 
+2026-10-17 当前第一层基础种类算法已交付，正在交付 [基础种类训练 workflow 设计](training-workflow.md)。该文档和 workflows/node-training.graph.json 覆盖本文件下方历史二分类卡片训练、7 节点校准流程的首版适用范围：当前采用 6 节点，固定门限且未校准。历史卡片 sigmoid、alpha/beta 与贝叶斯方案不作为本次多分类训练处方。
+
 ## 1. 目标与边界
 
 建立以有类型输入输出的filter为节点、以workflow组合执行的通用框架。节点定义处理能力，workflow定义应用流程；正式执行、数据准备、训练与监督均按workflow组织。基础核心不内置DOM、微博或业务类别。第一个playground是微博DOM语义，跨站验证在后。

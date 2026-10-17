@@ -2,15 +2,16 @@
 
 ## 当前交付边界
 
-候选过滤与基础规则采样已交付。用户当前明确要求先实现第一层 DOM 基础种类判断算法（dom-basic-kinds），第二层再做组合应用语义。当前范围为手写基础类别判断结构、可审计分数与缺测/冲突处理、节点封装及公开 workflow 验收；不先搭建通用训练框架，不实现帖子/作者/评论/广告等第二层业务识别，不启动拟合、活页面采集、在线操作或跨站扩展。旧采样阶段限制仅对本次基础算法增量解除，历史记录仍保留为历史。
+候选过滤、基础规则采样与第一层 DOM 基础种类算法已交付。训练 workflow 设计完成后，用户最新授权“把基础框架搭起来，看下训练效果，然后再决定如何采集样本”。当前实现六节点离线训练、真实 Handwired 拟合、保存/回载及已有样本的小批复核试验；不扩大采集、不做 WebUI。第二层帖子/作者/评论/广告、登录区域、二维码用途与风控状态仍为后续语义。iframe 内部只有实际采到才可作为节点输入，覆盖未知不能标为 other。
 
-项目远端为https://github.com/Jasonzhangf/NNAnything.git。本轮交付第一层基础种类算法与可复用节点；原始登录态页面、站点特定标注规则与样本产物保持本地。初始手写分数不冒称经过独立标定的概率或置信度。
+项目远端为https://github.com/Jasonzhangf/NNAnything.git。训练必须有公开 consumer 真实拟合与回载证据，不以静态图校验冒称可运行。原始登录态页面、站点特定标注规则与样本产物保持本地。初始手写分数不冒称经过独立标定的概率或置信度。
 
 ## 唯一Owner与入口
 
 - 总体架构入口：docs/design.md；D0交付与后续浏览器范围：docs/framework-m1.md。
 - 通用节点/事件与workflow合同：docs/node-workflows.md、docs/canvas-events.md；持久基础配置：docs/workflow-config.md。
 - 可复用经验节点合同：docs/node-contract.md；目录和实施顺序：docs/implementation-plan.md。
+- 当前第一层训练合同、内部数值图与验收：docs/training-workflow.md；外层拓扑和配置：workflows/node-training.graph.json、node-training.workflow.json，均为设计态。
 - 推进节奏、DAGpipe/AppSDK治理、交付与审批：docs/project-governance.md。
 - 项目图拓扑与流程清单：workflows/*.graph.json 与 workflows/README.md；后续可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
 - 三类基础采样节点完整合同卡唯一owner：lib/nodes/README.md。
@@ -39,7 +40,7 @@ Filter 与任务监督边界：Filter 只输出语义分类、识别状态及证
 
 需求优先级依次为能动、能有核心功能、完善功能、提高兼容性。先交最小能动切片，不提前扩展。各层验收沿docs/implementation-plan.md，安全和数据正确性不后移。
 
-项目内agent派发只要符合全局派发原则、已有任务范围和文件owner，不需要单独授权。采样增量已交付；当前授权第一层基础种类判断算法、必要节点与公开离线 Consumer。Review或派发授权不扩大到第二层业务识别或训练拟合。完整重大实现milestone作者验收后整体Review一次，不逐节点加审批。
+项目内agent派发只要符合全局派发原则、已有任务范围和文件owner，不需要单独授权。当前授权按 docs/training-workflow.md 实现最小离线训练闭环，并复核已有样本做试验；不扩大到第二层业务识别或新增采集。完整重大实现milestone作者验收后整体Review一次，不逐节点加审批。
 
 采用DAGpipe图治理与AppSDK需求/交付治理原则。有效.appsdk/requirements.json存在时通过正式入口读取适用项；当前未初始化AppSDK，不伪造受管状态、不建需求占位。首次入驻沿既有prepare确认合同，不把它变成日常派发许可。
 

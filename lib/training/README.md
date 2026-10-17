@@ -22,4 +22,5 @@
    - 实现严格的学生观测白名单投影，确保仅保留 fresh tag/role/rect/fragments/clippedRect/parentRef（支持合法负视口 CSS 坐标 x, y），彻底剥离原始 class、id、账号、正文、URL 与绝对路径；
    - 实现端口数据校验（`TaskDataset`）。
 2. **训练算子（待实现，保持设计态 0.1.0-design）**：
-   - 后续离线训练流（`node-training.graph.json`）涉及的算子（`training.prepare`、`training.partition`、`training.fit`、`training.calibrate`、`training.compare` 等）属于 L2 范畴，本增量严格不实现，不建空 `.ts` 壳或伪造执行接口。
+   - 当前离线训练流（`node-training.graph.json`，6N6E）的六算子为 `training.prepare`、`training.partition`、`training.fit`、`training.compare`、`training.assess`、`training.report`，均未实现。首版不含校准节点，不建空 `.ts` 壳或伪造执行接口。
+   - 当前第一层多分类训练合同、损失、真实 Handwired 适配和后续验收由 [训练 workflow 设计](../../docs/training-workflow.md) 唯一维护。已有 TaskDataset 仍为二分类监督；新多分类 schema、复核转换与训练后端尚待实施。

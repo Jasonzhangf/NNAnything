@@ -1,5 +1,13 @@
 # 当前任务
 
+2026-10-17 训练 workflow 设计已落盘，尚未实现或拟合。当前合同 owner 为 docs/training-workflow.md，包含前置 teacher/复核、六节点 I/O、真实 Handwired 内部训练 wire、已知类/other 代理损失、来源分区、进度与保存边界，以及后续实现验收。用户新增的 iframe、登录框、二维码与风控范围已记录：采集覆盖与类别分离，frame 内部只有实际读到才纳入，登录/二维码用途/风控为后续组合语义；元数据引用不作为特征。
+
+外置过程记录 /Volumes/Intel/playground/nnanything-runs/training-workflow-design。独立 Gemini4 medium Planner conversation a7ec8e02-d449-48c6-8ad8-4ce7cb8575e6 初稿存在 ReGLU 门顺序、原始分数截断一致性、来源哈希与核心 DOM 进度耦合等缺口；同会话 refined/plan.md 已返回 READY、SUCCESS/exit0。接受修订数值方案与六节点职责，结合用户 LLM 标定要求允许有证据的复核者；规范字段名以项目设计文档为准。该结果是规划，不宣称代码 Review PASS。两个 CLI 子进程已正常退出，无任务代码 worktree。
+
+训练图已由 7N8E 更新为 6N6E，版本 0.2.0-design，去掉首版无实际校准的节点；六算子仍 0.1.0-design。DAGpipe validate/inspect 均成功；配置绑定、图引用与受影响文档本地链接已检查。没有运行模型/效果测试或声称可编译训练；源码、依赖、原始样本和权重均未改。图形源为 Markdown Mermaid，本轮未进行独立浏览器渲染验收。Git 提交与远端回执在正常交付后补记。
+
+以下为先前已交付阶段及证据。
+
 2026-10-17 后续需求已记录：用户要求基础闭环跑通后提供 WebUI，可视化配置和训练状况，UX 单独设计。阶段安排及 UX 交付要求唯一维护于 docs/implementation-plan.md 第 8 节。本次仅补计划，未实现训练或界面；执行拓扑未改，复用现有训练设计图，不为此文档增量新增业务 DAG。
 
 ## DOM 基础种类分层算法（2026-10-17，作者验收与 Gemini4 Review 完成）

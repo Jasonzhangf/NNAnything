@@ -1,0 +1,232 @@
+# 节点训练 workflow 设计
+
+状态：2026-10-17，设计稿。本文是当前第一层 DOM 基础种类训练的合同与连线说明。六个训练算子尚未实现，没有启动拟合。图的静态合法性不证明可执行性或识别效果。
+
+外层复用已有事件、节点与 Flowed 执行合同，不增加调度器。内部使用 Handwired 数值图。workflow 的边不传梯度；拟合循环在 training.fit 内部执行，不给 DAG 增加回边。基础前向算法与类别真源见 [基础种类连线](basic-kinds-wiring.md)，持久拓扑唯一位于 [训练图](../workflows/node-training.graph.json)。
+
+## 1. 样本准备与训练是两条流程
+
+```mermaid
+flowchart TD
+  S([本地原始 DOM 与明确来源规则]):::boundary --> L[按 class、属性和结构提议类别]:::action
+  L --> R[复核代表项、冲突项和 other]:::action
+  R --> E[投影学生属性并保存标签与来源关联]:::action
+  E --> Z([输出复核样本；未确认项留在提议池]):::success
+  classDef boundary fill:#E9EEF5,stroke:#64748B,color:#0F172A,stroke-width:1.5px
+  classDef action fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.5px
+  classDef success fill:#E8F7EE,stroke:#16A34A,color:#0F172A,stroke-width:1.5px
+  linkStyle default stroke:#475569
+```
+
+class、id、name、正文、完整 URL 和根路径只用于 teacher 与原始证据。学生仅接收基础分类器已声明的属性。未采到 name 时不能编造。规则未命中、缺测、候选排除、模型输出 other 均不自动成为黄金 other 或负例。现有 sample.match 可提供语义提议；已实现的二分类 TaskDataset 不直接变成这次的多分类训练集。
+
+当前小红书、知乎本地返回记录共 5099 条，均为 gold=false 的提议样本。小红书首页和详情含共同背景，不是独立来源。旧微博归档缺少候选裁剪证据，仍保留原资格状态。这些资料不能直接进入训练并宣称准确率。
+
+## 2. 外层训练连线
+
+```mermaid
+flowchart TD
+  S([复核样本；配置与基础 profile 显式绑定]):::boundary --> P[准备节点输入与期望输出]:::action
+  P --> D[按来源分组并划分用途]:::action
+  D -->|训练集| F[拟合目标节点参数]:::action
+  F -->|候选 profile 与拟合记录| C[比较新旧节点在相同样本的输出]:::action
+  D -->|验证集与来源分区| C
+  C --> A[评估修复退化与证据不足]:::action
+  A --> W[保存候选参数与训练报告]:::action
+  W --> Z([返回结果与采用建议；不自动启用]):::success
+  classDef boundary fill:#E9EEF5,stroke:#64748B,color:#0F172A,stroke-width:1.5px
+  classDef action fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.5px
+  classDef success fill:#E8F7EE,stroke:#16A34A,color:#0F172A,stroke-width:1.5px
+  linkStyle default stroke:#475569
+```
+
+六节点、六条内部边，单输入 training_request、单输出 training_result。配置见 [设计配置](../workflows/node-training.workflow.json)。算子均保留 0.1.0-design，不是可调用接口。
+
+| 节点 / 算子 | 输入 | 输出及唯一职责 |
+| --- | --- | --- |
+| 准备节点输入与期望输出 / training.prepare | training_request | samples：确认标签、属性合同、来源引用及纳入/排除原因，不运行 teacher |
+| 按来源分组并划分用途 / training.partition | samples | partitions：来源关联闭包分组、训练与评估用途；不按 DOM 行随机切分 |
+| 拟合目标节点参数 / training.fit | partitions；显式绑定基础 profile 与后端 | candidate：候选参数、训练记录、覆盖与不可拟合项；不修改基础 profile |
+| 比较新旧节点在相同样本的输出 / training.compare | candidate、partitions；相同基础 profile | comparison：逐例旧新正式分类结果、每类指标；保留候选引用供下游保存 |
+| 评估修复退化与证据不足 / training.assess | comparison | assessment：改善、退化与证据边界；保留候选及报告数据 |
+| 保存候选参数与训练报告 / training.report | assessment | training_result：权重与报告路径、写入回执；需要 filesystem.write |
+
+六节点是可复用职责。目标 adapter 负责类别、数值图和损失；通用 workflow 核心不写 DOM 分支。首版只提供 dom.basic-kinds.v1 adapter，不提前承诺任意目标只换参数即可训练。
+
+输出内容按以下最小结构实现：samples 保留 rows、includedIndices、逐行 reasons；partitions 增加 sourceClusters、trainIndices、evalIndices、evaluationMode；candidate 包含 profile、fitTrajectory、样本覆盖及基础参数引用；comparison 包含 candidate、逐例旧新判断及逐类指标；assessment 包含 comparison 与采用建议/证据不足原因；training_result 只返回文件引用、统计、建议和保存回执。中间样本与索引共用本次显式输入，不能从日志重建。compare 的两路输入必须属于同一 run 和同一任务，不能混用不同来源分区。
+
+## 3. iframe、登录与风控的范围
+
+iframe 宿主和内部文档分别采集。frame 内部节点也是独立分类输入。顶层脚本不能直接读取跨域文档；只有采集接口实际提供内部观测时才纳入。读不到记为内容未采集，不标为空或 other。当前资料未证明完整覆盖 iframe 内部。
+
+样本来源需要保留 documentRef、frameRef、snapshotRef 和局部区域关联。它们用于定位、来源分组和回放，不作为数值特征，不引入绝对根路径。浏览器候选资格需要计算外层 iframe 与内部视口的共同裁剪；缺少测量则保留未知，不能直接当成视口内。
+
+登录框由 container、input、button、image、text 等基础成分组成。登录区域及账号输入等用途是后续第二层语义。二维码可能由 img、canvas 或 SVG 等载体呈现；第一层按实际属性评分，二维码及其用途需要图像或上下文证据。不能由载体种类直接断定二维码，也不能由二维码直接断定风控。
+
+后续可增加 auth.login.panel、code.qr、security.challenge 等明确语义。页面/区域状态与单节点类别分别建模；同任务仍为单标签。本轮不增加这些基础类别或视觉模型，不实现登录/风控操作。workflow 后续按识别状态决定等待用户或结束。
+
+## 4. 复核多分类样本与来源分区
+
+以下是待实现的概念合同，不是现有 TaskDataset 的扩展或已导出的 API。新合同归 lib/training，转换工具明确投影，旧二分类组装器保持原义。
+
+```ts
+type ReviewedBasicKindRow = {
+  sampleId: string;
+  inputRef: { snapshotRef: string; documentRef: string; frameRef: string;
+    nodeRef: string; index: number; regionRef?: string };
+  provenanceRef: string;
+  sourceAssociations: { snapshotRefs: string[]; postRefs: string[];
+    assetRefs: string[] };
+  candidateQualification: {
+    status: "ok" | "filtered_out" | "skipped" | "unknown" | "not_evaluated";
+    reasons: string[];
+  };
+  captureCoverage: { frameContent: "captured" | "not_captured" | "not_applicable";
+    directChildren: "complete" | "incomplete" | "unknown" };
+  properties: BasicKindProperties;
+  proposal: { ruleRef: string | null; label: BasicKindLabel | null;
+    status: "matched" | "unmatched" | "unknown" | "conflict" };
+  review: { status: "verified" | "unreviewed" | "ambiguous" | "rejected";
+    expectedLabel: BasicKindLabel | null; reviewerRef: string | null;
+    evidenceRef: string | null; otherReason: string | null };
+};
+type BasicKindTrainingRequest = {
+  schemaVersion: 1;
+  taskId: "dom.basic-kinds.v1";
+  rows: ReviewedBasicKindRow[];
+};
+```
+
+frameRef 是当前采集内的关联引用，不是根到节点的绝对路径。未读到的 iframe 文档不创建虚构子节点行，而在原始采集清单记录覆盖缺口。学生投影只取 properties；所有来源、teacher、复核和资格字段均不进入数值向量。复核可由人工或有证据的 LLM 完成，需保存实际复核者与证据引用；规则输出不能自行把 status 改为 verified。
+
+prepare 有两种显式输入范围。默认 candidate_qualified 要求原槽位为 ok。properties_offline 只做离线单节点属性试验，接收合法属性并保留缺测；原候选状态不改写，结果不能证明浏览器候选链通过。两种范围都要求 verified 且有明确期望标签，不增加未复核训练模式。全 null 的合法属性输入可保留为诊断，但若没有可区分信息，不承诺其可拟合。
+
+缺测保持 null，不以零子节点或零面积代替不完整采集。黄金 other 需复核确认不属于当前 11 个细类，并给出原因；未知真值留在待复核池。模型因为缺测输出 other，而复核真值是 input 时，训练目标仍为 input。
+
+prepare 输出保序槽位、每行纳入理由和可训练索引。partition 按共享 snapshot/post/asset 引用的传递关联形成来源组。相同背景的跨页面或跨 frame 也归同组；不得把每个 frame 自动当作独立来源。缺少关联证据时报告隔离不充分，不能声称已排除泄漏。组内保持原序和重复；不随机拆 DOM 行。按固定 seed 对来源组洗牌后划分 train/eval，不计算哈希或 checksum。
+
+source_group_holdout 模式至少需要两个可分的来源组，并确保两侧非空。若不满足，返回证据不足。调用者可显式选择 development_only 模式，用同组训练和回放诊断，但不报告独立验证。没有被 eval 覆盖的类列为 uncovered；指标分母为零时为 null，不能填造准确率。
+
+## 5. 配置、资源和事件合同
+
+持久配置沿现有 configVersion=1、graphRef、configs、bindings、profileId，不建立第二套注册表。训练请求只传样本，目标配置与基础 profile 走显式控制绑定。fit 和 compare 绑定相同基础 profile；候选参数是训练输出，不能替换基础资源后再与自己比较。
+
+| 节点 | 配置引用 | 运行资源 / effect |
+| --- | --- | --- |
+| prepare | prepareSpec：taskId、inputScope | 入口已加载样本；无文件读写 |
+| partition | partitionSpec：分组模式、seed、evalFraction | 无副作用 |
+| fit | targetSpec：固定推理门限、损失目标、学习率、轮数、锚定系数 | factory 显式接收 handwiredRoot；profileId 绑定基础参数；声明 filesystem.read |
+| compare | 同一 targetSpec | 同一基础 profile；调用正式前向；无副作用 |
+| assess | assessSpec：是否要求黄金样本无退化 | 无副作用 |
+| report | reportSpec：权重与结果的相对目录 | factory 显式接收 allowedRoot；声明 filesystem.write |
+
+filesystem.read 只授权显式后端源码根；filesystem.write 只授权 report 的 allowedRoot。配置本身不授予能力。运行时显式传入的后端、文件访问对象和观测者由节点工厂闭包绑定，不往现有 NodeExecutionContext 假加未实现的服务字段。
+
+各 ARC 的设计 schemaId 为 training/basic-kinds/{request,samples,partitions,candidate,comparison,assessment,result}/v1，对应事件类型 training.{request,samples,partitions,candidate,comparison,assessment,result}.v1。端口按第 2 节表和 graph.inputs 顺序绑定；compare 先 candidate、后 partitions。业务 schema 在实现时逐端口验证，图中的 Object 不代替它。
+
+每个节点仍只 emit 一个结束事件。无复核样本、无独立分组等情况返回 unknown 及明确原因。当前 runner 默认跳过非 ok 输入时只保留 upstream_not_ok；为保留原始不足原因，partition/fit/compare/assess/report 的设计均需 acceptNonOkInputs，处理器先识别非 ok 事件并沿声明的不足结果原样保留受限原因，不执行该节点的拟合/比较步骤。assess/report 收束为 evidence_insufficient，candidate=null。可保存不足报告，但不生成虚构权重。后端加载失败、数值非有限、未授权写入等走 WorkflowRunFailure，不能伪造正常候选。
+
+## 6. 运行进度、比较与保存
+
+当前 runWorkflow 在整图结束后才返回结果，没有实时进度回调。后续最小观测接口由 runner/core 负责通用 node-start、node-progress、node-complete、run-failed 通知；progress 是类型明确的通用 JSON，不在核心引入 DOM 或训练类型。训练 adapter 负责 epoch、totalEpochs、loss、knownLoss、otherLoss、anchorLoss、sampleCount、投影权重数。关键轮次的同构记录保存在训练结果，供 CLI 和未来 WebUI 使用；不增加第二调度器或 Web 服务。
+
+compare 在相同样本上调用正式分类器，分别报告 train/eval。已知类正确要求类别相同且 judgmentStatus=judged；黄金 other 正确要求输出 other。逐例分为 fixed、regressed、retained、unresolved；未复核或不在本次评估范围的项为 unassessed。保留样本引用、旧新路径和分数，不能只比较平均 loss。
+
+报告包括每类 support、混淆统计、precision/recall/F1、other 分布、unknown/conflict 数量、未覆盖类别和候选排除统计。样本缺少某类不能证明该类没有退化。第一版不设未经证据支持的准确率门槛；assess 说明是否有修复、是否有黄金退化以及证据是否独立充分，不自动采用参数。
+
+权重仅写 training/weights，报告仅写 training/results，样本仅写 training/samples，均按已有规则保持本地。权重资产封装 targetOperator、contractVersion、基础 profile 引用、未校准状态及兼容的 BasicKindProfile；回载时取 profile 供现有分类器验证。报告引用权重文件，不重复存储矩阵。每次写入使用新文件名和 wx 拒绝覆盖，并沿 sample.save 已有的授权根与路径安全原则实现专用写入器；现有 sample.save 不能直接保存权重。
+
+先写权重，再写报告。后者失败时明确保留已写权重路径和失败原因，不伪造原子回滚。现有 WorkflowRunFailure 没有结构化 details；实现时先保留可恢复路径于错误消息，若需机器可读回执，则最小扩展 typed error chain 和 runner 的 details 传递，不把控制错误镜像为成功 payload。无候选时只写证据不足报告。候选不会覆盖基础参数或自动改 workflow；采用由调用者显式加载并绑定新 profileId 完成。
+
+## 7. training.fit 内部的手写数值连线
+
+这是待实现的数值训练图。每次更新走相同路径，epochs 是 fit 内部有限循环。下图展示一轮的数据与梯度依赖，不是给外层 DAG 增加回边。
+
+```mermaid
+flowchart TD
+  S([单节点属性、复核标签与基础权重]):::boundary --> X[提取固定属性 wire 与缺测 mask]:::action
+  S --> W[将允许训练的稀疏权重接为参数源]:::action
+  X --> N[计算各目标的未截断分数上下界]:::action
+  W --> N
+  N --> L[已知类：监督真实大类及其类内细类]:::action
+  N --> O[确认 other：压低所有大类上界]:::action
+  L --> H[计算损失及分数端梯度]:::action
+  O --> H
+  H --> B[由 Handwired 沿乘积和区间支路反传]:::action
+  B --> U[累加梯度、锚定基础参数、更新并投影]:::action
+  U --> V[以正式大类到细类路径检验候选]:::action
+  V --> Z([候选 profile 与真实拟合记录]):::success
+  classDef boundary fill:#E9EEF5,stroke:#64748B,color:#0F172A,stroke-width:1.5px
+  classDef action fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.5px
+  classDef success fill:#E8F7EE,stroke:#16A34A,color:#0F172A,stroke-width:1.5px
+  linkStyle default stroke:#475569
+```
+
+L/O 按复核标签选择损失，不表示同一个输入接受两个标签。推理先计算五大类，只在成功选中大类后计算其细类。训练已知细类时按真实标签选择监督分支，即使当前大类判错也能训练正确大类及细类。other 是残余输出，不增加类别头或可训练置信度。
+
+配置中的 epochs、learningRate、anchorLambda 是起步示例；来源分区比例也不是已验证的最佳值。初次试验依据样本与学习曲线调整，不能用 eval 成绩反复选参数后仍称其为独立验收。
+
+### 固定部分与可训练部分
+
+| 手写且固定 | 可训练 |
+| --- | --- |
+| 属性白名单、wire 条件与缺测适用性、五大类和类内标签、两层顺序、门限、稀疏连线键、损失与参数区间 | profile.familyWeights、profile.leafWeights 已声明键的系数，含显式声明的零系数 |
+
+初版不新增 bias、不自动加边、不训练门限。disabled/hidden 等初值为零的系数没有未经证据支持的否决权。没有激活或只有缺测的特征不能凭训练补出事实。
+
+properties、extractWires 和区间前向目前是 basic-kinds.ts 的内部实现。后续先在该 owner 最小提取共享属性验证、wire 名称/顺序、阶段/稀疏项描述与原始上下界计算。正式分类与训练 adapter 共用这份描述，不能在训练目录重写 tag/role/几何条件。Handwired 只将相同项描述编译为数值算子，并以正式前向对齐验证翻译结果。
+
+### 缺测区间与 Handwired 连接
+
+对目标 c 的现有稀疏键集合 A(c)，保持现有定义：
+
+```text
+l(c) = Σ[已观测的 w(c,k)·x(k)] + Σ[缺测的 min(w(c,k), 0)]
+u(c) = Σ[已观测的 w(c,k)·x(k)] + Σ[缺测的 max(w(c,k), 0)]
+```
+
+训练输出未截断 l/u。推理使用 clamp(l,0,1)、clamp(u,0,1) 后按现有仲裁执行。数据中 null 保持 null；电路用 observedValue 与 missingMask 两个数值槽表达它，不能丢弃 mask 把 null 当作观测零。
+
+每个 w 必须是 Circuit.source 参数源，经 emitMultiply 接到属性和缺测支路。affine 的数字 coefficient 只是固定拓扑系数，不能把待训练权重写在那里。Handwired 的 ReGLU 是 left × ReLU(gate)，所以 ReLU(w) 对应 circuit.reglu([], 1, [[w, 1]], 0)，负部将 gate 系数改为 -1；不是把 w 放在 left、gate 固定为 1。区间下界减去 ReLU(-w)×missingMask，上界加上 ReLU(w)×missingMask。
+
+### 单一代理目标与更新顺序
+
+令 h(z)=max(z,0)，固定推理门限 T=0.6、M=0.15。目标分数 a=0.8，竞争上界 b=0.4。对一层目标集合 C 和真实类别 y：
+
+```text
+Lstage(C,y) = (l(y)-a)² + Σ[c∈C,c≠y] h(u(c)-b)²
+Lknown = Lstage(五大类,真实大类)
+       + Lstage(真实大类的细类,真实细类)
+Lother = Σ[f∈五大类] h(u(f)-(T-otherGap))²
+Ltotal = mean(逐样本 Lknown 或 Lother) + λ/2 · Σ(w-wBase)²
+```
+
+otherGap=0.05。已知类的零阶段损失意味着目标下界为 0.8、竞争上界至多 0.4；经正式截断后仍满足门限及严格正间隔。单细类分支也满足相对零竞争分数的间隔。若更改配置，要求 0≤b<a≤1、a≥T、a-b>M；otherGap 满足 0<otherGap<T。非零损失不保证命中，所以始终报告正式前向结果。
+
+目标项直接约束未截断下界，不因推理 clamp 饱和而失去纠错梯度。宿主对 l/u 求损失导数：目标下界为 2(l-a)，竞争上界为 2h(u-b)；other 上界为 2h(u-(T-otherGap))。不对离散类别、布尔路由或 other 字符串反传。
+
+other 约束是保守的充分拒识策略：所有大类上界都低于门限，则不能进入任何已知细类。它比“任一路径弃判”更严格，不能表达所有可能的 other。若它与已知类样本冲突，报告当前特征/连线的可分性限制并审计；不能改黄金标签来消除冲突。预测 other 的缺测样本若真值已知，仍走 Lknown，不走 Lother。
+
+执行顺序为：Circuit.evaluateReference → 宿主计算 loss 和分数端导数 → 填满对应长度的 Float32Array outputGradients → Circuit.backpropagateReference → 读取参数源梯度并按样本平均 → 加 λ(w-wBase) → Adam 更新 → 投影到 [-1,1]。Adam 取 β1=0.9、β2=0.999、ε=1e-8；学习率和轮数为显式配置示例，不声称是经实验选出的最佳值。宿主只负责损失端导数与优化器，权重的链式梯度必须来自真实 Handwired。
+
+ReLU 在零点采用零次梯度。一个初值为零且一直缺测的 wire，不从该缺测支路得到有效更新；有实际观测后才可能学习。锚定正则减少无证据参数漂移，不证明唯一解或收敛。相同学生输入对应不同真值、全缺测、或没有相关连线时，训练不能保证分开；需报告测量/标签/特征/连线 owner。
+
+### 后端加载边界
+
+调用者通过 fit 节点工厂显式提供 handwiredRoot；缺失或缺少 numeric-ui-core.ts 时报后端错误，不自动搜索或复制源码。当前内核为自包含 TS 文件，本机无 Bun。首版设计使用已安装 TypeScript 的 transpileModule 将明确指定的可信源码在内存转为 ESM，再用 Node 动态 import 加载。TypeScript 不是 Node 内置能力，目前是项目 devDependency；训练环境必须安装它。缺失则报依赖错误，不假训练。
+
+该加载方案尚未运行验证。后续先在声明的 Node 版本范围验证可信单文件转译、前向与反传，再实现训练节点。若不支持，修正最小加载机制并明确版本边界；不提前建设通用 RPC 平台、迁移 Rust 或 vendor 上游。
+
+## 8. 后续实现顺序与验收
+
+| 顺序 | 可交付增量 / owner | 具体失败模式与必要验收 |
+| --- | --- | --- |
+| 1 | basic-kinds.ts 共享描述；lib/training 后端与数值 adapter | 防止训练/推理分叉或固定 coefficient 假训练：含缺测、负权、饱和与零系数的前向对齐；真实反传与有限差分对齐。ReLU 角点单独验证约定，有限差分在非角点做绝对/相对误差比较，按 FP32 实测设合理容差 |
+| 2 | lib/training 多分类 schema、复核转换及来源分区 | 拒绝 teacher 字段进入学生；未复核不能训练；共享背景/素材/快照不能跨分区；单来源不冒称独立验证；旧候选状态保持；数组保序保重复 |
+| 3 | lib/nodes 六训练节点；公开离线 consumer | 通过配置加载、编译和 runWorkflow 真正训练；初始大类判错时真实大类/细类都可更新；已知类与确认 other 都以正式路径复测；无标签/后端失败/权限拒绝显式收束 |
+| 4 | 专用权重/报告写入器；正式分类节点回载 | 从 training/weights 读取新 profile，经已有公开分类节点使用；旧新逐例比较可复现；无写权限零写入、拒绝覆盖、报告写失败保留已写路径；未校准且不自动采用 |
+| 5 | 现有本地样本试验 | 先用少量已复核现有样本，报告真实类别覆盖、来源限制、fixed/regressed/unresolved 与补采理由；没有证据不扩大采集 |
+
+前四步先用明确真值的小型合成样本验证基础闭环，不要求先扩采真实数据。真实样本标签复核与数值接入可独立准备；组合前均需通过各自合同。完整实现 milestone 作者验收后再做一次独立 Review；当前独立 Gemini4 提供的是规划与修订，不是代码 Review PASS。
+
+随后按实施计划单独做 WebUI UX，再实现配置和真实训练状态可视化。首版不做概率校准、贝叶斯后验、自动错误回流、父兄弟历史预测、多标签、自动标签注册、跨站效果承诺、画布或 Rust 迁移。新增标签时更新类别/wire/profile 合同，复核旧 other 并回归旧类，无需重写外层六节点拓扑。

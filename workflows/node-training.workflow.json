@@ -1,0 +1,49 @@
+{
+  "configVersion": 1,
+  "graphRef": "./node-training.graph.json",
+  "configs": {
+    "prepareSpec": {
+      "taskId": "dom.basic-kinds.v1",
+      "inputScope": "candidate_qualified"
+    },
+    "partitionSpec": {
+      "mode": "source_group_holdout",
+      "seed": 20261017,
+      "evalFraction": 0.3
+    },
+    "targetSpec": {
+      "taskId": "dom.basic-kinds.v1",
+      "minScore": 0.6,
+      "minMargin": 0.15,
+      "objective": {
+        "targetScore": 0.8,
+        "rivalCeiling": 0.4,
+        "otherGap": 0.05
+      },
+      "fit": {
+        "epochs": 25,
+        "learningRate": 0.01,
+        "anchorLambda": 0.01
+      }
+    },
+    "assessSpec": { "forbidGoldRegression": true },
+    "reportSpec": {
+      "weightsDirectory": "training/weights/dom-basic-kinds",
+      "resultsDirectory": "training/results/dom-basic-kinds"
+    }
+  },
+  "bindings": {
+    "准备节点输入与期望输出": { "configRef": "prepareSpec" },
+    "按来源分组并划分用途": { "configRef": "partitionSpec" },
+    "拟合目标节点参数": {
+      "configRef": "targetSpec",
+      "profileId": "dom-basic-kinds-handwritten-v1"
+    },
+    "比较新旧节点在相同样本的输出": {
+      "configRef": "targetSpec",
+      "profileId": "dom-basic-kinds-handwritten-v1"
+    },
+    "评估修复退化与证据不足": { "configRef": "assessSpec" },
+    "保存候选参数与训练报告": { "configRef": "reportSpec" }
+  }
+}

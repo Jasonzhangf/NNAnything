@@ -11,12 +11,14 @@
 | `dom-rule-sampling.graph.json` | `dom-rule-sampling.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 基础规则采样流：显式 semantic rules 确定性分类 DOM 记录、下游按任务映射正负监督并持久化至本地 JSONL |
 | `dom-basic-kinds.graph.json` | `dom-basic-kinds.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 第一层 DOM 基础种类判断流：接收保序候选槽位与可选补充观测，经两阶段（大类 -> 细类）区间计算输出基础种类槽位与审计证据 |
 | `dom-recognition.graph.json` | 待按需配置 | 10 节点 10 边 (10N10E SESE) | `0.1.0-design` 设计态 | L2 完整卡片语义识别流：候选展开后经白名单特征提取、单标签语义分类并组装回原槽位 |
-| `node-training.graph.json` | 待按需配置 | 7 节点 8 边 (7N8E SESE) | `0.1.0-design` 设计态 | L2 目标节点离线训练流：样本准备、来源分组分区、Handwired 拟合、校准与新旧逐例比较报告 |
+| `node-training.graph.json` | `node-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.2.0-design` 设计态；算子 `0.1.0-design` | 第一层基础种类离线训练设计：复核样本、来源分区、Handwired 拟合、新旧比较、评估和保存；首版未校准 |
 | `operation-episode.graph.json` | 待按需配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` 设计态 | L3 操作闭环设计示例：观测、目标识别、策略决策、条件执行、新观测验证与统一收束 |
 
 > [!NOTE]
 > `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE) 与 `dom-basic-kinds.graph.json` (1N0E SESE) 均已升级为 `0.1.0`，经 `dagpipe graph validate` 与 `inspect` 验证通过。
 > 运行时可通过 `compileWorkflow` 配合 `nnanything/browser` 导出的算子节点执行。当前第一层基础种类判断只输出基础结构成分，第二层业务卡片语义（`dom-recognition.graph.json`）仍保持后续设计态。
+
+训练图、节点端口、内部 wire、数据范围及后续验收统一见 [训练 workflow 设计](../docs/training-workflow.md)。训练配置可按现有声明格式解析，但缺少训练算子实现，不能编译执行。上方“已实现”说明仅适用于三个已交付工作流。
 
 ## 2. 基础规则采样流设计 (dom-rule-sampling)
 
