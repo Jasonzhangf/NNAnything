@@ -1,10 +1,18 @@
 # 当前任务
 
+2026-10-17未知项采集与共性审计：用户确认重载后小红书卡片标注已恢复。实站当前观察到24个container框，以及43image/66link/66text等第一层标注；一键收集与实际下载成功。前序“等待重载”已结束，下面保留修复历史。用户随后要求收集未知、检查原因和分类，补充各页都有分割／包装容器的共性。
+
+本轮只做数据采集／只读诊断和标签提议，不改产品代码或运行图。复用已闭合的4N3E browser-visual-overlay与1N0E browser-capture图。小红书首页251未知、知乎回答页302未知+1冲突，共554条已导出并保存在本地training/samples/browser-unknown-20261017（Git忽略）。公开提取器与prepare读取全部请求成功，保留553 unreviewed+1 ambiguous，进入训练0条。当前微博首页未打开审查器，本批不声称覆盖微博或其他标签页。iframe/shadow内部也不声称覆盖。
+
+两页共333条带子元素的包装／分组候选、4条根包装、78条SVG根、84条SVG绘图primitive、28条直接文字DIV、18条空／装饰叶节点、8条当前DOM匹配不唯一、1条combobox冲突。546条只读DOM证据唯一匹配，8条保留待定。分类提议单独保存，不自动黄金化；333条包装候选中109条pointer样式，需复核交互／列表／富文本边界。用户所指包装／分组原则上复用container，真正分隔线与之分开，不新增类别。
+
+公开分类器回放确认：145条中性多子DIV缺少repeatedChildGeometry与inVerifiedListParent，未知区间阻止确定分类；仅在诊断中假设二者false，145条均转为judged/container。假设未写回原始样本，不能作为实际测量或准确率。单子DIV、SVG、直接文字DIV还分别暴露局部结构、图形和文字wire不足。全部逐条提议、引用与原因、原始包、诊断干预记录和统计在本地同目录README/summary中。尚未训练或应用profile；后续先补输入／wire设计，再用确认标签回归，不能用所有DIV硬判container。
+
 2026-10-17后续实测修复已交付：用户已在内置浏览器加载扩展，小红书首页宿主与面板实际运行，但帖子列表无框。只读页面检查与点选确认card子树candidateStatus=unknown、无wire且采集禁用，首次偏离是live-dom.clippedBox对任意transform的否决。实际卡片均用2Dmatrix平移排列；未改权重、站点class或workflow拓扑。
 
 真实几何快照1165元素、30卡片（24视口内、6视口外），公开四节点回放修前0卡片框、修后24个container框；feed后代合格9→377、judged0→191（container24/link64/image44/text59）。这不是第二层post.card语义识别。只接纳单位线性分量的computed2D平移，其他变换仍未测定。新增红测先复现identity被拒，再通过8项基础测试与全96项；真实浏览器fixture验证平移IMG判断/可采集及260×90→220×75的精确父级裁剪，scale区域仍unknown禁采集。外置证据browser-translations。
 
-实现提交8e27ec2已合入main并推送，正式目录build:extension成功，工作树/分支和临时HTTP服务已回收。小红书tab9保留并标记handoff。已请求用户在原扩展管理界面正式重新加载扩展，刷新小红书并重开标注；当前等待该步骤后实站验证。没有绕过内部管理URL限制，也未把回放/harness证明冒称新版脚本已在小红书生效。原样本矩形、旧模块反向复现、更新后回放和真实fixture构成这次根因证据。无需新增全局规则或受管记忆；通用规则已要求真实入口验收，必要回归落在测量owner测试和复现页面中。
+实现提交8e27ec2已合入main并推送，正式目录build:extension成功，工作树/分支和临时HTTP服务已回收。用户随后已在原扩展管理界面正式重新加载、刷新并重开标注，实站结果与采集已在上文记录。没有绕过内部管理URL限制。原样本矩形、旧模块反向复现、更新后回放和真实fixture构成这次根因证据。无需新增全局规则或受管记忆；通用规则已要求真实入口验收，必要回归落在测量owner测试和复现页面中。
 
 针对该用户实测缺陷的独立局部复核，conversation5ec7c619-4683-4db1-bea0-c01cacce4308、实际gemini-4-argon-medium，SUCCESS/exit0、findings=[]，统一controller判pass。结果见docs/reviews/gemini4-browser-translations-review.json。原代码整体review不冒称覆盖新缺陷，局部复核不重复未改的整体架构审查。
 
