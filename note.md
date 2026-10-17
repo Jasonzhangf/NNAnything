@@ -12,7 +12,11 @@
 
 新采样合同区分teacher名称资料与可选学生观测；匹配槽位保长保序且允许重复，正负极性明确；过滤/缺测/冲突不自动负例。JSONL每行携带任务、规则、输入及证据引用，标签为rule_proposed；来源关联交后续partition计算闭包。保存根由caller显式适配绑定，config只给相对文件名，create_new、不覆盖/追加/自动重试。训练、数值取参和真实样本生成尚未发生。
 
-独立Gemini4整体Review已完成：新会话9f1a6ef7-a0f7-46e9-838d-cc53eeafe2c0，实际gemini-4-argon-medium、SUCCESS/exit0，canonical classifyReviewOutput核对schema/scope后裁决PASS，findings=[]。原文docs/reviews/workflow-library-review.json。当前main/push及清理待完成。此新段覆盖下方L1和D0历史记录中的目录与实施时点，历史Goal/Review原文保留原路径，当前唯一真源以AGENTS及workflows清单为准。
+独立Gemini4整体Review已完成：新会话9f1a6ef7-a0f7-46e9-838d-cc53eeafe2c0，实际gemini-4-argon-medium、SUCCESS/exit0，canonical classifyReviewOutput核对schema/scope后裁决PASS，findings=[]。原文docs/reviews/workflow-library-review.json。基础资产提交e8ac830已ff-only合入main并正常推送origin/main；主目录从lib全新构建及两个公开consumer均成功。
+
+独立fresh oauth gpt-6.1-sol medium结案审计完成，原文docs/reviews/workflow-library-retrospective.md。已收敛AGENTS/治理/实施计划三处旧“当前L1”授权措辞；按原始events纠正验收汇总：旧4图内容不变且复用validate证据，文字worker另对4图执行过inspect，新图validate/inspect各一次。记录实际执行，不新增重复检查规则。其他经验已有合同覆盖，不改全局Skills、规则或受管记忆。
+
+本轮设计、目录归位、回归、整体Review和远端交付已完成，保持新采样节点未实现的边界。唯一工作树及临时执行环境的owner为本任务；最终核销回执统一保存在/Volumes/Intel/playground/nnanything-runs/workflow-library/note.md，必要原始证据保留。此新段覆盖下方L1和D0历史记录中的目录与实施时点，历史Goal/Review原文保留原路径，当前唯一真源以AGENTS及workflows清单为准。
 
 ## L1 Goal（已交付历史）
 
