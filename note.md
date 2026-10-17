@@ -1,6 +1,10 @@
 # 当前任务
 
-## 基础规则采样能动 Goal（2026-10-17，进行中）
+## 基础规则采样能动 Goal（2026-10-17，已交付；资源回执见外置记录）
+
+实现提交2638d17已 ff-only 合入 main 并正常推送 origin/main。主目录 npm run demo:sampling 已构建并实际生成8行合成 JSONL，回执与文件一致；原有入口与采样验收证据沿本段下文复用。私有微博规则配置保存在 training/samples/sampling-l1-weibo/weibo.workflow.json，引用主目录唯一图，已用主目录公开 API 加载编译，不依赖待删除工作树。再次运行 consumer 时可使用该配置并省略 output-root，生成新的独立目录，已有 JSONL 不被覆盖。目标内没有模型训练或活网页动作。
+
+本轮代码、使用入口、真实样本、Review 和结案审计均已交付。最终提交/远端回执、工作树及 child home 清理核销由 /Volumes/Intel/playground/nnanything-runs/sampling-l1/note.md 记录；本项目 note 不复制第二套资源台账。
 
 用户纠正：“我认为 filter 应该是输入以后输出各种语义分类，至于是正例还是负例，这不是 filter 的工作，而是根据语义和训练要求”。用户提出时尚无采样实现，已先暂停受影响工作并修订合同；Filter 只产语义与识别状态，训练任务组装层独立映射监督标签。原正负规则私有配置已替换，不作为现行配置执行。单项单语义、数组保序、不自动负例、隐私与保存授权边界不变。
 
@@ -10,9 +14,9 @@
 
 归档微博通过同一 consumer 生成2000行。语义分类为 post.card10、post.body10、post.content10、editor.composer1；完整卡片任务映射为正10/负21/未标注1969。每行保留语义及独立监督结果、输入/证据/来源引用。全部2000行已核对引用、顺序、映射、白名单和回执，无 teacher 原始字段。产物在本地 training/samples/sampling-l1-weibo/weibo-card-structure.samples.jsonl，Git 忽略。单来源、rule_proposed，不证明准确率、可见候选资格或训练效果。
 
-独立 Gemini4 medium 整体 Review 已结束（baa2d79f-d02e-4c9b-9544-47b0433b1f9d，SUCCESS/exit0），canonical schema/scope/classifyReviewOutput 裁决 PASS，无 P0/P1，3项P2已修正：删除未使用文件、允许空 supervisionMap 的文档对齐、实现状态措辞归位。仅文档与未接入文件变化，复用代码验收并做针对性检查。下一步经验审计和 main 交付。
+独立 Gemini4 medium 整体 Review 已结束（baa2d79f-d02e-4c9b-9544-47b0433b1f9d，SUCCESS/exit0），canonical schema/scope/classifyReviewOutput 裁决 PASS，无 P0/P1，3项P2已修正：删除未使用文件、允许空 supervisionMap 的文档对齐、实现状态措辞归位。仅文档与未接入文件变化，复用代码验收并做针对性检查。
 
-独立 fresh OAuth gpt-6.1-sol medium 结案过程审计已完成，原文 docs/reviews/sampling-l1-retrospective.md。已按原始 events 纠正初始 fixture 贡献、移除外置 run 笔记的过时等待状态、对齐节点卡 attributes/null 声明。全局 goal-prompt Skill 的绝对禁止接管措辞与上游规则冲突，建议已保留给该 Skill owner；本项目未扩展为全局 Skill 修改，按上游权威规则执行本轮接管。不改受管记忆，不新增永久护栏或重复验收。代码 Review 原文 docs/reviews/gemini4-sampling-l1-review.json，P2处置以上文及外置 verification.md 为准。当前仅剩 main 提交推送与资源核销。
+独立 fresh OAuth gpt-6.1-sol medium 结案过程审计已完成，原文 docs/reviews/sampling-l1-retrospective.md。已按原始 events 纠正初始 fixture 贡献、移除外置 run 笔记的过时等待状态、对齐节点卡 attributes/null 声明。全局 goal-prompt Skill 的绝对禁止接管措辞与上游规则冲突，建议已保留给该 Skill owner；本项目未扩展为全局 Skill 修改，按上游权威规则执行本轮接管。不改受管记忆，不新增永久护栏或重复验收。代码 Review 原文 docs/reviews/gemini4-sampling-l1-review.json，P2处置以上文及外置 verification.md 为准。该审计完成时尚未集成，后续实际交付见本节开头与外置核销回执。
 
 用户通过 Goal 明确授权实现已评审的 sample.match → sample.assemble → sample.save，交付公开离线 consumer、JSONL、合成与归档微博验收、整体 Review 和 main 推送。此段覆盖下方已结束设计任务的“不实现采样”限制；不扩大到模型拟合、数值特征、活页面、operation 或跨站。
 
