@@ -1,15 +1,15 @@
 {
-  "id": "dom-candidates-design",
-  "version": "0.1.0-design",
+  "id": "dom-candidates-l1",
+  "version": "0.1.0",
   "inputs": [{"id":"request","schema":"Object"}],
   "nodes": [
-    {"id":"读取基础页面观测","operator":"dom.observe","operator_version":"0.1.0-design","inputs":["request"],"output":{"id":"observed","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"筛选视口内候选","operator":"dom.viewport","operator_version":"0.1.0-design","inputs":["observed"],"output":{"id":"viewport_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"限制当前关注范围","operator":"dom.focus","operator_version":"0.1.0-design","inputs":["viewport_slots"],"output":{"id":"focused_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"应用黑名单","operator":"dom.deny","operator_version":"0.1.0-design","inputs":["focused_slots"],"output":{"id":"denied_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"应用白名单","operator":"dom.allow","operator_version":"0.1.0-design","inputs":["denied_slots"],"output":{"id":"eligible_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"按DOM层级拆分独立输入","operator":"dom.split","operator_version":"0.1.0-design","inputs":["eligible_slots"],"output":{"id":"expanded_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"检查展开项的候选规则","operator":"dom.candidates","operator_version":"0.1.0-design","inputs":["expanded_slots"],"output":{"id":"candidate_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+    {"id":"读取基础页面观测","operator":"dom.observe","operator_version":"0.1.0","inputs":["request"],"output":{"id":"observed","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"筛选视口内候选","operator":"dom.viewport","operator_version":"0.1.0","inputs":["observed"],"output":{"id":"viewport_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"限制当前关注范围","operator":"dom.focus","operator_version":"0.1.0","inputs":["viewport_slots"],"output":{"id":"focused_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"应用黑名单","operator":"dom.deny","operator_version":"0.1.0","inputs":["focused_slots"],"output":{"id":"denied_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"应用白名单","operator":"dom.allow","operator_version":"0.1.0","inputs":["denied_slots"],"output":{"id":"eligible_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按DOM层级拆分独立输入","operator":"dom.split","operator_version":"0.1.0","inputs":["eligible_slots"],"output":{"id":"expanded_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"检查展开项的候选规则","operator":"dom.candidates","operator_version":"0.1.0","inputs":["expanded_slots"],"output":{"id":"candidate_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges": [
     {"from":"读取基础页面观测","to":"筛选视口内候选","arc_id":"observed"},

@@ -1,0 +1,23 @@
+{
+  "configVersion": 1,
+  "graphRef": "../../docs/dagpipe/graphs/dom-candidates.graph.json",
+  "configs": {
+    "focus": {
+      "viewportOnly": true,
+      "scopeMode": "subtree",
+      "deny": [
+        {"tag": "button"}
+      ],
+      "excludeSubtrees": [
+        {"tag": "section"}
+      ]
+    }
+  },
+  "bindings": {
+    "筛选视口内候选": {"configRef": "focus"},
+    "限制当前关注范围": {"configRef": "focus"},
+    "应用黑名单": {"configRef": "focus"},
+    "应用白名单": {"configRef": "focus"},
+    "检查展开项的候选规则": {"configRef": "focus"}
+  }
+}

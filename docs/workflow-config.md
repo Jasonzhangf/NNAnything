@@ -1,6 +1,6 @@
 # Workflow 基础配置合同
 
-状态：D0设计增量复核通过，2026-10-17。配置表示节点接续，不依赖画布。执行方案采用Flowed1.15.0，保留项目图唯一真源；本轮不实现加载器或执行器。
+状态：D0设计增量复核通过，2026-10-17。用户随后授权L1实现，目标见[能动Goal](goals/l1-browser-candidates.md)。配置表示节点接续，不依赖画布。执行方案采用Flowed1.15.0，保留项目图唯一真源；L1实现加载、编译和单次执行合同。
 
 ## 1. 持久配置与运行绑定
 
@@ -52,7 +52,7 @@
 
 NodeDefinition的inputPorts按顺序与图节点inputs数组一一绑定，outputPort与图节点单个output ARC绑定。端口名属于算子合同，ARC ID属于图，两者不要求同名。每个端口声明领域schemaId及实际payload验证；上游/下游兼容性按同一schema合同检查，不能只看.graph.json的粗Object类型。
 
-拟定公开接口职责：loadWorkflow将持久声明与显式局部资源解析为WorkflowDefinition；compileWorkflow接收该定义、节点列表和授予的能力，返回可执行绑定或具体编译错误；runWorkflow接收编译结果与单个入口事件，异步返回本次结束结果及轨迹。配置文件入口与程序构造入口在compile阶段汇合，不各自调度。
+公开接口职责：loadWorkflow将持久声明解析为WorkflowDefinition，configRef解析为明确inline配置；compileWorkflow接收该定义、节点列表及显式profile/effect资源，返回可执行绑定或具体编译错误；runWorkflow接收编译结果与单个入口事件，异步返回本次结束结果及轨迹。配置文件入口与程序构造入口在compile阶段汇合，不各自调度。
 
 单次结束结果区分completed和failed。completed表示DAG已结束，其outputEvent仍可为filtered_out/skipped/unknown，不等于目标命中或业务操作成功。failed带失败节点、错误类别和原因；局部数据缺测按节点合同输出unknown，不能以异常误杀整个宿主服务。首期无持续投递/恢复接口，一次run只接收一个入口事件，各ARC只产生一次结果；不宣称跨进程exactly-once。
 
@@ -72,4 +72,4 @@ NodeDefinition的inputPorts按顺序与图节点inputs数组一一绑定，outpu
 
 静态DAGpipe校验只证明图语法与拓扑，后续compile与consumer才证明节点注册、领域端口、effects和结果行为。已有图未变时复用静态结果，不在每次改文档/记笔记时重验。
 
-后续实现验收至少包括：配置文件与代码入口得到同一连接；async扇入等输入齐备才执行；过滤/跳过能结束；非法图/错类型/缺引用明确拒绝；未授权effect实际执行次数0。当前D0只review此合同，不声称这些运行行为已通过。
+L1验收包括：配置文件与代码入口进入同一编译；async扇入等输入齐备才执行；过滤/跳过能结束；非法图/错类型/缺引用明确拒绝；未授权effect实际执行次数0。公开用法见[l1-usage.md](l1-usage.md)，原始结果与独立审查状态见[note.md](../note.md)。

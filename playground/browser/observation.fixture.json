@@ -1,0 +1,113 @@
+{
+  "observationVersion": 1,
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "width": 300,
+    "height": 200
+  },
+  "nodes": [
+    {
+      "nodeRef": "root",
+      "parentRef": null,
+      "tag": "div",
+      "role": "main",
+      "rect": {"x": 0, "y": 0, "width": 300, "height": 200},
+      "fragments": [{"x": 0, "y": 0, "width": 300, "height": 200}],
+      "clippedRect": {"x": 0, "y": 0, "width": 300, "height": 200},
+      "attributes": {"aria-expanded": true}
+    },
+    {
+      "nodeRef": "partial",
+      "parentRef": "root",
+      "tag": "article",
+      "rect": {"x": 290, "y": 10, "width": 20, "height": 20},
+      "fragments": [{"x": 290, "y": 10, "width": 20, "height": 20}],
+      "clippedRect": {"x": 290, "y": 10, "width": 20, "height": 20}
+    },
+    {
+      "nodeRef": "edge",
+      "parentRef": "root",
+      "tag": "div",
+      "rect": {"x": 300, "y": 10, "width": 20, "height": 20},
+      "fragments": [{"x": 300, "y": 10, "width": 20, "height": 20}],
+      "clippedRect": {"x": 300, "y": 10, "width": 20, "height": 20}
+    },
+    {
+      "nodeRef": "offscreen-parent",
+      "parentRef": "root",
+      "tag": "div",
+      "rect": {"x": 500, "y": 0, "width": 50, "height": 50},
+      "fragments": [{"x": 500, "y": 0, "width": 50, "height": 50}],
+      "clippedRect": {"x": 500, "y": 0, "width": 50, "height": 50}
+    },
+    {
+      "nodeRef": "visible-child",
+      "parentRef": "offscreen-parent",
+      "tag": "article",
+      "rect": {"x": 10, "y": 10, "width": 20, "height": 20},
+      "fragments": [{"x": 10, "y": 10, "width": 20, "height": 20}],
+      "clippedRect": {"x": 10, "y": 10, "width": 20, "height": 20}
+    },
+    {
+      "nodeRef": "zero-parent",
+      "parentRef": "root",
+      "tag": "div",
+      "rect": {"x": 10, "y": 10, "width": 0, "height": 0},
+      "fragments": [],
+      "clippedRect": {"x": 10, "y": 10, "width": 0, "height": 0}
+    },
+    {
+      "nodeRef": "zero-child",
+      "parentRef": "zero-parent",
+      "tag": "span",
+      "rect": {"x": 15, "y": 15, "width": 10, "height": 10},
+      "fragments": [{"x": 15, "y": 15, "width": 10, "height": 10}],
+      "clippedRect": {"x": 15, "y": 15, "width": 10, "height": 10}
+    },
+    {
+      "nodeRef": "unknown-clipping",
+      "parentRef": "root",
+      "tag": "div",
+      "rect": {"x": 30, "y": 30, "width": 20, "height": 20}
+    },
+    {
+      "nodeRef": "missing-geometry",
+      "parentRef": "root",
+      "tag": "div"
+    },
+    {
+      "nodeRef": "denied-button",
+      "parentRef": "root",
+      "tag": "button",
+      "rect": {"x": 40, "y": 40, "width": 10, "height": 10},
+      "fragments": [{"x": 40, "y": 40, "width": 10, "height": 10}],
+      "clippedRect": {"x": 40, "y": 40, "width": 10, "height": 10},
+      "attributes": {"disabled": false}
+    },
+    {
+      "nodeRef": "allowed-span",
+      "parentRef": "root",
+      "tag": "span",
+      "rect": {"x": 50, "y": 50, "width": 10, "height": 10},
+      "fragments": [{"x": 50, "y": 50, "width": 10, "height": 10}],
+      "clippedRect": {"x": 50, "y": 50, "width": 10, "height": 10}
+    },
+    {
+      "nodeRef": "excluded-section",
+      "parentRef": "root",
+      "tag": "section",
+      "rect": {"x": 60, "y": 60, "width": 50, "height": 50},
+      "fragments": [{"x": 60, "y": 60, "width": 50, "height": 50}],
+      "clippedRect": {"x": 60, "y": 60, "width": 50, "height": 50}
+    },
+    {
+      "nodeRef": "excluded-child",
+      "parentRef": "excluded-section",
+      "tag": "div",
+      "rect": {"x": 65, "y": 65, "width": 10, "height": 10},
+      "fragments": [{"x": 65, "y": 65, "width": 10, "height": 10}],
+      "clippedRect": {"x": 65, "y": 65, "width": 10, "height": 10}
+    }
+  ]
+}

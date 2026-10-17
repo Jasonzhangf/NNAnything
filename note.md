@@ -2,9 +2,17 @@
 
 ## L1 Goal（最新授权）
 
-D0设计基线已合入main并正常推送origin/main；原framework-m1工作树已remove/prune且路径不存在。用户要求review/提交后生成第一阶段能动Goal并直接执行。目标提示词保存docs/goals/l1-browser-candidates.md：只实现通用执行与七个手写候选节点，输出候选引用，不接模型、训练或动作。当前将建立新的browser-l1独占树，复用有效独立计划及设计评估，不恢复旧M1全节点实现任务。
+D0设计基线已合入main并正常推送origin/main；原framework-m1工作树已remove/prune且路径不存在。用户要求review/提交后生成第一阶段能动Goal并直接执行。目标提示词保存docs/goals/l1-browser-candidates.md：只实现通用执行与七个手写候选节点，输出候选引用，不接模型、训练或动作。当前在唯一browser-l1独占树实施，复用有效独立计划及设计评估，不恢复旧M1全节点任务。
 
 本轮独占记录 /Volumes/Intel/playground/nnanything-runs/browser-l1；D0必要证据仍在framework-m1记录目录，未将取消worker算模型不可用。下方D0不实现条款为历史阶段，当前L1实施由上述最新指令明确授权；后续L2-L4仍未启动。
+
+2026-10-17 L1作者验收完成：Node22.22.2、TS5.9.3、实际Flowed1.15.0；公开load/compile/run、三种common算子和七个dom算子已实现。项目候选图升级0.1.0，仍7N6ESESE；validate/inspect各一次通过，其他design图不变。配置与程序定义进入同一compile，不新增调度器、AppSDK占位或不必要SHA校验。
+
+原始验收：core-expert/test-final.log 48/48（28核心、20浏览器），build-final.log、demo-common.log（total18）、demo-browser.log均成功；browser-expert/final-tests.log 20/20、final-demo.log验证13槽位页面及6槽位显式数组，重复保留、deny优先、未知不复活。必要反例和红测分别在两组run；参考verification.md汇总。依赖缓存、GCM未完整实现及Flowedautomap问题都保留原错，由对应owner修复，不削弱断言。
+
+父任务另通过公开包入口和真实Flowed消费本地微博保存观测：2000输入→2000槽位，605过滤、528自身跳过、867未知、0确定候选。缺fragments/clipping是观测证据不足，不能据此报告识别率或精确可见；原始登录态内容未进入Git。此项补充browser-expert的纯适配证据。
+
+独立整体Review完成：Gemini4 medium新会话a225d760-ee1c-4383-9928-d1d9a1ec1cd5，实际gemini-4-argon-medium，SUCCESS/exit0；按canonical reviewOutputSchema/classifyReviewOutput核对scope与字段后宿主裁决PASS，findings=[]。原始结果docs/reviews/gemini4-l1-review.json，过程review/。Goal六项验收前五项完成；第6项main集成、push、资源清理与结案经验审计待完成。独占过程目录保留必要证据，不将Review通过冒充已交付。
 
 ## 2026-10-17 D0最终范围（最新，覆盖下方M1实施授权）
 

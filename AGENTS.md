@@ -4,7 +4,7 @@
 
 当前D0架构与计划已通过Review并推送。用户进一步授权将第一阶段“能动”作为Goal直接执行；当前范围以docs/goals/l1-browser-candidates.md为准。允许L1所需源码、依赖与测试，只交七个手写候选节点及最小执行基座；不做模型/训练、批量采标、真实浏览器动作或后续扩展，不建伪执行接口。
 
-项目远端为https://github.com/Jasonzhangf/NNAnything.git。本轮只提交已审的文档、规则与设计图；原始登录态页面、标注细节和训练产物保持本地。
+项目远端为https://github.com/Jasonzhangf/NNAnything.git。本轮交付L1范围的执行基座、七个候选节点、公开consumer及必要验证；原始登录态页面、标注细节和训练产物保持本地。
 
 ## 唯一Owner与入口
 
