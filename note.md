@@ -1,5 +1,33 @@
 # 当前任务
 
+## 2026-10-17 D0最终范围（最新，覆盖下方M1实施授权）
+
+用户将本轮终点明确为架构完整/计划完整，不实现；之后才从浏览器项目开始。进一步要求可复用经验节点、DAGpipe/AppSDK治理、范围内派发按全局原则无需单独许可、能动→核心→完善→兼容四层推进，以及消融不必要SHA/校验。
+
+产品代码任务PID76674已SIGTERM停止，控制器回执exit-15；只产生thread/turn启动，无工具改产品、无src/tests/package/node_modules。没有依赖安装、训练或浏览器动作。本轮只交文档/设计图。
+
+origin已按用户指定配置为https://github.com/Jasonzhangf/NNAnything.git；GitHub API显示空仓库/main且当前有push权限，分支列表为空。此事实覆盖历史“无remote”。本轮按正常main合流/push回执交付，不额外SHA比较。
+
+独立Planner的plan-refined技术方案与design-only-plan、priority-plan补充合用，后两者覆盖实施时机/阶段范围；记录在 /Volumes/Intel/playground/nnanything-runs/framework-m1。项目内交付计划已落docs/implementation-plan.md；配置、经验节点、治理分别由workflow-config.md、node-contract.md、project-governance.md唯一维护。
+
+6项交付已有5项完成：架构/选型、配置/目录、可复用经验节点、四层计划/治理、同一Gemini4设计Reviewer增量复核；剩余main/远端提交与清理。增量报告docs/reviews/gemini4-d0-incremental-review.json返回findings=[]，实际gemini-4-argon-medium、SUCCESS/exit0，宿主核对schema/scope后仅裁决DESIGN_PASS。针对性检查：文档本地链接和diff检查通过，无产品实现；新增能动候选图7节点6边已静态validate/inspect通过。原识别10/10、训练7/8、操作7/6图未变，复用已有结果。全部图仍为design，不冒称runtime绑定或效果验证。
+
+当前AppSDK只落治理规则，未执行控制面prepare/init；需求文件不存在按规则跳过，不建占位。后续实际入驻沿正式prepare确认合同，不将此确认扩大为日常agent派发许可。当前主线不因辅助控制状态缺失阻断。
+
+以下为前序范围与过程，不能用来恢复代码任务或推翻当前D0边界。
+
+## 2026-10-17 Framework M1（最新授权）
+
+用户要求“review后开始框架和第一批必要节点搭建”，并要求GitHub选型以避免重复造轮子。此前D0实现hold由此更新为：完整设计review通过后直接实施，无需再次请求实现许可。当前设计评估已通过，开始T1共享核心合同、脚手架与红测。
+
+本轮独占树 /Volumes/Intel/playground/nnanything/framework-m1，分支feat/framework-m1；开工前只有主树注册，nnanything工作树目录为空。无remote，使用唯一集成main，不创建远端。独占记录 /Volumes/Intel/playground/nnanything-runs/framework-m1。Opus计划调用因RESOURCE_EXHAUSTED失败；按同源后备由独立Gemini4 medium规划（conversation 29d9463b-7c16-4ff3-9585-3dc8d2519468），接受plan-refined/plan.md。独立Gemini4medium设计Reviewer conversation64c8e121-d79f-47d0-b7bb-99fe0c2f24cd返回findings=[]，SUCCESS/exit0，宿主schema/scope校验后裁决DESIGN_PASS。原始结果docs/reviews/gemini4-framework-m1-design.json，不代表运行已验收。
+
+候选：DAGpipe CLI静态图治理 + Flowed1.15.0异步依赖执行；不接Rust桥，不另写scheduler。源码证据见research/workflow-engines.md；当前产品范围和配置草案见docs/framework-m1.md。真实网页动作不在M1，首个实验target须由可测输入支持，不冒称organic/广告识别已可分。旧数值草案仍待适用性审计。
+
+本地GCM观察已完成（实际子进程18139，exit0，报告位于本轮observe/report.md）；确认DAGpipe0.1.1无TS绑定及CLI执行，Handwired是零依赖单TS文件，支持真实前向/反传。只读观察不证明运行、效果或桥接性能；不采纳其范围外Rust consumer建议为M1前置。
+
+以下记录为前序设计基线及历史证据；与上述最新授权冲突的D0停止条款不再作为实施hold。
+
 目标：先定义通用框架，再确定最小基础节点，搭建网页与训练workflow，后续扩展其他场景。以有类型事件I/O的filter为节点，通过节点接续组合统一workflow；画布是可选呈现。正式应用、数据准备与训练共用合同。核心只提供端口、连线和有限DAG执行，不固定DOM/微博业务；黑白名单、DOM拆分、判断、operation均由使用者搭建。业务状态显式传递，操作后新观测验证，结束事件收束单次执行；下一次触发是新run。训练只处理目标节点I/O、参数及损失/后端合同。DOM是首应用，神经节点首期单标签且数组保序。class/id、账号名、完整URL/图片名、绝对根路径与全局深度不输入学生模型，标注/原始证据与其隔离。
 
 当前阶段：2026-10-17用户最新指令要求先完成整体规划设计，再由AGY Gemini 4整体评估/review，之后再决定推进。已停止实现。Git已初始化、本地main有设计基线，无remote。未提交的package/tsconfig、架构与测试草稿已归档到 /Volumes/Intel/playground/nnanything-runs/project-scaffold/unimplemented-scaffold-draft.tar.gz，未合入main；唯一外置worktree和自有分支已清理。没有src实现、依赖安装、采集、标注或训练。此前为脚手架启动实现早于用户期望，已纠正为设计优先；本轮不再实现。

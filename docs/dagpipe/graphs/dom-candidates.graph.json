@@ -1,0 +1,23 @@
+{
+  "id": "dom-candidates-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id":"request","schema":"Object"}],
+  "nodes": [
+    {"id":"读取基础页面观测","operator":"dom.observe","operator_version":"0.1.0-design","inputs":["request"],"output":{"id":"observed","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"筛选视口内候选","operator":"dom.viewport","operator_version":"0.1.0-design","inputs":["observed"],"output":{"id":"viewport_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"限制当前关注范围","operator":"dom.focus","operator_version":"0.1.0-design","inputs":["viewport_slots"],"output":{"id":"focused_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"应用黑名单","operator":"dom.deny","operator_version":"0.1.0-design","inputs":["focused_slots"],"output":{"id":"denied_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"应用白名单","operator":"dom.allow","operator_version":"0.1.0-design","inputs":["denied_slots"],"output":{"id":"eligible_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按DOM层级拆分独立输入","operator":"dom.split","operator_version":"0.1.0-design","inputs":["eligible_slots"],"output":{"id":"expanded_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"检查展开项的候选规则","operator":"dom.candidates","operator_version":"0.1.0-design","inputs":["expanded_slots"],"output":{"id":"candidate_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"读取基础页面观测","to":"筛选视口内候选","arc_id":"observed"},
+    {"from":"筛选视口内候选","to":"限制当前关注范围","arc_id":"viewport_slots"},
+    {"from":"限制当前关注范围","to":"应用黑名单","arc_id":"focused_slots"},
+    {"from":"应用黑名单","to":"应用白名单","arc_id":"denied_slots"},
+    {"from":"应用白名单","to":"按DOM层级拆分独立输入","arc_id":"eligible_slots"},
+    {"from":"按DOM层级拆分独立输入","to":"检查展开项的候选规则","arc_id":"expanded_slots"}
+  ],
+  "outputs": ["candidate_slots"]
+}

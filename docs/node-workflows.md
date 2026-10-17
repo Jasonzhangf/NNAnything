@@ -2,6 +2,10 @@
 
 状态：总体设计修订6增量草案，2026-10-17。以filter为基础节点，通过事件输入输出；使用者通过节点接续组合workflow，画布为可选呈现，正式执行与训练共用合同。先定义框架，再确定基础节点，组合网页与训练workflow，后续扩展其他场景。详见[事件与呈现](canvas-events.md)。未实现，修订2的Gemini 4评估不自动覆盖本稿。
 
+最新阶段：当前只交D0架构与计划。以下两条完整workflow属于后续L2核心功能层；先实现的L1能动层只输出候选，见[实施计划](implementation-plan.md)。节点复用/经验合同以[node-contract.md](node-contract.md)为唯一详细定义，配置以[workflow-config.md](workflow-config.md)为准。
+
+本轮设计和D0增量已由独立Gemini4复核，报告见[最新结果](reviews/gemini4-d0-incremental-review.json)；修订2评估仅保留为历史，不作为新增架构的通过依据。
+
 ## 1. 统一抽象
 
 Filter是有明确输入输出的处理单元，不限于布尔筛选。Node是Filter在workflow中的实例，绑定输入、配置与可选profile；Workflow定义节点、事件端口连线、先后依赖和结果出口。画布是可选的编辑与查看方式，配置文件或代码可消费同一合同。框架负责按合同执行与记录，不内置微博、DOM或业务分类。
@@ -99,8 +103,8 @@ flowchart TD
 | src/workflow | 通用执行/校验/记录适配层；不写站点或分类规则 |
 | src/training | 节点训练后端与训练节点；只依赖通用节点样本合同 |
 | src/backends/handwired | 节点内部数值后端，不取代workflow执行器 |
-| nodes / workflows | 按应用组织的可复用节点及workflow定义；DOM语义/focus属于此处 |
-| adapters/weibo | 站点观测与teacher规则，供相应workflow组合 |
+| src/nodes / src/workflows | 按应用组织的可复用节点及workflow绑定；DOM语义/focus属于此处 |
+| src/adapters/weibo | 站点观测与teacher规则，供相应workflow组合 |
 
 框架不变指增加应用时无需改通用核心，不能理解为合同永远不可演进。新增应用可以组合已有节点，也可以新增符合合同的节点处理器，不把差异硬塞进神经网络或通用框架。
 
@@ -111,12 +115,13 @@ flowchart TD
 - [DOM识别workflow设计图](dagpipe/graphs/dom-recognition.graph.json)
 - [节点训练workflow设计图](dagpipe/graphs/node-training.graph.json)
 - [判断与操作闭环示例图](dagpipe/graphs/operation-episode.graph.json)
+- [L1能动候选流设计图](dagpipe/graphs/dom-candidates.graph.json)
 
-设计图规模：DOM识别10节点10边；节点训练7节点8边；操作闭环7节点6边。图中将原槽位/排除记录单独送往结果组装，将用途分区显式送往校准与比较；不要求神经节点携带原始页面。静态validate/inspect仅验证拓扑与operator引用语法，未执行事件、节点或训练，未完成registry/schema/effect编译验收。
+设计图规模：L1候选7节点6边；DOM识别10节点10边；节点训练7节点8边；操作闭环7节点6边。图中将原槽位/排除记录单独送往结果组装，将用途分区显式送往校准与比较；不要求神经节点携带原始页面。静态validate/inspect仅验证拓扑与operator引用语法，未执行事件、节点或训练，未完成registry/schema/effect编译验收。
 
 ## 6. 首期顺序与验收
 
-首期按三个增量推进；当前只定义下列产物与验收，后续实现仍须先完成整体设计评估。
+下表是L2完整核心层内部的三个依赖增量。当前D0不实现；后续先做L1能动候选流，不将下表全部节点提前列为首轮必做。四层推进、目录和停止点统一维护于[实施计划](implementation-plan.md)。
 
 | 顺序 | 交付 | 验收边界 |
 | --- | --- | --- |

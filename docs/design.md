@@ -1,8 +1,8 @@
 # NNAnything 总体设计
 
-版本：设计修订6草案，2026-10-17。先定义通用框架，再确定最小基础节点，组合网页与训练workflow；以后扩展其他场景。以filter节点、事件I/O和统一workflow为主轴，画布是可选呈现。黑白名单、DOM拆分、判断及operation供使用者组合，不固定业务流程，详见[事件与呈现](canvas-events.md)及[节点与Workflow](node-workflows.md)。保留单标签、按序批处理和[Focus入口](focus-and-labeling.md)。AGY Gemini 4已通过的是修订2，该结论不自动覆盖新增架构；当前继续设计，不进入实现。历史评估见[报告](reviews/gemini4-design-review.md)。
+版本：修订6架构及D0计划基线，2026-10-17。先定义通用框架，再确定最小基础节点，组合网页与训练workflow；以后扩展其他场景。以filter节点、事件I/O和统一workflow为主轴，画布是可选呈现。黑白名单、DOM拆分、判断及operation供使用者组合，不固定业务流程，详见[事件与呈现](canvas-events.md)及[节点与Workflow](node-workflows.md)。保留单标签、按序批处理和[Focus入口](focus-and-labeling.md)。本轮整体及[D0增量设计复核](reviews/gemini4-d0-incremental-review.json)已通过，当前不实现；修订2的[历史报告](reviews/gemini4-design-review.md)不代替新增架构审查。
 
-本文件是总体方案入口。research中的页面证据、分类合同和数值草案作为详细依据。方案通过设计review不等于电路已训练或整体产品可用；下一步推进由用户决定。
+本文件是总体方案入口。用户最新指令将本轮明确为D0架构与计划交付，不实现；完成review与远端提交后，后续从浏览器项目开始。具体目录、配置、节点与四层优先级以[实施计划](implementation-plan.md)、[节点合同](node-contract.md)和[项目治理](project-governance.md)为准；下方D1-D5为未来责任地图，不是本轮执行授权。research保留详细依据，设计review不等于电路训练或产品可用。
 
 ## 1. 目标与边界
 
@@ -77,12 +77,12 @@ DOM节点、AX节点和可点击祖先可能不同。每个目标必须有规范
 | src/workflow | 通用事件关联、依赖执行、静态校验、分支/过滤结果与记录适配；不放站点规则 |
 | src/data | 通用节点样本、标签来源、分组与分区；应用原始证据通过引用关联 |
 | src/training | 节点训练后端及拟合/校准/评估节点；训练流程由workflow连接，不执行浏览器动作 |
-| nodes/dom | 应用的固定语义目录、ManualFilter/层级拆分/特征/识别节点与成分合同；不放入核心 |
-| workflows | 正式识别、数据准备/teacher、训练、监督workflow定义；不重复造执行器 |
-| adapters/browser | DOM观测、候选枚举、引用及读取/动作处理，供应用节点调用 |
+| src/nodes/dom.ts | 应用的固定语义目录、ManualFilter/层级拆分/特征/识别节点与成分合同；不放入核心 |
+| src/workflows | 正式识别、数据准备/teacher、训练、监督workflow绑定；直接读取项目图，不重复造执行器 |
+| src/adapters/browser | DOM观测、候选枚举、引用及读取/动作处理，供应用节点调用 |
 | src/backends/handwired | 将已审电路映射至Handwired；不复制上游源码或假装已依赖公共包 |
 | src/index.ts | 通用节点与workflow稳定公开入口，应用通过对应workflow调用 |
-| adapters/weibo | class/content teacher规则及站点观察适配；禁止将teacher特征隐式送到模型 |
+| src/adapters/weibo | class/content teacher规则及站点观察适配；禁止将teacher特征隐式送到模型 |
 | tests | 公共consumer、基础反例、后续真实入口回归；不测试假训练/假点击成功 |
 | docs / research | 当前方案与流程 / 原始调研依据；旧草案需明确适用范围 |
 | data/raw、labels、datasets | 本地原始资料、规范标签、派生向量；默认不入Git |
@@ -227,22 +227,22 @@ LLM按episode回溯首次偏离，区分filter、枚举器、范围解析器、�
 
 ## 10. Git、目录规则与阶段计划
 
-Git事实：本地main已初始化，已有研究文档基线提交；无remote。原始DOM/截图/JSON与训练产物默认忽略，不发布登录态页面。没有用户指定远端时不创建或推送远端。
+Git事实：本地main已初始化，远端origin由用户指定为https://github.com/Jasonzhangf/NNAnything.git。原始DOM/截图/JSON与训练产物默认忽略，不发布登录态页面。本轮review后仅提交设计/规则/图与计划，合入main并正常推送，不做额外SHA核对。
 
 项目实现均在 /Volumes/Intel/playground/nnanything 下的唯一独占worktree进行，主树用于集成。过程日志在仓库外的独占run目录；不能以散落复制代替Git合流。规则不新增无关AppSDK治理、机器manifest或SHA绑定。
 
 | 阶段 | 交付 | 推进条件 |
 | --- | --- | --- |
-| D0 当前设计 | 本文、详细合同、AGY Gemini 4整体评估与问题修订 | 用户决定下一步 |
-| D1 工程骨架 | 通用节点/事件/workflow合同、data与training最小I/O、公开consumer及基础规则/测试；不依赖画布，DOM类型归应用 | 新增架构经评估，执行后端边界已收敛，接口consumer通过 |
-| D2 基础节点与两条Workflow | 先建立同一执行基础及最小节点，再组合网页识别与节点训练workflow；接已审Handwired节点/profile及离线consumer | 两级连线先审；节点独立I/O、网页识别与训练产物加载均有黑盒证据 |
+| D0 当前交付 | 架构、配置、节点/经验合同、目录、四层计划与独立设计复核；main合流并推送指定远端 | 不实现，文档/新图针对性检查与review完成 |
+| D1 能动（L1） | 通用最小执行、7个手写候选节点、非DOM与浏览器候选公开consumer；不依赖画布、模型或训练环境 | 有序候选/排除输出、基础边界有真实公开入口证据；完整milestone Review后交付 |
+| D2 核心功能（L2） | 在D1上增加取参、真实Handwired节点与训练；完整10节点识别和7节点训练workflow、兼容profile回载 | 数值连线先审；节点独立I/O、网页识别与训练产物加载均有黑盒证据 |
 | D3 微博采标实验 | teacher规则、独立样本、可复核标签、第一阶段目标训练报告 | 标签边界与teacher质量已检查 |
 | D4 关系与监督 | 预测上下文支路、回溯选择性入集、版本配对回归 | 基础版本有效，关系收益有独立证据 |
 | D5 跨站验证 | 新站profile及同类目标评估 | 单站结论明确，不预设迁移成功 |
 
 D1不要求先实现全部20个目标；D2/D3的目标子集与样本预算按验收需要选择。运行与训练骨架先建立，teacher采标规模后扩展。当前不执行D1及后续阶段。
 
-首期推进和分层验收以[框架→基础节点→两条workflow](node-workflows.md#6-首期顺序与验收)为准。网页节点、通用节点和训练节点共用合同但各有职责。新场景新增相应节点、编码和适配器，不在核心硬编码场景分支；profile仅在合同兼容时复用。
+当前优先级与验收以[四层实施计划](implementation-plan.md)为准。网页节点、通用节点和训练节点共用合同但各有职责。新场景新增相应节点、编码和适配器，不在核心硬编码场景分支；profile仅在合同兼容时复用。D3/D4属于L3按需完善，D5属于L4兼容性；不按编号一次展开全部能力。
 
 第4节是完整责任地图，不是D1要创建的全部空模块。D2才接后端与最小离线运行；D3再接teacher与批标，D4再接完整browser动作及supervision。远期模块先写边界说明，不为它们提前造空服务、注册表或假执行接口。
 
