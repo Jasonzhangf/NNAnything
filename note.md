@@ -1,5 +1,7 @@
 # 当前任务
 
+2026-10-17 后续需求已记录：用户要求基础闭环跑通后提供 WebUI，可视化配置和训练状况，UX 单独设计。阶段安排及 UX 交付要求唯一维护于 docs/implementation-plan.md 第 8 节。本次仅补计划，未实现训练或界面；执行拓扑未改，复用现有训练设计图，不为此文档增量新增业务 DAG。
+
 ## DOM 基础种类分层算法（2026-10-17，作者验收与 Gemini4 Review 完成）
 
 实现提交3b6bcdd已 ff-only 合入 main 并正常推送 origin/main。主目录 npm run demo:basic-kinds 已构建并运行通过。本轮独立结案审计完成，仅发现外置验证记录有一处 pending 状态未更新，已修正；结论见 docs/reviews/basic-kinds-retrospective.md。自有任务工作树已移除并 prune，自有分支已删除，当前只保留项目主树；外置 run 记录作为证据保留。本轮代码、文档、本地种类提议样本均已交付，没有运行训练。
