@@ -1,0 +1,6 @@
+{
+  "configVersion": 1,
+  "graphRef": "./dom-basic-kinds.graph.json",
+  "configs": {"basicKinds":{"taskId":"dom.basic-kinds.v1","minScore":0.6,"minMargin":0.15}},
+  "bindings": {"判断DOM基础种类":{"configRef":"basicKinds"}}
+}

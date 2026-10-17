@@ -1,7 +1,7 @@
 # 节点定义与合同清单 (lib/nodes/)
 
 本目录为 NNAnything 节点定义（`NodeDefinition`）的唯一源码根目录。
-遵循 [可复用经验节点合同](../../docs/node-contract.md)，本文件是三个基础采样节点卡（身份、输入、输出、配置与状态、副作用、训练能力、兼容条件、验收）的唯一真源，并索引已实现的 L1 节点。
+遵循 [可复用经验节点合同](../../docs/node-contract.md)，本文件是基础采样 3 节点与第一层 DOM 基础种类节点（`dom.basic_kinds@0.1.0`）合同卡（身份、输入、输出、配置与状态、副作用、训练能力、兼容条件、验收）的唯一真源，并索引已实现的 L1 节点。
 其他文档与实施计划均通过链接引用本文件，不复制节点卡。
 
 ---
@@ -56,23 +56,47 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 
 ---
 
-## 2. L1 与采样已实现节点索引
+## 2. 第一层 DOM 基础种类节点合同卡（0.1.0）
 
-所有已实现的确定性节点（7 个 DOM 候选算子、3 个采样算子与 3 个通用算子）源码位于 `lib/nodes/`：
+本节是第一层 DOM 基础种类算子 dom.basic_kinds@0.1.0 合同卡的唯一规范真源。
+合格输入的基础语义标签为 11 个具体类别或 other，单项只有一个主标签。unknown/conflict 描述评分状态；被排除或不可用的候选不作分类，标签为 null。SVG、hidden、presentation/none 等属性都进入统一评分路径，不提前否决。默认没有经验证的辨别权重的状态 wire 显式赋 0，可通过 profile 调整。
+算法完整设计与数值连线由 [docs/basic-kinds-wiring.md](../../docs/basic-kinds-wiring.md) 单一 owner 维护，本卡仅保留节点接口契约，不重复算法实现细节。
+公共 API 通过 `nnanything/browser` 导出：`domBasicKindsNode`、`classifyBasicKind`（纯单节点属性求值）、`classifyBasicKindBatch`、`validateBasicKindProfile`、`DEFAULT_BASIC_KIND_PROFILE`、`DEFAULT_BASIC_KIND_CONFIG`、`BASIC_KIND_FAMILIES`。
+类型 SpecificBasicKindLabel 代表具体类别，BasicKindLabel 另含 other。other 预测保留具体类别区间和原因，不虚构置信度，也不自动成为监督真值。后续新增类别沿算法设计文档更新 taxonomy/wire/profile，并复核历史 other；不需要改通用 workflow 核心。
 
-### 2.1 浏览器 DOM 候选与采样节点 (`lib/nodes/dom.ts`, `lib/nodes/sampling.ts`)
+### 2.1 `dom.basic_kinds`（判断 DOM 基础种类）
+
+| 合同维度 | 规范内容 |
+| :--- | :--- |
+| 身份 | `operator: "dom.basic_kinds"`, `operator_version: "0.1.0"`。第一层 DOM 基础种类判断节点。<br>公开导出：`domBasicKindsNode`（通过 `nnanything/browser`）。内核纯函数 `classifyBasicKind`（单节点）与 `classifyBasicKindBatch`（批次）独立可用。<br>唯一 owner：`lib/filters/basic-kinds.ts`（求值内核）+ `lib/nodes/basic-kinds.ts`（节点定义）。<br>算法设计真源：[docs/basic-kinds-wiring.md](../../docs/basic-kinds-wiring.md)。 |
+| 输入 | 端口 `input`（工作流图中连线 ID 对应 `candidate_slots`），`schemaId: "dom/candidate-batch/v1"`，事件类型 `"dom.candidate-slots.v1"`。<br>接收现有 `CandidateBatch` 对象，支持在同一个根对象包含可选的 `itemObservations` 补充观测数组。<br>补充项仅允许 `nodeRef` 与可选的 `inputType`、`hrefPresent`、`contentEditable`、`directTextPresent`、`childElementCount`、`positiveAreaChildCount`、`repeatedChildGeometry`、`inVerifiedListParent`。禁止任意未知字段。<br>约束：补充项必须引用已有候选节点且 nodeRef 唯一；补充观测绝不能覆盖原始 tag、role 或候选资格。 |
+| 输出 | 端口 `output`（工作流图中连线 ID 对应 `basic_kind_slots`），`schemaId: "dom/basic-kind-batch/v1"`，事件类型 `"dom.basic-kind-slots.v1"`。<br>payload 为 `{ taskId: string, profileId: string, slots: BasicKindSlot[] }`。<br>slots 保持输入顺序与长度。每项保留 `index`、`nodeRef`、`candidateStatus`、`candidateReasons`，以及来自核心算法的判断与证据字段：`familyStatus`、`family`、`familyScores`、`judgmentStatus`、`basicKind`、`leafScores`、`score`、`margin`、`confidenceState: "uncalibrated" \| "not_applicable"`、`calibratedConfidence: null`、`reasons`、`evidence: { stateFlags, wires, activeTerms, path }`。<br>无极性与无假置信度：节点不输出训练正负极性，不提供经过独立标定的概率或置信度。 |
+| 配置与状态 | 必填配置：`taskId: string`、`minScore: number`、`minMargin: number`。默认门限分别为 0.60 与 0.15（`DEFAULT_BASIC_KIND_CONFIG`）。<br>可选 profileId 绑定：通过 `compileWorkflow` 的 profiles 映射传入完整的稀疏数值 profile（`BasicKindProfile`，含 familyWeights 与 leafWeights）；若未配置 profileId，默认使用手写稀疏权重表（`DEFAULT_BASIC_KIND_PROFILE`）。<br>执行模式：执行真正的两阶段粗细计算（大类 family -> 细类 leaf）；大类未通过时没有 leafScores，通过后 leafScores 仅包含该大类的细类。缺测特征保留为区间，不把缺测填 0。 |
+| 副作用 | 无（`effects: []`），纯内存确定性转换。 |
+| 训练能力 | 数值参数通过显式 profile 配置。当前未实现参数拟合、Handwired 后端集成、梯度反传或置信度校准。后续训练可沿同一 wire 合同学习参数，不能将当前手写参数称为已训练权重。 |
+| 兼容条件 | 上游非 ok 事件按 Runner 默认规则判定为 skipped（`upstream_not_ok`），不产生副作用。<br>输入候选状态为 filtered_out 或 skipped 时映射为 excluded，unknown 保持 unknown，不因补充观测复活。<br>纯函数可做单属性诊断，但纯诊断调用不属于工作流合格分类。不包含第二层业务卡片语义（帖子、作者、评论、广告等），不执行活体网页采集。 |
+| 验收 | 验证两阶段（大类 -> 细类）执行路径；验证属性缺测区间计算与保守弃判；验证 tag 与 role 冲突输出 conflict；验证稀疏 profile 独立覆写；验证非法特征字段抛错拦截；验证上游候选排除状态保持 excluded 且不复活。公开 demo 入口 `npm run demo:basic-kinds` 使用 1 节点图与完整合成候选数据离线运行验证。 |
+
+---
+
+## 3. L1 候选、采样与基础种类已实现节点索引
+
+所有已实现的确定性节点（7 个 DOM 候选算子、3 个采样算子、1 个基础种类算子与 3 个通用算子）源码位于 `lib/nodes/`：
+
+### 3.1 浏览器 DOM 候选、采样与基础种类节点 (`lib/nodes/dom.ts`, `lib/nodes/sampling.ts`, `lib/nodes/basic-kinds.ts`)
 1. `dom.observe` (`0.1.0`): 适配保存的页面观测，保留白名单几何/结构，剥离原始 class/id/文本；
 2. `dom.viewport` (`0.1.0`): 正面积相交计算视口槽位，父容器离屏不误剪可见后代；
 3. `dom.focus` (`0.1.0`): 按 within/region 收缩关注范围，无归属依据拒绝 owned；
 4. `dom.deny` (`0.1.0`): 评估黑名单，deny 优先于 allow，记录排除原因且不生成训练负标签；
 5. `dom.allow` (`0.1.0`): 评估白名单，未配置不限制，显式空集合拒绝全部；
 6. `dom.split` (`0.1.0`): 展开 DOM 层级候选，显式 nodeRefs 保持保长保序；
-7. `dom.candidates` (`0.1.0`): 复检展开项规则，输出保序槽位与排除映射，不调用神经网络。
+7. `dom.candidates` (`0.1.0`): 复检展开项规则，输出保序槽位与排除映射，不调用神经网络；
 8. `sample.match` (`0.1.0`): 纯三值逻辑语义规则匹配，输出单语义分类与状态，彻底隔离 teacher 与学生特征，无训练极性概念；
 9. `sample.assemble` (`0.1.0`): 单任务训练样本组装，按任务映射语义到正负监督并保留原始语义分类，候选资格优先级与学生观测白名单投影；
-10. `sample.save` (`0.1.0`): 独占排他（wx）持久化 JSONL，受限根目录与防越界安全检查。
+10. `sample.save` (`0.1.0`): 独占排他（wx）持久化 JSONL，受限根目录与防越界安全检查；
+11. `dom.basic_kinds` (`0.1.0`): 接收候选槽位与可选补充观测，执行两阶段（大类 -> 细类）确定性基础种类判断，输出保序槽位、分数区间、决策路径与审计证据（`lib/nodes/basic-kinds.ts`）。
 
-### 2.2 通用基础节点 (`lib/nodes/common.ts`)
+### 3.2 通用基础节点 (`lib/nodes/common.ts`)
 1. `common.scale` (`1`): 数值缩放转换；
 2. `common.sum` (`1`): 数值求和；
 3. `common.count` (`1`): 数组元素计数。

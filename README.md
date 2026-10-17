@@ -2,9 +2,9 @@
 
 以 filter 为基础节点、用事件传递输入输出、通过节点接续组合 workflow 的框架。画布、配置文件或代码都是可选的编辑方式。应用和训练共用节点/workflow 合同，各自保留 I/O 语义。黑白名单、DOM 拆分、判断与 operation 均由节点组合，不固定进核心。第一个实验方向是网页 DOM 的结构化候选与语义识别。
 
-当前 L1 候选切片已实现并通过验证。当前增量为基础规则采样三节点（sample.match、sample.assemble、sample.save）与公开离线采样 Consumer 实现，验收与交付结果由 parent 维护于 [note.md](note.md)。
+当前候选 7 节点与采样 3 节点保持已交付。当前增量为第一层 DOM 基础种类判断算法（dom-basic-kinds）、dom.basic_kinds@0.1.0 节点、1N0E SESE 工作流图与公开测试，第二层业务卡片组合语义（帖子、作者、评论、广告等）为后续规划。验收与交付结果由 parent 维护于 [note.md](note.md)。
 
-## 快速开始（L1 能动切片）
+## 快速开始（L1 能动切片与基础种类）
 
 基线要求：Node.js >= 20（ESM 模块规范）。
 
@@ -29,17 +29,21 @@ npm run demo:browser
 
 # 运行基础规则采样公开 Consumer（离线 DOM 记录规则匹配、样本组装与安全持久化）
 npm run demo:sampling
+
+# 运行基础种类公开 Consumer（离线合成候选数据与单节点工作流运行）
+npm run demo:basic-kinds
 ```
 
 - 浏览器 Consumer 固定入口为 playground/browser/demo.mjs，负责完整演示保存观测加载、7 节点有限图编译运行及保序候选槽位输出。
 - 采样 Consumer 固定入口为 playground/sampling/demo.mjs，负责演示离线语义规则匹配、单任务训练样本组装与安全 JSONL 持久化（见 [playground/sampling/README.md](playground/sampling/README.md)）。
-- 公开 API 包含主入口 nnanything（事件模型、配置加载与编译执行基座）与浏览器子入口 nnanything/browser（7 个手写 DOM 算子定义、3 个采样算子 sampleMatchNode、sampleAssembleNode、createSampleSaveNode，以及纯语义求值函数 evaluateSemanticRules）。
+- 基础种类公开 Demo 入口为 npm run demo:basic-kinds，使用标准的 1 节点图与完整合成候选数据离线运行（见 [playground/basic-kinds/README.md](playground/basic-kinds/README.md)）；可选 --input 参数接收已保存的候选 batch。纯属性诊断调用不属于工作流合格分类。
+- 公开 API 包含主入口 nnanything（事件模型、配置加载与编译执行基座）与浏览器子入口 nnanything/browser（7 个手写 DOM 算子定义、3 个采样算子、基础种类算子 domBasicKindsNode、纯函数 classifyBasicKind、classifyBasicKindBatch、validateBasicKindProfile、默认配置 DEFAULT_BASIC_KIND_CONFIG、手写 profile DEFAULT_BASIC_KIND_PROFILE、基础种类族映射 BASIC_KIND_FAMILIES，以及纯语义求值函数 evaluateSemanticRules）。
 
-## 架构职责与 7 个候选节点
+## 架构职责与已实现算子
 
-- DAGpipe：负责项目图拓扑静态检查与 SESE（单入口单出口）校验。公开图唯一真源集中于 `workflows/`（如 [dom-candidates.graph.json](workflows/dom-candidates.graph.json)）。
+- DAGpipe：负责项目图拓扑静态检查与 SESE（单入口单出口）校验。公开图唯一真源集中于 `workflows/`（如 [dom-candidates.graph.json](workflows/dom-candidates.graph.json)、[dom-rule-sampling.graph.json](workflows/dom-rule-sampling.graph.json)、[dom-basic-kinds.graph.json](workflows/dom-basic-kinds.graph.json)）。
 - Flowed (v1.15.0)：负责有限事件 DAG 的动态调度与异步扇入执行，保证每个 ARC 单次运行产出确定状态事件，单次运行有穷结束。
-- L1 七个手写节点：
+- L1 七个候选节点：
   1. dom.observe：读取保存的页面观测，保留必要几何、结构与安全属性，不传播原始 class、账号或正文。
   2. dom.viewport：正面积相交计算视口候选，父容器离屏不误剪可见后代。
   3. dom.focus：按 within 与 region 收缩关注范围，范围失效报 stale_scope，无依据不冒充 owned。
@@ -47,8 +51,14 @@ npm run demo:sampling
   5. dom.allow：评估白名单规则，未配置不限制，显式空集合拒绝全部。
   6. dom.split：按 DOM 层级展开候选项，显式 nodeRefs 保持保长保序。
   7. dom.candidates：复检展开项规则，输出保序槽位与排除映射，不调用神经网络。
+- 基础规则采样三节点：
+  8. sample.match：纯三值逻辑语义规则匹配，单项单语义分类，隔离 teacher 与学生特征。
+  9. sample.assemble：单任务训练样本组装，按任务映射正负监督并保留原始语义分类。
+  10. sample.save：独占排他（wx）持久化 JSONL，受限根目录与防越界安全检查。
+- 第一层 DOM 基础种类节点：
+  11. dom.basic_kinds：接收候选槽位与可选补充观测，执行两阶段（大类 -> 细类）确定性基础种类判断，输出保序槽位、分数区间、决策路径与审计证据。
 
-L1 边界：只交付手写候选过滤与基础离线规则采样流水线。不包含语义分类模型、不包含模型训练/校准/Handwired 后端、不包含活体浏览器操作、不包含画布与跨站泛化。结构上广告可作为卡片；规则提议标签（rule_proposed）不等同黄金真值。
+L1 边界：只交付手写候选过滤、基础离线规则采样流水线与第一层基础种类算法（control, media, navigation, text, structure）。不包含第二层业务卡片语义模型（帖子、作者、评论、广告等）、不包含模型训练/校准/Handwired 后端、不包含活体浏览器操作、不包含画布与跨站泛化。结构上广告可作为卡片；规则提议标签（rule_proposed）不等同黄金真值；手写基础种类分数不冒称经过独立标定的概率或置信度。
 
 ## 文档导航
 
@@ -56,9 +66,12 @@ L1 边界：只交付手写候选过滤与基础离线规则采样流水线。�
 - [L1 浏览器候选切片使用指南](docs/l1-usage.md)
 - [L1 能动切片目标与约束](docs/goals/l1-browser-candidates.md)
 - [基础规则采样公开 Consumer 说明](playground/sampling/README.md)
+- [第一层基础种类公开 Consumer 说明](playground/basic-kinds/README.md)
+- [第一层DOM基础种类数值连线与算法设计](docs/basic-kinds-wiring.md)
 - [工作流清单与拓扑真源 (workflows/)](workflows/README.md)
 - [L1 候选图真源 (7N6E SESE)](workflows/dom-candidates.graph.json)
 - [基础采样图真源 (3N2E SESE)](workflows/dom-rule-sampling.graph.json)
+- [第一层基础种类图真源 (1N0E SESE)](workflows/dom-basic-kinds.graph.json)
 - [节点定义与合同清单 (lib/nodes/)](lib/nodes/README.md)
 - [可复用经验节点合同](docs/node-contract.md)
 - [Workflow基础配置](docs/workflow-config.md)

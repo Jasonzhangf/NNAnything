@@ -7,6 +7,7 @@ coverage/
 !.env.example
 
 # Captured browser data and generated training artifacts remain local.
+research/dom-kind-corpus/
 research/**/*.json
 research/**/*.html
 research/**/*.png

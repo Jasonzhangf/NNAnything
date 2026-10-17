@@ -5,3 +5,5 @@ export * from "./nodes/dom.js";
 export * from "./filters/sample-match.js";
 export * from "./training/samples.js";
 export * from "./nodes/sampling.js";
+export * from "./filters/basic-kinds.js";
+export * from "./nodes/basic-kinds.js";

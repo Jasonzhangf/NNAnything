@@ -1,0 +1,10 @@
+{
+  "contract_version": "1",
+  "scope": {"mode":"base","commit":null,"base":"origin/main"},
+  "module_boundary_evidence": [
+    {"module":"dom-basic-kinds-filter-kernel","owner":"lib/filters/basic-kinds.ts","paths":"lib/filters/basic-kinds.ts, lib/filters/README.md, docs/basic-kinds-wiring.md","edges":"CandidateBatch (+ optional itemObservations[]) or BasicKindProperties -> extractWires -> scoreStage(family) -> conditional scoreStage(leaf) -> BasicKindJudgment / BasicKindBatch","resources":"DEFAULT_BASIC_KIND_CONFIG, DEFAULT_BASIC_KIND_PROFILE (frozen sparse weights in [-1,1], uncalibrated)","gates":"npm run typecheck, tests/basic-kinds.test.mjs (9 test groups in 65/65 pass), missing-wire-red.log, role-specialization-red.log"},
+    {"module":"dom-basic-kinds-workflow-node-and-graph","owner":"lib/nodes/basic-kinds.ts","paths":"lib/nodes/basic-kinds.ts, lib/browser.ts, workflows/dom-basic-kinds.graph.json, workflows/dom-basic-kinds.workflow.json, workflows/README.md, lib/nodes/README.md","edges":"candidate_slots (dom/candidate-batch/v1, dom.candidate-slots.v1) -> dom.basic_kinds@0.1.0 -> basic_kind_slots (dom/basic-kind-batch/v1, dom.basic-kind-slots.v1)","resources":"effects: [], explicit configRef basicKinds and optional profileId via compileWorkflow profiles map","gates":"dagpipe graph validate/inspect (1N0E SESE), loadWorkflow -> compileWorkflow -> runWorkflow integration test"},
+    {"module":"basic-kinds-public-consumer-and-docs","owner":"playground/basic-kinds/demo.mjs","paths":"playground/basic-kinds/demo.mjs, playground/basic-kinds/basic-kinds.fixture.json, playground/basic-kinds/README.md, package.json, README.md, docs/implementation-plan.md, AGENTS.md, note.md","edges":"dom-candidates.workflow.json (7N6E) -> CandidateBatch + itemObservations -> dom-basic-kinds.workflow.json (1N0E) -> stdout summary JSON","resources":"synthetic fixture (11 slots: 6 judged, 3 unknown, 1 conflict, 1 excluded) and local Weibo archive check (1133 excluded, 867 unknown, 0 judged)","gates":"npm run demo, npm run demo:browser, npm run demo:sampling, npm run demo:basic-kinds, archive-summary.json"}
+  ],
+  "findings": []
+}

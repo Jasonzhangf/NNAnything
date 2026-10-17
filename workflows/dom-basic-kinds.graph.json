@@ -1,0 +1,10 @@
+{
+  "id": "dom-basic-kinds-l1",
+  "version": "0.1.0",
+  "inputs": [{"id":"candidate_slots","schema":"Object"}],
+  "nodes": [
+    {"id":"判断DOM基础种类","operator":"dom.basic_kinds","operator_version":"0.1.0","inputs":["candidate_slots"],"output":{"id":"basic_kind_slots","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [],
+  "outputs": ["basic_kind_slots"]
+}

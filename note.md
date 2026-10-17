@@ -1,5 +1,21 @@
 # 当前任务
 
+## DOM 基础种类分层算法（2026-10-17，作者验收与 Gemini4 Review 完成）
+
+用户要求先按 DOM 属性性质建立清晰的分层、多条件 wire 路径，第一层基础种类先做，第二层应用组合后做；算法完成后交 Gemini4 review。独立 Gemini4 Planner 初稿平铺细类且试图放宽旧快照资格，未接受；同会话修订后采用大类→类内细类，继续保留旧候选未知。实现中将 DTO 绑定到现有 CandidateBatch 的实际 observation.nodes，并使用兼容的根级 itemObservations 数组；不改变既有观测/候选/训练样本合同。
+
+当前新增 dom.basic_kinds@0.1.0、纯函数 classifyBasicKind/classifyBasicKindBatch、稀疏参数 profile、1节点0边工作流及公开 Consumer。连线设计在 docs/basic-kinds-wiring.md，先落图并经 DAGpipe validate/inspect，再实现。五大类 control/media/navigation/text/structure；仅在大类成功后计算对应细类。缺测 wire 使用分数上下界；无 class/id/正文/URL 输入，无训练极性，无伪造校准概率。未实现训练、Handwired 后端或第二层业务语义。
+
+作者验收：65测试通过（原56+新增9组）、typecheck通过、原3个 Consumer 与新增公开 Consumer 均成功。缺测上界的实际故障注入使2组测试失败，恢复后通过；中性 span 的明确 role 被缺测文字支路干扰的反例已红测修复。新增 Consumer 先跑真实7候选节点，再跑分类节点；11槽位中6 judged、3 unknown、1 conflict、1 excluded，保序并保留重复。归档微博2000节点保持605 filtered_out、528 skipped、867 unknown；分类节点输出1133 excluded/867 unknown/0 judged。纯属性诊断另计，不作为准确率或合格预测。
+
+本轮使用独占树 /Volumes/Intel/playground/nnanything/dom-basic-kinds。原始证据、独立计划与测试日志见 /Volumes/Intel/playground/nnanything-runs/dom-basic-kinds；最终 Review、交付与资源回执由该处 note.md 记录。用户新增授权采集小红书、知乎种类对照样本，原始与 teacher 记录仅本地保存，不将此视为自动黄金标注或扩大算法训练范围。
+
+独立 Gemini4 medium Review（conversation394247f8-395b-4f57-878c-71bf0efb7972）完成 SUCCESS/exit0，findings=[]；宿主按统一 schema/scope 裁决通过。原始结果见 docs/reviews/gemini4-basic-kinds-review.json。审查独立于 Planner 和实现者，不以规划通过代替代码审查。
+
+该次审查后用户补充两项契约：合格输入用具体类别或 other 全覆盖；各属性参与评分，不能按单一条件判死。已接受同一独立 Planner 的 scoring-plan/plan.md 合并修订：移除 SVG/hidden/presentation/hidden-input 的提前返回，增加可配状态 wire；无判别证据的状态系数显式默认0；合格未消歧项给 other，非合格槽位仍为 null。新增反例先红后绿，当前66测试通过，新 Consumer 保留2个 other 和原有非合格项。原 Reviewer 已完成增量定向复核，SUCCESS/exit0、findings=[]，宿主裁决通过，见 docs/reviews/gemini4-basic-kinds-delta-review.json。原完整审查有效范围复用，不重审未变图或核心。
+
+本地采集已保存小红书首页1200、详情2000、知乎首页1899，共5099条返回 DOM 观测；两份小红书快照有重复背景，不是独立样本。原始证据位于 research/dom-kind-corpus，派生基础种类和组件提议位于 training/samples/dom-basic-kinds。全部 gold=false，other 不自动成为真值；返回范围与 CSS 裁剪未证明完整。明确广告标记、SVG/图片alt与知乎 input/combobox 边界已记录本地 README。新增 .gitignore 仅排除此本地原始语料目录，避免 JSONL/说明被误提交，已用 git check-ignore 验证。
+
 ## 基础规则采样能动 Goal（2026-10-17，已交付；资源回执见外置记录）
 
 实现提交2638d17已 ff-only 合入 main 并正常推送 origin/main。主目录 npm run demo:sampling 已构建并实际生成8行合成 JSONL，回执与文件一致；原有入口与采样验收证据沿本段下文复用。私有微博规则配置保存在 training/samples/sampling-l1-weibo/weibo.workflow.json，引用主目录唯一图，已用主目录公开 API 加载编译，不依赖待删除工作树。再次运行 consumer 时可使用该配置并省略 output-root，生成新的独立目录，已有 JSONL 不被覆盖。目标内没有模型训练或活网页动作。

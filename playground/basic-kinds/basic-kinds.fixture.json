@@ -1,0 +1,22 @@
+{
+  "observation": {
+    "viewport": {"x":0,"y":0,"width":1000,"height":800},
+    "nodes": [
+      {"nodeRef":"button","tag":"button","role":null,"rect":{"x":10,"y":10,"width":80,"height":30},"fragments":[{"x":10,"y":10,"width":80,"height":30}],"clippedRect":{"x":10,"y":10,"width":80,"height":30},"attributes":{"disabled":"false"}},
+      {"nodeRef":"image","tag":"img","role":null,"rect":{"x":10,"y":50,"width":120,"height":100},"fragments":[{"x":10,"y":50,"width":120,"height":100}],"clippedRect":{"x":10,"y":50,"width":120,"height":100}},
+      {"nodeRef":"input-unknown","tag":"input","role":null,"rect":{"x":10,"y":160,"width":180,"height":30},"fragments":[{"x":10,"y":160,"width":180,"height":30}],"clippedRect":{"x":10,"y":160,"width":180,"height":30}},
+      {"nodeRef":"text","tag":"span","role":null,"rect":{"x":10,"y":200,"width":180,"height":30},"fragments":[{"x":10,"y":200,"width":180,"height":30}],"clippedRect":{"x":10,"y":200,"width":180,"height":30}},
+      {"nodeRef":"link","tag":"a","role":null,"rect":{"x":10,"y":240,"width":180,"height":30},"fragments":[{"x":10,"y":240,"width":180,"height":30}],"clippedRect":{"x":10,"y":240,"width":180,"height":30}},
+      {"nodeRef":"container","tag":"div","role":null,"rect":{"x":220,"y":10,"width":300,"height":300},"fragments":[{"x":220,"y":10,"width":300,"height":300}],"clippedRect":{"x":220,"y":10,"width":300,"height":300}},
+      {"nodeRef":"conflict","tag":"img","role":"button","rect":{"x":550,"y":10,"width":120,"height":100},"fragments":[{"x":550,"y":10,"width":120,"height":100}],"clippedRect":{"x":550,"y":10,"width":120,"height":100}},
+      {"nodeRef":"missing-clipping","tag":"video","role":null,"rect":{"x":550,"y":150,"width":120,"height":100},"fragments":[{"x":550,"y":150,"width":120,"height":100}]},
+      {"nodeRef":"outside","tag":"button","role":null,"rect":{"x":1200,"y":10,"width":80,"height":30},"fragments":[{"x":1200,"y":10,"width":80,"height":30}],"clippedRect":{"x":1200,"y":10,"width":80,"height":30}}
+    ]
+  },
+  "nodeRefs": ["button","image","input-unknown","text","link","container","conflict","missing-clipping","outside","button","missing-ref"],
+  "itemObservations": [
+    {"nodeRef":"text","contentEditable":false,"childElementCount":0,"directTextPresent":true},
+    {"nodeRef":"link","hrefPresent":true},
+    {"nodeRef":"container","contentEditable":false,"childElementCount":3,"positiveAreaChildCount":3,"repeatedChildGeometry":false,"inVerifiedListParent":false}
+  ]
+}
