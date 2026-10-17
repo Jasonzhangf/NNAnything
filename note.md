@@ -1,5 +1,11 @@
 # 当前任务
 
+## L1 Goal（最新授权）
+
+D0设计基线已合入main并正常推送origin/main；原framework-m1工作树已remove/prune且路径不存在。用户要求review/提交后生成第一阶段能动Goal并直接执行。目标提示词保存docs/goals/l1-browser-candidates.md：只实现通用执行与七个手写候选节点，输出候选引用，不接模型、训练或动作。当前将建立新的browser-l1独占树，复用有效独立计划及设计评估，不恢复旧M1全节点实现任务。
+
+本轮独占记录 /Volumes/Intel/playground/nnanything-runs/browser-l1；D0必要证据仍在framework-m1记录目录，未将取消worker算模型不可用。下方D0不实现条款为历史阶段，当前L1实施由上述最新指令明确授权；后续L2-L4仍未启动。
+
 ## 2026-10-17 D0最终范围（最新，覆盖下方M1实施授权）
 
 用户将本轮终点明确为架构完整/计划完整，不实现；之后才从浏览器项目开始。进一步要求可复用经验节点、DAGpipe/AppSDK治理、范围内派发按全局原则无需单独许可、能动→核心→完善→兼容四层推进，以及消融不必要SHA/校验。
