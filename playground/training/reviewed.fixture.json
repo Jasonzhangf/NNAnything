@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "taskId": "dom.basic-kinds.v1",
+  "rows": [
+    {
+      "sampleId": "synthetic-button-a",
+      "inputRef": {"snapshotRef":"synthetic-snapshot-a","documentRef":"synthetic-document-a","frameRef":"top","nodeRef":"button-a","index":0},
+      "provenanceRef": "synthetic/evidence/button-a",
+      "sourceAssociations": {"snapshotRefs":["synthetic-snapshot-a"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"button","role":null,"inputType":null,"hrefPresent":null,"contentEditable":null,"directTextPresent":false,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":false,"hidden":false},
+      "proposal": {"ruleRef":"synthetic-rule-button","label":"button","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"button","reviewerRef":"synthetic-human-review","evidenceRef":"synthetic/review/button-a","otherReason":null}
+    },
+    {
+      "sampleId": "synthetic-button-b",
+      "inputRef": {"snapshotRef":"synthetic-snapshot-b","documentRef":"synthetic-document-b","frameRef":"top","nodeRef":"button-b","index":1},
+      "provenanceRef": "synthetic/evidence/button-b",
+      "sourceAssociations": {"snapshotRefs":["synthetic-snapshot-b"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"button","role":null,"inputType":null,"hrefPresent":null,"contentEditable":null,"directTextPresent":true,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":false,"hidden":false},
+      "proposal": {"ruleRef":"synthetic-rule-button","label":"button","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"button","reviewerRef":"synthetic-human-review","evidenceRef":"synthetic/review/button-b","otherReason":null}
+    },
+    {
+      "sampleId": "synthetic-image-a",
+      "inputRef": {"snapshotRef":"synthetic-snapshot-c","documentRef":"synthetic-document-c","frameRef":"top","nodeRef":"image-a","index":2},
+      "provenanceRef": "synthetic/evidence/image-a",
+      "sourceAssociations": {"snapshotRefs":["synthetic-snapshot-c"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"img","role":null,"inputType":null,"hrefPresent":null,"contentEditable":null,"directTextPresent":false,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":null,"hidden":false},
+      "proposal": {"ruleRef":"synthetic-rule-image","label":"image","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"image","reviewerRef":"synthetic-human-review","evidenceRef":"synthetic/review/image-a","otherReason":null}
+    },
+    {
+      "sampleId": "synthetic-image-b",
+      "inputRef": {"snapshotRef":"synthetic-snapshot-d","documentRef":"synthetic-document-d","frameRef":"top","nodeRef":"image-b","index":3},
+      "provenanceRef": "synthetic/evidence/image-b",
+      "sourceAssociations": {"snapshotRefs":["synthetic-snapshot-d"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"img","role":"img","inputType":null,"hrefPresent":null,"contentEditable":null,"directTextPresent":false,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":null,"hidden":false},
+      "proposal": {"ruleRef":"synthetic-rule-image","label":"image","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"image","reviewerRef":"synthetic-human-review","evidenceRef":"synthetic/review/image-b","otherReason":null}
+    },
+    {
+      "sampleId": "synthetic-text-a",
+      "inputRef": {"snapshotRef":"synthetic-snapshot-e","documentRef":"synthetic-document-e","frameRef":"top","nodeRef":"text-a","index":4},
+      "provenanceRef": "synthetic/evidence/text-a",
+      "sourceAssociations": {"snapshotRefs":["synthetic-snapshot-e"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"p","role":null,"inputType":null,"hrefPresent":null,"contentEditable":null,"directTextPresent":true,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":null,"hidden":false},
+      "proposal": {"ruleRef":"synthetic-rule-text","label":"text","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"text","reviewerRef":"synthetic-human-review","evidenceRef":"synthetic/review/text-a","otherReason":null}
+    },
+    {
+      "sampleId": "synthetic-other-a",
+      "inputRef": {"snapshotRef":"synthetic-snapshot-f","documentRef":"synthetic-document-f","frameRef":"top","nodeRef":"other-a","index":5},
+      "provenanceRef": "synthetic/evidence/other-a",
+      "sourceAssociations": {"snapshotRefs":["synthetic-snapshot-f"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"path","role":null,"inputType":null,"hrefPresent":null,"contentEditable":null,"directTextPresent":false,"childElementCount":null,"positiveAreaChildCount":null,"repeatedChildGeometry":null,"inVerifiedListParent":false,"disabled":null,"hidden":null},
+      "proposal": {"ruleRef":"synthetic-rule-other","label":"other","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"other","reviewerRef":"synthetic-human-review","evidenceRef":"synthetic/review/other-a","otherReason":"synthetic SVG primitive outside the eleven element kinds"}
+    }
+  ]
+}

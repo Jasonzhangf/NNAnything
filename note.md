@@ -1,6 +1,18 @@
 # 当前任务
 
-2026-10-17 训练 workflow 设计已落盘，尚未实现或拟合。当前合同 owner 为 docs/training-workflow.md，包含前置 teacher/复核、六节点 I/O、真实 Handwired 内部训练 wire、已知类/other 代理损失、来源分区、进度与保存边界，以及后续实现验收。用户新增的 iframe、登录框、二维码与风控范围已记录：采集覆盖与类别分离，frame 内部只有实际读到才纳入，登录/二维码用途/风控为后续组合语义；元数据引用不作为特征。
+2026-10-17：六节点离线训练已实现，作者自检和独立 Gemini4 整体 Review 完成，main 集成随后执行。公开入口为 `nnanything/training`、`npm run demo:training -- --handwired-root <源码根>`。使用真实 Handwired Circuit 求值、反传与 Adam；保留分层 wire、缺测区间、来源闭包与单标签边界。通用核心未加入站点分支。当前图六节点六边、绑定 0.1.0，DAGpipe validate/inspect 成功。88 个测试、typecheck、四个旧公开 consumer 及训练 consumer 通过。
+
+独立 Reviewer conversation90507fad-92d6-4814-9de2-71ce301cf8b9，实际gemini-4-argon-medium，SUCCESS/exit0，findings=[]。宿主复用统一 classifyReviewOutput 与 schema/scope 合同裁决pass；CLI response附有工具元数据，采用原始result.structured_output，不删改审查字段或放宽schema。完整审查结果见docs/reviews/gemini4-training-m1-review.json，外置原始事件与controller回执保留。
+
+已有样本试验：158 个 LLM 复核样本，properties_offline；小红书共享背景的 120 个训练样本从108匹配到120；独立来源的知乎38个从32到38。25 epochs、lr0.01、anchor0.01；18 fixed、0 regressed。实际手写 profile 起步，没有削弱基线。保存、回载及再次分类成功。只有两个来源组、无 audio/select，不能作为全站准确率。
+
+用户后续授权跨站多页面采集验证。内置浏览器已实际访问微博搜索/正文、小红书搜索/作者主页、知乎搜索/回答，完整 DOM 分段保存，另保存微博滚动视口。原始和标注只在本地 `training/samples/training-m1/unseen`。201 个节点先复核后预测，199 verified、2 ambiguous。未参与初次拟合的新页面：原规则182/199、已训练候选184/199，fixed2/regressed0；剩12个普通div unknown、3个li role=tab conflict。18个other仅类别匹配、状态unknown，不是高置信识别。矩形与viewport相交不等于完成裁剪/遮挡资格，均为properties_offline。repeatedChildGeometry缺测仍为null；iframe内部未采到。
+
+原始试验与回归报告：本地 `training/results/dom-basic-kinds/existing-properties-320c80ef-447e-41b3-be03-33197cd4b8d6.result.json` 和 `unseen-six-scenes.result.json`。固定首轮候选在 `training/weights/dom-basic-kinds/existing-properties-320c80ef-447e-41b3-be03-33197cd4b8d6.weight.json`。外置过程和测试证据：`/Volumes/Intel/playground/nnanything-runs/training-m1`。权重保持候选、未自动采用、未校准。
+
+用户最新要求检验贝叶斯式增量更新。固定首轮候选作高斯锚点，仅新增知乎59项拟合，25轮/lr0.01/anchor0.01不调参；微博与小红书140项留出，原黄金158项仅回归。知乎52/59→59/59，留出132/140→139/140，旧黄金158/158保持；新页合计184/199→198/199，14fixed、0regressed、1unresolved。保留原权重与初次报告，另存incremental-map-d5f655f7-1d16-486c-87ee-c0760b8f55e0候选。代理损失+参数锚定只是MAP式近似，不是完整后验分布。实际consumer复用六节点工作流，旧黄金回归在consumer保存候选后执行，不冒充已有独立节点。详见docs/training-m1-results.md。
+
+以下设计记录为实现前历史，当前实现状态以上文为准。
 
 外置过程记录 /Volumes/Intel/playground/nnanything-runs/training-workflow-design。独立 Gemini4 medium Planner conversation a7ec8e02-d449-48c6-8ad8-4ce7cb8575e6 初稿存在 ReGLU 门顺序、原始分数截断一致性、来源哈希与核心 DOM 进度耦合等缺口；同会话 refined/plan.md 已返回 READY、SUCCESS/exit0。接受修订数值方案与六节点职责，结合用户 LLM 标定要求允许有证据的复核者；规范字段名以项目设计文档为准。该结果是规划，不宣称代码 Review PASS。两个 CLI 子进程已正常退出，无任务代码 worktree。
 

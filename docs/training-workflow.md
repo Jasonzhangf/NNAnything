@@ -1,6 +1,6 @@
 # 节点训练 workflow 设计
 
-状态：2026-10-17，设计稿。本文是当前第一层 DOM 基础种类训练的合同与连线说明。六个训练算子尚未实现，没有启动拟合。图的静态合法性不证明可执行性或识别效果。
+状态：2026-10-17，0.1.0 已实现。本文是当前第一层 DOM 基础种类离线训练的合同、连线与验收说明。六个训练算子（training.prepare / partition / fit / compare / assess / report @ 0.1.0）已实现并通过 Flowed 调度与公开 Consumer 验证；内部使用真实 Handwired Circuit evaluate/backprop 梯度反传与 Adam 优化器完成参数拟合。保存的候选 profile 绝不自动替换基础 profile；初始及候选参数保持未校准（uncalibrated）；新拟合使旧校准失效。
 
 外层复用已有事件、节点与 Flowed 执行合同，不增加调度器。内部使用 Handwired 数值图。workflow 的边不传梯度；拟合循环在 training.fit 内部执行，不给 DAG 增加回边。基础前向算法与类别真源见 [基础种类连线](basic-kinds-wiring.md)，持久拓扑唯一位于 [训练图](../workflows/node-training.graph.json)。
 
@@ -40,7 +40,7 @@ flowchart TD
   linkStyle default stroke:#475569
 ```
 
-六节点、六条内部边，单输入 training_request、单输出 training_result。配置见 [设计配置](../workflows/node-training.workflow.json)。算子均保留 0.1.0-design，不是可调用接口。
+六节点、六条内部边，单输入 training_request、单输出 training_result。配置见 [持久配置](../workflows/node-training.workflow.json)。算子版本与工作流绑定均为 0.1.0（[训练图](../workflows/node-training.graph.json) 为 6N6E SESE）。
 
 | 节点 / 算子 | 输入 | 输出及唯一职责 |
 | --- | --- | --- |
@@ -213,20 +213,26 @@ ReLU 在零点采用零次梯度。一个初值为零且一直缺测的 wire，�
 
 ### 后端加载边界
 
-调用者通过 fit 节点工厂显式提供 handwiredRoot；缺失或缺少 numeric-ui-core.ts 时报后端错误，不自动搜索或复制源码。当前内核为自包含 TS 文件，本机无 Bun。首版设计使用已安装 TypeScript 的 transpileModule 将明确指定的可信源码在内存转为 ESM，再用 Node 动态 import 加载。TypeScript 不是 Node 内置能力，目前是项目 devDependency；训练环境必须安装它。缺失则报依赖错误，不假训练。
+调用者通过 fit 节点工厂显式提供 handwiredRoot（通过 `--handwired-root` 参数或 `HANDWIRED_ROOT` 环境变量）；缺失或缺少 numeric-ui-core.ts 时报后端错误，不自动搜索或复制源码。该加载机制已在 Node 22 环境测试通过（Bun 未经验证）。TypeScript 是项目已安装的 devDependency，`lib/training/handwired.ts` 通过 `typescript.transpileModule` 将明确指定的本地可信源码在内存中转为 ESM，再用 Node 动态 data URL import 加载，并校验其导出 `Circuit` 类。缺失依赖或转译失败时抛错拒绝，绝不假训练。
 
-该加载方案尚未运行验证。后续先在声明的 Node 版本范围验证可信单文件转译、前向与反传，再实现训练节点。若不支持，修正最小加载机制并明确版本边界；不提前建设通用 RPC 平台、迁移 Rust 或 vendor 上游。
+## 8. 实现状态、真实试验证据与后续边界
 
-## 8. 后续实现顺序与验收
+本训练工作流六个算子、6N6E SESE 拓扑与持久绑定已完成 0.1.0 交付。在小型合成样本闭环后，已完成基于本地真实样本的小批复核训练试验，证据记录于 `/Volumes/Intel/playground/nnanything-runs/training-m1/existing-trial-summary.json`：
 
-| 顺序 | 可交付增量 / owner | 具体失败模式与必要验收 |
-| --- | --- | --- |
-| 1 | basic-kinds.ts 共享描述；lib/training 后端与数值 adapter | 防止训练/推理分叉或固定 coefficient 假训练：含缺测、负权、饱和与零系数的前向对齐；真实反传与有限差分对齐。ReLU 角点单独验证约定，有限差分在非角点做绝对/相对误差比较，按 FP32 实测设合理容差 |
-| 2 | lib/training 多分类 schema、复核转换及来源分区 | 拒绝 teacher 字段进入学生；未复核不能训练；共享背景/素材/快照不能跨分区；单来源不冒称独立验证；旧候选状态保持；数组保序保重复 |
-| 3 | lib/nodes 六训练节点；公开离线 consumer | 通过配置加载、编译和 runWorkflow 真正训练；初始大类判错时真实大类/细类都可更新；已知类与确认 other 都以正式路径复测；无标签/后端失败/权限拒绝显式收束 |
-| 4 | 专用权重/报告写入器；正式分类节点回载 | 从 training/weights 读取新 profile，经已有公开分类节点使用；旧新逐例比较可复现；无写权限零写入、拒绝覆盖、报告写失败保留已写路径；未校准且不自动采用 |
-| 5 | 现有本地样本试验 | 先用少量已复核现有样本，报告真实类别覆盖、来源限制、fixed/regressed/unresolved 与补采理由；没有证据不扩大采集 |
-
-前四步先用明确真值的小型合成样本验证基础闭环，不要求先扩采真实数据。真实样本标签复核与数值接入可独立准备；组合前均需通过各自合同。完整实现 milestone 作者验收后再做一次独立 Review；当前独立 Gemini4 提供的是规划与修订，不是代码 Review PASS。
-
-随后按实施计划单独做 WebUI UX，再实现配置和真实训练状态可视化。首版不做概率校准、贝叶斯后验、自动错误回流、父兄弟历史预测、多标签、自动标签注册、跨站效果承诺、画布或 Rust 迁移。新增标签时更新类别/wire/profile 合同，复核旧 other 并回归旧类，无需重写外层六节点拓扑。
+1. **真实样本与来源划分**：
+   - 样本集：158 条经 LLM 复核的离线属性记录（`reviewed-existing.json`）；
+   - 输入范围：`properties_offline` 模式（仅验证离线单节点属性拟合，未验证浏览器视口/候选资格链）；
+   - 来源分组：仅划分 2 个独立来源组（小红书 120 条用于 train，知乎 38 条用于 eval / source_group_holdout 独立验证）。
+2. **拟合与泛化指标**：
+   - 训练集（小红书 120 条）：正确数从 108 提升至 120（fixed 12，regressed 0，retained 108）；
+   - 独立验证集（知乎 38 条留出）：正确数从 32 提升至 38（fixed 6，regressed 0，retained 32）；
+   - 总计：fixed 18、regressed 0、retained 140、unresolved 0、unassessed 0；
+   - 覆盖局限：当前样本集仅包含 2 个来源簇；类别中 select 与 audio 的 support 均为 0（标记为 uncovered），不能声称对未覆盖类别的泛化能力。
+3. **真实页面跨页评估与增量试验**：
+   - 六页201个先复核后预测的节点中，199有确认标签、2个ambiguous；原规则182/199，首轮候选184/199，2fixed、0regressed。
+   - 用户随后授权增量试验。首轮候选作锚点，仅用新知乎59项拟合；微博与小红书140项留出从132到139；原158黄金回归不变。完整范围和局限见[实验记录](training-m1-results.md)。
+4. **后续边界与停止点**：
+   - 初次未见评估与之后明确授权的增量训练分开保存；不以已用于拟合的样本冒称未见测试；
+   - 保存的候选 profile 绝不自动替换基础 profile（`candidateAdoption: "not_applied"`）；
+   - 置信度校准依然缺席：初始手写分数与候选参数均保持未校准（`uncalibrated`），重新拟合使旧校准自动失效；
+   - 第二层业务卡片语义（帖子、作者、评论、广告等）、独立 WebUI、Rust 实现仍保持在当前范围外。

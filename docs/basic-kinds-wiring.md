@@ -75,12 +75,12 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 
 每项保留 index、nodeRef、candidateStatus、candidateReasons、familyStatus、family、familyScores、judgmentStatus、basicKind、leafScores、score、margin、reasons、evidence。evidence 含 wire、缺测、实际权重项和两层决策路径。filtered_out/skipped 转为 excluded，上游 unknown 保持不可用，不能因补充属性而复活。输出只保留受限诊断，不透传原始观测。
 
-`confidenceState=uncalibrated`，`calibratedConfidence=null`。数字分数不称为准确概率。未来训练可调整显式 profile 的 familyWeights/leafWeights，并用缺测 mask 学习部分证据下的权重。此次只实现一个 TypeScript 前向算法，不实现训练、Handwired 加载、梯度或校准。后续接 Handwired 时要保持相同 I/O 和 wire 意义，再验证前向与梯度；不能把当前可配参数声称为已训练网络。
+`confidenceState=uncalibrated`，`calibratedConfidence=null`。数字分数不称为准确概率。离线训练框架已通过 Handwired Circuit 实现参数拟合（保持相同的 I/O、缺测 mask 与 wire 语义，通过 Adam 优化器更新 familyWeights/leafWeights，见 [训练 workflow 设计](training-workflow.md)）。初始手写分数与新拟合的候选 profile 均保持未校准（uncalibrated）；重新拟合使旧校准自动失效；保存的候选 profile 绝不自动采用。
 
 示例：button hidden/disabled→control/button；input 缺 type→control/other 且判断状态 unknown；img role=button→大类 conflict，标签 other；a 缺 href 测量→other；div 只有重复几何→other；span 直接文字与零元素子节点均已测→text/text。SVG 默认按支持分数不足返回 other，补充 role=img 后可以沿媒体支路判为 image，没有按 SVG 名字提前否决。
 
 `other` 是当前已知类别之外或尚不能消歧的残余标签，不伪造其数值置信度：score/margin 仍为 null，具体类别的分数区间仍完整可审计。预测 other 不能直接成为黄金 other 或训练负例。训练标签须由 teacher/人工确认，监督映射由训练任务负责。
 
-当前标签集合对合格输入全覆盖，不等于已证明主流网站/主流页面的经验覆盖。新增种类时更新 BASIC_KIND_FAMILIES、所需的允许 wire 和 profile，保持框架核心不变；复核历史 other 中属于新类的样本，再做旧类与新类的来源隔离回归。新类别不能只改标签名而继续使用缺少该类别行的旧参数。当前没有运行增量训练。
+当前标签集合对合格输入全覆盖，不等于已证明主流网站/主流页面的经验覆盖。离线训练闭环已通过 0.1.0 六节点与小批复核样本验证。新增种类时更新 BASIC_KIND_FAMILIES、所需的允许 wire 和 profile，保持框架核心不变；复核历史 other 中属于新类的样本，再做旧类与新类的来源隔离回归。新类别不能只改标签名而继续使用缺少该类别行的旧参数。
 
 旧微博快照缺 fragments/clippedRect。沿候选链保留 605 filtered_out、528 skipped、867 unknown，零合格分类。纯函数可另做属性诊断，但不能宣称这些是 workflow 合格结果或准确率。

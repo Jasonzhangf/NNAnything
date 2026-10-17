@@ -230,3 +230,18 @@ test("missing signed terms retain audit contributions and receive interval gradi
     assert.ok(Math.abs(actual - finite) <= 1e-4 + 1e-3 * Math.max(Math.abs(actual), Math.abs(finite)));
   }
 });
+
+test("non-finite loss is an explicit fitting failure, never a saved candidate", async () => {
+  const profile = cloneProfile();
+  profile.familyWeights.control.nat_control_button = 0;
+  profile.familyWeights.control.role_button = 0;
+  profile.leafWeights.button.nat_control_button = 0;
+  profile.leafWeights.button.role_button = 0;
+  await assert.rejects(fitBasicKinds({
+    handwiredRoot,
+    rows: [{ properties: properties("button", { role: "button" }), expectedLabel: "button" }],
+    baseProfile: profile,
+    config: { ...config, fit: { epochs: 3, learningRate: 1, anchorLambda: Number.MAX_VALUE } },
+    candidateId: "overflow-candidate",
+  }), /Non-finite training/);
+});

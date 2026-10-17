@@ -11,14 +11,14 @@
 | `dom-rule-sampling.graph.json` | `dom-rule-sampling.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 基础规则采样流：显式 semantic rules 确定性分类 DOM 记录、下游按任务映射正负监督并持久化至本地 JSONL |
 | `dom-basic-kinds.graph.json` | `dom-basic-kinds.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 第一层 DOM 基础种类判断流：接收保序候选槽位与可选补充观测，经两阶段（大类 -> 细类）区间计算输出基础种类槽位与审计证据 |
 | `dom-recognition.graph.json` | 待按需配置 | 10 节点 10 边 (10N10E SESE) | `0.1.0-design` 设计态 | L2 完整卡片语义识别流：候选展开后经白名单特征提取、单标签语义分类并组装回原槽位 |
-| `node-training.graph.json` | `node-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.2.0-design` 设计态；算子 `0.1.0-design` | 第一层基础种类离线训练设计：复核样本、来源分区、Handwired 拟合、新旧比较、评估和保存；首版未校准 |
+| `node-training.graph.json` | `node-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.2.0` 已实现；算子与绑定 `0.1.0` | 第一层基础种类离线训练流：复核样本、来源分区、Handwired 拟合、新旧比较、评估与安全保存；未校准候选不自动采用 |
 | `operation-episode.graph.json` | 待按需配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` 设计态 | L3 操作闭环设计示例：观测、目标识别、策略决策、条件执行、新观测验证与统一收束 |
 
 > [!NOTE]
-> `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE) 与 `dom-basic-kinds.graph.json` (1N0E SESE) 均已升级为 `0.1.0`，经 `dagpipe graph validate` 与 `inspect` 验证通过。
-> 运行时可通过 `compileWorkflow` 配合 `nnanything/browser` 导出的算子节点执行。当前第一层基础种类判断只输出基础结构成分，第二层业务卡片语义（`dom-recognition.graph.json`）仍保持后续设计态。
+> `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。
+> 运行时可通过 `compileWorkflow` 配合 `nnanything/browser` 与 `nnanything/training` 导出的算子节点执行。当前第一层基础种类判断与离线训练框架已闭环，第二层业务卡片语义（`dom-recognition.graph.json`）仍保持后续设计态。
 
-训练图、节点端口、内部 wire、数据范围及后续验收统一见 [训练 workflow 设计](../docs/training-workflow.md)。训练配置可按现有声明格式解析，但缺少训练算子实现，不能编译执行。上方“已实现”说明仅适用于三个已交付工作流。
+训练图、节点端口、内部 wire、数据范围、真实试验证据及验收统一见 [训练 workflow 设计](../docs/training-workflow.md)。公开离线 consumer 见 [playground/training/README.md](../playground/training/README.md)。
 
 ## 2. 基础规则采样流设计 (dom-rule-sampling)
 
@@ -79,3 +79,46 @@ flowchart TD
 本工作流规格为 1 节点 0 边单入口单出口（1N0E SESE），已完成 SESE 拓扑验证。
 输入接收 `candidate_slots`（可选携带 `itemObservations` 补充观测），经两阶段（大类 -> 细类）确定性计算后输出 `basic_kind_slots`。
 完整节点合同与端口参数见 [lib/nodes/README.md](../lib/nodes/README.md)，算法设计真源见 [docs/basic-kinds-wiring.md](../docs/basic-kinds-wiring.md)。
+
+## 4. 第一层基础种类离线训练流设计 (node-training)
+
+### 4.1 业务流程图（遵循 flow-presentation 与 SESE 规范）
+
+```mermaid
+flowchart TD
+  S([输入多分类训练请求 training_request]):::boundary --> P[准备节点输入与期望输出]:::action
+  P -->|samples| D[按来源分组并划分用途]:::action
+  D -->|partitions 训练集| F[拟合目标节点参数]:::action
+  F -->|candidate 候选参数与记录| C[比较新旧节点在相同样本的输出]:::action
+  D -->|partitions 验证集与来源簇| C
+  C -->|comparison 双轨比对结果| A[评估修复退化与证据不足]:::action
+  A -->|assessment 采用评估与证据边界| W[保存候选参数与训练报告]:::action
+  W -->|training_result| Z([输出保存回执与指标汇总]):::success
+
+  classDef boundary fill:#E9EEF5,stroke:#64748B,color:#0F172A,stroke-width:1.5px
+  classDef action fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.5px
+  classDef success fill:#E8F7EE,stroke:#16A34A,color:#0F172A,stroke-width:1.5px
+  linkStyle default stroke:#475569
+```
+
+### 4.2 图与配置一一对应关系
+
+持久配置 `node-training.workflow.json`（v1 格式）与 `node-training.graph.json` 严格一一对应：
+1. `graphRef`: 对本地图文件显式相对路径 `"./node-training.graph.json"`；
+2. `configs`:
+   - `prepareSpec`: `{ "taskId": "dom.basic-kinds.v1", "inputScope": "candidate_qualified" }`
+   - `partitionSpec`: `{ "mode": "source_group_holdout", "seed": 20261017, "evalFraction": 0.3 }`
+   - `targetSpec`: `{ "taskId": "dom.basic-kinds.v1", "minScore": 0.6, "minMargin": 0.15, "objective": { "targetScore": 0.8, "rivalCeiling": 0.4, "otherGap": 0.05 }, "fit": { "epochs": 25, "learningRate": 0.01, "anchorLambda": 0.01 } }`
+   - `assessSpec`: `{ "forbidGoldRegression": true }`
+   - `reportSpec`: `{ "weightsDirectory": "training/weights/dom-basic-kinds", "resultsDirectory": "training/results/dom-basic-kinds" }`
+3. `bindings`:
+   - `"准备节点输入与期望输出"` 绑定 `prepareSpec`
+   - `"按来源分组并划分用途"` 绑定 `partitionSpec`
+   - `"拟合目标节点参数"` 绑定 `targetSpec`，显式引用 `profileId: "dom-basic-kinds-handwritten-v1"`
+   - `"比较新旧节点在相同样本的输出"` 绑定 `targetSpec`，显式引用相同 `profileId: "dom-basic-kinds-handwritten-v1"`
+   - `"评估修复退化与证据不足"` 绑定 `assessSpec`
+   - `"保存候选参数与训练报告"` 绑定 `reportSpec`
+
+本工作流规格为 6 节点 6 边单入口单出口（6N6E SESE），已完成 SESE 拓扑与算子定义（0.1.0）验证。
+完整节点合同与端口参数见 [lib/nodes/README.md](../lib/nodes/README.md)，算法设计、Handwired 反传、优化器与试验证据见 [docs/training-workflow.md](../docs/training-workflow.md)。
+公开 Consumer 使用说明见 [playground/training/README.md](../playground/training/README.md)。

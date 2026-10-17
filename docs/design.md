@@ -4,7 +4,7 @@
 
 本文件是总体方案入口。具体目录、配置、节点与四层优先级以[实施计划](implementation-plan.md)、[节点合同](node-contract.md)和[项目治理](project-governance.md)为准；最新工作流真源见 [workflows/README.md](../workflows/README.md)，三类基础采样节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)。下方D1-D5为未来长期责任地图，不是当前执行授权。research保留详细依据，设计review不等于电路训练或产品可用。
 
-2026-10-17 当前第一层基础种类算法已交付，正在交付 [基础种类训练 workflow 设计](training-workflow.md)。该文档和 workflows/node-training.graph.json 覆盖本文件下方历史二分类卡片训练、7 节点校准流程的首版适用范围：当前采用 6 节点，固定门限且未校准。历史卡片 sigmoid、alpha/beta 与贝叶斯方案不作为本次多分类训练处方。
+2026-10-17 第一层基础种类算法与六节点离线训练已实现（详见[训练合同](training-workflow.md)）。6N6E SESE 工作流接入真实Handwired求值、反传与Adam。已有158项试验、六页201项评估及随后明确授权的MAP式增量实验已运行，范围和局限见[实验结果](training-m1-results.md)。阈值固定，置信度未校准，候选不自动采用。历史卡片sigmoid、alpha/beta或完整贝叶斯分布不作为本轮多分类实现。第二层业务语义、WebUI、Rust保持后续范围。
 
 ## 1. 目标与边界
 

@@ -4,7 +4,7 @@
 
 本计划依据独立规划及其收敛决议。目录全图在第 2 节单一 owner 维护，工作流清单与真源索引见 [workflows/README.md](../workflows/README.md)，节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)，第一层基础种类算法真源见 [docs/basic-kinds-wiring.md](basic-kinds-wiring.md)。
 
-2026-10-17 后续阶段补充：基础训练闭环可运行后，增加独立的 WebUI 阶段，用于配置与训练状况可视化；UX 须单独设计后再实现。阶段顺序、范围与验收由第 8 节单一维护。本次补充只记录计划，当前训练图仍为设计态。
+2026-10-17 阶段更新：基础训练六节点闭环已实现（0.1.0），包含真实 Handwired Circuit evaluate/backprop 拟合、Adam 优化器、TypeScript 源码加载器、已有样本复核试验及回载验证。后续按需规划独立的 WebUI 阶段；UX 须单独设计后再实现。阶段顺序、范围与验收由第 8 节单一维护。
 
 ## 1. 本轮D0的完成条件
 
@@ -40,19 +40,22 @@ NNAnything/
     dom-basic-kinds.graph.json               # [已实现 0.1.0] 第一层基础种类图 (1N0E SESE)
     dom-basic-kinds.workflow.json            # [已配置 0.1.0] 基础种类持久配置 (graphRef="./dom-basic-kinds.graph.json")
     dom-recognition.graph.json               # [设计态 0.1.0-design] 完整卡片识别流 (10N10E SESE)
-    node-training.graph.json                 # [设计态 0.1.0-design] 目标节点训练流 (7N8E SESE)
+    node-training.graph.json                 # [已实现 0.2.0] 目标节点训练流 (6N6E SESE)
+    node-training.workflow.json              # [已配置 0.1.0] 目标节点训练持久配置与运行绑定
     operation-episode.graph.json             # [设计态 0.1.0-design] 操作闭环流 (7N6E SESE)
   lib/                                       # 库源码根目录
     index.ts                                 # 公开主入口：导出 core、workflow、nodes/common
     browser.ts                               # 公开 ./browser 入口：导出 adapters、filters、nodes/dom、采样及基础种类节点
+    training.ts                              # 公开 ./training 入口：导出训练算子、schema 校验与分区/评估/报告函数
     core/                                    # 通用契约、事件信封、错误与基础 schema
     workflow/                                # 持久配置加载、DAG 校验、Flowed 编译与运行器
     nodes/                                   # 可复用 workflow 节点定义与合同清单
-      README.md                              # 节点目录职责与采样/基础种类节点完整合同卡唯一真源
+      README.md                              # 节点目录职责与采样/基础种类/训练节点完整合同卡唯一真源
       common.ts                              # common.scale / sum / count (1.0)
       dom.ts                                 # dom.observe / viewport / focus / deny / allow / split / candidates (0.1.0)
       sampling.ts                            # sample.match / assemble / save (0.1.0)
       basic-kinds.ts                         # dom.basic_kinds (0.1.0)
+      training.ts                            # 六训练算子：training.prepare / partition / fit / compare / assess / report (0.1.0)
       trainable/                             # 可训练节点定义目录（存节点结构/特征，不存权重）
         README.md                            # 可训练节点与 Handwired 电路边界
     filters/                                 # 确定性过滤规则与候选槽位求值纯逻辑
@@ -64,9 +67,13 @@ NNAnything/
     adapters/                                # 外部环境与原始观测输入适配
       browser/
         observation.ts                       # 页面观测数据适配与白名单清洗
-    training/                                # 节点训练算子实现目录
+    training/                                # 节点训练算子与数值后端适配目录
       README.md                              # 训练算子与 HANDWIRED_ROOT 边界
       samples.ts                             # 单任务样本 schema、任务监督映射与学生观测清洗
+      basic-kind-samples.ts                  # 多分类复核样本 schema、学生投影与提取适配
+      basic-kind-numeric.ts                  # 基础种类 Handwired 数值电路、梯度反传与 Adam 优化器
+      basic-kind-training.ts                 # 来源分区、候选读取、比较、评估与写入逻辑
+      handwired.ts                           # Handwired TS 源码内存转译与动态 ESM 加载器
   training/                                  # 本地训练数据与权重资产根目录（数据本地生成，Git 忽略）
     README.md                                # 本地训练资产三分类与隔离底线
     samples/                                 # 规则采样或 teacher 生成的规范样本（JSONL，Git 忽略）
@@ -89,10 +96,15 @@ NNAnything/
       README.md                              # 基础种类公开 consumer 说明与 CLI 契约
       basic-kinds.fixture.json               # 离线合成候选样例数据
       demo.mjs                               # 第一层基础种类公开 consumer
+    training/
+      README.md                              # 离线训练公开 consumer 说明与 CLI 契约
+      demo.mjs                               # 六节点离线训练、Handwired 拟合与回载公开 consumer
+      reviewed.fixture.json                  # 离线合成多分类样例数据
   tests/                                     # 公开合同与黑盒用例
     basic-kinds.test.mjs                     # 第一层基础种类单元与工作流测试
   docs/                                      # 架构、合同与治理文档（图真源移入 workflows/）
     basic-kinds-wiring.md                    # 第一层基础种类数值连线与算法设计真源
+    training-workflow.md                     # 第一层基础种类离线训练 workflow 设计与验收真源
   research/                                  # 调研依据与原始数据（本地忽略，绝不提交）
 ```
 
@@ -164,16 +176,14 @@ L1就可以积累手写节点经验：例如父容器跳过导致漏候选的规
 
 ## 8. 训练基础与后续 WebUI 阶段
 
-本节记录用户后续推进要求。基础类别算法、候选与规则采样已交付；真实训练、来源标签器的完整复核流程及 WebUI 待实施。
+本节记录训练推进与后续阶段。六节点离线训练、真实Handwired反传、Adam、显式TypeScript加载器与已有样本试验均已运行。用户随后授权跨页评估及增量实验，训练、留出与旧黄金回归分别记录，见[实验结果](training-m1-results.md)。保存候选不自动替换基础profile；置信度未校准；第二层业务语义、WebUI、Rust保持后续范围。
 
-2026-10-17 当前增量仅设计训练 workflow。六节点拓扑、内部 Handwired 连线、复核多分类数据与真实入口验收以 [训练 workflow 设计](training-workflow.md) 为准。首版不含校准、贝叶斯更新或自动采用 profile；图和配置均为设计态。本轮不进入实现或拟合。
-
-| 阶段 | 目标与交付 | 进入下一步的依据 |
+| 阶段 | 目标与交付 | 状态与依据 |
 | --- | --- | --- |
-| 训练基础能动 | 复用现有 workflow，接入真实 Handwired 前向、损失、反传和参数更新；保存并回载候选 profile | 公开入口完成至少一轮真实训练，输出状态与结果，同一分类节点能加载产物 |
-| 现有样本试验 | 按来源用 class/name 等 teacher 规则批量提议标签，复核后试训；报告按来源隔离的新旧结果 | 根据每类错误、other 分布与回归结果判断当前效果及补采缺口；原始名称与学生输入保持隔离 |
-| WebUI 独立 UX 设计 | 在基础闭环可运行后，围绕配置、训练状态与结果检查设计任务路径、信息结构和原型 | 完成核心任务及状态设计，核对真实后端能力并进行 UX 审查后实现 |
-| WebUI 首版 | 通过界面配置和启动训练，观察真实运行状态，检查结果及候选 profile 差异 | 用实际配置、样本与训练任务走通端到端操作和失败恢复 |
+| 训练基础能动 | 复用现有 workflow，接入真实 Handwired 前向、损失、反传和参数更新；保存并回载候选 profile | **已交付 (0.1.0)**：公开入口 `npm run demo:training` 完成真实拟合，输出状态与结果，同一分类节点加载候选验证 |
+| 现有样本试验 | 按来源用 class/name 等 teacher 规则批量提议标签，复核后试训；报告按来源隔离的新旧结果 | **已交付 (0.1.0)**：158 条复核样本完成拟合试验（小红书 120 训练 108->120，知乎 38 留出 32->38，fixed 18 / regressed 0，仅 2 来源组，无 audio/select；未见页面跨页评估进行中） |
+| WebUI 独立 UX 设计 | 在基础闭环可运行后，围绕配置、训练状态与结果检查设计任务路径、信息结构和原型 | 待规划：完成核心任务及状态设计，核对真实后端能力并进行 UX 审查后实现 |
+| WebUI 首版 | 通过界面配置和启动训练，观察真实运行状态，检查结果及候选 profile 差异 | 待实施：用实际配置、样本与训练任务走通端到端操作和失败恢复 |
 
 UX 的必要设计范围：
 

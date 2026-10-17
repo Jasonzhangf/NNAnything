@@ -2,19 +2,19 @@
 
 ## 当前交付边界
 
-候选过滤、基础规则采样与第一层 DOM 基础种类算法已交付。训练 workflow 设计完成后，用户最新授权“把基础框架搭起来，看下训练效果，然后再决定如何采集样本”。当前实现六节点离线训练、真实 Handwired 拟合、保存/回载及已有样本的小批复核试验；不扩大采集、不做 WebUI。第二层帖子/作者/评论/广告、登录区域、二维码用途与风控状态仍为后续语义。iframe 内部只有实际采到才可作为节点输入，覆盖未知不能标为 other。
+候选过滤、基础规则采样与第一层 DOM 基础种类算法已交付。用户已授权六节点离线训练框架、已有样本试验与微博/小红书/知乎跨页评估，随后明确要求检验增量更新。初次未见评估保留原始结果；增量实验显式划分新增训练与留出样本，旧黄金做回归。当前仅实现参数锚定的 MAP 式近似，不宣称完整贝叶斯后验。保存的候选 profile 不自动采用（not_applied）。第二层帖子/作者/评论/广告、WebUI、Rust 实现、登录区域、二维码用途与风控状态仍为后续范围。iframe 内部只有实际采到才可作为节点输入，覆盖未知不能标为 other。
 
-项目远端为https://github.com/Jasonzhangf/NNAnything.git。训练必须有公开 consumer 真实拟合与回载证据，不以静态图校验冒称可运行。原始登录态页面、站点特定标注规则与样本产物保持本地。初始手写分数不冒称经过独立标定的概率或置信度。
+项目远端为https://github.com/Jasonzhangf/NNAnything.git。训练必须有公开 consumer 真实拟合与回载证据，不以静态图校验冒称可运行。原始登录态页面、站点特定标注规则与样本产物保持本地。初始手写分数保持未校准（uncalibrated），不冒称经过独立标定的概率或置信度；重新拟合使旧校准自动失效。
 
 ## 唯一Owner与入口
 
 - 总体架构入口：docs/design.md；D0交付与后续浏览器范围：docs/framework-m1.md。
 - 通用节点/事件与workflow合同：docs/node-workflows.md、docs/canvas-events.md；持久基础配置：docs/workflow-config.md。
 - 可复用经验节点合同：docs/node-contract.md；目录和实施顺序：docs/implementation-plan.md。
-- 当前第一层训练合同、内部数值图与验收：docs/training-workflow.md；外层拓扑和配置：workflows/node-training.graph.json、node-training.workflow.json，均为设计态。
+- 当前第一层训练合同、内部数值图与验收：docs/training-workflow.md；外层拓扑和配置：workflows/node-training.graph.json、node-training.workflow.json（算子与绑定均为 0.1.0）。
 - 推进节奏、DAGpipe/AppSDK治理、交付与审批：docs/project-governance.md。
-- 项目图拓扑与流程清单：workflows/*.graph.json 与 workflows/README.md；后续可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
-- 三类基础采样节点完整合同卡唯一owner：lib/nodes/README.md。
+- 项目图拓扑与流程清单：workflows/*.graph.json 与 workflows/README.md；可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
+- 基础采样与训练节点完整合同卡唯一owner：lib/nodes/README.md。
 - DOM focus/单标签与数组规则：docs/focus-and-labeling.md；首个结构实验电路：docs/structure-circuit-m1.md。research中的旧organic或多标签草案不得覆盖当前合同。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 
@@ -40,7 +40,7 @@ Filter 与任务监督边界：Filter 只输出语义分类、识别状态及证
 
 需求优先级依次为能动、能有核心功能、完善功能、提高兼容性。先交最小能动切片，不提前扩展。各层验收沿docs/implementation-plan.md，安全和数据正确性不后移。
 
-项目内agent派发只要符合全局派发原则、已有任务范围和文件owner，不需要单独授权。当前授权按 docs/training-workflow.md 实现最小离线训练闭环，并复核已有样本做试验；不扩大到第二层业务识别或新增采集。完整重大实现milestone作者验收后整体Review一次，不逐节点加审批。
+项目内agent派发只要符合全局派发原则、已有任务范围和文件owner，不需要单独授权。当前授权包括最小离线训练、已有样本试验、跨页评估与明确分区的增量实验，结果见 docs/training-m1-results.md；第二层业务卡片语义、WebUI、Rust 保持在范围外。完整重大实现milestone作者验收后整体Review一次，不逐节点加审批。
 
 采用DAGpipe图治理与AppSDK需求/交付治理原则。有效.appsdk/requirements.json存在时通过正式入口读取适用项；当前未初始化AppSDK，不伪造受管状态、不建需求占位。首次入驻沿既有prepare确认合同，不把它变成日常派发许可。
 

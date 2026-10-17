@@ -8,10 +8,14 @@
 2. **内容构成**：一个标准的权重 Profile 包含：
    - `profileId`：在调用者本次显式资源映射内唯一的 profile 标识，不建立全局注册表；
    - `targetOperator` 与 `contractVersion`：绑定的目标算子与契约版本；
-   - `parameters`：数值参数矩阵或权重数组；
-   - `calibration`：校准状态、阈值及置信度映射表（若未校准则显式标为 `uncalibrated`）；
-   - `provenance`：拟合所用的样本集引用与基础 profile 引用。
-3. **不可静默覆盖**：严禁自动覆盖已有 profile 文件。每次新的训练拟合生成新的独立 profile 文件；新拟合参数使旧校准状态自动失效。
+   - `profile`：稀疏数值参数表（包含 `familyWeights` 与 `leafWeights`）；
+   - `calibrated: false`：当前没有校准参数，分类结果的 calibratedConfidence 为 null；
+   - `compatibility`：taskId、minScore 与 minMargin；
+   - `baseProfileId`：本轮基础参数引用。拟合轨迹、样本覆盖和比较记录在对应结果报告中，权重资产不另设 calibration/provenance 字段。
+3. **不可静默覆盖与拒绝自动采用**：
+   - 严禁自动覆盖已有 profile 文件，使用 `wx` 独占排他创建，遇同名文件报错拒绝；
+   - 每次新的训练拟合生成新的独立 profile 文件；新拟合参数使旧校准状态自动失效；
+   - 保存的候选 profile 绝不自动替换现有基础 profile（回执标记 `candidateAdoption: "not_applied"`），必须由调用者显式更新配置并绑定新 profileId。
 4. **代码解耦**：禁止将权重硬编码进 TypeScript 源码（如 `lib/nodes/trainable/`），亦禁止在 `training/results/` 中重复堆积权重。
 
 ## 2. Git 忽略

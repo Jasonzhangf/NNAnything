@@ -326,7 +326,10 @@ export async function fitBasicKinds(value: {
       anchor += config.fit.anchorLambda / 2 * difference ** 2;
       gradient[index] = gradient[index]! + config.fit.anchorLambda * difference;
     }
-    return { gradient, knownLoss: known / rows.length, otherLoss: other / rows.length, anchorLoss: anchor };
+    const knownLoss = known / rows.length, otherLoss = other / rows.length;
+    if (![knownLoss, otherLoss, anchor, knownLoss + otherLoss + anchor].every(Number.isFinite)
+      || !gradient.every(Number.isFinite)) throw new Error("Non-finite training loss or gradient");
+    return { gradient, knownLoss, otherLoss, anchorLoss: anchor };
   };
   const before = evaluateAll(weights);
   const lossBefore = before.knownLoss + before.otherLoss + before.anchorLoss;
@@ -342,6 +345,7 @@ export async function fitBasicKinds(value: {
       firstMoment[index] = firstDecay * firstMoment[index]! + (1 - firstDecay) * state.gradient[index]!;
       secondMoment[index] = secondDecay * secondMoment[index]! + (1 - secondDecay) * state.gradient[index]! ** 2;
       const next = weights[index]! - config.fit.learningRate * (firstMoment[index]! / firstCorrection) / (Math.sqrt(secondMoment[index]! / secondCorrection) + epsilon);
+      if (![firstMoment[index]!, secondMoment[index]!, next].every(Number.isFinite)) throw new Error("Non-finite training optimizer state");
       if (next < -1 || next > 1) projectedWeightCount++;
       weights[index] = Math.fround(Math.max(-1, Math.min(1, next)));
     }

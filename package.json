@@ -13,6 +13,10 @@
     "./browser": {
       "types": "./dist/browser.d.ts",
       "import": "./dist/browser.js"
+    },
+    "./training": {
+      "types": "./dist/training.d.ts",
+      "import": "./dist/training.js"
     }
   },
   "engines": {
@@ -25,7 +29,8 @@
     "demo": "npm run build && node playground/common/demo.mjs",
     "demo:browser": "npm run build && node playground/browser/demo.mjs",
     "demo:sampling": "npm run build && node playground/sampling/demo.mjs",
-    "demo:basic-kinds": "npm run build && node playground/basic-kinds/demo.mjs"
+    "demo:basic-kinds": "npm run build && node playground/basic-kinds/demo.mjs",
+    "demo:training": "npm run build && node playground/training/demo.mjs"
   },
   "dependencies": {
     "flowed": "1.15.0"

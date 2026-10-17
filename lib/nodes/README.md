@@ -1,8 +1,8 @@
 # 节点定义与合同清单 (lib/nodes/)
 
 本目录为 NNAnything 节点定义（`NodeDefinition`）的唯一源码根目录。
-遵循 [可复用经验节点合同](../../docs/node-contract.md)，本文件是基础采样 3 节点与第一层 DOM 基础种类节点（`dom.basic_kinds@0.1.0`）合同卡（身份、输入、输出、配置与状态、副作用、训练能力、兼容条件、验收）的唯一真源，并索引已实现的 L1 节点。
-其他文档与实施计划均通过链接引用本文件，不复制节点卡。当前六个未实现训练节点的设计合同统一见 [训练 workflow 设计](../../docs/training-workflow.md)，本文件只作索引；实现时再补正式节点卡。
+遵循 [可复用经验节点合同](../../docs/node-contract.md)，本文件是基础采样 3 节点、第一层 DOM 基础种类节点（`dom.basic_kinds@0.1.0`）与离线训练 6 节点（`training.*@0.1.0`）合同卡（身份、输入、输出、配置与状态、副作用、训练能力、兼容条件、验收）的规范真源，并索引已实现的算子。
+详细算法设计与训练流程分别复用 [基础种类连线设计](../../docs/basic-kinds-wiring.md) 与 [训练 workflow 设计](../../docs/training-workflow.md)，本卡聚焦节点 I/O、配置与副作用契约。
 
 ---
 
@@ -73,17 +73,91 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 | 输出 | 端口 `output`（工作流图中连线 ID 对应 `basic_kind_slots`），`schemaId: "dom/basic-kind-batch/v1"`，事件类型 `"dom.basic-kind-slots.v1"`。<br>payload 为 `{ taskId: string, profileId: string, slots: BasicKindSlot[] }`。<br>slots 保持输入顺序与长度。每项保留 `index`、`nodeRef`、`candidateStatus`、`candidateReasons`，以及来自核心算法的判断与证据字段：`familyStatus`、`family`、`familyScores`、`judgmentStatus`、`basicKind`、`leafScores`、`score`、`margin`、`confidenceState: "uncalibrated" \| "not_applicable"`、`calibratedConfidence: null`、`reasons`、`evidence: { stateFlags, wires, activeTerms, path }`。<br>无极性与无假置信度：节点不输出训练正负极性，不提供经过独立标定的概率或置信度。 |
 | 配置与状态 | 必填配置：`taskId: string`、`minScore: number`、`minMargin: number`。默认门限分别为 0.60 与 0.15（`DEFAULT_BASIC_KIND_CONFIG`）。<br>可选 profileId 绑定：通过 `compileWorkflow` 的 profiles 映射传入完整的稀疏数值 profile（`BasicKindProfile`，含 familyWeights 与 leafWeights）；若未配置 profileId，默认使用手写稀疏权重表（`DEFAULT_BASIC_KIND_PROFILE`）。<br>执行模式：执行真正的两阶段粗细计算（大类 family -> 细类 leaf）；大类未通过时没有 leafScores，通过后 leafScores 仅包含该大类的细类。缺测特征保留为区间，不把缺测填 0。 |
 | 副作用 | 无（`effects: []`），纯内存确定性转换。 |
-| 训练能力 | 数值参数通过显式 profile 配置。当前未实现参数拟合、Handwired 后端集成、梯度反传或置信度校准。后续训练可沿同一 wire 合同学习参数，不能将当前手写参数称为已训练权重。 |
+| 训练能力 | 数值参数通过显式 profile 配置。离线训练框架已通过六节点与 Handwired Circuit 实现了参数拟合，产出可被本节点加载的候选 profile；未校准（uncalibrated），候选 profile 不自动采用。 |
 | 兼容条件 | 上游非 ok 事件按 Runner 默认规则判定为 skipped（`upstream_not_ok`），不产生副作用。<br>输入候选状态为 filtered_out 或 skipped 时映射为 excluded，unknown 保持 unknown，不因补充观测复活。<br>纯函数可做单属性诊断，但纯诊断调用不属于工作流合格分类。不包含第二层业务卡片语义（帖子、作者、评论、广告等），不执行活体网页采集。 |
 | 验收 | 验证两阶段（大类 -> 细类）执行路径；验证属性缺测区间计算与保守弃判；验证 tag 与 role 冲突输出 conflict；验证稀疏 profile 独立覆写；验证非法特征字段抛错拦截；验证上游候选排除状态保持 excluded 且不复活。公开 demo 入口 `npm run demo:basic-kinds` 使用 1 节点图与完整合成候选数据离线运行验证。 |
 
 ---
 
-## 3. L1 候选、采样与基础种类已实现节点索引
+## 3. 基础种类离线训练流 6 节点合同卡（0.1.0）
 
-所有已实现的确定性节点（7 个 DOM 候选算子、3 个采样算子、1 个基础种类算子与 3 个通用算子）源码位于 `lib/nodes/`：
+本节是第一层基础种类离线训练流六算子（`training.*@0.1.0`）合同卡的规范真源。
+六节点通过工厂函数 `createTrainingNodeDefinitions({ handwiredRoot, allowedRoot, onFitProgress })` 创建，通过 `nnanything/training` 公开导出。
+详细多分类数据合同、分区算法、Handwired 损失与反传连线及结果结构由 [docs/training-workflow.md](../../docs/training-workflow.md) 唯一维护，本卡规范节点 I/O、配置与副作用边界。
 
-### 3.1 浏览器 DOM 候选、采样与基础种类节点 (`lib/nodes/dom.ts`, `lib/nodes/sampling.ts`, `lib/nodes/basic-kinds.ts`)
+### 3.1 `training.prepare`（准备节点输入与期望输出）
+
+| 合同维度 | 规范内容 |
+| :--- | :--- |
+| **身份** | `operator: "training.prepare"`, `operator_version: "0.1.0"`。多分类复核样本准备与白名单投影算子。<br>唯一 owner：`lib/nodes/training.ts` + `lib/training/basic-kind-samples.ts`。详细数据结构见 [docs/training-workflow.md#4-复核多分类样本与来源分区](../../docs/training-workflow.md)。 |
+| **输入** | 端口 `training_request`，schemaId `training/basic-kinds/request/v1`，事件 `training.request.v1`。payload 为 `BasicKindTrainingRequest`（包含 `taskId` 与 `rows: ReviewedBasicKindRow[]`）。 |
+| **输出** | 端口 `samples`，schemaId `training/basic-kinds/samples/v1`，事件 `training.samples.v1`。payload 为 `BasicKindSamples`（包含 `taskId`、`inputScope`、保序 `rows`、纳入索引 `includedIndices` 及逐行 reasons）。 |
+| **配置与状态** | 必填配置：`taskId: string`（必须为 `"dom.basic-kinds.v1"`）、`inputScope: "candidate_qualified" \| "properties_offline"`。<br>范围过滤：`candidate_qualified` 要求原候选资格为 ok；`properties_offline` 接收离线单节点合法属性与缺测。两种范围均要求 review.status 为 `verified` 且有明确 expectedLabel。 |
+| **副作用** | 无（`effects: []`），纯内存转换。 |
+| **验收** | 验证 teacher/raw 字段绝不进入学生属性；未复核/排除项正确记录原因且不计入 includedIndices；保序输出。 |
+
+### 3.2 `training.partition`（按来源分组并划分用途）
+
+| 合同维度 | 规范内容 |
+| :--- | :--- |
+| **身份** | `operator: "training.partition"`, `operator_version: "0.1.0"`。来源闭包分区算子。<br>唯一 owner：`lib/nodes/training.ts` + `lib/training/basic-kind-training.ts`。详细算法见 [docs/training-workflow.md#4-复核多分类样本与来源分区](../../docs/training-workflow.md)。 |
+| **输入** | 端口 `samples`（`training/basic-kinds/samples/v1`）。声明 `acceptNonOkInputs: true`，上游非 ok 时透传不足原因。 |
+| **输出** | 端口 `partitions`，schemaId `training/basic-kinds/partitions/v1`，事件 `training.partitions.v1`。payload 为 `BasicKindPartitions`（包含 `sourceClusters`、`trainIndices`、`evalIndices`、`evaluationMode`、`independentEvaluation`、`warnings`）。 |
+| **配置与状态** | 必填配置：`mode: "source_group_holdout" \| "development_only"`、`seed: number`（uint32）、`evalFraction: number`、`allowInSampleEval: boolean`。<br>分组规则：按 snapshot/post/asset 关联传递闭包形成来源簇；不随机打散同一组 DOM 行；seed 洗牌。`source_group_holdout` 要求至少 2 个独立来源组且两侧非空，不满足时返回证据不足（status: unknown）。 |
+| **副作用** | 无（`effects: []`）。 |
+| **验收** | 验证跨页面/跨 frame 共享素材归同组；验证单来源组无法伪造独立验证；验证洗牌结果确定且无 hash 包装。 |
+
+### 3.3 `training.fit`（拟合目标节点参数）
+
+| 合同维度 | 规范内容 |
+| :--- | :--- |
+| **身份** | `operator: "training.fit"`, `operator_version: "0.1.0"`。Handwired 数值电路拟合算子。<br>唯一 owner：`lib/nodes/training.ts` + `lib/training/basic-kind-numeric.ts`。详细反传与损失连线见 [docs/training-workflow.md#7-trainingfit-内部的手写数值连线](../../docs/training-workflow.md)。 |
+| **输入** | 端口 `partitions`（`training/basic-kinds/partitions/v1`）。声明 `acceptNonOkInputs: true`。必须显式绑定基础 `BasicKindProfile`。 |
+| **输出** | 端口 `candidate`，schemaId `training/basic-kinds/candidate/v1`，事件 `training.candidate.v1`。payload 为 `BasicKindCandidate`（包含 `candidateId`、`baseProfileId`、拟合后的 `profile`、`trajectory`、`lossBefore`、`lossAfter`、`sampleCoverage`）。 |
+| **配置与状态** | 必填配置：`taskId`、固定推理门限 `minScore` / `minMargin`、优化目标 `objective`（targetScore, rivalCeiling, otherGap）与拟合超参 `fit`（epochs, learningRate, anchorLambda）。<br>执行模式：通过 `loadHandwired(handwiredRoot)` 动态加载 Handwired TS 源码，构建电路并执行 Circuit.evaluateReference → 损失导数 → Circuit.backpropagateReference → Adam 优化器更新 → 权重区间截断投影 [-1, 1]。 |
+| **副作用** | 声明 `effects: ["filesystem.read"]`（读取 Handwired 本地源码根目录）。 |
+| **验收** | 验证真实梯度来自 Handwired 而非固定系数假拟合；验证学习率/轮数有限循环收敛；验证缺失 handwiredRoot 时报错拒绝；验证候选 profile 不改写基础 profile。 |
+
+### 3.4 `training.compare`（比较新旧节点在相同样本的输出）
+
+| 合同维度 | 规范内容 |
+| :--- | :--- |
+| **身份** | `operator: "training.compare"`, `operator_version: "0.1.0"`。旧新候选逐例双轨比对算子。<br>唯一 owner：`lib/nodes/training.ts` + `lib/training/basic-kind-training.ts`。详细指标规范见 [docs/training-workflow.md#6-运行进度比较与保存](../../docs/training-workflow.md)。 |
+| **输入** | 端口 0: `candidate`（`training/basic-kinds/candidate/v1`），端口 1: `partitions`（`training/basic-kinds/partitions/v1`）。声明 `acceptNonOkInputs: true`。绑定与 fit 相同的基础 `BasicKindProfile`。 |
+| **输出** | 端口 `comparison`，schemaId `training/basic-kinds/comparison/v1`，事件 `training.comparison.v1`。payload 为 `BasicKindComparison`（包含 candidate、splits [train, eval]、旧新逐例判断明细及混淆/类别指标）。 |
+| **配置与状态** | 必填配置：与 fit 相同的 `BasicKindTrainingConfig`。在相同样本上分别调用正式前向分类器求值，逐例输出 `fixed`、`regressed`、`retained`、`unresolved`、`unassessed`。 |
+| **副作用** | 无（`effects: []`）。 |
+| **验收** | 验证同一输入下双轨运行正式分类器；验证逐例迁移统计之和等于样本总数；验证分母为零时指标为 null 而非伪造 100%。 |
+
+### 3.5 `training.assess`（评估修复退化与证据不足）
+
+| 合同维度 | 规范内容 |
+| :--- | :--- |
+| **身份** | `operator: "training.assess"`, `operator_version: "0.1.0"`。证据边界与采用建议评估算子。<br>唯一 owner：`lib/nodes/training.ts` + `lib/training/basic-kind-training.ts`。详细规则见 [docs/training-workflow.md#6-运行进度比较与保存](../../docs/training-workflow.md)。 |
+| **输入** | 端口 `comparison`（`training/basic-kinds/comparison/v1`）。声明 `acceptNonOkInputs: true`。 |
+| **输出** | 端口 `assessment`，schemaId `training/basic-kinds/assessment/v1`，事件 `training.assessment.v1`。payload 为 `BasicKindAssessment`（包含 comparison、recommendation、evidenceStatus、summary）。 |
+| **配置与状态** | 必填配置：`forbidGoldRegression: boolean`。核验是否有修复、黄金样本是否有退化、验证集是否独立充分。若退化或样本不足，输出收束为证据不足。 |
+| **副作用** | 无（`effects: []`）。 |
+| **验收** | 验证存在黄金退化时拒绝推荐；验证非 ok 上游收束为 evidence_insufficient 并保留原因。 |
+
+### 3.6 `training.report`（保存候选参数与训练报告）
+
+| 合同维度 | 规范内容 |
+| :--- | :--- |
+| **身份** | `operator: "training.report"`, `operator_version: "0.1.0"`。权重与报告本地持久化算子。<br>唯一 owner：`lib/nodes/training.ts` + `lib/training/basic-kind-training.ts`。写入安全见 [docs/training-workflow.md#6-运行进度比较与保存](../../docs/training-workflow.md)。 |
+| **输入** | 端口 `assessment`（`training/basic-kinds/assessment/v1`）。声明 `acceptNonOkInputs: true`。 |
+| **输出** | 端口 `training_result`，schemaId `training/basic-kinds/result/v1`，事件 `training.result.v1`。payload 为 `BasicKindTrainingReceipt`（包含 `persistStatus: "saved" \| "evidence_insufficient" \| "failed"`、`weightFileRef`、`resultFileRef`、`candidateAdoption: "not_applied"`、`calibrated: false`、`summary`）。 |
+| **配置与状态** | 必填配置：`weightsDirectory: string`、`resultsDirectory: string`。工厂绑定规范根 `allowedRoot`。<br>写入规则：使用 `wx` 排他创建；先写权重资产 `*.weight.json`，再写报告资产 `*.result.json`。上游非 ok 时仅写证据不足报告，不写虚构权重。候选 profile 标记为 `not_applied`，绝不自动采用。 |
+| **副作用** | 声明 `effects: ["filesystem.write"]`（独占写入 allowedRoot 下的权重与报告目录）。 |
+| **验收** | 验证未授权 write 时拒绝执行；验证路径穿越被拦截；验证已有同名文件拒绝覆盖；验证非 ok 输入零权重写入。 |
+
+---
+
+## 4. 已实现节点清单索引
+
+所有已实现的算子（7 个 DOM 候选、3 个采样、1 个基础种类、6 个离线训练与 3 个通用）源码位于 `lib/nodes/`：
+
+### 4.1 浏览器 DOM 候选、采样与基础种类节点 (`lib/nodes/dom.ts`, `lib/nodes/sampling.ts`, `lib/nodes/basic-kinds.ts`)
 1. `dom.observe` (`0.1.0`): 适配保存的页面观测，保留白名单几何/结构，剥离原始 class/id/文本；
 2. `dom.viewport` (`0.1.0`): 正面积相交计算视口槽位，父容器离屏不误剪可见后代；
 3. `dom.focus` (`0.1.0`): 按 within/region 收缩关注范围，无归属依据拒绝 owned；
@@ -96,7 +170,15 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 10. `sample.save` (`0.1.0`): 独占排他（wx）持久化 JSONL，受限根目录与防越界安全检查；
 11. `dom.basic_kinds` (`0.1.0`): 接收候选槽位与可选补充观测，执行两阶段（大类 -> 细类）确定性基础种类判断，输出保序槽位、分数区间、决策路径与审计证据（`lib/nodes/basic-kinds.ts`）。
 
-### 3.2 通用基础节点 (`lib/nodes/common.ts`)
-1. `common.scale` (`1`): 数值缩放转换；
-2. `common.sum` (`1`): 数值求和；
-3. `common.count` (`1`): 数组元素计数。
+### 4.2 基础种类离线训练六节点 (`lib/nodes/training.ts`)
+12. `training.prepare` (`0.1.0`): 多分类复核样本准备与学生属性投影，区分 candidate_qualified 与 properties_offline；
+13. `training.partition` (`0.1.0`): 来源关联闭包分组与 train/eval 用途分区，支持 source_group_holdout；
+14. `training.fit` (`0.1.0`): 接入 Handwired Circuit evaluate/backprop 真实梯度与 Adam 优化器拟合稀疏权重参数，输出候选 profile；
+15. `training.compare` (`0.1.0`): 相同样本双轨调用正式前向分类器，逐例输出 fixed/regressed/retained/unresolved/unassessed；
+16. `training.assess` (`0.1.0`): 评估指标改善、黄金退化与证据边界，收束证据不足；
+17. `training.report` (`0.1.0`): 独占安全写入候选权重 profile 与训练评估报告，候选不自动采用。
+
+### 4.3 通用基础节点 (`lib/nodes/common.ts`)
+18. `common.scale` (`1`): 数值缩放转换；
+19. `common.sum` (`1`): 数值求和；
+20. `common.count` (`1`): 数组元素计数。
