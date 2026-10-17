@@ -1,0 +1,6 @@
+{
+  "id":"browser-element-capture","version":"0.1.0-design",
+  "inputs":[{"id":"capture_request","schema":"Object"}],
+  "nodes":[{"id":"保存元素样本与复核决定","operator":"browser.capture","operator_version":"0.1.0-design","inputs":["capture_request"],"output":{"id":"capture_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}],
+  "edges":[],"outputs":["capture_receipt"]
+}
