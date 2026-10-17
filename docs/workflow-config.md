@@ -1,6 +1,6 @@
 # Workflow 基础配置合同
 
-状态：D0设计增量复核通过，2026-10-17。用户随后授权L1实现，目标见[能动Goal](goals/l1-browser-candidates.md)。配置表示节点接续，不依赖画布。执行方案采用Flowed1.15.0，保留项目图唯一真源；L1实现加载、编译和单次执行合同。
+状态：L1 已交付并完成验收，当前授权基础工作流设计与目录分类，2026-10-17。配置表示节点接续，不依赖画布。执行方案采用 Flowed 1.15.0，保留项目图唯一真源（集中于 `workflows/` 目录）；L1 已实现加载、编译和单次执行合同。流程清单见 [workflows/README.md](../workflows/README.md)，三类基础采样节点合同卡见 [lib/nodes/README.md](../lib/nodes/README.md)。
 
 ## 1. 持久配置与运行绑定
 
@@ -22,7 +22,7 @@
 ```json
 {
   "configVersion": 1,
-  "graphRef": "../dagpipe/graphs/dom-recognition.graph.json",
+  "graphRef": "./dom-recognition.graph.json",
   "configs": {
     "focus": {
       "viewportOnly": true,

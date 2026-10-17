@@ -99,12 +99,13 @@ flowchart TD
 
 | 规划目录 | 责任 |
 | --- | --- |
-| src/core | 通用Node/Workflow定义、输入输出与参数/profile合同；不内置DOM语义 |
-| src/workflow | 通用执行/校验/记录适配层；不写站点或分类规则 |
-| src/training | 节点训练后端与训练节点；只依赖通用节点样本合同 |
-| src/backends/handwired | 节点内部数值后端，不取代workflow执行器 |
-| src/nodes / src/workflows | 按应用组织的可复用节点及workflow绑定；DOM语义/focus属于此处 |
-| src/adapters/weibo | 站点观测与teacher规则，供相应workflow组合 |
+| lib/core | 通用Node/Workflow定义、输入输出与参数/profile合同；不内置DOM语义 |
+| lib/workflow | 通用执行/校验/记录适配层；不写站点或分类规则 |
+| lib/training | 节点训练算子与适配合同；只依赖通用节点样本合同 |
+| lib/nodes/trainable | 可训练节点结构与Handwired电路定义；不存权重资产 |
+| lib/nodes | 可复用节点定义（通用与DOM语义），三类采样节点卡见 [lib/nodes/README.md](../lib/nodes/README.md) |
+| workflows | 项目DAG图与持久配置唯一真源，清单见 [workflows/README.md](../workflows/README.md) |
+| training | 本地样本(samples/)、评估报告(results/)与真实权重(weights/)资产根目录 |
 
 框架不变指增加应用时无需改通用核心，不能理解为合同永远不可演进。新增应用可以组合已有节点，也可以新增符合合同的节点处理器，不把差异硬塞进神经网络或通用框架。
 
@@ -112,10 +113,11 @@ flowchart TD
 
 当前图文件的Object端口仅表示尚待细化的外层合同，不证明字段隔离或参数绑定已经实现。原始证据/槽位映射保留在应用数据与执行记录中，数值节点只接收白名单向量；后续须在具体端口合同和后端compile阶段验证，不能依赖一条宽泛Object声明保证安全或正确性。
 
-- [DOM识别workflow设计图](dagpipe/graphs/dom-recognition.graph.json)
-- [节点训练workflow设计图](dagpipe/graphs/node-training.graph.json)
-- [判断与操作闭环示例图](dagpipe/graphs/operation-episode.graph.json)
-- [L1能动候选流设计图](dagpipe/graphs/dom-candidates.graph.json)
+- [DOM识别workflow设计图](../workflows/dom-recognition.graph.json)
+- [节点训练workflow设计图](../workflows/node-training.graph.json)
+- [判断与操作闭环示例图](../workflows/operation-episode.graph.json)
+- [L1能动候选流设计图](../workflows/dom-candidates.graph.json)
+- [基础规则采样流设计图](../workflows/dom-rule-sampling.graph.json)
 
 设计图规模：L1候选7节点6边；DOM识别10节点10边；节点训练7节点8边；操作闭环7节点6边。图中将原槽位/排除记录单独送往结果组装，将用途分区显式送往校准与比较；不要求神经节点携带原始页面。静态validate/inspect仅验证拓扑与operator引用语法，未执行事件、节点或训练，未完成registry/schema/effect编译验收。
 

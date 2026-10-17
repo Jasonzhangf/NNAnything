@@ -1,0 +1,45 @@
+{
+  "configVersion": 1,
+  "graphRef": "./dom-rule-sampling.graph.json",
+  "configs": {
+    "cardMatchRule": {
+      "ruleId": "synthetic.card.class-rule.v1",
+      "positiveMatch": [
+        {
+          "tag": "article",
+          "classIncludes": [
+            "synthetic-feed-card"
+          ]
+        }
+      ],
+      "negativeMatch": [
+        {
+          "tag": "div",
+          "classIncludes": [
+            "synthetic-feed-toolbar"
+          ]
+        }
+      ]
+    },
+    "cardSampleSpec": {
+      "taskId": "synthetic.card.structure",
+      "targetLabel": "synthetic.card",
+      "negativeLabel": "synthetic.other"
+    },
+    "localSaveSpec": {
+      "fileName": "synthetic-card.samples.jsonl",
+      "writeMode": "create_new"
+    }
+  },
+  "bindings": {
+    "按显式规则匹配DOM记录": {
+      "configRef": "cardMatchRule"
+    },
+    "组装单任务训练样本": {
+      "configRef": "cardSampleSpec"
+    },
+    "保存样本到本地目录": {
+      "configRef": "localSaveSpec"
+    }
+  }
+}

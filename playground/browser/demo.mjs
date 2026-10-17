@@ -4,7 +4,7 @@ import { compileWorkflow, createWorkflowInputEvent, loadWorkflow, runWorkflow } 
 import { DOM_CANDIDATE_REQUEST_EVENT_TYPE, domNodeDefinitions } from "nnanything/browser";
 
 const definition = await loadWorkflow({
-  configPath: fileURLToPath(new URL("./dom-candidates.workflow.json", import.meta.url)),
+  configPath: fileURLToPath(new URL("../../workflows/dom-candidates.workflow.json", import.meta.url)),
   allowedRoot: fileURLToPath(new URL("../../", import.meta.url)),
 });
 const observation = JSON.parse(await readFile(new URL("./observation.fixture.json", import.meta.url), "utf8"));

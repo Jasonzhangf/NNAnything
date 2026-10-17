@@ -16,4 +16,11 @@ data/raw/**
 data/labels/**
 data/datasets/**
 artifacts/**
+
+# Local training datasets, results, and weight profiles
+training/samples/**
+training/results/**
+training/weights/**
+!training/**/README.md
+
 !**/.gitkeep

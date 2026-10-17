@@ -4,10 +4,10 @@
 
 ## 1. 架构职责划分
 
-L1 目标是在无须引入神经网络、模型训练或活体浏览器操作的前提下，交付首个浏览器场景的确定性 DOM 候选过滤可运行切片。项目拓扑真源直接引用 [dom-candidates.graph.json](dagpipe/graphs/dom-candidates.graph.json)（7 节点 6 边单入口单出口 SESE 链）。
+L1 目标是在无须引入神经网络、模型训练或活体浏览器操作的前提下，交付首个浏览器场景的确定性 DOM 候选过滤可运行切片。项目拓扑真源直接引用 [dom-candidates.graph.json](../workflows/dom-candidates.graph.json)（7 节点 6 边单入口单出口 SESE 链）。
 
 ### 1.1 DAGpipe 职责：静态拓扑检查
-- 唯一真源：项目图拓扑以 [dom-candidates.graph.json](dagpipe/graphs/dom-candidates.graph.json) 为单一真源，禁止在业务代码中硬编码或分叉拓扑结构。
+- 唯一真源：项目图拓扑以 [dom-candidates.graph.json](../workflows/dom-candidates.graph.json) 为单一真源，集中于 `workflows/` 目录，禁止在业务代码中硬编码或分叉拓扑结构。
 - 静态检查：DAGpipe 静态检查粗图拓扑（单入口单出口、有向无环、输入输出 ARC 对应），不证明运行时 NodeDefinition 领域 schema 和 effects 绑定；运行绑定由 compileWorkflow 校验。
 - L1 拓扑规格：当前图为 7 节点、6 边、1 个输入 ARC（request）与 1 个输出 ARC（candidate_slots）的单链 SESE 结构。
 

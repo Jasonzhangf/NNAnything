@@ -2,9 +2,9 @@
 
 ## 当前交付边界
 
-当前D0架构与计划已通过Review并推送。用户进一步授权将第一阶段“能动”作为Goal直接执行；当前范围以docs/goals/l1-browser-candidates.md为准。允许L1所需源码、依赖与测试，只交七个手写候选节点及最小执行基座；不做模型/训练、批量采标、真实浏览器动作或后续扩展，不建伪执行接口。
+L1 能动切片已完成交付并通过验证。当前用户授权范围为基础工作流资产设计与目录分类（nnanything-design-workflow-assets）：建立单源目录分类（workflows/、lib/、training/），交付基础规则采样工作流（dom-rule-sampling）拓扑设计与配置模板、三类基础采样节点合同卡及文档路径归位。本轮仅已有代码路径归位与新三节点设计，不实现新采样/训练或活网页，不做模型/训练、批量采标或后续扩展，不建伪执行接口。旧 L1 hold 不阻断本任务，亦不扩大至 L2。
 
-项目远端为https://github.com/Jasonzhangf/NNAnything.git。本轮交付L1范围的执行基座、七个候选节点、公开consumer及必要验证；原始登录态页面、标注细节和训练产物保持本地。
+项目远端为https://github.com/Jasonzhangf/NNAnything.git。本轮交付目录分类架构、新采样工作流设计与相关合同规范；原始登录态页面、标注细节和训练产物保持本地。
 
 ## 唯一Owner与入口
 
@@ -12,7 +12,8 @@
 - 通用节点/事件与workflow合同：docs/node-workflows.md、docs/canvas-events.md；持久基础配置：docs/workflow-config.md。
 - 可复用经验节点合同：docs/node-contract.md；目录和实施顺序：docs/implementation-plan.md。
 - 推进节奏、DAGpipe/AppSDK治理、交付与审批：docs/project-governance.md。
-- 项目图拓扑：docs/dagpipe/graphs/*.graph.json；后续可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
+- 项目图拓扑与流程清单：workflows/*.graph.json 与 workflows/README.md；后续可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
+- 三类基础采样节点完整合同卡唯一owner：lib/nodes/README.md。
 - DOM focus/单标签与数组规则：docs/focus-and-labeling.md；首个结构实验电路：docs/structure-circuit-m1.md。research中的旧organic或多标签草案不得覆盖当前合同。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 

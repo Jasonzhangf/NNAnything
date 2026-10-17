@@ -1,8 +1,8 @@
 # NNAnything 总体设计
 
-版本：修订6架构及D0计划基线，2026-10-17。先定义通用框架，再确定最小基础节点，组合网页与训练workflow；以后扩展其他场景。以filter节点、事件I/O和统一workflow为主轴，画布是可选呈现。黑白名单、DOM拆分、判断及operation供使用者组合，不固定业务流程，详见[事件与呈现](canvas-events.md)及[节点与Workflow](node-workflows.md)。保留单标签、按序批处理和[Focus入口](focus-and-labeling.md)。本轮整体及[D0增量设计复核](reviews/gemini4-d0-incremental-review.json)已通过，当前不实现；修订2的[历史报告](reviews/gemini4-design-review.md)不代替新增架构审查。
+版本：修订6架构基线。L1 能动切片已交付并验收，当前用户授权基础工作流资产设计与目录分类（nnanything-design-workflow-assets），2026-10-17。先定义通用框架，再确定最小基础节点，组合网页与训练workflow；以后扩展其他场景。以filter节点、事件I/O和统一workflow为主轴，画布是可选呈现。黑白名单、DOM拆分、判断及operation供使用者组合，不固定业务流程，详见[事件与呈现](canvas-events.md)及[节点与Workflow](node-workflows.md)。保留单标签、按序批处理和[Focus入口](focus-and-labeling.md)。
 
-本文件是总体方案入口。用户最新指令将本轮明确为D0架构与计划交付，不实现；完成review与远端提交后，后续从浏览器项目开始。具体目录、配置、节点与四层优先级以[实施计划](implementation-plan.md)、[节点合同](node-contract.md)和[项目治理](project-governance.md)为准；下方D1-D5为未来责任地图，不是本轮执行授权。research保留详细依据，设计review不等于电路训练或产品可用。
+本文件是总体方案入口。具体目录、配置、节点与四层优先级以[实施计划](implementation-plan.md)、[节点合同](node-contract.md)和[项目治理](project-governance.md)为准；最新工作流真源见 [workflows/README.md](../workflows/README.md)，三类基础采样节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)。下方D1-D5为未来长期责任地图，不是当前执行授权。research保留详细依据，设计review不等于电路训练或产品可用。
 
 ## 1. 目标与边界
 
@@ -68,21 +68,20 @@ DOM节点、AX节点和可点击祖先可能不同。每个目标必须有规范
 
 ## 4. 模块与目录规划
 
-以下为拟建目录，不代表已实现接口。
+最新单源目录架构唯一维护于 [实施计划](implementation-plan.md) 第 2 节。以下为模块责任概览：
 
 | 路径 | 职责与禁止事项 |
 | --- | --- |
 | AGENTS.md | 项目边界、唯一owner、数据/标签/推理隔离；引用全局流程，不复制治理 |
-| src/core | 通用Node/Workflow事件端口、输入输出、参数/Profile与后端合同；不内置DOM类别 |
-| src/workflow | 通用事件关联、依赖执行、静态校验、分支/过滤结果与记录适配；不放站点规则 |
-| src/data | 通用节点样本、标签来源、分组与分区；应用原始证据通过引用关联 |
-| src/training | 节点训练后端及拟合/校准/评估节点；训练流程由workflow连接，不执行浏览器动作 |
-| src/nodes/dom.ts | 应用的固定语义目录、ManualFilter/层级拆分/特征/识别节点与成分合同；不放入核心 |
-| src/workflows | 正式识别、数据准备/teacher、训练、监督workflow绑定；直接读取项目图，不重复造执行器 |
-| src/adapters/browser | DOM观测、候选枚举、引用及读取/动作处理，供应用节点调用 |
-| src/backends/handwired | 将已审电路映射至Handwired；不复制上游源码或假装已依赖公共包 |
-| src/index.ts | 通用节点与workflow稳定公开入口，应用通过对应workflow调用 |
-| src/adapters/weibo | class/content teacher规则及站点观察适配；禁止将teacher特征隐式送到模型 |
+| lib/core | 通用Node/Workflow事件端口、输入输出、参数/Profile与后端合同；不内置DOM类别 |
+| lib/workflow | 通用事件关联、依赖执行、静态校验、分支/过滤结果与记录适配；不放站点规则 |
+| lib/training | 节点训练算子与适配合同；只依赖通用节点样本合同 |
+| lib/nodes/trainable | 可训练节点结构与Handwired电路定义；不存真实权重 |
+| lib/nodes | 可复用节点定义（通用与DOM语义），三类采样节点卡见 [lib/nodes/README.md](../lib/nodes/README.md) |
+| lib/filters | 纯内存确定性过滤规则与候选求值内核 |
+| lib/adapters/browser | 页面观测输入与引用适配，供应用节点调用 |
+| workflows | 项目DAG图与持久配置唯一真源，清单见 [workflows/README.md](../workflows/README.md) |
+| training | 本地样本(samples/)、评估报告(results/)与真实权重(weights/)资产根目录 |
 | tests | 公共consumer、基础反例、后续真实入口回归；不测试假训练/假点击成功 |
 | docs / research | 当前方案与流程 / 原始调研依据；旧草案需明确适用范围 |
 | data/raw、labels、datasets | 本地原始资料、规范标签、派生向量；默认不入Git |

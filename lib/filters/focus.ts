@@ -1,4 +1,4 @@
-import { isSafeRuleAttribute, type Rect } from "./observation.js";
+import { isSafeRuleAttribute, type Rect } from "../adapters/browser/observation.js";
 
 export type ScopeMode = "owned" | "subtree";
 

@@ -33,7 +33,7 @@ npm run demo:browser
 
 ## 架构职责与 7 个候选节点
 
-- DAGpipe：负责项目图拓扑静态检查与 SESE（单入口单出口）校验。公开图唯一真源为 [dom-candidates.graph.json](docs/dagpipe/graphs/dom-candidates.graph.json)（7 节点 6 边单链）。
+- DAGpipe：负责项目图拓扑静态检查与 SESE（单入口单出口）校验。公开图唯一真源集中于 `workflows/`（如 [dom-candidates.graph.json](workflows/dom-candidates.graph.json)）。
 - Flowed (v1.15.0)：负责有限事件 DAG 的动态调度与异步扇入执行，保证每个 ARC 单次运行产出确定状态事件，单次运行有穷结束。
 - L1 七个手写节点：
   1. dom.observe：读取保存的页面观测，保留必要几何、结构与安全属性，不传播原始 class、账号或正文。
@@ -51,7 +51,9 @@ L1 边界：只交付手写候选过滤与执行基座。不包含语义分类�
 ### 1. L1 当前运行契约与使用指南
 - [L1 浏览器候选切片使用指南](docs/l1-usage.md)
 - [L1 能动切片目标与约束](docs/goals/l1-browser-candidates.md)
-- [L1 候选图真源 (7N6E SESE)](docs/dagpipe/graphs/dom-candidates.graph.json)
+- [工作流清单与拓扑真源 (workflows/)](workflows/README.md)
+- [L1 候选图真源 (7N6E SESE)](workflows/dom-candidates.graph.json)
+- [节点定义与合同清单 (lib/nodes/)](lib/nodes/README.md)
 - [可复用经验节点合同](docs/node-contract.md)
 - [Workflow基础配置](docs/workflow-config.md)
 - [Viewport、Focus、白黑名单与单标签合同](docs/focus-and-labeling.md)

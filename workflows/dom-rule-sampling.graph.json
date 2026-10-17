@@ -1,0 +1,90 @@
+{
+  "id": "dom-rule-sampling-design",
+  "version": "0.1.0-design",
+  "inputs": [
+    {
+      "id": "raw_records",
+      "schema": "Object"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "按显式规则匹配DOM记录",
+      "operator": "sample.match",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "raw_records"
+      ],
+      "output": {
+        "id": "matched_records",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "组装单任务训练样本",
+      "operator": "sample.assemble",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "matched_records"
+      ],
+      "output": {
+        "id": "task_samples",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "保存样本到本地目录",
+      "operator": "sample.save",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "task_samples"
+      ],
+      "output": {
+        "id": "save_receipt",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    }
+  ],
+  "edges": [
+    {
+      "from": "按显式规则匹配DOM记录",
+      "to": "组装单任务训练样本",
+      "arc_id": "matched_records"
+    },
+    {
+      "from": "组装单任务训练样本",
+      "to": "保存样本到本地目录",
+      "arc_id": "task_samples"
+    }
+  ],
+  "outputs": [
+    "save_receipt"
+  ]
+}

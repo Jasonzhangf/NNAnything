@@ -8,7 +8,7 @@ node --test tests/browser*.test.mjs
 node playground/browser/demo.mjs
 ```
 
-demo 从公开 `nnanything` 和 `nnanything/browser` 加载 API。它读取本目录的合成观测和 workflow 配置。配置只保存一份 `configs.focus`，通过 `configRef` 绑定规则节点。节点和边只从 `docs/dagpipe/graphs/dom-candidates.graph.json` 加载。Flowed 负责运行，不在 consumer 中调度节点。
+demo 从公开 `nnanything` 和 `nnanything/browser` 加载 API。它读取本目录的合成观测与 `workflows/dom-candidates.workflow.json` 配置。配置只保存一份 `configs.focus`，通过 `configRef` 绑定规则节点。节点和边只从 `workflows/dom-candidates.graph.json` 加载。Flowed 负责运行，不在 consumer 中调度节点。
 
 输入事件类型由 `DOM_CANDIDATE_REQUEST_EVENT_TYPE` 提供。payload 为 `{ observation, nodeRefs? }`。省略 `nodeRefs` 时输出 DOM 前序槽位，包括容器、后代和排除记录。显式数组保持长度、顺序和重复，不添加后代。
 

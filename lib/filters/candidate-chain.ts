@@ -1,6 +1,6 @@
-import type { EventStatus } from "../../core/events.js";
+import type { EventStatus } from "../core/events.js";
 import { createFocusSpec, type FocusSpec, type NodeCondition } from "./focus.js";
-import { hasPositiveArea, intersectsPositive, loadSavedObservation, type ObservationNode, type PageObservation, type Rect } from "./observation.js";
+import { hasPositiveArea, intersectsPositive, loadSavedObservation, type ObservationNode, type PageObservation, type Rect } from "../adapters/browser/observation.js";
 
 export interface CandidateRequest {
   readonly observation: PageObservation;

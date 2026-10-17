@@ -1,6 +1,6 @@
 {
   "configVersion": 1,
-  "graphRef": "../../docs/dagpipe/graphs/dom-candidates.graph.json",
+  "graphRef": "./dom-candidates.graph.json",
   "configs": {
     "focus": {
       "viewportOnly": true,

@@ -1,6 +1,6 @@
 import type { NodeDefinition } from "../core/contracts.js";
-import { createFocusSpec } from "../adapters/browser/focus.js";
-import { applyCandidateStage, checkCandidates, observeCandidates, scopeIssue, splitCandidates, validateCandidateBatch, validateCandidateRequest } from "../adapters/browser/candidate-chain.js";
+import { createFocusSpec } from "../filters/focus.js";
+import { applyCandidateStage, checkCandidates, observeCandidates, scopeIssue, splitCandidates, validateCandidateBatch, validateCandidateRequest } from "../filters/candidate-chain.js";
 
 export const DOM_CANDIDATE_REQUEST_EVENT_TYPE = "dom.candidates.request.v1";
 const types = {

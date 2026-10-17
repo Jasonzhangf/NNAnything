@@ -1,6 +1,20 @@
 # 当前任务
 
-## L1 Goal（最新授权）
+## 基础 Workflow 资产与目录分类（当前）
+
+2026-10-17，用户要求设计基础规则采样workflow，Review后保存为基础workflow与基础节点，并分类workflow、lib节点/filter、训练实现、样本、结果和权重。当前只交新三节点设计与既有L1路径归位，不实现新采样/保存/训练、不采集活页面。新目录和职责见docs/implementation-plan.md第2节；流程清单workflows/README.md，三张采样节点卡唯一维护于lib/nodes/README.md。
+
+独立Gemini4计划及收敛意见记录在/Volumes/Intel/playground/nnanything-runs/workflow-library/plan/plan.md、accepted-plan.md。唯一worktree为/Volumes/Intel/playground/nnanything/workflow-library，chore/workflow-library；已有L1树在上轮清理，本轮从origin/main建立。当前无.appsdk/requirements.json，按规则跳过。
+
+现L1的15个TS文件已归位lib，过滤纯逻辑在lib/filters，NodeDefinition封装在lib/nodes，执行核心在lib/core与lib/workflow。4张既有图及L1配置集中workflows，不保留旧src或旧图副本。新dom-rule-sampling为sample.match→sample.assemble→sample.save，3N2E，全部0.1.0-design，未实现；新图validate/inspect各一次通过。training/samples/results/weights存本地数据，lib/training与lib/nodes/trainable只存实现合同/定义，不放假TS或假参数。
+
+作者验收：原48测试与两个公开consumer通过，编译出口及算法行为不变；code/migration-red.log保存路径移动后的import失败，修正后test/demo日志均exit0。最初GCM回报了未执行的工具文本，父任务核对src未移动后停止该PID并接管机械迁移，不把它算产品完成或模型不可用。新图/config经真实公开loadWorkflow加载且绑定一致，compile明确报COMPILE_UNKNOWN_OPERATOR；数据/结果/权重忽略而README可追踪，23份active Markdown链接检查通过。必要原始证据在本轮run。
+
+新采样合同区分teacher名称资料与可选学生观测；匹配槽位保长保序且允许重复，正负极性明确；过滤/缺测/冲突不自动负例。JSONL每行携带任务、规则、输入及证据引用，标签为rule_proposed；来源关联交后续partition计算闭包。保存根由caller显式适配绑定，config只给相对文件名，create_new、不覆盖/追加/自动重试。训练、数值取参和真实样本生成尚未发生。
+
+独立Gemini4整体Review已完成：新会话9f1a6ef7-a0f7-46e9-838d-cc53eeafe2c0，实际gemini-4-argon-medium、SUCCESS/exit0，canonical classifyReviewOutput核对schema/scope后裁决PASS，findings=[]。原文docs/reviews/workflow-library-review.json。当前main/push及清理待完成。此新段覆盖下方L1和D0历史记录中的目录与实施时点，历史Goal/Review原文保留原路径，当前唯一真源以AGENTS及workflows清单为准。
+
+## L1 Goal（已交付历史）
 
 D0设计基线已合入main并正常推送origin/main；原framework-m1工作树已remove/prune且路径不存在。用户要求review/提交后生成第一阶段能动Goal并直接执行。目标提示词保存docs/goals/l1-browser-candidates.md：只实现通用执行与七个手写候选节点，输出候选引用，不接模型、训练或动作。当前在唯一browser-l1独占树实施，复用有效独立计划及设计评估，不恢复旧M1全节点任务。
 

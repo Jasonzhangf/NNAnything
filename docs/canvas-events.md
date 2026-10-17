@@ -49,7 +49,7 @@ DOM拆分按可观测层级产生独立输入，包括合格中间容器及后�
 
 ## 4. 判断与操作闭环示例
 
-下图只是可搭建的应用示例，不是框架强制流程。所有箭头均表示有类型的输入/输出事件。每个步骤把成功、跳过或错误作为明确结果向后传递；依赖失败时后续操作跳过，最后统一汇总。识别子流程可复用[DOM识别图](dagpipe/graphs/dom-recognition.graph.json)。
+下图只是可搭建的应用示例，不是框架强制流程。所有箭头均表示有类型的输入/输出事件。每个步骤把成功、跳过或错误作为明确结果向后传递；依赖失败时后续操作跳过，最后统一汇总。识别子流程可复用[DOM识别图](../workflows/dom-recognition.graph.json)。
 
 ```mermaid
 flowchart TD
@@ -73,7 +73,7 @@ flowchart TD
 
 业务闭环是“观测→判断→操作→新观测→验证→结束”。单次DAG中没有回边。下一次外部事件可启动新的run；是否继续由显式调用条件决定，不自动把所有结束事件接回入口。训练epoch留在拟合节点内部有界运行。
 
-该示例的[项目图](dagpipe/graphs/operation-episode.graph.json)有7节点6边。Object端口与operator仍为设计占位。静态拓扑通过不证明事件调度、端口类型、动作隔离或业务后条件已实现。
+该示例的[项目图](../workflows/operation-episode.graph.json)有7节点6边。Object端口与operator仍为设计占位。静态拓扑通过不证明事件调度、端口类型、动作隔离或业务后条件已实现。流程清单与真源索引见 [workflows/README.md](../workflows/README.md)。
 
 ## 5. 后续最小验收
 

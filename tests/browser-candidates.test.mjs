@@ -16,13 +16,13 @@ import {
 } from "../dist/browser.js";
 
 const graphPath = fileURLToPath(
-  new URL("../docs/dagpipe/graphs/dom-candidates.graph.json", import.meta.url),
+  new URL("../workflows/dom-candidates.graph.json", import.meta.url),
 );
 const observationPath = fileURLToPath(
   new URL("../playground/browser/observation.fixture.json", import.meta.url),
 );
 const configPath = fileURLToPath(
-  new URL("../playground/browser/dom-candidates.workflow.json", import.meta.url),
+  new URL("../workflows/dom-candidates.workflow.json", import.meta.url),
 );
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const graph = JSON.parse(readFileSync(graphPath, "utf8"));

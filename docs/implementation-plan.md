@@ -1,8 +1,8 @@
 # D0交付与后续浏览器项目实施计划
 
-状态：2026-10-17，D0设计增量复核通过并已交付。用户随后授权直接执行[第一阶段能动Goal](goals/l1-browser-candidates.md)，本轮只实现L1。远端为Jasonzhangf/NNAnything；L2-L4仍为计划。独立Gemini4设计报告见[原始结果](reviews/gemini4-d0-incremental-review.json)，设计审查不代表运行验收。
+状态：2026-10-17，L1 能动切片已交付并完成作者验收与整体 Review。当前授权为基础工作流资产设计与目录分类（nnanything-design-workflow-assets）：确立单源目录规范、交付基础规则采样工作流（dom-rule-sampling）拓扑与配置设计、三节点合同卡及文档路径归位；未实现算子保持 0.1.0-design，不进行实际代码实现或 L2 扩展。远端为 Jasonzhangf/NNAnything；L2-L4 仍为后续规划。
 
-本计划依据独立Gemini4计划及其D0/四层补充收敛。当前阶段/优先级以本文为准；总体设计保留长期能力，不能将完整责任地图当首轮任务清单。
+本计划依据独立规划及其收敛决议。目录全图在第 2 节单一 owner 维护，工作流清单与真源索引见 [workflows/README.md](../workflows/README.md)，节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)。
 
 ## 1. 本轮D0的完成条件
 
@@ -19,37 +19,63 @@
 
 ## 2. 目录与唯一Owner
 
-下列源码目录是后续实现责任规划，当前不创建空模块或文件。按当前层级需要逐个建立。
+本节是 NNAnything 项目单一完整的目录分类与职责真源。已实现模块存放真实源码；未实现目录仅放置单个 `README.md` 说明职责与契约，不创建空 `.ts` 壳、假参数、重复注册表或插件服务。
 
 ```text
 NNAnything/
-  AGENTS.md                         项目边界与规则入口
-  README.md                         阶段与文档导航
-  note.md                           单一项目进度/证据汇总
-  docs/
-    design.md                       总体责任地图
-    implementation-plan.md          本计划：目录、分层交付、首批节点卡
-    workflow-config.md              通用配置合同
-    node-contract.md                可复用经验节点合同
-    project-governance.md           推进、授权、治理与交付
-    dagpipe/graphs/                  项目图拓扑真源
-    reviews/                        已交付设计评估证据
-  research/                         调研依据；原始页面资料本地忽略
-  src/                              以下均为后续计划
-    core/                           通用Node/事件/Workflow；核心层才增加训练Profile合同
-    workflow/                       配置加载/编译适配、Flowed运行与显式结果
-    nodes/common.ts                 通用规则、数组转换及汇总节点
-    nodes/dom.ts                    DOM过滤/拆分，核心层增加特征/分类/组装
-    adapters/browser/               页面观测输入与引用；不持有分类策略
-    adapters/weibo/                 后续站点teacher，原始名称只用于标注
-    backends/handwired/             核心层的显式数值后端
-    data/                           核心层规范样本、来源分组与用途分区
-    training/                       核心层拟合、校准及评估节点
-    workflows/                      引用项目图并绑定节点/配置，不手抄拓扑
-    index.ts                        公开consumer入口
-  playground/browser/              首个场景consumer，无独立执行引擎
-  tests/                            当前层失败模式所需的公开合同/黑盒用例
-  data/、artifacts/                  本地原始数据/标签/profile/运行报告，默认不入Git
+  AGENTS.md                                  # 项目边界与规则入口
+  README.md                                  # 阶段与文档导航
+  note.md                                    # 单一项目进度/证据汇总
+  package.json                               # 导出 main="./dist/index.js" 与 "./browser"="./dist/browser.js"
+  tsconfig.json                              # rootDir="lib", include=["lib/**/*.ts"]
+  .gitignore                                 # 忽略规则与 training/{samples,results,weights}/** 忽略
+  workflows/                                 # 项目 DAG 图 (.graph.json) 与持久配置 (.workflow.json) 唯一真源
+    README.md                                # 流程清单、图与配置对应关系与状态说明
+    dom-candidates.graph.json                # [已实现 0.1.0] L1 能动候选图 (7N6E SESE)
+    dom-candidates.workflow.json             # [已实现 0.1.0] L1 持久配置 (graphRef="./dom-candidates.graph.json")
+    dom-rule-sampling.graph.json             # [待实现 0.1.0-design] 基础规则采样图 (3N2E SESE)
+    dom-rule-sampling.workflow.json          # [待实现 0.1.0-design] 采样配置模板
+    dom-recognition.graph.json               # [设计态 0.1.0-design] 完整卡片识别流 (10N10E SESE)
+    node-training.graph.json                 # [设计态 0.1.0-design] 目标节点训练流 (7N8E SESE)
+    operation-episode.graph.json             # [设计态 0.1.0-design] 操作闭环流 (7N6E SESE)
+  lib/                                       # 库源码根目录
+    index.ts                                 # 公开主入口：导出 core、workflow、nodes/common
+    browser.ts                               # 公开 ./browser 入口：导出 adapters/browser、filters、nodes/dom
+    core/                                    # 通用契约、事件信封、错误与基础 schema
+    workflow/                                # 持久配置加载、DAG 校验、Flowed 编译与运行器
+    nodes/                                   # 可复用 workflow 节点定义与合同清单
+      README.md                              # 节点目录职责与三类基础采样节点完整合同卡唯一真源
+      common.ts                              # common.scale / sum / count (1.0)
+      dom.ts                                 # dom.observe / viewport / focus / deny / allow / split / candidates (0.1.0)
+      trainable/                             # 可训练节点定义目录（存节点结构/特征，不存权重）
+        README.md                            # 可训练节点与 Handwired 电路边界
+    filters/                                 # 确定性过滤规则与候选槽位求值纯逻辑
+      README.md                              # 规则内核与节点解耦说明
+      focus.ts                               # 视口、focus、within、region 求值内核
+      candidate-chain.ts                     # 7 节点过滤链求值内核
+    adapters/                                # 外部环境与原始观测输入适配
+      browser/
+        observation.ts                       # 页面观测数据适配与白名单清洗
+    training/                                # 节点训练算子实现目录
+      README.md                              # 训练算子与 HANDWIRED_ROOT 边界
+  training/                                  # 本地训练数据与权重资产根目录（数据本地生成，Git 忽略）
+    README.md                                # 本地训练资产三分类与隔离底线
+    samples/                                 # 规则采样或 teacher 生成的规范样本（JSONL，Git 忽略）
+      README.md                              # 样本记录格式、单任务单标签与来源关联引用
+    results/                                 # 训练拟合、校准与新旧比较评估报告（Git 忽略）
+      README.md                              # 评估报告与引用权重 profile 规范
+    weights/                                 # 训练产出的真实参数/权重 profile 唯一存放处（Git 忽略）
+      README.md                              # 权重 profile 结构与禁止自动覆盖规则
+  playground/
+    common/
+      demo.mjs                               # 非 DOM 公开 consumer
+    browser/
+      README.md                              # 配置文件与图引用说明
+      demo.mjs                               # 浏览器公开 consumer（configPath 指向 ../../workflows/dom-candidates.workflow.json）
+      observation.fixture.json               # 离线观测样例数据
+  tests/                                     # 公开合同与黑盒用例
+  docs/                                      # 架构、合同与治理文档（图真源移入 workflows/）
+  research/                                  # 调研依据与原始数据（本地忽略，绝不提交）
 ```
 
 每个模块一个写owner。不同worker可按不重叠文件并行；共享基础合同由其owner先明确并验证，再派依赖任务。合同变化回到该owner，不跨节点回改其他模块真源。具体宿主派发和独占worktree规则沿全局合同。
@@ -81,7 +107,7 @@ NNAnything/
 
 上述节点可复用同一规则处理实现的不同实例，不要求七套类层次。configs只保存一份FocusSpec，节点通过明确局部引用绑定；无站点隐藏全局。
 
-[能动候选图](dagpipe/graphs/dom-candidates.graph.json)为7节点6边单入口单出口设计图，与完整识别图承担不同结果合同。后续实现引用它，不用10节点图里的假分类节点拼出“能动”。
+[能动候选图](../workflows/dom-candidates.graph.json)为7节点6边单入口单出口设计图，与完整识别图承担不同结果合同。后续实现引用它，不用10节点图里的假分类节点拼出“能动”。
 
 L1公开consumer须证明：非DOM流程可用；候选槽位顺序和排除映射正确；父级跳过不丢可见后代；deny/allow不冲突；async依赖齐备才执行；跳过/未知能结束；非法环、类型/引用错误和未授权副作用不被放行。原始现场缺裁剪/片段等证据时保留unassessed，不把单一外接框冒称精确可见或可操作。
 
@@ -98,7 +124,7 @@ L1就可以积累手写节点经验：例如父容器跳过导致漏候选的规
 | training.fit / calibrate | 训练分区+明确基础profile→候选参数→校准状态 | 真实Handwired反传；参数约束投影；新拟合清旧校准；独立覆盖不足用identity并明确uncalibrated |
 | training.compare / assess / report | 同一留出样本的旧新输出→逐例结果→候选profile和报告 | fixed/regressed/unresolved/retained/unassessed均显式；证据不足不自动采用；所有必需产物沿事件传递不从隐藏状态获取 |
 
-完整图见[识别](dagpipe/graphs/dom-recognition.graph.json)与[训练](dagpipe/graphs/node-training.graph.json)。同一目标节点定义、输入编码和兼容profile是两条流程的接点。训练只处理目标节点I/O；teacher标注是独立数据准备流程，模型不读原始class/content。
+完整图见[识别](../workflows/dom-recognition.graph.json)与[训练](../workflows/node-training.graph.json)。基础规则采样流见[采样流](../workflows/dom-rule-sampling.graph.json)。三类采样节点完整合同卡见[lib/nodes/README.md](../lib/nodes/README.md)。同一目标节点定义、输入编码和兼容profile是流程的接点。训练只处理目标节点I/O；teacher标注是独立数据准备流程，模型不读原始class/content。
 
 结构电路及w测量算法见[数值连线](structure-circuit-m1.md)。当前可分性、误判形态和样本量都需实施后验证；现有微博资料只有单来源组，不能报独立校准或泛化准确率。广告也可为完整卡片，结构结果不能代替普通帖/来源判断。
 

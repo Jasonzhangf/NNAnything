@@ -1,6 +1,6 @@
 # Focus、候选过滤与单标签批处理
 
-状态：DOM应用合同，2026-10-17，D0设计复核通过；用户随后授权[L1实现](goals/l1-browser-candidates.md)。页面可作为共享上下文；单任务单标签并支持按序数组；分类前有focus、白名单、黑名单，目标至少限制在viewport。上述步骤及DOM层级拆分均为可组合基础节点，不固定进通用核心。L1只交候选输出，L2才增加语义识别与训练，阶段见[实施计划](implementation-plan.md)。
+状态：DOM应用合同，2026-10-17。L1 已交付候选输出，当前授权基础工作流设计与目录分类；单任务单标签并支持按序数组。L1 七候选节点见 [lib/nodes/README.md](../lib/nodes/README.md)，工作流真源见 [workflows/README.md](../workflows/README.md)，阶段见 [实施计划](implementation-plan.md)。
 
 上层框架已调整为 [Filter节点与统一Workflow](node-workflows.md)。本文是DOM应用workflow的候选节点合同，不是通用框架的内置业务。
 
@@ -85,4 +85,4 @@ focus过滤是候选枚举器职责，产生的排除记录不自动成为负标
 
 比较版本时，保留同一页面观测、同一意图范围和规范标签；规则变化既比较共同候选的分类，也比较完整查询的漏选/误选。滚动、页面重绘或focus改变后重新产生候选，不用旧的可视判断冒充当前状态。按既有分组独立性规则安排回放。
 
-该候选合同已纳入D0增量设计复核，报告见[原始结果](reviews/gemini4-d0-incremental-review.json)。运行行为由L1公开consumer及实现后的整体Review验证；后续分类与训练设计不属于L1运行交付。
+该候选合同已纳入D0增量设计复核，报告见[原始结果](reviews/gemini4-d0-incremental-review.json)。运行行为已由L1公开consumer及整体Review验证通过；基础规则采样设计与三节点合同见 [lib/nodes/README.md](../lib/nodes/README.md)。
