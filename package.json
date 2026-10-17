@@ -34,13 +34,16 @@
     "demo:browser": "npm run build && node playground/browser/demo.mjs",
     "demo:sampling": "npm run build && node playground/sampling/demo.mjs",
     "demo:basic-kinds": "npm run build && node playground/basic-kinds/demo.mjs",
-    "demo:training": "npm run build && node playground/training/demo.mjs"
+    "demo:training": "npm run build && node playground/training/demo.mjs",
+    "build:extension": "node scripts/build-extension.mjs",
+    "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit"
   },
   "dependencies": {
     "flowed": "1.15.0"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
+    "esbuild": "^0.28.2",
     "typescript": "5.9.3"
   }
 }

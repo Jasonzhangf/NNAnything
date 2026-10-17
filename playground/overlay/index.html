@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NNAnything DOM Inspector 验收测试环境 (>2500 Nodes)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>NNAnything 测试页面</h1>
+    <div class="controls-bar">
+      <button id="btn-toggle-inspector" class="harness-btn harness-btn-primary">打开 DOM 审查器</button>
+      <button id="btn-close-inspector" class="harness-btn">关闭审查器</button>
+      <button id="btn-site-click" class="harness-btn">测试普通网站按钮点击</button>
+      <span>点击次数: <span id="site-click-count" class="counter-badge">0</span></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 1. Focus 动态增删测试 -->
+    <section class="test-section">
+      <h2>1. Focus 焦点与子树失效测试</h2>
+      <p>选择下方容器作为 Focus。点击「移除 Focus 目标」测试元素脱离 DOM 时的「Focus 失效」保护与边框清空。</p>
+      <div class="controls-bar">
+        <button id="btn-remove-focus-target" class="harness-btn harness-btn-danger">移除 Focus 目标元素</button>
+        <button id="btn-restore-focus-target" class="harness-btn">恢复 Focus 目标元素</button>
+      </div>
+      <div id="focus-mount-point">
+        <div id="target-focus-container" class="focus-box">
+          <h3>Focus 目标子树容器</h3>
+          <p>这是被 Focus 锁定的区域。内部包含按钮、链接与输入框：</p>
+          <div class="controls-bar">
+            <button class="harness-btn">Focus 内部按钮 A</button>
+            <a href="#focus-link" class="harness-btn">Focus 内部链接</a>
+            <input type="text" placeholder="Focus 内部输入框" class="harness-btn">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 表单与控件测试 -->
+    <section class="test-section">
+      <h2>2. 原生输入控件与角色测试</h2>
+      <div style="display: flex; flex-direction: column; gap: 8px; max-width: 400px;">
+        <label>文本输入: <input type="text" id="input-text" value="测试文本"></label>
+        <label>密码输入: <input type="password" id="input-pwd" value="secret"></label>
+        <label>多行文本: <textarea id="input-textarea" rows="2">多行内容测试</textarea></label>
+        <label>下拉选择:
+          <select id="select-test">
+            <option value="1">选项一</option>
+            <option value="2">选项二</option>
+          </select>
+        </label>
+        <div>
+          <label><input type="checkbox" checked> 复选框 A</label>
+          <label><input type="radio" name="r" checked> 单选框 1</label>
+          <label><input type="radio" name="r"> 单选框 2</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 角色冲突与特殊未知组件 -->
+    <section class="test-section">
+      <h2>3. Role 角色冲突与特殊自定义标签</h2>
+      <div class="controls-bar">
+        <div role="button" tabindex="0" class="harness-btn">div 具有 role="button"</div>
+        <span role="link" class="harness-btn">span 具有 role="link"</span>
+        <button role="presentation" class="harness-btn">button 具有 role="presentation"</button>
+        <app-unknown-widget class="harness-btn">自定义标签 app-unknown-widget</app-unknown-widget>
+      </div>
+    </section>
+
+    <!-- 4. 滚动裁剪区域 -->
+    <section class="test-section">
+      <h2>4. 局部滚动容器与几何裁剪</h2>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div>
+          <h4>垂直滚动区域 (overflow-y)</h4>
+          <div id="scroll-y" class="scroll-container-y">
+            <p>滚动项 1</p>
+            <button class="harness-btn">滚动容器内部按钮 1</button>
+            <p>滚动项 2: 这是一段用于撑开高度的长文本描述内容。</p>
+            <p>滚动项 3: 这是一段用于撑开高度的长文本描述内容。</p>
+            <button class="harness-btn">滚动容器内部按钮 2</button>
+            <p>滚动项 4: 这是一段用于撑开高度的长文本描述内容。</p>
+            <p>滚动项 5: 底部项</p>
+            <button class="harness-btn">滚动容器内部按钮 3</button>
+          </div>
+        </div>
+        <div>
+          <h4>水平滚动区域 (overflow-x)</h4>
+          <div id="scroll-x" class="scroll-container-x">
+            <button class="harness-btn">水平按钮 1</button>
+            <span style="display: inline-block; width: 200px; padding: 4px; background: #eee;">水平间隔段落 A</span>
+            <button class="harness-btn">水平按钮 2</button>
+            <span style="display: inline-block; width: 200px; padding: 4px; background: #eee;">水平间隔段落 B</span>
+            <button class="harness-btn">水平按钮 3</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. 零几何与隐藏元素 -->
+    <section class="test-section">
+      <h2>5. 零几何、隐藏与边界元素</h2>
+      <div class="hidden-element"><button>display:none 按钮</button></div>
+      <div class="visibility-hidden"><button>visibility:hidden 按钮</button></div>
+      <div class="zero-size"><button>0x0 尺寸按钮</button></div>
+      <p>以上区域包含 display:none、visibility:hidden 及 0 尺寸元素，不应误产生有效视口候选。</p>
+    </section>
+
+    <!-- 6. 动态 DOM 增删测试 -->
+    <section class="test-section">
+      <h2>6. 动态 DOM 节点增删</h2>
+      <div class="controls-bar">
+        <button id="btn-add-dynamic" class="harness-btn">动态新增 50 个元素</button>
+        <button id="btn-remove-dynamic" class="harness-btn">动态移除新增元素</button>
+        <span id="dynamic-count-label">当前动态添加数: 0</span>
+      </div>
+      <div id="dynamic-container" class="synthetic-grid"></div>
+    </section>
+
+    <!-- 7. 大规模合成 DOM 节点集合 (>2500 节点) -->
+    <section class="test-section">
+      <h2>7. 大规模 DOM 节点测试集 (>2500 节点)</h2>
+      <p>下方自动生成超过 2500 个不同层级、标签的真实 DOM 节点，用于验证遍历无截断、弱引用映射与内存稳定性。</p>
+      <div>当前总合成节点数: <span id="total-nodes-badge" class="counter-badge">计算中...</span></div>
+      <div id="mass-nodes-container" class="synthetic-grid"></div>
+    </section>
+
+    <!-- 8. 视口外长距离占位 -->
+    <div class="offscreen-spacer">
+      <span>↓ 向下滚动以查看视口外节点 (Offscreen Elements) ↓</span>
+    </div>
+
+    <!-- 9. 视口外内容 -->
+    <section class="test-section" id="offscreen-section">
+      <h2>9. 视口外节点 (Offscreen)</h2>
+      <p>视口外的元素在未滚动入视口前，应被视口候选过滤正确排除。</p>
+      <div class="controls-bar">
+        <button class="harness-btn">视口外按钮 1</button>
+        <button class="harness-btn">视口外按钮 2</button>
+        <input type="text" placeholder="视口外输入框" class="harness-btn">
+      </div>
+    </section>
+  </main>
+
+  <script src="harness.js"></script>
+</body>
+</html>
