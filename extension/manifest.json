@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "NNAnything DOM Inspector",
+  "version": "0.1.0",
+  "description": "Local Chrome/Chromium DOM classifier inspector, focus scoping, and capture tool",
+  "permissions": [
+    "activeTab",
+    "scripting"
+  ],
+  "action": {
+    "default_title": "NNAnything DOM Inspector"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
