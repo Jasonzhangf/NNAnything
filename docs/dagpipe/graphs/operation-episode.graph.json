@@ -1,0 +1,23 @@
+{
+  "id": "operation-episode-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id":"request_event","schema":"Object"}],
+  "nodes": [
+    {"id":"读取状态与页面观测","operator":"dom.observeState","operator_version":"0.1.0-design","inputs":["request_event"],"output":{"id":"observed_event","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"组合基础节点识别目标","operator":"dom.recognizeWorkflow","operator_version":"0.1.0-design","inputs":["observed_event"],"output":{"id":"recognized_event","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按状态与策略判断是否操作","operator":"operation.decide","operator_version":"0.1.0-design","inputs":["recognized_event"],"output":{"id":"decision_event","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"满足条件时执行操作","operator":"operation.apply","operator_version":"0.1.0-design","inputs":["decision_event"],"output":{"id":"receipt_event","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"操作已尝试时读取新观测","operator":"dom.reobserve","operator_version":"0.1.0-design","inputs":["receipt_event"],"output":{"id":"reobserved_event","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"验证声明的后条件或保留未知","operator":"operation.verify","operator_version":"0.1.0-design","inputs":["reobserved_event"],"output":{"id":"verified_event","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总结果与监督记录","operator":"operation.report","operator_version":"0.1.0-design","inputs":["verified_event"],"output":{"id":"ended_event","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"读取状态与页面观测","to":"组合基础节点识别目标","arc_id":"observed_event"},
+    {"from":"组合基础节点识别目标","to":"按状态与策略判断是否操作","arc_id":"recognized_event"},
+    {"from":"按状态与策略判断是否操作","to":"满足条件时执行操作","arc_id":"decision_event"},
+    {"from":"满足条件时执行操作","to":"操作已尝试时读取新观测","arc_id":"receipt_event"},
+    {"from":"操作已尝试时读取新观测","to":"验证声明的后条件或保留未知","arc_id":"reobserved_event"},
+    {"from":"验证声明的后条件或保留未知","to":"汇总结果与监督记录","arc_id":"verified_event"}
+  ],
+  "outputs": ["ended_event"]
+}

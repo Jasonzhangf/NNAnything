@@ -1,11 +1,12 @@
 # NNAnything
 
-以filter为节点、以workflow统一执行应用和训练的框架。手写规则与可训练数值节点共用节点合同，各自保留I/O语义。第一个实验方向是网页DOM的结构化语义识别。
+以filter为基础节点、用事件传递输入输出、在画布组合workflow的框架。应用和训练共用节点/workflow合同，各自保留I/O语义。黑白名单、DOM拆分、判断与operation均由节点组合，不固定进核心。第一个实验方向是网页DOM的结构化语义识别。
 
-当前处于设计阶段。总体设计修订2已由AGY Gemini 4独立评估；最新修订4加入统一节点/workflow，以及单标签按序批处理与focus候选过滤，仍为待审草案。实现尚未开始，仓库没有可运行的推理、采集、标注或训练命令。
+当前处于设计阶段。总体设计修订2已由AGY Gemini 4独立评估；最新修订5整合基础节点、画布、事件I/O、层级拆分与操作闭环，仍为待审草案。实现尚未开始，仓库没有可运行的推理、采集、标注或训练命令。
 
 - [总体设计与分阶段计划](docs/design.md)
 - [Filter节点与统一Workflow](docs/node-workflows.md)
+- [画布、事件输入输出与基础节点](docs/canvas-events.md)
 - [Viewport、Focus、白黑名单与单标签合同](docs/focus-and-labeling.md)
 - [Gemini 4 整体评估及修订结果](docs/reviews/gemini4-design-review.md)
 - [结构化分类与查询合同](research/semantic-query-contract.md)

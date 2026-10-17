@@ -1,12 +1,14 @@
 # 当前任务
 
-目标：以有类型I/O的filter为节点，正式应用、数据准备与训练都由统一workflow编排；核心不内置DOM/微博业务，训练只处理目标节点I/O、参数及损失/后端合同。DOM是首应用，手写viewport/focus/白黑名单先筛候选，神经节点首期单标签且数组保序。class/id、账号名、完整URL/图片名、绝对根路径与全局深度不输入学生模型，标注/原始证据与其隔离。
+目标：以有类型事件I/O的filter为基础节点，在画布组合统一workflow；正式应用、数据准备与训练共用合同。核心只提供端口、连线和有限DAG执行，不固定DOM/微博业务；黑白名单、DOM拆分、判断、operation均由使用者搭建。业务状态显式传递，操作后新观测验证，结束事件收束单次执行；下一次触发是新run。训练只处理目标节点I/O、参数及损失/后端合同。DOM是首应用，神经节点首期单标签且数组保序。class/id、账号名、完整URL/图片名、绝对根路径与全局深度不输入学生模型，标注/原始证据与其隔离。
 
 当前阶段：2026-10-17用户最新指令要求先完成整体规划设计，再由AGY Gemini 4整体评估/review，之后再决定推进。已停止实现。Git已初始化、本地main有设计基线，无remote。未提交的package/tsconfig、架构与测试草稿已归档到 /Volumes/Intel/playground/nnanything-runs/project-scaffold/unimplemented-scaffold-draft.tar.gz，未合入main；唯一外置worktree和自有分支已清理。没有src实现、依赖安装、采集、标注或训练。此前为脚手架启动实现早于用户期望，已纠正为设计优先；本轮不再实现。
 
 ## 已有材料
 
-- docs/node-workflows.md：修订4的统一架构；Node/Workflow/Profile、应用与训练workflow、节点I/O训练隔离、workflow连线不等于Handwired梯度连线。两个项目graph.json已静态validate/inspect：正式8节点8边，训练7节点8边；operator仅设计引用，尚无实现/注册或运行时接入。执行后端适配仍须审查，未恢复实现。
+- docs/canvas-events.md：修订5的最小画布/事件合同、基础节点能力、状态与执行进度分离、判断与操作闭环示例。只规划基础节点，不做UI、消息中间件或独立复杂状态机。新增事件/层级拆分/操作设计尚未纳入Gemini整体复核。
+- docs/node-workflows.md：修订5的统一架构；Node/Workflow/Profile、应用与训练workflow、节点I/O训练隔离、workflow连线不等于Handwired梯度连线。项目图规模：识别10节点10边、训练7节点8边、操作闭环7节点6边；operator仅设计引用，尚无实现/注册或运行时接入。执行后端适配仍须审查，未恢复实现。
+- 修订5检查：修改后的识别图和新增操作图均通过dagpipe graph validate/inspect，单入口单出口且无环；训练图未变，复用上一轮静态结果。事件运行、操作行为和画布渲染均未验证；当前没有可执行实现。
 - docs/focus-and-labeling.md：用户最新决定的设计增量。首期单任务单标签，数组保序；页面共享上下文→viewport/focus/deny/allow候选过滤→取参→分类。viewportOnly固定true，部分可见保留；排除当前节点不默认剪掉其后代；上下文不是额外分类目标；过滤记录不作为负例。总体设计修订3待审，修订2的Gemini4通过不自动覆盖新接口。
 - 用户进一步确认：页面必须先经过一系列手写ManualFilter（viewport/focus/白黑名单），才进入NeuralNode。前者输出pass/reason，后者语义标签/分数；只读基础过滤所需观测，放行后才做完整取参与网络计算。
 - docs/reviews/gemini4-design-review.md：用户指定AGY Gemini 4整体设计Review。新独立conversation 528f539f-1599-4673-83e1-9926c4d84689；首轮5P1+1P2，修订2后同Reviewer复核findings=[]。两轮SUCCESS/exit0、实际gemini-4-argon-medium，宿主校验schema/scope后裁决仅设计通过。原始结果已存docs/reviews/gemini4-design-v1.json和v2.json；不代表实现/训练验收。
@@ -14,7 +16,7 @@
 - research/github-semantic-anchors.md：2026-10-17 GitHub 只读调研；WebUI 主参考基础成分和采样，Web2Text 参考块/边证据与结构对照，Mind2Web 参考操作证据。实际解析 WebUI 一个公开 AX 样本，328 节点；没有运行第三方模型或下载完整数据集，业务标签仍需本地标定。
 - research/compositional-recognition.md：整体与成分共生，关系直接入参；第一阶段使用可测关系，第二阶段再加入父子/兄弟预测摘要。第二阶段训练与有限推理轮次分开。
 - research/semantic-query-contract.md：固定 target 分类、within 作用范围、one/all 查询、结构化返回与纠错；运行时搜索不依赖 LLM。中文描述仅解释用途，不作为匹配输入。读取值和动作与语义查询分开。
-- 新增显式分类 post.card.advertisement、post.card.promotion、post.card.recommendation；识别保留具体节点及多标签供操作，不能只作为 organic 负例丢弃。推荐不自动等于付费广告或商业推广，未知标签不强行变负例。
+- 新增显式分类 post.card.advertisement、post.card.promotion、post.card.recommendation；识别保留具体节点及当前任务单标签供操作，不能只作为 organic 负例丢弃。旧研究中的多标签不属于首期合同。推荐不自动等于付费广告或商业推广，未知标签不强行变负例。
 - research/browser-semantic-modes.md：最新上层设计；两种模式、共享观测目录、多目标标签与边界、错误归因、旧新样本重拟合和独立黄金回归。两张流程图是设计图，不是 Handwired 内部数值连线。
 - research/filter-wiring-audit.md：当前待审的稀疏数值连线与通用单轮反馈更新设计。拟议 10 个输入、10 个系数与 bias；Handwired 求连续分数，宿主做 sigmoid、损失和校准。
 - research/weibo-filter/snapshot-001/：原始渲染 DOM、同次节点测量、随后捕获的视口截图。
@@ -39,4 +41,4 @@
 记录目录：/Volumes/Intel/playground/nnanything-runs/filter-wire-audit。
 Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Argon medium，独立 conversation a30e71c9-05d0-4af1-a470-20804f27e544 完成初稿和修订。初稿有未经测量的性能宣称及硬门零梯度问题，未采纳；当前用户审计稿已删去这些问题并压缩候选输入。外部进程均已退出。
 
-下一动作：继续对齐修订4的通用节点/workflow主轴和修订3的单标签/focus合同，统一框架执行后端边界需在接口冻结/实现前纳入下一轮整体设计评估。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。
+下一动作：将修订5的基础节点/事件/画布、单标签/focus及可选层级拆分统一纳入下一轮整体设计评估；当前不为每次讨论增量单独派review。执行后端和具体端口合同在实现前收敛。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。
