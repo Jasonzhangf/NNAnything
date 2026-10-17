@@ -1,6 +1,6 @@
 # NNAnything 总体设计
 
-版本：设计修订2，2026-10-17。状态：AGY Gemini 4独立整体评估与finding复核完成，无剩余finding；宿主按有效结果裁决设计审查通过，仅可支撑D1规划，不代表用户已决定开始实现。详见 [评估报告](reviews/gemini4-design-review.md)。
+版本：设计修订3草案，2026-10-17。新增单任务单标签、按序批处理和viewport/focus/白黑名单入口，详见 [增量合同](focus-and-labeling.md)。AGY Gemini 4已通过的是修订2，该结论不自动覆盖本次接口变化；当前继续设计，不进入实现。历史评估见 [报告](reviews/gemini4-design-review.md)。
 
 本文件是总体方案入口。research中的页面证据、分类合同和数值草案作为详细依据。方案通过设计review不等于电路已训练或整体产品可用；下一步推进由用户决定。
 
@@ -8,22 +8,27 @@
 
 建立通用、可审计、按profile适配的单节点filter框架。外部程序把对象转为明确参数；手写数值结构组合这些参数，训练只更新已声明权重。第一个playground是微博DOM语义，跨站验证在后。
 
+页面可作为浏览器识别层共享上下文，先按viewport、focus、白名单/黑名单产生候选。首期一个任务对每个节点输出一个标签，也支持节点数组按序返回；暂不做同节点多个标签同时输出。二分类是该任务合同的特例，isTarget可作为相应二分类视图。过滤掉的候选不是模型负例。
+
 目标覆盖：帖子、作者、正文、互动、媒体、来源标记、搜索及个人入口。语义用固定类别和结构查询表达，正常推理不依赖LLM。广告/推广/推荐显式输出，不只作为普通帖负例丢弃。
 
 两个浏览器模式：使用模式定位具体目标供程序读值/操作；监督模式记录每次操作、由LLM回溯失败、选择样本修复并比较版本。两模式共享原始样本、目标定义及profile。
 
 非目标：自动把任意JS编译为神经网络、一次性训练所有站点、把整个页面输入filter、运行时用LLM解释查询、学习用户已明确的操作策略。本轮仅设计，不进行脚手架实现、采集、批标、训练、CDP动作。
 
-## 2. 四层职责与两层训练
+## 2. 手写入口、四层职责与两层训练
 
 | 层次 | 处理对象 | 输出 | Owner |
 | --- | --- | --- | --- |
+| 手写预过滤 | 页面候选及viewport/focus/白黑名单规则 | 放行候选与排除原因；不产生语义负标签 | 浏览器候选程序 |
 | 观测 | 节点及必要局部DOM/布局/属性/滚动 | 可测数值、局部结构与原始证据 | 站点/浏览器适配器 |
 | 基础语义 | 单节点观测参数 | 作者、正文、互动、来源标记等目标分数 | 已声明目标filter |
 | 组合识别 | 单节点参数、成分分数与关系摘要 | 完整对象、成分归属、广告/推广等组合目标分数 | 组合filter与外部上下文编排 |
 | 策略操作 | 分类、具体节点引用、用户规则 | 查询、读取、展开、隐藏等动作 | 浏览器程序/调用者 |
 
 基础语义和组合识别是两层可训练结构。浏览器已直接提供的img/button等事实直接读取；需要学习的是头像/配图、点赞/普通按钮等角色。仅为复述输入role而训练的分类器没有独立价值。
+
+手写预过滤位于神经网络入口之前：读取规则所需的基础几何/属性，顺序执行viewport、focus和白黑名单规则，再对保留节点做完整取参与神经网络求值。ManualFilter返回pass/reason；NeuralNode返回单标签/分数。规则链和模型职责分离，均可各自回放，但规则不冒称可训练分类器。
 
 两层结构与两阶段开发不同：第一阶段只用自身和可测关系建立基线，先实现少数目标；第二阶段引入其他节点实际预测，训练组合/协同支路。第二阶段内部可使用有限推理轮次，但不等于只有第二次推理。完整卡片可保留直接识别基线，验证组合层是否有增益。
 
@@ -39,9 +44,11 @@ organic是本实验的复合目标，不承诺只有一种实现。若结构/来
 
 - 结构与内容：post.card、post.author.name、post.author.avatar、post.body及text/image/video/link成分。
 - 交互：search.input、account.self.entry、post.comment.entry、post.repost.entry、post.like.entry、post.body.expand、navigation.entry；post.comment.item是实际评论容器，与评论入口分开。
-- 内容来源：post.card.advertisement、post.card.promotion、post.card.recommendation、post.card.organic；多标签，未知不自动变负例。
+- 内容来源：post.card.advertisement、post.card.promotion、post.card.recommendation、post.card.organic。它们是语义目录，实际单标签任务只选择明确互斥的子集；重叠含义不强塞进一次分类，未知不自动变负例。
 
 查询字段为target、within、scopeMode=owned/subtree、cardinality=one/all、where.visible/enabled。within存在时缺省owned：枚举局部DOM后按该target声明的规范归属筛选，内嵌帖子和单条评论形成各自边界，不能把其作者认作外层作者。subtree显式表示纯DOM自身及后代，不承诺语义归属。最近候选祖先只是证据，不等于归属真值；归属未定且会影响one选择时返回ambiguous，不能默默跨边界或丢弃。
+
+候选前置合同新增FocusSpec：viewportOnly固定true，within/region限制当前关注对象，deny优先allow，未配置allow不额外限制、显式空allow不产生候选。该合同与where.visible/enabled区分：前者限制是否进入分类，后者是查询/操作条件。部分可见即保留，过滤当前容器不默认裁掉其全部后代。排除与上下文规则沿增量合同。
 
 one有多个合格结果返回ambiguous，零个返回not_found；不自动选最高分。目标未知/未支持返回unsupported_target，范围引用失效返回stale_scope，必要观测缺失而无法判断返回insufficient_observation。查询返回具体nodeRef与目标分数，读取和动作另行调用。
 
@@ -105,12 +112,12 @@ flowchart TD
 | --- | --- |
 | FilterDefinition | target、语义/边界版本、阶段、按序输入定义及单位/变换、手写数值图、可训练参数名 |
 | NumericInput | inputContract、当前节点的数值向量；不含页面、DOM对象、class/id或账号文本 |
-| FilterResult | isTarget:boolean、confidence:number；confidence为目标分数，阈值与解释由profile声明 |
+| FilterResult | 首期每任务单标签label及分数；二分类可提供isTarget视图。批处理保序保长度，过滤/缺测/未判定由外层状态表达，不伪造分类 |
 | Profile | 普通版本标识、target、兼容的输入/电路合同、权重、阈值、校准状态/参数与训练来源引用 |
 | Snapshot | 采集批次、页面/帖子来源组、原始DOM/截图/布局等引用及各自时间；保留不同步限制 |
 | LabelRecord | snapshot/node/target、truth=true/false/unknown、规则/LLM/用户来源、证据、复核状态 |
 | Dataset | 规范标签引用、派生向量、group、用途分区；标签与原始字段不拼进特征向量 |
-| OperationSample | episode/step、结构查询/动作/预期、当时profile和候选分数、前后现场、实际结果 |
+| OperationSample | episode/step、结构查询/动作/预期、当时profile和候选分数、FocusSpec及规则版本/排除记录、前后现场、实际结果 |
 | FailureReview | 失败owner、errorType、首次偏离证据、标签提议与train/regression/investigate/duplicate处置 |
 | Comparison | 同组样本当前/候选预测、真值、fixed/regressed/unresolved/retained/unassessed及分项指标 |
 
@@ -234,7 +241,7 @@ D1不要求先实现全部20个目标；D2/D3的目标子集与样本预算按�
 1. 两层训练与两阶段开发是否清楚，是否存在语义循环或不必要的目标分类器。
 2. 通用filter接口、上下文外置、Handwired与站点teacher边界是否一致。
 3. 规则标签、独立黄金、校准和新留出划分能否防止泄漏及虚假高分。
-4. 广告/推广/推荐的多标签及规范节点是否足以支持后续操作。
+4. 单标签任务的互斥类别、规范节点及focus候选范围是否足以支持后续操作；重叠语义是否保留为独立任务目录而未错误互斥。
 5. 监督回溯、参数修复和版本退化比较是否遗漏关键失败路径。
 6. 目录、开发/测试/训练框架和阶段计划是否有过度设计或实现前必须解决的未知。
 

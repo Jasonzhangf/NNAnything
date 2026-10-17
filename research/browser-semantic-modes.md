@@ -2,6 +2,8 @@
 
 状态：待用户审计的设计。未实现浏览器语义接口、filter 或训练器；未测效果。本稿承接多目标识别与双模式需求。首个实现实验仍可从微博完整普通卡片开始。
 
+首期新增 [Focus与单标签合同](../docs/focus-and-labeling.md)：候选仅在viewport和当前focus内，deny优先allow，单任务单标签，批处理保序。原布尔filter是二分类特例；早期同时汇集多目标标记的描述不作为首期范围。
+
 ## 职责与合同
 
 浏览器层有两个模式，共用原始页面样本、节点观测和目标定义。
@@ -25,7 +27,7 @@ filter 合同保持不变：一个节点的抽象参数 → `{ isTarget, confide
 flowchart TD
   S([结构化查询或显式读取动作请求]):::boundary --> C[(记录请求与当前页面证据)]:::data
   C --> K{请求种类?}:::decision
-  K -->|query| E[外部程序枚举候选节点]:::action
+  K -->|query| E[按viewport focus与白黑名单枚举候选]:::action
   E --> O[逐节点提取已声明的观测参数]:::action
   O --> F[对应 filter 与 profile 对单个节点评分]:::action
   F --> R[外部解析器按目标边界及范围整理结果]:::action
@@ -137,6 +139,7 @@ flowchart TD
 | --- | --- |
 | sampleId / episodeId / step | 本次操作与前后操作的关联 |
 | queryId | 查询与后续显式读取/动作的关联，不意味着两次页面状态相同 |
+| focusSpec / candidatePolicy / excluded | 关注范围、规则版本、viewport测量和排除引用/原因；排除不自动生成负标签 |
 | query / action / expected | 结构化目标、动作类型与参数、预期可观测结果 |
 | activeProfile / inputContract | 当时参数版本、输入定义；使用普通版本标识，不另建哈希包装 |
 | candidates / selected | 候选引用及分数、实际选择；无候选时为空 |

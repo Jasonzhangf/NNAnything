@@ -6,6 +6,8 @@
 
 ## 已有材料
 
+- docs/focus-and-labeling.md：用户最新决定的设计增量。首期单任务单标签，数组保序；页面共享上下文→viewport/focus/deny/allow候选过滤→取参→分类。viewportOnly固定true，部分可见保留；排除当前节点不默认剪掉其后代；上下文不是额外分类目标；过滤记录不作为负例。总体设计修订3待审，修订2的Gemini4通过不自动覆盖新接口。
+- 用户进一步确认：页面必须先经过一系列手写ManualFilter（viewport/focus/白黑名单），才进入NeuralNode。前者输出pass/reason，后者语义标签/分数；只读基础过滤所需观测，放行后才做完整取参与网络计算。
 - docs/reviews/gemini4-design-review.md：用户指定AGY Gemini 4整体设计Review。新独立conversation 528f539f-1599-4673-83e1-9926c4d84689；首轮5P1+1P2，修订2后同Reviewer复核findings=[]。两轮SUCCESS/exit0、实际gemini-4-argon-medium，宿主校验schema/scope后裁决仅设计通过。原始结果已存docs/reviews/gemini4-design-v1.json和v2.json；不代表实现/训练验收。
 - docs/design.md：最新总体设计入口，覆盖目标/目录/核心合同、两层建模与两阶段训练、teacher标注、监督回放与开发/测试/训练框架。D0设计评估后仍等待用户决定，不自动进入D1实现。
 - research/github-semantic-anchors.md：2026-10-17 GitHub 只读调研；WebUI 主参考基础成分和采样，Web2Text 参考块/边证据与结构对照，Mind2Web 参考操作证据。实际解析 WebUI 一个公开 AX 样本，328 节点；没有运行第三方模型或下载完整数据集，业务标签仍需本地标定。
@@ -36,4 +38,4 @@
 记录目录：/Volumes/Intel/playground/nnanything-runs/filter-wire-audit。
 Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Argon medium，独立 conversation a30e71c9-05d0-4af1-a470-20804f27e544 完成初稿和修订。初稿有未经测量的性能宣称及硬门零梯度问题，未采纳；当前用户审计稿已删去这些问题并压缩候选输入。外部进程均已退出。
 
-下一动作：当前D0总体设计与整体评估已完成，向用户交付设计与finding修订结果，等待用户决定。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。
+下一动作：继续对齐修订3的单任务标签、按序批处理与focus候选过滤，接口冻结/实现前纳入下一轮整体设计评估。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。
