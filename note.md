@@ -1,6 +1,28 @@
 # 当前任务
 
-## 基础 Workflow 资产与目录分类（当前）
+## 基础规则采样能动 Goal（2026-10-17，进行中）
+
+用户纠正：“我认为 filter 应该是输入以后输出各种语义分类，至于是正例还是负例，这不是 filter 的工作，而是根据语义和训练要求”。用户提出时尚无采样实现，已先暂停受影响工作并修订合同；Filter 只产语义与识别状态，训练任务组装层独立映射监督标签。原正负规则私有配置已替换，不作为现行配置执行。单项单语义、数组保序、不自动负例、隐私与保存授权边界不变。
+
+上述修订已完成：独立 Gemini4 medium 返回 READY（01b9cbeb-e19e-4689-8048-be4b048ddb63），接受 semantic-plan/plan.md；文档与配置已改为 rules/semanticLabel → supervisionMap/expectedLabels。原图不变，复用静态检查。编排者收回原 GCM 实现 owner 后已实现纯语义内核、三节点、公开导出与四参数 consumer。补查原始 events 确认原执行者除读取与笔记外还创建了未接入 fixture 和 .keep，未实现节点或红测；这两文件已在整体 Review 后删除，纠正早期“仅读取”摘要。主动取消不等于模型后端不可用。私有观察所得结构证据由编排者核对后使用，原观察任务也已主动取消，未伪称 worker 已交报告。
+
+作者验收：全56测试通过（原48+新8组），错误三值合取优先级的实际故障注入使语义测试失败，恢复后通过。最终规则引用格式修订后补8项采样测试与 typecheck 均通过；通用 total18、浏览器13/6槽位和新合成8槽位 consumer 成功。真实保存入口与隔离文件系统覆盖未授权、拒绝覆盖、越界、父/终点符号链接和非 ok 跳过等边界。原始日志及细节见 /Volumes/Intel/playground/nnanything-runs/sampling-l1/verification.md，不以设计通过代替运行证据。
+
+归档微博通过同一 consumer 生成2000行。语义分类为 post.card10、post.body10、post.content10、editor.composer1；完整卡片任务映射为正10/负21/未标注1969。每行保留语义及独立监督结果、输入/证据/来源引用。全部2000行已核对引用、顺序、映射、白名单和回执，无 teacher 原始字段。产物在本地 training/samples/sampling-l1-weibo/weibo-card-structure.samples.jsonl，Git 忽略。单来源、rule_proposed，不证明准确率、可见候选资格或训练效果。
+
+独立 Gemini4 medium 整体 Review 已结束（baa2d79f-d02e-4c9b-9544-47b0433b1f9d，SUCCESS/exit0），canonical schema/scope/classifyReviewOutput 裁决 PASS，无 P0/P1，3项P2已修正：删除未使用文件、允许空 supervisionMap 的文档对齐、实现状态措辞归位。仅文档与未接入文件变化，复用代码验收并做针对性检查。下一步经验审计和 main 交付。
+
+独立 fresh OAuth gpt-6.1-sol medium 结案过程审计已完成，原文 docs/reviews/sampling-l1-retrospective.md。已按原始 events 纠正初始 fixture 贡献、移除外置 run 笔记的过时等待状态、对齐节点卡 attributes/null 声明。全局 goal-prompt Skill 的绝对禁止接管措辞与上游规则冲突，建议已保留给该 Skill owner；本项目未扩展为全局 Skill 修改，按上游权威规则执行本轮接管。不改受管记忆，不新增永久护栏或重复验收。代码 Review 原文 docs/reviews/gemini4-sampling-l1-review.json，P2处置以上文及外置 verification.md 为准。当前仅剩 main 提交推送与资源核销。
+
+用户通过 Goal 明确授权实现已评审的 sample.match → sample.assemble → sample.save，交付公开离线 consumer、JSONL、合成与归档微博验收、整体 Review 和 main 推送。此段覆盖下方已结束设计任务的“不实现采样”限制；不扩大到模型拟合、数值特征、活页面、operation 或跨站。
+
+本任务 owner 为当前 Goal 编排者。开工主树干净、fetch 成功，仅 main 注册；无历史活动工作树需要核销。唯一独占树 /Volumes/Intel/playground/nnanything/sampling-l1，feat/sampling-l1；过程证据 /Volumes/Intel/playground/nnanything-runs/sampling-l1。未发现 .appsdk/requirements.json，按规则跳过，不初始化控制面。
+
+已读采样图，原图为 3N2E SESE，入口 raw_records、出口 save_receipt，复用前次有效拓扑证据。独立 OAuth gpt-6.1-sol medium 小计划已完成并接受，plan/report.md 给出唯一 schema/规则/节点 owner、公开 consumer、路径边界与验收；实现时保留原拓扑，仅升级采样版本后由文档 owner 校验一次。规则未命中/缺测/过滤不生成负例；teacher 字段只作提议与证据，学生观测显式投影。
+
+早期派发为独立 GCM 实现与私有数据观察、AGY Flash 文档更新；后续已按上文记录回收代码和数据 owner，由编排者完成实现与作者验收。AGY 文档任务已结束。运行链路已验证，语义标签准确率仍未建立；整体 Review 与 Git 交付单独记录，不把局部完成当作总目标完成。
+
+## 基础 Workflow 资产与目录分类（已交付历史）
 
 2026-10-17，用户要求设计基础规则采样workflow，Review后保存为基础workflow与基础节点，并分类workflow、lib节点/filter、训练实现、样本、结果和权重。当前只交新三节点设计与既有L1路径归位，不实现新采样/保存/训练、不采集活页面。新目录和职责见docs/implementation-plan.md第2节；流程清单workflows/README.md，三张采样节点卡唯一维护于lib/nodes/README.md。
 

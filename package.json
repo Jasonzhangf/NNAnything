@@ -23,7 +23,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs",
     "demo": "npm run build && node playground/common/demo.mjs",
-    "demo:browser": "npm run build && node playground/browser/demo.mjs"
+    "demo:browser": "npm run build && node playground/browser/demo.mjs",
+    "demo:sampling": "npm run build && node playground/sampling/demo.mjs"
   },
   "dependencies": {
     "flowed": "1.15.0"

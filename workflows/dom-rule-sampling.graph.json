@@ -1,6 +1,6 @@
 {
   "id": "dom-rule-sampling-design",
-  "version": "0.1.0-design",
+  "version": "0.1.0",
   "inputs": [
     {
       "id": "raw_records",
@@ -11,7 +11,7 @@
     {
       "id": "按显式规则匹配DOM记录",
       "operator": "sample.match",
-      "operator_version": "0.1.0-design",
+      "operator_version": "0.1.0",
       "inputs": [
         "raw_records"
       ],
@@ -32,7 +32,7 @@
     {
       "id": "组装单任务训练样本",
       "operator": "sample.assemble",
-      "operator_version": "0.1.0-design",
+      "operator_version": "0.1.0",
       "inputs": [
         "matched_records"
       ],
@@ -53,7 +53,7 @@
     {
       "id": "保存样本到本地目录",
       "operator": "sample.save",
-      "operator_version": "0.1.0-design",
+      "operator_version": "0.1.0",
       "inputs": [
         "task_samples"
       ],

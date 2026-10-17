@@ -2,3 +2,6 @@ export * from "./adapters/browser/observation.js";
 export * from "./filters/focus.js";
 export * from "./filters/candidate-chain.js";
 export * from "./nodes/dom.js";
+export * from "./filters/sample-match.js";
+export * from "./training/samples.js";
+export * from "./nodes/sampling.js";

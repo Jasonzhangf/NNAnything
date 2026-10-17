@@ -1,6 +1,6 @@
 # Workflow 基础配置合同
 
-状态：L1 已交付并完成验收，当前授权基础工作流设计与目录分类，2026-10-17。配置表示节点接续，不依赖画布。执行方案采用 Flowed 1.15.0，保留项目图唯一真源（集中于 `workflows/` 目录）；L1 已实现加载、编译和单次执行合同。流程清单见 [workflows/README.md](../workflows/README.md)，三类基础采样节点合同卡见 [lib/nodes/README.md](../lib/nodes/README.md)。
+状态：L1 候选切片已交付；当前增量推进基础规则采样工作流（`dom-rule-sampling`）及三节点实现（`0.1.0`），2026-10-17。配置表示节点接续，不依赖画布。执行方案采用 Flowed 1.15.0，保留项目图唯一真源（集中于 `workflows/` 目录）；已实现加载、编译和单次执行合同。流程清单见 [workflows/README.md](../workflows/README.md)，三类基础采样节点合同卡见 [lib/nodes/README.md](../lib/nodes/README.md)。
 
 ## 1. 持久配置与运行绑定
 
@@ -72,4 +72,4 @@ NodeDefinition的inputPorts按顺序与图节点inputs数组一一绑定，outpu
 
 静态DAGpipe校验只证明图语法与拓扑，后续compile与consumer才证明节点注册、领域端口、effects和结果行为。已有图未变时复用静态结果，不在每次改文档/记笔记时重验。
 
-L1验收包括：配置文件与代码入口进入同一编译；async扇入等输入齐备才执行；过滤/跳过能结束；非法图/错类型/缺引用明确拒绝；未授权effect实际执行次数0。公开用法见[l1-usage.md](l1-usage.md)，原始结果与独立审查状态见[note.md](../note.md)。
+L1 候选与规则采样验收包括：配置文件与代码入口进入同一编译；async 扇入等输入齐备才执行；过滤/跳过能结束；非法图/错类型/缺引用明确拒绝；`sample.save` 声明 `filesystem.write`，未显式授权时编译拒绝且实际执行写入次数为 0；路径必须处于调用者绑定的 `allowedRoot` 内部，独占 `create_new`（wx）拒绝覆盖。采样图静态拓扑经 `dagpipe graph validate` 和 `inspect` 验证（3N2E SESE）。公开用法见 [l1-usage.md](l1-usage.md) 与 [playground/sampling/README.md](../playground/sampling/README.md)，原始结果与独立审查状态见 [note.md](../note.md)。

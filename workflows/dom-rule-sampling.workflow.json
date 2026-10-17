@@ -3,28 +3,78 @@
   "graphRef": "./dom-rule-sampling.graph.json",
   "configs": {
     "cardMatchRule": {
-      "ruleId": "synthetic.card.class-rule.v1",
-      "positiveMatch": [
+      "ruleId": "synthetic.dom.semantic-rules.v1",
+      "rules": [
         {
+          "semanticLabel": "post.card",
+          "match": [
+            {
           "tag": "article",
           "classIncludes": [
             "synthetic-feed-card"
           ]
-        }
-      ],
-      "negativeMatch": [
+            }
+          ]
+        },
         {
-          "tag": "div",
-          "classIncludes": [
-            "synthetic-feed-toolbar"
+          "semanticLabel": "post.body",
+          "match": [
+            {
+              "tag": "div",
+              "classIncludes": [
+                "synthetic-post-body"
+              ]
+            }
+          ]
+        },
+        {
+          "semanticLabel": "post.content",
+          "match": [
+            {
+              "tag": "div",
+              "classIncludes": [
+                "synthetic-post-content"
+              ]
+            }
+          ]
+        },
+        {
+          "semanticLabel": "editor.composer",
+          "match": [
+            {
+              "tag": "div",
+              "classIncludes": [
+                "synthetic-editor-composer"
+              ]
+            }
+          ]
+        },
+        {
+          "semanticLabel": "feed.toolbar",
+          "match": [
+            {
+              "tag": "div",
+              "classIncludes": [
+                "synthetic-feed-toolbar"
+              ]
+            }
           ]
         }
       ]
     },
     "cardSampleSpec": {
-      "taskId": "synthetic.card.structure",
-      "targetLabel": "synthetic.card",
-      "negativeLabel": "synthetic.other"
+      "taskId": "synthetic.post.card.structure",
+      "supervisionMap": {
+        "post.card": "positive",
+        "post.body": "negative",
+        "post.content": "negative",
+        "editor.composer": "negative"
+      },
+      "expectedLabels": {
+        "positive": "post.card",
+        "negative": "not.post.card"
+      },
+      "unmappedPolicy": "unlabeled"
     },
     "localSaveSpec": {
       "fileName": "synthetic-card.samples.jsonl",

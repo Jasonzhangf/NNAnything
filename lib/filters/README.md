@@ -7,12 +7,12 @@
 1. **纯内存确定性计算**：本目录下的规则函数为纯内存求值，无副作用（`effects: []`）。
 2. **与节点封装解耦**：
    - 规则与槽位求值内核位于 `lib/filters/`；
-   - `lib/nodes/dom.ts` 与未来的采样节点负责将这些纯逻辑包装为符合 `NodeDefinition` 的事件端口处理单元。
+   - `lib/nodes/dom.ts` 与 `lib/nodes/sampling.ts` 将这些纯逻辑包装为符合 `NodeDefinition` 的事件端口处理单元。
 3. **经验积累路径**：手写过滤经验通过确定性规则与回归用例积累，不将手写规则包装为神经网络权重；过滤排除的候选记录明确排除原因，严禁自动转为模型负标签。
-4. **未来采样规则支持**：未来 `sample.match` 算子的规则匹配内核（AND/OR 规则树求值、`matchPolarity` 判断及冲突检测）亦将归属于本目录。
+4. **采样规则支持**：`sample.match` 算子的规则匹配纯内核（`evaluateSemanticRules`，AND 条件与类别内 OR 求值、三值逻辑、跨类槽位仲裁与语义冲突检测）归属于本目录（`lib/filters/sample-match.ts`）。Filter 仅输出语义分类与匹配状态，彻底无训练正负极性概念，无 `lib/training` 依赖。
 
 ## 2. 迁移与实现状态
 
 - `focus.ts`：视口、within 容器及 region 矩形候选过滤纯逻辑（自原 `src/adapters/browser/focus.ts` 迁入）；
 - `candidate-chain.ts`：7 节点手写候选过滤链求值纯逻辑（自原 `src/adapters/browser/candidate-chain.ts` 迁入）；
-- 规则采样求值内核：当前处于设计态（`0.1.0-design`），待后续实现。
+- `sample-match.ts`：纯语义规则求值内核 `evaluateSemanticRules`，`0.1.0` 已实现并通过公开接口验收。

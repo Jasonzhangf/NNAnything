@@ -1,0 +1,14 @@
+{
+  "snapshotRef": "synthetic:snapshot",
+  "sourceGroup": {"snapshotRefs": ["synthetic:snapshot"]},
+  "records": [
+    {"nodeRef":"card","provenanceRef":"synthetic#/records/0","tag":"article","classList":["synthetic-feed-card"],"studentObservation":{"tag":"article","rect":{"x":0,"y":0,"width":600,"height":320}}},
+    {"nodeRef":"content","provenanceRef":"synthetic#/records/1","tag":"div","classList":["synthetic-post-content"],"studentObservation":{"tag":"div","parentRef":"card"}},
+    {"nodeRef":"editor","provenanceRef":"synthetic#/records/2","tag":"div","classList":["synthetic-editor-composer"]},
+    {"nodeRef":"toolbar","provenanceRef":"synthetic#/records/3","tag":"div","classList":["synthetic-feed-toolbar"]},
+    {"nodeRef":"card","provenanceRef":"synthetic#/records/4","tag":"article","classList":["synthetic-feed-card"],"candidateStatus":"filtered_out"},
+    {"nodeRef":"missing","provenanceRef":"synthetic#/records/5","tag":"div"},
+    {"nodeRef":"unmatched","provenanceRef":"synthetic#/records/6","tag":"span","classList":[]},
+    {"nodeRef":"conflict","provenanceRef":"synthetic#/records/7","tag":"div","classList":["synthetic-post-body","synthetic-post-content"]}
+  ]
+}

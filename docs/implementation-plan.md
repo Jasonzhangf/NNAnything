@@ -1,6 +1,6 @@
 # D0交付与后续浏览器项目实施计划
 
-状态：2026-10-17，L1 能动切片已交付并完成作者验收与整体 Review。当前授权为基础工作流资产设计与目录分类（nnanything-design-workflow-assets）：确立单源目录规范、交付基础规则采样工作流（dom-rule-sampling）拓扑与配置设计、三节点合同卡及文档路径归位；未实现算子保持 0.1.0-design，不进行实际代码实现或 L2 扩展。远端为 Jasonzhangf/NNAnything；L2-L4 仍为后续规划。
+状态：2026-10-17，L1 能动切片与基础工作流设计已先后交付。当前用户明确授权实现基础规则采样三节点（sample.match、sample.assemble、sample.save）、离线 JSONL 持久化及公开采样 Consumer。算子与采样图升级为 0.1.0。远端为 Jasonzhangf/NNAnything；L2-L4 仍为后续规划。
 
 本计划依据独立规划及其收敛决议。目录全图在第 2 节单一 owner 维护，工作流清单与真源索引见 [workflows/README.md](../workflows/README.md)，节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)。
 
@@ -33,31 +33,34 @@ NNAnything/
     README.md                                # 流程清单、图与配置对应关系与状态说明
     dom-candidates.graph.json                # [已实现 0.1.0] L1 能动候选图 (7N6E SESE)
     dom-candidates.workflow.json             # [已实现 0.1.0] L1 持久配置 (graphRef="./dom-candidates.graph.json")
-    dom-rule-sampling.graph.json             # [待实现 0.1.0-design] 基础规则采样图 (3N2E SESE)
-    dom-rule-sampling.workflow.json          # [待实现 0.1.0-design] 采样配置模板
+    dom-rule-sampling.graph.json             # [已实现 0.1.0] 基础规则采样图 (3N2E SESE)
+    dom-rule-sampling.workflow.json          # [已配置 0.1.0] 采样持久配置与运行绑定
     dom-recognition.graph.json               # [设计态 0.1.0-design] 完整卡片识别流 (10N10E SESE)
     node-training.graph.json                 # [设计态 0.1.0-design] 目标节点训练流 (7N8E SESE)
     operation-episode.graph.json             # [设计态 0.1.0-design] 操作闭环流 (7N6E SESE)
   lib/                                       # 库源码根目录
     index.ts                                 # 公开主入口：导出 core、workflow、nodes/common
-    browser.ts                               # 公开 ./browser 入口：导出 adapters/browser、filters、nodes/dom
+    browser.ts                               # 公开 ./browser 入口：导出 adapters/browser、filters、nodes/dom 及采样节点
     core/                                    # 通用契约、事件信封、错误与基础 schema
     workflow/                                # 持久配置加载、DAG 校验、Flowed 编译与运行器
     nodes/                                   # 可复用 workflow 节点定义与合同清单
       README.md                              # 节点目录职责与三类基础采样节点完整合同卡唯一真源
       common.ts                              # common.scale / sum / count (1.0)
       dom.ts                                 # dom.observe / viewport / focus / deny / allow / split / candidates (0.1.0)
+      sampling.ts                            # sample.match / assemble / save (0.1.0)
       trainable/                             # 可训练节点定义目录（存节点结构/特征，不存权重）
         README.md                            # 可训练节点与 Handwired 电路边界
     filters/                                 # 确定性过滤规则与候选槽位求值纯逻辑
       README.md                              # 规则内核与节点解耦说明
       focus.ts                               # 视口、focus、within、region 求值内核
       candidate-chain.ts                     # 7 节点过滤链求值内核
+      sample-match.ts                        # 纯语义规则三值逻辑求值内核（无极性概念）
     adapters/                                # 外部环境与原始观测输入适配
       browser/
         observation.ts                       # 页面观测数据适配与白名单清洗
     training/                                # 节点训练算子实现目录
       README.md                              # 训练算子与 HANDWIRED_ROOT 边界
+      samples.ts                             # 单任务样本 schema、任务监督映射与学生观测清洗
   training/                                  # 本地训练数据与权重资产根目录（数据本地生成，Git 忽略）
     README.md                                # 本地训练资产三分类与隔离底线
     samples/                                 # 规则采样或 teacher 生成的规范样本（JSONL，Git 忽略）
@@ -73,6 +76,9 @@ NNAnything/
       README.md                              # 配置文件与图引用说明
       demo.mjs                               # 浏览器公开 consumer（configPath 指向 ../../workflows/dom-candidates.workflow.json）
       observation.fixture.json               # 离线观测样例数据
+    sampling/
+      README.md                              # 采样公开 consumer 说明与 CLI 契约
+      demo.mjs                               # 基础规则采样公开 consumer
   tests/                                     # 公开合同与黑盒用例
   docs/                                      # 架构、合同与治理文档（图真源移入 workflows/）
   research/                                  # 调研依据与原始数据（本地忽略，绝不提交）
@@ -89,7 +95,7 @@ NNAnything/
 | L3 完善功能 | 按实际任务补来源类别、语义查询与真实操作/监督修复 | 可辨广告/推广/推荐特征与数值支路、teacher准备、目标归属/查询、operation后观测验证、选择性入集 | 使用所选功能的真实目标与后条件验收；离线不动作，unknown不自动重放；不要求一次完成全部长期目录 |
 | L4 提高兼容性 | 在已有效任务上扩展站点/DOM布局与环境适配 | 新场景观测/动作适配、兼容profile及对照样本；有收益证据后再选预测上下文、贝叶斯或可选画布 | 按同类目标做新站点/变体比较，不承诺零样本迁移，不改变通用核心来硬编码站点 |
 
-L1实现已完成交付。当前只交基础workflow与节点设计、目录分类及已有L1路径迁移，不实现新采样、保存或训练；L2-L4不自动成为本轮工作。阶段切换遵循当时已授权目标；目标已覆盖下一层时继续执行，不重复索取逐节点许可。安全、数据正确性及真实结果要求不按层级后移。
+L1 候选切片与基础资产设计已交付。当前用户明确授权实现采样节点（sample.match、sample.assemble、sample.save）与公开采样 Consumer；L2-L4（语义识别模型、神经网络训练、活体网页操作）不自动成为本轮工作。阶段切换遵循当时已授权目标；目标已覆盖下一层时继续执行，不重复索取逐节点许可。安全、数据正确性及真实结果要求不按层级后移。
 
 ## 4. L1首个能动切片与节点卡
 

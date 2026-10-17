@@ -8,15 +8,14 @@
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
 | `dom-candidates.graph.json` | `dom-candidates.workflow.json` | 7 节点 6 边 (7N6E SESE) | `0.1.0` 已实现 | L1 能动候选切片：读取页面观测并经视口、focus、黑白名单与拆分复检输出有序候选槽位与排除映射 |
-| `dom-rule-sampling.graph.json` | `dom-rule-sampling.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0-design` 待实现 | 基础规则采样流：显式 rules 匹配原始 DOM 记录、组装单任务单标签样本并持久化至本地 JSONL |
+| `dom-rule-sampling.graph.json` | `dom-rule-sampling.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 基础规则采样流：显式 semantic rules 确定性分类 DOM 记录、下游按任务映射正负监督并持久化至本地 JSONL |
 | `dom-recognition.graph.json` | 待按需配置 | 10 节点 10 边 (10N10E SESE) | `0.1.0-design` 设计态 | L2 完整卡片语义识别流：候选展开后经白名单特征提取、单标签语义分类并组装回原槽位 |
 | `node-training.graph.json` | 待按需配置 | 7 节点 8 边 (7N8E SESE) | `0.1.0-design` 设计态 | L2 目标节点离线训练流：样本准备、来源分组分区、Handwired 拟合、校准与新旧逐例比较报告 |
 | `operation-episode.graph.json` | 待按需配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` 设计态 | L3 操作闭环设计示例：观测、目标识别、策略决策、条件执行、新观测验证与统一收束 |
 
-> [!IMPORTANT]
-> 新增的 `dom-rule-sampling` 及其三个算子（`sample.match`、`sample.assemble`、`sample.save`）当前全标注为 `0.1.0-design`。
-> 本轮仅交付图拓扑与配置合同设计，未实现实际算子代码。
-> 运行时调用 `compileWorkflow` 时会因未注册对应算子实现而显式拒绝。严禁在文档中宣称此流程当前已可运行。
+> [!NOTE]
+> `dom-rule-sampling.graph.json` 及其三算子（`sample.match`、`sample.assemble`、`sample.save`）已升级为 `0.1.0`，经 `dagpipe graph validate` 与 `inspect` 验证通过。
+> 运行时可通过 `compileWorkflow` 配合 `nnanything/browser` 导出的采样节点与显式 `filesystem.write` 授权执行（详见 [playground/sampling/README.md](../playground/sampling/README.md)）。
 
 ## 2. 基础规则采样流设计 (dom-rule-sampling)
 
@@ -42,10 +41,11 @@ flowchart TD
 
 持久配置 `dom-rule-sampling.workflow.json`（v1 格式）与 `dom-rule-sampling.graph.json` 严格一一对应：
 1. `graphRef`: 对本地图文件显式相对路径 `"./dom-rule-sampling.graph.json"`；
-2. `configs`: 提供局部配置对象（`cardMatchRule`、`cardSampleSpec`、`localSaveSpec`），配置示例明确采用合成标签（`synthetic.card.*`），非真实微博标注规则；
+2. `configs`: 提供局部配置对象（`cardMatchRule`、`cardSampleSpec`、`localSaveSpec`），配置采用合成语义规则与任务监督映射（如 `post.card`、`post.body` 等合成类别，非私有生产规则）；
 3. `bindings`: 键名必须与图文件中的中文节点 ID 完全一致：
    - `"按显式规则匹配DOM记录"` 绑定 `cardMatchRule`
    - `"组装单任务训练样本"` 绑定 `cardSampleSpec`
    - `"保存样本到本地目录"` 绑定 `localSaveSpec`
 
-三节点完整 I/O、配置、副作用、缺失语义、兼容性及未来验收要求唯一维护于 [lib/nodes/README.md](../lib/nodes/README.md)。
+三节点完整 I/O、三值逻辑真值表、白名单清洗、副作用、防越界写入及验收要求唯一维护于 [lib/nodes/README.md](../lib/nodes/README.md)。
+公开消费端用法与运行方式见 [playground/sampling/README.md](../playground/sampling/README.md)。

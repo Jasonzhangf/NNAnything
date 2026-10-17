@@ -1,0 +1,68 @@
+{
+  "contract_version": "1",
+  "scope": {
+    "mode": "base",
+    "commit": null,
+    "base": "origin/main"
+  },
+  "module_boundary_evidence": [
+    {
+      "module": "semantic-filter-and-sample-match",
+      "owner": "lib/filters/sample-match.ts; lib/nodes/sampling.ts (sampleMatchNode)",
+      "paths": "lib/filters/sample-match.ts; lib/nodes/sampling.ts; lib/browser.ts; tests/sampling.test.mjs",
+      "edges": "raw_records (sample/raw-dom-records/v1, sample.raw-records.v1) -> readRawRecords -> evaluateSemanticRules (pure three-valued AND within condition, OR within semanticLabel, cross-label conflict and competing-class unknown) -> sampleMatchNode.execute -> matched_records (sample/matched-records/v1, sample.matched-records.v1)",
+      "resources": "Authoritative user requirement in /Volumes/Intel/playground/nnanything-runs/sampling-l1/semantic-correction.md (filter outputs semantic classification only, never training polarity); refined contract in semantic-plan/plan.md and lib/nodes/README.md §1.1; .appsdk/requirements.json absent and skipped per rule",
+      "gates": "Red/green and fault-injection evidence in /Volumes/Intel/playground/nnanything-runs/sampling-l1/public-baseline-red.log, semantic-red.log, semantic-mutation-red.log, tests-final.log (56/56), sampling-final.log (8/8), and typecheck-final.log (exit 0)"
+    },
+    {
+      "module": "task-supervision-assembly-and-student-projection",
+      "owner": "lib/training/samples.ts; lib/nodes/sampling.ts (sampleAssembleNode)",
+      "paths": "lib/training/samples.ts; lib/nodes/sampling.ts; lib/browser.ts; tests/sampling.test.mjs",
+      "edges": "matched_records (sample/matched-records/v1) -> readMatchedRecords & readAssembleConfig -> assembleSamples (candidateStatus precedence over semantic match, supervisionMap + expectedLabels + unmappedPolicy mapping, rule_proposed provenance, projectStudentObservation allowlist stripping raw teacher fields and extra nested rect/fragment keys, preserving upstream semanticLabel/matchStatus/matchedRuleIds/reasons and array order/duplicates/sourceGroup) -> task_samples (sample/task-dataset/v1, sample.task-dataset.v1)",
+      "resources": "Authoritative user correction in /Volumes/Intel/playground/nnanything-runs/sampling-l1/semantic-correction.md; task assembly contract in semantic-plan/plan.md §3.4 and lib/nodes/README.md §1.2; core constraints in plan/report.md §3 & §5",
+      "gates": "Verified in tests/sampling.test.mjs (task-mapping invariance, candidate precedence, unmapped policy, duplicate nodeRef order, teacher/nested geometry stripping, malformed input rejection without echoing raw values) with logs in tests-final.log and sampling-final.log"
+    },
+    {
+      "module": "exclusive-jsonl-persistence-and-public-consumer",
+      "owner": "lib/nodes/sampling.ts (createSampleSaveNode); playground/sampling/demo.mjs; workflows/dom-rule-sampling.graph.json; workflows/dom-rule-sampling.workflow.json",
+      "paths": "lib/nodes/sampling.ts; playground/sampling/demo.mjs; playground/sampling/raw-records.fixture.json; playground/sampling/README.md; workflows/dom-rule-sampling.graph.json; workflows/dom-rule-sampling.workflow.json; package.json",
+      "edges": "loadWorkflow (canonical 3N2E SESE graph dom-rule-sampling.graph.json@0.1.0 within allowedRoot) -> compileWorkflow (enforcing filesystem.write in grantedEffects) -> runWorkflow -> createSampleSaveNode.execute (realpath directory check, lexical + canonical relative containment, parent lstat symlink rejection, wx exclusive file creation, JSONL write/close) -> save_receipt (sample/save-receipt/v1, sample.save-receipt.v1) -> consumer JSONL read-back and count verification",
+      "resources": "Canonical graph workflows/dom-rule-sampling.graph.json (3 nodes, 2 edges, SESE); synthetic config workflows/dom-rule-sampling.workflow.json; private saved-Weibo adaptation in /Volumes/Intel/playground/nnanything-runs/sampling-l1/prepare-weibo.py, weibo.workflow.json (referencing canonical graph via --workflow-root without copying), weibo-audit-parent.md, and gitignored output JSONL",
+      "gates": "Static DAG checks in docs/dagpipe-validate.log and docs/dagpipe-inspect.log; runtime consumer and persistence gates in demo-common.log, demo-browser.log, demo-sampling-final.log (8 synthetic rows), weibo-consumer-final.log (2000 rows: 10 post.card, 10 post.body, 10 post.content, 1 editor.composer -> 10 positive, 21 negative, 1969 unlabeled), and weibo-verification.json (2000 rows verified, 0 teacher fields)"
+    },
+    {
+      "module": "contract-and-governance-documentation",
+      "owner": "lib/nodes/README.md; workflows/README.md; docs/*; AGENTS.md; note.md",
+      "paths": "AGENTS.md; README.md; note.md; lib/nodes/README.md; lib/filters/README.md; lib/training/README.md; training/samples/README.md; workflows/README.md; docs/focus-and-labeling.md; docs/implementation-plan.md; docs/node-contract.md; docs/project-governance.md; docs/workflow-config.md",
+      "edges": "User correction & plan refinement -> sole node card truth in lib/nodes/README.md -> workflow inventory & usage docs -> author verification summary in note.md and /Volumes/Intel/playground/nnanything-runs/sampling-l1/verification.md",
+      "resources": "Project rules in AGENTS.md; run notes in /Volumes/Intel/playground/nnanything-runs/sampling-l1/note.md, docs/note.md, semantic-docs/note.md, and semantic-docs/report.md",
+      "gates": "Relative markdown link checks and legacy polarity keyword ablation recorded in semantic-docs/report.md; git status/diff verification confirming existing core/runner/DOM filters unchanged and no private data staged"
+    }
+  ],
+  "findings": [
+    {
+      "severity": "P2",
+      "file": "playground/sampling/sampling.fixture.json",
+      "line": 1,
+      "rule": "Ablation and unreferenced worktree artifacts (review-standards.md §2 & §3)",
+      "evidence": "Untracked files playground/sampling/sampling.fixture.json and playground/sampling/.keep remain in the worktree alongside the active playground/sampling/raw-records.fixture.json and are not referenced by playground/sampling/demo.mjs, tests, or documentation.",
+      "remediation": "Remove the unused untracked playground/sampling/sampling.fixture.json and empty playground/sampling/.keep before staging and committing the milestone."
+    },
+    {
+      "severity": "P2",
+      "file": "lib/nodes/README.md",
+      "line": 36,
+      "rule": "Doc-to-validator contract precision (review-standards.md §2)",
+      "evidence": "lib/nodes/README.md line 36 states that supervisionMap requires at least one 'positive' entry, whereas readAssembleConfig in lib/training/samples.ts:123-124 accepts any valid supervisionMap record (including {} used in tests/sampling.test.mjs:81 to test unmappedPolicy: 'excluded').",
+      "remediation": "Either relax the parenthetical note in lib/nodes/README.md line 36 to match readAssembleConfig (allowing any map of semanticLabel to 'positive' | 'negative'), or enforce non-empty supervisionMap in readAssembleConfig and update the test fixture."
+    },
+    {
+      "severity": "P2",
+      "file": "lib/filters/README.md",
+      "line": 16,
+      "rule": "Current-state documentation accuracy (review-standards.md §3)",
+      "evidence": "lib/filters/README.md line 16 and lib/training/README.md line 19 still carry pre-implementation transitional wording ('规范已就绪（0.1.0），由父执行者实施') after the parent completed and verified both modules.",
+      "remediation": "Update the status wording in lib/filters/README.md and lib/training/README.md to state that 0.1.0 is implemented."
+    }
+  ]
+}

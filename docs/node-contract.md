@@ -1,6 +1,6 @@
 # 可复用、可积累经验的节点合同
 
-状态：L1 已交付，当前授权基础工作流设计与目录分类，2026-10-17。用户要求每个实现节点本身可复用、可积累经验。本合同定义节点合同规范。节点卡唯一真源维护于 [lib/nodes/README.md](../lib/nodes/README.md)，工作流清单维护于 [workflows/README.md](../workflows/README.md)。
+状态：L1 候选切片已交付；当前增量推进三类基础采样节点实现（`0.1.0`），2026-10-17。用户要求每个实现节点本身可复用、可积累经验。本合同定义节点合同规范。节点卡唯一真源维护于 [lib/nodes/README.md](../lib/nodes/README.md)，工作流清单维护于 [workflows/README.md](../workflows/README.md)。
 
 ## 1. 一个节点是什么
 
@@ -45,6 +45,11 @@ NodeDefinition不要求全部节点具有训练能力。viewport/黑白名单等
 
 观测、手写过滤、DOM拆分、特征提取、分类和汇总分别是可复用节点。当前DOM元素是处理数据项，不等于画布或workflow节点实例；数组中的每一项复用同一处理能力。
 
-结构识别节点目标为post.card，节点训练器只消费它声明的输入/期望输出。普通帖/广告/推广属于后续来源任务，必须有可辨输入再增加节点或兼容变体。广告和推广的识别结果需保留具体目标供操作，不能只丢成负例。
+基础采样三节点（`sampleMatchNode`、`sampleAssembleNode`、`createSampleSaveNode({allowedRoot})`）经 `nnanything/browser` 导出：
+- `sample.match` 采用三值逻辑（true/false/unknown）求值规则，输出确定性单语义分类与状态，缺失字段不推断为未匹配，已知命中且竞争类别缺测判定为 unknown，多类命中判定 conflict，输出槽位彻底剥离 teacher 原始 class/id/文本，无训练正负极性概念；纯函数 `evaluateSemanticRules` 独立可用；
+- `sample.assemble` 组装单任务训练样本，按任务显式映射各语义到正负监督并保留原始语义结果，标签来源固定为 `rule_proposed`（不冒充黄金真值）；学生观测严格限定为白名单字段（fresh tag/role/rect/fragments/clippedRect/parentRef，支持合法负视口 CSS 坐标 x, y），过滤/跳过候选标为 excluded，未判定标为 unlabeled，无候选状态不假定通过 L1 约束；
+- `sample.save` 绑定调用者显式提供的已有 `allowedRoot`，使用 `create_new`（wx）排他写入，严格拒绝逃逸、符号链接与覆盖，写失败显式暴露；调用者须控制根目录不被并发篡改。
+
+结构识别节点目标为 post.card，广告在结构上也可为完整卡片。普通帖/广告/推广属于后续来源任务，必须有可辨输入再增加节点或兼容变体。完整节点合同卡唯一维护于 [lib/nodes/README.md](../lib/nodes/README.md)。
 
 D0验收只核合同与计划是否完整、可执行、可独立验证。节点的运行可复用性、修复收益和跨站效果，须在后续实现阶段由真实consumer证明。

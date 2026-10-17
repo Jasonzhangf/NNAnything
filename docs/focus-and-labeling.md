@@ -1,6 +1,6 @@
 # Focus、候选过滤与单标签批处理
 
-状态：DOM应用合同，2026-10-17。L1 已交付候选输出，当前授权基础工作流设计与目录分类；单任务单标签并支持按序数组。L1 七候选节点见 [lib/nodes/README.md](../lib/nodes/README.md)，工作流真源见 [workflows/README.md](../workflows/README.md)，阶段见 [实施计划](implementation-plan.md)。
+状态：DOM应用合同，2026-10-17。L1 候选输出已交付；当前增量推进基础规则采样三节点实现（`0.1.0`）；单任务单标签并支持按序数组。节点合同卡见 [lib/nodes/README.md](../lib/nodes/README.md)，工作流真源见 [workflows/README.md](../workflows/README.md)，阶段见 [实施计划](implementation-plan.md)。
 
 上层框架已调整为 [Filter节点与统一Workflow](node-workflows.md)。本文是DOM应用workflow的候选节点合同，不是通用框架的内置业务。
 
@@ -85,4 +85,10 @@ focus过滤是候选枚举器职责，产生的排除记录不自动成为负标
 
 比较版本时，保留同一页面观测、同一意图范围和规范标签；规则变化既比较共同候选的分类，也比较完整查询的漏选/误选。滚动、页面重绘或focus改变后重新产生候选，不用旧的可视判断冒充当前状态。按既有分组独立性规则安排回放。
 
-该候选合同已纳入D0增量设计复核，报告见[原始结果](reviews/gemini4-d0-incremental-review.json)。运行行为已由L1公开consumer及整体Review验证通过；基础规则采样设计与三节点合同见 [lib/nodes/README.md](../lib/nodes/README.md)。
+该候选合同已纳入增量设计复核，报告见 [原始结果](reviews/gemini4-d0-incremental-review.json)。L1 运行行为已由公开 consumer 及整体 Review 验证通过。
+
+在当前基础规则采样流中：
+1. 广告等商业推广在结构上也可为完整卡片，结构任务不冒称已解决普通帖与广告的语义分离；
+2. Filter（`sample.match`）仅输出确定性语义分类与匹配状态，无训练正负极性概念；下游任务组装（`sample.assemble`）按任务需求映射语义到监督极性，提议标签标为 `labelProvenance: "rule_proposed"`，不自动升为黄金真值；
+3. 候选资格优先级明确：候选状态 `filtered_out`/`skipped` 映射为 `excluded`，`unknown` 映射为 `unlabeled`；未提供候选状态时仅代表上游未运行 L1 限制，不宣称已通过 L1 约束；未映射语义标签默认 `unlabeled`，绝不自动变 negative；
+4. 学生观测严格执行白名单投影（仅全新 `tag`、`role`、`rect`、`fragments`、`clippedRect`、`parentRef`，支持合法负视口 CSS 坐标 x, y），禁止原始 class/id、账号、正文、URL 与绝对路径流入。采样节点规范见 [lib/nodes/README.md](../lib/nodes/README.md)。
