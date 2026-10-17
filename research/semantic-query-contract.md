@@ -37,6 +37,10 @@
 
 每个 target 对应一份可审计的单节点 filter 合同、标签边界、输入和数值连线。已有 filter 输出仍为 `{ isTarget, confidence }`，不改成让 filter 从页面中生成 target 字符串。调用程序知道当前调用哪个目标的 filter，并关联 target 与 nodeRef。
 
+这里的filter合同可由确定性原语、已审数值分类或显式组合实现，不要求每个target独立训练一套网络。卡片族共享post.card结构支路，解析器施加结构/来源一致性：非卡片不输出卡片子类；已确认广告/推广/推荐与organic互斥。证据不足保留未定，不用低来源分数证明普通帖。仅有“荐读”只能确认recommendation，promotion需另有可辨的商业导流或经审计的语义原语；图像广告标记需另审局部视觉证据。没有相应输入的目标不宣称已支持。
+
+post.body.text/image/video/link在已定位正文范围内优先读取DOM/AX事实；头像/徽标排除、视频播放器边界和链接行为有歧义时再训练相应角色。读取节点不自动提升为操作祖先；操作需要显式查对应目标或经证据确认的关联引用。
+
 ## 查询字段
 
 成分、归属关系与分阶段参数见 [成分与关系](compositional-recognition.md)。第一阶段使用可测关系，第二阶段增加邻近节点历史语义判断；目标目录不表示这些 filter 已实现。基础成分与业务目标的外部参考见 [GitHub 训练锚点](github-semantic-anchors.md)。
@@ -44,12 +48,13 @@
 | 字段 | 类型或取值 | 含义 |
 | --- | --- | --- |
 | target | 分类目录中的固定字符串 | 必填，按类型精确匹配 |
-| within | nodeRef，可省略 | 作用范围；缺省为当前文档，元素范围包含自身和后代 |
+| within | nodeRef，可省略 | 候选范围锚点；缺省当前文档，语义归属由scopeMode声明 |
+| scopeMode | owned / subtree，可省略 | 有within时缺省owned，按target规范归属筛选；subtree明确使用纯DOM自身及后代 |
 | cardinality | one / all | 必填；one 必须恰好有一个合格结果，多个结果返回歧义 |
 | where.visible | boolean，可省略 | 查询时对当前可见状态做结构化筛选 |
 | where.enabled | boolean，可省略 | 查询时对当前可用状态做结构化筛选 |
 
-阈值由已选 profile 的合同声明。查询不临时修改阈值，以免不同调用悄悄改变目标边界。within 只限制外部候选与解析范围，不作为节点身份特征输入网络。首轮用作用范围表达“属于哪一帖”，不另建通用关系查询语言。
+阈值由已选profile的合同声明。查询不临时修改阈值，以免不同调用悄悄改变目标边界。within只限制外部候选与解析范围，不作为节点身份特征输入网络。owned模式按target的规范owner关系处理，内嵌帖子、转发或评论容器截断其所属角色，不能将其作者归到外层帖子。最近候选祖先仅是证据，不自动视为语义owner；归属不明且影响one选择时返回ambiguous。首轮不另建通用关系查询语言。
 
 找搜索框：
 
@@ -98,8 +103,11 @@ node:42 是说明合同的示例引用，不是当前浏览器中的真实节点
 | ambiguous | one 查询有多个合格结果；返回候选，不静默取最高分 |
 | unsupported_target | 分类未知，或当前 profile 未提供该目标能力 |
 | stale_scope | within 引用已失效，需要重新解析 |
+| insufficient_observation | 当前目标所需的必要观测缺失，无法完成判断 |
 
 all 可按当前 DOM 顺序返回，不赋予它额外语义排名。查询只返回节点，读取和动作使用独立结构接口。例如定位 post.author.name 后读取 text；定位 search.input 后执行 fill。读取值可以含真实姓名，训练特征仍排除账号身份。动作失败使用动作结果合同，不混入上述检索状态。
+
+每次查询产生queryId，后续读取/动作通过queryId和episodeId/step关联；纯查询可立即返回，不要求执行任何动作。节点失效或无法确认操作边界时明确失败，不自动点击任意祖先。必要观测缺失由取参器报告；optional特征仅使用已声明中性值与availability位，不能传NaN或把未知伪装成实测0。
 
 ## 非 LLM 检索的执行方式
 

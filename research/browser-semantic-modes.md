@@ -19,22 +19,24 @@ filter 合同保持不变：一个节点的抽象参数 → `{ isTarget, confide
 
 ## 图一：使用模式
 
-此图描述浏览器层职责，不是 Handwired 内部数值连线。一次请求有一个入口和一个结果出口。未命中、歧义及动作失败也必须返回可区分的结果。
+此图描述浏览器层职责，不是Handwired内部数值连线。查询、读取、动作是分别调用的接口，图中用请求种类分支表示，不要求查询后必做动作。每次调用有一个入口和结果出口，queryId与episodeId/step关联分步证据。
 
 ```mermaid
 flowchart TD
-  S([结构化 target 与 within 查询]):::boundary --> C[(记录请求与操作前页面证据)]:::data
-  C --> E[外部程序枚举候选节点]:::action
+  S([结构化查询或显式读取动作请求]):::boundary --> C[(记录请求与当前页面证据)]:::data
+  C --> K{请求种类?}:::decision
+  K -->|query| E[外部程序枚举候选节点]:::action
   E --> O[逐节点提取已声明的观测参数]:::action
   O --> F[对应 filter 与 profile 对单个节点评分]:::action
   F --> R[外部解析器按目标边界及范围整理结果]:::action
   R --> D{请求的目标数量和分数条件满足?}:::decision
   D -->|否| N[返回未命中或歧义及候选依据]:::action
   D -->|是| H[关联当前 DOM 目标引用]:::action
-  H --> V{目标仍有效且满足操作条件?}:::decision
+  H --> P
+  K -->|read或action 带nodeRef与queryId| V{目标仍有效且满足操作条件?}:::decision
   V -->|否| X[返回节点失效或不可操作]:::action
   V -->|是| A[按请求读取值或执行 CDP 动作]:::action
-  A --> P[(关联操作后证据与结果 写入操作样本池)]:::data
+  A --> P[(关联查询或动作证据与结果 写入样本池)]:::data
   N --> P
   X --> P
   P --> Z
@@ -100,11 +102,16 @@ flowchart TD
   Q -->|是| T[(更新规范标签并按来源分组去重)]:::data
   T --> P[划分训练回放集 校准集 与独立回归集]:::action
   P --> F[旧训练样本与新训练样本重拟合候选]:::action
-  F --> K[独立校准并比较当前与候选 profile]:::action
-  K --> V{旧目标保持且新难例改善?}:::decision
-  V -->|是| A[采用候选 profile]:::action
-  V -->|否或证据不足| B[保留当前 profile并记录差异]:::action
-  U --> Z([返回本轮处理结果]):::boundary
+  F --> K[按独立覆盖条件校准 否则保留未校准状态]:::action
+  K --> J[节点级与查询级配对比较]:::action
+  J --> V{旧目标保持且新难例改善?}:::decision
+  V -->|是| A[采用候选系统版本及适用profile]:::action
+  V -->|否或证据不足| B[保留当前系统与profile并记录差异]:::action
+  U --> W{有明确非参数缺陷及可回放证据?}:::decision
+  W -->|是| X[交对应owner修枚举 归属或输入合同]:::action
+  X --> Y[从同一原始现场按各版本重提特征或候选]:::action
+  Y --> J
+  W -->|否| Z([返回本轮处理结果]):::boundary
   A --> Z
   B --> Z
   classDef boundary fill:#E9EEF5,stroke:#64748B,color:#0F172A,stroke-width:1.5px
@@ -115,6 +122,8 @@ flowchart TD
 ```
 
 捕获记录至少关联：语义目标、请求范围、当时 profile、预测分数、选中节点、用户指出的正确节点或“无目标”、原始 DOM、同步布局测量、截图和实际执行结果。没有正确节点也可以先保存现场。原始资料仅作本地标定证据；不把账号和正文复制进模型输入。
+
+每次query生成queryId，read/action显式引用它，并与episodeId/step关联。查询不自动触发动作；两次调用分别取证，不能假定中间DOM不变。RawDomNodeEvidence只供标定，StudentNodeObservation按白名单输出，训练不接受原始节点对象。缺失观测与已观察不存在分开，按FeatureSchema声明的required失败或optional可用位处理。
 
 失败原因必须区分：错误命中、漏识别、目标边界错误、歧义、节点失效、页面未加载完成，以及动作本身失败。候选枚举漏掉正确节点时，先修外部枚举器；不能用这次失败伪造一个 filter 负例。
 
@@ -127,6 +136,7 @@ flowchart TD
 | 字段 | 内容 |
 | --- | --- |
 | sampleId / episodeId / step | 本次操作与前后操作的关联 |
+| queryId | 查询与后续显式读取/动作的关联，不意味着两次页面状态相同 |
 | query / action / expected | 结构化目标、动作类型与参数、预期可观测结果 |
 | activeProfile / inputContract | 当时参数版本、输入定义；使用普通版本标识，不另建哈希包装 |
 | candidates / selected | 候选引用及分数、实际选择；无候选时为空 |

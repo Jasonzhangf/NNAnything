@@ -2,10 +2,12 @@
 
 目标：建立通用单元素 filter 训练框架，共享页面样本支持完整卡片、作者、搜索、我的个人入口、正文、评论、展开与跳转等目标。浏览器分语义使用和错误捕获/训练两种模式。首个实验只用微博完整卡片；外部程序负责页面遍历、节点取参、目标引用和 CDP 动作。filter 输入最小必要参数，输出 isTarget 与目标分数 confidence。class/id、账号名、完整 URL/图片名、绝对根路径与全局深度不输入模型；固定 UI 标记、语义属性与相对位置按目标声明并审计。
 
-当前阶段：用户已授权开始实现，随后明确要求先画实际连线图并审计。尚无产品代码、Git 仓库、worktree 或训练结果；不越过用户审图边界。
+当前阶段：2026-10-17用户最新指令要求先完成整体规划设计，再由AGY Gemini 4整体评估/review，之后再决定推进。已停止实现。Git已初始化、本地main有设计基线，无remote。未提交的package/tsconfig、架构与测试草稿已归档到 /Volumes/Intel/playground/nnanything-runs/project-scaffold/unimplemented-scaffold-draft.tar.gz，未合入main；唯一外置worktree和自有分支已清理。没有src实现、依赖安装、采集、标注或训练。此前为脚手架启动实现早于用户期望，已纠正为设计优先；本轮不再实现。
 
 ## 已有材料
 
+- docs/reviews/gemini4-design-review.md：用户指定AGY Gemini 4整体设计Review。新独立conversation 528f539f-1599-4673-83e1-9926c4d84689；首轮5P1+1P2，修订2后同Reviewer复核findings=[]。两轮SUCCESS/exit0、实际gemini-4-argon-medium，宿主校验schema/scope后裁决仅设计通过。原始结果已存docs/reviews/gemini4-design-v1.json和v2.json；不代表实现/训练验收。
+- docs/design.md：最新总体设计入口，覆盖目标/目录/核心合同、两层建模与两阶段训练、teacher标注、监督回放与开发/测试/训练框架。D0设计评估后仍等待用户决定，不自动进入D1实现。
 - research/github-semantic-anchors.md：2026-10-17 GitHub 只读调研；WebUI 主参考基础成分和采样，Web2Text 参考块/边证据与结构对照，Mind2Web 参考操作证据。实际解析 WebUI 一个公开 AX 样本，328 节点；没有运行第三方模型或下载完整数据集，业务标签仍需本地标定。
 - research/compositional-recognition.md：整体与成分共生，关系直接入参；第一阶段使用可测关系，第二阶段再加入父子/兄弟预测摘要。第二阶段训练与有限推理轮次分开。
 - research/semantic-query-contract.md：固定 target 分类、within 作用范围、one/all 查询、结构化返回与纠错；运行时搜索不依赖 LLM。中文描述仅解释用途，不作为匹配输入。读取值和动作与语义查询分开。
@@ -34,4 +36,4 @@
 记录目录：/Volumes/Intel/playground/nnanything-runs/filter-wire-audit。
 Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Argon medium，独立 conversation a30e71c9-05d0-4af1-a470-20804f27e544 完成初稿和修订。初稿有未经测量的性能宣称及硬门零梯度问题，未采纳；当前用户审计稿已删去这些问题并压缩候选输入。外部进程均已退出。
 
-下一动作：先审计多目标共享观测、标签边界与浏览器双模式，再补各 filter 的数值连线；旧 10 输入图仅为完整卡片草案。用户审计连线和标记取参机制后，才初始化本地 Git/唯一外置 worktree并实现。项目无已知 remote，不猜测或创建远端。实现后按最小充分红测与真实单节点 consumer 验证，再整体独立 Review 和集成。若审计改变结构，先更新相关计划与图。
+下一动作：当前D0总体设计与整体评估已完成，向用户交付设计与finding修订结果，等待用户决定。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。
