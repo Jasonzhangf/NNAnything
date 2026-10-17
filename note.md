@@ -1,6 +1,10 @@
 # 当前任务
 
-2026-10-17：当前增量为 Chrome/Chromium 本地页面标注与采集扩展。基础训练已交付，下面保留其证据。扩展实现已完成作者验证，独立 Gemini4 整体 Review 无 findings，宿主按统一 schema/controller 判 pass，进入 main 集成；尚未安装进 Chrome，因此不能称已完成真实站点的扩展入口验收。构建产物 `artifacts/chrome-extension`，本地 consumer `artifacts/overlay-harness`，安装与使用说明 `extension/README.md`。4N3E 标注图与1N0E采集图实际绑定0.1.0，复用 Flowed 与现有 compiler/runner；浏览器入口不导入 Node fs/训练后端。第一层分类器和旧黄金数据不改。
+2026-10-17：当前增量为 Chrome/Chromium 本地页面标注与采集扩展。基础训练已交付，下面保留其证据。扩展实现已完成作者验证，独立 Gemini4 整体 Review 无 findings，宿主按统一 schema/controller 判 pass。实现提交3e2374f已合入 main 并推送，主目录 npm ci 与 build:extension 成功；本轮工作树/分支、临时HTTP进程和child home已清理，证据保留。尚未安装进 Chrome，因此不能称已完成真实站点的扩展入口验收。构建产物 `artifacts/chrome-extension`，本地 consumer `artifacts/overlay-harness`，安装与使用说明 `extension/README.md`。4N3E 标注图与1N0E采集图实际绑定0.1.0，复用 Flowed 与现有 compiler/runner；浏览器入口不导入 Node fs/训练后端。第一层分类器和旧黄金数据不改。
+
+用户已明确授权“加载到 Chrome 并验证”。实际打开 chrome://extensions/ 被浏览器工具URL安全策略拒绝（只允许http/https，且明确禁止换通道绕过）。未使用原生界面/CDP/其他浏览器绕过。已交具体加载目录，请用户手工加载并回复“已加载”，随后继续微博真实入口验收。此处是工具访问限制，不是缺少用户授权；不重复询问安装许可。
+
+结案独立经验审计 `d4d519c6-0101-4000-b9d6-5e3af6168367`、实际gemini-4-argon-medium，SUCCESS/exit0。报告覆盖需求、红绿测试、真实下载、截图、代码review及适用规则链；无需新增规则、Skill或受管记忆，仅更新过程笔记中的交付/清理状态。报告在外置 `browser-overlay/audit/response.txt`。源码交付已收口，Chrome安装与外站验收仍待上述用户手工步骤。
 
 整体 Review 使用独立 conversation `1f296c38-8c06-4b4b-85e2-90917eebdfe2`，实际 `gemini-4-argon-medium`、SUCCESS/exit0。结果见 `docs/reviews/gemini4-browser-overlay-m1-review.json`，原始事件与宿主裁决见外置 `browser-overlay/review`。当前源码/本地consumer审查不扩展为已安装Chrome或外站验收声明。
 
