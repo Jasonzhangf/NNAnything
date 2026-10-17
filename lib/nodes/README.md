@@ -182,3 +182,19 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 18. `common.scale` (`1`): 数值缩放转换；
 19. `common.sum` (`1`): 数值求和；
 20. `common.count` (`1`): 数组元素计数。
+
+### 4.4 实时网页标注与采集节点（`lib/nodes/browser-overlay.ts`，0.1.0）
+
+公开入口 `nnanything/browser-classify` 供浏览器 consumer 使用，排除 Node 磁盘 loader、训练 writer 与 Handwired 后端。通过显式资源创建节点定义，再编译项目图；不在 UI 手写第二条执行链。
+
+| 算子 | 输入 → 输出 | 显式配置/资源 | effects |
+| --- | --- | --- | --- |
+| `browser.observe_live` | snapshot/document 引用 → 顶层实时 DOM 观测 | Document、Window、稳定引用表、排除宿主 | `browser.dom.read` |
+| `browser.qualify_live` | 观测 → 保序候选帧 | FocusSpec（viewport、子树、黑白名单） | 无 |
+| `browser.classify_live` | 候选帧 → 基础类别与评分证据 | BasicKindConfig、兼容 profile | 无 |
+| `overlay.present` | 分类帧 → 色框、统计、Focus 与呈现回执 | 注入 present 回调 | `browser.overlay.present` |
+| `browser.capture` | 当前帧与人工决定/未知收集/导出动作 → 采集回执 | 显式 BrowserCaptureSession 与 download 回调 | `browser.capture.download`（仅 export 调用下载） |
+
+对应 `workflows/browser-visual-overlay.graph.json`（4N3E）和 `workflows/browser-capture.graph.json`（1N0E）。节点不训练；采集只收合格候选。未复核、待定和仅标错样本保留空黄金字段；用户明确确认具体类别后才可被现有 training.prepare 接纳。`other` 需理由。数组导出重排 index，证据与学生属性分开，class/id/正文不进入学生。失效 Focus 返回不可采集状态，不扩大范围。iframe/shadow 内部未评估。
+
+公开 workflow consumer、2501 条导出及复核隔离测试：`tests/browser-overlay-foundation.test.mjs`。真实浏览器入口、安装及覆盖限制见 `extension/README.md` 和 `docs/browser-overlay-m1.md`。

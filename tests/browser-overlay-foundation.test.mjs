@@ -16,6 +16,8 @@ import {
   createBrowserOverlayNodeDefinitions,
   createFocusSpec,
   createStableNodeRefRegistry,
+  stableNodeRefFor,
+  resolveStableNodeRef,
   createWorkflowInputEvent,
   extractTrainingRequestFromBundle,
   observeCandidates,
@@ -442,11 +444,23 @@ test("public overlay graph runs through compileWorkflow and runWorkflow with a n
     "utf8",
   ));
   const dom = fakeDom();
+  const html = dom.document.documentElement;
+  html.clientLeft = html.clientTop = 0;
+  html.clientWidth = 800;
+  html.clientHeight = 30;
+  const child = { ...html, tagName: "BUTTON", parentElement: html, isConnected: true,
+    getBoundingClientRect: () => ({ x: 0, y: 20, width: 100, height: 40 }),
+    getClientRects: () => [{ x: 0, y: 20, width: 100, height: 40 }],
+  };
+  html.children = [child];
+  const getStyle = dom.window.getComputedStyle;
+  dom.window.getComputedStyle = element => ({ ...getStyle(), overflowY: element === html ? "hidden" : "visible" });
+  const registry = createStableNodeRefRegistry("overlay-test");
   let presentCalls = 0;
   const definitions = createBrowserOverlayNodeDefinitions({
     document: dom.document,
     window: dom.window,
-    registry: createStableNodeRefRegistry("overlay-test"),
+    registry,
     excludeHost: null,
     present: () => {
       presentCalls += 1;
@@ -461,7 +475,7 @@ test("public overlay graph runs through compileWorkflow and runWorkflow with a n
   }, {
     nodeDefinitions: definitions,
     profiles: { default: DEFAULT_BASIC_KIND_PROFILE },
-    grantedEffects: ["browser.overlay.present"],
+    grantedEffects: ["browser.dom.read", "browser.overlay.present"],
   });
   const result = await runWorkflow(compiled, createWorkflowInputEvent({
     runId: "overlay-public-run",
@@ -477,6 +491,15 @@ test("public overlay graph runs through compileWorkflow and runWorkflow with a n
   assert.equal(result.outputEvent.payload.snapshot.snapshotRef, "snapshot-public");
   assert.equal(result.outputEvent.payload.presentation.view.confidenceState, "uncalibrated");
   assert.equal(result.outputEvent.payload.presentation.receipt, undefined);
+  const frame = result.outputEvent.payload;
+  const ref = stableNodeRefFor(registry, child);
+  assert.deepEqual(frame.boxes.find(box => box.nodeRef === ref).rect, { x: 0, y: 20, width: 100, height: 10 });
+  assert.equal(frame.basicKindBatch.slots.find(slot => slot.nodeRef === ref).evidence.wires.state_disabled, 0);
+  assert.equal(frame.snapshot.properties.get(ref).disabled, false);
+  child.isConnected = false;
+  assert.equal(resolveStableNodeRef(registry, ref), null);
+  child.isConnected = true;
+  assert.equal(resolveStableNodeRef(registry, ref), child);
 });
 
 test("capture graph enforces effects and calls the explicit download callback only on export", async () => {

@@ -22,6 +22,8 @@ import {
   type OverlayBox,
   type OverlayCounts,
   type LiveCaptureCoverage,
+  type BrowserCaptureAnnotation,
+  type BrowserCaptureBundleV1,
 } from "nnanything/browser-classify";
 
 export interface DOMInspectorOptions {
@@ -52,26 +54,8 @@ export const STATUS_COLORS = {
   focus: { border: "#7c3aed", bg: "rgba(124, 58, 237, 0.20)", text: "#6d28d9", zh: "Focus焦点" },
 };
 
-function normalizeRuntimeGraph(rawGraph: any): any {
-  const clone = JSON.parse(JSON.stringify(rawGraph));
-  if (typeof clone.version === "string") {
-    clone.version = clone.version.replace(/-design$/, "");
-  }
-  if (Array.isArray(clone.nodes)) {
-    for (const node of clone.nodes) {
-      if (typeof node.operator_version === "string") {
-        node.operator_version = node.operator_version.replace(/-design$/, "");
-      }
-    }
-  }
-  return clone;
-}
-
 function generateUUID(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return "uuid-" + Math.random().toString(36).slice(2, 11) + "-" + Date.now().toString(36);
+  return Array.from(crypto.getRandomValues(new Uint32Array(4)), value => value.toString(16)).join("-");
 }
 
 export class DOMInspectorController {
@@ -108,6 +92,9 @@ export class DOMInspectorController {
   private rafId: number | null = null;
   private isRefreshing: boolean = false;
   private refreshPending: boolean = false;
+  private mountGeneration = 0;
+  private pipelineError: string | null = null;
+  private originalCursor = "";
 
   private mutationObserver: MutationObserver | null = null;
   private boundOnScroll: () => void;
@@ -118,15 +105,15 @@ export class DOMInspectorController {
 
   private exportNotice: string | null = null;
   private userReviewSelection: "correct" | "wrong" | "unsure" = "correct";
-  private userCorrectedLabel: BasicKindLabel = "button";
+  private userCorrectedLabel: BasicKindLabel | "" = "";
   private userOtherReason: string = "";
   private userReviewFeedback: string | null = null;
 
   constructor(options: DOMInspectorOptions) {
     this.doc = options.document ?? document;
     this.win = options.window ?? window;
-    this.overlayGraph = normalizeRuntimeGraph(options.visualOverlayGraph);
-    this.captureGraph = normalizeRuntimeGraph(options.captureGraph);
+    this.overlayGraph = options.visualOverlayGraph;
+    this.captureGraph = options.captureGraph;
 
     this.registry = createStableNodeRefRegistry("nnanything-inspector");
     this.documentRef = "doc-" + generateUUID();
@@ -151,6 +138,7 @@ export class DOMInspectorController {
 
   public mount(): void {
     if (this.isMounted()) return;
+    this.mountGeneration++;
 
     this.hostElement = this.doc.createElement("div");
     this.hostElement.id = "nnanything-dom-inspector-host";
@@ -174,6 +162,7 @@ export class DOMInspectorController {
       childList: true,
       subtree: true,
       attributes: true,
+      characterData: true,
     });
 
     this.win.addEventListener("scroll", this.boundOnScroll, { capture: true, passive: true });
@@ -191,6 +180,8 @@ export class DOMInspectorController {
   }
 
   public destroy(): void {
+    this.mountGeneration++;
+    this.refreshPending = false;
     if (this.rafId !== null) {
       this.win.cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -220,7 +211,10 @@ export class DOMInspectorController {
   }
 
   public scheduleRefresh(): void {
-    if (this.rafId !== null) return;
+    if (!this.isMounted() || this.rafId !== null) return;
+    this.currentFrame = null;
+    this.renderOverlayBoxes([]);
+    this.renderPanel();
     this.rafId = this.win.requestAnimationFrame(async () => {
       this.rafId = null;
       if (this.isRefreshing) {
@@ -237,7 +231,9 @@ export class DOMInspectorController {
 
   private async runOverlayPipeline(): Promise<void> {
     if (!this.isMounted()) return;
+    const generation = this.mountGeneration;
     this.isRefreshing = true;
+    this.pipelineError = null;
 
     try {
       this.snapshotCounter += 1;
@@ -260,15 +256,12 @@ export class DOMInspectorController {
         return;
       }
 
-      let capturedFrame: BrowserOverlayFrame | null = null;
       const overlayDefs = createBrowserOverlayNodeDefinitions({
         document: this.doc,
         window: this.win,
         registry: this.registry,
         excludeHost: this.hostElement,
-        present: (frame: BrowserOverlayFrame) => {
-          capturedFrame = frame;
-        },
+        present: () => undefined,
       });
 
       const compiledOverlay = compileWorkflow(
@@ -283,7 +276,7 @@ export class DOMInspectorController {
               },
             },
             "判断DOM基础种类": {
-              config: this.currentConfig,
+              config: { ...this.currentConfig },
               profileId: "current",
             },
           },
@@ -291,7 +284,7 @@ export class DOMInspectorController {
         {
           nodeDefinitions: overlayDefs,
           profiles: { current: this.currentProfile },
-          grantedEffects: ["browser.overlay.present"],
+          grantedEffects: ["browser.dom.read", "browser.overlay.present"],
         }
       );
 
@@ -310,13 +303,21 @@ export class DOMInspectorController {
       });
 
       const execution = await runWorkflow(compiledOverlay, inputEvent);
+      if (!this.isMounted() || generation !== this.mountGeneration) return;
       if (execution.status === "completed" && execution.outputEvent.status === "ok") {
-        this.currentFrame = capturedFrame ?? execution.outputEvent.payload;
+        this.currentFrame = execution.outputEvent.payload as BrowserOverlayFrame;
         this.renderOverlayBoxes(this.currentFrame ? this.currentFrame.boxes : []);
         this.renderPanel();
+      } else {
+        throw new Error(execution.status === "failed" ? execution.error.message : `分类结果不可用：${(execution.outputEvent.payload as { reason: string }).reason}`);
       }
     } catch (err) {
+      if (!this.isMounted() || generation !== this.mountGeneration) return;
       console.error("[NNAnything DOM Inspector] Overlay execution error:", err);
+      this.currentFrame = null;
+      this.pipelineError = err instanceof Error ? err.message : String(err);
+      this.renderOverlayBoxes([]);
+      this.renderPanel();
     } finally {
       this.isRefreshing = false;
     }
@@ -663,12 +664,7 @@ export class DOMInspectorController {
       const kind = box.basicKind ?? "other";
       const status = box.judgmentStatus;
 
-      const isCategoryAllowed = this.categoryFilters.has(kind);
-      const isStatusAllowed = (status === "unknown" && this.categoryFilters.has("unknown")) ||
-                              (status === "conflict" && this.categoryFilters.has("conflict")) ||
-                              status === "judged";
-
-      if (!isCategoryAllowed && !isStatusAllowed) continue;
+      if (!this.categoryFilters.has(status === "judged" ? kind : status)) continue;
 
       const boxEl = this.doc.createElement("div");
       boxEl.className = "box";
@@ -816,6 +812,18 @@ export class DOMInspectorController {
       body.appendChild(focusBanner);
     }
 
+    if (this.pipelineError) {
+      const error = this.doc.createElement("div");
+      error.className = "notice-banner notice-warning";
+      error.textContent = `分类失败，已清空旧结果：${this.pipelineError}。请点击刷新重试。`;
+      body.appendChild(error);
+    } else if (!this.currentFrame && !this.isFocusStale) {
+      const loading = this.doc.createElement("div");
+      loading.className = "notice-banner notice-info";
+      loading.textContent = "正在更新页面分类，暂不可采集。";
+      body.appendChild(loading);
+    }
+
     // 3. Metrics Summary
     const counts: OverlayCounts = this.currentFrame?.presentation.view.counts ?? {
       totalNodes: 0,
@@ -824,6 +832,7 @@ export class DOMInspectorController {
       unknown: 0,
       conflict: 0,
       excluded: 0,
+      candidateUnknown: 0,
     };
     const coverage: LiveCaptureCoverage | undefined = this.currentFrame?.presentation.view.coverage;
 
@@ -861,7 +870,7 @@ export class DOMInspectorController {
     noticeBlock.innerHTML = `
       <div><strong>覆盖范围:</strong> 顶层文档 (${coverage?.traversedElementCount ?? 0} 个元素)</div>
       <div><strong>未评估:</strong> ${iframeCount} 个 iframe, ${shadowCount} 个 shadow 内部</div>
-      <div style="margin-top: 2px; color: #64748b;">* 模型分数明确未校准 (MAP 近似，非真实概率)</div>
+      <div style="margin-top: 2px; color: #64748b;">* 未校准分数，非概率</div>
     `;
     body.appendChild(noticeBlock);
 
@@ -1112,13 +1121,8 @@ export class DOMInspectorController {
     const scoreStr = slot?.score !== null && slot?.score !== undefined ? `${slot.score.toFixed(3)} (未校准)` : "无";
     const marginStr = slot?.margin !== null && slot?.margin !== undefined ? slot.margin.toFixed(3) : "无";
 
-    summary.innerHTML = `
-      <div><span class="details-label">提议种类:</span> <strong>${kindZh} (${kind}) [提议]</strong></div>
-      <div><span class="details-label">判断状态:</span> ${slot?.judgmentStatus ?? "unknown"}</div>
-      <div><span class="details-label">分数:</span> ${scoreStr} | <span class="details-label">余量:</span> ${marginStr}</div>
-      ${evidence?.textSummary ? `<div><span class="details-label">文本摘要:</span> "${evidence.textSummary.slice(0, 40)}"</div>` : ""}
-      ${evidence?.id ? `<div><span class="details-label">ID:</span> #${evidence.id}</div>` : ""}
-    `;
+    summary.textContent = `提议种类: ${kindZh} (${kind}) [提议]\n判断状态: ${slot?.judgmentStatus ?? "unknown"}\n分数: ${scoreStr} | 余量: ${marginStr}\n文本摘要: ${evidence?.textSummary?.slice(0, 80) ?? "无"}\nID: ${evidence?.id ?? "无"}`;
+    summary.style.whiteSpace = "pre-wrap";
     section.appendChild(summary);
 
     // Collapsed Raw Evidence & Wires
@@ -1187,6 +1191,11 @@ export class DOMInspectorController {
 
       const select = this.doc.createElement("select");
       select.className = "form-select";
+      select.setAttribute("aria-label", "指定正确类别");
+      const undecided = this.doc.createElement("option");
+      undecided.value = "";
+      undecided.textContent = "仅标错，暂不指定正确类别";
+      select.appendChild(undecided);
       for (const [catKey, catVal] of Object.entries(CATEGORY_COLORS)) {
         const opt = this.doc.createElement("option");
         opt.value = catKey;
@@ -1195,7 +1204,7 @@ export class DOMInspectorController {
         select.appendChild(opt);
       }
       select.onchange = () => {
-        this.userCorrectedLabel = select.value as BasicKindLabel;
+        this.userCorrectedLabel = select.value as BasicKindLabel | "";
         this.renderPanel();
       };
       section.appendChild(select);
@@ -1227,6 +1236,7 @@ export class DOMInspectorController {
     saveBtn.className = "btn btn-primary";
     saveBtn.style.marginTop = "8px";
     saveBtn.textContent = "保存此元素样本";
+    saveBtn.disabled = slot?.candidateStatus !== "ok" || !el?.isConnected;
     saveBtn.onclick = async () => {
       await this.saveSelectedAnnotation(slot);
     };
@@ -1246,7 +1256,7 @@ export class DOMInspectorController {
   private async saveSelectedAnnotation(slot: BasicKindSlot | undefined): Promise<void> {
     if (!this.selectedNodeRef || !this.currentFrame) return;
 
-    let annotation: any;
+    let annotation: BrowserCaptureAnnotation;
     if (this.userReviewSelection === "correct") {
       if (slot?.basicKind === "other" && !this.userOtherReason.trim()) {
         alert("确认为「其他」需要填写具体理由！");
@@ -1263,7 +1273,7 @@ export class DOMInspectorController {
       }
       annotation = {
         kind: "wrong",
-        correctedLabel: this.userCorrectedLabel,
+        ...(this.userCorrectedLabel ? { correctedLabel: this.userCorrectedLabel } : {}),
         ...(this.userCorrectedLabel === "other" ? { otherReason: this.userOtherReason.trim() } : {}),
       };
     } else {
@@ -1285,23 +1295,20 @@ export class DOMInspectorController {
   private async runCaptureAction(input: {
     action: "capture_selected" | "collect_unknown" | "export";
     nodeRef?: string;
-    annotation?: any;
+    annotation?: BrowserCaptureAnnotation;
   }): Promise<any> {
-    if (!this.currentFrame) return null;
+    if (input.action !== "export" && (!this.currentFrame || this.isFocusStale)) return null;
 
     try {
       let downloadResult: any = null;
-      const downloadCallback = async (bundle: unknown, filename?: string) => {
-        const fname = filename || `nnanything-capture-${this.captureSession.sessionId}.json`;
+      const downloadCallback = async (bundle: BrowserCaptureBundleV1, fname: string) => {
         const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = this.doc.createElement("a");
         a.href = url;
         a.download = fname;
-        this.doc.body.appendChild(a);
         a.click();
-        this.doc.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        this.win.setTimeout(() => URL.revokeObjectURL(url), 1000);
         downloadResult = { receiptId: `download-${Date.now()}`, filename: fname };
         return downloadResult;
       };
@@ -1339,13 +1346,14 @@ export class DOMInspectorController {
 
       const result = await runWorkflow(compiledCapture, inputEvent);
       if (result.status === "completed" && result.outputEvent.status === "ok") {
-        const receipt = result.outputEvent.payload.receipt;
+        const receipt = (result.outputEvent.payload as { receipt: unknown }).receipt;
         if (input.action === "export") {
-          this.exportNotice = `✅ 样本包已导出: ${downloadResult?.filename || "nnanything-capture.json"}`;
+          this.exportNotice = `已请求下载样本包：${downloadResult.filename}。请在浏览器下载记录中确认。`;
         }
         this.renderPanel();
         return receipt;
       }
+      throw new Error(result.status === "failed" ? result.error.message : `采集结果不可用：${(result.outputEvent.payload as { reason: string }).reason}`);
     } catch (err) {
       console.error("[NNAnything DOM Inspector] Capture action error:", err);
       alert("采集操作失败: " + (err instanceof Error ? err.message : String(err)));
@@ -1360,6 +1368,7 @@ export class DOMInspectorController {
     this.win.addEventListener("keydown", this.boundOnPickKeyDown, true);
 
     if (this.doc.body) {
+      this.originalCursor = this.doc.body.style.cursor;
       this.doc.body.style.cursor = "crosshair";
     }
     this.renderPanel();
@@ -1372,7 +1381,7 @@ export class DOMInspectorController {
     this.win.removeEventListener("keydown", this.boundOnPickKeyDown, true);
 
     if (this.doc.body) {
-      this.doc.body.style.cursor = "";
+      this.doc.body.style.cursor = this.originalCursor;
     }
     if (this.pickingHighlight) {
       this.pickingHighlight.style.display = "none";
@@ -1404,6 +1413,7 @@ export class DOMInspectorController {
   }
 
   private handlePickClick(e: MouseEvent): void {
+    if (this.hostElement && e.composedPath().includes(this.hostElement)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
 
@@ -1431,12 +1441,8 @@ export class DOMInspectorController {
     this.selectedNodeRef = nodeRef;
     this.userReviewFeedback = null;
     this.userOtherReason = "";
-    const slot = this.currentFrame?.basicKindBatch.slots.find((s: BasicKindSlot) => s.nodeRef === nodeRef);
-    if (slot && slot.basicKind && slot.basicKind !== "other") {
-      this.userCorrectedLabel = slot.basicKind;
-    } else {
-      this.userCorrectedLabel = "button";
-    }
+    this.userCorrectedLabel = "";
+    this.userReviewSelection = "correct";
     this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
     this.renderPanel();
   }

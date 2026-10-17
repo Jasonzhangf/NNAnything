@@ -23,7 +23,7 @@ export function createBrowserOverlayNodeDefinitions(resources: {
 }): readonly NodeDefinition[] {
   return [
     {
-      operator: "browser.observe_live", version: "0.1.0", inputPorts: [request], outputPort: observed, effects: [],
+      operator: "browser.observe_live", version: "0.1.0", inputPorts: [request], outputPort: observed, effects: ["browser.dom.read"],
       execute: context => {
         const input = expectRecord(context.inputs[0]!.payload, "overlay request");
         return context.emit(observeLiveDom({ ...resources, excludeRoot: resources.excludeHost,
@@ -62,7 +62,7 @@ export function createBrowserOverlayNodeDefinitions(resources: {
         const byRef = new Map(source.snapshot.observation.nodes.map(node => [node.nodeRef, node]));
         const boxes: OverlayBox[] = [];
         for (const slot of source.basicKindBatch.slots) {
-          const rect = byRef.get(slot.nodeRef)?.rect;
+          const rect = byRef.get(slot.nodeRef)?.clippedRect;
           if (slot.candidateStatus === "ok" && rect && rect.width > 0 && rect.height > 0) boxes.push({ nodeRef: slot.nodeRef, rect, basicKind: slot.basicKind, judgmentStatus: slot.judgmentStatus, score: slot.score, margin: slot.margin });
         }
         const slots = source.basicKindBatch.slots, root = source.focusSpec.within ? byRef.get(source.focusSpec.within) : null;

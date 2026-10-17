@@ -21,7 +21,8 @@ export function stableNodeRefFor(registry: StableNodeRefRegistry, element: Eleme
 }
 export function resolveStableNodeRef(registry: StableNodeRefRegistry, nodeRef: string): Element | null {
   const element = registry.elementByRef.get(nodeRef)?.deref();
-  if (!element || element.isConnected === false) { registry.elementByRef.delete(nodeRef); return null; }
+  if (!element) { registry.elementByRef.delete(nodeRef); return null; }
+  if (element.isConnected === false) return null;
   return element;
 }
 export interface LiveCaptureCoverage {
@@ -111,6 +112,9 @@ export function observeLiveDom(input: {
       const value = element.getAttribute(key);
       if (value !== null && isSafeRuleAttribute(key)) attributes[key] = value;
     }
+    // Complete live DOM observation makes absent HTML boolean attributes known false.
+    attributes.disabled = element.hasAttribute("disabled");
+    attributes.hidden = element.hasAttribute("hidden");
     const role = element.getAttribute("role");
     nodes.push({ nodeRef, parentRef: element.parentElement ? stableNodeRefFor(registry, element.parentElement) : null, tag, role, rect, fragments, clippedRect, attributes });
     const local: BasicKindMeasurements = {

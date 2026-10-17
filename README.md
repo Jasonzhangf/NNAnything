@@ -4,6 +4,8 @@
 
 当前候选 7 节点、采样 3 节点与第一层 DOM 基础种类节点保持已交付。当前增量为第一层基础种类六节点离线训练框架（training.prepare / partition / fit / compare / assess / report @ 0.1.0）、6N6E SESE 训练工作流图与持久配置（绑定 0.1.0）、真实 Handwired 数值图反传与 Adam 优化器、TypeScript 动态源码加载器、公开训练 consumer 及已有 158 条复核样本的拟合试验证据。保存的候选 profile 绝不自动采用；第二层业务卡片组合语义（帖子、作者、评论、广告等）、WebUI、Rust 实现仍为后续规划。验收与交付结果由 parent 维护于 [note.md](note.md)。
 
+新增 Chrome/Chromium 页面标注与采集入口，复用上述第一层分类器。支持类别色框、Focus、点选确认/纠错、未知批量采集和本地 JSON 导出。扩展构建与加载步骤见 [extension/README.md](extension/README.md)，节点与证据边界见 [docs/browser-overlay-m1.md](docs/browser-overlay-m1.md)。采集不会自动训练。
+
 ## 快速开始（L1 能动切片与离线训练）
 
 基线要求：Node.js >= 20（ESM 模块规范）。测试环境已验证 Node 22（Bun 未经验证）；TypeScript 为已安装的 devDependency。

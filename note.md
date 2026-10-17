@@ -1,5 +1,13 @@
 # 当前任务
 
+2026-10-17：当前增量为 Chrome/Chromium 本地页面标注与采集扩展。基础训练已交付，下面保留其证据。扩展实现已完成作者验证，独立 Gemini4 整体 Review 无 findings，宿主按统一 schema/controller 判 pass，进入 main 集成；尚未安装进 Chrome，因此不能称已完成真实站点的扩展入口验收。构建产物 `artifacts/chrome-extension`，本地 consumer `artifacts/overlay-harness`，安装与使用说明 `extension/README.md`。4N3E 标注图与1N0E采集图实际绑定0.1.0，复用 Flowed 与现有 compiler/runner；浏览器入口不导入 Node fs/训练后端。第一层分类器和旧黄金数据不改。
+
+整体 Review 使用独立 conversation `1f296c38-8c06-4b4b-85e2-90917eebdfe2`，实际 `gemini-4-argon-medium`、SUCCESS/exit0。结果见 `docs/reviews/gemini4-browser-overlay-m1-review.json`，原始事件与宿主裁决见外置 `browser-overlay/review`。当前源码/本地consumer审查不扩展为已安装Chrome或外站验收声明。
+
+Chrome 本地测试页实际遍历2714个顶层元素，验证分类色框/标签、仅未知筛选、点选与单项确认/仅标错/纠正类别/待复核/other理由、未知批量去重且不覆盖人工复核、Focus子树7候选与失效清框/禁采集/同元素恢复、Escape取消、局部滚动刷新、动态增加50元素以及关闭后宿主不重挂。生成实际下载包32行：verified1/rejected1/unreviewed30；公开提取器输出训练请求后，training.prepare只接纳1行，未复核进入训练0行。截图和原始下载引用见外置 browser-overlay/note.md。导出只请求浏览器下载，不谎称磁盘落盘；实际落盘另行验证。采集不自动训练，class/id/文字只进证据。
+
+作者检查：95测试、两种typecheck与真实浏览器bundle通过。公开图consumer含overflow裁剪框、状态属性推理/训练一致与稳定引用恢复；2501行导出通过。消融UI重复API声明、构建resolver与缺依赖假成功、提取器fallback/force、图版本静默升级。修正默认纠错标签污染、页面文字innerHTML插值、显示筛选逻辑、旧帧采集、错误反馈和关闭后迟到回调。自动化文件上传因ChatGPT扩展未获file URL权限被拒，未改权限或绕过；权重解析正反例已由API测试验证，真实文件选择加载仍待人工验收。当前仅顶层文档，不深入iframe/shadow，不证明遮挡像素可见性。外置过程唯一目录 `/Volumes/Intel/playground/nnanything-runs/browser-overlay`。
+
 2026-10-17：六节点离线训练已实现，作者自检、独立 Gemini4 整体 Review、main 集成构建和远端推送均完成（实现提交33b1726）。公开入口为 `nnanything/training`、`npm run demo:training -- --handwired-root <源码根>`。使用真实 Handwired Circuit 求值、反传与 Adam；保留分层 wire、缺测区间、来源闭包与单标签边界。通用核心未加入站点分支。当前图六节点六边、绑定 0.1.0，DAGpipe validate/inspect 成功。88 个测试、typecheck、四个旧公开 consumer 及训练 consumer 通过。主树公开接口回载增量权重，357确认标签中356匹配，2未定标项不计分；其中309已知细类有308项judged，48个other标签匹配但仍unknown。
 
 独立 Reviewer conversation90507fad-92d6-4814-9de2-71ce301cf8b9，实际gemini-4-argon-medium，SUCCESS/exit0，findings=[]。宿主复用统一 classifyReviewOutput 与 schema/scope 合同裁决pass；CLI response附有工具元数据，采用原始result.structured_output，不删改审查字段或放宽schema。完整审查结果见docs/reviews/gemini4-training-m1-review.json，外置原始事件与controller回执保留。

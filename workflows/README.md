@@ -122,3 +122,9 @@ flowchart TD
 本工作流规格为 6 节点 6 边单入口单出口（6N6E SESE），已完成 SESE 拓扑与算子定义（0.1.0）验证。
 完整节点合同与端口参数见 [lib/nodes/README.md](../lib/nodes/README.md)，算法设计、Handwired 反传、优化器与试验证据见 [docs/training-workflow.md](../docs/training-workflow.md)。
 公开 Consumer 使用说明见 [playground/training/README.md](../playground/training/README.md)。
+
+## 实时网页标注与采集
+
+`browser-visual-overlay.graph.json` 是 4N3E 实际绑定图：`browser.observe_live` → `browser.qualify_live` → `browser.classify_live` → `overlay.present`。`browser-capture.graph.json` 为 1N0E 的 `browser.capture`。版本均为 0.1.0，使用同一 compiler/runner 与 Flowed 浏览器构建。滚动、页面变化和 Focus 变更触发新运行，不添加回边。图在构建时明确传入，Document、profile、Focus、present/download 与采集会话由 consumer 注入。
+
+节点合同见 [lib/nodes/README.md](../lib/nodes/README.md)，Chrome 入口见 [extension/README.md](../extension/README.md)。采集包可提取为现有训练请求；采集流程本身不训练、不采用候选权重。

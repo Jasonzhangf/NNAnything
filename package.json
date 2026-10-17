@@ -35,7 +35,7 @@
     "demo:sampling": "npm run build && node playground/sampling/demo.mjs",
     "demo:basic-kinds": "npm run build && node playground/basic-kinds/demo.mjs",
     "demo:training": "npm run build && node playground/training/demo.mjs",
-    "build:extension": "node scripts/build-extension.mjs",
+    "build:extension": "npm run build && node scripts/build-extension.mjs",
     "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -16,7 +16,7 @@ Local Chrome/Chromium browser extension and evaluation test harness for NNAnythi
    - Distinct status outlines: unknown (dashed slate), conflict (dashed orange), Focus target (double violet with distinct badge).
    - Labels shown on hover/selected, or globally via the "显示全部标签" checkbox.
    - Fixed control panel (top-right, ~320px width, max-height responsive down to 390px, slate design system, no marketing gradients).
-   - Uncalibrated score notice: Displays MAP approximation scores clearly marked as `未校准` (uncalibrated), never falsely presented as calibrated probabilities or percentages.
+   - Scores are clearly marked as `未校准` (uncalibrated). They are not calibrated probabilities or percentages.
    - Coverage metrics: Reports top-document element count, traversed elements, and counts of unassessed iframe and open shadow root internals.
 
 3. **Focus Subtree Scoping & Stale Scope Protection**:
@@ -54,7 +54,7 @@ Local Chrome/Chromium browser extension and evaluation test harness for NNAnythi
      node playground/overlay/extract-training.mjs --input <bundle.json> --out <training-request.json>
      ```
    - Enforces strict bundle validation via `extractTrainingRequestFromBundle`.
-   - Safe by default: creates a new file and does not overwrite existing files unless `--force` is specified.
+   - Creates a new output file atomically (`wx`). Existing files are not overwritten.
 
 ---
 
@@ -63,16 +63,14 @@ Local Chrome/Chromium browser extension and evaluation test harness for NNAnythi
 Build requires Node.js >= 20.
 
 ```bash
-# 1. Typecheck the UI codebase against DOM and fixed foundation declarations
+# 1. Typecheck the UI against the real library API and DOM types
 npm run typecheck:ui
 
 # 2. Build the extension and harness bundles (via esbuild)
 npm run build:extension
 ```
 
-> **Note on Integration Build Status**:
-> The UI code is written strictly against the fixed foundation contract (`nnanything/browser-classify`).
-> When running `npm run build:extension` in this isolated UI branch, if the parent foundation implementation has not yet been merged, the builder reports the pending dependency without fake fallbacks. Once parent merges the foundation module, `npm run build:extension` will bundle the outputs into `artifacts/chrome-extension` and `artifacts/overlay-harness`.
+The command builds the library first, then bundles the extension and harness into `artifacts/chrome-extension` and `artifacts/overlay-harness`. A missing dependency fails the build.
 
 ---
 
@@ -95,10 +93,7 @@ The test harness provides an interactive test page containing >2500 DOM elements
 
 ```bash
 # Serve the built harness directory using standard Python HTTP server:
-python3 -m http.server 8080 -d artifacts/overlay-harness
-
-# Or using Node npx:
-npx serve artifacts/overlay-harness -p 8080
+python3 -m http.server 8080 --bind 127.0.0.1 -d artifacts/overlay-harness
 ```
 
 Open `http://localhost:8080` in your browser.
