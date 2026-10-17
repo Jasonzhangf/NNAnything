@@ -1,6 +1,10 @@
 # 当前任务
 
-2026-10-17后续实测修复：用户已在内置浏览器加载扩展，小红书首页宿主与面板实际运行，但帖子列表无框。只读页面检查与点选确认card子树candidateStatus=unknown、无wire且采集禁用，首次偏离是live-dom.clippedBox对任意transform的否决。实际卡片均用2Dmatrix平移排列；未改权重、站点class或workflow拓扑。真实几何快照1165元素、30卡片（24视口内、6视口外），公开四节点回放修前0卡片框、修后24个container框；feed后代合格9→377、judged0→191（container24/link64/image44/text59）。这不是第二层post.card语义识别。只接纳单位线性分量的computed2D平移，其他变换仍未测定。新增红测先复现identity被拒，再通过8项基础测试与全96项；真实浏览器fixture验证平移IMG判断/可采集及260×90→220×75的精确父级裁剪，scale区域仍unknown禁采集。外置证据browser-translations；当前待main集成/构建/推送及用户正式重载后实站验证。
+2026-10-17后续实测修复已交付：用户已在内置浏览器加载扩展，小红书首页宿主与面板实际运行，但帖子列表无框。只读页面检查与点选确认card子树candidateStatus=unknown、无wire且采集禁用，首次偏离是live-dom.clippedBox对任意transform的否决。实际卡片均用2Dmatrix平移排列；未改权重、站点class或workflow拓扑。
+
+真实几何快照1165元素、30卡片（24视口内、6视口外），公开四节点回放修前0卡片框、修后24个container框；feed后代合格9→377、judged0→191（container24/link64/image44/text59）。这不是第二层post.card语义识别。只接纳单位线性分量的computed2D平移，其他变换仍未测定。新增红测先复现identity被拒，再通过8项基础测试与全96项；真实浏览器fixture验证平移IMG判断/可采集及260×90→220×75的精确父级裁剪，scale区域仍unknown禁采集。外置证据browser-translations。
+
+实现提交8e27ec2已合入main并推送，正式目录build:extension成功，工作树/分支和临时HTTP服务已回收。小红书tab9保留并标记handoff。已请求用户在原扩展管理界面正式重新加载扩展，刷新小红书并重开标注；当前等待该步骤后实站验证。没有绕过内部管理URL限制，也未把回放/harness证明冒称新版脚本已在小红书生效。原样本矩形、旧模块反向复现、更新后回放和真实fixture构成这次根因证据。无需新增全局规则或受管记忆；通用规则已要求真实入口验收，必要回归落在测量owner测试和复现页面中。
 
 针对该用户实测缺陷的独立局部复核，conversation5ec7c619-4683-4db1-bea0-c01cacce4308、实际gemini-4-argon-medium，SUCCESS/exit0、findings=[]，统一controller判pass。结果见docs/reviews/gemini4-browser-translations-review.json。原代码整体review不冒称覆盖新缺陷，局部复核不重复未改的整体架构审查。
 
