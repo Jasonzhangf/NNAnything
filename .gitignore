@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Captured browser data and generated training artifacts remain local.
+research/**/*.json
+research/**/*.html
+research/**/*.png
+research/**/*.jpg
+research/**/*.webp
+data/raw/**
+data/labels/**
+data/datasets/**
+artifacts/**
+!**/.gitkeep
