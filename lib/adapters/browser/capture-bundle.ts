@@ -1,16 +1,16 @@
-import { validateBasicKindProperties, type BasicKindBatch, type BasicKindLabel } from "../../filters/basic-kinds.js";
+import { validateBasicKindProperties, type BasicKindBatch, type BasicKindLabel, type BasicKindStatus } from "../../filters/basic-kinds.js";
 import type { CandidateBatch } from "../../filters/candidate-chain.js";
 import type { FocusSpec } from "../../filters/focus.js";
 import { expectNonEmptyString, expectRecord } from "../../core/schema.js";
 import { readBasicKindTrainingRequest, type BasicKindTrainingRequest, type ReviewedBasicKindRow } from "../../training/basic-kind-samples.js";
-import type { LiveDomEvidence, LiveDomSnapshot } from "./live-dom.js";
+import type { LiveCaptureCoverage, LiveDomEvidence, LiveDomSnapshot } from "./live-dom.js";
 import type { Rect } from "./observation.js";
 
 export interface OverlayBox {
   readonly nodeRef: string;
   readonly rect: Rect;
   readonly basicKind: BasicKindLabel | null;
-  readonly judgmentStatus: string;
+  readonly judgmentStatus: BasicKindStatus;
   readonly score: number | null;
   readonly margin: number | null;
 }
@@ -21,7 +21,20 @@ export interface BrowserOverlayFrame {
   readonly candidateBatch: CandidateBatch;
   readonly basicKindBatch: BasicKindBatch;
   readonly boxes: readonly OverlayBox[];
-  readonly presentation: { readonly view: Readonly<Record<string, unknown>>; readonly receipt: unknown };
+  readonly presentation: { readonly view: OverlayView; readonly receipt: unknown };
+}
+export interface OverlayCounts {
+  readonly totalNodes: number; readonly candidates: number; readonly judged: number; readonly unknown: number;
+  readonly conflict: number; readonly excluded: number; readonly candidateUnknown: number;
+}
+export interface OverlayView {
+  readonly boxes: readonly OverlayBox[];
+  readonly counts: OverlayCounts;
+  readonly focus: { readonly nodeRef: string; readonly rect: Rect } | null;
+  readonly coverage: LiveCaptureCoverage;
+  readonly profileId: string;
+  readonly focusSpec: FocusSpec;
+  readonly confidenceState: "uncalibrated";
 }
 export type BrowserCaptureAnnotation =
   | { readonly kind: "correct"; readonly otherReason?: string }

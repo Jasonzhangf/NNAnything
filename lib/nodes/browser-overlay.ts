@@ -67,7 +67,7 @@ export function createBrowserOverlayNodeDefinitions(resources: {
         }
         const slots = source.basicKindBatch.slots, root = source.focusSpec.within ? byRef.get(source.focusSpec.within) : null;
         const view = {
-          boxes, profileId: source.basicKindBatch.profileId, focusSpec: source.focusSpec, confidenceState: "uncalibrated",
+          boxes, profileId: source.basicKindBatch.profileId, focusSpec: source.focusSpec, confidenceState: "uncalibrated" as const,
           counts: { totalNodes: slots.length, candidates: slots.filter(slot => slot.candidateStatus === "ok").length,
             judged: slots.filter(slot => slot.judgmentStatus === "judged").length,
             unknown: slots.filter(slot => slot.candidateStatus === "ok" && slot.judgmentStatus === "unknown").length,
