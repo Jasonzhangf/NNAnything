@@ -14,7 +14,7 @@ Object.freeze(BASIC_KIND_FAMILIES);
 export type SpecificBasicKindLabel = typeof BASIC_KIND_FAMILIES[BasicKindFamily][number];
 export type BasicKindLabel = SpecificBasicKindLabel | "other";
 export type BasicKindStatus = "judged" | "unknown" | "conflict" | "excluded";
-type WireValue = 0 | 1 | null;
+export type BasicKindWireValue = 0 | 1 | null;
 export interface ScoreInterval { readonly min: number; readonly max: number }
 export interface BasicKindMeasurements {
   readonly inputType?: string | null;
@@ -57,11 +57,17 @@ const typeSets = {
 } as const;
 const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_in_list", "state_disabled", "state_hidden"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
-type Weights = Readonly<Partial<Record<BasicKindWireName, number>>>;
+export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
+  ...Object.keys(tagSets) as (keyof typeof tagSets)[],
+  ...Object.keys(roleSets) as (keyof typeof roleSets)[],
+  ...Object.keys(typeSets) as (keyof typeof typeSets)[],
+  ...localWireNames,
+];
+export type BasicKindWeights = Readonly<Partial<Record<BasicKindWireName, number>>>;
 export interface BasicKindProfile {
   readonly id: string;
-  readonly familyWeights: Readonly<Record<BasicKindFamily, Weights>>;
-  readonly leafWeights: Readonly<Record<SpecificBasicKindLabel, Weights>>;
+  readonly familyWeights: Readonly<Record<BasicKindFamily, BasicKindWeights>>;
+  readonly leafWeights: Readonly<Record<SpecificBasicKindLabel, BasicKindWeights>>;
 }
 export const DEFAULT_BASIC_KIND_PROFILE: BasicKindProfile = {
   id: "dom-basic-kinds-handwritten-v1",
@@ -120,7 +126,7 @@ function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   if (childElementCount !== null && positiveAreaChildCount !== null && positiveAreaChildCount > childElementCount) throw new TypeError("positiveAreaChildCount exceeds childElementCount");
   return { inputType, hrefPresent: bool("hrefPresent"), contentEditable: bool("contentEditable"), directTextPresent: bool("directTextPresent"), childElementCount, positiveAreaChildCount, repeatedChildGeometry: bool("repeatedChildGeometry"), inVerifiedListParent: bool("inVerifiedListParent") };
 }
-function properties(value: unknown): BasicKindProperties {
+export function validateBasicKindProperties(value: unknown): BasicKindProperties {
   const input = expectRecord(value, "basic-kind properties");
   onlyKeys(input, ["tag", "role", "disabled", "hidden", ...measurementNames], "properties");
   return { ...measurements(input), tag: optionalText(input.tag, "tag"), role: optionalText(input.role, "role"), disabled: optionalBoolean(input.disabled, "disabled"), hidden: optionalBoolean(input.hidden, "hidden") };
@@ -136,7 +142,7 @@ export function validateBasicKindProfile(value: unknown): BasicKindProfile {
   const input = expectRecord(value, "basic-kind profile");
   onlyKeys(input, ["id", "familyWeights", "leafWeights"], "profile");
   const wireNames = [...Object.keys(tagSets), ...Object.keys(roleSets), ...Object.keys(typeSets), ...localWireNames];
-  function rows<T extends string>(raw: unknown, names: readonly T[], label: string): Record<T, Weights> {
+  function rows<T extends string>(raw: unknown, names: readonly T[], label: string): Record<T, BasicKindWeights> {
     const group = expectRecord(raw, label);
     onlyKeys(group, names, label);
     return Object.fromEntries(names.map(name => {
@@ -148,18 +154,18 @@ export function validateBasicKindProfile(value: unknown): BasicKindProfile {
         return [wire, weight];
       }));
       return [name, coefficients];
-    })) as Record<T, Weights>;
+    })) as Record<T, BasicKindWeights>;
   }
   return { id: expectNonEmptyString(input.id, "profile.id"), familyWeights: rows(input.familyWeights, Object.keys(BASIC_KIND_FAMILIES) as BasicKindFamily[], "familyWeights"), leafWeights: rows(input.leafWeights, Object.values(BASIC_KIND_FAMILIES).flat(), "leafWeights") };
 }
 
-function extractWires(input: BasicKindProperties): Record<BasicKindWireName, WireValue> {
-  const wires = {} as Record<BasicKindWireName, WireValue>;
+export function extractBasicKindWires(input: BasicKindProperties): Readonly<Record<BasicKindWireName, BasicKindWireValue>> {
+  const wires = {} as Record<BasicKindWireName, BasicKindWireValue>;
   for (const [wire, tags] of Object.entries(tagSets)) wires[wire as keyof typeof tagSets] = input.tag === null ? null : tags.some(tag => tag === input.tag) ? 1 : 0;
   // No usable explicit role is not a prediction of an unobserved role.
   for (const [wire, roles] of Object.entries(roleSets)) wires[wire as keyof typeof roleSets] = roles.some(role => role === input.role) ? 1 : 0;
   for (const [wire, types] of Object.entries(typeSets)) wires[wire as keyof typeof typeSets] = input.tag !== "input" ? 0 : !input.inputType ? null : types.some(type => type === input.inputType) ? 1 : 0;
-  const bool = (value: boolean | null | undefined): WireValue => value === undefined || value === null ? null : value ? 1 : 0;
+  const bool = (value: boolean | null | undefined): BasicKindWireValue => value === undefined || value === null ? null : value ? 1 : 0;
   const div = input.tag === "div" && input.role === null;
   wires.attr_editable = input.contentEditable === true ? 1 : input.contentEditable === false ? 0 : (input.tag === "div" || input.tag === "span") && input.role === null ? null : 0;
   wires.anchor_href = input.tag === "a" ? bool(input.hrefPresent) : 0;
@@ -174,7 +180,7 @@ function extractWires(input: BasicKindProperties): Record<BasicKindWireName, Wir
   return wires;
 }
 
-export interface BasicKindTerm { readonly stage: "family" | "leaf"; readonly target: string; readonly wire: BasicKindWireName; readonly value: WireValue; readonly weight: number; readonly contribution: ScoreInterval }
+export interface BasicKindTerm { readonly stage: "family" | "leaf"; readonly target: string; readonly wire: BasicKindWireName; readonly value: BasicKindWireValue; readonly weight: number; readonly contribution: ScoreInterval }
 export interface BasicKindStageDecision { readonly stage: "family" | "leaf"; readonly status: "judged" | "unknown" | "conflict"; readonly selected: string | null; readonly score: number; readonly margin: number; readonly reasons: readonly string[] }
 export interface BasicKindJudgment {
   readonly familyStatus: BasicKindStatus; readonly family: BasicKindFamily | null;
@@ -184,10 +190,15 @@ export interface BasicKindJudgment {
   readonly score: number | null; readonly margin: number | null;
   readonly confidenceState: "uncalibrated" | "not_applicable"; readonly calibratedConfidence: null;
   readonly reasons: readonly string[];
-  readonly evidence: { readonly stateFlags: { readonly disabled: boolean | null; readonly hidden: boolean | null }; readonly wires: Readonly<Partial<Record<BasicKindWireName, WireValue>>>; readonly activeTerms: readonly BasicKindTerm[]; readonly path: readonly BasicKindStageDecision[] };
+  readonly evidence: { readonly stateFlags: { readonly disabled: boolean | null; readonly hidden: boolean | null }; readonly wires: Readonly<Partial<Record<BasicKindWireName, BasicKindWireValue>>>; readonly activeTerms: readonly BasicKindTerm[]; readonly path: readonly BasicKindStageDecision[] };
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
-function scoreStage(stage: "family" | "leaf", names: readonly string[], rows: Readonly<Record<string, Weights>>, wires: Record<BasicKindWireName, WireValue>, config: BasicKindConfig, terms: BasicKindTerm[]) {
+export function computeBasicKindStageRawIntervals(
+  _stage: "family" | "leaf",
+  names: readonly string[],
+  rows: Readonly<Record<string, BasicKindWeights>>,
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+): Readonly<Record<string, ScoreInterval>> {
   const scores: Record<string, ScoreInterval> = {};
   for (const target of names) {
     let min = 0, max = 0;
@@ -195,9 +206,23 @@ function scoreStage(stage: "family" | "leaf", names: readonly string[], rows: Re
       const wire = name as BasicKindWireName, value = wires[wire];
       const contribution = value === null ? { min: Math.min(weight, 0), max: Math.max(weight, 0) } : { min: weight * value, max: weight * value };
       min += contribution.min; max += contribution.max;
+    }
+    scores[target] = { min, max };
+  }
+  return scores;
+}
+function scoreStage(stage: "family" | "leaf", names: readonly string[], rows: Readonly<Record<string, BasicKindWeights>>, wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>, config: BasicKindConfig, terms: BasicKindTerm[]) {
+  const raw = computeBasicKindStageRawIntervals(stage, names, rows, wires);
+  const scores: Record<string, ScoreInterval> = {};
+  for (const target of names) {
+    for (const [name, weight] of Object.entries(rows[target]!)) {
+      const wire = name as BasicKindWireName, value = wires[wire];
+      const contribution = value === null
+        ? { min: Math.min(weight, 0), max: Math.max(weight, 0) }
+        : { min: weight * value, max: weight * value };
       if (value !== 0 && weight !== 0) terms.push({ stage, target, wire, value, weight, contribution });
     }
-    scores[target] = { min: clamp(min), max: clamp(max) };
+    scores[target] = { min: clamp(raw[target]!.min), max: clamp(raw[target]!.max) };
   }
   const ordered = [...names].sort((a, b) => scores[b]!.min - scores[a]!.min || scores[b]!.max - scores[a]!.max);
   const best = ordered[0]!, first = scores[best]!, second = ordered[1] === undefined ? 0 : scores[ordered[1]!]!.min;
@@ -218,7 +243,7 @@ function emptyJudgment(status: "unknown" | "excluded", reasons: readonly string[
   return { familyStatus: status, family: null, familyScores: null, judgmentStatus: status, basicKind: null, leafScores: null, score: null, margin: null, confidenceState: "not_applicable", calibratedConfidence: null, reasons, evidence: { stateFlags: { disabled: input?.disabled ?? null, hidden: input?.hidden ?? null }, wires: {}, activeTerms: [], path: [] } };
 }
 function classify(input: BasicKindProperties, config: BasicKindConfig, profile: BasicKindProfile): BasicKindJudgment {
-  const wires = extractWires(input), activeTerms: BasicKindTerm[] = [];
+  const wires = extractBasicKindWires(input), activeTerms: BasicKindTerm[] = [];
   const families = scoreStage("family", Object.keys(BASIC_KIND_FAMILIES), profile.familyWeights, wires, config, activeTerms);
   const family = families.decision.selected as BasicKindFamily | null;
   // The leaf stage is only evaluated after family selection.
@@ -238,7 +263,7 @@ function classify(input: BasicKindProperties, config: BasicKindConfig, profile: 
   return { familyStatus: families.decision.status, family, familyScores: families.scores, judgmentStatus: last.status, basicKind: (leaves?.decision.selected as SpecificBasicKindLabel | null) ?? "other", leafScores: leaves?.scores ?? null, score: last.status === "judged" ? Math.min(families.decision.score, last.score) : null, margin: last.status === "judged" ? Math.min(families.decision.margin, last.margin) : null, confidenceState: "uncalibrated", calibratedConfidence: null, reasons, evidence: { stateFlags: { disabled: input.disabled ?? null, hidden: input.hidden ?? null }, wires, activeTerms, path: [families.decision, ...(leaves === null ? [] : [leaves.decision])] } };
 }
 export function classifyBasicKind(value: unknown, config: BasicKindConfig = DEFAULT_BASIC_KIND_CONFIG, profile: BasicKindProfile = DEFAULT_BASIC_KIND_PROFILE): BasicKindJudgment {
-  return classify(properties(value), validateBasicKindConfig(config), validateBasicKindProfile(profile));
+  return classify(validateBasicKindProperties(value), validateBasicKindConfig(config), validateBasicKindProfile(profile));
 }
 
 export function validateBasicKindRequest(value: unknown) {
@@ -279,7 +304,7 @@ export function classifyBasicKindBatch(value: unknown, config: BasicKindConfig =
     else if (!node) judgment = emptyJudgment("unknown", ["missing_node_ref"]);
     else {
       const local = observations.get(slot.nodeRef) ?? {};
-      judgment = classify(properties({ ...local, tag: node.tag, role: node.role, contentEditable: local.contentEditable ?? (node.attributes.contenteditable === "plaintext-only" ? true : stateFlag(node.attributes.contenteditable)), hidden: combineState(htmlBoolean(node.attributes.hidden), stateFlag(node.attributes["aria-hidden"])), disabled: combineState(htmlBoolean(node.attributes.disabled), stateFlag(node.attributes["aria-disabled"])) }), spec, weights);
+      judgment = classify(validateBasicKindProperties({ ...local, tag: node.tag, role: node.role, contentEditable: local.contentEditable ?? (node.attributes.contenteditable === "plaintext-only" ? true : stateFlag(node.attributes.contenteditable)), hidden: combineState(htmlBoolean(node.attributes.hidden), stateFlag(node.attributes["aria-hidden"])), disabled: combineState(htmlBoolean(node.attributes.disabled), stateFlag(node.attributes["aria-disabled"])) }), spec, weights);
     }
     return { index: slot.index, nodeRef: slot.nodeRef, candidateStatus: slot.status, candidateReasons: [...slot.reasons], ...judgment };
   });
