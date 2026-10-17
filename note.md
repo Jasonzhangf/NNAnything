@@ -2,6 +2,8 @@
 
 ## DOM 基础种类分层算法（2026-10-17，作者验收与 Gemini4 Review 完成）
 
+实现提交3b6bcdd已 ff-only 合入 main 并正常推送 origin/main。主目录 npm run demo:basic-kinds 已构建并运行通过。本轮独立结案审计完成，仅发现外置验证记录有一处 pending 状态未更新，已修正；结论见 docs/reviews/basic-kinds-retrospective.md。自有任务工作树已移除并 prune，自有分支已删除，当前只保留项目主树；外置 run 记录作为证据保留。本轮代码、文档、本地种类提议样本均已交付，没有运行训练。
+
 用户要求先按 DOM 属性性质建立清晰的分层、多条件 wire 路径，第一层基础种类先做，第二层应用组合后做；算法完成后交 Gemini4 review。独立 Gemini4 Planner 初稿平铺细类且试图放宽旧快照资格，未接受；同会话修订后采用大类→类内细类，继续保留旧候选未知。实现中将 DTO 绑定到现有 CandidateBatch 的实际 observation.nodes，并使用兼容的根级 itemObservations 数组；不改变既有观测/候选/训练样本合同。
 
 当前新增 dom.basic_kinds@0.1.0、纯函数 classifyBasicKind/classifyBasicKindBatch、稀疏参数 profile、1节点0边工作流及公开 Consumer。连线设计在 docs/basic-kinds-wiring.md，先落图并经 DAGpipe validate/inspect，再实现。五大类 control/media/navigation/text/structure；仅在大类成功后计算对应细类。缺测 wire 使用分数上下界；无 class/id/正文/URL 输入，无训练极性，无伪造校准概率。未实现训练、Handwired 后端或第二层业务语义。
