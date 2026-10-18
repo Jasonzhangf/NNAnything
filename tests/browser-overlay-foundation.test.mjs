@@ -64,6 +64,11 @@ function basicProperties(tag, overrides = {}) {
     hrefPresent: null,
     contentEditable: false,
     directTextPresent: false,
+    nonFormatDirectTextPresent: null,
+    beforeContentPresent: null,
+    afterContentPresent: null,
+    backgroundImagePresent: null,
+    maskImagePresent: null,
     childElementCount: 0,
     positiveAreaChildCount: 0,
     repeatedChildGeometry: null,
@@ -114,6 +119,11 @@ function snapshotFixture({ pageRef = "page-fixture", nodes, properties, evidence
         hrefPresent: propertiesValue.hrefPresent,
         contentEditable: propertiesValue.contentEditable,
         directTextPresent: propertiesValue.directTextPresent,
+        nonFormatDirectTextPresent: propertiesValue.nonFormatDirectTextPresent,
+        beforeContentPresent: propertiesValue.beforeContentPresent,
+        afterContentPresent: propertiesValue.afterContentPresent,
+        backgroundImagePresent: propertiesValue.backgroundImagePresent,
+        maskImagePresent: propertiesValue.maskImagePresent,
         childElementCount: propertiesValue.childElementCount,
         positiveAreaChildCount: propertiesValue.positiveAreaChildCount,
         repeatedChildGeometry: propertiesValue.repeatedChildGeometry,
@@ -505,6 +515,63 @@ function liveMeasurementDom() {
   const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
   return { document, window, html };
 }
+
+test("capture excludes the injected tool subtree while retaining normal fixed and shadow nodes", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto", position: "fixed", content: "none", backgroundImage: "none", maskImage: "none", webkitMaskImage: "none" };
+  const normalFixed = { ...html, tagName: "ASIDE", parentElement: html, children: [], childNodes: [], childElementCount: 0, id: "normal-fixed", getAttribute: () => null };
+  const shadowHost = { ...html, tagName: "DIV", parentElement: html, children: [], childNodes: [], childElementCount: 0, id: "regular-shadow", shadowRoot: { mode: "open" }, getAttribute: () => null };
+  const tool = { ...html, tagName: "DIV", parentElement: html, children: [], childNodes: [], childElementCount: 0, id: "codex-browser-sidebar-comments-root", shadowRoot: { mode: "open" }, getAttribute: () => null };
+  const toolChild = { ...html, tagName: "SPAN", parentElement: tool, children: [], childNodes: [], childElementCount: 0, id: "tool-child", getAttribute: () => null };
+  tool.children = [toolChild];
+  tool.querySelectorAll = () => [toolChild];
+  html.children = [normalFixed, shadowHost, tool];
+  dom.window.getComputedStyle = () => style;
+  const registry = createStableNodeRefRegistry("excluded-tool-root");
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "excluded", documentRef: "fixture" });
+  assert.equal(snapshot.observation.nodes.some(node => node.nodeRef === stableNodeRefFor(registry, tool)), false);
+  assert.equal(snapshot.observation.nodes.some(node => node.nodeRef === stableNodeRefFor(registry, toolChild)), false);
+  assert.equal(snapshot.observation.nodes.some(node => node.nodeRef === stableNodeRefFor(registry, normalFixed)), true);
+  assert.equal(snapshot.observation.nodes.some(node => node.nodeRef === stableNodeRefFor(registry, shadowHost)), true);
+  assert.equal(snapshot.coverage.excludedElementCount, 2);
+  assert.equal(snapshot.coverage.unassessedOpenShadowRootCount, 1);
+  assert.equal(snapshot.itemObservations.find(item => item.nodeRef === stableNodeRefFor(registry, html)).childElementCount, 2);
+  assert.equal(snapshot.explorationInputs.get(stableNodeRefFor(registry, html)).containment.childRefs.length, 2);
+});
+
+test("live appearance measurements preserve raw text and derive CSS declarations without leaking raw values", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const formatSpan = { ...html, tagName: "SPAN", parentElement: html, children: [], childElementCount: 0,
+    childNodes: [{ nodeType: 3, textContent: "\u200b" }], getAttribute: () => null };
+  const realText = { ...html, tagName: "B", parentElement: html, children: [], childElementCount: 0,
+    childNodes: [{ nodeType: 3, textContent: "真实文字" }], getAttribute: () => null };
+  const missingCss = { ...html, tagName: "SPAN", parentElement: html, children: [], childElementCount: 0,
+    childNodes: [{ nodeType: 3, textContent: "e\u0301" }], getAttribute: () => null };
+  html.children = [formatSpan, realText, missingCss];
+  dom.window.getComputedStyle = element => element === formatSpan
+    ? { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto", content: "none", backgroundImage: "none", maskImage: "none" }
+    : element === realText
+      ? { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto", content: "url(secret.svg)", backgroundImage: "url(https://secret.test/a.png)", maskImage: "none, url(#m)" }
+      : { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto" };
+  const registry = createStableNodeRefRegistry("appearance-test");
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "appearance", documentRef: "fixture" });
+  const properties = node => snapshot.properties.get(stableNodeRefFor(registry, node));
+  assert.equal(properties(formatSpan).directTextPresent, true);
+  assert.equal(properties(formatSpan).nonFormatDirectTextPresent, false);
+  assert.equal(properties(realText).nonFormatDirectTextPresent, true);
+  assert.equal(properties(missingCss).nonFormatDirectTextPresent, true);
+  assert.equal(properties(formatSpan).beforeContentPresent, false);
+  assert.equal(properties(formatSpan).backgroundImagePresent, false);
+  assert.equal(properties(realText).beforeContentPresent, true);
+  assert.equal(properties(realText).backgroundImagePresent, true);
+  assert.equal(properties(realText).maskImagePresent, true);
+  assert.equal(properties(missingCss).beforeContentPresent, null);
+  assert.equal(properties(missingCss).backgroundImagePresent, null);
+  assert.equal(properties(missingCss).maskImagePresent, null);
+  const studentJson = JSON.stringify({ observations: snapshot.itemObservations, properties: [...snapshot.properties] });
+  assert.equal(studentJson.includes("secret.svg"), false);
+  assert.equal(studentJson.includes("secret.test"), false);
+});
 
 test("translated cards retain measured clipping for descendants; non-translation transforms remain unknown", () => {
   for (const [transform, measured, individual = {}] of [

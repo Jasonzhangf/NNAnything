@@ -245,3 +245,45 @@ test("non-finite loss is an explicit fitting failure, never a saved candidate", 
     candidateId: "overflow-candidate",
   }), /Non-finite training/);
 });
+
+test("real Handwired fitting updates the new explicit-zero appearance cells", async () => {
+  const profile = cloneProfile();
+  profile.familyWeights.media.css_background_image = 0;
+  profile.leafWeights.image.css_background_image = 0;
+  profile.familyWeights.text.direct_non_format_text = 0;
+  profile.leafWeights.text.direct_non_format_text = 0;
+  const image = properties("span", {
+    nonFormatDirectTextPresent: false,
+    beforeContentPresent: true,
+    afterContentPresent: true,
+    backgroundImagePresent: true,
+    maskImagePresent: true,
+  });
+  const text = properties("b", {
+    nonFormatDirectTextPresent: true,
+    beforeContentPresent: false,
+    afterContentPresent: false,
+    backgroundImagePresent: false,
+    maskImagePresent: false,
+  });
+  const result = await fitBasicKinds({
+    handwiredRoot,
+    rows: [{ properties: image, expectedLabel: "image" }, { properties: text, expectedLabel: "text" }],
+    baseProfile: profile,
+    config: { ...config, fit: { epochs: 25, learningRate: 0.1, anchorLambda: 0 } },
+    candidateId: "appearance-trainability",
+  });
+  assert.notEqual(result.profile.familyWeights.media.css_background_image, 0);
+  assert.notEqual(result.profile.leafWeights.image.css_background_image, 0);
+  for (const wire of ["css_before_content", "css_after_content", "css_mask_image"]) {
+    assert.notEqual(result.profile.familyWeights.media[wire], 0);
+    assert.notEqual(result.profile.leafWeights.image[wire], 0);
+  }
+  assert.notEqual(result.profile.familyWeights.text.direct_non_format_text, 0);
+  assert.notEqual(result.profile.leafWeights.text.direct_non_format_text, 0);
+  assert.ok(result.lossAfter < result.lossBefore);
+  validateBasicKindProfile(result.profile);
+  const gradients = await inspect(image, "image", profile);
+  assert.equal(Object.hasOwn(gradients.familyGradients.media, "nat_svg_child"), true);
+  assert.equal(Object.hasOwn(gradients.leafGradients.image, "nat_svg_child"), true);
+});

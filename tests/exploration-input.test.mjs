@@ -53,3 +53,28 @@ test('exploration JSON reader and prepare preserve optional data without adding 
  const fit=toBasicKindFitRows(prepareBasicKindSamples({...request(),rows:[verified]},{taskId:'dom.basic-kinds.v1',inputScope:'candidate_qualified'}));
  assert.equal('explorationInput' in fit[0],false);
 });
+test('exploration carries appearance coverage while old exports default to unmeasured nulls',()=>{
+ const measuredLocal=local.map((row,index)=>index===3?{...row,nonFormatDirectTextPresent:true,beforeContentPresent:true,afterContentPresent:false,backgroundImagePresent:true,maskImagePresent:null}:row);
+ const map=build({itemObservations:measuredLocal});
+ const measured=map.get('n3');
+ assert.equal(map.get('n2').childComposition.children[0].nonFormatDirectTextPresent,true);
+ assert.equal(map.get('n2').childComposition.children[0].beforeContentPresent,true);
+ assert.equal(map.get('n2').childComposition.children[0].backgroundImagePresent,true);
+ assert.equal(measured.measurementCoverage.nonFormatDirectTextPresent,'measured');
+ assert.equal(measured.measurementCoverage.beforeContentPresent,'measured');
+ assert.equal(measured.measurementCoverage.afterContentPresent,'measured');
+ assert.equal(measured.measurementCoverage.maskImagePresent,'unmeasured');
+ const old=JSON.parse(JSON.stringify(map.get('n2')));
+ for(const key of ['nonFormatDirectTextPresent','beforeContentPresent','afterContentPresent','backgroundImagePresent','maskImagePresent']){
+  delete old.measurementCoverage[key];
+  for(const child of old.childComposition.children)delete child[key];
+  for(const edge of [...old.containment.ancestorEdges,...old.containment.descendantEdges])delete edge.target[key];
+ }
+ const restored=browser.validateExplorationInput(old);
+ for(const key of ['nonFormatDirectTextPresent','beforeContentPresent','afterContentPresent','backgroundImagePresent','maskImagePresent']){
+  assert.equal(restored.measurementCoverage[key],'unmeasured');
+  for(const child of restored.childComposition.children)assert.equal(child[key],null);
+ }
+ delete old.measurementCoverage.directTextPresent;
+ assert.throws(()=>browser.validateExplorationInput(old),/invalid exploration value/);
+});

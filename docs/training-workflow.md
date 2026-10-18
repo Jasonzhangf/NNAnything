@@ -244,6 +244,14 @@ ReLU 在零点采用零次梯度。一个初值为零且一直缺测的 wire，�
 
 纯builder要求显式`maxRelationHops>=1`，默认子节点覆盖为unknown；只有调用者明确保证完整直接子集时才生成已知计数。未测几何或不完整子集保持null。实时适配器默认4跳，可通过`observeLiveDom`或`createBrowserOverlayNodeDefinitions`资源参数`maxRelationHops`覆盖，实际值写入每项；到上限返回hop_limit_reached，不宣称完整包含链。缺失父观测、未知根边界和未读iframe/shadow分别保留。关系范围始终是当前观测文档；interior列表是调用者声明的未读区域，省略它不证明不存在内嵌内容，closed shadow仍不可探测。
 
-旧请求不需要新字段。新字段在导出、JSON回载和prepare中保留；nodeRef必须与样本一致。第一层`toBasicKindFitRows`仍只投影`properties`和`expectedLabel`，不消费关系输入，不宣称已训练它们。当前分类器/wire/profile/阈值未变。未来关系或语义相关性目标显式消费新I/O后才能训练；本次不提供保留/忽略标签或训练实现。
+旧请求不需要新字段。新字段在导出、JSON回载和prepare中保留；nodeRef必须与样本一致。第一层`toBasicKindFitRows`仍只投影`properties`和`expectedLabel`，不消费关系输入，不宣称已训练它们。关系扩展本身未改变分类器/wire/profile/阈值；后续呈现输入升级见下节。关系或语义相关性目标显式消费新I/O后才能训练；当前不提供保留/忽略标签或训练实现。
+
+## 呈现输入的预处理
+
+实时DOM及原始回放调用相同纯`shapeAppearanceMeasurements`，产生非格式直接文本与四项CSS存在性参数；采集、样本读取、prepare和分类统一使用`validateBasicKindProperties`规范化typed properties。不从teacher正文重建缺少的观测。旧样本省略新字段时回载为null，不填false，不补训练标签。已保存派生特征直接回载，不再次清理原始文本。
+
+本轮六条新wire与四十二个目标地址初始为显式0，由既有Handwired sparse cells拟合。输入、连线和迁移唯一合同见`docs/basic-kinds-wiring.md`。exploration相对节点摘要与measurementCoverage保留五项新特征；旧导出缺新项时分别为null及unmeasured，旧必需项维持原合同。
+
+relation／类别条件关系、布局包装保留／忽略尚未进入数值拟合。合成训练证明系数能学习，不证明三站未知已准确标注。候选保持not_applied、uncalibrated，旧黄金与新页面留出不参与本轮调参。
 
 后续消融固定相同来源分组与留出，依次比较仅节点属性、加直接父子、加跨层包含、再加两端类别。类别预测须来自独立或out-of-fold推理，不能用测试真值当输入。报告目标分类与保留/忽略错误、内容丢失和关系边错误，不能只比unknown数；实际实验等标定后进行。忽略仅影响语义视图，不剪掉后代或把包装变基础负例。真实浏览器fixture为`playground/exploration/`；本次验收输入链路，不宣称完成语义消融。

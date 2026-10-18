@@ -8,12 +8,15 @@ type Boundary = "complete" | "hop_limit_reached" | "incomplete_observation" | "u
 export interface ExplorationRelativeSummary {
   readonly nodeRef: string; readonly tag: string | null; readonly role: string | null;
   readonly rect: Rect | null; readonly positiveArea: boolean | null; readonly directTextPresent: boolean | null;
+  readonly nonFormatDirectTextPresent?: boolean | null; readonly beforeContentPresent?: boolean | null;
+  readonly afterContentPresent?: boolean | null; readonly backgroundImagePresent?: boolean | null; readonly maskImagePresent?: boolean | null;
 }
 export interface ExplorationContainmentEdge {
   readonly relation: "contained_by" | "contains"; readonly relativeHops: number;
   readonly targetRef: string; readonly target: ExplorationRelativeSummary;
 }
-const coverageFields = ["role", "inputType", "hrefPresent", "contentEditable", "directTextPresent", "childElementCount", "positiveAreaChildCount", "repeatedChildGeometry", "inVerifiedListParent", "svgGraphicChildren", "clippedRect"] as const;
+const appearanceFields = ["nonFormatDirectTextPresent", "beforeContentPresent", "afterContentPresent", "backgroundImagePresent", "maskImagePresent"] as const;
+const coverageFields = ["role", "inputType", "hrefPresent", "contentEditable", "directTextPresent", ...appearanceFields, "childElementCount", "positiveAreaChildCount", "repeatedChildGeometry", "inVerifiedListParent", "svgGraphicChildren", "clippedRect"] as const;
 export interface ExplorationInputV1 {
   readonly schemaVersion: 1; readonly nodeRef: string;
   readonly containment: {
@@ -50,9 +53,11 @@ function rectangle(x: unknown): Rect | null {
   return { x: r.x as number, y: r.y as number, width: r.width as number, height: r.height as number };
 }
 function relative(x: unknown): ExplorationRelativeSummary {
-  const r = record(x, ["nodeRef", "tag", "role", "rect", "positiveArea", "directTextPresent"]);
+  const r = record(x, ["nodeRef", "tag", "role", "rect", "positiveArea", "directTextPresent", ...appearanceFields]);
   for (const key of ["positiveArea", "directTextPresent"]) if (r[key] !== null && typeof r[key] !== "boolean") throw new TypeError("nullable exploration boolean required");
-  return { nodeRef: expectNonEmptyString(r.nodeRef, "nodeRef"), tag: text(r.tag), role: text(r.role), rect: rectangle(r.rect), positiveArea: r.positiveArea as boolean | null, directTextPresent: r.directTextPresent as boolean | null };
+  for (const key of appearanceFields) if (r[key] !== undefined && r[key] !== null && typeof r[key] !== "boolean") throw new TypeError("nullable exploration boolean required");
+  return { nodeRef: expectNonEmptyString(r.nodeRef, "nodeRef"), tag: text(r.tag), role: text(r.role), rect: rectangle(r.rect), positiveArea: r.positiveArea as boolean | null, directTextPresent: r.directTextPresent as boolean | null,
+    nonFormatDirectTextPresent: (r.nonFormatDirectTextPresent ?? null) as boolean | null, beforeContentPresent: (r.beforeContentPresent ?? null) as boolean | null, afterContentPresent: (r.afterContentPresent ?? null) as boolean | null, backgroundImagePresent: (r.backgroundImagePresent ?? null) as boolean | null, maskImagePresent: (r.maskImagePresent ?? null) as boolean | null };
 }
 function counts(x: unknown): Record<string, number> | null {
   if (x === null) return null;
@@ -71,7 +76,12 @@ export function validateExplorationInput(value: unknown): ExplorationInputV1 {
   });
   const children = record(r.childComposition, ["directChildrenStatus", "children", "childTagCounts", "positiveAreaChildTagCounts"]);
   const geometry = record(r.geometry, ["rect", "clippedRect", "parentRect"]);
-  const coverage = record(r.measurementCoverage, [...coverageFields, "directChildren", "unassessedInterior"]);
+  const coverageInput = expectRecord(r.measurementCoverage, "measurementCoverage");
+  own(coverageInput, [...coverageFields, "directChildren", "unassessedInterior"]);
+  const coverage = { directChildren: coverageInput.directChildren, unassessedInterior: coverageInput.unassessedInterior } as Record<string, unknown>;
+  for (const key of coverageFields) {
+    coverage[key] = coverageInput[key] === undefined && (appearanceFields as readonly string[]).includes(key) ? "unmeasured" : coverageInput[key];
+  }
   const directChildrenStatus = choice(children.directChildrenStatus, ["complete", "incomplete", "unknown"] as const);
   const childRefs = refs(c.childRefs), childRows = array(children.children).map(relative);
   const positiveAreaChildRefs = c.positiveAreaChildRefs === null ? null : refs(c.positiveAreaChildRefs);
@@ -102,7 +112,8 @@ export function buildExplorationInputs(input: {
   for (const n of nodes.values()) if (n.parentRef !== null) { const list = children.get(n.parentRef) ?? []; list.push(n); children.set(n.parentRef, list); }
   const childNodes = (ref: string) => children.get(ref) ?? [];
   const geometry = (r: Rect | null): Rect | null => r && Object.values(r).every(Number.isFinite) && input.observation.coverage.geometry !== "unassessed" ? { ...r } : null;
-  const summary = (n: ObservationNode): ExplorationRelativeSummary => { const rect = geometry(n.rect); return { nodeRef: n.nodeRef, tag: n.tag, role: n.role, rect, positiveArea: rect ? rect.width > 0 && rect.height > 0 : null, directTextPresent: locals.get(n.nodeRef)?.directTextPresent ?? null }; };
+  const summary = (n: ObservationNode): ExplorationRelativeSummary => { const rect = geometry(n.rect), local = locals.get(n.nodeRef); return { nodeRef: n.nodeRef, tag: n.tag, role: n.role, rect, positiveArea: rect ? rect.width > 0 && rect.height > 0 : null, directTextPresent: local?.directTextPresent ?? null,
+    nonFormatDirectTextPresent: local?.nonFormatDirectTextPresent ?? null, beforeContentPresent: local?.beforeContentPresent ?? null, afterContentPresent: local?.afterContentPresent ?? null, backgroundImagePresent: local?.backgroundImagePresent ?? null, maskImagePresent: local?.maskImagePresent ?? null }; };
   const status = (ref: string): DirectChildrenCoverage => {
     const requested = input.directChildrenStatus ?? "unknown", measured = locals.get(ref)?.childElementCount;
     return requested === "complete" && measured != null && measured !== childNodes(ref).length ? "incomplete" : requested;
@@ -145,7 +156,7 @@ export function buildExplorationInputs(input: {
       containment: { maxRelationHops: input.maxRelationHops, parentRef: node.parentRef, parentStatus: parentStatus(node), childRefs: direct.map(child => child.nodeRef), positiveAreaChildRefs: positiveKnown ? positive.map(child => child.nodeRef) : null, ancestorEdges, descendantEdges, ancestorBoundary, descendantBoundary: incomplete ? "incomplete_observation" : unknown ? "unknown" : truncated ? "hop_limit_reached" : "complete" },
       childComposition: { directChildrenStatus, children: direct, childTagCounts: directChildrenStatus === "complete" ? tagCounts(direct) : null, positiveAreaChildTagCounts: positiveKnown ? tagCounts(positive) : null },
       geometry: { rect: geometry(node.rect), clippedRect: input.observation.coverage.clipping === "unassessed" ? null : node.clippedRect ? { ...node.clippedRect } : null, parentRect: geometry(nodes.get(node.parentRef ?? "")?.rect ?? null) },
-      measurementCoverage: { role: node.role === undefined ? "unmeasured" : "measured", inputType: node.tag === "input" ? measured("inputType") : "not_applicable", hrefPresent: measured("hrefPresent"), contentEditable: measured("contentEditable"), directTextPresent: measured("directTextPresent"), childElementCount: measured("childElementCount"), positiveAreaChildCount: measured("positiveAreaChildCount"), repeatedChildGeometry: measured("repeatedChildGeometry"), inVerifiedListParent: measured("inVerifiedListParent"), svgGraphicChildren: node.tag === "svg" ? measured("svgGraphicChildren") : "not_applicable", clippedRect: input.observation.coverage.clipping !== "unassessed" && node.clippedRect !== null ? "measured" : "unmeasured", directChildren: directChildrenStatus, unassessedInterior: [...interiors(node.nodeRef)] },
+      measurementCoverage: { role: node.role === undefined ? "unmeasured" : "measured", inputType: node.tag === "input" ? measured("inputType") : "not_applicable", hrefPresent: measured("hrefPresent"), contentEditable: measured("contentEditable"), directTextPresent: measured("directTextPresent"), nonFormatDirectTextPresent: measured("nonFormatDirectTextPresent"), beforeContentPresent: measured("beforeContentPresent"), afterContentPresent: measured("afterContentPresent"), backgroundImagePresent: measured("backgroundImagePresent"), maskImagePresent: measured("maskImagePresent"), childElementCount: measured("childElementCount"), positiveAreaChildCount: measured("positiveAreaChildCount"), repeatedChildGeometry: measured("repeatedChildGeometry"), inVerifiedListParent: measured("inVerifiedListParent"), svgGraphicChildren: node.tag === "svg" ? measured("svgGraphicChildren") : "not_applicable", clippedRect: input.observation.coverage.clipping !== "unassessed" && node.clippedRect !== null ? "measured" : "unmeasured", directChildren: directChildrenStatus, unassessedInterior: [...interiors(node.nodeRef)] },
     });
   }
   return result;

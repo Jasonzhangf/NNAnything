@@ -19,6 +19,7 @@ type ClassifiedFrame = QualifiedFrame & { readonly basicKindBatch: BrowserOverla
 
 export function createBrowserOverlayNodeDefinitions(resources: {
   document: Document; window: Window; registry: StableNodeRefRegistry; excludeHost: Element | null;
+  excludeRoots?: readonly (Element | null)[]; excludeRootIds?: readonly string[];
   maxRelationHops?: number;
   present: (frame: BrowserOverlayFrame) => unknown | Promise<unknown>;
 }): readonly NodeDefinition[] {
@@ -27,7 +28,9 @@ export function createBrowserOverlayNodeDefinitions(resources: {
       operator: "browser.observe_live", version: "0.1.0", inputPorts: [request], outputPort: observed, effects: ["browser.dom.read"],
       execute: context => {
         const input = expectRecord(context.inputs[0]!.payload, "overlay request");
-        return context.emit(observeLiveDom({ ...resources, excludeRoot: resources.excludeHost,
+        return context.emit(observeLiveDom({ document: resources.document, window: resources.window, registry: resources.registry, excludeRoot: resources.excludeHost,
+          ...(resources.excludeRoots ? { excludeRoots: resources.excludeRoots } : {}), ...(resources.excludeRootIds ? { excludeRootIds: resources.excludeRootIds } : {}),
+          ...(resources.maxRelationHops === undefined ? {} : { maxRelationHops: resources.maxRelationHops }),
           snapshotRef: expectNonEmptyString(input.snapshotRef, "snapshotRef"), documentRef: expectNonEmptyString(input.documentRef, "documentRef") }));
       },
     },

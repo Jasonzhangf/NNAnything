@@ -78,7 +78,21 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 
 演化默认在上面的原始系数上只增加十个目标与 wire 条目：media/image 的 `nat_svg` 0.45、`svg_graphic_children` 0.35；structure/container 的 `div_single_child` 0.45；text/text 的 `div_leaf` 0.30、`div_direct_text` 0.45。其余旧权重不变。具体所有系数、候选 wire 和实际贡献都可从公开 profile 与每次输出读取。
 
-`migrateBasicKindProfile(raw)` 只从 DOM/training 入口导出，不在通用 `lib/index.ts` 导出。它验证并克隆完整 profile，保留 id 和所有已存在权重；只把十个新目标与 wire 条目中缺失的键补为显式 0，已设置的新系数保持不变，且不修改输入。浏览器权重资产解析和训练 profile 加载显式调用该迁移，因此旧 v1 资产保持原始输出，v2 默认和新候选可继续训练零起点条目。迁移不自动采用候选，也不改变旧资产 operator、contract 或兼容阈值。
+`migrateBasicKindProfile(raw)` 只从 DOM/training 入口导出，不在通用 `lib/index.ts` 导出。它验证并克隆完整 profile，保留 id 和所有已存在权重；按目标与wire名称将缺失键补为显式0，已设置系数保持不变，且不修改输入。登记包括此前十个结构目标地址及本次四十二个呈现目标地址。浏览器权重资产解析和训练profile加载显式调用该迁移，不改变旧资产阈值，不自动采用候选。
+
+## 判断前的输入预处理
+
+预处理是判断前的独立职责。browser adapter读取原始DOM/CSS后调用纯`shapeAppearanceMeasurements`一次；既有`browser.qualify_live`复用viewport、Focus和黑白名单filter处理候选范围；分类器消费整形后的typed properties和候选状态。离线原始回放复用相同纯函数；训练读取器使用相同`validateBasicKindProperties`规范化派生参数，不再清理原始文本或产生第二套特征。
+
+整形不修改DOM、原始字符串或样本证据。`directTextPresent`保留旧trim语义；新增`nonFormatDirectTextPresent`检查直接文本是否含Unicode格式字符Cf与空白之外的字符。U+200B使前者true、后者false；ZWJ emoji仍有非格式字符，结果true。只测直接文本，不继承后代文字。未提供文本为null，已测空串为false。
+
+新增`beforeContentPresent`、`afterContentPresent`、`backgroundImagePresent`、`maskImagePresent`由computed style声明派生，未读到为null。CSS的none／normal／空声明表示无对应内容；伪元素空引号为false；背景与mask全none图层为false。它们表示声明存在，不证明像素可见、资源加载成功或类别是image。原始CSS、URL、文字及图标字符不进入学生输入。
+
+新增六条wire：`direct_non_format_text`、`css_before_content`、`css_after_content`、`css_background_image`、`css_mask_image`、`nat_svg_child`。前五条为对应nullable布尔投影；末项按SVG内部tag集合编码，不直接决定类别。所有新增默认系数为0，旧nat_text集合和原wire含义不变。b文字与path的向量不同，初始分类保持原状。
+
+四十二个新增可训练地址按成对family/leaf登记：text/text的直接文本、before、after、SVG子成分；media/image的全部六条；control/button的直接文本及四条CSS；navigation/link的直接文本、before及背景图；structure/container的直接文本、背景图及SVG子成分。未登记交叉项不属于该profile的拟合地址。具体地址由公开profile与按名迁移可审计读取，不另建注册表。
+
+工具注入层排除属于观测范围。默认排除`codex-browser-sidebar-comments-root`；`excludeRoot`、`excludeRoots`、`excludeRootIds`支持调用者声明额外范围。排除子树同步从子计数与关系观测移除。普通fixed、shadow宿主及仅有格式字符的节点仍保留。布局包装是否忽略仍需语义监督，预处理不直接决定。
 
 ## 输出与训练接点
 

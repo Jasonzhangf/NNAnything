@@ -1,4 +1,4 @@
-import type { BasicKindMeasurements, BasicKindProperties } from "../../filters/basic-kinds.js";
+import { shapeAppearanceMeasurements, type BasicKindMeasurements, type BasicKindProperties } from "../../filters/basic-kinds.js";
 import { isSafeRuleAttribute, type ObservationNode, type PageObservation, type Rect } from "./observation.js";
 import { buildExplorationInputs, type ExplorationInputV1 } from "./exploration-input.js";
 
@@ -131,19 +131,27 @@ function clippedBox(element: Element, window: Window, rect: Rect): Rect | null {
   return { x: left, y: top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
 }
 
+export const DEFAULT_EXCLUDED_TOOL_ROOT_IDS = ["codex-browser-sidebar-comments-root"] as const;
+
 export function observeLiveDom(input: {
-  document: Document; window: Window; registry: StableNodeRefRegistry; excludeRoot: Element | null; snapshotRef: string; documentRef: string;
+  document: Document; window: Window; registry: StableNodeRefRegistry; excludeRoot: Element | null;
+  excludeRoots?: readonly (Element | null)[]; excludeRootIds?: readonly string[];
+  snapshotRef: string; documentRef: string;
   maxRelationHops?: number;
 }): LiveDomSnapshot {
   const { document, window, registry } = input;
   const nodes: ObservationNode[] = [], itemObservations: ({ nodeRef: string } & BasicKindMeasurements)[] = [];
   const properties = new Map<string, BasicKindProperties>(), evidence = new Map<string, LiveDomEvidence>();
   const stack: Element[] = document.documentElement ? [document.documentElement] : [];
+  const excludedRoots = new Set(input.excludeRoots?.filter((root): root is Element => root !== null) ?? []);
+  if (input.excludeRoot) excludedRoots.add(input.excludeRoot);
+  const excludedIds = new Set([...DEFAULT_EXCLUDED_TOOL_ROOT_IDS, ...(input.excludeRootIds ?? [])]);
+  const isExcluded = (element: Element): boolean => excludedRoots.has(element) || (element.id !== "" && excludedIds.has(element.id));
   let excluded = 0, frames = 0, shadows = 0;
   while (stack.length) {
     const element = stack.pop()!;
-    if (element === input.excludeRoot) { excluded += 1 + element.querySelectorAll("*").length; continue; }
-    const allChildren = Array.from(element.children), children = allChildren.filter(child => child !== input.excludeRoot);
+    if (isExcluded(element)) { excluded += 1 + element.querySelectorAll("*").length; continue; }
+    const allChildren = Array.from(element.children), children = allChildren.filter(child => !isExcluded(child));
     for (let index = allChildren.length - 1; index >= 0; index--) stack.push(allChildren[index]!);
     const nodeRef = stableNodeRefFor(registry, element), tag = element.tagName.toLowerCase();
     const style = window.getComputedStyle(element), rect = rectOf(element.getBoundingClientRect());
@@ -161,11 +169,21 @@ export function observeLiveDom(input: {
     const role = element.getAttribute("role");
     nodes.push({ nodeRef, parentRef: element.parentElement ? stableNodeRefFor(registry, element.parentElement) : null, tag, role, rect, fragments, clippedRect, attributes });
     const positiveAreaChildren = children.filter(child => { const r = child.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
+    const rawDirectText = Array.from(element.childNodes).filter(node => node.nodeType === 3).map(node => node.textContent ?? "").join("");
+    const beforeStyle = window.getComputedStyle(element, "::before"), afterStyle = window.getComputedStyle(element, "::after");
+    const appearance = shapeAppearanceMeasurements({
+      directText: rawDirectText,
+      beforeContent: beforeStyle.content,
+      afterContent: afterStyle.content,
+      backgroundImage: style.backgroundImage,
+      maskImage: style.maskImage,
+      webkitMaskImage: style.webkitMaskImage,
+    });
     const local: BasicKindMeasurements = {
       inputType: tag === "input" ? element.getAttribute("type") || "text" : null,
       hrefPresent: element.hasAttribute("href"),
       contentEditable: (element as HTMLElement).isContentEditable === true,
-      directTextPresent: Array.from(element.childNodes).some(node => node.nodeType === 3 && Boolean(node.textContent?.trim())),
+      ...appearance,
       childElementCount: children.length,
       positiveAreaChildCount: positiveAreaChildren.length,
       repeatedChildGeometry: repeatedChildGeometry(children),

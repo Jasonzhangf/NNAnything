@@ -156,6 +156,37 @@ test("prepare refuses unreviewed proposals and keeps teacher fields out of stude
   assert.equal(prepared.rows[0].review.expectedLabel, null);
 });
 
+test("training rows roundtrip nullable appearance fields without reconstructing old evidence", () => {
+  const old = row("old-fields", {
+    expectedLabel: "text",
+    properties: { tag: "b", role: null, ...complete, directTextPresent: true },
+  });
+  const oldBefore = classifyBasicKind(old.properties);
+  const readOld = readBasicKindTrainingRequest(request([old])).rows[0];
+  assert.equal(readOld.properties.nonFormatDirectTextPresent, null);
+  assert.equal(readOld.properties.beforeContentPresent, null);
+  assert.equal(readOld.properties.afterContentPresent, null);
+  assert.equal(readOld.properties.backgroundImagePresent, null);
+  assert.equal(readOld.properties.maskImagePresent, null);
+  assert.deepEqual(classifyBasicKind(readOld.properties), oldBefore);
+
+  const fresh = row("fresh-fields", {
+    expectedLabel: "text",
+    properties: { tag: "b", role: null, ...complete, inputType: null, hrefPresent: null, disabled: null, hidden: null, directTextPresent: true,
+      nonFormatDirectTextPresent: true, beforeContentPresent: true, afterContentPresent: false,
+      backgroundImagePresent: false, maskImagePresent: null },
+  });
+  const parsed = readBasicKindTrainingRequest(request([fresh])).rows[0];
+  assert.deepEqual(parsed.properties, fresh.properties);
+  const prepared = prepareBasicKindSamples(readBasicKindTrainingRequest(request([fresh])), prepareConfig);
+  assert.deepEqual(prepared.includedIndices, [0]);
+  assert.deepEqual(toBasicKindFitRows(prepared)[0].properties, fresh.properties);
+  assert.throws(() => readBasicKindTrainingRequest(request([{
+    ...fresh,
+    properties: { ...fresh.properties, backgroundImage: "url(secret)" },
+  }])), /unsupported|properties/i);
+});
+
 test("all-null properties are legal but stay diagnostic instead of becoming observed zeros", () => {
   const allNull = row("all-null", {
     properties: {

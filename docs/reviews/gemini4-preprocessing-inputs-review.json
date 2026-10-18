@@ -1,0 +1,35 @@
+{
+  "contract_version": "1",
+  "findings": [],
+  "module_boundary_evidence": [
+    {
+      "edges": "observeLiveDom raw DOM/CSS read -> shapeAppearanceMeasurements / hasNonFormatDirectText -> BasicKindMeasurements / BasicKindProperties -> extractBasicKindWires (6 new wires: nat_svg_child, direct_non_format_text, css_before_content, css_after_content, css_background_image, css_mask_image) -> classifyBasicKind / classifyBasicKindBatch; migrateBasicKindProfile -> 42 explicit-zero target-wire addresses in LEGACY_BASIC_KIND_PROFILE and DEFAULT_BASIC_KIND_PROFILE",
+      "gates": "red-test.log (12 initial failures); missing-text-red.log (null vs false raw text defect caught and fixed); full-test.log (117 pass, 0 fail, 0 skip); golden-result.json (357 verified rows x 2 profiles = 714 judgments with identical label, status, score, margin, and family/leaf intervals); site-replay-summary.json (4536 source nodes across zhihu/xiaohongshu/weibo, 3 tool roots excluded, 4533 retained rows unchanged)",
+      "module": "filters.basic-kinds-preprocessing-and-wires",
+      "owner": "lib/filters/basic-kinds.ts",
+      "paths": "lib/filters/basic-kinds.ts; tests/basic-kinds.test.mjs; docs/basic-kinds-wiring.md; docs/preprocessing-inputs-20261017.md",
+      "resources": "No .appsdk/requirements.json present (verified absent, skipped per review-standards.md); authoritative requirements from /Volumes/Intel/playground/nnanything-runs/appearance-inputs/preprocessing-steering.md, refine-response.md, and plan-acceptance.md; 5 families and 11 leaves + other unchanged; no raw text/class/id/URL in student properties"
+    },
+    {
+      "edges": "browser.observe_live@0.1.0 (observeLiveDom tool-root exclusion + raw DOM/CSS read + single shapeAppearanceMeasurements call + buildExplorationInputs) -> browser.qualify_live@0.1.0 (observeCandidates + scopeIssue + splitCandidates + checkCandidates preprocessing phase) -> browser.classify_live@0.1.0 (classifyBasicKindBatch) -> overlay.present@0.1.0; browser.capture@0.1.0 -> BrowserCaptureSession export -> validateExplorationInput",
+      "gates": "tests/browser-overlay-foundation.test.mjs and tests/exploration-input.test.mjs in full-test.log (117 pass); browser-fixture-result.json (real CUA browser on playground/exploration 4-node workflow + BrowserCaptureSession + JSON reader + prepare, 26 nodes, 18 checks PASS); UI typecheck and build:extension exit 0; SESE graphs browser-visual-overlay (4N3E) and browser-capture (1N0E) unchanged",
+      "module": "browser.live-dom-exploration-and-overlay-nodes",
+      "owner": "lib/adapters/browser/live-dom.ts; lib/adapters/browser/exploration-input.ts; lib/nodes/browser-overlay.ts",
+      "paths": "lib/adapters/browser/live-dom.ts; lib/adapters/browser/exploration-input.ts; lib/nodes/browser-overlay.ts; playground/exploration/index.html; playground/exploration/fixture.mjs; tests/browser-overlay-foundation.test.mjs; tests/exploration-input.test.mjs; docs/browser-overlay-m1.md; lib/nodes/README.md",
+      "resources": "DEFAULT_EXCLUDED_TOOL_ROOT_IDS (codex-browser-sidebar-comments-root) and explicit excludeRoot/excludeRoots/excludeRootIds; Window.getComputedStyle for element, ::before, and ::after; ExplorationInputV1 optional appearance fields defaulting to null/unmeasured on legacy exports while keeping existing coverage fields mandatory"
+    },
+    {
+      "edges": "readBasicKindTrainingRequest -> validateBasicKindProperties / validateExplorationInput -> prepareBasicKindSamples -> toBasicKindFitRows -> sparsecells / buildCircuit (42 explicit-zero trainable addresses) -> fitBasicKinds / inspectBasicKindNumericSample (Handwired Circuit forward/backward + Adam)",
+      "gates": "tests/basic-kind-training.test.mjs and tests/basic-kind-numeric.test.mjs in full-test.log and numeric-final.log (12/12 pass, verifying Handwired nonzero updates on css_background_image, css_before_content, css_after_content, css_mask_image, direct_non_format_text, and gradient addresses on nat_svg_child); training-demo.log (real Handwired fit/save/reload at /Volumes/extension/code/handwired, candidateAdoption: not_applied); SESE graph node-training (6N6E) unchanged",
+      "module": "training.samples-numeric-and-governance-docs",
+      "owner": "lib/training/basic-kind-samples.ts; lib/training/basic-kind-numeric.ts; docs/training-workflow.md; note.md",
+      "paths": "lib/training/basic-kind-samples.ts; lib/training/basic-kind-numeric.ts; tests/basic-kind-training.test.mjs; tests/basic-kind-numeric.test.mjs; docs/training-workflow.md; docs/preprocessing-inputs-20261017.md; note.md; .agents/skills/nnanything-training/SKILL.md; AGENTS.md",
+      "resources": "Explicit Handwired source root /Volumes/extension/code/handwired; strict PROPERTY_KEYS whitelist rejecting raw CSS/URLs and preserving null on unmeasured legacy rows without reconstructing raw text; local Skill .agents/skills/nnanything-training/SKILL.md and AGENTS.md audited consistent with changed closure"
+    }
+  ],
+  "scope": {
+    "base": null,
+    "commit": null,
+    "mode": "uncommitted"
+  }
+}

@@ -21,6 +21,11 @@ export interface BasicKindMeasurements {
   readonly hrefPresent?: boolean | null;
   readonly contentEditable?: boolean | null;
   readonly directTextPresent?: boolean | null;
+  readonly nonFormatDirectTextPresent?: boolean | null;
+  readonly beforeContentPresent?: boolean | null;
+  readonly afterContentPresent?: boolean | null;
+  readonly backgroundImagePresent?: boolean | null;
+  readonly maskImagePresent?: boolean | null;
   readonly childElementCount?: number | null;
   readonly positiveAreaChildCount?: number | null;
   readonly repeatedChildGeometry?: boolean | null;
@@ -36,6 +41,57 @@ export interface BasicKindProperties extends BasicKindMeasurements {
 export interface BasicKindConfig { readonly taskId: string; readonly minScore: number; readonly minMargin: number }
 export const DEFAULT_BASIC_KIND_CONFIG: BasicKindConfig = Object.freeze({ taskId: "dom.basic-kinds.v1", minScore: 0.6, minMargin: 0.15 });
 
+export interface AppearanceMeasurementInput {
+  readonly directText?: string | null;
+  readonly beforeContent?: string | null;
+  readonly afterContent?: string | null;
+  readonly backgroundImage?: string | null;
+  readonly maskImage?: string | null;
+  readonly webkitMaskImage?: string | null;
+}
+
+export interface AppearanceMeasurements {
+  readonly directTextPresent: boolean | null;
+  readonly nonFormatDirectTextPresent: boolean | null;
+  readonly beforeContentPresent: boolean | null;
+  readonly afterContentPresent: boolean | null;
+  readonly backgroundImagePresent: boolean | null;
+  readonly maskImagePresent: boolean | null;
+}
+
+export function hasNonFormatDirectText(rawDirectText: string | null | undefined): boolean | null {
+  // Presence test only: the original string, including joiners, stays untouched.
+  return rawDirectText == null ? null : /[^\p{Cf}\s]/u.test(rawDirectText);
+}
+
+function cssImagePresent(value: string | null | undefined): boolean | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === "none" || trimmed === "normal") return false;
+  return trimmed.split(",").some(layer => {
+    const current = layer.trim();
+    return current !== "" && current !== "none" && current !== "normal";
+  });
+}
+
+function pseudoContentPresent(value: string | null | undefined): boolean | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === "none" || trimmed === "normal" || trimmed === '""' || trimmed === "''") return false;
+  return true;
+}
+
+export function shapeAppearanceMeasurements(raw: AppearanceMeasurementInput): AppearanceMeasurements {
+  return {
+    directTextPresent: raw.directText == null ? null : Boolean(raw.directText.trim()),
+    nonFormatDirectTextPresent: hasNonFormatDirectText(raw.directText),
+    beforeContentPresent: pseudoContentPresent(raw.beforeContent),
+    afterContentPresent: pseudoContentPresent(raw.afterContent),
+    backgroundImagePresent: cssImagePresent(raw.backgroundImage),
+    maskImagePresent: cssImagePresent(raw.maskImage ?? raw.webkitMaskImage),
+  };
+}
+
 const tagSets = {
   nat_control_button: ["button", "summary"], nat_control_text: ["textarea"], nat_control_select: ["select", "option", "optgroup"], nat_input_tag: ["input"],
   nat_image: ["img", "picture", "canvas"], nat_video: ["video"], nat_audio: ["audio"], nat_anchor: ["a"],
@@ -43,6 +99,7 @@ const tagSets = {
   nat_container: ["article", "section", "nav", "aside", "header", "footer", "main", "form", "fieldset", "dialog", "details"],
   nat_list: ["ul", "ol", "dl"], nat_listitem: ["li", "dt", "dd"], nat_div: ["div"],
   nat_svg: ["svg"],
+  nat_svg_child: ["path", "use", "g", "circle", "rect", "line", "polyline", "polygon", "ellipse", "defs", "symbol", "clippath", "mask", "pattern", "lineargradient", "radialgradient", "stop", "filter"],
 } as const;
 const roleSets = {
   role_button: ["button"], role_input: ["textbox", "searchbox", "spinbutton"],
@@ -57,7 +114,7 @@ const typeSets = {
   input_type_button: ["button", "submit", "reset", "image"], input_type_select: ["checkbox", "radio"],
   input_type_hidden: ["hidden"],
 } as const;
-const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "state_disabled", "state_hidden"] as const;
+const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
 export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
   ...Object.keys(tagSets) as (keyof typeof tagSets)[],
@@ -86,20 +143,24 @@ function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
 export const LEGACY_BASIC_KIND_PROFILE: BasicKindProfile = freezeProfile({
   id: "dom-basic-kinds-handwritten-v1",
   familyWeights: {
-    control: { nat_control_button: 0.85, nat_control_text: 0.85, nat_control_select: 0.85, nat_input_tag: 0.85, role_button: 0.8, role_input: 0.8, role_select: 0.8, attr_editable: 0.75 },
-    media: { nat_image: 0.85, nat_video: 0.9, nat_audio: 0.9, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0 },
-    navigation: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8 },
-    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0 },
-    structure: { nat_container: 0.8, nat_list: 0.85, nat_listitem: 0.85, role_container: 0.75, role_list: 0.8, role_listitem: 0.8, nat_div: 0.25, div_multi_child: 0.45, div_in_list: 0.5, div_single_child: 0 },
+    control: { nat_control_button: 0.85, nat_control_text: 0.85, nat_control_select: 0.85, nat_input_tag: 0.85, role_button: 0.8, role_input: 0.8, role_select: 0.8, attr_editable: 0.75,
+      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0 },
+    media: { nat_image: 0.85, nat_video: 0.9, nat_audio: 0.9, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0,
+      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0, nat_svg_child: 0 },
+    navigation: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8, direct_non_format_text: 0, css_before_content: 0, css_background_image: 0 },
+    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0,
+      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, nat_svg_child: 0 },
+    structure: { nat_container: 0.8, nat_list: 0.85, nat_listitem: 0.85, role_container: 0.75, role_list: 0.8, role_listitem: 0.8, nat_div: 0.25, div_multi_child: 0.45, div_in_list: 0.5, div_single_child: 0,
+      direct_non_format_text: 0, css_background_image: 0, nat_svg_child: 0 },
   },
   leafWeights: {
-    button: { nat_control_button: 0.85, input_type_button: 0.85, role_button: 0.8 },
+    button: { nat_control_button: 0.85, input_type_button: 0.85, role_button: 0.8, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0 },
     input: { nat_control_text: 0.85, input_type_text: 0.85, role_input: 0.8, attr_editable: 0.75 },
     select: { nat_control_select: 0.85, input_type_select: 0.85, role_select: 0.8 },
-    image: { nat_image: 0.85, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0 }, video: { nat_video: 0.9 }, audio: { nat_audio: 0.9 },
-    link: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8 },
-    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0 },
-    container: { nat_container: 0.8, role_container: 0.75, nat_div: 0.25, div_multi_child: 0.45, div_repeated_children: -0.2, div_in_list: -0.45, div_single_child: 0 },
+    image: { nat_image: 0.85, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0, nat_svg_child: 0 }, video: { nat_video: 0.9 }, audio: { nat_audio: 0.9 },
+    link: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8, direct_non_format_text: 0, css_before_content: 0, css_background_image: 0 },
+    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, nat_svg_child: 0 },
+    container: { nat_container: 0.8, role_container: 0.75, nat_div: 0.25, div_multi_child: 0.45, div_repeated_children: -0.2, div_in_list: -0.45, div_single_child: 0, direct_non_format_text: 0, css_background_image: 0, nat_svg_child: 0 },
     list: { nat_list: 0.85, role_list: 0.8, div_repeated_children: 0.45 },
     listitem: { nat_listitem: 0.85, role_listitem: 0.8, nat_div: 0.25, div_in_list: 0.5 },
   },
@@ -132,6 +193,48 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "text", "div_leaf"],
   ["familyWeights", "text", "div_direct_text"],
   ["leafWeights", "text", "div_direct_text"],
+  ["familyWeights", "text", "direct_non_format_text"],
+  ["leafWeights", "text", "direct_non_format_text"],
+  ["familyWeights", "text", "css_before_content"],
+  ["leafWeights", "text", "css_before_content"],
+  ["familyWeights", "text", "css_after_content"],
+  ["leafWeights", "text", "css_after_content"],
+  ["familyWeights", "text", "nat_svg_child"],
+  ["leafWeights", "text", "nat_svg_child"],
+  ["familyWeights", "media", "direct_non_format_text"],
+  ["leafWeights", "image", "direct_non_format_text"],
+  ["familyWeights", "media", "css_before_content"],
+  ["leafWeights", "image", "css_before_content"],
+  ["familyWeights", "media", "css_after_content"],
+  ["leafWeights", "image", "css_after_content"],
+  ["familyWeights", "media", "css_background_image"],
+  ["leafWeights", "image", "css_background_image"],
+  ["familyWeights", "media", "css_mask_image"],
+  ["leafWeights", "image", "css_mask_image"],
+  ["familyWeights", "media", "nat_svg_child"],
+  ["leafWeights", "image", "nat_svg_child"],
+  ["familyWeights", "control", "direct_non_format_text"],
+  ["leafWeights", "button", "direct_non_format_text"],
+  ["familyWeights", "control", "css_before_content"],
+  ["leafWeights", "button", "css_before_content"],
+  ["familyWeights", "control", "css_after_content"],
+  ["leafWeights", "button", "css_after_content"],
+  ["familyWeights", "control", "css_background_image"],
+  ["leafWeights", "button", "css_background_image"],
+  ["familyWeights", "control", "css_mask_image"],
+  ["leafWeights", "button", "css_mask_image"],
+  ["familyWeights", "navigation", "direct_non_format_text"],
+  ["leafWeights", "link", "direct_non_format_text"],
+  ["familyWeights", "navigation", "css_before_content"],
+  ["leafWeights", "link", "css_before_content"],
+  ["familyWeights", "navigation", "css_background_image"],
+  ["leafWeights", "link", "css_background_image"],
+  ["familyWeights", "structure", "direct_non_format_text"],
+  ["leafWeights", "container", "direct_non_format_text"],
+  ["familyWeights", "structure", "css_background_image"],
+  ["leafWeights", "container", "css_background_image"],
+  ["familyWeights", "structure", "nat_svg_child"],
+  ["leafWeights", "container", "nat_svg_child"],
 ] as const;
 
 export function migrateBasicKindProfile(raw: unknown): BasicKindProfile {
@@ -166,7 +269,7 @@ function optionalBoolean(value: unknown, label: string): boolean | null {
   if (typeof value !== "boolean") throw new TypeError(`${label} must be boolean or null`);
   return value;
 }
-const measurementNames = ["inputType", "hrefPresent", "contentEditable", "directTextPresent", "childElementCount", "positiveAreaChildCount", "repeatedChildGeometry", "inVerifiedListParent", "svgGraphicChildren"] as const;
+const measurementNames = ["inputType", "hrefPresent", "contentEditable", "directTextPresent", "nonFormatDirectTextPresent", "beforeContentPresent", "afterContentPresent", "backgroundImagePresent", "maskImagePresent", "childElementCount", "positiveAreaChildCount", "repeatedChildGeometry", "inVerifiedListParent", "svgGraphicChildren"] as const;
 function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   const inputType = value.inputType === "" ? "" : optionalText(value.inputType, "inputType");
   const bool = (key: string) => optionalBoolean(value[key], key);
@@ -178,7 +281,7 @@ function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   };
   const childElementCount = count("childElementCount"), positiveAreaChildCount = count("positiveAreaChildCount");
   if (childElementCount !== null && positiveAreaChildCount !== null && positiveAreaChildCount > childElementCount) throw new TypeError("positiveAreaChildCount exceeds childElementCount");
-  return { inputType, hrefPresent: bool("hrefPresent"), contentEditable: bool("contentEditable"), directTextPresent: bool("directTextPresent"), childElementCount, positiveAreaChildCount, repeatedChildGeometry: bool("repeatedChildGeometry"), inVerifiedListParent: bool("inVerifiedListParent"), svgGraphicChildren: bool("svgGraphicChildren") };
+  return { inputType, hrefPresent: bool("hrefPresent"), contentEditable: bool("contentEditable"), directTextPresent: bool("directTextPresent"), nonFormatDirectTextPresent: bool("nonFormatDirectTextPresent"), beforeContentPresent: bool("beforeContentPresent"), afterContentPresent: bool("afterContentPresent"), backgroundImagePresent: bool("backgroundImagePresent"), maskImagePresent: bool("maskImagePresent"), childElementCount, positiveAreaChildCount, repeatedChildGeometry: bool("repeatedChildGeometry"), inVerifiedListParent: bool("inVerifiedListParent"), svgGraphicChildren: bool("svgGraphicChildren") };
 }
 export function validateBasicKindProperties(value: unknown): BasicKindProperties {
   const input = expectRecord(value, "basic-kind properties");
@@ -226,6 +329,11 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
   const neutralSpan = input.tag === "span" && input.role === null;
   wires.span_leaf = !neutralSpan ? 0 : input.childElementCount == null ? null : input.childElementCount === 0 ? 1 : 0;
   wires.span_direct_text = neutralSpan ? bool(input.directTextPresent) : 0;
+  wires.direct_non_format_text = bool(input.nonFormatDirectTextPresent);
+  wires.css_before_content = bool(input.beforeContentPresent);
+  wires.css_after_content = bool(input.afterContentPresent);
+  wires.css_background_image = bool(input.backgroundImagePresent);
+  wires.css_mask_image = bool(input.maskImagePresent);
   wires.div_multi_child = !div ? 0 : input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0;
   wires.div_repeated_children = div ? bool(input.repeatedChildGeometry) : 0;
   wires.div_in_list = div ? bool(input.inVerifiedListParent) : 0;

@@ -5,6 +5,18 @@
 <div id="outer"><span id="middle"><span id="inner"><a id="leaf" href="#target">实际链接元素</a></span></span></div>
 <label>搜索展示 <input type="text" role="combobox" value="合成展示内容"></label>
 <iframe srcdoc="<p>未采集的内部文档</p>"></iframe><div id="shadow"></div>
+<style>
+#appearance{display:flex;gap:18px;align-items:center;margin:12px 0}
+#pseudo,#background,#mask{display:inline-block;width:24px;height:24px}
+#pseudo::before{content:"★"}#pseudo::after{content:""}
+#background{background-image:linear-gradient(red,blue)}
+#mask{background:teal;mask-image:linear-gradient(black,transparent)}
+#regular-fixed{position:fixed;right:8px;top:8px}
+</style>
+<div id="appearance"><span id="format">&#8203;<svg width="20" height="20"><path id="primitive" d="M1 1L19 19" stroke="black"/></svg></span><b id="real-text">实际文字👩‍💻</b><i id="pseudo"></i><span id="background"></span><span id="mask"></span></div>
+<aside id="regular-fixed">普通固定元素</aside>
+<div id="codex-browser-sidebar-comments-root"><span>合成工具层</span></div>
+<div id="configured-exclusion"><span>显式排除层</span></div>
 <pre id="result">运行中</pre>
 <script type="module" src="/fixture.js"></script>
 </html>

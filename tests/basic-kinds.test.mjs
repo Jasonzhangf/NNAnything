@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { compileWorkflow, createWorkflowInputEvent, loadWorkflow, runWorkflow } from "nnanything";
-import { classifyBasicKind, classifyBasicKindBatch, domBasicKindsNode, migrateBasicKindProfile, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
+import { classifyBasicKind, classifyBasicKindBatch, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
 
 const complete = { contentEditable: false, directTextPresent: false, childElementCount: 0, positiveAreaChildCount: 0, repeatedChildGeometry: false, inVerifiedListParent: false, svgGraphicChildren: false };
 const classify = (tag, fields = {}, profile) => classifyBasicKind({ tag, role: null, ...complete, ...fields }, DEFAULT_BASIC_KIND_CONFIG, profile);
@@ -239,4 +239,67 @@ test("every eligible request has a known or other label and all properties reach
   assert.equal(classifyBasicKind({tag:"input",role:"button",inputType:"hidden"}).basicKind,"button");
   // An unavailable observation remains outside classification, never auto-other truth.
   assert.equal(classifyBasicKindBatch(batch()).slots[2].basicKind,null);
+});
+
+test("pure appearance preprocessing preserves literal text and separates declared presentation", () => {
+  assert.equal(hasNonFormatDirectText("\u200b \u200d"), false);
+  assert.equal(hasNonFormatDirectText("中文"), true);
+  assert.equal(hasNonFormatDirectText("👩‍💻"), true);
+  assert.equal(hasNonFormatDirectText("e\u0301"), true);
+  assert.equal(hasNonFormatDirectText("\u061c\u2061"), false);
+  assert.equal(hasNonFormatDirectText(null), null);
+  assert.equal(shapeAppearanceMeasurements({}).directTextPresent, null);
+  assert.equal(shapeAppearanceMeasurements({ directText: null }).nonFormatDirectTextPresent, null);
+  assert.equal(shapeAppearanceMeasurements({ directText: "" }).nonFormatDirectTextPresent, false);
+
+  const shaped = shapeAppearanceMeasurements({
+    directText: "\u200b",
+    beforeContent: '""',
+    afterContent: "counter(item)",
+    backgroundImage: "none, none",
+    maskImage: "none, url(#mask)",
+  });
+  assert.equal(shaped.directTextPresent, true);
+  assert.equal(shaped.nonFormatDirectTextPresent, false);
+  assert.equal(shaped.beforeContentPresent, false);
+  assert.equal(shaped.afterContentPresent, true);
+  assert.equal(shaped.backgroundImagePresent, false);
+  assert.equal(shaped.maskImagePresent, true);
+
+  const missing = shapeAppearanceMeasurements({ directText: "real" });
+  assert.equal(missing.directTextPresent, true);
+  assert.equal(missing.nonFormatDirectTextPresent, true);
+  assert.equal(missing.beforeContentPresent, null);
+  assert.equal(missing.afterContentPresent, null);
+  assert.equal(missing.backgroundImagePresent, null);
+  assert.equal(missing.maskImagePresent, null);
+});
+
+test("appearance wires keep b and path distinct without changing old decisions", () => {
+  const b = { tag: "b", role: null, ...complete, directTextPresent: true, nonFormatDirectTextPresent: true };
+  const path = { tag: "path", role: null, ...complete, directTextPresent: false, nonFormatDirectTextPresent: false };
+  const bWires = extractBasicKindWires(b), pathWires = extractBasicKindWires(path);
+  assert.equal(bWires.direct_non_format_text, 1);
+  assert.equal(pathWires.direct_non_format_text, 0);
+  assert.equal(bWires.nat_svg_child, 0);
+  assert.equal(pathWires.nat_svg_child, 1);
+  assert.notDeepEqual(bWires, pathWires);
+  assert.equal(classifyBasicKind(b, DEFAULT_BASIC_KIND_CONFIG, LEGACY_BASIC_KIND_PROFILE).basicKind, "other");
+  assert.equal(classifyBasicKind(path, DEFAULT_BASIC_KIND_CONFIG, LEGACY_BASIC_KIND_PROFILE).basicKind, "other");
+  assert.equal(classifyBasicKind(b).basicKind, "other");
+  assert.equal(classifyBasicKind(path).basicKind, "other");
+});
+
+test("named migration registers every new appearance target as explicit zero", () => {
+  const newWires = new Set(["direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "nat_svg_child"]);
+  // The migration must restore the trainable addresses of the public builtin profile.
+  const addresses = ["familyWeights", "leafWeights"].flatMap(group =>
+    Object.entries(LEGACY_BASIC_KIND_PROFILE[group]).flatMap(([target, weights]) =>
+      Object.keys(weights).filter(wire => newWires.has(wire)).map(wire => [group, target, wire])));
+  assert.equal(addresses.length, 42);
+  const old = structuredClone(LEGACY_BASIC_KIND_PROFILE);
+  for (const [group, target, wire] of addresses) delete old[group][target][wire];
+  const before = structuredClone(old), migrated = migrateBasicKindProfile(old);
+  assert.deepEqual(old, before);
+  for (const [group, target, wire] of addresses) assert.equal(migrated[group][target][wire], 0, `${group}.${target}.${wire}`);
 });

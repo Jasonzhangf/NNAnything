@@ -200,4 +200,6 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 公开 workflow consumer、2501 条导出及复核隔离测试：`tests/browser-overlay-foundation.test.mjs`。真实浏览器入口、安装及覆盖限制见 `extension/README.md` 和 `docs/browser-overlay-m1.md`。
 ## 探索输入扩展
 
+实时观测节点资源可提供`excludeRoots`及`excludeRootIds`；默认排除已知工具注释根，自己的overlay宿主继续由`excludeHost`提供。观测后在adapter边界调用共享纯呈现整形；`browser.qualify_live`承载候选预处理，分类节点不重复整形。五项nullable呈现参数穿过采集／读取／prepare，六条新wire以显式0接入既有训练地址。完整算法与迁移由`docs/basic-kinds-wiring.md`维护，训练I/O由`docs/training-workflow.md`维护。
+
 既有实时观测与采集节点随样本携带可选`ExplorationInputV1`，无需新增operator或修改DAG。adapter内纯builder保留所有包装及内容节点、直接和跨层包含边、局部组成与缺测边界；实时资源可配置`maxRelationHops`，默认4，采集包记录实际值。没有自动忽略、预测类别输入或权重修改。导出与prepare保留新字段；第一层数值fit明确不使用它，未来可训练目标需另立I/O和监督合同。完整合同见`docs/training-workflow.md`的探索输入节。

@@ -1,5 +1,11 @@
 # 当前任务
 
+2026-10-17预处理／呈现输入候选完成，独立整体Review通过，准备main集成。依据用户“所有过滤、调整集中预处理”的要求，既有候选节点继续负责范围，adapter读原始DOM/CSS后调用共享纯整形一次，分类器只用typed properties。新增非格式直接文本与四项CSS存在性观测、六条wire、四十二个零起点地址；按名迁移保留旧系数。格式字符不导致删除节点，普通fixed/shadow保留；工具根及显式资源排除同步影响子计数／关系。新字段缺测仍null，旧文本trim语义保留，无新类别、无阈值或非零默认分数调整。关系仍未进入数值fit，不能称框架语义输入已全部充分。
+
+独立Gemini4整体Review：conversation8b15bb6e-1dda-49f5-a403-8499ce763406，实际gemini-4-argon-medium、medium，SUCCESS、exit0，统一schema/controller裁决pass，findings=[]。覆盖完整功能与架构，并检查本地Skill/AGENTS与本轮变化一致，无需新增规则。审查结果docs/reviews/gemini4-preprocessing-inputs-review.json；原始事件及controller位于上述外置run。临时浏览器fixture已关闭，PID50424服务已终止，用户站点页面未刷新、未冒称已加载新版。
+
+作者证据：首次12失败红测；补正原始文本缺测误填false后完整117测试、0skip，UI类型检查、扩展构建通过。真实Handwired补测可从0学习四项CSS及直接文本系数，SVG内部wire有梯度地址；公开训练consumer拟合／保存／回载成功，候选not_applied。357旧黄金×两套profile=714次类别／状态／分数／余量／各层区间不变；三站4536同批节点排除3工具根，保留4533行资格及判断不变，未知57/80/199→56/79/198。真实浏览器26节点18项检查PASS，采集回载与prepare不提升待定样本为黄金。原336未知复核发现另两组不同子组成仍同数值表示，关系投影与包装监督仍需后续。完整报告docs/preprocessing-inputs-20261017.md，外置过程/原始证据/当前独占树归属见/Volumes/Intel/playground/nnanything-runs/appearance-inputs。GCM实现者提前退出只交首轮类型检查，lead接管其余实现与验收，不冒充worker完成；只读审计结果已由lead验证两组编码和计数。
+
 2026-10-17用户要求自行复检未知：assistant现场采集导出知乎57条（209候选、0冲突），57条全部有新版explorationInput；另对当前小红书／微博观测用公开同规则重放80／199未知，共336逐项诊断，未改产品／分数／标签或训练。发现知乎10条U+200B包装文字Range宽度0；三站各1条工具注释根混入网站候选；微博51个i由::before绘制、6span背景图尚未被输入表达；b真实文字与path形成相同全零wire；另hr词表与object呈现待复核。搜索框y=-43已出视口，0冲突不表示已解决。现场复检证明仅完成输入回载不等于语义修复，之前交付范围须缩为输入链路。完整结论docs/sample-recheck-20261017.md，逐行本地资料training/samples/sample-recheck-20261017。偏差／新知识｜此前停在输入链路验证而未完成现场逐条复检｜依据336行、零宽Range和CSS伪元素实测｜现有训练Skill已要求表示与观测审计，无需新增长期规则｜当轮已完成复检，剩余产品修复未冒称完成。
 
 交付回执：探索输入实现a08fa99已ff-only合入main并推送；正式目录build:extension成功，公开consumer在canonical dist再次回载全部4564条并保留关系/覆盖，入训0。自有工作树／分支已移除，prune且旧路径不存在，只剩主树；临时浏览器fixture页与PID42465服务已关闭。后续只剩用户页扩展重载后的新采集包现场确认；语义保留/忽略标定、类别条件关系和实际消融仍按后续顺序，不在本次冒称已完成。
