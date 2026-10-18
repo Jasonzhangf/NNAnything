@@ -1,5 +1,7 @@
 # 当前任务
 
+本轮5项工作已完成实现、验收、整体Review和main交付。集成提交fad4f37已推送origin/main，保留原采用SVG-pair权重。正式结果在training/results/priority-classifier/final，输入在training/samples/priority-classifier；计划、红测、测试、真实consumer、Review原件与controller回执归档training/results/priority-classifier/evidence。剩余仅回收本轮独占worktree与临时run；清理回执留该evidence目录。三站未知清零属于后续总目标，当前失败候选未采用。
+
 优先级milestone整体Review：独立AGY Gemini4medium b096be76-2a49-426f-be11-e81337d760fa，实际gemini-4-argon-medium，SUCCESS/exit0；structured_output经既有controller同源schema/scope裁决PASS，findings=[]。代码与实测报告通过审查，不代表失败候选质量被批准采用。开始main集成，保持扩展当前采用旧权重不变。
 
 2026-10-18优先级分类器与训练计时milestone：5项工作中设计、图/红测、实现、真实训练对照4项已验收；整体Review与main交付待收口。外层三个DAG拓扑不变且闭合，内部四阶段SESE图见docs/priority-classifier.md。独立Gemini4medium修订计划ef1728c6-9c6d-4f26-8beb-fc8f7676ee23已接受；GCM分工实现filter/numeric/benchmark，部分worker最终仅进度文本且未完成，主Agent按实际文件接管收口并修类型、consumer严格I/O、统计与workflow计时传递；不把exit0当完成。自有剩余两个worker已显式TERM并exit143，未留活动执行者。
