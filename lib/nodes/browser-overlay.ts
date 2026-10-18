@@ -17,6 +17,16 @@ const presented = port("overlay_frame", "browser.overlay-frame.v1");
 interface QualifiedFrame { readonly snapshot: LiveDomSnapshot; readonly focusSpec: FocusSpec; readonly candidateBatch: CandidateBatch }
 type ClassifiedFrame = QualifiedFrame & { readonly basicKindBatch: BrowserOverlayFrame["basicKindBatch"] };
 
+function intersection(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) {
+  const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
+  return {
+    x,
+    y,
+    width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - x),
+    height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y),
+  };
+}
+
 export function createBrowserOverlayNodeDefinitions(resources: {
   document: Document; window: Window; registry: StableNodeRefRegistry; excludeHost: Element | null;
   excludeRoots?: readonly (Element | null)[]; excludeRootIds?: readonly string[];
@@ -66,8 +76,19 @@ export function createBrowserOverlayNodeDefinitions(resources: {
         const byRef = new Map(source.snapshot.observation.nodes.map(node => [node.nodeRef, node]));
         const boxes: OverlayBox[] = [];
         for (const slot of source.basicKindBatch.slots) {
-          const rect = byRef.get(slot.nodeRef)?.clippedRect;
-          if (slot.candidateStatus === "ok" && rect && rect.width > 0 && rect.height > 0) boxes.push({ nodeRef: slot.nodeRef, rect, basicKind: slot.basicKind, judgmentStatus: slot.judgmentStatus, score: slot.score, margin: slot.margin });
+          if (slot.candidateStatus !== "ok") continue;
+          const node = byRef.get(slot.nodeRef);
+          const focusArea = source.focusSpec.region;
+          const area = focusArea
+            ? intersection(intersection(source.snapshot.observation.viewport, focusArea), node?.rect ?? source.snapshot.observation.viewport)
+            : node?.rect ? intersection(source.snapshot.observation.viewport, node.rect) : source.snapshot.observation.viewport;
+          const rects = node?.exposedRects === undefined
+            ? node?.clippedRect ? [node.clippedRect] : []
+            : node.exposedRects ?? [];
+          for (const exposed of rects) {
+            const rect = intersection(exposed, area);
+            if (rect.width > 0 && rect.height > 0) boxes.push({ nodeRef: slot.nodeRef, rect, basicKind: slot.basicKind, judgmentStatus: slot.judgmentStatus, score: slot.score, margin: slot.margin });
+          }
         }
         const slots = source.basicKindBatch.slots, root = source.focusSpec.within ? byRef.get(source.focusSpec.within) : null;
         const view = {
@@ -78,7 +99,9 @@ export function createBrowserOverlayNodeDefinitions(resources: {
             conflict: slots.filter(slot => slot.judgmentStatus === "conflict").length,
             excluded: slots.filter(slot => slot.candidateStatus !== "ok").length,
             candidateUnknown: slots.filter(slot => slot.candidateStatus === "unknown").length },
-          focus: root?.rect ? { nodeRef: root.nodeRef, rect: root.rect } : null,
+          focus: root && source.candidateBatch.candidateRefs.includes(root.nodeRef)
+            && (root.exposedRects === undefined ? root.rect : root.exposedRects?.[0])
+            ? { nodeRef: root.nodeRef, rect: (root.exposedRects === undefined ? root.rect : root.exposedRects?.[0])! } : null,
           coverage: source.snapshot.coverage,
         };
         const frame: BrowserOverlayFrame = { ...source, profileId: source.basicKindBatch.profileId, boxes, presentation: { view, receipt: undefined } };

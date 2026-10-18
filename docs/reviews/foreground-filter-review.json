@@ -1,0 +1,43 @@
+{
+  "contract_version": "1",
+  "scope": {
+    "mode": "uncommitted",
+    "commit": null,
+    "base": null
+  },
+  "module_boundary_evidence": [
+    {
+      "module": "Visibility override finding closure",
+      "owner": "lib/adapters/browser/live-dom.ts",
+      "paths": "lib/adapters/browser/live-dom.ts; playground/overlay/foreground.css; playground/overlay/foreground-harness.ts",
+      "edges": "Parent-first DOM traversal -> inherited display:none suppression -> each element's computed visibility -> own fragments and surface eligibility -> public candidate workflow. The hiddenByElement flag now propagates only display:none. Both fragment collection and surfaceFor use the element's own computed visibility, so a visible descendant can override a hidden ancestor without making genuinely hidden elements eligible.",
+      "resources": "Read previous oauth-review.json finding 1 and review-verdict.json; latest verification.md; findings-red.json; browser-result.json; actual traversal, fragment collection and surfaceFor source; visibility-override fixture CSS and public workflow assertion. The current user request limits this recheck to the three findings and their direct repair closure.",
+      "gates": "The exact visibility-override public-consumer assertion fails in findings-red.json with empty target fragments. It succeeds in browser-result.json with foreground visible, nonempty fragments and the exposed target rectangle. The assertion checks candidateStatus equals ok. No residual defect was found in this repair."
+    },
+    {
+      "module": "Static grid and flex stacking finding closure",
+      "owner": "lib/adapters/browser/live-dom.ts",
+      "paths": "lib/adapters/browser/live-dom.ts; playground/overlay/foreground.css; playground/overlay/foreground-harness.ts",
+      "edges": "Previously observed parent computed display -> paintParticipation context membership for flex/inline-flex/grid/inline-grid items with non-auto z-index -> simplePaintBefore context-path comparison -> z-index and context rank -> pointer-none foreground subtraction. Static grid/flex stacking items now retain their z-index participation instead of falling through to DOM order.",
+      "resources": "Read previous oauth-review.json finding 2; current paintParticipation, simplePaintBefore and their traversal caller; grid-stacking fixture CSS; corresponding findings-red.json and browser-result.json records. The fixture places static pointer-none grid items in the same grid area with target z-index 10 and later background z-index 0.",
+      "gates": "The exact grid-stacking assertion fails in findings-red.json with foreground occluded and succeeds in browser-result.json with foreground visible, a full exposed target rectangle and candidateStatus ok. Parent-first traversal supplies the parent's computed display before calculating item participation. No residual defect was found in this repair."
+    },
+    {
+      "module": "Modern color alpha finding closure",
+      "owner": "lib/adapters/browser/live-dom.ts",
+      "paths": "lib/adapters/browser/live-dom.ts; playground/overlay/foreground.css; playground/overlay/foreground-harness.ts; docs/browser-overlay-m1.md",
+      "edges": "Computed background color -> parseCssAlpha numeric or percentage alpha, or explicit null for unrecognized representations -> surfaceFor classification -> opaque pointer-none proof only when background alpha and effective opacity both equal one -> public candidate eligibility. An unparsed color produces an unproven uncertain surface. Recognized modern translucent colors cannot supply opaque rectangle proof.",
+      "resources": "Read previous oauth-review.json finding 3; actual parseCssAlpha and surfaceFor source and foreground consumers; modern-alpha fixture using color(display-p3 1 0 0 / 0.5); exact red and green records; revised browser-overlay-m1.md contract. The parser also handles slash alpha for the listed modern computed color functions and returns null for unrecognized forms.",
+      "gates": "The exact modern-alpha public-consumer assertion fails in findings-red.json with foreground occluded and succeeds in browser-result.json with foreground visible, an exposed target rectangle and candidateStatus ok. Unknown alpha is not converted to opaque proof. No residual defect was found in this repair."
+    },
+    {
+      "module": "Bounded repair verification and retained milestone coverage",
+      "owner": "lib/adapters/browser/live-dom.ts and playground/overlay/foreground-harness.ts",
+      "paths": "workflows/browser-visual-overlay.graph.json; playground/overlay/foreground-harness.ts; playground/overlay/foreground.css; docs/browser-overlay-m1.md; /Volumes/Intel/playground/nnanything-runs/foreground-filter/verification.md; /Volumes/Intel/playground/nnanything-runs/foreground-filter/findings-red.json; /Volumes/Intel/playground/nnanything-runs/foreground-filter/browser-result.json",
+      "edges": "The existing closed four-node, three-edge workflow remains observation -> qualification -> classification -> presentation. The fixture invokes this public workflow and asserts externally consumed candidate eligibility. Three prior findings -> three exact failing browser checks -> corresponding source repairs -> the same three passing browser checks closes the requested repair evidence chain without reopening unrelated milestone coverage.",
+      "resources": "Applied the supplied review-schema.json, oauth-review-task.md, review-prompt.md and review-standards.md within the user's narrower recheck scope. Project AGENTS.md and docs/browser-overlay-m1.md supply the applicable foreground contract. The project .appsdk/requirements.json is absent. Earlier reviewed milestone coverage is retained; unrelated modules were not rescanned.",
+      "gates": "Read findings-red.json showing exactly three failed checks and browser-result.json showing 15 runs, 27 checks and no failed checks. Latest verification.md records 119 tests passing and successful UI type checking and extension build; those commands were not rerun during this read-only review. Existing classifier regression evidence is retained, with no classifier weight changes in these repairs. No agents, writes, installation, configuration changes or identity changes were performed. The current XHS page has not loaded the new extension; no live-site after-fix result is claimed."
+    }
+  ],
+  "findings": []
+}

@@ -1,6 +1,6 @@
 import type { EventStatus } from "../core/events.js";
 import { createFocusSpec, type FocusSpec, type NodeCondition } from "./focus.js";
-import { hasPositiveArea, intersectsPositive, loadSavedObservation, type ObservationNode, type PageObservation, type Rect } from "../adapters/browser/observation.js";
+import { hasPositiveArea, intersectsPositive, loadSavedObservation, type ForegroundState, type ObservationNode, type PageObservation, type Rect } from "../adapters/browser/observation.js";
 
 export interface CandidateRequest {
   readonly observation: PageObservation;
@@ -16,6 +16,7 @@ export interface CandidateSlot {
     readonly boundingBoxIntersection: "positive" | "none" | "unassessed";
     readonly fragments: "assessed" | "unassessed";
     readonly clipping: "assessed" | "unassessed";
+    readonly foreground?: ForegroundState;
   };
 }
 
@@ -51,7 +52,7 @@ export function validateCandidateBatch(value: unknown): CandidateBatch {
   const slots = input.slots.map((raw, index) => {
     const slot = record(raw);
     const evidence = record(slot.evidence);
-    if (slot.index !== index || typeof slot.nodeRef !== "string" || !["ok", "skipped", "filtered_out", "unknown"].includes(String(slot.status)) || !Array.isArray(slot.reasons) || !slot.reasons.every(reason => typeof reason === "string") || !["positive", "none", "unassessed"].includes(String(evidence.boundingBoxIntersection)) || !["assessed", "unassessed"].includes(String(evidence.fragments)) || !["assessed", "unassessed"].includes(String(evidence.clipping))) throw new Error("invalid candidate slot");
+    if (slot.index !== index || typeof slot.nodeRef !== "string" || !["ok", "skipped", "filtered_out", "unknown"].includes(String(slot.status)) || !Array.isArray(slot.reasons) || !slot.reasons.every(reason => typeof reason === "string") || !["positive", "none", "unassessed"].includes(String(evidence.boundingBoxIntersection)) || !["assessed", "unassessed"].includes(String(evidence.fragments)) || !["assessed", "unassessed"].includes(String(evidence.clipping)) || (evidence.foreground !== undefined && !["visible", "occluded", "unassessed"].includes(String(evidence.foreground)))) throw new Error("invalid candidate slot");
     return raw as CandidateSlot;
   });
   const candidateRefs = slots.filter(slot => slot.status === "ok").map(slot => slot.nodeRef);
@@ -87,6 +88,7 @@ function geometry(slot: CandidateSlot, node: ObservationNode, area: Rect, outsid
     boundingBoxIntersection: node.rect === null ? "unassessed" : intersectsPositive(node.rect, area) ? "positive" : "none",
     fragments: node.fragments === null ? "unassessed" : "assessed",
     clipping: node.clippedRect === null ? "unassessed" : "assessed",
+    ...(node.foreground === undefined ? {} : { foreground: node.foreground }),
   };
   const next = { ...slot, evidence };
   if (node.rect === null) return verdict(next, "unknown", "insufficient_geometry");
@@ -95,6 +97,14 @@ function geometry(slot: CandidateSlot, node: ObservationNode, area: Rect, outsid
   if (node.fragments === null || node.clippedRect === null) return verdict(next, "unknown", "insufficient_observation");
   const visible = intersection(intersection(node.rect, area), node.clippedRect);
   if (!hasPositiveArea(visible) || !node.fragments.some(fragment => hasPositiveArea(fragment) && intersectsPositive(fragment, visible))) return verdict(next, "filtered_out", "nonrendered");
+  if (node.foreground === "occluded") return verdict(next, "filtered_out", "occluded");
+  if (node.foreground === "unassessed") return verdict(next, "unknown", "insufficient_observation");
+  if (node.exposedRects !== undefined) {
+    if (node.exposedRects === null) return verdict(next, "unknown", "insufficient_observation");
+    if (!node.exposedRects.some(rect => hasPositiveArea(rect) && intersectsPositive(rect, visible))) {
+      return verdict(next, "filtered_out", outside === "outside_focus" ? "outside_focus" : "occluded");
+    }
+  }
   return next;
 }
 

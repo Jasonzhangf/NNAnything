@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NNAnything 前景资格黑盒 Fixture</title>
+  <link rel="stylesheet" href="foreground.css">
+</head>
+<body>
+  <nav id="fixture-controls" aria-label="fixture controls">
+    <strong>前景资格 Fixture</strong>
+    <button id="toggle-xhs" type="button" aria-pressed="false">开启 XHS 全屏遮罩</button>
+    <button id="toggle-partial" type="button" aria-pressed="false">开启局部覆盖</button>
+    <button id="toggle-transparent" type="button" aria-pressed="false">开启透明穿透层</button>
+    <button id="toggle-opaque" type="button" aria-pressed="false">开启不透明穿透层</button>
+    <button id="rerun" type="button">重跑验收</button>
+  </nav>
+
+  <main id="fixture-stage">
+    <div class="fixture-grid">
+      <section class="fixture-card" id="xhs-stage" aria-label="XHS mask scenario">
+        <h2>XHS 详情全屏遮罩</h2>
+        <p>遮罩为 pointer-accepting rgba(0,0,0,0.5)，背景 feed 不可交互。</p>
+        <div id="xhs-background">
+          <article class="fixture-target" id="xhs-background-card">背景 feed 卡片</article>
+          <button class="fixture-target" id="xhs-background-action" type="button">背景 feed 按钮</button>
+        </div>
+      </section>
+
+      <section class="fixture-card">
+        <h2>部分暴露目标</h2>
+        <p>局部覆盖中心，左右暴露区域必须保留，标注框不得跨过隐藏中心。</p>
+        <div id="partial-stage">
+          <button class="fixture-target" id="partial-target" type="button">部分暴露目标</button>
+          <div id="partial-cover" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section class="fixture-card">
+        <h2>透明非阻断浮层</h2>
+        <p>透明且 pointer-events:none 的包装层不得阻挡后方按钮。</p>
+        <div class="cover-stage">
+          <button class="fixture-target" id="transparent-target" type="button">透明浮层下按钮</button>
+          <div class="cover-overlay" id="transparent-cover" aria-hidden="true"></div>
+        </div>
+      </section>
+
+      <section class="fixture-card">
+        <h2>不透明穿透浮层</h2>
+        <p>完全覆盖且不透明的 pointer-events:none 层必须阻断视觉可见性。</p>
+        <div class="cover-stage">
+          <button class="fixture-target" id="opaque-target" type="button">不透明浮层下按钮</button>
+          <div class="cover-overlay" id="opaque-cover" aria-hidden="true"><span id="raised-child">前景小标识</span></div>
+        </div>
+      </section>
+
+      <section class="fixture-card">
+        <h2>iframe 宿主边界</h2>
+        <p>只评估 iframe 宿主矩形，不读取内部文档。</p>
+        <iframe id="iframe-host" title="iframe host fixture" srcdoc="<button>iframe 内部按钮</button>"></iframe>
+      </section>
+    </div>
+
+    <div id="xhs-detail-mask" aria-hidden="true"></div>
+    <section id="xhs-detail" aria-label="foreground detail">
+      <h2>前景详情卡片</h2>
+      <p>该卡片及其控件位于遮罩之上，应保持可见候选。</p>
+      <button class="fixture-target" id="detail-action" type="button">前景详情按钮</button>
+    </section>
+
+    <pre id="result" data-status="RUNNING">运行中</pre>
+  </main>
+
+  <script src="foreground-harness.js"></script>
+</body>
+</html>

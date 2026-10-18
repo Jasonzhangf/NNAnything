@@ -6,6 +6,7 @@ export interface Rect {
 }
 
 export type RuleAttributeValue = string | number | boolean | null;
+export type ForegroundState = "visible" | "occluded" | "unassessed";
 
 export interface ObservationNode {
   readonly nodeRef: string;
@@ -15,6 +16,8 @@ export interface ObservationNode {
   readonly rect: Rect | null;
   readonly fragments: readonly Rect[] | null;
   readonly clippedRect: Rect | null;
+  readonly foreground?: ForegroundState;
+  readonly exposedRects?: readonly Rect[] | null;
   readonly attributes: Readonly<Record<string, RuleAttributeValue>>;
 }
 
@@ -24,6 +27,7 @@ export interface ObservationCoverage {
   readonly geometry: CoverageState;
   readonly fragments: CoverageState;
   readonly clipping: CoverageState;
+  readonly foreground?: CoverageState;
 }
 
 export interface PageObservation {
@@ -158,6 +162,12 @@ function readOptionalText(value: unknown, field: string): string | null {
   return value;
 }
 
+function readForeground(value: unknown, field: string): ForegroundState | undefined {
+  if (value === undefined) return undefined;
+  if (value === "visible" || value === "occluded" || value === "unassessed") return value;
+  throw new ObservationContractError(`${field} must be visible, occluded, unassessed, or undefined`);
+}
+
 function combineCoverage(assessed: number, total: number): CoverageState {
   if (total === 0 || assessed === 0) {
     return "unassessed";
@@ -210,6 +220,8 @@ export function loadSavedObservation(value: unknown): PageObservation {
     readonly rect: Rect | null;
     readonly fragments: readonly Rect[] | null;
     readonly clippedRect: Rect | null;
+    readonly foreground?: ForegroundState;
+    readonly exposedRects?: readonly Rect[] | null;
     readonly attributes: Readonly<Record<string, RuleAttributeValue>>;
   }> = [];
 
@@ -234,6 +246,8 @@ export function loadSavedObservation(value: unknown): PageObservation {
       entry.raw.fragments !== undefined ? entry.raw.fragments : entry.raw.clientRects;
     const clippedRectValue =
       entry.raw.clippedRect !== undefined ? entry.raw.clippedRect : entry.raw.visibleRect;
+    const foreground = readForeground(entry.raw.foreground, `observation.nodes[${entry.position}].foreground`);
+    const exposedRects = readFragments(entry.raw.exposedRects, `observation.nodes[${entry.position}].exposedRects`);
     records.push({
       nodeRef,
       parentRef,
@@ -248,6 +262,8 @@ export function loadSavedObservation(value: unknown): PageObservation {
         clippedRectValue,
         `observation.nodes[${entry.position}].clippedRect`,
       ),
+      ...(foreground === undefined ? {} : { foreground }),
+      ...(entry.raw.exposedRects === undefined ? {} : { exposedRects }),
       attributes: readSafeAttributes(
         entry.raw.attributes,
         `observation.nodes[${entry.position}].attributes`,
@@ -306,6 +322,8 @@ export function loadSavedObservation(value: unknown): PageObservation {
   const geometryAssessed = records.filter((record) => record.rect !== null).length;
   const fragmentsAssessed = records.filter((record) => record.fragments !== null).length;
   const clippingAssessed = records.filter((record) => record.clippedRect !== null).length;
+  const foregroundAssessed = records.filter((record) => record.foreground === "visible" || record.foreground === "occluded").length;
+  const foregroundTotal = records.filter((record) => record.foreground !== undefined).length;
 
   return {
     viewport,
@@ -314,6 +332,9 @@ export function loadSavedObservation(value: unknown): PageObservation {
       geometry: combineCoverage(geometryAssessed, records.length),
       fragments: combineCoverage(fragmentsAssessed, records.length),
       clipping: combineCoverage(clippingAssessed, records.length),
+      ...(foregroundTotal === 0 ? {} : {
+        foreground: foregroundAssessed === foregroundTotal ? "assessed" : foregroundAssessed === 0 ? "unassessed" : "mixed",
+      }),
     },
   };
 }

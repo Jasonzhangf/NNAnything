@@ -14,6 +14,7 @@ import {
   createFocusSpec,
   domNodeDefinitions,
 } from "../dist/browser.js";
+import { checkCandidates, loadSavedObservation, observeCandidates, splitCandidates } from "../dist/browser.js";
 
 const graphPath = fileURLToPath(
   new URL("../workflows/dom-candidates.graph.json", import.meta.url),
@@ -66,6 +67,23 @@ async function runCandidates({
 
 function byRef(batch) {
   return new Map(batch.slots.map((slot) => [slot.nodeRef, slot]));
+}
+
+function foregroundObservation(changes = {}) {
+  return {
+    viewport: { x: 0, y: 0, width: 100, height: 100 },
+    nodes: [{
+      nodeRef: "n", parentRef: null, tag: "button", role: null,
+      rect: { x: 0, y: 0, width: 100, height: 10 },
+      fragments: [{ x: 0, y: 0, width: 100, height: 10 }],
+      clippedRect: { x: 0, y: 0, width: 100, height: 10 },
+      ...changes,
+    }],
+  };
+}
+
+function checkForeground(observation, focus = {}) {
+  return checkCandidates(splitCandidates(observeCandidates({ observation: loadSavedObservation(observation) })), createFocusSpec(focus));
 }
 
 test("partial visibility is retained and edge contact has zero area", async () => {
@@ -270,4 +288,31 @@ test("FocusSpec validation rejects fixed-rule violations and arbitrary rule expr
     () => createFocusSpec({ allow: [{ attributes: { onclick: "run()" } }] }),
     /unsafe attribute/,
   );
+});
+
+test("foreground eligibility filters proven occlusion and preserves legacy saved observations", () => {
+  const occluded = checkForeground(foregroundObservation({ foreground: "occluded", exposedRects: [] }));
+  assert.deepEqual(occluded.slots[0].reasons, ["occluded"]);
+  assert.equal(occluded.slots[0].evidence.foreground, "occluded");
+  assert.deepEqual(occluded.candidateRefs, []);
+
+  const unassessed = checkForeground(foregroundObservation({ foreground: "unassessed", exposedRects: null }));
+  assert.equal(unassessed.slots[0].status, "unknown");
+  assert.deepEqual(unassessed.slots[0].reasons, ["insufficient_observation"]);
+
+  const legacy = checkForeground(foregroundObservation());
+  assert.deepEqual(legacy.candidateRefs, ["n"]);
+  assert.equal("foreground" in legacy.slots[0].evidence, false);
+});
+
+test("exposed rectangles select only proven visible fragments inside Focus", () => {
+  const split = foregroundObservation({
+    fragments: [{ x: 0, y: 0, width: 100, height: 10 }],
+    exposedRects: [{ x: 0, y: 0, width: 10, height: 10 }, { x: 90, y: 0, width: 10, height: 10 }],
+  });
+  assert.deepEqual(checkForeground(split).candidateRefs, ["n"]);
+  const hiddenFocus = checkForeground(split, { region: { x: 40, y: 0, width: 10, height: 10 } });
+  assert.deepEqual(hiddenFocus.candidateRefs, []);
+  assert.deepEqual(hiddenFocus.slots[0].reasons, ["outside_focus"]);
+  assert.deepEqual(checkForeground(split, { region: { x: 0, y: 0, width: 10, height: 10 } }).candidateRefs, ["n"]);
 });

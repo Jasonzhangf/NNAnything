@@ -24,6 +24,7 @@ import {
   type LiveCaptureCoverage,
   type BrowserCaptureAnnotation,
   type BrowserCaptureBundleV1,
+  DEFAULT_EXCLUDED_TOOL_ROOT_IDS,
 } from "nnanything/browser-classify";
 
 export interface DOMInspectorOptions {
@@ -1121,7 +1122,8 @@ export class DOMInspectorController {
     const scoreStr = slot?.score !== null && slot?.score !== undefined ? `${slot.score.toFixed(3)} (未校准)` : "无";
     const marginStr = slot?.margin !== null && slot?.margin !== undefined ? slot.margin.toFixed(3) : "无";
 
-    summary.textContent = `提议种类: ${kindZh} (${kind}) [提议]\n判断状态: ${slot?.judgmentStatus ?? "unknown"}\n分数: ${scoreStr} | 余量: ${marginStr}\n文本摘要: ${evidence?.textSummary?.slice(0, 80) ?? "无"}\nID: ${evidence?.id ?? "无"}`;
+    const candidate = this.currentFrame.candidateBatch.slots.find((item) => item.nodeRef === this.selectedNodeRef);
+    summary.textContent = `候选状态: ${candidate?.status ?? "unknown"}${candidate?.reasons.length ? ` (${candidate.reasons.join(", ")})` : ""}\n提议种类: ${kindZh} (${kind}) [提议]\n判断状态: ${slot?.judgmentStatus ?? "unknown"}\n分数: ${scoreStr} | 余量: ${marginStr}\n文本摘要: ${evidence?.textSummary?.slice(0, 80) ?? "无"}\nID: ${evidence?.id ?? "无"}`;
     summary.style.whiteSpace = "pre-wrap";
     section.appendChild(summary);
 
@@ -1398,8 +1400,8 @@ export class DOMInspectorController {
   private handlePickMouseMove(e: MouseEvent): void {
     if (!this.pickingHighlight) return;
 
-    const el = this.doc.elementFromPoint(e.clientX, e.clientY);
-    if (!el || (this.hostElement && this.hostElement.contains(el))) {
+    const el = this.pickSiteElementAtPoint(e.clientX, e.clientY);
+    if (!el) {
       this.pickingHighlight.style.display = "none";
       return;
     }
@@ -1417,8 +1419,8 @@ export class DOMInspectorController {
     e.preventDefault();
     e.stopImmediatePropagation();
 
-    const el = this.doc.elementFromPoint(e.clientX, e.clientY);
-    if (!el || (this.hostElement && this.hostElement.contains(el))) {
+    const el = this.pickSiteElementAtPoint(e.clientX, e.clientY);
+    if (!el) {
       this.stopPickingMode();
       return;
     }
@@ -1435,6 +1437,20 @@ export class DOMInspectorController {
       this.isFocusStale = false;
       this.scheduleRefresh();
     }
+  }
+
+  private pickSiteElementAtPoint(x: number, y: number): Element | null {
+    const isInspector = (element: Element): boolean => {
+      if (this.hostElement && (element === this.hostElement || this.hostElement.contains(element))) return true;
+      for (let current: Element | null = element; current; current = current.parentElement) {
+        if (current.id !== "" && DEFAULT_EXCLUDED_TOOL_ROOT_IDS.includes(current.id as typeof DEFAULT_EXCLUDED_TOOL_ROOT_IDS[number])) return true;
+      }
+      return false;
+    };
+    const elements = typeof this.doc.elementsFromPoint === "function"
+      ? this.doc.elementsFromPoint(x, y)
+      : [this.doc.elementFromPoint(x, y)].filter((element): element is Element => element !== null);
+    return elements.find(element => !isInspector(element)) ?? null;
   }
 
   private selectNode(nodeRef: string): void {
