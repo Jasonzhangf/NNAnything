@@ -1,5 +1,7 @@
 # 当前任务
 
+交付回执：探索输入实现a08fa99已ff-only合入main并推送；正式目录build:extension成功，公开consumer在canonical dist再次回载全部4564条并保留关系/覆盖，入训0。自有工作树／分支已移除，prune且旧路径不存在，只剩主树；临时浏览器fixture页与PID42465服务已关闭。后续只剩用户页扩展重载后的新采集包现场确认；语义保留/忽略标定、类别条件关系和实际消融仍按后续顺序，不在本次冒称已完成。
+
 2026-10-17探索输入／跨层包含候选完成：按用户最新“先确认输入与框架，再标定分类”的顺序，新建adapter纯投影ExplorationInputV1，保留直接父子与跨层contains/contained_by、相对间隔、局部组成/几何和覆盖边界；纯builder显式要求maxRelationHops，实时适配器默认4跳且可配，触限不冒充完整。采集/导出/回载/prepare保留可选新字段，旧请求可省略。没有新增类别、打分wire、权重或阈值，没有自动忽略/剪枝/后代语义传播。第一层fit仍只消费旧properties，不冒称已使用关系参数；类别条件关系与消融在标定后进行。
 
 本轮4个新用例先红后绿，完整109测试0skip，UI类型检查/扩展构建通过；真实浏览器fixture16节点8项验收PASS。三站当前4564条经公开builder/reader/JSON回载/prepare关系不丢、入训0；旧158+199确认行在两套原profile下714次完整判断一致，旧reader结果一致。具体证据在/Volumes/Intel/playground/nnanything-runs/exploration-inputs/verification.md及相关JSON，原始和派生样本留本地training/samples/input-audit-20261017。图拓扑不变，复用已闭合现图。Gemini4独立整体Review conversation4fec55f7-ad81-4d00-bc59-e595979bfe76，实际gemini-4-argon-medium、SUCCESS，统一schema/controller pass、findings=[]；同时检查本地Skill/规则，无需新增长期规则。结果docs/reviews/gemini4-exploration-input-review.json。当前准备main集成与正式目录构建；用户页新版字段仍需重载扩展后才能现场确认，不冒称已注入。
