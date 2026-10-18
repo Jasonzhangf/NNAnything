@@ -2,9 +2,11 @@
 
 2026-10-18继续原三站未知／冲突闭环，目标未结束。用户已确认重载并刷新；现场微博显示新版合并采集入口，但点击后会话仍0，不能冒称采集成功。小红书／知乎仍是旧入口，主Agent刷新两页后面板关闭；已请用户仅重新打开三站标注，不重复要求重载。工具无扩展工具栏入口，桌面工具拒绝控制Codex应用，不绕过。前一milestone已交付main0f87877并构建。所有实验权重均未采用。主Agent负责手工复检、架构与验收，执行仍交GCM。
 
-当前semantic-refinement作者验收：154/154测试、build:extension、typecheck:ui实际exit0；最终构建真实CUA回放33/33 PASS、61帧无空框，browser-final-result.json／browser-final-pass.png保留在本轮run。独立计划已有presentation／loss／ancestor／count四项证据，外层DAG拓扑未变。独立Gemini4medium整体Reviewer15f10844-7b4a-4453-965a-1ebe3cf96163，SUCCESS／exit0，structured_output经同源controller裁pass、findings=[]；review-final.json及review-controller.json留本轮run。此Review不批准采用拟合权重，不宣称三站闭环。进入main集成与构建。
+当前semantic-refinement已交付main45d31b8并推送，fetch后main与origin/main无未合入提交；正式目录build:extension成功。作者154/154测试、build:extension、typecheck:ui实际exit0；最终构建真实CUA回放33/33 PASS、61帧无空框，browser-final-result.json／browser-final-pass.png保留在本轮run。独立计划已有presentation／loss／ancestor／count四项证据，外层DAG拓扑未变。独立Gemini4medium整体Reviewer15f10844-7b4a-4453-965a-1ebe3cf96163，SUCCESS／exit0，structured_output经同源controller裁pass、findings=[]；review-final.json及review-controller.json留本轮run。此Review不批准采用拟合权重，不宣称三站闭环。用户页面尚未加载本轮45d31b8，不能冒称现场使用了候选。
 
 刷新后实际采集393项：微博142unknown、知乎178unknown＋12conflict、小红书主页61unknown。公开采集按钮的会话计数和下载文件已核对，原包保留在training/samples/unknown-recheck-20261018，全部unreviewed。三个独立GCM按站回放分析，主Agent复核用途与关系。知乎冲突是1个input/combobox与11个LI/tab内含A；微博CSS字体图标、背景图标和pointer-events:none透明覆盖层分开复核，OBJECT/resize-observer内部未读仍待定。后续观测单独保存，不能回填成原帧事实。完整证据在本轮current-frame-manual-findings.md。
+
+三站回放覆盖分别WB88judged/54unknown、ZH154judged/36unknown/0conflict、XHS51judged/10unknown；这些不是准确率。Primary撤回worker把11tab改button的建议，沿现有select口径；等框IMG/SVG外包装不继承image/button，不把只隐藏包装的标注误报成删除子元素。ZH5项含直接文字的span误ignore仍需训练补充。XHS61项逐一按tag/class/rect唯一匹配后实测完整祖先（后续新证据），9个DIV的缺测得到明确false；组合诊断60judged/1unknown，剩余avatar三重视觉包装需进一步判别。三站后续原始HTML也已保存，长文本分块避免200k返回截断，不冒充原采集同帧。所有原包和旧gold保持不变。GCM微博worker14分钟重复分析未生成final，Primary保留其142行产物并精确停止PID33218，按人工纠正报告，不冒称其正常完成。
 
 v6真实Handwired500轮拟合完成：85明确XHS＋6HTML规格为91训练项，6待定另行排除；91/91类别及judged正确，88fixed／3retained，row35已从container修为list，10个小容器反例仍正确。loss1.0577747258→0.0062354153。WB53与ZH23部分组件留出正确；旧黄金357仍3fixed／45regressed／277retained／32unresolved，相对v5逐例无变化，但相对原基线的45退化仍未通过，不能称为可接受基线。182非名单系数未变，42允许系数改变，公开回载成功。候选not_applied／uncalibrated。新微博视频页11字体图标probe仍unknown；已有CSS伪内容输入可表达，下一步补该来源的独立标注与训练，不据此加重复参数。
 
