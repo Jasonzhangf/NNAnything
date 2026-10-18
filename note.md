@@ -1,5 +1,7 @@
 # 当前任务
 
+本轮启动权重修复已合入并推送main6c38a1d。canonical显式构建`npm run build:extension -- --weight-file training/weights/layout-ignore-svg-pair-v1.weight.json`成功，回执确认profile layout-ignore-svg-pair-v1；本地权重保留在忽略目录，不入Git。清理前注册树2，本轮核销initial-weight1，保留canonical1；自有验收tab23已关闭、HTTP PID92940已停止、node_modules链接／工作树／分支已回收。当前知乎现场仍是上传资源svg-pair-weight-v1.json，125unknown／12conflict／53ignore；已请求用户重载新包并核对“构建加载”来源，不能把上传会话当成安装态已验证。GCM只读执行worker继续汇总剩余未知的现有特征与标注缺口，产品未再次改动。
+
 本轮构建权重供给与最小忽略模型已完成一次独立Gemini4medium整体Review：60b7f10f-513e-4db7-961c-5c85554ac69d，SUCCESS／exit0，structured_output经同源controller裁pass、findings=[]。原始证据与裁决在ignore-profile-slice/review-{events,result,final,controller}文件。Reviewer引用报告的“30 controls”只是沿用脚本字段名；实际是30个非外层SVG行，不作为30个交互控件验收。有效保护证据是三站1126原已知类别不变及真实consumer的button/input/text/image检查。当前进入main集成与显式权重构建，内置浏览器新版安装态仍待确认，三站未知清零目标未完成。
 
 2026-10-18用户重载后反馈未知包装仍多。主Agent现场确认三站仍用手写权重、ignore0；前次只交测量/wire而没有采用权重，不能再以重载冒称可见修复。新原始采集snapshot387仍出现旧4跳祖先null，具体加载来源原因未确认，不归咎用户。当前沿最小忽略配置消融和真实整页回归推进，完整v6仍未采用。
