@@ -1,5 +1,7 @@
 # 当前任务
 
+交付回执：抖动修复504e8c0已ff-only合入main并推送，fetch核对双方无未合入提交；正式目录build:extension成功，原artifacts/chrome-extension已更新。自有overlay-flicker工作树／分支移除并prune，临时标签18已关闭、4173服务PID96184已停止，8765服务已不在当前进程表。观察worker自建Chrome标签的browser1绑定已不可用，未冒称主Agent已操作关闭；原用户7个网站标签未关闭。当前已请用户重载扩展后再确认知乎现场，代码交付完成与用户页加载状态分开。
+
 插件抖动Review已收口：独立Gemini4medium conversation542a4541-bdda-40b5-98e1-4d4a38a99639、SUCCESS／exit0，真实structured_output经统一controller裁pass，findings=[]。审查覆盖刷新／呈现／采集隔离、代际与公开浏览器回归；旧类算法和训练Skill不受影响，不新增另一套规则。正文docs/reviews/overlay-refresh-review.json，红绿及过程归档本地training/results/overlay-flicker-20261017。当前进入正式集成与原目录构建，真实知乎更新前后的验收仍分开记录。
 
 2026-10-17插件抖动修复作者验收：用户确认面板与标注一起抖动。知乎搜索现场读到正常844框／面板559px，更新时0框／统计0／面板599px；宿主均存在，未据此冒称真实toggle。动态公开controller红测2秒25次空框且宿主identity稳定。根因为scheduleRefresh先清实际帧、清框、重建零统计并插入加载行。修复分开实际可采集帧与上一帧展示；pending不清框，保留统计并固定状态行；revision拒绝过期完成，RAF单运行＋合并后续；显式失效仍清框。当前真实浏览器18断言全过，普通更新61帧均非空、25次mutation均不空、面板688px固定、旧手动／未知回调未采集。119测试、UI和构建通过，前景15轮27断言不退化。外置run overlay-flicker保存红绿证据，当前待整体Review及集成；真实知乎仍运行旧插件，不能冒称现场已加载修复。
