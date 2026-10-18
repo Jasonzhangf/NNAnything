@@ -41,7 +41,7 @@ flowchart TD
 
 公开节点接收现有 CandidateBatch，可在同一个对象增加 `itemObservations` 数组。既有候选链的输出可直接输入；未提供补充观测时，相关测量保持 null。补充项用 nodeRef 关联，不能覆盖 tag/role 或候选资格。tag/role 来自 batch.observation.nodes，几何与父子关系也只读取这份显式快照。引用不作为数值特征。
 
-补充观测只允许 nodeRef、inputType、hrefPresent、contentEditable、directTextPresent、childElementCount、positiveAreaChildCount、repeatedChildGeometry、inVerifiedListParent、svgGraphicChildren。省略或 null 表示未测；false 和 0 表示明确测到不存在。计数只能来自完整的直接子元素观测，不能把截断快照中的条数当作完整数目。旧离线样本缺少新字段时，验证和训练投影统一补为 null。
+补充观测只允许 nodeRef、inputType、hrefPresent、contentEditable、directTextPresent、nonFormatDirectTextPresent、beforeContentPresent、afterContentPresent、backgroundImagePresent、maskImagePresent、childElementCount、positiveAreaChildCount、repeatedChildGeometry、inVerifiedListParent、svgGraphicChildren。五项呈现扩展的语义见后文预处理节。省略或 null 表示未测；false 和 0 表示明确测到不存在。计数只能来自完整的直接子元素观测，不能把截断快照中的条数当作完整数目。旧离线样本缺少新字段时，验证和训练投影统一补为 null。
 
 - inputType 是采集器读取的 input.type 规范值；未读取为 null。浏览器默认 text 应显式提供 text。空字符串保持未知。
 - hrefPresent 表示 href 属性存在，空 href 也为 true；不接受原始 URL。
