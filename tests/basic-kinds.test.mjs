@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { compileWorkflow, createWorkflowInputEvent, loadWorkflow, runWorkflow } from "nnanything";
-import { classifyBasicKind, classifyBasicKindBatch, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
+import { readBasicKindTrainingRequest } from "nnanything/training";
+import { BASIC_KIND_FAMILIES, BASIC_KIND_WIRE_NAMES, classifyBasicKind, classifyBasicKindBatch, computeBasicKindStageRawIntervals, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
 
 const complete = { contentEditable: false, directTextPresent: false, childElementCount: 0, positiveAreaChildCount: 0, repeatedChildGeometry: false, inVerifiedListParent: false, svgGraphicChildren: false };
 const classify = (tag, fields = {}, profile) => classifyBasicKind({ tag, role: null, ...complete, ...fields }, DEFAULT_BASIC_KIND_CONFIG, profile);
@@ -13,7 +14,7 @@ function batch() {
 
 test("coarse family wins before only its leaf kinds execute", () => {
   const cases = [["button", {}, "control", "button"], ["textarea", {}, "control", "input"], ["select", {}, "control", "select"], ["img", {}, "media", "image"], ["video", {}, "media", "video"], ["audio", {}, "media", "audio"], ["a", { hrefPresent: true }, "navigation", "link"], ["p", {}, "text", "text"], ["article", {}, "structure", "container"], ["ul", {}, "structure", "list"], ["li", {}, "structure", "listitem"]];
-  const leaves = { control: ["button", "input", "select"], media: ["image", "video", "audio"], navigation: ["link"], text: ["text"], structure: ["container", "list", "listitem"] };
+  const leaves = { control: ["button", "input", "select"], media: ["image", "video", "audio"], navigation: ["link"], text: ["text"], structure: ["container", "list", "listitem", "ignore"] };
   for (const [tag, fields, family, kind] of cases) {
     const result = classify(tag, fields);
     assert.equal(result.family, family, tag);
@@ -302,4 +303,510 @@ test("named migration registers every new appearance target as explicit zero", (
   const before = structuredClone(old), migrated = migrateBasicKindProfile(old);
   assert.deepEqual(old, before);
   for (const [group, target, wire] of addresses) assert.equal(migrated[group][target][wire], 0, `${group}.${target}.${wire}`);
+});
+
+function zeroProfile() {
+  const profile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  profile.id = "zero-core-slice";
+  for (const rows of [profile.familyWeights, profile.leafWeights]) {
+    for (const weights of Object.values(rows)) {
+      for (const wire of Object.keys(weights)) weights[wire] = 0;
+    }
+  }
+  return profile;
+}
+
+const newMeasurementNames = [
+  "pointerCursor",
+  "parentPointerCursor",
+  "tabIndexFocus",
+  "directListChildPresent",
+  "borderPresent",
+  "aspectRatio",
+  "descendantTextPresent",
+  "singleChildTag",
+  "singleChildSameRect",
+  "withinControlAncestor",
+  "inSvgAncestor",
+];
+const newWireNames = [
+  "editable_non_input",
+  "input_text_combobox",
+  "listitem_role_select",
+  "nat_inline_format_text",
+  "neutral_multi_child",
+  "neutral_single_child",
+  "neutral_focusable_control",
+  "neutral_list_choice",
+  "neutral_same_rect_wrapper",
+  "composite_descendant_text",
+  "own_pointer_boundary",
+  "single_child_div",
+  "svg_internal_part",
+  "empty_pointer_extent",
+  "empty_border_extent",
+  "nat_document_root",
+];
+
+test("ignore is a validated leaf and legacy migration preserves old structure intervals", () => {
+  assert.deepEqual(BASIC_KIND_FAMILIES.structure, ["container", "list", "listitem", "ignore"]);
+  assert.ok(BASIC_KIND_WIRE_NAMES.includes("neutral_multi_child"));
+  assert.deepEqual(validateBasicKindProfile(DEFAULT_BASIC_KIND_PROFILE).leafWeights.ignore, {
+    role_presentational: 0,
+    input_type_hidden: 0,
+    state_disabled: 0,
+    state_hidden: 0,
+  });
+
+  const old = structuredClone(LEGACY_BASIC_KIND_PROFILE);
+  delete old.leafWeights.ignore;
+  for (const group of ["familyWeights", "leafWeights"]) {
+    for (const row of Object.values(old[group])) {
+      for (const wire of newWireNames) delete row[wire];
+    }
+  }
+  const properties = {
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    nonFormatDirectTextPresent: false,
+    childElementCount: 3,
+    positiveAreaChildCount: 3,
+    repeatedChildGeometry: false,
+    inVerifiedListParent: false,
+    svgGraphicChildren: false,
+  };
+  const oldWires = extractBasicKindWires(properties);
+  const before = computeBasicKindStageRawIntervals(
+    "leaf",
+    ["container", "list", "listitem"],
+    old.leafWeights,
+    oldWires,
+  );
+  const migrated = migrateBasicKindProfile(old);
+  const after = computeBasicKindStageRawIntervals(
+    "leaf",
+    ["container", "list", "listitem"],
+    migrated.leafWeights,
+    oldWires,
+  );
+  assert.deepEqual(after, before);
+  for (const wire of [
+    "role_presentational", "input_type_hidden", "state_disabled", "state_hidden",
+    "neutral_multi_child", "neutral_single_child", "neutral_same_rect_wrapper", "single_child_div",
+    "own_pointer_boundary", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root",
+  ]) assert.equal(migrated.leafWeights.ignore[wire], 0, `leafWeights.ignore.${wire}`);
+  for (const [group, target, wire] of [
+    ["familyWeights", "control", "editable_non_input"],
+    ["leafWeights", "input", "editable_non_input"],
+    ["leafWeights", "select", "listitem_role_select"],
+    ["leafWeights", "ignore", "svg_internal_part"],
+  ]) {
+    assert.equal(migrated[group][target][wire], 0, `${group}.${target}.${wire}`);
+  }
+  assert.equal(classifyBasicKind(properties, DEFAULT_BASIC_KIND_CONFIG, migrated).basicKind, "container");
+});
+
+test("three conflict wires separate canonical labels while ordinary nodes keep their decisions", () => {
+  const profile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  profile.id = "conflict-separation-test";
+  profile.familyWeights.control.editable_non_input = 0.3;
+  profile.leafWeights.input.editable_non_input = 0.3;
+  profile.leafWeights.input.input_text_combobox = 0.2;
+  profile.familyWeights.control.listitem_role_select = 0.3;
+  profile.leafWeights.select.listitem_role_select = 0.3;
+
+  const editable = { ...complete, contentEditable: true, directTextPresent: true, nonFormatDirectTextPresent: true };
+  const editableWires = extractBasicKindWires({ tag: "p", role: null, ...editable });
+  assert.equal(editableWires.editable_non_input, 1);
+  assert.equal(classifyBasicKind({ tag: "p", role: null, ...editable }, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, "input");
+  assert.equal(classifyBasicKind({ tag: "p", role: null, ...complete, directTextPresent: true, nonFormatDirectTextPresent: true }).basicKind, "text");
+
+  const combobox = { tag: "input", role: "combobox", inputType: "search" };
+  assert.equal(extractBasicKindWires(combobox).input_text_combobox, 1);
+  assert.equal(classifyBasicKind(combobox, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, "input");
+  assert.equal(classifyBasicKind({ tag: "input", role: null, inputType: "search" }).basicKind, "input");
+
+  const listTab = { tag: "li", role: "tab" };
+  assert.equal(extractBasicKindWires(listTab).listitem_role_select, 1);
+  assert.equal(classifyBasicKind(listTab, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, "select");
+  assert.equal(classifyBasicKind({ tag: "li", role: null }).basicKind, "listitem");
+});
+
+test("new relationship and continuous-extent wires remain nullable until measured", () => {
+  const empty = {
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    nonFormatDirectTextPresent: false,
+    childElementCount: 0,
+    positiveAreaChildCount: 0,
+    beforeContentPresent: false,
+    afterContentPresent: false,
+    backgroundImagePresent: false,
+    maskImagePresent: false,
+    pointerCursor: true,
+    parentPointerCursor: false,
+    borderPresent: false,
+    aspectRatio: 0.25,
+    descendantTextPresent: false,
+    withinControlAncestor: false,
+  };
+  const wires = extractBasicKindWires(empty);
+  assert.equal(wires.empty_pointer_extent, 0.25);
+  assert.equal(wires.empty_border_extent, 0);
+  assert.equal(wires.own_pointer_boundary, 1);
+  assert.equal(extractBasicKindWires({ ...empty, tag: "button" }).own_pointer_boundary, 0);
+  assert.equal(extractBasicKindWires({ ...empty, parentPointerCursor: true }).own_pointer_boundary, 0);
+  assert.equal(extractBasicKindWires({ ...empty, borderPresent: true, pointerCursor: false }).empty_border_extent, 0.25);
+
+  const missing = extractBasicKindWires({ ...empty, aspectRatio: null });
+  assert.equal(missing.empty_pointer_extent, null);
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals("leaf", ["ignore"], { ignore: { empty_pointer_extent: 0.4 } }, missing),
+    { ignore: { min: 0, max: 0.4 } },
+  );
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals("leaf", ["ignore"], { ignore: { empty_pointer_extent: 0.4 } }, wires),
+    { ignore: { min: 0.1, max: 0.1 } },
+  );
+  assert.throws(() => validateBasicKindProperties({ tag: "div", role: null, aspectRatio: 1.01 }), /aspectRatio/);
+
+  const validated = validateBasicKindProperties({ tag: "div", role: null });
+  for (const field of newMeasurementNames) assert.equal(validated[field], null, field);
+  assert.throws(
+    () => validateBasicKindProperties({ tag: "div", role: null, customElementTag: true }),
+    /BASIC_KIND_FORBIDDEN_FEATURE/,
+  );
+});
+
+test("generic control and empty extents apply only to neutral containers", () => {
+  const emptyAppearance = {
+    directTextPresent: false,
+    nonFormatDirectTextPresent: false,
+    childElementCount: 0,
+    positiveAreaChildCount: 0,
+    beforeContentPresent: false,
+    afterContentPresent: false,
+    backgroundImagePresent: false,
+    maskImagePresent: false,
+    parentPointerCursor: false,
+  };
+  const nativeTags = ["img", "a", "input", "video", "p", "li"];
+  const excluded = [
+    ...nativeTags.map(tag => ({ tag, role: null, contentEditable: false })),
+    { tag: "div", role: "button", contentEditable: false },
+    { tag: "div", role: null, contentEditable: true },
+  ];
+  for (const base of excluded) {
+    for (const measured of [
+      { pointerCursor: null, borderPresent: null, aspectRatio: null },
+      { pointerCursor: true, borderPresent: true, aspectRatio: 1 },
+    ]) {
+      const wires = extractBasicKindWires({ ...emptyAppearance, ...base, ...measured });
+      const label = `${base.tag}/${base.role}/${base.contentEditable}/${measured.pointerCursor}`;
+      assert.equal(wires.own_pointer_boundary, 0, label);
+      assert.equal(wires.empty_pointer_extent, 0, label);
+      assert.equal(wires.empty_border_extent, 0, label);
+    }
+  }
+
+  const neutralMissing = extractBasicKindWires({
+    ...emptyAppearance,
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    pointerCursor: null,
+    borderPresent: null,
+    aspectRatio: null,
+  });
+  assert.equal(neutralMissing.own_pointer_boundary, null);
+  assert.equal(neutralMissing.empty_pointer_extent, null);
+  assert.equal(neutralMissing.empty_border_extent, null);
+});
+
+test("SVG internals, document roots and custom-element neutrality use measured relationships", () => {
+  const root = extractBasicKindWires({ tag: "svg", role: null, inSvgAncestor: false, tabIndexFocus: false });
+  assert.equal(root.svg_internal_part, 0);
+  assert.equal(extractBasicKindWires({ tag: "path", role: null, inSvgAncestor: true, tabIndexFocus: false }).svg_internal_part, 1);
+  assert.equal(extractBasicKindWires({ tag: "svg", role: null, inSvgAncestor: true, tabIndexFocus: false }).svg_internal_part, 1);
+  assert.equal(extractBasicKindWires({ tag: "path", role: "button", inSvgAncestor: true, tabIndexFocus: false }).svg_internal_part, 0);
+  assert.equal(extractBasicKindWires({ tag: "path", role: null, inSvgAncestor: true, tabIndexFocus: true }).svg_internal_part, 0);
+  assert.equal(extractBasicKindWires({ tag: "path", role: null }).svg_internal_part, null);
+  assert.equal(extractBasicKindWires({ tag: "html", role: null }).nat_document_root, 1);
+  assert.equal(extractBasicKindWires({ tag: "body", role: null }).nat_document_root, 1);
+  assert.equal(extractBasicKindWires({ tag: "div", role: null }).nat_document_root, 0);
+
+  const custom = {
+    tag: "acme-panel",
+    role: null,
+    contentEditable: false,
+    childElementCount: 2,
+    positiveAreaChildCount: 2,
+    singleChildTag: null,
+    withinControlAncestor: false,
+    descendantTextPresent: false,
+  };
+  const customWires = extractBasicKindWires(custom);
+  assert.equal(customWires.neutral_multi_child, 1);
+  assert.equal(customWires.neutral_single_child, 0);
+  assert.equal(
+    extractBasicKindWires(validateBasicKindProperties({ ...custom, tag: "acme-wrapper", childElementCount: 1, positiveAreaChildCount: 1, singleChildTag: "DIV" })).single_child_div,
+    1,
+  );
+  assert.equal(validateBasicKindProperties({ ...custom, singleChildTag: "DIV" }).singleChildTag, "div");
+  assert.equal(extractBasicKindWires({ tag: "b", role: null, nonFormatDirectTextPresent: true }).nat_inline_format_text, 1);
+  assert.equal(
+    extractBasicKindWires({ ...custom, tag: "span", childElementCount: 1, positiveAreaChildCount: 1, directTextPresent: false, descendantTextPresent: true, withinControlAncestor: false }).composite_descendant_text,
+    1,
+  );
+});
+
+test("same-rect neutral wrapper is scored separately from expanded groups and native controls", () => {
+  const profile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  profile.id = "same-rect-wrapper-test";
+  profile.familyWeights.structure.neutral_same_rect_wrapper = 0.7;
+  profile.leafWeights.ignore.neutral_same_rect_wrapper = 0.7;
+  profile.leafWeights.container.neutral_same_rect_wrapper = 0;
+  const shared = {
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    nonFormatDirectTextPresent: false,
+    childElementCount: 1,
+    positiveAreaChildCount: 1,
+    singleChildTag: "span",
+    repeatedChildGeometry: false,
+    inVerifiedListParent: false,
+    beforeContentPresent: false,
+    afterContentPresent: false,
+    backgroundImagePresent: false,
+    maskImagePresent: false,
+  };
+  const wrapper = { ...shared, tag: "span", singleChildSameRect: true };
+  const expanded = { ...shared, tag: "div", singleChildSameRect: false };
+  const nativeButton = { ...shared, tag: "button", singleChildSameRect: true };
+  const missing = { ...shared, tag: "span", singleChildSameRect: null };
+
+  assert.equal(extractBasicKindWires(wrapper).neutral_same_rect_wrapper, 1);
+  assert.equal(extractBasicKindWires(expanded).neutral_same_rect_wrapper, 0);
+  assert.equal(extractBasicKindWires(nativeButton).neutral_same_rect_wrapper, 0);
+  assert.equal(extractBasicKindWires(missing).neutral_same_rect_wrapper, null);
+  assert.equal(classifyBasicKind(wrapper, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, "ignore");
+  assert.equal(classifyBasicKind(expanded, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, "container");
+  assert.equal(classifyBasicKind(nativeButton, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, "button");
+  assert.equal(classifyBasicKind(missing, DEFAULT_BASIC_KIND_CONFIG, profile).familyStatus, "unknown");
+});
+
+function choiceAddendumProfile() {
+  const profile = zeroProfile();
+  profile.id = "choice-addendum-test";
+  profile.familyWeights.control.nat_control_button = 0.85;
+  profile.familyWeights.control.nat_control_select = 0.85;
+  profile.familyWeights.control.nat_input_tag = 0.85;
+  profile.familyWeights.control.own_pointer_boundary = 0.7;
+  profile.familyWeights.control.neutral_focusable_control = 0.85;
+  profile.familyWeights.control.neutral_list_choice = 0.85;
+  profile.leafWeights.button.nat_control_button = 0.85;
+  profile.leafWeights.button.own_pointer_boundary = 0.7;
+  profile.leafWeights.input.input_type_text = 0.85;
+  profile.leafWeights.input.neutral_focusable_control = 0.85;
+  profile.leafWeights.select.nat_control_select = 0.85;
+  profile.leafWeights.select.neutral_list_choice = 0.9;
+  return profile;
+}
+
+test("focusable neutral controls and direct-list choices separate positive and negative scores", () => {
+  const profile = choiceAddendumProfile();
+  const focusable = {
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    childElementCount: 1,
+    positiveAreaChildCount: 1,
+    pointerCursor: false,
+    parentPointerCursor: false,
+    tabIndexFocus: true,
+  };
+  const nonFocusable = { ...focusable, tabIndexFocus: false };
+  const focusableWires = extractBasicKindWires(focusable);
+  const nonFocusableWires = extractBasicKindWires(nonFocusable);
+  assert.equal(focusableWires.neutral_focusable_control, 1);
+  assert.equal(nonFocusableWires.neutral_focusable_control, 0);
+  assert.equal(extractBasicKindWires({ ...focusable, tabIndexFocus: null }).neutral_focusable_control, null);
+
+  const focusableResult = classifyBasicKind(focusable, DEFAULT_BASIC_KIND_CONFIG, profile);
+  const nonFocusableResult = classifyBasicKind(nonFocusable, DEFAULT_BASIC_KIND_CONFIG, profile);
+  assert.equal(focusableResult.basicKind, "input");
+  assert.equal(focusableResult.judgmentStatus, "judged");
+  assert.ok(focusableResult.score >= 0.6);
+  assert.ok(focusableResult.margin >= 0.15);
+  assert.equal(focusableResult.familyScores.control.min, 0.85);
+  assert.equal(nonFocusableResult.familyScores.control.min, 0);
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals(
+      "family",
+      ["control"],
+      { control: { neutral_focusable_control: 0.85 } },
+      extractBasicKindWires({ ...focusable, tabIndexFocus: null }),
+    ),
+    { control: { min: 0, max: 0.85 } },
+  );
+
+  const listChoice = {
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    childElementCount: 2,
+    positiveAreaChildCount: 1,
+    pointerCursor: true,
+    parentPointerCursor: false,
+    tabIndexFocus: false,
+    directListChildPresent: true,
+    descendantTextPresent: true,
+  };
+  const actionButton = { ...listChoice, childElementCount: 3, positiveAreaChildCount: 3, directListChildPresent: false };
+  const listWires = extractBasicKindWires(listChoice);
+  const buttonWires = extractBasicKindWires(actionButton);
+  assert.equal(listWires.neutral_list_choice, 1);
+  assert.equal(buttonWires.neutral_list_choice, 0);
+  assert.equal(extractBasicKindWires({ ...listChoice, directListChildPresent: null }).neutral_list_choice, null);
+  assert.equal(extractBasicKindWires({ ...listChoice, descendantTextPresent: null }).neutral_list_choice, null);
+
+  const listResult = classifyBasicKind(listChoice, DEFAULT_BASIC_KIND_CONFIG, profile);
+  const buttonResult = classifyBasicKind(actionButton, DEFAULT_BASIC_KIND_CONFIG, profile);
+  assert.equal(listResult.basicKind, "select");
+  assert.equal(buttonResult.basicKind, "button");
+  assert.ok(listResult.leafScores.select.min > listResult.leafScores.button.min);
+  assert.ok(listResult.leafScores.select.min - listResult.leafScores.button.min >= 0.15);
+  assert.ok(buttonResult.leafScores.button.min > buttonResult.leafScores.select.min);
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals(
+      "family",
+      ["control"],
+      { control: { neutral_list_choice: 0.85 } },
+      extractBasicKindWires({ ...listChoice, directListChildPresent: null }),
+    ),
+    { control: { min: 0, max: 0.85 } },
+  );
+
+  for (const [tag, fields, expected] of [
+    ["button", {}, "button"],
+    ["input", { inputType: "text" }, "input"],
+    ["select", {}, "select"],
+  ]) {
+    const native = {
+      tag,
+      role: null,
+      contentEditable: false,
+      ...fields,
+      pointerCursor: true,
+      parentPointerCursor: false,
+      tabIndexFocus: true,
+      directListChildPresent: true,
+      descendantTextPresent: true,
+    };
+    const nativeWires = extractBasicKindWires(native);
+    assert.equal(nativeWires.neutral_focusable_control, 0, tag);
+    assert.equal(nativeWires.neutral_list_choice, 0, tag);
+    assert.equal(classifyBasicKind(native, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, expected, tag);
+  }
+});
+
+test("direct-list measurement is validated and survives the training property reader", () => {
+  assert.equal(validateBasicKindProperties({ tag: "div", role: null }).directListChildPresent, null);
+  assert.equal(validateBasicKindProperties({ tag: "div", role: null, directListChildPresent: true }).directListChildPresent, true);
+  assert.throws(
+    () => validateBasicKindProperties({ tag: "div", role: null, directListChildPresent: "true" }),
+    /directListChildPresent/,
+  );
+
+  const request = {
+    schemaVersion: 1,
+    taskId: "dom.basic-kinds.v1",
+    rows: [{
+      sampleId: "direct-list-reader",
+      inputRef: { snapshotRef: "snapshot-reader", documentRef: "document-reader", frameRef: "top", nodeRef: "node-reader", index: 0 },
+      provenanceRef: "evidence-reader",
+      sourceAssociations: { snapshotRefs: ["snapshot-reader"], postRefs: [], assetRefs: [] },
+      candidateQualification: { status: "ok", reasons: [] },
+      captureCoverage: { frameContent: "captured", directChildren: "complete" },
+      properties: { tag: "div", role: null, directListChildPresent: true },
+      proposal: { ruleRef: null, label: null, status: "unmatched" },
+      review: { status: "verified", expectedLabel: "select", reviewerRef: "reviewer-reader", evidenceRef: "review-reader", otherReason: null },
+    }],
+  };
+  assert.equal(readBasicKindTrainingRequest(request).rows[0].properties.directListChildPresent, true);
+  delete request.rows[0].properties.directListChildPresent;
+  assert.equal(readBasicKindTrainingRequest(request).rows[0].properties.directListChildPresent, null);
+});
+
+test("choice wire migration registers explicit zeros without changing old intervals", () => {
+  const cells = [
+    ["familyWeights", "control", "neutral_focusable_control"],
+    ["familyWeights", "control", "neutral_list_choice"],
+    ["familyWeights", "structure", "neutral_focusable_control"],
+    ["familyWeights", "structure", "neutral_list_choice"],
+    ["leafWeights", "input", "neutral_focusable_control"],
+    ["leafWeights", "input", "neutral_list_choice"],
+    ["leafWeights", "button", "neutral_focusable_control"],
+    ["leafWeights", "button", "neutral_list_choice"],
+    ["leafWeights", "select", "neutral_focusable_control"],
+    ["leafWeights", "select", "neutral_list_choice"],
+    ["leafWeights", "container", "neutral_focusable_control"],
+    ["leafWeights", "container", "neutral_list_choice"],
+    ["leafWeights", "ignore", "neutral_focusable_control"],
+    ["leafWeights", "ignore", "neutral_list_choice"],
+  ];
+  assert.ok(BASIC_KIND_WIRE_NAMES.includes("neutral_focusable_control"));
+  assert.ok(BASIC_KIND_WIRE_NAMES.includes("neutral_list_choice"));
+  const old = structuredClone(LEGACY_BASIC_KIND_PROFILE);
+  for (const [group, target, wire] of cells) delete old[group][target][wire];
+  const before = structuredClone(old);
+  const migrated = migrateBasicKindProfile(old);
+  assert.deepEqual(old, before);
+  for (const [group, target, wire] of cells) assert.equal(migrated[group][target][wire], 0, `${group}.${target}.${wire}`);
+
+  const wires = extractBasicKindWires({
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    childElementCount: 2,
+    positiveAreaChildCount: 1,
+    pointerCursor: true,
+    parentPointerCursor: false,
+    tabIndexFocus: true,
+    directListChildPresent: true,
+    descendantTextPresent: true,
+  });
+  const familyNames = Object.keys(BASIC_KIND_FAMILIES);
+  const leafNames = Object.values(BASIC_KIND_FAMILIES).flat();
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals("family", familyNames, migrated.familyWeights, wires),
+    computeBasicKindStageRawIntervals("family", familyNames, old.familyWeights, wires),
+  );
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals("leaf", leafNames, migrated.leafWeights, wires),
+    computeBasicKindStageRawIntervals("leaf", leafNames, old.leafWeights, wires),
+  );
+});
+
+test("combobox family migration adds zero without changing original coefficients", () => {
+  const old = structuredClone(LEGACY_BASIC_KIND_PROFILE);
+  delete old.familyWeights.control.input_text_combobox;
+  old.familyWeights.control.nat_input_tag = 0.37;
+  old.familyWeights.control.role_select = 0.29;
+  old.leafWeights.input.input_type_text = 0.61;
+  const before = structuredClone(old);
+  const migrated = migrateBasicKindProfile(old);
+  assert.deepEqual(old, before);
+  assert.equal(migrated.familyWeights.control.input_text_combobox, 0);
+  assert.equal(migrated.familyWeights.control.nat_input_tag, 0.37);
+  assert.equal(migrated.familyWeights.control.role_select, 0.29);
+  assert.equal(migrated.leafWeights.input.input_type_text, 0.61);
 });

@@ -36,6 +36,8 @@
       cursor: pointer;
     }
     #fixture-detail { margin-top: 12px; color: #64748b; font-size: 13px; }
+    #fixture-ignored-parent { position: relative; width: 160px; height: 36px; }
+    #fixture-ignored-child { position: absolute; inset: 0; width: 100%; height: 100%; }
     #codex-browser-sidebar-comments-root {
       position: fixed;
       left: 24px;
@@ -76,6 +78,9 @@
     <p id="status-text">Benign content 0</p>
     <button id="target-button" type="button">Visible target button</button>
     <div id="fixture-detail"><span id="detail-copy">Small stable content</span></div>
+    <div id="fixture-ignored-parent"><button id="fixture-ignored-child" type="button">Child remains</button></div>
+    <div id="fixture-unresolved">Unresolved fixture</div>
+    <span id="fixture-conflict" role="button" tabindex="0">Conflict fixture</span>
   </main>
 
   <aside id="codex-browser-sidebar-comments-root" aria-label="observer controls">

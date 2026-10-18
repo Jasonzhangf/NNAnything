@@ -97,6 +97,8 @@ export function createBrowserOverlayNodeDefinitions(resources: {
             judged: slots.filter(slot => slot.judgmentStatus === "judged").length,
             unknown: slots.filter(slot => slot.candidateStatus === "ok" && slot.judgmentStatus === "unknown").length,
             conflict: slots.filter(slot => slot.judgmentStatus === "conflict").length,
+            ignored: slots.filter(slot => slot.judgmentStatus === "judged" && slot.basicKind === "ignore").length,
+            unresolved: slots.filter(slot => slot.candidateStatus === "ok" && (slot.judgmentStatus === "unknown" || slot.judgmentStatus === "conflict")).length,
             excluded: slots.filter(slot => slot.candidateStatus !== "ok").length,
             candidateUnknown: slots.filter(slot => slot.candidateStatus === "unknown").length },
           focus: root && source.candidateBatch.candidateRefs.includes(root.nodeRef)
@@ -125,6 +127,7 @@ export function createBrowserCaptureNodeDefinitions(resources: {
       if (input.action === "export") receipt = await resources.session.export(resources.download);
       else if (input.action === "capture_selected") receipt = resources.session.captureSelected(input.frame as BrowserOverlayFrame, expectNonEmptyString(input.nodeRef, "nodeRef"), input.annotation as BrowserCaptureAnnotation);
       else if (input.action === "collect_unknown") receipt = resources.session.collectUnknown(input.frame as BrowserOverlayFrame);
+      else if (input.action === "collect_unresolved") receipt = resources.session.collectUnresolved(input.frame as BrowserOverlayFrame);
       else throw new TypeError("Unsupported browser capture action");
       return context.emit({ action: input.action, receipt });
     },

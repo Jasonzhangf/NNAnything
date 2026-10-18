@@ -1,6 +1,6 @@
 # 节点训练 workflow 设计
 
-状态：2026-10-17，0.1.0 已实现。本文是当前第一层 DOM 基础种类离线训练的合同、连线与验收说明。六个训练算子（training.prepare / partition / fit / compare / assess / report @ 0.1.0）已实现并通过 Flowed 调度与公开 Consumer 验证；内部使用真实 Handwired Circuit evaluate/backprop 梯度反传与 Adam 优化器完成参数拟合。保存的候选 profile 绝不自动替换基础 profile；初始及候选参数保持未校准（uncalibrated）；新拟合使旧校准失效。
+状态：2026-10-17，候选内容，实施中复核（candidate under verification）。本文是当前第一层 DOM 基础种类离线训练的合同、连线与验收说明。六个训练算子（training.prepare / partition / fit / compare / assess / report @ 0.1.0）与真实 Handwired Circuit evaluate/backprop 拟合路径存在；本增量的小红书纠错集、旧黄金及场景回归尚未完成整体交付，不能据此宣称候选已采用或未知已清零。保存的候选 profile 绝不自动替换基础 profile；初始及候选参数保持未校准（uncalibrated）；新拟合使旧校准失效。
 
 外层复用已有事件、节点与 Flowed 执行合同，不增加调度器。内部使用 Handwired 数值图。workflow 的边不传梯度；拟合循环在 training.fit 内部执行，不给 DAG 增加回边。基础前向算法与类别真源见 [基础种类连线](basic-kinds-wiring.md)，持久拓扑唯一位于 [训练图](../workflows/node-training.graph.json)。
 
@@ -18,7 +18,9 @@ flowchart TD
   linkStyle default stroke:#475569
 ```
 
-class、id、name、正文、完整 URL 和根路径只用于 teacher 与原始证据。学生仅接收基础分类器已声明的属性。未采到 name 时不能编造。规则未命中、缺测、候选排除、模型输出 other 均不自动成为黄金 other 或负例。现有 sample.match 可提供语义提议；已实现的二分类 TaskDataset 不直接变成这次的多分类训练集。
+class、id、name、正文、完整 URL 和根路径只用于 teacher 与原始证据，不进入学生数值输入。学生仅接收基础分类器已声明的属性。未采到 name 时不能编造。规则未命中、缺测、候选排除、模型输出 other 均不自动成为黄金 other 或负例。现有 sample.match 可提供语义提议；已实现的二分类 TaskDataset 不直接变成这次的多分类训练集。
+
+教师复核必须记录实际来源。`reviewerRef` 若来自 LLM teacher，要明确标识 LLM 及其证据引用，不能写成 human；人工复核另记 human 标识。后续补充测量合并入既有 91 行纠错集时，`provenanceRef` 与证据侧车必须同时表达原始采集和补充观测来源，形成混合观测来源记录；不能覆盖原值而丢失第一次观测边界。修正后的小红书台账为 91 行：86 行已知、5 行 ambiguous。已知行为 ignore 52、container 14、text 0、list 1、button 16、select 2、input 1；ambiguous 行为 5、9、13、20、32。
 
 当前小红书、知乎本地返回记录共 5099 条，均为 gold=false 的提议样本。小红书首页和详情含共同背景，不是独立来源。旧微博归档缺少候选裁剪证据，仍保留原资格状态。这些资料不能直接进入训练并宣称准确率。
 
@@ -40,7 +42,7 @@ flowchart TD
   linkStyle default stroke:#475569
 ```
 
-六节点、六条内部边，单输入 training_request、单输出 training_result。配置见 [持久配置](../workflows/node-training.workflow.json)。算子版本与工作流绑定均为 0.1.0（[训练图](../workflows/node-training.graph.json) 为 6N6E SESE）。
+六节点、六条内部边，单输入 training_request、单输出 training_result。配置见 [持久配置](../workflows/node-training.workflow.json)。算子版本与工作流绑定均为 0.1.0；现有 [训练图](../workflows/node-training.graph.json) 保持 6N6E SESE，[标注图](../workflows/browser-visual-overlay.graph.json) 保持 4N3E，[采集图](../workflows/browser-capture.graph.json) 保持 1N0E。本增量不改变外层拓扑。
 
 | 节点 / 算子 | 输入 | 输出及唯一职责 |
 | --- | --- | --- |
@@ -67,7 +69,7 @@ iframe 宿主和内部文档分别采集。frame 内部节点也是独立分类�
 
 ## 4. 复核多分类样本与来源分区
 
-以下是待实现的概念合同，不是现有 TaskDataset 的扩展或已导出的 API。新合同归 lib/training，转换工具明确投影，旧二分类组装器保持原义。
+以下多分类合同由 lib/training 的 `basic-kind-samples` 合同实现，并通过 prepare 的公开 workflow 接点消费；它不是旧二分类 TaskDataset 的扩展。转换工具负责显式投影，旧二分类组装器保持原义。
 
 ```ts
 type ReviewedBasicKindRow = {
@@ -97,11 +99,11 @@ type BasicKindTrainingRequest = {
 };
 ```
 
-frameRef 是当前采集内的关联引用，不是根到节点的绝对路径。未读到的 iframe 文档不创建虚构子节点行，而在原始采集清单记录覆盖缺口。学生投影只取 properties；所有来源、teacher、复核和资格字段均不进入数值向量。复核可由人工或有证据的 LLM 完成，需保存实际复核者与证据引用；规则输出不能自行把 status 改为 verified。
+frameRef 是当前采集内的关联引用，不是根到节点的绝对路径。未读到的 iframe 与 shadow 内部不创建虚构子节点行，保持 unassessed，不标为 other；只在原始采集清单记录覆盖缺口。学生投影只取 properties；所有来源、teacher、复核和资格字段均不进入数值向量。复核可由人工或有证据的 LLM 完成，需保存实际复核者与证据引用；规则输出不能自行把 status 改为 verified。
 
 prepare 有两种显式输入范围。默认 candidate_qualified 要求原槽位为 ok。properties_offline 只做离线单节点属性试验，接收合法属性并保留缺测；原候选状态不改写，结果不能证明浏览器候选链通过。两种范围都要求 verified 且有明确期望标签，不增加未复核训练模式。全 null 的合法属性输入可保留为诊断，但若没有可区分信息，不承诺其可拟合。
 
-缺测保持 null，不以零子节点或零面积代替不完整采集。旧样本没有 `svgGraphicChildren` 时，训练请求验证与 fit-row 投影补为 null，不把它当作 false。黄金 other 需复核确认不属于当前 11 个细类，并给出原因；未知真值留在待复核池。模型因为缺测输出 other，而复核真值是 input 时，训练目标仍为 input。
+缺测保持 null，不以零子节点或零面积代替不完整采集。旧样本没有 `svgGraphicChildren` 时，训练请求验证与 fit-row 投影补为 null，不把它当作 false。黄金 other 需复核确认不属于当前 12 个细类，并给出原因；未知真值留在待复核池。模型因为缺测输出 other，而复核真值是 input 时，训练目标仍为 input。来源留出样本只做留出评估，不能进入 in-sample 拟合。
 
 prepare 输出保序槽位、每行纳入理由和可训练索引。partition 按共享 snapshot/post/asset 引用的传递关联形成来源组。相同背景的跨页面或跨 frame 也归同组；不得把每个 frame 自动当作独立来源。缺少关联证据时报告隔离不充分，不能声称已排除泄漏。组内保持原序和重复；不随机拆 DOM 行。按固定 seed 对来源组洗牌后划分 train/eval，不计算哈希或 checksum。
 
@@ -115,12 +117,14 @@ source_group_holdout 模式至少需要两个可分的来源组，并确保两�
 | --- | --- | --- |
 | prepare | prepareSpec：taskId、inputScope | 入口已加载样本；无文件读写 |
 | partition | partitionSpec：分组模式、seed、evalFraction | 无副作用 |
-| fit | targetSpec：固定推理门限、损失目标、学习率、轮数、锚定系数 | factory 显式接收 handwiredRoot；profileId 绑定基础参数；声明 filesystem.read |
+| fit | targetSpec：固定推理门限、损失目标、学习率、轮数、锚定系数，可选 fit.trainableWires | factory 显式接收 handwiredRoot；profileId 绑定基础参数；声明 filesystem.read |
 | compare | 同一 targetSpec | 同一基础 profile；调用正式前向；无副作用 |
 | assess | assessSpec：是否要求黄金样本无退化 | 无副作用 |
 | report | reportSpec：权重与结果的相对目录 | factory 显式接收 allowedRoot；声明 filesystem.write |
 
 filesystem.read 只授权显式后端源码根；filesystem.write 只授权 report 的 allowedRoot。配置本身不授予能力。运行时显式传入的后端、文件访问对象和观测者由节点工厂闭包绑定，不往现有 NodeExecutionContext 假加未实现的服务字段。
+
+`fit.trainableWires` 是显式的 wire 名称名单。省略时沿用全参数拟合；提供时，只有名单内 wire 对应的已注册权重可更新。空名单冻结全部权重。未入名单的权重不执行优化器更新，也不计入锚定惩罚，输出值保持基础 profile 的原值。名单不改变前向观测、缺测区间或 Handwired 反传图，也不自动补注册权重。新增 wire 的首轮增量可只训练这些新路径，避免没有旧训练回放时漂移已有系数；是否解冻旧 wire 由下次训练配置和独立回归决定。
 
 各 ARC 的设计 schemaId 为 training/basic-kinds/{request,samples,partitions,candidate,comparison,assessment,result}/v1，对应事件类型 training.{request,samples,partitions,candidate,comparison,assessment,result}.v1。端口按第 2 节表和 graph.inputs 顺序绑定；compare 先 candidate、后 partitions。业务 schema 在实现时逐端口验证，图中的 Object 不代替它。
 
@@ -140,7 +144,7 @@ compare 在相同样本上调用正式分类器，分别报告 train/eval。已�
 
 ## 7. training.fit 内部的手写数值连线
 
-这是待实现的数值训练图。每次更新走相同路径，epochs 是 fit 内部有限循环。下图展示一轮的数据与梯度依赖，不是给外层 DAG 增加回边。
+这是 training.fit 内部的 Handwired 数值训练图。每次更新走相同路径，epochs 是 fit 内部有限循环。下图展示一轮的数据与梯度依赖，不是给外层 DAG 增加回边。
 
 ```mermaid
 flowchart TD
@@ -172,11 +176,11 @@ L/O 按复核标签选择损失，不表示同一个输入接受两个标签。�
 | --- | --- |
 | 属性白名单、wire 条件与缺测适用性、五大类和类内标签、两层顺序、门限、稀疏连线键、损失与参数区间 | profile.familyWeights、profile.leafWeights 已声明键的系数，含显式声明的零系数 |
 
-旧 profile 迁移由 `migrateBasicKindProfile(raw)` 唯一维护。它在验证后克隆 id 与全部旧权重，只补齐十个新目标与 wire 条目的缺失 0：media/image 的 `nat_svg` 与 `svg_graphic_children`，structure/container 的 `div_single_child`，text/text 的 `div_leaf` 与 `div_direct_text` 在两个阶段各一项。已存在的新系数保留。训练 profile 加载显式调用迁移，sparse cells 因此为这些显式 0 键建立 `Circuit.source` 参数，可从零开始学习。迁移不增加 profile 版本、校准或门限字段，不修改旧对象，也不自动采用候选。
+旧 profile 迁移由 `migrateBasicKindProfile(raw)` 唯一维护。它在验证后克隆 id 与全部旧权重，只补齐已登记新目标与 wire 条目的缺失 0：media/image 的 `nat_svg` 与 `svg_graphic_children`，structure/container 的 `div_single_child`，text/text 的 `div_leaf` 与 `div_direct_text` 在两个阶段各一项；其余呈现、关系、连续几何和 ignore 地址同样按名补 0。已存在的新系数保留。训练 profile 加载显式调用迁移，sparse cells 因此为这些显式 0 键建立 `Circuit.source` 参数，可从零开始学习。迁移补 0 不等于已有训练新权重或输入已测量。迁移不增加 profile 版本、校准或门限字段，不修改旧对象，也不自动采用候选。
 
 初版不新增 bias、不自动加边、不训练门限。disabled/hidden 等初值为零的系数没有未经证据支持的否决权。没有激活或只有缺测的特征不能凭训练补出事实。
 
-properties、extractWires 和区间前向目前是 basic-kinds.ts 的内部实现。后续先在该 owner 最小提取共享属性验证、wire 名称/顺序、阶段/稀疏项描述与原始上下界计算。正式分类与训练 adapter 共用这份描述，不能在训练目录重写 tag/role/几何条件。Handwired 只将相同项描述编译为数值算子，并以正式前向对齐验证翻译结果。
+properties、`extractBasicKindWires` 与区间前向由 `lib/filters/basic-kinds.ts` 唯一维护。正式分类与训练 adapter 共用该实现，不在训练目录重写 tag/role/几何条件。Handwired 将相同 wire 与 profile 项编译为数值算子，并以正式前向对齐验证翻译结果。
 
 ### 缺测区间与 Handwired 连接
 
@@ -250,8 +254,8 @@ ReLU 在零点采用零次梯度。一个初值为零且一直缺测的 wire，�
 
 实时DOM及原始回放调用相同纯`shapeAppearanceMeasurements`，产生非格式直接文本与四项CSS存在性参数；采集、样本读取、prepare和分类统一使用`validateBasicKindProperties`规范化typed properties。不从teacher正文重建缺少的观测。旧样本省略新字段时回载为null，不填false，不补训练标签。已保存派生特征直接回载，不再次清理原始文本。
 
-本轮六条新wire与四十二个目标地址初始为显式0，由既有Handwired sparse cells拟合。输入、连线和迁移唯一合同见`docs/basic-kinds-wiring.md`。exploration相对节点摘要与measurementCoverage保留五项新特征；旧导出缺新项时分别为null及unmeasured，旧必需项维持原合同。
+本轮呈现六条新wire与四十二个目标地址、关系与连续几何 wire 及 ignore 叶子地址初始为显式0，由既有 Handwired sparse cells 拟合。输入、连线和迁移唯一合同见 `docs/basic-kinds-wiring.md`。exploration 相对节点摘要与 measurementCoverage 保留五项新特征；旧导出缺新项时分别为 null 及 unmeasured，旧必需项维持原合同。
 
-relation／类别条件关系、布局包装保留／忽略尚未进入数值拟合。合成训练证明系数能学习，不证明三站未知已准确标注。候选保持not_applied、uncalibrated，旧黄金与新页面留出不参与本轮调参。
+relation／类别条件关系已按显式 wire 进入两阶段数值电路；布局包装的 `structure/ignore` 是同一电路中的可训练叶子，不是独立头或硬过滤。当前新增关系、连续几何与 ignore 系数仍为迁移/默认 0，没有已激活的候选新权重。真实 Handwired 拟合与公开 workflow 是采用前必需证据；现有 357 条黄金评估只能用于旧黄金回归，永不进入拟合。合成训练证明系数可学习，不证明三站未知已准确标注。候选保持 not_applied、uncalibrated，新页面与来源留出不参与本轮调参。
 
 后续消融固定相同来源分组与留出，依次比较仅节点属性、加直接父子、加跨层包含、再加两端类别。类别预测须来自独立或out-of-fold推理，不能用测试真值当输入。报告目标分类与保留/忽略错误、内容丢失和关系边错误，不能只比unknown数；实际实验等标定后进行。忽略仅影响语义视图，不剪掉后代或把包装变基础负例。真实浏览器fixture为`playground/exploration/`；本次验收输入链路，不宣称完成语义消融。

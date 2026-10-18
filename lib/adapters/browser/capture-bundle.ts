@@ -25,7 +25,7 @@ export interface BrowserOverlayFrame {
 }
 export interface OverlayCounts {
   readonly totalNodes: number; readonly candidates: number; readonly judged: number; readonly unknown: number;
-  readonly conflict: number; readonly excluded: number; readonly candidateUnknown: number;
+  readonly conflict: number; readonly ignored: number; readonly unresolved: number; readonly excluded: number; readonly candidateUnknown: number;
 }
 export interface OverlayView {
   readonly boxes: readonly OverlayBox[];
@@ -54,7 +54,13 @@ export interface BrowserCaptureBundleV1 {
 }
 export interface BrowserCaptureStats { readonly total: number; readonly verified: number; readonly unreviewed: number; readonly ambiguous: number; readonly rejected: number }
 export interface BrowserCaptureRowReceipt { readonly sampleId: string; readonly reviewStatus: ReviewedBasicKindRow["review"]["status"]; readonly updated: boolean }
-export interface BrowserCaptureBulkReceipt { readonly eligibleUnknown: number; readonly collected: number; readonly existingReviewed: number; readonly existingPending: number }
+export interface BrowserCaptureBulkReceipt {
+  readonly eligibleUnknown: number;
+  readonly eligibleConflict?: number;
+  readonly collected: number;
+  readonly existingReviewed: number;
+  readonly existingPending: number;
+}
 export type BrowserCaptureDownloadCallback = (bundle: BrowserCaptureBundleV1, fileName: string) => unknown | Promise<unknown>;
 export interface BrowserCaptureExportReceipt { readonly fileName: string; readonly rowCount: number; readonly downloadReceipt: unknown }
 
@@ -141,6 +147,19 @@ export class BrowserCaptureSession {
       this.put(frame, slot.nodeRef, null); collected++;
     }
     return { eligibleUnknown, collected, existingReviewed, existingPending };
+  }
+  collectUnresolved(frame: BrowserOverlayFrame): BrowserCaptureBulkReceipt {
+    let eligibleUnknown = 0, eligibleConflict = 0, collected = 0, existingReviewed = 0, existingPending = 0;
+    for (const slot of frame.basicKindBatch.slots) {
+      if (slot.candidateStatus !== "ok" || (slot.judgmentStatus !== "unknown" && slot.judgmentStatus !== "conflict")) continue;
+      if (slot.judgmentStatus === "unknown") eligibleUnknown++;
+      else eligibleConflict++;
+      const key = `${this.sessionId}:${frame.snapshot.snapshotRef}:${frame.snapshot.frameRef}:${slot.nodeRef}`;
+      const existing = this.rows.get(key);
+      if (existing) { if (existing.review.status === "unreviewed") existingPending++; else existingReviewed++; continue; }
+      this.put(frame, slot.nodeRef, null); collected++;
+    }
+    return { eligibleUnknown, eligibleConflict, collected, existingReviewed, existingPending };
   }
   stats(): BrowserCaptureStats {
     const counts = { total: this.rows.size, verified: 0, unreviewed: 0, ambiguous: 0, rejected: 0 };

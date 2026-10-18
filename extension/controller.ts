@@ -46,6 +46,7 @@ export const CATEGORY_COLORS: Record<string, { border: string; bg: string; text:
   image: { border: "#ec4899", bg: "rgba(236, 72, 153, 0.12)", text: "#db2777", zh: "图片" },
   video: { border: "#db2777", bg: "rgba(219, 39, 119, 0.12)", text: "#be185d", zh: "视频" },
   audio: { border: "#e11d48", bg: "rgba(225, 29, 72, 0.12)", text: "#be123c", zh: "音频" },
+  ignore: { border: "#94a3b8", bg: "rgba(148, 163, 184, 0.08)", text: "#64748b", zh: "忽略" },
   other: { border: "#64748b", bg: "rgba(100, 116, 139, 0.10)", text: "#475569", zh: "其他" },
 };
 
@@ -90,7 +91,7 @@ export class DOMInspectorController {
   private selectedNodeRef: string | null = null;
 
   private showAllLabels: boolean = false;
-  private categoryFilters: Set<string> = new Set(Object.keys(CATEGORY_COLORS).concat(["unknown", "conflict"]));
+  private categoryFilters: Set<string> = new Set(Object.keys(CATEGORY_COLORS).filter(key => key !== "ignore").concat(["unknown", "conflict"]));
 
   private isPickingMode: "inspect" | "focus" | null = null;
   private rafId: number | null = null;
@@ -686,6 +687,8 @@ export class DOMInspectorController {
 
       const boxEl = this.doc.createElement("div");
       boxEl.className = "box";
+      boxEl.dataset.nodeRef = box.nodeRef;
+      boxEl.dataset.basicKind = kind;
       boxEl.style.left = `${box.rect.x}px`;
       boxEl.style.top = `${box.rect.y}px`;
       boxEl.style.width = `${box.rect.width}px`;
@@ -850,6 +853,8 @@ export class DOMInspectorController {
       judged: 0,
       unknown: 0,
       conflict: 0,
+      ignored: 0,
+      unresolved: 0,
       excluded: 0,
       candidateUnknown: 0,
     };
@@ -877,6 +882,7 @@ export class DOMInspectorController {
     addMetric("已判断", counts.judged);
     addMetric("未知", counts.unknown);
     addMetric("冲突", counts.conflict);
+    addMetric("忽略", counts.ignored);
     addMetric("已排除", counts.excluded);
 
     body.appendChild(metricsGrid);
@@ -936,7 +942,7 @@ export class DOMInspectorController {
     allBtn.className = "btn";
     allBtn.textContent = "全部";
     allBtn.onclick = () => {
-      this.categoryFilters = new Set(Object.keys(CATEGORY_COLORS).concat(["unknown", "conflict"]));
+      this.categoryFilters = new Set(Object.keys(CATEGORY_COLORS).filter(key => key !== "ignore").concat(["unknown", "conflict"]));
       this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
       this.renderPanel();
     };
@@ -945,7 +951,7 @@ export class DOMInspectorController {
     knownBtn.className = "btn";
     knownBtn.textContent = "仅已知";
     knownBtn.onclick = () => {
-      this.categoryFilters = new Set(Object.keys(CATEGORY_COLORS));
+      this.categoryFilters = new Set(Object.keys(CATEGORY_COLORS).filter(key => key !== "ignore"));
       this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
       this.renderPanel();
     };
@@ -1013,7 +1019,7 @@ export class DOMInspectorController {
       this.renderSelectedNodeSection(body);
     }
 
-    // 6. Bulk Unknown Collection & Session Export
+    // 6. Bulk Unresolved Collection & Session Export
     const sessionSection = this.doc.createElement("div");
     sessionSection.className = "details-block";
 
@@ -1022,9 +1028,9 @@ export class DOMInspectorController {
     sessionTitle.textContent = "样本采集与导出";
     sessionSection.appendChild(sessionTitle);
 
-    const eligibleUnknownCount = this.presentedFrame?.basicKindBatch.slots.filter(
-      (slot: BasicKindSlot) => slot.candidateStatus === "ok" && slot.judgmentStatus === "unknown"
-    ).length ?? 0;
+    const eligibleUnresolvedCount = this.currentFrame
+      ? Number(this.currentFrame.presentation.view.counts.unresolved ?? 0)
+      : 0;
 
     const stats = this.captureSession.stats();
 
@@ -1034,7 +1040,7 @@ export class DOMInspectorController {
     statsText.innerHTML = `
       <div><strong>会话样本:</strong> 总计 ${stats.total} 条</div>
       <div style="color: #64748b; font-size: 10px;">
-        已确认: ${stats.verified} | 标错: ${stats.rejected} | 待定: ${stats.ambiguous} | 未复核未知: ${stats.unreviewed}
+        已确认: ${stats.verified} | 标错: ${stats.rejected} | 待定: ${stats.ambiguous} | 未复核: ${stats.unreviewed}
       </div>
     `;
     sessionSection.appendChild(statsText);
@@ -1044,10 +1050,10 @@ export class DOMInspectorController {
 
     const bulkUnknownBtn = this.doc.createElement("button");
     bulkUnknownBtn.className = "btn";
-    bulkUnknownBtn.textContent = `一键收集当前未知 (${eligibleUnknownCount})`;
-    bulkUnknownBtn.disabled = eligibleUnknownCount === 0 || !this.currentFrame;
+    bulkUnknownBtn.textContent = `一键收集未知与冲突 (${eligibleUnresolvedCount})`;
+    bulkUnknownBtn.disabled = eligibleUnresolvedCount === 0 || !this.currentFrame;
     bulkUnknownBtn.onclick = async () => {
-      await this.runCaptureAction({ action: "collect_unknown" });
+      await this.runCaptureAction({ action: "collect_unresolved" });
     };
 
     const exportBtn = this.doc.createElement("button");
@@ -1314,7 +1320,7 @@ export class DOMInspectorController {
   }
 
   private async runCaptureAction(input: {
-    action: "capture_selected" | "collect_unknown" | "export";
+    action: "capture_selected" | "collect_unresolved" | "export";
     nodeRef?: string;
     annotation?: BrowserCaptureAnnotation;
   }): Promise<any> {

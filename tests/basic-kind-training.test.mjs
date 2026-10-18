@@ -30,6 +30,8 @@ import {
   readBasicKindTrainingRequest,
   toBasicKindFitRows,
   writeBasicKindTrainingArtifacts,
+  fitBasicKinds,
+  validateBasicKindTrainingConfig,
 } from "nnanything/training";
 
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
@@ -177,10 +179,24 @@ test("training rows roundtrip nullable appearance fields without reconstructing 
       backgroundImagePresent: false, maskImagePresent: null },
   });
   const parsed = readBasicKindTrainingRequest(request([fresh])).rows[0];
-  assert.deepEqual(parsed.properties, fresh.properties);
+  const projectedFreshProperties = {
+    ...fresh.properties,
+    pointerCursor: null,
+    parentPointerCursor: null,
+    tabIndexFocus: null,
+    borderPresent: null,
+    aspectRatio: null,
+    descendantTextPresent: null,
+    directListChildPresent: null,
+    singleChildTag: null,
+    singleChildSameRect: null,
+    withinControlAncestor: null,
+    inSvgAncestor: null,
+  };
+  assert.deepEqual(parsed.properties, projectedFreshProperties);
   const prepared = prepareBasicKindSamples(readBasicKindTrainingRequest(request([fresh])), prepareConfig);
   assert.deepEqual(prepared.includedIndices, [0]);
-  assert.deepEqual(toBasicKindFitRows(prepared)[0].properties, fresh.properties);
+  assert.deepEqual(toBasicKindFitRows(prepared)[0].properties, projectedFreshProperties);
   assert.throws(() => readBasicKindTrainingRequest(request([{
     ...fresh,
     properties: { ...fresh.properties, backgroundImage: "url(secret)" },
@@ -533,6 +549,97 @@ test("public six-node consumer trains a migrated zero coefficient and parse relo
   assert.equal(reloadedAsset.profile.familyWeights.media.nat_svg, rawAsset.profile.familyWeights.media.nat_svg);
   assert.equal(classifyBasicKind(source, DEFAULT_BASIC_KIND_CONFIG, reloadedAsset.profile).basicKind, "image");
   assert.equal(reloadedAsset.calibrated, false);
+});
+
+test("incremental fit freezes all non-allowlisted wires and keeps the full Handwired graph", async t => {
+  try {
+    await stat(join(handwiredRoot, "src/runtime/numeric-ui-core.ts"));
+  } catch {
+    t.skip(`Handwired source root unavailable: ${handwiredRoot}`);
+    return;
+  }
+
+  const combobox = { tag: "input", role: "combobox", ...complete, inputType: "text" };
+  const rows = [
+    {
+      properties: combobox,
+      expectedLabel: "input",
+    },
+  ];
+  const baseProfile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  baseProfile.id = "incremental-mask-base";
+  baseProfile.familyWeights.control.input_text_combobox = 0;
+  baseProfile.leafWeights.input.input_text_combobox = 0;
+  baseProfile.leafWeights.select.input_text_combobox = 0;
+  const config = trainingConfig({
+    fit: {
+      epochs: 14,
+      learningRate: 0.03,
+      anchorLambda: 0.01,
+      trainableWires: ["input_text_combobox"],
+    },
+  });
+  const frozenBefore = {
+    nat_input_tag: baseProfile.familyWeights.control.nat_input_tag,
+    role_select: baseProfile.leafWeights.select.role_select,
+    role_select_family: baseProfile.familyWeights.control.role_select,
+  };
+  const oldJudgment = classifyBasicKind(combobox, {
+    taskId: "dom.basic-kinds.v1",
+    minScore: config.minScore,
+    minMargin: config.minMargin,
+  }, baseProfile);
+
+  const fitted = await fitBasicKinds({
+    handwiredRoot,
+    rows,
+    baseProfile,
+    config,
+    candidateId: "incremental-mask-candidate",
+  });
+
+  assert.equal(fitted.profile.familyWeights.control.nat_input_tag, frozenBefore.nat_input_tag);
+  assert.equal(fitted.profile.leafWeights.input.nat_input_tag, baseProfile.leafWeights.input.nat_input_tag);
+  assert.equal(fitted.profile.leafWeights.select.role_select, frozenBefore.role_select);
+  assert.equal(fitted.profile.familyWeights.control.role_select, frozenBefore.role_select_family);
+  assert.equal(fitted.profile.familyWeights.control.input_type_text, baseProfile.familyWeights.control.input_type_text);
+  assert.equal(fitted.profile.leafWeights.input.input_type_text, baseProfile.leafWeights.input.input_type_text);
+  assert.notEqual(fitted.profile.leafWeights.input.input_text_combobox, baseProfile.leafWeights.input.input_text_combobox);
+  assert.ok(fitted.lossAfter < fitted.lossBefore);
+  const newJudgment = classifyBasicKind(combobox, {
+    taskId: "dom.basic-kinds.v1",
+    minScore: config.minScore,
+    minMargin: config.minMargin,
+  }, fitted.profile);
+  assert.equal(oldJudgment.basicKind, "other");
+  assert.equal(newJudgment.basicKind, "input");
+});
+
+test("empty incremental allowlist is an exact optimizer identity", async t => {
+  try {
+    await stat(join(handwiredRoot, "src/runtime/numeric-ui-core.ts"));
+  } catch {
+    t.skip(`Handwired source root unavailable: ${handwiredRoot}`);
+    return;
+  }
+
+  const baseProfile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  baseProfile.id = "incremental-mask-identity-base";
+  const rows = [{ properties: { tag: "input", role: "combobox", ...complete, inputType: "text" }, expectedLabel: "input" }];
+  const config = trainingConfig({ fit: { epochs: 4, learningRate: 0.03, anchorLambda: 0.01, trainableWires: [] } });
+  const fitted = await fitBasicKinds({ handwiredRoot, rows, baseProfile, config, candidateId: "incremental-mask-identity" });
+
+  assert.deepEqual(fitted.profile.familyWeights, baseProfile.familyWeights);
+  assert.deepEqual(fitted.profile.leafWeights, baseProfile.leafWeights);
+  assert.equal(fitted.lossAfter, fitted.lossBefore);
+  assert.equal(fitted.trajectory.every(progress => progress.anchorLoss === 0 && progress.projectedWeightCount === 0), true);
+});
+
+test("incremental allowlist rejects unregistered and invalid wire names", () => {
+  const invalid = trainingConfig({ fit: { epochs: 1, learningRate: 0.01, anchorLambda: 0, trainableWires: ["not_a_wire"] } });
+  assert.throws(() => validateBasicKindTrainingConfig(invalid), /trainableWires.*registered/i);
+  const malformed = trainingConfig({ fit: { epochs: 1, learningRate: 0.01, anchorLambda: 0, trainableWires: "nat_input_tag" } });
+  assert.throws(() => validateBasicKindTrainingConfig(malformed), /trainableWires/i);
 });
 
 test("unauthorized report effects write nothing and backend failures keep the concrete message", async () => {

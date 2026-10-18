@@ -1,5 +1,27 @@
 # 当前任务
 
+运行时／采集／受限增量训练milestone完成作者验收：144/144测试、扩展构建、UI类型检查通过；最终CUA回放29/29检查通过，61帧无空框。独立Gemini4medium reviewer 953215d9-2a75-4eeb-9a54-cb27a872976e 返回SUCCESS／exit0；首次JSON证据格式不合schema，经同一reviewer仅格式修正后，统一controller判pass，findings=[]。完整证据在外置run的review-format-final.json、review-controller.json、author-final-check.log、harness-latest-result.json。此milestone只交付新增参数采集、评分与训练控制能力，不采用实验权重，不宣称三站未知清零。
+
+v4真实500轮受限拟合：184非名单权重完全未变，35名单权重更新；loss1.0658516508→0.1156320215。开发91监督项75fixed／3retained／13未达期望（12unknown、1错类）；微博53与知乎23部分组件留出仍正确；旧黄金357为3fixed／45regressed／277retained／32unresolved，新增unknown45、误ignore0。候选仍拒绝采用。原始包与旧结果保留。下一阶段具体缺口见外置next-exploration-evidence.md：装饰叶节点缺少有效支持路径；原始精确分数回归目标与重叠证据、推理截断目标不一致；部分祖先布尔观测受4跳限制；列表旧wire在本轮名单外。新独立增量计划进行中，不能用扩大采集或强归other掩盖这些差异。
+
+本轮真实拟合已完成：revision3为85明确XHS＋6HTML规格样本训练，6个待定另行排除；微博61候选中8项缺少owner证据排除，其余53留出正确，知乎23留出正确（包含后台重复tab，不是独立23页面）。500轮loss1.0658516508→0.0918712155；91个有监督开发项77fixed／0regressed／3retained／11未达期望（包含未知及错类，不是6待定），精确特征碰撞0。公开权重文件回载成功。旧黄金357有230新增unknown／230回退、0误ignore，因此候选拒绝采用，不能把部分留出正确或loss下降称为交付通过。旧黄金不参与本轮拟合或调参。
+
+GCM精确公开回放确认225个回退受control.own_pointer_boundary缺测正权重0.750389竞争影响；原生link0.8和image0.85的胜者分数未丢，差距分别仅0.025／0.075，不能误归因为href缺测或image自身wire缺失。5个input为family.control.nat_input_tag从0.85漂移到0.304821导致低于门限。原诊断推断已由gold-replay-result.md纠正。独立plan-compat.md批准修复几何／通用控件wire仅适用中性容器的合同偏离，并在现有训练后端增加显式trainableWires选择，非名单旧权重保持精确不动；仍不补假缺测、不改阈值、不以黄金调参。两项由独立GCM文件owner并行实现。
+
+核心新路径23测试及浏览器测量／探索29测试通过，扩展候选构建和UI类型检查通过。主Agent真实CUA验收捕获fixture的文件名等待与数量写死问题后派GCM修正；修订版刷新61采样帧全非空、25次mutation无空框，ignore切换／子目标保留／unknown+conflict采集通过。剩余2项是fixture在主动重开后统计host、错误选择统计区域的断言问题，仍待复测，不冒称全部黑盒通过。正式扩展仍未更新。
+
+续轮：用户明确执行工作交GCM。主Agent现场复检发现XHS音量父层cursorauto、图标cursorpointer，父层另含隐藏且可聚焦的slider；撤回row12的button提议，新增revision3方案为85明确／6待定，原始包与revision2保留。不能按包装tag或继承pointer统一忽略。手工证据和待定理由见外置run的volume-review-addendum.md、manual-findings.md。
+
+独立Gemini4medium同一planner完成plan-choice.md：原输入可聚焦属性缺少control评分路径，选择菜单与普通按钮缺少直接列表结构分辨路径；批准增加neutral_focusable_control、neutral_list_choice和nullable directListChildPresent，不改阈值或旧系数。GCM分别负责core红绿、真实browser公开fixture、revision3拟合；主Agent负责输入与标签审计。新增workflow拓扑不变。上述仍为未交付候选，正式扩展未更新，未声称三站零未知。
+
+2026-10-17当前进行三站未知／冲突闭环。用户要求GCM执行，主Agent负责逐项判读、架构取舍与验收。独占树/Volumes/Intel/playground/nnanything/unknown-closure，过程/Volumes/Intel/playground/nnanything-runs/unknown-closure；origin/main基线1f461a3，尚未集成。标注4N3E、采集1N0E、训练6N6E图闭合且拓扑不变。独立Gemini4medium计划d694caeb-95a7-45e8-a8ff-028c9b3b35a2经纠正后，接受plan-final.md及accepted.md；旧稿中的四family、假API、缺测补0等描述不采用。
+
+已采集三站完整顶层原始审计结构4389知乎／2080微博／2195小红书，共8664节点；500行分批返回，计数一致，iframe/shadow内部未读。GCM原始诊断4033行含视口外及导出缺测，2875unknown+24conflict仅为properties_offline审计，不能替代插件当前视口计数或宣称生产输入缺失。实际插件上次计数知乎181未知12冲突、微博223未知0冲突；XHS当前91未知1冲突。raw/current采集与旧样本不混成独立来源。
+
+主Agent复核XHS91原采集项，初稿借后代聚合文字将11个包装误作text，已在训练采用前纠正：7个无直接文字、单子span等框的父包装改ignore，4个计时／正文组合／emoji组合／日期组合改container，子元素保持text/image/link。修订ledger共52ignore、14container、1list、16button、2select、1input、5ambiguous，原始91review仍unreviewed；新ledger不冒充human黄金。5项为row5/9/13/20/32，尚未消歧。89非根节点的后续指针、边框、比例等补测存xhs-target-supplement.json，必须核对tag/classes/rect与来源，不能冒称原快照测量。旧ledger拟合100轮曾实际运行，但标签已撤回，不可采用；其development_only诊断并不等于后端没训练。
+
+当前候选保留原5families和旧wire，structure新增ignore叶，新增可选测量（含singleChildSameRect）与按名补0；三类冲突使用可训练合取wire，不硬按tag/role优先级。基础build及20项basic-kinds公开测试已由主Agent实际核对全部通过。浏览器候选正补真实测量、unknown+conflict合并采集、ignore默认不画框／可开启；初版worker为fixture加入的分类结果transform与additionalDefinitions生产测试通道已要求移除，不能用伪分类输出冒充黑盒。尚未采用新权重、未改变正式扩展、未证明三站零未知。剩余：修订标签真实Handwired拟合、来源留出与357旧黄金回归、公开浏览器验收、整体独立Review、main交付及继续探索剩余未知。
+
 2026-10-17刷新现场纠正：用户切到知乎后报告仍抖动，随后确认“之前旧的状态，刷新后好了”。现场旧提示“正在更新页面分类”与修复前源码一致；刷新后读取到当前提示“正在更新”并保留844框及4388总节点／598候选／405已判断／181未知／12冲突。撤回将此前后台待更新画面解释为当前新版永久卡住的推断；未确认新版刷新缺陷，不增加计时器、重试或修改新鲜度判断。当前源码的真实controller公开fixture再次18项PASS，61采样帧无空框。独立只读计划与GCM观察均完成；观察中的后台RAF／revision／不settle是假设，不作为已证实根因。无源码、权重、阈值或标签变更，因此不启动实现Review。
 
 本轮新增实际采集：小红书详情372候选／280已判断／91未知／1冲突，按钮采集并下载91行，公开extractTrainingRequestFromBundle及prepare回载成功；91行仍unreviewed，入训0。按结构初分48包装／分组、36SVG绘图子节点、5空／装饰候选、2文档根，全部当前评分below_min_score；这些是审计组而非确认语义标签，播放器控制区等包装不能整体忽略。包在本地training/samples/unknown-recheck-20261017/xhs-detail-unknown.json；回放、计划、观察和现场截图在training/results/refresh-stall-20261017。知乎尝试采集时按钮因更新禁用，本轮未导出其181未知或12冲突，不冒称三站未知已消除。后续对已保存样本先复核有效交互／显示与包装关系，再决定补训练还是补wire；不凭未知数修改算法。

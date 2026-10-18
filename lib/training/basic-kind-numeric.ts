@@ -22,7 +22,7 @@ export type BasicKindTrainingConfig = {
   minScore: number;
   minMargin: number;
   objective: { targetScore: number; rivalCeiling: number; otherGap: number };
-  fit: { epochs: number; learningRate: number; anchorLambda: number };
+  fit: { epochs: number; learningRate: number; anchorLambda: number; trainableWires?: readonly BasicKindWireName[] };
 };
 export type BasicKindFitRow = { properties: BasicKindProperties; expectedLabel: BasicKindLabel };
 export type FitProgress = {
@@ -58,6 +58,7 @@ type Inspected = {
 const familyNames = Object.keys(BASIC_KIND_FAMILIES) as BasicKindFamily[];
 const leafNames = Object.values(BASIC_KIND_FAMILIES).flat() as SpecificBasicKindLabel[];
 const specificLabels = new Set<string>(leafNames);
+const wireNames = new Set<string>(BASIC_KIND_WIRE_NAMES);
 const knownConfig = DEFAULT_BASIC_KIND_CONFIG;
 
 function nonnegativeInteger(value: unknown, label: string): number {
@@ -76,6 +77,21 @@ function onlyKeys(value: Record<string, unknown>, keys: readonly string[], label
   for (const key of Object.keys(value)) {
     if (!keys.includes(key)) throw new TypeError(`${label} has unsupported field ${key}`);
   }
+}
+
+function optionalTrainableWires(value: unknown): readonly BasicKindWireName[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new TypeError("fit.trainableWires must be an array of registered wire names");
+  return value.map((wire, index) => {
+    if (typeof wire !== "string" || !wireNames.has(wire)) {
+      throw new TypeError(`fit.trainableWires[${index}] must be a registered wire name`);
+    }
+    return wire as BasicKindWireName;
+  });
+}
+
+function hasTrainableWire(config: BasicKindTrainingConfig, wire: BasicKindWireName): boolean {
+  return config.fit.trainableWires === undefined || config.fit.trainableWires.includes(wire);
 }
 
 export function validateBasicKindTrainingConfig(value: unknown): BasicKindTrainingConfig {
@@ -98,16 +114,22 @@ export function validateBasicKindTrainingConfig(value: unknown): BasicKindTraini
   if (targetScore - rivalCeiling <= minMargin) throw new TypeError("targetScore - rivalCeiling must exceed minMargin");
   if (otherGap <= 0 || otherGap >= minScore) throw new TypeError("otherGap must be in (0,minScore)");
   const fit = expectRecord(input.fit, "fit");
-  onlyKeys(fit, ["epochs", "learningRate", "anchorLambda"], "fit");
+  onlyKeys(fit, ["epochs", "learningRate", "anchorLambda", "trainableWires"], "fit");
   const epochs = nonnegativeInteger(fit.epochs, "epochs");
   const learningRate = expectFiniteNumber(fit.learningRate, "learningRate");
   if (learningRate <= 0) throw new TypeError("learningRate must be positive");
+  const trainableWires = optionalTrainableWires(fit.trainableWires);
   return {
     taskId,
     minScore,
     minMargin,
     objective: { targetScore, rivalCeiling, otherGap },
-    fit: { epochs, learningRate, anchorLambda: nonnegativeNumber(fit.anchorLambda, "anchorLambda") },
+    fit: {
+      epochs,
+      learningRate,
+      anchorLambda: nonnegativeNumber(fit.anchorLambda, "anchorLambda"),
+      ...(trainableWires === undefined ? {} : { trainableWires }),
+    },
   };
 }
 
@@ -322,6 +344,12 @@ export async function fitBasicKinds(value: {
       for (let index = 0; index < weights.length; index++) gradient[index] = gradient[index]! + evaluated.gradients[graph.weights[index]!.wire]! / rows.length;
     }
     for (let index = 0; index < weights.length; index++) {
+      const address = graph.weights[index]!.address;
+      const wire = address.wire;
+      if (!hasTrainableWire(config, wire)) {
+        gradient[index] = 0;
+        continue;
+      }
       const difference = current[index]! - graph.weights[index]!.base;
       anchor += config.fit.anchorLambda / 2 * difference ** 2;
       gradient[index] = gradient[index]! + config.fit.anchorLambda * difference;
@@ -342,6 +370,9 @@ export async function fitBasicKinds(value: {
     const secondCorrection = 1 - secondDecay ** step;
     let projectedWeightCount = 0;
     for (let index = 0; index < weights.length; index++) {
+      const address = graph.weights[index]!.address;
+      const wire = address.wire;
+      if (!hasTrainableWire(config, wire)) continue;
       firstMoment[index] = firstDecay * firstMoment[index]! + (1 - firstDecay) * state.gradient[index]!;
       secondMoment[index] = secondDecay * secondMoment[index]! + (1 - secondDecay) * state.gradient[index]! ** 2;
       const next = weights[index]! - config.fit.learningRate * (firstMoment[index]! / firstCorrection) / (Math.sqrt(secondMoment[index]! / secondCorrection) + epsilon);

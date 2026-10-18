@@ -78,3 +78,37 @@ test('exploration carries appearance coverage while old exports default to unmea
  delete old.measurementCoverage.directTextPresent;
  assert.throws(()=>browser.validateExplorationInput(old),/invalid exploration value/);
 });
+
+test('exploration carries the bounded interaction measurements while old exports stay readable',()=>{
+ const measuredLocal=local.map((row,index)=>index===2?{...row,
+   pointerCursor:true,parentPointerCursor:false,tabIndexFocus:true,borderPresent:null,aspectRatio:0.5,
+   descendantTextPresent:true,singleChildTag:'a',singleChildSameRect:true,withinControlAncestor:true,inSvgAncestor:false}:row);
+ const measured=build({itemObservations:measuredLocal}).get('n2');
+ for(const key of ['pointerCursor','parentPointerCursor','tabIndexFocus','borderPresent','aspectRatio','descendantTextPresent','singleChildTag','singleChildSameRect','withinControlAncestor','inSvgAncestor']){
+  assert.equal(measured.measurementCoverage[key],key==='borderPresent'?'unmeasured':'measured',key);
+ }
+ const old=JSON.parse(JSON.stringify(measured));
+ for(const key of ['pointerCursor','parentPointerCursor','tabIndexFocus','borderPresent','aspectRatio','descendantTextPresent','singleChildTag','singleChildSameRect','withinControlAncestor','inSvgAncestor']){
+  delete old.measurementCoverage[key];
+ }
+ const restored=browser.validateExplorationInput(old);
+ for(const key of ['pointerCursor','parentPointerCursor','tabIndexFocus','borderPresent','aspectRatio','descendantTextPresent','singleChildTag','singleChildSameRect','withinControlAncestor','inSvgAncestor']){
+  assert.equal(restored.measurementCoverage[key],'unmeasured',key);
+ }
+});
+
+test('exploration reports direct list child coverage only when measured on complete children',()=>{
+ const measuredLocal=local.map((row,index)=>index===2?{...row,directListChildPresent:true}:row);
+ const measured=build({itemObservations:measuredLocal}).get('n2');
+ assert.equal(measured.measurementCoverage.directListChildPresent,'measured');
+ const absent=build({itemObservations:local}).get('n2');
+ assert.equal(absent.measurementCoverage.directListChildPresent,'unmeasured');
+ const nullMeasured=local.map((row,index)=>index===2?{...row,directListChildPresent:null}:row);
+ assert.equal(build({itemObservations:nullMeasured}).get('n2').measurementCoverage.directListChildPresent,'unmeasured');
+ const incomplete=build({directChildrenStatus:'incomplete',itemObservations:measuredLocal}).get('n2');
+ assert.equal(incomplete.measurementCoverage.directChildren,'incomplete');
+ assert.equal(incomplete.measurementCoverage.directListChildPresent,'unmeasured');
+ const old=JSON.parse(JSON.stringify(measured));
+ delete old.measurementCoverage.directListChildPresent;
+ assert.equal(browser.validateExplorationInput(old).measurementCoverage.directListChildPresent,'unmeasured');
+});

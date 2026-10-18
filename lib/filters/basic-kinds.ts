@@ -6,7 +6,7 @@ export const BASIC_KIND_FAMILIES = {
   media: ["image", "video", "audio"],
   navigation: ["link"],
   text: ["text"],
-  structure: ["container", "list", "listitem"],
+  structure: ["container", "list", "listitem", "ignore"],
 } as const;
 export type BasicKindFamily = keyof typeof BASIC_KIND_FAMILIES;
 for (const leaves of Object.values(BASIC_KIND_FAMILIES)) Object.freeze(leaves);
@@ -14,7 +14,7 @@ Object.freeze(BASIC_KIND_FAMILIES);
 export type SpecificBasicKindLabel = typeof BASIC_KIND_FAMILIES[BasicKindFamily][number];
 export type BasicKindLabel = SpecificBasicKindLabel | "other";
 export type BasicKindStatus = "judged" | "unknown" | "conflict" | "excluded";
-export type BasicKindWireValue = 0 | 1 | null;
+export type BasicKindWireValue = number | null;
 export interface ScoreInterval { readonly min: number; readonly max: number }
 export interface BasicKindMeasurements {
   readonly inputType?: string | null;
@@ -31,6 +31,17 @@ export interface BasicKindMeasurements {
   readonly repeatedChildGeometry?: boolean | null;
   readonly inVerifiedListParent?: boolean | null;
   readonly svgGraphicChildren?: boolean | null;
+  readonly pointerCursor?: boolean | null;
+  readonly parentPointerCursor?: boolean | null;
+  readonly tabIndexFocus?: boolean | null;
+  readonly borderPresent?: boolean | null;
+  readonly aspectRatio?: number | null;
+  readonly descendantTextPresent?: boolean | null;
+  readonly directListChildPresent?: boolean | null;
+  readonly singleChildTag?: string | null;
+  readonly singleChildSameRect?: boolean | null;
+  readonly withinControlAncestor?: boolean | null;
+  readonly inSvgAncestor?: boolean | null;
 }
 export interface BasicKindProperties extends BasicKindMeasurements {
   readonly tag: string | null;
@@ -114,7 +125,8 @@ const typeSets = {
   input_type_button: ["button", "submit", "reset", "image"], input_type_select: ["checkbox", "radio"],
   input_type_hidden: ["hidden"],
 } as const;
-const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden"] as const;
+const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden",
+  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_single_child", "neutral_focusable_control", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
 export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
   ...Object.keys(tagSets) as (keyof typeof tagSets)[],
@@ -128,59 +140,6 @@ export interface BasicKindProfile {
   readonly familyWeights: Readonly<Record<BasicKindFamily, BasicKindWeights>>;
   readonly leafWeights: Readonly<Record<SpecificBasicKindLabel, BasicKindWeights>>;
 }
-function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
-  const freezeRows = <T extends string>(rows: Readonly<Record<T, BasicKindWeights>>): Readonly<Record<T, BasicKindWeights>> => {
-    const frozen = {} as Record<T, BasicKindWeights>;
-    for (const name of Object.keys(rows) as T[]) {
-      // Copy inherited rows before adding defaults so the source profile stays untouched.
-      frozen[name] = Object.freeze({ ...rows[name], role_presentational: 0, input_type_hidden: 0, state_disabled: 0, state_hidden: 0 });
-    }
-    return Object.freeze(frozen);
-  };
-  return Object.freeze({ id: profile.id, familyWeights: freezeRows(profile.familyWeights), leafWeights: freezeRows(profile.leafWeights) });
-}
-
-export const LEGACY_BASIC_KIND_PROFILE: BasicKindProfile = freezeProfile({
-  id: "dom-basic-kinds-handwritten-v1",
-  familyWeights: {
-    control: { nat_control_button: 0.85, nat_control_text: 0.85, nat_control_select: 0.85, nat_input_tag: 0.85, role_button: 0.8, role_input: 0.8, role_select: 0.8, attr_editable: 0.75,
-      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0 },
-    media: { nat_image: 0.85, nat_video: 0.9, nat_audio: 0.9, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0,
-      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0, nat_svg_child: 0 },
-    navigation: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8, direct_non_format_text: 0, css_before_content: 0, css_background_image: 0 },
-    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0,
-      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, nat_svg_child: 0 },
-    structure: { nat_container: 0.8, nat_list: 0.85, nat_listitem: 0.85, role_container: 0.75, role_list: 0.8, role_listitem: 0.8, nat_div: 0.25, div_multi_child: 0.45, div_in_list: 0.5, div_single_child: 0,
-      direct_non_format_text: 0, css_background_image: 0, nat_svg_child: 0 },
-  },
-  leafWeights: {
-    button: { nat_control_button: 0.85, input_type_button: 0.85, role_button: 0.8, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0 },
-    input: { nat_control_text: 0.85, input_type_text: 0.85, role_input: 0.8, attr_editable: 0.75 },
-    select: { nat_control_select: 0.85, input_type_select: 0.85, role_select: 0.8 },
-    image: { nat_image: 0.85, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0, nat_svg_child: 0 }, video: { nat_video: 0.9 }, audio: { nat_audio: 0.9 },
-    link: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8, direct_non_format_text: 0, css_before_content: 0, css_background_image: 0 },
-    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, nat_svg_child: 0 },
-    container: { nat_container: 0.8, role_container: 0.75, nat_div: 0.25, div_multi_child: 0.45, div_repeated_children: -0.2, div_in_list: -0.45, div_single_child: 0, direct_non_format_text: 0, css_background_image: 0, nat_svg_child: 0 },
-    list: { nat_list: 0.85, role_list: 0.8, div_repeated_children: 0.45 },
-    listitem: { nat_listitem: 0.85, role_listitem: 0.8, nat_div: 0.25, div_in_list: 0.5 },
-  },
-});
-
-export const DEFAULT_BASIC_KIND_PROFILE: BasicKindProfile = freezeProfile({
-  id: "dom-basic-kinds-handwritten-v2",
-  familyWeights: {
-    ...LEGACY_BASIC_KIND_PROFILE.familyWeights,
-    media: { ...LEGACY_BASIC_KIND_PROFILE.familyWeights.media, nat_svg: 0.45, svg_graphic_children: 0.35 },
-    text: { ...LEGACY_BASIC_KIND_PROFILE.familyWeights.text, div_leaf: 0.3, div_direct_text: 0.45 },
-    structure: { ...LEGACY_BASIC_KIND_PROFILE.familyWeights.structure, div_single_child: 0.45 },
-  },
-  leafWeights: {
-    ...LEGACY_BASIC_KIND_PROFILE.leafWeights,
-    image: { ...LEGACY_BASIC_KIND_PROFILE.leafWeights.image, nat_svg: 0.45, svg_graphic_children: 0.35 },
-    text: { ...LEGACY_BASIC_KIND_PROFILE.leafWeights.text, div_leaf: 0.3, div_direct_text: 0.45 },
-    container: { ...LEGACY_BASIC_KIND_PROFILE.leafWeights.container, div_single_child: 0.45 },
-  },
-});
 
 const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["familyWeights", "media", "nat_svg"],
@@ -235,10 +194,131 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "container", "css_background_image"],
   ["familyWeights", "structure", "nat_svg_child"],
   ["leafWeights", "container", "nat_svg_child"],
+  ["familyWeights", "control", "editable_non_input"],
+  ["familyWeights", "text", "editable_non_input"],
+  ["leafWeights", "input", "editable_non_input"],
+  ["familyWeights", "control", "input_text_combobox"],
+  ["leafWeights", "input", "input_text_combobox"],
+  ["leafWeights", "select", "input_text_combobox"],
+  ["familyWeights", "control", "listitem_role_select"],
+  ["familyWeights", "structure", "listitem_role_select"],
+  ["leafWeights", "select", "listitem_role_select"],
+  ["leafWeights", "listitem", "listitem_role_select"],
+  ["familyWeights", "text", "nat_inline_format_text"],
+  ["leafWeights", "text", "nat_inline_format_text"],
+  ["familyWeights", "text", "composite_descendant_text"],
+  ["leafWeights", "text", "composite_descendant_text"],
+  ["familyWeights", "structure", "composite_descendant_text"],
+  ["leafWeights", "container", "composite_descendant_text"],
+  ["familyWeights", "structure", "neutral_multi_child"],
+  ["leafWeights", "container", "neutral_multi_child"],
+  ["leafWeights", "ignore", "neutral_multi_child"],
+  ["familyWeights", "structure", "neutral_single_child"],
+  ["leafWeights", "container", "neutral_single_child"],
+  ["leafWeights", "ignore", "neutral_single_child"],
+  ["familyWeights", "control", "neutral_focusable_control"],
+  ["familyWeights", "structure", "neutral_focusable_control"],
+  ["leafWeights", "input", "neutral_focusable_control"],
+  ["leafWeights", "button", "neutral_focusable_control"],
+  ["leafWeights", "select", "neutral_focusable_control"],
+  ["leafWeights", "container", "neutral_focusable_control"],
+  ["leafWeights", "ignore", "neutral_focusable_control"],
+  ["familyWeights", "control", "neutral_list_choice"],
+  ["familyWeights", "structure", "neutral_list_choice"],
+  ["leafWeights", "select", "neutral_list_choice"],
+  ["leafWeights", "button", "neutral_list_choice"],
+  ["leafWeights", "input", "neutral_list_choice"],
+  ["leafWeights", "container", "neutral_list_choice"],
+  ["leafWeights", "ignore", "neutral_list_choice"],
+  ["familyWeights", "structure", "neutral_same_rect_wrapper"],
+  ["leafWeights", "ignore", "neutral_same_rect_wrapper"],
+  ["leafWeights", "container", "neutral_same_rect_wrapper"],
+  ["familyWeights", "structure", "single_child_div"],
+  ["leafWeights", "container", "single_child_div"],
+  ["leafWeights", "ignore", "single_child_div"],
+  ["familyWeights", "control", "own_pointer_boundary"],
+  ["leafWeights", "button", "own_pointer_boundary"],
+  ["leafWeights", "input", "own_pointer_boundary"],
+  ["leafWeights", "select", "own_pointer_boundary"],
+  ["familyWeights", "structure", "own_pointer_boundary"],
+  ["leafWeights", "ignore", "own_pointer_boundary"],
+  ["familyWeights", "structure", "svg_internal_part"],
+  ["leafWeights", "ignore", "svg_internal_part"],
+  ["familyWeights", "media", "svg_internal_part"],
+  ["leafWeights", "image", "svg_internal_part"],
+  ["familyWeights", "structure", "empty_pointer_extent"],
+  ["leafWeights", "container", "empty_pointer_extent"],
+  ["leafWeights", "ignore", "empty_pointer_extent"],
+  ["familyWeights", "control", "empty_pointer_extent"],
+  ["leafWeights", "button", "empty_pointer_extent"],
+  ["familyWeights", "structure", "empty_border_extent"],
+  ["leafWeights", "container", "empty_border_extent"],
+  ["leafWeights", "ignore", "empty_border_extent"],
+  ["familyWeights", "control", "empty_border_extent"],
+  ["leafWeights", "button", "empty_border_extent"],
+  ["familyWeights", "structure", "nat_document_root"],
+  ["leafWeights", "ignore", "nat_document_root"],
 ] as const;
 
+function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
+  const freezeRows = <T extends string>(rows: Readonly<Record<T, BasicKindWeights>>): Readonly<Record<T, BasicKindWeights>> => {
+    const frozen = {} as Record<T, BasicKindWeights>;
+    for (const name of Object.keys(rows) as T[]) {
+      // Copy inherited rows before adding defaults so the source profile stays untouched.
+      frozen[name] = Object.freeze({ ...rows[name], role_presentational: 0, input_type_hidden: 0, state_disabled: 0, state_hidden: 0 });
+    }
+    return Object.freeze(frozen);
+  };
+  return Object.freeze({ id: profile.id, familyWeights: freezeRows(profile.familyWeights), leafWeights: freezeRows(profile.leafWeights) });
+}
+
+export const LEGACY_BASIC_KIND_PROFILE: BasicKindProfile = freezeProfile({
+  id: "dom-basic-kinds-handwritten-v1",
+  familyWeights: {
+    control: { nat_control_button: 0.85, nat_control_text: 0.85, nat_control_select: 0.85, nat_input_tag: 0.85, role_button: 0.8, role_input: 0.8, role_select: 0.8, attr_editable: 0.75,
+      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0 },
+    media: { nat_image: 0.85, nat_video: 0.9, nat_audio: 0.9, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0,
+      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0, nat_svg_child: 0 },
+    navigation: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8, direct_non_format_text: 0, css_before_content: 0, css_background_image: 0 },
+    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0,
+      direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, nat_svg_child: 0 },
+    structure: { nat_container: 0.8, nat_list: 0.85, nat_listitem: 0.85, role_container: 0.75, role_list: 0.8, role_listitem: 0.8, nat_div: 0.25, div_multi_child: 0.45, div_in_list: 0.5, div_single_child: 0,
+      direct_non_format_text: 0, css_background_image: 0, nat_svg_child: 0 },
+  },
+  leafWeights: {
+    button: { nat_control_button: 0.85, input_type_button: 0.85, role_button: 0.8, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0 },
+    input: { nat_control_text: 0.85, input_type_text: 0.85, role_input: 0.8, attr_editable: 0.75 },
+    select: { nat_control_select: 0.85, input_type_select: 0.85, role_select: 0.8 },
+    image: { nat_image: 0.85, role_image: 0.8, nat_svg: 0, svg_graphic_children: 0, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, css_background_image: 0, css_mask_image: 0, nat_svg_child: 0 }, video: { nat_video: 0.9 }, audio: { nat_audio: 0.9 },
+    link: { nat_anchor: 0.45, anchor_href: 0.35, role_link: 0.8, direct_non_format_text: 0, css_before_content: 0, css_background_image: 0 },
+    text: { nat_text: 0.8, role_text: 0.8, nat_span: 0.2, span_leaf: 0.2, span_direct_text: 0.35, div_leaf: 0, div_direct_text: 0, direct_non_format_text: 0, css_before_content: 0, css_after_content: 0, nat_svg_child: 0 },
+    container: { nat_container: 0.8, role_container: 0.75, nat_div: 0.25, div_multi_child: 0.45, div_repeated_children: -0.2, div_in_list: -0.45, div_single_child: 0, direct_non_format_text: 0, css_background_image: 0, nat_svg_child: 0 },
+    list: { nat_list: 0.85, role_list: 0.8, div_repeated_children: 0.45 },
+    listitem: { nat_listitem: 0.85, role_listitem: 0.8, nat_div: 0.25, div_in_list: 0.5 },
+    ignore: {},
+  },
+});
+
+export const DEFAULT_BASIC_KIND_PROFILE: BasicKindProfile = freezeProfile({
+  id: "dom-basic-kinds-handwritten-v2",
+  familyWeights: {
+    ...LEGACY_BASIC_KIND_PROFILE.familyWeights,
+    media: { ...LEGACY_BASIC_KIND_PROFILE.familyWeights.media, nat_svg: 0.45, svg_graphic_children: 0.35 },
+    text: { ...LEGACY_BASIC_KIND_PROFILE.familyWeights.text, div_leaf: 0.3, div_direct_text: 0.45 },
+    structure: { ...LEGACY_BASIC_KIND_PROFILE.familyWeights.structure, div_single_child: 0.45 },
+  },
+  leafWeights: {
+    ...LEGACY_BASIC_KIND_PROFILE.leafWeights,
+    image: { ...LEGACY_BASIC_KIND_PROFILE.leafWeights.image, nat_svg: 0.45, svg_graphic_children: 0.35 },
+    text: { ...LEGACY_BASIC_KIND_PROFILE.leafWeights.text, div_leaf: 0.3, div_direct_text: 0.45 },
+    container: { ...LEGACY_BASIC_KIND_PROFILE.leafWeights.container, div_single_child: 0.45 },
+  },
+});
+
 export function migrateBasicKindProfile(raw: unknown): BasicKindProfile {
-  const validated = validateBasicKindProfile(raw);
+  const input = expectRecord(raw, "basic-kind profile");
+  const rawLeaves = expectRecord(input.leafWeights, "profile.leafWeights");
+  const validated = validateBasicKindProfile({ ...input, leafWeights: { ...rawLeaves, ignore: rawLeaves.ignore ?? {} } });
   type MutableWeights = Partial<Record<BasicKindWireName, number>>;
   const cloneRows = <T extends string>(rows: Readonly<Record<T, BasicKindWeights>>): Record<T, MutableWeights> =>
     Object.fromEntries(Object.entries(rows).map(([name, weights]) => [name, Object.assign({}, weights)])) as Record<T, MutableWeights>;
@@ -254,7 +334,7 @@ export function migrateBasicKindProfile(raw: unknown): BasicKindProfile {
     const row = rows[target]!;
     if (row[wire] === undefined) row[wire] = 0;
   }
-  return profile;
+  return freezeProfile(profile);
 }
 
 function onlyKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
@@ -269,7 +349,13 @@ function optionalBoolean(value: unknown, label: string): boolean | null {
   if (typeof value !== "boolean") throw new TypeError(`${label} must be boolean or null`);
   return value;
 }
-const measurementNames = ["inputType", "hrefPresent", "contentEditable", "directTextPresent", "nonFormatDirectTextPresent", "beforeContentPresent", "afterContentPresent", "backgroundImagePresent", "maskImagePresent", "childElementCount", "positiveAreaChildCount", "repeatedChildGeometry", "inVerifiedListParent", "svgGraphicChildren"] as const;
+const measurementNames = [
+  "inputType", "hrefPresent", "contentEditable", "directTextPresent", "nonFormatDirectTextPresent",
+  "beforeContentPresent", "afterContentPresent", "backgroundImagePresent", "maskImagePresent",
+  "childElementCount", "positiveAreaChildCount", "repeatedChildGeometry", "inVerifiedListParent",
+  "svgGraphicChildren", "pointerCursor", "parentPointerCursor", "tabIndexFocus", "borderPresent",
+  "aspectRatio", "descendantTextPresent", "directListChildPresent", "singleChildTag", "singleChildSameRect", "withinControlAncestor", "inSvgAncestor",
+] as const;
 function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   const inputType = value.inputType === "" ? "" : optionalText(value.inputType, "inputType");
   const bool = (key: string) => optionalBoolean(value[key], key);
@@ -281,7 +367,22 @@ function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   };
   const childElementCount = count("childElementCount"), positiveAreaChildCount = count("positiveAreaChildCount");
   if (childElementCount !== null && positiveAreaChildCount !== null && positiveAreaChildCount > childElementCount) throw new TypeError("positiveAreaChildCount exceeds childElementCount");
-  return { inputType, hrefPresent: bool("hrefPresent"), contentEditable: bool("contentEditable"), directTextPresent: bool("directTextPresent"), nonFormatDirectTextPresent: bool("nonFormatDirectTextPresent"), beforeContentPresent: bool("beforeContentPresent"), afterContentPresent: bool("afterContentPresent"), backgroundImagePresent: bool("backgroundImagePresent"), maskImagePresent: bool("maskImagePresent"), childElementCount, positiveAreaChildCount, repeatedChildGeometry: bool("repeatedChildGeometry"), inVerifiedListParent: bool("inVerifiedListParent"), svgGraphicChildren: bool("svgGraphicChildren") };
+  const aspectRatio = value.aspectRatio == null ? null : expectFiniteNumber(value.aspectRatio, "aspectRatio");
+  if (aspectRatio !== null && (aspectRatio < 0 || aspectRatio > 1)) throw new TypeError("aspectRatio must be in [0,1]");
+  return {
+    inputType, hrefPresent: bool("hrefPresent"), contentEditable: bool("contentEditable"),
+    directTextPresent: bool("directTextPresent"), nonFormatDirectTextPresent: bool("nonFormatDirectTextPresent"),
+    beforeContentPresent: bool("beforeContentPresent"), afterContentPresent: bool("afterContentPresent"),
+    backgroundImagePresent: bool("backgroundImagePresent"), maskImagePresent: bool("maskImagePresent"),
+    childElementCount, positiveAreaChildCount, repeatedChildGeometry: bool("repeatedChildGeometry"),
+    inVerifiedListParent: bool("inVerifiedListParent"), svgGraphicChildren: bool("svgGraphicChildren"),
+    pointerCursor: bool("pointerCursor"), parentPointerCursor: bool("parentPointerCursor"),
+    tabIndexFocus: bool("tabIndexFocus"), borderPresent: bool("borderPresent"), aspectRatio,
+    descendantTextPresent: bool("descendantTextPresent"), directListChildPresent: bool("directListChildPresent"),
+    singleChildTag: optionalText(value.singleChildTag, "singleChildTag"),
+    singleChildSameRect: bool("singleChildSameRect"),
+    withinControlAncestor: bool("withinControlAncestor"), inSvgAncestor: bool("inSvgAncestor"),
+  };
 }
 export function validateBasicKindProperties(value: unknown): BasicKindProperties {
   const input = expectRecord(value, "basic-kind properties");
@@ -361,6 +462,99 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
         : 1;
   wires.state_disabled = bool(input.disabled);
   wires.state_hidden = bool(input.hidden);
+  const and = (...values: BasicKindWireValue[]): BasicKindWireValue =>
+    values.includes(0) ? 0 : values.includes(null) ? null : values.includes(1) ? 1 : null;
+  const andContinuous = (...values: BasicKindWireValue[]): BasicKindWireValue => {
+    if (values.includes(0)) return 0;
+    if (values.includes(null)) return null;
+    return values.find(value => value !== null && value !== 1) ?? 1;
+  };
+  const selectRole = roleSets.role_select.some(role => role === input.role);
+  const singleChildTag = input.singleChildTag;
+  const neutralContainer = and(
+    input.role === null ? 1 : 0,
+    ["div", "span"].includes(input.tag ?? "") || input.tag?.includes("-") ? 1 : 0,
+    input.contentEditable === false ? 1 : input.contentEditable === true ? 0 : null,
+  );
+  const noOwnText = input.directTextPresent === false;
+  const noVisibleChildren = input.childElementCount === 0;
+  const noAppearance = and(
+    input.beforeContentPresent === false ? 1 : input.beforeContentPresent === true ? 0 : null,
+    input.afterContentPresent === false ? 1 : input.afterContentPresent === true ? 0 : null,
+    input.backgroundImagePresent === false ? 1 : input.backgroundImagePresent === true ? 0 : null,
+    input.maskImagePresent === false ? 1 : input.maskImagePresent === true ? 0 : null,
+  );
+  const emptyBase = and(
+    neutralContainer,
+    noOwnText ? 1 : input.directTextPresent === true ? 0 : null,
+    noVisibleChildren ? 1 : input.childElementCount != null ? 0 : null,
+    noAppearance,
+  );
+
+  wires.editable_non_input = and(
+    input.contentEditable === true ? 1 : input.contentEditable === false ? 0 : null,
+    input.tag !== "input" && input.tag !== "textarea" ? 1 : 0,
+  );
+  wires.input_text_combobox = and(
+    input.tag === "input" ? 1 : 0,
+    input.role === "combobox" ? 1 : 0,
+    typeSets.input_type_text.some(type => type === input.inputType) ? 1 : input.inputType == null ? null : 0,
+  );
+  wires.listitem_role_select = and(input.tag === "li" ? 1 : 0, selectRole ? 1 : 0);
+  wires.nat_inline_format_text = and(
+    ["b", "u", "s", "mark", "sub", "sup", "cite", "q"].some(tag => tag === input.tag) ? 1 : 0,
+    bool(input.nonFormatDirectTextPresent),
+  );
+  wires.neutral_multi_child = and(neutralContainer, input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0);
+  wires.neutral_single_child = and(neutralContainer, input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0);
+  wires.neutral_focusable_control = and(neutralContainer, bool(input.tabIndexFocus));
+  wires.neutral_list_choice = and(
+    neutralContainer,
+    bool(input.pointerCursor),
+    bool(input.directListChildPresent),
+    bool(input.descendantTextPresent),
+  );
+  wires.neutral_same_rect_wrapper = and(
+    neutralContainer,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0,
+    input.childElementCount == null ? null : input.childElementCount === 1 ? 1 : 0,
+    input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
+    noAppearance,
+    bool(input.singleChildSameRect),
+  );
+  wires.composite_descendant_text = and(
+    neutralContainer,
+    input.directTextPresent === false ? 1 : input.directTextPresent === true ? 0 : null,
+    bool(input.descendantTextPresent),
+    input.withinControlAncestor == null ? null : input.withinControlAncestor ? 0 : 1,
+  );
+  wires.own_pointer_boundary = and(
+    neutralContainer,
+    bool(input.pointerCursor),
+    input.parentPointerCursor == null ? null : input.parentPointerCursor ? 0 : 1,
+  );
+  wires.single_child_div = and(
+    neutralContainer,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0,
+    singleChildTag == null ? null : singleChildTag === "div" ? 1 : 0,
+  );
+  wires.svg_internal_part = and(
+    ["svg"].includes(input.tag ?? "") || tagSets.nat_svg_child.some(tag => tag === input.tag) ? 1 : 0,
+    bool(input.inSvgAncestor),
+    input.role === null ? 1 : 0,
+    input.tabIndexFocus == null ? null : input.tabIndexFocus ? 0 : 1,
+  );
+  wires.empty_pointer_extent = andContinuous(
+    emptyBase,
+    bool(input.pointerCursor),
+    input.aspectRatio ?? null,
+  );
+  wires.empty_border_extent = andContinuous(
+    emptyBase,
+    bool(input.borderPresent),
+    input.aspectRatio ?? null,
+  );
+  wires.nat_document_root = input.tag === "html" || input.tag === "body" ? 1 : 0;
   return wires;
 }
 

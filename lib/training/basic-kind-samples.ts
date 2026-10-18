@@ -113,6 +113,17 @@ const PROPERTY_KEYS = [
   "svgGraphicChildren",
   "disabled",
   "hidden",
+  "pointerCursor",
+  "parentPointerCursor",
+  "tabIndexFocus",
+  "borderPresent",
+  "aspectRatio",
+  "descendantTextPresent",
+  "directListChildPresent",
+  "singleChildTag",
+  "singleChildSameRect",
+  "withinControlAncestor",
+  "inSvgAncestor",
 ] as const;
 
 function onlyKeys(value: Record<string, unknown>, keys: readonly string[], field: string): void {

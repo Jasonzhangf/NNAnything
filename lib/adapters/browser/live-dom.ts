@@ -64,6 +64,10 @@ export interface LiveDomSnapshot {
 
 const rectOf = (r: DOMRect | DOMRectReadOnly): Rect => ({ x: r.x, y: r.y, width: r.width, height: r.height });
 const roleTokens = (element: Element): string[] => String(element.getAttribute("role") ?? "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+const directListChildTags = new Set(["ul", "ol", "dl"]);
+const directListChildRoles = new Set(["list", "listbox", "menu"]);
+const nativeControlTags = new Set(["button", "input", "select", "textarea", "summary", "a"]);
+const controlRoles = new Set(["button", "link", "textbox", "searchbox", "combobox", "listbox", "option", "menuitem", "tab", "checkbox", "radio", "switch", "slider", "spinbutton"]);
 function listParentMeasured(element: Element): boolean {
   const parent = element.parentElement;
   if (!parent) return false;
@@ -126,6 +130,43 @@ function parseCssAlpha(color: string): number | null {
   const raw = parts[3]!;
   const alpha = raw.endsWith("%") ? Number(raw.slice(0, -1)) / 100 : Number(raw);
   return Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : null;
+}
+function visibleBorder(style: CSSStyleDeclaration): boolean | null {
+  const edges = ["Top", "Right", "Bottom", "Left"] as const;
+  let unknown = false;
+  for (const edge of edges) {
+    const widthText = String(style[`border${edge}Width` as keyof CSSStyleDeclaration] ?? "").trim();
+    const styleText = String(style[`border${edge}Style` as keyof CSSStyleDeclaration] ?? "").trim().toLowerCase();
+    const widthMatch = widthText === "" ? null : /^(-?(?:\d+|\d*\.\d+))(?:px)?$/.exec(widthText);
+    const width = widthMatch ? Number(widthMatch[1]) : null;
+    if (width !== null && width < 0) { unknown = true; continue; }
+    if (width === 0 || ["none", "hidden"].includes(styleText)) continue;
+    if (width === null || styleText === "") { unknown = true; continue; }
+    if (!["dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"].includes(styleText)) { unknown = true; continue; }
+    const color = typeof style.getPropertyValue === "function"
+      ? style.getPropertyValue(`border-${edge.toLowerCase()}-color`).trim()
+      : String(style[`border${edge}Color` as keyof CSSStyleDeclaration] ?? "").trim();
+    if (color === "") { unknown = true; continue; }
+    const alpha = parseCssAlpha(color);
+    if (alpha === null) { unknown = true; continue; }
+    if (alpha > 0) return true;
+  }
+  return unknown ? null : false;
+}
+function descendantTextPresent(element: Element, excludedRoots: ReadonlySet<Element>, excludedIds: ReadonlySet<string>): boolean {
+  const stack = Array.from(element.childNodes).reverse();
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (node.nodeType === 3) {
+      if (hasNonFormatDirectText(node.textContent) === true) return true;
+      continue;
+    }
+    if (node.nodeType !== 1) continue;
+    const child = node as Element, tag = child.tagName.toLowerCase();
+    if (["script", "style"].includes(tag) || excludedRoots.has(child) || (child.id !== "" && excludedIds.has(child.id))) continue;
+    stack.push(...Array.from(child.childNodes).reverse());
+  }
+  return false;
 }
 function intersection(a: Rect, b: Rect): Rect {
   const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
@@ -359,6 +400,8 @@ export function observeLiveDom(input: {
     for (let index = allChildren.length - 1; index >= 0; index--) stack.push(allChildren[index]!);
     const nodeRef = stableNodeRefFor(registry, element), tag = element.tagName.toLowerCase();
     const style = window.getComputedStyle(element), rect = rectOf(element.getBoundingClientRect());
+    const directListChildPresent = children.some(child => directListChildTags.has(child.tagName.toLowerCase())
+      || roleTokens(child).some(role => directListChildRoles.has(role)));
     elementByRef.set(nodeRef, element);
     styleByElement.set(element, style);
     participating.set(element, paintParticipation(style, domOrder++, element.parentElement ? styleByElement.get(element.parentElement)?.display ?? "" : ""));
@@ -394,6 +437,36 @@ export function observeLiveDom(input: {
       maskImage: style.maskImage,
       webkitMaskImage: style.webkitMaskImage,
     });
+    const ancestorControl = (() => {
+      let cursor = element.parentElement;
+      for (let hops = 0; cursor && hops < (input.maxRelationHops ?? 4); hops++, cursor = cursor.parentElement) {
+        const ancestorTag = cursor.tagName.toLowerCase();
+        if (nativeControlTags.has(ancestorTag) || roleTokens(cursor).some(role => controlRoles.has(role))) return true;
+      }
+      return cursor === null ? false : null;
+    })();
+    const ancestorSvg = (() => {
+      // Ancestor scope is only known inside the bounded walk; reaching the hop limit stays unassessed.
+      let cursor = element.parentElement;
+      for (let hops = 0; cursor && hops < (input.maxRelationHops ?? 4); hops++, cursor = cursor.parentElement) {
+        if (cursor.tagName.toLowerCase() === "svg") return true;
+      }
+      return cursor === null ? false : null;
+    })();
+    const tabIndex = element.getAttribute("tabindex");
+    const tabIndexNumber = tabIndex === null || !/^[+-]?\d+$/.test(tabIndex.trim()) ? null : Number(tabIndex);
+    const tabIndexFocus = tabIndex === null ? false : tabIndexNumber === null || !Number.isFinite(tabIndexNumber) ? null : tabIndexNumber >= 0;
+    const exactOneChild = allChildren.length === 1;
+    const soleChild = exactOneChild ? allChildren[0]! : null;
+    const soleChildRect = soleChild?.getBoundingClientRect();
+    const singleChildSameRect = soleChild === null ? false
+      : ![rect.x, rect.y, rect.width, rect.height, soleChildRect!.x, soleChildRect!.y, soleChildRect!.width, soleChildRect!.height].every(Number.isFinite) ? null
+      : Math.abs(rect.x - soleChildRect!.x) <= 2
+        && Math.abs(rect.y - soleChildRect!.y) <= 2
+        && Math.abs(rect.width - soleChildRect!.width) <= 2
+        && Math.abs(rect.height - soleChildRect!.height) <= 2;
+    const parentCursor = element.parentElement ? window.getComputedStyle(element.parentElement).cursor : "";
+    const area = rect.width * rect.height;
     const local: BasicKindMeasurements = {
       inputType: tag === "input" ? element.getAttribute("type") || "text" : null,
       hrefPresent: element.hasAttribute("href"),
@@ -404,6 +477,17 @@ export function observeLiveDom(input: {
       repeatedChildGeometry: repeatedChildGeometry(children),
       inVerifiedListParent: listParentMeasured(element),
       svgGraphicChildren: svgGraphicChildren(element, tag),
+      pointerCursor: style.cursor ? style.cursor === "pointer" : null,
+      parentPointerCursor: element.parentElement ? (parentCursor ? parentCursor === "pointer" : null) : false,
+      tabIndexFocus,
+      borderPresent: visibleBorder(style),
+      aspectRatio: area > 0 && rect.width > 0 && rect.height > 0 ? Math.min(rect.width, rect.height) / Math.max(rect.width, rect.height) : null,
+      descendantTextPresent: descendantTextPresent(element, excludedRoots, excludedIds),
+      directListChildPresent,
+      singleChildTag: soleChild?.tagName.toLowerCase() ?? null,
+      singleChildSameRect,
+      withinControlAncestor: ancestorControl,
+      inSvgAncestor: ancestorSvg,
     };
     itemObservations.push({ nodeRef, ...local });
     properties.set(nodeRef, { ...local, tag, role, disabled: element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true", hidden: element.hasAttribute("hidden") || element.getAttribute("aria-hidden") === "true" });

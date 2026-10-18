@@ -1,4 +1,6 @@
 import { DOMInspectorController } from "../../extension/controller.js";
+import { stableNodeRefFor } from "../../lib/adapters/browser/live-dom.js";
+import { DEFAULT_BASIC_KIND_CONFIG, DEFAULT_BASIC_KIND_PROFILE } from "nnanything/browser-classify";
 import visualOverlayGraph from "../../workflows/browser-visual-overlay.graph.json";
 import captureGraph from "../../workflows/browser-capture.graph.json";
 
@@ -35,10 +37,15 @@ type SyncSample = HostMetrics & {
 const target = required<HTMLElement>("#fixture-target");
 const targetButton = required<HTMLButtonElement>("#target-button");
 const contentTarget = required<HTMLElement>("#detail-copy");
+const ignoredParent = required<HTMLElement>("#fixture-ignored-parent");
+const ignoredChild = required<HTMLButtonElement>("#fixture-ignored-child");
+const unresolvedTarget = required<HTMLElement>("#fixture-unresolved");
+const conflictTarget = required<HTMLElement>("#fixture-conflict");
 const statusText = required<HTMLElement>("#status-text");
 const output = required<HTMLPreElement>("#recording-output");
 const startButton = required<HTMLButtonElement>("#start-recording");
 const replayButton = required<HTMLButtonElement>("#replay-recording");
+window.alert = () => undefined;
 
 let nextRunHook: (() => void) | null = null;
 let pipelineStarts = 0;
@@ -64,7 +71,6 @@ const controller = new DOMInspectorController({
   document,
   window: resourceWindow,
 });
-
 const hostIds = new WeakMap<Element, number>();
 const seenHostIds = new Set<number>();
 let nextHostId = 0;
@@ -122,7 +128,7 @@ function readHostMetrics(): HostMetrics {
   }).length;
 
   const panel = host.shadowRoot.querySelector<HTMLElement>(".inspector-panel");
-  const bulk = Array.from(host.shadowRoot.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.startsWith("一键收集当前未知"));
+  const bulk = Array.from(host.shadowRoot.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.startsWith("一键收集未知与冲突"));
   const save = Array.from(host.shadowRoot.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "保存此元素样本");
   return {
     hostId: hostIdFor(host),
@@ -175,6 +181,39 @@ async function waitFor(predicate: () => boolean): Promise<boolean> {
     if (predicate()) return true;
   }
   return false;
+}
+
+async function loadFixtureProfile(): Promise<void> {
+  const host = document.getElementById(HOST_ID);
+  const input = host?.shadowRoot?.querySelector<HTMLInputElement>("input.file-input");
+  if (!input) throw new Error("Missing public weight file input");
+  const fixtureFilename = "overlay-fixture-weights.json";
+  const profile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  for (const rows of [profile.familyWeights, profile.leafWeights]) {
+    for (const row of Object.values(rows)) for (const wire of Object.keys(row)) (row as Record<string, number>)[wire] = 0;
+  }
+  [profile.familyWeights.structure, profile.leafWeights.ignore].forEach(row => { (row as Record<string, number>).neutral_same_rect_wrapper = 1; });
+  [profile.familyWeights.control, profile.leafWeights.button].forEach(row => { (row as Record<string, number>).nat_control_button = 1; });
+  (profile.familyWeights.control as Record<string, number>).role_button = 0.8;
+  (profile.familyWeights.text as Record<string, number>).nat_span = 0.8;
+  const profileId = "dom-basic-kinds-overlay-fixture-v1";
+  const asset = {
+    targetOperator: "dom.basic_kinds",
+    operatorVersion: "0.1.0",
+    contractVersion: 1,
+    taskId: "dom.basic-kinds.v1",
+    calibrated: false,
+    profileId,
+    profile: { ...profile, id: profileId },
+    compatibility: { ...DEFAULT_BASIC_KIND_CONFIG },
+  };
+  const transfer = new DataTransfer();
+  transfer.items.add(new File([JSON.stringify(asset)], fixtureFilename, { type: "application/json" }));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+  const filenameShown = await waitFor(() => host!.shadowRoot?.querySelector(".profile-tag")?.textContent?.includes(fixtureFilename) === true);
+  const stableFrame = filenameShown && await waitForStableFrame(INITIAL_STABLE_TIMEOUT_MS);
+  if (!stableFrame) throw new Error("Fixture weight profile did not load and settle through the public file input");
 }
 
 function panelButton(label: string): HTMLButtonElement {
@@ -241,6 +280,55 @@ async function verifyBoundaries(): Promise<Record<string, boolean>> {
   return checks;
 }
 
+async function verifyIgnoreAndUnresolved(): Promise<Record<string, boolean>> {
+  const host = document.getElementById(HOST_ID)!;
+  const boxMatches = (element: Element, basicKind?: string) => {
+    const rect = element.getBoundingClientRect();
+    return Array.from(host.shadowRoot!.querySelectorAll<HTMLElement>(".box")).some(box => (!basicKind || box.dataset.basicKind === basicKind)
+      && rectsMatch(new DOMRect(Number.parseFloat(box.style.left), Number.parseFloat(box.style.top), Number.parseFloat(box.style.width), Number.parseFloat(box.style.height)), rect));
+  };
+  const ignoredBox = () => boxMatches(ignoredParent, "ignore");
+  const childBox = () => boxMatches(ignoredChild, "button");
+  const unresolvedFixturePresented = boxMatches(unresolvedTarget, "other");
+  const conflictFixturePresented = boxMatches(conflictTarget, "other");
+  const countPresentedOtherBoxes = () => Array.from(host.shadowRoot!.querySelectorAll<HTMLElement>(".box[data-basic-kind]"))
+    .filter(box => box.dataset.basicKind === "other").length;
+  const legendIgnore = Array.from(host.shadowRoot!.querySelectorAll<HTMLLabelElement>(".legend-item")).find(item => item.textContent?.includes("忽略"));
+  const legendCheckbox = legendIgnore?.querySelector<HTMLInputElement>("input[type=checkbox]");
+  const legendDefaultOff = legendCheckbox?.checked === false;
+  const hiddenByDefault = !ignoredBox();
+  if (legendCheckbox) { legendCheckbox.checked = true; legendCheckbox.onchange?.(new Event("change")); }
+  const visibleWhenEnabled = ignoredBox();
+  if (legendCheckbox) { legendCheckbox.checked = false; legendCheckbox.onchange?.(new Event("change")); }
+  const bulk = Array.from(host.shadowRoot!.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.startsWith("一键收集未知与冲突"));
+  const combinedCount = Number(/\((\d+)\)/.exec(bulk?.textContent ?? "")?.[1] ?? 0);
+  const eligibleUnresolvedCount = countPresentedOtherBoxes();
+  const sessionBeforeBulk = readHostMetrics().sessionTotal;
+  bulk?.click();
+  const collectionSessionDeltaMatches = eligibleUnresolvedCount > 0
+    && await waitFor(() => readHostMetrics().sessionTotal - sessionBeforeBulk === eligibleUnresolvedCount);
+  const collectionSessionDelta = readHostMetrics().sessionTotal - sessionBeforeBulk;
+  const sessionSection = Array.from(host.shadowRoot!.querySelectorAll<HTMLElement>(".details-block"))
+    .find(section => section.querySelector(".section-title")?.textContent === "样本采集与导出");
+  const sessionAfterCollection = readHostMetrics().sessionTotal;
+  const statsText = sessionSection?.textContent ?? "";
+  return {
+    ignoredParentMeasured: visibleWhenEnabled,
+    ignoredChildRetained: ignoredChild.isConnected && ignoredParent.isConnected,
+    ignoreLegendDefaultOff: legendDefaultOff,
+    ignoreHiddenByDefault: hiddenByDefault,
+    ignoreVisibleWhenEnabled: visibleWhenEnabled,
+    ignoredChildBoxRetained: childBox(),
+    unresolvedButtonCombinedCount: combinedCount === eligibleUnresolvedCount,
+    unresolvedSlotRetained: unresolvedFixturePresented && boxMatches(unresolvedTarget, "other"),
+    conflictSlotRetained: conflictFixturePresented && boxMatches(conflictTarget, "other"),
+    unresolvedBothCollected: collectionSessionDeltaMatches && collectionSessionDelta === eligibleUnresolvedCount,
+    unresolvedCollectionStatsVisible: statsText.includes("总计")
+      && sessionAfterCollection > 0
+      && new RegExp(`总计\\s*${sessionAfterCollection}\\s*条`).test(statsText),
+  };
+}
+
 async function runRecording(): Promise<void> {
   if (running) return;
   running = true;
@@ -277,7 +365,7 @@ async function runRecording(): Promise<void> {
   let mutationCount = 0;
   const recordingStarted = performance.now();
   const staleBulkButton = Array.from(document.getElementById(HOST_ID)!.shadowRoot!.querySelectorAll<HTMLButtonElement>("button"))
-    .find(button => button.textContent?.startsWith("一键收集当前未知"));
+    .find(button => button.textContent?.startsWith("一键收集未知与冲突"));
   const staleBulkCallback = staleBulkButton?.onclick;
   const staleSaveButton = Array.from(document.getElementById(HOST_ID)!.shadowRoot!.querySelectorAll<HTMLButtonElement>("button"))
     .find(button => button.textContent === "保存此元素样本");
@@ -340,8 +428,13 @@ async function runRecording(): Promise<void> {
   const targetNonemptyFrames = frameSamples.filter((sample) => sample.targetBoxes > 0);
   const contentNonemptyFrames = frameSamples.filter((sample) => sample.contentBoxes > 0);
   const panelHeights = frameSamples.map(sample => sample.panelHeight);
+  const recordingHostIds = new Set(frameSamples.flatMap(sample => sample.hostId === null ? [] : [sample.hostId]));
+  const sameMountedHost = recordingHostIds.size === 1
+    && settledMetrics.hostId !== null
+    && recordingHostIds.has(settledMetrics.hostId)
+    && settledMetrics.hostConnected;
   const checks = {
-    sameMountedHost: seenHostIds.size === 1 && settledMetrics.hostConnected,
+    sameMountedHost,
     noBlankFrame: emptySamples.length === 0,
     noBlankOnMutation: syncSamples.length >= 10 && syncEmptyAfterMutation.length === 0,
     panelHeightStable: Math.max(...panelHeights) - Math.min(...panelHeights) < 1,
@@ -351,12 +444,13 @@ async function runRecording(): Promise<void> {
     staleCallbackCapturedNothing: settledMetrics.sessionTotal === 0,
     recovered: settled && settledMetrics.boxes > 0,
     ...await verifyBoundaries(),
+    ...await verifyIgnoreAndUnresolved(),
   };
   const result = {
     status: Object.values(checks).every(Boolean) ? "PASS" : "FAIL",
     checks,
     panelHeightRange: [Math.min(...panelHeights), Math.max(...panelHeights)],
-    mountedStable: seenHostIds.size === 1 && settledMetrics.hostConnected,
+    mountedStable: sameMountedHost,
     observedEmptyAfterInitial: emptySamples.length > 0,
     nonemptyFrames: nonemptySamples.length,
     frameSamples: frameSamples.length,
@@ -372,7 +466,7 @@ async function runRecording(): Promise<void> {
     initialEmptyFrames,
     mutationCallbacks,
     mutationRecords,
-    uniqueHostIds: seenHostIds.size,
+    uniqueHostIds: recordingHostIds.size,
     hostConnectedAtEnd: settledMetrics.hostConnected,
     panelPresentAtEnd: settledMetrics.panelPresent,
     panelOverlapsTarget: panelRect !== null && rectsOverlap(panelRect, targetRect),
@@ -406,4 +500,8 @@ startButton.addEventListener("click", startRecording);
 replayButton.addEventListener("click", startRecording);
 
 controller.mount();
-startRecording();
+void loadFixtureProfile().then(startRecording).catch(error => {
+  running = false;
+  output.dataset.status = "FAIL";
+  output.textContent = JSON.stringify({ status: "FAIL", error: String(error) });
+});

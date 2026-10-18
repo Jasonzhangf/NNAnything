@@ -43,15 +43,15 @@ function rect(x = 0, y = 0, width = 100, height = 40) {
 }
 
 function observationNode(nodeRef, overrides = {}) {
-  const box = overrides.rect ?? rect();
+  const box = overrides.rect === null ? null : overrides.rect ?? rect();
   return {
     nodeRef,
-    parentRef: null,
+    parentRef: overrides.parentRef ?? null,
     tag: overrides.tag ?? "button",
     role: overrides.role ?? null,
     rect: box,
-    fragments: overrides.fragments ?? [box],
-    clippedRect: overrides.clippedRect ?? box,
+    fragments: overrides.fragments ?? (box === null ? null : [box]),
+    clippedRect: overrides.clippedRect === undefined ? box : overrides.clippedRect,
     attributes: overrides.attributes ?? {},
   };
 }
@@ -74,6 +74,17 @@ function basicProperties(tag, overrides = {}) {
     repeatedChildGeometry: null,
     inVerifiedListParent: null,
     svgGraphicChildren: null,
+    pointerCursor: null,
+    parentPointerCursor: null,
+    tabIndexFocus: null,
+    borderPresent: null,
+    aspectRatio: null,
+    descendantTextPresent: null,
+    directListChildPresent: null,
+    singleChildTag: null,
+    singleChildSameRect: null,
+    withinControlAncestor: null,
+    inSvgAncestor: null,
     disabled: false,
     hidden: false,
     ...overrides,
@@ -97,8 +108,8 @@ function snapshotFixture({ pageRef = "page-fixture", nodes, properties, evidence
       classList: node.ref === "button" ? ["secret-class"] : [],
       textSummary: node.ref === "button" ? "visible label" : null,
       linkPathname: null,
-      rect: node.rect ?? rect(),
-      clippedRect: node.clippedRect ?? node.rect ?? rect(),
+      rect: node.rect === undefined ? rect() : node.rect,
+      clippedRect: node.clippedRect === undefined ? (node.rect === undefined ? rect() : node.rect) : node.clippedRect,
       parentTags: ["main"],
       pageRef,
       unassessedChildContent: [],
@@ -129,6 +140,17 @@ function snapshotFixture({ pageRef = "page-fixture", nodes, properties, evidence
         repeatedChildGeometry: propertiesValue.repeatedChildGeometry,
         inVerifiedListParent: propertiesValue.inVerifiedListParent,
         svgGraphicChildren: propertiesValue.svgGraphicChildren,
+        pointerCursor: propertiesValue.pointerCursor,
+        parentPointerCursor: propertiesValue.parentPointerCursor,
+        tabIndexFocus: propertiesValue.tabIndexFocus,
+        borderPresent: propertiesValue.borderPresent,
+        aspectRatio: propertiesValue.aspectRatio,
+        descendantTextPresent: propertiesValue.descendantTextPresent,
+        directListChildPresent: propertiesValue.directListChildPresent,
+        singleChildTag: propertiesValue.singleChildTag,
+        singleChildSameRect: propertiesValue.singleChildSameRect,
+        withinControlAncestor: propertiesValue.withinControlAncestor,
+        inSvgAncestor: propertiesValue.inSvgAncestor,
       };
     }),
     properties: propertyMap,
@@ -148,66 +170,70 @@ function snapshotFixture({ pageRef = "page-fixture", nodes, properties, evidence
 }
 
 function makeFrame() {
+  const { profile, config } = fixtureWeight();
   const snapshot = snapshotFixture({
     nodes: [
       { ref: "button", tag: "button", rect: rect(10, 10, 120, 40) },
-      { ref: "unknown", tag: "span", rect: rect(10, 70, 120, 20) },
-      { ref: "conflict", tag: "span", rect: rect(10, 100, 120, 20) },
+      { ref: "unknown", tag: "x-unknown", rect: rect(10, 70, 120, 20) },
+      { ref: "conflict", tag: "span", role: "button", rect: rect(10, 100, 120, 20) },
       { ref: "filtered", tag: "button", rect: rect(900, 10, 120, 40) },
-      { ref: "candidate-unknown", tag: "span", rect: rect(10, 140, 120, 20) },
+      { ref: "candidate-unknown", tag: "x-unknown", rect: null },
+      { ref: "ignored-parent", tag: "div", rect: rect(10, 170, 120, 40) },
+      { ref: "ignored-child", tag: "button", parentRef: "ignored-parent", rect: rect(10, 170, 120, 40) },
     ],
     properties: {
       button: basicProperties("button"),
-      unknown: basicProperties("span", { directTextPresent: null }),
-      conflict: basicProperties("span", { directTextPresent: null }),
+      unknown: basicProperties("x-unknown"),
+      conflict: basicProperties("span", { role: "button" }),
       filtered: basicProperties("button"),
-      "candidate-unknown": basicProperties("span", { directTextPresent: null }),
+      "candidate-unknown": basicProperties("x-unknown"),
+      "ignored-parent": basicProperties("div", {
+        directTextPresent: false,
+        nonFormatDirectTextPresent: false,
+        beforeContentPresent: false,
+        afterContentPresent: false,
+        backgroundImagePresent: false,
+        maskImagePresent: false,
+        childElementCount: 1,
+        positiveAreaChildCount: 1,
+        singleChildTag: "button",
+        singleChildSameRect: true,
+      }),
+      "ignored-child": basicProperties("button"),
     },
   });
   const focusSpec = createFocusSpec();
-  let candidateBatch = checkCandidates(observeCandidates({ observation: snapshot.observation }), focusSpec);
-  candidateBatch = {
-    ...candidateBatch,
-    slots: candidateBatch.slots.map((slot) => {
-      if (slot.nodeRef === "candidate-unknown") {
-        return { ...slot, status: "unknown", reasons: ["candidate_unknown"] };
-      }
-      return slot;
-    }),
-    candidateRefs: candidateBatch.slots
-      .filter((slot) => slot.nodeRef !== "candidate-unknown" && slot.status === "ok")
-      .map((slot) => slot.nodeRef),
-  };
-  let basicKindBatch = classifyBasicKindBatch(
+  const candidateBatch = checkCandidates(observeCandidates({ observation: snapshot.observation }), focusSpec);
+  const basicKindBatch = classifyBasicKindBatch(
     { ...candidateBatch, itemObservations: snapshot.itemObservations },
-    DEFAULT_BASIC_KIND_CONFIG,
-    DEFAULT_BASIC_KIND_PROFILE,
+    config,
+    profile,
   );
-  basicKindBatch = {
-    ...basicKindBatch,
-    slots: basicKindBatch.slots.map((slot) => slot.nodeRef === "conflict" ? {
-      ...slot,
-      judgmentStatus: "conflict",
-      basicKind: "other",
-      score: null,
-      margin: null,
-      reasons: ["competing_basic_kinds"],
-    } : slot),
-  };
+  const candidateSlots = basicKindBatch.slots.filter(slot => slot.candidateStatus === "ok");
   return {
     snapshot,
     focusSpec,
-    profileId: DEFAULT_BASIC_KIND_PROFILE.id,
+    profileId: profile.id,
     candidateBatch,
     basicKindBatch,
     boxes: [],
     presentation: {
       view: {
         boxes: [],
-        counts: { totalNodes: snapshot.observation.nodes.length, candidates: 4, judged: 1, unknown: 2, conflict: 1 },
+        counts: {
+          totalNodes: basicKindBatch.slots.length,
+          candidates: candidateSlots.length,
+          judged: candidateSlots.filter(slot => slot.judgmentStatus === "judged").length,
+          unknown: candidateSlots.filter(slot => slot.judgmentStatus === "unknown").length,
+          conflict: candidateSlots.filter(slot => slot.judgmentStatus === "conflict").length,
+          ignored: candidateSlots.filter(slot => slot.judgmentStatus === "judged" && slot.basicKind === "ignore").length,
+          unresolved: candidateSlots.filter(slot => slot.judgmentStatus === "unknown" || slot.judgmentStatus === "conflict").length,
+          excluded: basicKindBatch.slots.filter(slot => slot.candidateStatus !== "ok").length,
+          candidateUnknown: basicKindBatch.slots.filter(slot => slot.candidateStatus === "unknown").length,
+        },
         focus: null,
         coverage: snapshot.coverage,
-        profileId: DEFAULT_BASIC_KIND_PROFILE.id,
+        profileId: profile.id,
         focusSpec,
         confidenceState: "uncalibrated",
       },
@@ -232,6 +258,26 @@ function validWeightAsset() {
     },
     profile: structuredClone(DEFAULT_BASIC_KIND_PROFILE),
   };
+}
+
+function fixtureWeight(profileId = "dom-basic-kinds-overlay-fixture-v1") {
+  const profile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  for (const rows of [profile.familyWeights, profile.leafWeights]) {
+    for (const row of Object.values(rows)) {
+      for (const wire of Object.keys(row)) row[wire] = 0;
+    }
+  }
+  [profile.familyWeights.structure, profile.leafWeights.ignore]
+    .forEach(row => { row.neutral_same_rect_wrapper = 1; });
+  [profile.familyWeights.control, profile.leafWeights.button]
+    .forEach(row => { row.nat_control_button = 1; });
+  profile.familyWeights.control.role_button = 0.8;
+  profile.familyWeights.text.nat_span = 0.8;
+  profile.id = profileId;
+  const asset = validWeightAsset();
+  asset.profileId = profileId;
+  asset.profile = profile;
+  return parseBrowserWeightAsset(asset, "fixture weights");
 }
 
 test("browser weight assets reject reports and invalid compatibility without mutating old state", () => {
@@ -366,6 +412,30 @@ test("unknown bulk includes only qualified unknown slots and preserves existing 
   assert.equal(session.stats().ambiguous, 1);
 });
 
+test("unresolved bulk collects every qualified unknown and conflict without relabeling either", () => {
+  const frame = makeFrame();
+  const session = new BrowserCaptureSession({ sessionId: "session-unresolved", createdAt: "2026-10-17T12:00:00.000Z" });
+  const receipt = session.collectUnresolved(frame);
+  assert.equal(receipt.eligibleUnknown, 1);
+  assert.equal(receipt.eligibleConflict, 1);
+  assert.equal(receipt.collected, 2);
+  const bundle = session.toBundle();
+  assert.deepEqual(bundle.trainingRequest.rows.map(row => row.inputRef.nodeRef).sort(), ["conflict", "unknown"]);
+  assert.deepEqual(bundle.trainingRequest.rows.map(row => row.proposal.status).sort(), ["conflict", "unknown"]);
+  assert.ok(bundle.trainingRequest.rows.every(row => row.review.status === "unreviewed" && row.review.expectedLabel === null));
+
+  session.captureSelected(frame, "conflict", { kind: "unsure" });
+  session.captureSelected(frame, "unknown", { kind: "wrong", correctedLabel: "text" });
+  const repeated = session.collectUnresolved(frame);
+  assert.equal(repeated.collected, 0);
+  assert.equal(repeated.existingReviewed, 2);
+  assert.equal(repeated.existingPending, 0);
+
+  const oldSession = new BrowserCaptureSession({ sessionId: "session-old", createdAt: "2026-10-17T12:00:00.000Z" });
+  assert.equal(oldSession.collectUnknown(frame).collected, 1);
+  assert.deepEqual(oldSession.toBundle().trainingRequest.rows.map(row => row.inputRef.nodeRef).sort(), ["unknown"]);
+});
+
 test("capture carries raw exploration through export and prepare without relabeling", () => {
   const frame = makeFrame();
   frame.snapshot.explorationInputs = buildExplorationInputs({ observation: frame.snapshot.observation, itemObservations: frame.snapshot.itemObservations, maxRelationHops: 4, directChildrenStatus: "complete" });
@@ -382,40 +452,30 @@ test("capture carries raw exploration through export and prepare without relabel
 
 test("capture export preserves order, reindexes without a 2500 row cap, and keeps student fields clean", () => {
   const count = 2501;
+  const { profile, config } = fixtureWeight("dom-basic-kinds-overlay-large-fixture-v1");
   const nodes = Array.from({ length: count }, (_, index) => ({
     ref: `unknown-${index}`,
-    tag: "span",
+    tag: "x-unknown",
     rect: rect(0, index % 500, 10, 10),
   }));
   const properties = Object.fromEntries(nodes.map((node) => [
     node.ref,
-    basicProperties("span", { directTextPresent: null }),
+    basicProperties("x-unknown"),
   ]));
   const snapshot = snapshotFixture({ nodes, properties, evidence: {
     "unknown-0": { id: "secret-id", classList: ["secret-class"], textSummary: "visible label" },
   } });
-  const candidateBatch = {
-    observation: snapshot.observation,
-    mode: "page",
-    slots: nodes.map((node, index) => ({
-      index,
-      nodeRef: node.ref,
-      status: "ok",
-      reasons: [],
-      evidence: { boundingBoxIntersection: "positive", fragments: "assessed", clipping: "assessed" },
-    })),
-    candidateRefs: nodes.map((node) => node.ref),
-    ruleVersion: "0.1.0",
-  };
+  const candidateBatch = checkCandidates(observeCandidates({ observation: snapshot.observation }), createFocusSpec());
   const basicKindBatch = classifyBasicKindBatch(
     { ...candidateBatch, itemObservations: snapshot.itemObservations },
-    DEFAULT_BASIC_KIND_CONFIG,
-    DEFAULT_BASIC_KIND_PROFILE,
+    config,
+    profile,
   );
+  assert.ok(basicKindBatch.slots.every(slot => slot.candidateStatus === "ok" && slot.judgmentStatus === "unknown"));
   const frame = {
     snapshot,
     focusSpec: createFocusSpec(),
-    profileId: DEFAULT_BASIC_KIND_PROFILE.id,
+    profileId: profile.id,
     candidateBatch,
     basicKindBatch,
     boxes: [],
@@ -651,6 +711,218 @@ test("live DOM measures declared list parent, repeated geometry and SVG children
   assert.equal(repeatedSnapshot.itemObservations.find(item => item.nodeRef === stableNodeRefFor(repeatedRegistry, alignedFirst)).repeatedChildGeometry, false);
 });
 
+test("live DOM measures the nine optional interaction facts without inventing missing values", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
+    pointerEvents: "auto", cursor: "auto", tabIndex: "0", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px",
+    borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
+    borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
+  const wrapper = { ...html, tagName: "DIV", parentElement: html, children: [], childNodes: [], childElementCount: 1, getAttribute: name => name === "tabindex" ? "-1" : null };
+  const child = { ...html, tagName: "DIV", parentElement: wrapper, children: [], childNodes: [{ nodeType: 3, textContent: "hidden by script" }], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 200, height: 100 }), getAttribute: name => name === "tabindex" ? "0" : null };
+  const script = { ...html, tagName: "SCRIPT", parentElement: child, children: [], childNodes: [{ nodeType: 3, textContent: "not student text" }], childElementCount: 0 };
+  const text = { ...html, tagName: "SPAN", parentElement: child, children: [], childNodes: [{ nodeType: 3, textContent: "descendant text" }], childElementCount: 0 };
+  const svg = { ...html, tagName: "SVG", parentElement: child, children: [], childNodes: [], childElementCount: 1, getAttribute: () => null };
+  const path = { ...html, tagName: "PATH", parentElement: svg, children: [], childNodes: [], childElementCount: 0, getBoundingClientRect: () => ({ x: 0, y: 0, width: 20, height: 10 }), getAttribute: () => null };
+  const button = { ...html, tagName: "BUTTON", parentElement: child, children: [], childNodes: [], childElementCount: 0, getAttribute: () => null };
+  wrapper.children = [child, button]; child.children = [svg]; child.childNodes = [{ nodeType: 1, tagName: "SCRIPT", textContent: "not student text" }, { nodeType: 3, textContent: "own direct text" }];
+  svg.children = [path]; html.children = [wrapper];
+  dom.window.getComputedStyle = element => element === child ? { ...style, cursor: "pointer", pointerEvents: "auto", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "rgb(1,2,3)" }
+    : element === wrapper ? { ...style, cursor: "pointer" } : { ...style, cursor: "auto" };
+  const registry = createStableNodeRefRegistry("interaction-test");
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "interaction", documentRef: "fixture" });
+  const properties = node => snapshot.properties.get(stableNodeRefFor(registry, node));
+  assert.equal(properties(wrapper).pointerCursor, true);
+  assert.equal(properties(child).parentPointerCursor, true);
+  assert.equal(properties(child).tabIndexFocus, true);
+  assert.equal(properties(wrapper).tabIndexFocus, false);
+  assert.equal(properties(child).borderPresent, true);
+  assert.equal(properties(child).aspectRatio, 0.5);
+  assert.equal(properties(child).descendantTextPresent, true);
+  assert.equal(properties(child).singleChildTag, "svg");
+  assert.equal(properties(child).withinControlAncestor, false);
+  assert.equal(properties(button).withinControlAncestor, false);
+  assert.equal(properties(path).inSvgAncestor, true);
+  assert.equal(properties(svg).inSvgAncestor, false);
+  assert.equal(properties(wrapper).inSvgAncestor, false);
+  assert.equal('textContent' in properties(child), false);
+});
+
+test("bounded ancestor facts preserve truncation and descendant text skips script, style and tool roots", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const baseStyle = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
+    pointerEvents: "auto", cursor: "auto", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px",
+    borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
+    borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
+  const control = { ...html, tagName: "BUTTON", parentElement: null, children: [], childNodes: [], childElementCount: 0, getAttribute: () => null };
+  const wrappers = Array.from({ length: 5 }, () => ({ ...html, tagName: "DIV", parentElement: null,
+    children: [], childNodes: [], childElementCount: 0, getAttribute: () => null }));
+  for (let index = 1; index < wrappers.length; index++) wrappers[index].parentElement = wrappers[index - 1];
+  wrappers[0].parentElement = control; control.children = [wrappers[0]];
+  const target = wrappers[4];
+  const script = { ...html, tagName: "SCRIPT", parentElement: target, children: [], childNodes: [{ nodeType: 3, textContent: "hidden" }], childElementCount: 0 };
+  const tool = { ...html, tagName: "DIV", parentElement: target, id: "codex-browser-sidebar-comments-root", children: [], childNodes: [{ nodeType: 3, textContent: "tool text" }], childElementCount: 0, getAttribute: () => null };
+  const text = { ...html, tagName: "SPAN", parentElement: target, children: [], childNodes: [{ nodeType: 3, textContent: "real" }], childElementCount: 0 };
+  target.children = [];
+  target.childNodes = [
+    { nodeType: 1, tagName: "SCRIPT", id: "", childNodes: [{ nodeType: 3, textContent: "hidden" }] },
+    { nodeType: 1, tagName: "SPAN", id: "", childNodes: [{ nodeType: 3, textContent: "real" }] },
+  ];
+  wrappers[0].children = [wrappers[1]]; wrappers[1].children = [wrappers[2]]; wrappers[2].children = [wrappers[3]]; wrappers[3].children = [target];
+  html.children = [wrappers[0]];
+  dom.window.getComputedStyle = () => baseStyle;
+  const registry = createStableNodeRefRegistry("bounded-ancestor-test");
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "bounded", documentRef: "fixture" });
+  const properties = node => snapshot.properties.get(stableNodeRefFor(registry, node));
+  assert.equal(properties(target).withinControlAncestor, null);
+  assert.equal(properties(wrappers[0]).withinControlAncestor, true);
+  assert.equal(properties(target).inSvgAncestor, null);
+  assert.equal(properties(target).descendantTextPresent, true);
+  assert.equal(properties(target).singleChildTag, null);
+});
+
+test("singleChildSameRect uses real parent and sole child geometry with nullable coverage", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
+    pointerEvents: "auto", cursor: "auto", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px",
+    borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
+    borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
+  const parent = { ...html, tagName: "DIV", parentElement: html, children: [], childNodes: [], childElementCount: 1,
+    getBoundingClientRect: () => ({ x: 10, y: 10, width: 100, height: 40 }), getAttribute: () => null };
+  const child = { ...html, tagName: "BUTTON", parentElement: parent, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 11, y: 11, width: 98, height: 38 }), getAttribute: () => null };
+  parent.children = [child]; html.children = [parent];
+  dom.window.getComputedStyle = () => style;
+  const registry = createStableNodeRefRegistry("single-rect-test");
+  const parentRef = stableNodeRefFor(registry, parent), childRef = stableNodeRefFor(registry, child);
+  const observe = () => observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "same-rect", documentRef: "fixture" });
+  const measured = observe();
+  assert.equal(measured.properties.get(parentRef).singleChildSameRect, true);
+  const candidateBatch = checkCandidates(observeCandidates({ observation: measured.observation }), createFocusSpec());
+  const classified = classifyBasicKindBatch({ ...candidateBatch, itemObservations: measured.itemObservations }, DEFAULT_BASIC_KIND_CONFIG, DEFAULT_BASIC_KIND_PROFILE);
+  assert.equal(classified.slots.find(slot => slot.nodeRef === parentRef).evidence.wires.neutral_same_rect_wrapper, 1);
+  assert.equal(observe().properties.get(childRef).singleChildSameRect, false);
+  child.getBoundingClientRect = () => ({ x: 30, y: 10, width: 30, height: 20 });
+  assert.equal(observe().properties.get(parentRef).singleChildSameRect, false);
+  parent.children = []; parent.childNodes = []; parent.childElementCount = 0;
+  assert.equal(observe().properties.get(parentRef).singleChildSameRect, false);
+  parent.children = [child]; parent.childNodes = [child]; parent.childElementCount = 1;
+  child.getBoundingClientRect = () => ({ x: 0, y: 0, width: Number.NaN, height: 20 });
+  assert.equal(observe().properties.get(parentRef).singleChildSameRect, null);
+  html.children = [parent];
+  const exploration = buildExplorationInputs({ observation: { ...observe().observation }, itemObservations: observe().itemObservations, maxRelationHops: 4 }).get(parentRef);
+  assert.equal(exploration.measurementCoverage.singleChildSameRect, 'unmeasured');
+});
+
+test("directListChildPresent measures complete structural children independent of visibility", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
+    pointerEvents: "auto", cursor: "auto", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px",
+    borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
+    borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
+  const element = (tagName, parentElement, role = null) => ({
+    ...html,
+    tagName,
+    parentElement,
+    children: [],
+    childNodes: [],
+    childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 100, height: 30 }),
+    getAttribute: name => name === "role" ? role : null,
+  });
+  const hiddenListParent = element("DIV", html);
+  const hiddenUl = element("UL", hiddenListParent);
+  hiddenUl.getBoundingClientRect = () => ({ x: 0, y: 0, width: 0, height: 0 });
+  const hiddenParagraph = element("P", hiddenListParent);
+  hiddenListParent.children = [hiddenUl, hiddenParagraph];
+  hiddenListParent.childElementCount = 2;
+
+  const plainParent = element("DIV", html);
+  const svg = element("SVG", plainParent), span = element("SPAN", plainParent), button = element("BUTTON", plainParent);
+  plainParent.children = [svg, span, button];
+  plainParent.childElementCount = 3;
+
+  const roleParent = element("DIV", html);
+  const roleListbox = element("DIV", roleParent, "listbox");
+  roleParent.children = [roleListbox];
+  roleParent.childElementCount = 1;
+
+  const nativeSelect = element("SELECT", html);
+  nativeSelect.options = [{ tagName: "OPTION" }];
+
+  const excludedParent = element("DIV", html);
+  const toolRoot = element("DIV", excludedParent);
+  toolRoot.id = "codex-browser-sidebar-comments-root";
+  const normalSpan = element("SPAN", excludedParent);
+  excludedParent.children = [toolRoot, normalSpan];
+  excludedParent.childElementCount = 2;
+
+  html.children = [hiddenListParent, plainParent, roleParent, nativeSelect, excludedParent];
+  dom.window.getComputedStyle = elementValue => elementValue === hiddenUl ? { ...style, display: "none" } : style;
+  const registry = createStableNodeRefRegistry("direct-list-child-test");
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "direct-list-child", documentRef: "fixture" });
+  const properties = node => snapshot.properties.get(stableNodeRefFor(registry, node));
+  const exploration = node => snapshot.explorationInputs.get(stableNodeRefFor(registry, node));
+
+  assert.equal(properties(hiddenListParent).directListChildPresent, true);
+  assert.equal(properties(plainParent).directListChildPresent, false);
+  assert.equal(properties(roleParent).directListChildPresent, true);
+  assert.equal(properties(nativeSelect).directListChildPresent, false);
+  assert.equal(properties(excludedParent).directListChildPresent, false);
+  assert.equal(exploration(hiddenListParent).measurementCoverage.directListChildPresent, "measured");
+});
+
+test("unsupported border and tabindex evidence remains unknown while known absence stays false", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const unsupported = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
+    pointerEvents: "auto", content: "none", backgroundImage: "none", maskImage: "none" };
+  const target = { ...html, tagName: "DIV", parentElement: html, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 20, height: 20 }), getAttribute: name => name === "tabindex" ? "not-an-integer" : null };
+  html.children = [target];
+  dom.window.getComputedStyle = () => unsupported;
+  const registry = createStableNodeRefRegistry("unknown-style-test");
+  const ref = stableNodeRefFor(registry, target);
+  const first = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "unknown-style", documentRef: "fixture" });
+  assert.equal(first.properties.get(ref).borderPresent, null);
+  assert.equal(first.properties.get(ref).tabIndexFocus, null);
+  assert.equal(first.properties.get(ref).pointerCursor, null);
+  assert.equal(first.properties.get(ref).parentPointerCursor, null);
+  const exploration = buildExplorationInputs({ observation: first.observation, itemObservations: first.itemObservations, maxRelationHops: 4 }).get(ref);
+  assert.equal(exploration.measurementCoverage.pointerCursor, "unmeasured");
+  assert.equal(exploration.measurementCoverage.parentPointerCursor, "unmeasured");
+  target.getAttribute = () => null;
+  const absent = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "absent-tabindex", documentRef: "fixture" });
+  assert.equal(absent.properties.get(ref).tabIndexFocus, false);
+  dom.window.getComputedStyle = () => ({ ...unsupported, borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px" });
+  const zero = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "zero-border", documentRef: "fixture" });
+  assert.equal(zero.properties.get(ref).borderPresent, false);
+  dom.window.getComputedStyle = () => ({ ...unsupported, borderTopWidth: "2px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px", borderTopStyle: "solid", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", getPropertyValue: () => "not-a-css-color" });
+  const invalidColor = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "invalid-border", documentRef: "fixture" });
+  assert.equal(invalidColor.properties.get(ref).borderPresent, null);
+});
+
+test("SVG scope detects only an actual svg ancestor, not HTML g or text tags", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
+    pointerEvents: "auto", cursor: "auto", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px",
+    borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
+    borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
+  const g = { ...html, tagName: "G", parentElement: html, children: [], childNodes: [], childElementCount: 1, getAttribute: () => null };
+  const target = { ...html, tagName: "SPAN", parentElement: g, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 20, height: 20 }), getAttribute: () => null };
+  g.children = [target]; html.children = [g];
+  dom.window.getComputedStyle = () => style;
+  const registry = createStableNodeRefRegistry("svg-scope-test");
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "svg-scope", documentRef: "fixture" });
+  assert.equal(snapshot.properties.get(stableNodeRefFor(registry, target)).inSvgAncestor, false);
+});
+
+test("overlay node definitions expose only the production graph nodes", () => {
+  const definitions = createBrowserOverlayNodeDefinitions({ document: {}, window: {}, registry: createStableNodeRefRegistry("no-hooks"), excludeHost: null,
+    present: () => undefined });
+  assert.deepEqual(definitions.map(definition => definition.operator), ["browser.observe_live", "browser.qualify_live", "browser.classify_live", "overlay.present"]);
+});
+
 test("public overlay graph runs through compileWorkflow and runWorkflow with a no-op present callback", async () => {
   const graph = JSON.parse(readFileSync(
     new URL("../workflows/browser-visual-overlay.graph.json", import.meta.url),
@@ -769,4 +1041,60 @@ test("capture graph enforces effects and calls the explicit download callback on
   assert.equal(exported.outputEvent.payload.action, "export");
   assert.equal(exported.outputEvent.payload.receipt.downloadReceipt.receiptId, "download-receipt-1");
   assert.equal(downloadCalls, 1);
+});
+
+test("capture graph accepts unresolved collection while the old unknown action remains compatible", async () => {
+  const graph = JSON.parse(readFileSync(
+    new URL("../workflows/browser-capture.graph.json", import.meta.url),
+    "utf8",
+  ));
+  const session = new BrowserCaptureSession({ sessionId: "session-contract", createdAt: "2026-10-17T12:00:00.000Z" });
+  const compiled = compileWorkflow({ graph, bindings: {} }, {
+    nodeDefinitions: createBrowserCaptureNodeDefinitions({ session, download: () => ({ receiptId: "unused" }) }),
+    grantedEffects: ["browser.capture.download"],
+  });
+  const execute = action => runWorkflow(compiled, createWorkflowInputEvent({
+    runId: `capture-${action}`,
+    eventId: `capture-${action}:input`,
+    port: "capture_request",
+    type: BROWSER_CAPTURE_REQUEST_EVENT_TYPE,
+    correlation: {},
+    payload: { action, frame: makeFrame() },
+  }));
+  const unresolved = await execute("collect_unresolved");
+  assert.equal(unresolved.status, "completed");
+  assert.equal(unresolved.outputEvent.payload.action, "collect_unresolved");
+  assert.equal(unresolved.outputEvent.payload.receipt.collected, 2);
+  await assert.rejects(createBrowserCaptureNodeDefinitions({ session, download: () => undefined })
+    .find(definition => definition.operator === "browser.capture").execute({ inputs: [{ status: "ok", payload: { action: "unknown_action" } }], emit: () => undefined }), /Unsupported browser capture action/);
+});
+
+test("overlay presentation counts ignore separately and keeps its boxes available for opt-in viewing", async () => {
+  const frame = makeFrame();
+  const ignored = frame.basicKindBatch.slots.filter(slot => slot.judgmentStatus === "judged" && slot.basicKind === "ignore");
+  assert.deepEqual(ignored.map(slot => slot.nodeRef), ["ignored-parent"]);
+  assert.equal(frame.basicKindBatch.slots.find(slot => slot.nodeRef === "ignored-child").basicKind, "button");
+  assert.deepEqual(
+    frame.basicKindBatch.slots.filter(slot => slot.candidateStatus === "ok" && slot.judgmentStatus === "unknown").map(slot => slot.nodeRef),
+    ["unknown"],
+  );
+  assert.deepEqual(
+    frame.basicKindBatch.slots.filter(slot => slot.judgmentStatus === "conflict").map(slot => slot.nodeRef),
+    ["conflict"],
+  );
+  const definitions = createBrowserOverlayNodeDefinitions({ document: {}, window: {}, registry: createStableNodeRefRegistry("presentation"), excludeHost: null,
+    present: () => undefined });
+  const present = definitions.find(definition => definition.operator === "overlay.present");
+  const graph = JSON.parse(readFileSync(new URL("../workflows/browser-visual-overlay.graph.json", import.meta.url), "utf8"));
+  assert.ok(graph.nodes.some(node => node.operator === "overlay.present"));
+  const execution = await present.execute({
+    inputs: [{ status: "ok", payload: frame }],
+    emit: (payload, options) => ({ payload, options }),
+  });
+  assert.equal(execution.payload.presentation.view.counts.ignored, 1);
+  assert.equal(execution.payload.presentation.view.counts.unknown, 1);
+  assert.equal(execution.payload.presentation.view.counts.conflict, 1);
+  assert.equal(execution.payload.presentation.view.counts.unresolved, 2);
+  assert.equal(execution.payload.basicKindBatch.slots.length, frame.candidateBatch.slots.length);
+  assert.ok(execution.payload.presentation.view.boxes.some(box => box.basicKind === "ignore"));
 });
