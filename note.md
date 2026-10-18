@@ -1,6 +1,10 @@
 # 当前任务
 
-2026-10-17用户要求先确定布局／交互忽略属于过滤还是训练：已追加66包装的现场交互证据，65唯一匹配／1歧义，21处原生按钮或链接祖先、29pointer、6有控件后代（交叉集合）。确认不能按空、pointer或tag硬过滤。决定：确定范围筛选与纯整形用规则；独立内容／交互价值用单独保留监督；过滤执行已明确忽略的结果，不删原DOM／有意义后代。优先把现有关系投影进数值输入；具体事实缺失才补参数，可区分则补复核样本拟合。新增待标定用途队列45基础种类／106保留监督／1探索，expectedOutput仍null，未创建新任务合同、未训练或改产品。完整说明追加docs/weibo-unknown-20261017.md，原始证据与supervision-supplement.json留本地同批目录。
+2026-10-17用户最新决定：元素自身通过多条件评分可被分为`ignore`，展示端默认不画其标注框。此前“纯布局类＋独立过滤步骤”和“独立保留／忽略监督头”提议均不采用。兄弟不合并；冗余父子包装依据包含关系评分。原DOM、原分类槽位、有意义后代保留，unknown/conflict不自动转ignore。本轮授权先分析已有样本并实验打分，正式分类器和扩展暂不变更。已有66包装交互证据与152未知采集包复用；外置任务目录为/Volumes/Intel/playground/nnanything-runs/layout-normalization，独占树为/Volumes/Intel/playground/nnanything/layout-normalization。独立Gemini4修订计划replan-response.md已接受；仅离线Handwired评分与文档纠偏，既有训练6N6E和标注4N3E图均闭合且未改动。
+
+离线实验已运行：152项临时teacher提议37ignore／70保留／45未定，107同源拟合、45未定不入训，未改原review。真实Handwired300轮GD，A48局部wire与B加4关系投影同超参。损失0.28009→A0.06778／B0.03896；A命中36/37但误忽略11/70、未定高分9/45；B命中37/37但误忽略5/70、未定高分3/45。局部227对提议碰撞→73完全同向量、133已测关系可区分、21仅覆盖差异，不能将21当作辨别进步。旧357黄金仅评估，其中309具体类、48other，两组×两旧profile均无误忽略／原决定变化；旧关系缺测且无本批局部同向量反例，不证明新交互场景安全。作者修正回放把other/unknown误计变化与竞争上界错误，未调权重／阈值。梯度、缺测区间、保存回载验证通过；脚本已从正式本地training/results/ignore-scoring-20261017重跑。候选not_applied／uncalibrated，未改生产代码和扩展，不需用户重载。剩余5误忽略＋3未定高分需复核agent目标归属；已有子成分尚可投影，委托点击与命中不足另列。完整结果见docs/weibo-unknown-20261017.md。
+
+独立Gemini4 medium实验与本地规则归属审计完成（conversation64c57ab4-31b4-4aea-9df2-cc80f8f01f0e，SUCCESS／exit0）。允许按局限汇报，不能用于自动隐藏；指出保留提议与独立agent目标有边界争议，下一步先核目标归属，再联合具体类与ignore拟合。审计正文docs/reviews/gemini4-ignore-scoring-audit.md，含作者对133已测分离／21覆盖差异的归档说明；不冒称生产代码Review PASS。AGENTS与算法文档归属清楚，本地Skill无需改写，无全局记忆更新。文档检查与目录边界检查通过；产品未改，不重复全量测试或扩展构建。
 
 2026-10-17微博未知现场续检完成：用户报告151，实际采集时面板152未知／0冲突（1897DOM、626候选、474已判断、1271排除）。assistant自行点击采集并下载152项；全部带五个新版已测字段和exploration，公开reader/classify逐项重放152unknown一致，prepare入训0。分组66包装／布局／交互宿主、40CSS伪元素、33SVG内部、5嵌套SVG、3背景图、2混合直接文字、2文档根、1object。新CSS和通用文本权重仍0，输入生效不等于已训练；关系尚未数值化、语义保留／忽略监督未定义。未改产品代码、权重、阈值、标签，无自动other／负例。数据与截图training/samples/weibo-unknown-20261017，报告docs/weibo-unknown-20261017.md，复检脚本外置run同名；已完成原始未知逐行采集与归因，剩余重点为关系投影、保留／忽略目标和复核后训练。纯只读/文档快路径，不新建worktree或独立Review。
 
