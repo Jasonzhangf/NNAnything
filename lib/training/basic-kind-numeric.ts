@@ -219,8 +219,9 @@ function sourceFor(graph: CircuitGraph, weights: readonly number[], wires: Reado
 function stageLoss(values: Float32Array, targets: readonly string[], outputs: Readonly<Record<string, { min: HandwiredWire; max: HandwiredWire }>>, expected: string, target: number, rival: number, gradients: Float32Array) {
   let loss = 0;
   const expectedScore = values[outputs[expected]!.min]!;
-  loss += (expectedScore - target) ** 2;
-  gradients[outputs[expected]!.min] = Math.fround(gradients[outputs[expected]!.min]! + 2 * (expectedScore - target));
+  const deficit = Math.max(0, target - expectedScore);
+  loss += deficit ** 2;
+  if (deficit > 0) gradients[outputs[expected]!.min] = Math.fround(gradients[outputs[expected]!.min]! + 2 * (expectedScore - target));
   for (const candidate of targets) {
     if (candidate === expected) continue;
     const excess = Math.max(0, values[outputs[candidate]!.max]! - rival);

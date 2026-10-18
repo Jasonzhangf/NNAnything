@@ -197,19 +197,19 @@ u(c) = Σ[已观测的 w(c,k)·x(k)] + Σ[缺测的 max(w(c,k), 0)]
 
 ### 单一代理目标与更新顺序
 
-令 h(z)=max(z,0)，固定推理门限 T=0.6、M=0.15。目标分数 a=0.8，竞争上界 b=0.4。对一层目标集合 C 和真实类别 y：
+令 h(z)=max(z,0)，固定推理门限 T=0.6、M=0.15。期望分数的下限 a=0.8，竞争上界 b=0.4。对一层目标集合 C 和真实类别 y：
 
 ```text
-Lstage(C,y) = (l(y)-a)² + Σ[c∈C,c≠y] h(u(c)-b)²
+Lstage(C,y) = h(a-l(y))² + Σ[c∈C,c≠y] h(u(c)-b)²
 Lknown = Lstage(五大类,真实大类)
        + Lstage(真实大类的细类,真实细类)
 Lother = Σ[f∈五大类] h(u(f)-(T-otherGap))²
 Ltotal = mean(逐样本 Lknown 或 Lother) + λ/2 · Σ(w-wBase)²
 ```
 
-otherGap=0.05。已知类的零阶段损失意味着目标下界为 0.8、竞争上界至多 0.4；经正式截断后仍满足门限及严格正间隔。单细类分支也满足相对零竞争分数的间隔。若更改配置，要求 0≤b<a≤1、a≥T、a-b>M；otherGap 满足 0<otherGap<T。非零损失不保证命中，所以始终报告正式前向结果。
+otherGap=0.05。已知类的零阶段损失意味着目标下界至少为 0.8、竞争上界至多 0.4；经正式截断后仍满足门限及严格正间隔。单细类分支也满足相对零竞争分数的间隔。若更改配置，要求 0≤b<a≤1、a≥T、a-b>M；otherGap 满足 0<otherGap<T。非零损失不保证命中，所以始终报告正式前向结果。
 
-目标项直接约束未截断下界，不因推理 clamp 饱和而失去纠错梯度。宿主对 l/u 求损失导数：目标下界为 2(l-a)，竞争上界为 2h(u-b)；other 上界为 2h(u-(T-otherGap))。不对离散类别、布尔路由或 other 字符串反传。
+目标项只惩罚未达到下限的分数。多个有效证据叠加使未截断下界超过 a 时，不再把该分数拉回 a；这些分数未经过概率校准。宿主对 l/u 求损失导数：目标下界小于 a 时为 2(l-a)，达到或超过 a 时为 0；竞争上界仍为 2h(u-b)，other 上界仍为 2h(u-(T-otherGap))。竞争分数过高仍得到纠错梯度。不对离散类别、布尔路由或 other 字符串反传。
 
 other 约束是保守的充分拒识策略：所有大类上界都低于门限，则不能进入任何已知细类。它比“任一路径弃判”更严格，不能表达所有可能的 other。若它与已知类样本冲突，报告当前特征/连线的可分性限制并审计；不能改黄金标签来消除冲突。预测 other 的缺测样本若真值已知，仍走 Lknown，不走 Lother。
 
@@ -246,7 +246,9 @@ ReLU 在零点采用零次梯度。一个初值为零且一直缺测的 wire，�
 
 采集、回载和prepare支持可选`explorationInput: ExplorationInputV1 | null`。唯一实现为`lib/adapters/browser/exploration-input.ts`，公开入口为`buildExplorationInputs`、`validateExplorationInput`。该输入保存当前节点、直接父子引用、子元素tag/role/直接文字/几何组成、跨层`contains`与`contained_by`边、相对间隔和测量覆盖。它不携带class/id、原始文字/账号/URL、绝对路径、全局深度或预测类别。包装不从后代继承文字，所有观测节点和引用保留。
 
-纯builder要求显式`maxRelationHops>=1`，默认子节点覆盖为unknown；只有调用者明确保证完整直接子集时才生成已知计数。未测几何或不完整子集保持null。实时适配器默认4跳，可通过`observeLiveDom`或`createBrowserOverlayNodeDefinitions`资源参数`maxRelationHops`覆盖，实际值写入每项；到上限返回hop_limit_reached，不宣称完整包含链。缺失父观测、未知根边界和未读iframe/shadow分别保留。关系范围始终是当前观测文档；interior列表是调用者声明的未读区域，省略它不证明不存在内嵌内容，closed shadow仍不可探测。
+纯builder要求显式`maxRelationHops>=1`，默认子节点覆盖为unknown；只有调用者明确保证完整直接子集时才生成已知计数。未测几何或不完整子集保持null。实时适配器的关系数组默认4跳，可通过`observeLiveDom`或`createBrowserOverlayNodeDefinitions`资源参数`maxRelationHops`覆盖，实际值写入每项；到上限返回hop_limit_reached，不宣称完整包含链。缺失父观测、未知根边界和未读iframe/shadow分别保留。关系范围始终是当前观测文档；interior列表是调用者声明的未读区域，省略它不证明不存在内嵌内容，closed shadow仍不可探测。
+
+实时的 `withinControlAncestor` 与 `inSvgAncestor` 是存在性测量。适配器沿当前文档中实际可读的父元素链查到根，命中时为 true，到根仍未命中时为 false。它们不受关系数组的跳数限制，也不向学生输入输出路径或全局深度。离线样本未提供这些事实时仍为 null；不能仅从截断的四跳边数组推断不存在更远的祖先。
 
 旧请求不需要新字段。新字段在导出、JSON回载和prepare中保留；nodeRef必须与样本一致。第一层`toBasicKindFitRows`仍只投影`properties`和`expectedLabel`，不消费关系输入，不宣称已训练它们。关系扩展本身未改变分类器/wire/profile/阈值；后续呈现输入升级见下节。关系或语义相关性目标显式消费新I/O后才能训练；当前不提供保留/忽略标签或训练实现。
 

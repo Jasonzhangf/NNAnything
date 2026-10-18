@@ -748,13 +748,13 @@ test("live DOM measures the nine optional interaction facts without inventing mi
   assert.equal('textContent' in properties(child), false);
 });
 
-test("bounded ancestor facts preserve truncation and descendant text skips script, style and tool roots", () => {
+test("full-tree control scope keeps bounded exploration and descendant text evidence", () => {
   const dom = liveMeasurementDom(), { html } = dom;
   const baseStyle = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
     pointerEvents: "auto", cursor: "auto", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px",
     borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
     borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
-  const control = { ...html, tagName: "BUTTON", parentElement: null, children: [], childNodes: [], childElementCount: 0, getAttribute: () => null };
+  const control = { ...html, tagName: "BUTTON", parentElement: html, children: [], childNodes: [], childElementCount: 0, getAttribute: () => null };
   const wrappers = Array.from({ length: 5 }, () => ({ ...html, tagName: "DIV", parentElement: null,
     children: [], childNodes: [], childElementCount: 0, getAttribute: () => null }));
   for (let index = 1; index < wrappers.length; index++) wrappers[index].parentElement = wrappers[index - 1];
@@ -769,16 +769,59 @@ test("bounded ancestor facts preserve truncation and descendant text skips scrip
     { nodeType: 1, tagName: "SPAN", id: "", childNodes: [{ nodeType: 3, textContent: "real" }] },
   ];
   wrappers[0].children = [wrappers[1]]; wrappers[1].children = [wrappers[2]]; wrappers[2].children = [wrappers[3]]; wrappers[3].children = [target];
-  html.children = [wrappers[0]];
+  control.children = [wrappers[0]]; control.childElementCount = 1;
+  html.children = [control];
   dom.window.getComputedStyle = () => baseStyle;
   const registry = createStableNodeRefRegistry("bounded-ancestor-test");
   const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "bounded", documentRef: "fixture" });
   const properties = node => snapshot.properties.get(stableNodeRefFor(registry, node));
-  assert.equal(properties(target).withinControlAncestor, null);
+  assert.equal(properties(target).withinControlAncestor, true);
   assert.equal(properties(wrappers[0]).withinControlAncestor, true);
-  assert.equal(properties(target).inSvgAncestor, null);
+  assert.equal(properties(target).inSvgAncestor, false);
   assert.equal(properties(target).descendantTextPresent, true);
   assert.equal(properties(target).singleChildTag, null);
+  const exploration = snapshot.explorationInputs.get(stableNodeRefFor(registry, target));
+  assert.equal(exploration.containment.maxRelationHops, 4);
+  assert.deepEqual(exploration.containment.ancestorEdges.map(edge => edge.relativeHops), [1, 2, 3, 4]);
+  assert.equal(exploration.containment.ancestorBoundary, "hop_limit_reached");
+});
+
+test("existential ancestor facts cover the full tree while relation arrays stay bounded", () => {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto",
+    pointerEvents: "auto", cursor: "auto", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px",
+    borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
+    borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
+  const element = (tagName, parentElement) => ({ ...html, tagName, parentElement, children: [], childNodes: [], childElementCount: 0, getAttribute: () => null });
+  const attach = (parent, child) => {
+    parent.children.push(child); parent.childNodes.push(child); parent.childElementCount = parent.children.length;
+    return child;
+  };
+  const chain = (parent, tags) => tags.reduce((current, tag) => attach(current, element(tag, current)), parent);
+  const plainTarget = chain(html, Array(6).fill("DIV"));
+  const button = attach(html, element("BUTTON", html));
+  const buttonTarget = chain(button, Array(5).fill("DIV"));
+  const svg = attach(html, element("SVG", html));
+  const svgTarget = chain(svg, Array(5).fill("G"));
+  const htmlG = attach(html, element("G", html));
+  const htmlGTarget = attach(htmlG, element("SPAN", htmlG));
+  dom.window.getComputedStyle = () => style;
+  const registry = createStableNodeRefRegistry("full-tree-ancestor-test");
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "full-tree", documentRef: "fixture" });
+  const properties = node => snapshot.properties.get(stableNodeRefFor(registry, node));
+
+  assert.equal(properties(plainTarget).withinControlAncestor, false);
+  assert.equal(properties(plainTarget).inSvgAncestor, false);
+  assert.equal(properties(buttonTarget).withinControlAncestor, true);
+  assert.equal(properties(svgTarget).inSvgAncestor, true);
+  assert.equal(properties(htmlGTarget).inSvgAncestor, false);
+
+  const exploration = snapshot.explorationInputs.get(stableNodeRefFor(registry, plainTarget));
+  assert.equal(exploration.containment.maxRelationHops, 4);
+  assert.deepEqual(exploration.containment.ancestorEdges.map(edge => edge.relativeHops), [1, 2, 3, 4]);
+  assert.equal(exploration.containment.ancestorBoundary, "hop_limit_reached");
+  assert.equal(exploration.containment.descendantBoundary, "complete");
+  assert.equal(Object.hasOwn(exploration, "ancestorBoundary"), false);
 });
 
 test("singleChildSameRect uses real parent and sole child geometry with nullable coverage", () => {

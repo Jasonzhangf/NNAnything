@@ -438,20 +438,17 @@ export function observeLiveDom(input: {
       webkitMaskImage: style.webkitMaskImage,
     });
     const ancestorControl = (() => {
-      let cursor = element.parentElement;
-      for (let hops = 0; cursor && hops < (input.maxRelationHops ?? 4); hops++, cursor = cursor.parentElement) {
+      for (let cursor = element.parentElement; cursor; cursor = cursor.parentElement) {
         const ancestorTag = cursor.tagName.toLowerCase();
         if (nativeControlTags.has(ancestorTag) || roleTokens(cursor).some(role => controlRoles.has(role))) return true;
       }
-      return cursor === null ? false : null;
+      return false;
     })();
     const ancestorSvg = (() => {
-      // Ancestor scope is only known inside the bounded walk; reaching the hop limit stays unassessed.
-      let cursor = element.parentElement;
-      for (let hops = 0; cursor && hops < (input.maxRelationHops ?? 4); hops++, cursor = cursor.parentElement) {
+      for (let cursor = element.parentElement; cursor; cursor = cursor.parentElement) {
         if (cursor.tagName.toLowerCase() === "svg") return true;
       }
-      return cursor === null ? false : null;
+      return false;
     })();
     const tabIndex = element.getAttribute("tabindex");
     const tabIndexNumber = tabIndex === null || !/^[+-]?\d+$/.test(tabIndex.trim()) ? null : Number(tabIndex);

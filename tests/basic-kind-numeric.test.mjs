@@ -48,6 +48,30 @@ const inspect = (propertiesValue, expectedLabel, profile, overrides = {}) => ins
   profile,
   config: { ...config, ...overrides },
 });
+const inspectActualKnownWire = (propertiesValue, expectedLabel, profile) => {
+  const wires = extractBasicKindWires(propertiesValue);
+  const familyEntries = Object.entries(BASIC_KIND_FAMILIES);
+  const expectedFamily = familyEntries.find(([, labels]) => labels.includes(expectedLabel));
+  const family = computeBasicKindStageRawIntervals(
+    "family",
+    familyEntries.map(([name]) => name),
+    profile.familyWeights,
+    wires,
+  );
+  const leaf = computeBasicKindStageRawIntervals("leaf", expectedFamily[1], profile.leafWeights, wires);
+  let loss = 0;
+  for (const [name, scores] of Object.entries(family)) {
+    loss += name === expectedFamily[0]
+      ? Math.max(0, config.objective.targetScore - scores.min) ** 2
+      : Math.max(0, scores.max - config.objective.rivalCeiling) ** 2;
+  }
+  for (const [name, scores] of Object.entries(leaf)) {
+    loss += name === expectedLabel
+      ? Math.max(0, config.objective.targetScore - scores.min) ** 2
+      : Math.max(0, scores.max - config.objective.rivalCeiling) ** 2;
+  }
+  return { family, leaf, loss };
+};
 
 test("numeric raw intervals share the classifier feature and interval truth", async () => {
   const profile = cloneProfile();
@@ -164,18 +188,26 @@ test("confirmed other suppresses every family upper below the other threshold", 
   assert.equal(classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, result.profile).basicKind, "other");
 });
 
-test("saturated raw intervals keep the exact squared loss and gradient", async () => {
+test("saturated raw intervals keep deficit/rival hinge loss and stage-specific gradients", async () => {
   const profile = cloneProfile();
   profile.familyWeights.control.nat_control_button = 1;
   profile.familyWeights.media.nat_control_button = 1;
   profile.leafWeights.button.nat_control_button = 0;
-  const inspected = await inspect(properties("button"), "button", profile);
+  const input = properties("button");
+  const inspected = await inspect(input, "button", profile);
+  const actualKnown = inspectActualKnownWire(input, "button", profile);
   assert.equal(inspected.family.control.min, 1);
   assert.equal(inspected.family.media.max, 1);
-  assert.ok(inspected.loss >= 0.4);
-  assert.ok(inspected.familyGradients.control.nat_control_button > 0);
+  const expectedDeficitLoss = (0.8 - actualKnown.leaf.button.min) ** 2;
+  const expectedRivalLoss = (actualKnown.family.media.max - 0.4) ** 2;
+  close(expectedDeficitLoss + expectedRivalLoss, 1);
+  close(actualKnown.loss, expectedDeficitLoss + expectedRivalLoss);
+  close(inspected.loss, actualKnown.loss);
+  assert.equal(inspected.otherLoss, 0);
+  assert.equal(inspected.familyGradients.control.nat_control_button, 0);
   assert.ok(inspected.familyGradients.media.nat_control_button > 0);
-  assert.equal(classifyBasicKind(properties("button"), DEFAULT_BASIC_KIND_CONFIG, profile).familyStatus, "conflict");
+  assert.ok(inspected.leafGradients.button.nat_control_button < 0);
+  assert.equal(classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, profile).familyStatus, "conflict");
 });
 
 test("anchor loss is explicit and trajectory components sum to the total", async () => {

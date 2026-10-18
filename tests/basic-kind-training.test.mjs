@@ -12,10 +12,13 @@ import {
   runWorkflow,
 } from "nnanything";
 import {
+  BASIC_KIND_FAMILIES,
   DEFAULT_BASIC_KIND_PROFILE,
   DEFAULT_BASIC_KIND_CONFIG,
   LEGACY_BASIC_KIND_PROFILE,
   classifyBasicKind,
+  computeBasicKindStageRawIntervals,
+  extractBasicKindWires,
   migrateBasicKindProfile,
   validateBasicKindProfile,
 } from "nnanything/browser";
@@ -31,6 +34,7 @@ import {
   toBasicKindFitRows,
   writeBasicKindTrainingArtifacts,
   fitBasicKinds,
+  inspectBasicKindNumericSample,
   validateBasicKindTrainingConfig,
 } from "nnanything/training";
 
@@ -138,6 +142,63 @@ function emptyProfile() {
     }
   }
   return profile;
+}
+
+const positiveOverlapValue = 0.85;
+const positiveOverlapProperties = (focus, pointer) => ({
+  tag: "div",
+  role: null,
+  inputType: null,
+  hrefPresent: false,
+  contentEditable: false,
+  directTextPresent: false,
+  nonFormatDirectTextPresent: false,
+  beforeContentPresent: false,
+  afterContentPresent: false,
+  backgroundImagePresent: false,
+  maskImagePresent: false,
+  childElementCount: 0,
+  positiveAreaChildCount: 0,
+  repeatedChildGeometry: false,
+  inVerifiedListParent: false,
+  svgGraphicChildren: null,
+  pointerCursor: pointer,
+  parentPointerCursor: false,
+  tabIndexFocus: focus,
+  borderPresent: false,
+  aspectRatio: 0,
+  descendantTextPresent: true,
+  directListChildPresent: true,
+  singleChildTag: null,
+  singleChildSameRect: false,
+  withinControlAncestor: false,
+  inSvgAncestor: false,
+  disabled: false,
+  hidden: false,
+});
+const positiveOverlapCases = [
+  { name: "rangeF", properties: positiveOverlapProperties(true, false), expectedLabel: "input" },
+  { name: "speedP+L", properties: positiveOverlapProperties(false, true), expectedLabel: "select" },
+  { name: "qualityF+P+L", properties: positiveOverlapProperties(true, true), expectedLabel: "select" },
+];
+
+function positiveOverlapProfile(value = positiveOverlapValue) {
+  const profile = emptyProfile();
+  profile.id = "positive-overlap";
+  profile.familyWeights.control.neutral_focusable_control = value;
+  profile.familyWeights.control.own_pointer_boundary = value;
+  profile.familyWeights.control.neutral_list_choice = value;
+  profile.leafWeights.input.neutral_focusable_control = value;
+  profile.leafWeights.input.neutral_list_choice = -value;
+  profile.leafWeights.select.neutral_list_choice = value;
+  return profile;
+}
+
+function close(actual, expected, tolerance = 2e-5) {
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `${actual} != ${expected} within ${tolerance}`,
+  );
 }
 
 test("prepare refuses unreviewed proposals and keeps teacher fields out of student rows", () => {
@@ -551,6 +612,125 @@ test("public six-node consumer trains a migrated zero coefficient and parse relo
   assert.equal(reloadedAsset.calibrated, false);
 });
 
+test("satisfied positive overlaps have zero expected lower loss and gradient", async t => {
+  try {
+    await stat(join(handwiredRoot, "src/runtime/numeric-ui-core.ts"));
+  } catch {
+    t.skip(`Handwired source root unavailable: ${handwiredRoot}`);
+    return;
+  }
+
+  const profile = positiveOverlapProfile();
+  for (const item of positiveOverlapCases) {
+    const rawFamily = computeBasicKindStageRawIntervals(
+      "family",
+      Object.keys(BASIC_KIND_FAMILIES),
+      profile.familyWeights,
+      extractBasicKindWires(item.properties),
+    );
+    assert.ok(rawFamily.control.min > 0.8, `${item.name} raw family ${rawFamily.control.min}`);
+
+    const judgment = classifyBasicKind(item.properties, DEFAULT_BASIC_KIND_CONFIG, profile);
+    assert.equal(judgment.judgmentStatus, "judged", item.name);
+    assert.equal(judgment.basicKind, item.expectedLabel, item.name);
+    assert.ok(judgment.score >= DEFAULT_BASIC_KIND_CONFIG.minScore, item.name);
+    assert.ok(judgment.margin >= DEFAULT_BASIC_KIND_CONFIG.minMargin, item.name);
+
+    const inspected = await inspectBasicKindNumericSample({
+      handwiredRoot,
+      properties: item.properties,
+      expectedLabel: item.expectedLabel,
+      profile,
+      config: trainingConfig({ fit: { epochs: 0, learningRate: 0.01, anchorLambda: 0 } }),
+    });
+    assert.equal(inspected.knownLoss, 0, `${item.name} known loss`);
+    assert.equal(inspected.otherLoss, 0, `${item.name} other loss`);
+    assert.equal(inspected.loss, 0, `${item.name} total loss`);
+    for (const stage of [inspected.familyGradients, inspected.leafGradients]) {
+      for (const row of Object.values(stage)) {
+        for (const [wire, value] of Object.entries(row)) {
+          assert.equal(Math.abs(value), 0, `${item.name} ${wire} gradient`);
+        }
+      }
+    }
+  }
+});
+
+test("below-target positive overlap keeps squared deficit and finite gradient", async t => {
+  try {
+    await stat(join(handwiredRoot, "src/runtime/numeric-ui-core.ts"));
+  } catch {
+    t.skip(`Handwired source root unavailable: ${handwiredRoot}`);
+    return;
+  }
+
+  const profile = positiveOverlapProfile(0.5);
+  const properties = positiveOverlapProperties(true, false);
+  const inspected = await inspectBasicKindNumericSample({
+    handwiredRoot,
+    properties,
+    expectedLabel: "input",
+    profile,
+    config: trainingConfig({ fit: { epochs: 0, learningRate: 0.01, anchorLambda: 0 } }),
+  });
+  close(inspected.knownLoss, 2 * (0.8 - 0.5) ** 2);
+  assert.equal(inspected.otherLoss, 0);
+  close(inspected.familyGradients.control.neutral_focusable_control, 2 * (0.5 - 0.8));
+  close(inspected.leafGradients.input.neutral_focusable_control, 2 * (0.5 - 0.8));
+  for (const stage of [inspected.familyGradients, inspected.leafGradients]) {
+    for (const row of Object.values(stage)) {
+      for (const value of Object.values(row)) assert.equal(Number.isFinite(value), true);
+    }
+  }
+});
+
+test("public fit keeps three overlapping properties above minscore without an overlap wire", async t => {
+  try {
+    await stat(join(handwiredRoot, "src/runtime/numeric-ui-core.ts"));
+  } catch {
+    t.skip(`Handwired source root unavailable: ${handwiredRoot}`);
+    return;
+  }
+
+  const profile = positiveOverlapProfile();
+  const rows = positiveOverlapCases.map(item => ({
+    properties: item.properties,
+    expectedLabel: item.expectedLabel,
+  }));
+  const fitted = await fitBasicKinds({
+    handwiredRoot,
+    rows,
+    baseProfile: profile,
+    config: trainingConfig({ fit: { epochs: 1, learningRate: 0.1, anchorLambda: 0 } }),
+    candidateId: "positive-overlap-fit",
+  });
+
+  assert.equal(fitted.lossBefore, 0);
+  assert.equal(fitted.lossAfter, 0);
+  assert.equal(fitted.trajectory.length, 1);
+  for (const progress of fitted.trajectory) {
+    assert.equal(progress.loss, 0);
+    assert.equal(progress.knownLoss, 0);
+    assert.equal(progress.otherLoss, 0);
+    assert.equal(progress.anchorLoss, 0);
+    assert.equal(progress.projectedWeightCount, 0);
+  }
+  for (const wire of ["neutral_focusable_control", "own_pointer_boundary", "neutral_list_choice"]) {
+    close(fitted.profile.familyWeights.control[wire], profile.familyWeights.control[wire], 1e-6);
+  }
+  close(fitted.profile.leafWeights.input.neutral_focusable_control, profile.leafWeights.input.neutral_focusable_control, 1e-6);
+  close(fitted.profile.leafWeights.input.neutral_list_choice, profile.leafWeights.input.neutral_list_choice, 1e-6);
+  close(fitted.profile.leafWeights.select.neutral_list_choice, profile.leafWeights.select.neutral_list_choice, 1e-6);
+  for (const item of positiveOverlapCases) {
+    const judgment = classifyBasicKind(item.properties, DEFAULT_BASIC_KIND_CONFIG, fitted.profile);
+    assert.equal(judgment.judgmentStatus, "judged", item.name);
+    assert.equal(judgment.basicKind, item.expectedLabel, item.name);
+    assert.ok(judgment.score >= DEFAULT_BASIC_KIND_CONFIG.minScore, item.name);
+    assert.ok(judgment.margin >= DEFAULT_BASIC_KIND_CONFIG.minMargin, item.name);
+  }
+  validateBasicKindProfile(fitted.profile);
+});
+
 test("incremental fit freezes all non-allowlisted wires and keeps the full Handwired graph", async t => {
   try {
     await stat(join(handwiredRoot, "src/runtime/numeric-ui-core.ts"));
@@ -604,7 +784,7 @@ test("incremental fit freezes all non-allowlisted wires and keeps the full Handw
   assert.equal(fitted.profile.familyWeights.control.role_select, frozenBefore.role_select_family);
   assert.equal(fitted.profile.familyWeights.control.input_type_text, baseProfile.familyWeights.control.input_type_text);
   assert.equal(fitted.profile.leafWeights.input.input_type_text, baseProfile.leafWeights.input.input_type_text);
-  assert.notEqual(fitted.profile.leafWeights.input.input_text_combobox, baseProfile.leafWeights.input.input_text_combobox);
+  assert.notEqual(fitted.profile.leafWeights.select.input_text_combobox, baseProfile.leafWeights.select.input_text_combobox);
   assert.ok(fitted.lossAfter < fitted.lossBefore);
   const newJudgment = classifyBasicKind(combobox, {
     taskId: "dom.basic-kinds.v1",
@@ -633,6 +813,73 @@ test("empty incremental allowlist is an exact optimizer identity", async t => {
   assert.deepEqual(fitted.profile.leafWeights, baseProfile.leafWeights);
   assert.equal(fitted.lossAfter, fitted.lossBefore);
   assert.equal(fitted.trajectory.every(progress => progress.anchorLoss === 0 && progress.projectedWeightCount === 0), true);
+});
+
+test("real public fit separates repeated neutral div counts from native lists", async t => {
+  try {
+    await stat(join(handwiredRoot, "src/runtime/numeric-ui-core.ts"));
+  } catch {
+    t.skip(`Handwired source root unavailable: ${handwiredRoot}`);
+    return;
+  }
+
+  const neutralDiv = count => ({
+    tag: "div",
+    role: null,
+    ...complete,
+    childElementCount: count,
+    positiveAreaChildCount: count,
+    repeatedChildGeometry: true,
+  });
+  const rows = [
+    { properties: neutralDiv(2), expectedLabel: "container" },
+    { properties: neutralDiv(3), expectedLabel: "container" },
+    { properties: neutralDiv(4), expectedLabel: "container" },
+    { properties: neutralDiv(10), expectedLabel: "list" },
+  ];
+  const baseProfile = structuredClone(migrateBasicKindProfile(DEFAULT_BASIC_KIND_PROFILE));
+  baseProfile.id = "repeated-child-extent-base";
+  const config = trainingConfig({
+    fit: {
+      epochs: 500,
+      learningRate: 0.03,
+      anchorLambda: 0,
+      trainableWires: ["div_repeated_child_extent", "div_repeated_children"],
+    },
+  });
+  const fitted = await fitBasicKinds({
+    handwiredRoot,
+    rows,
+    baseProfile,
+    config,
+    candidateId: "repeated-child-extent-candidate",
+  });
+
+  assert.ok(fitted.lossAfter < fitted.lossBefore);
+  assert.notEqual(
+    fitted.profile.leafWeights.container.div_repeated_child_extent,
+    baseProfile.leafWeights.container.div_repeated_child_extent,
+  );
+  assert.notEqual(
+    fitted.profile.leafWeights.list.div_repeated_child_extent,
+    baseProfile.leafWeights.list.div_repeated_child_extent,
+  );
+  for (const item of rows) {
+    const judgment = classifyBasicKind(item.properties, DEFAULT_BASIC_KIND_CONFIG, fitted.profile);
+    assert.equal(judgment.judgmentStatus, "judged", `${item.expectedLabel} n=${item.properties.positiveAreaChildCount}`);
+    assert.equal(judgment.basicKind, item.expectedLabel, `${item.expectedLabel} n=${item.properties.positiveAreaChildCount}`);
+    assert.ok(judgment.margin >= DEFAULT_BASIC_KIND_CONFIG.minMargin, `${item.expectedLabel} n=${item.properties.positiveAreaChildCount}`);
+  }
+
+  for (const tag of ["ul", "ol"]) {
+    const nativeList = { tag, role: null, ...complete, childElementCount: 3, positiveAreaChildCount: 3, repeatedChildGeometry: true };
+    assert.equal(extractBasicKindWires(nativeList).div_repeated_child_extent, 0);
+    const judgment = classifyBasicKind(nativeList, DEFAULT_BASIC_KIND_CONFIG, fitted.profile);
+    assert.equal(judgment.basicKind, "list", tag);
+    assert.equal(judgment.judgmentStatus, "judged", tag);
+    assert.equal(judgment.leafScores.list.min, 0.85, tag);
+  }
+  validateBasicKindProfile(fitted.profile);
 });
 
 test("incremental allowlist rejects unregistered and invalid wire names", () => {

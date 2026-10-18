@@ -1,5 +1,19 @@
 # 当前任务
 
+2026-10-18继续原三站未知／冲突闭环，目标未结束。用户已确认重载并刷新；现场微博显示新版合并采集入口，但点击后会话仍0，不能冒称采集成功。小红书／知乎仍是旧入口，主Agent刷新两页后面板关闭；已请用户仅重新打开三站标注，不重复要求重载。工具无扩展工具栏入口，桌面工具拒绝控制Codex应用，不绕过。前一milestone已交付main0f87877并构建。所有实验权重均未采用。主Agent负责手工复检、架构与验收，执行仍交GCM。
+
+当前semantic-refinement作者验收：154/154测试、build:extension、typecheck:ui实际exit0；最终构建真实CUA回放33/33 PASS、61帧无空框，browser-final-result.json／browser-final-pass.png保留在本轮run。独立计划已有presentation／loss／ancestor／count四项证据，外层DAG拓扑未变。独立Gemini4medium整体Reviewer15f10844-7b4a-4453-965a-1ebe3cf96163，SUCCESS／exit0，structured_output经同源controller裁pass、findings=[]；review-final.json及review-controller.json留本轮run。此Review不批准采用拟合权重，不宣称三站闭环。进入main集成与构建。
+
+刷新后实际采集393项：微博142unknown、知乎178unknown＋12conflict、小红书主页61unknown。公开采集按钮的会话计数和下载文件已核对，原包保留在training/samples/unknown-recheck-20261018，全部unreviewed。三个独立GCM按站回放分析，主Agent复核用途与关系。知乎冲突是1个input/combobox与11个LI/tab内含A；微博CSS字体图标、背景图标和pointer-events:none透明覆盖层分开复核，OBJECT/resize-observer内部未读仍待定。后续观测单独保存，不能回填成原帧事实。完整证据在本轮current-frame-manual-findings.md。
+
+v6真实Handwired500轮拟合完成：85明确XHS＋6HTML规格为91训练项，6待定另行排除；91/91类别及judged正确，88fixed／3retained，row35已从container修为list，10个小容器反例仍正确。loss1.0577747258→0.0062354153。WB53与ZH23部分组件留出正确；旧黄金357仍3fixed／45regressed／277retained／32unresolved，相对v5逐例无变化，但相对原基线的45退化仍未通过，不能称为可接受基线。182非名单系数未变，42允许系数改变，公开回载成功。候选not_applied／uncalibrated。新微博视频页11字体图标probe仍unknown；已有CSS伪内容输入可表达，下一步补该来源的独立标注与训练，不据此加重复参数。
+
+资源已先关后开：前一unknown-closure工作树／分支关闭，临时验收页20关闭、4173服务器PID12159停止；外置run保留作证据。清理前2注册树，核销1，保留canonical main；随后从origin/main0f87877新建唯一候选/Volumes/Intel/playground/nnanything/semantic-refinement，分支feat/semantic-refinement。新过程/Volumes/Intel/playground/nnanything-runs/semantic-refinement。无并行散落产品树。
+
+独立同一Gemini4medium planner给出plan-explore.md（位于前一run）并确认当前基础可先交付、后续不降低三站未知闭环目标。当前4项：新增有CSS内容保护的neutral_presentation_leaf评分路径；期望下界改为单侧平方缺口损失，保留竞争上界／other／锚定；祖先存在性布尔测量走完整可读父链、关系边数组仍4跳；下一拟合显式允许旧div_repeated_children更新。对CSS图像保护的plan-guard.md已补正，不会把无子元素的背景图或伪元素图标直接忽略。全部新系数迁移补零，不改分类阈值。
+
+GCM浏览器观测修复已完成并验收：深链红测22通过2失败，修改后browser/exploration共30通过，根因是4跳边界被不必要地用于布尔存在性事实。数值loss与presentation wire分别由独立文件owner执行；外置fit准备owner只修改新run脚本，保留原85XHS＋6规格训练、53WB／23ZH留出、357旧黄金只评估、6待定排除。主Agent不以增加轮次掩盖无评分路径／损失合同不一致。外层4N3E／1N0E／6N6E图闭合且拓扑不变。
+
 运行时／采集／受限增量训练milestone完成作者验收：144/144测试、扩展构建、UI类型检查通过；最终CUA回放29/29检查通过，61帧无空框。独立Gemini4medium reviewer 953215d9-2a75-4eeb-9a54-cb27a872976e 返回SUCCESS／exit0；首次JSON证据格式不合schema，经同一reviewer仅格式修正后，统一controller判pass，findings=[]。完整证据在外置run的review-format-final.json、review-controller.json、author-final-check.log、harness-latest-result.json。此milestone只交付新增参数采集、评分与训练控制能力，不采用实验权重，不宣称三站未知清零。
 
 v4真实500轮受限拟合：184非名单权重完全未变，35名单权重更新；loss1.0658516508→0.1156320215。开发91监督项75fixed／3retained／13未达期望（12unknown、1错类）；微博53与知乎23部分组件留出仍正确；旧黄金357为3fixed／45regressed／277retained／32unresolved，新增unknown45、误ignore0。候选仍拒绝采用。原始包与旧结果保留。下一阶段具体缺口见外置next-exploration-evidence.md：装饰叶节点缺少有效支持路径；原始精确分数回归目标与重叠证据、推理截断目标不一致；部分祖先布尔观测受4跳限制；列表旧wire在本轮名单外。新独立增量计划进行中，不能用扩大采集或强归other掩盖这些差异。

@@ -125,8 +125,8 @@ const typeSets = {
   input_type_button: ["button", "submit", "reset", "image"], input_type_select: ["checkbox", "radio"],
   input_type_hidden: ["hidden"],
 } as const;
-const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden",
-  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_single_child", "neutral_focusable_control", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root"] as const;
+const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_repeated_child_extent", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden",
+  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_single_child", "neutral_focusable_control", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
 export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
   ...Object.keys(tagSets) as (keyof typeof tagSets)[],
@@ -242,6 +242,13 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "select", "own_pointer_boundary"],
   ["familyWeights", "structure", "own_pointer_boundary"],
   ["leafWeights", "ignore", "own_pointer_boundary"],
+  ["familyWeights", "structure", "neutral_presentation_leaf"],
+  ["familyWeights", "text", "neutral_presentation_leaf"],
+  ["familyWeights", "control", "neutral_presentation_leaf"],
+  ["leafWeights", "ignore", "neutral_presentation_leaf"],
+  ["leafWeights", "container", "neutral_presentation_leaf"],
+  ["leafWeights", "text", "neutral_presentation_leaf"],
+  ["leafWeights", "button", "neutral_presentation_leaf"],
   ["familyWeights", "structure", "svg_internal_part"],
   ["leafWeights", "ignore", "svg_internal_part"],
   ["familyWeights", "media", "svg_internal_part"],
@@ -258,6 +265,8 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "button", "empty_border_extent"],
   ["familyWeights", "structure", "nat_document_root"],
   ["leafWeights", "ignore", "nat_document_root"],
+  ["leafWeights", "list", "div_repeated_child_extent"],
+  ["leafWeights", "container", "div_repeated_child_extent"],
 ] as const;
 
 function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
@@ -476,6 +485,12 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     ["div", "span"].includes(input.tag ?? "") || input.tag?.includes("-") ? 1 : 0,
     input.contentEditable === false ? 1 : input.contentEditable === true ? 0 : null,
   );
+  wires.div_repeated_child_extent = andContinuous(
+    div ? 1 : 0,
+    neutralContainer,
+    bool(input.repeatedChildGeometry),
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount <= 0 ? 0 : Math.min(input.positiveAreaChildCount, 16) / 16,
+  );
   const noOwnText = input.directTextPresent === false;
   const noVisibleChildren = input.childElementCount === 0;
   const noAppearance = and(
@@ -532,6 +547,15 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     neutralContainer,
     bool(input.pointerCursor),
     input.parentPointerCursor == null ? null : input.parentPointerCursor ? 0 : 1,
+  );
+  wires.neutral_presentation_leaf = and(
+    neutralContainer,
+    noAppearance,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 0 ? 1 : 0,
+    input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
+    input.descendantTextPresent == null ? null : input.descendantTextPresent ? 0 : 1,
+    input.tabIndexFocus == null ? null : input.tabIndexFocus ? 0 : 1,
+    wires.own_pointer_boundary == null ? null : wires.own_pointer_boundary === 0 ? 1 : 0,
   );
   wires.single_child_div = and(
     neutralContainer,

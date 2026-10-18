@@ -346,7 +346,268 @@ const newWireNames = [
   "empty_pointer_extent",
   "empty_border_extent",
   "nat_document_root",
+  "neutral_presentation_leaf",
 ];
+
+test("neutral presentation leaf fires on visual leaves and keeps missing guards", () => {
+  const presented = {
+    tag: "xg-placeholder",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    nonFormatDirectTextPresent: false,
+    beforeContentPresent: false,
+    afterContentPresent: false,
+    backgroundImagePresent: false,
+    maskImagePresent: false,
+    childElementCount: 0,
+    positiveAreaChildCount: 0,
+    descendantTextPresent: false,
+    tabIndexFocus: false,
+    pointerCursor: false,
+    parentPointerCursor: false,
+    borderPresent: null,
+  };
+  assert.equal(extractBasicKindWires(presented).neutral_presentation_leaf, 1);
+  assert.equal(extractBasicKindWires({
+    ...presented,
+    tag: "xg-played",
+    childElementCount: 3,
+    pointerCursor: true,
+    parentPointerCursor: true,
+  }).neutral_presentation_leaf, 1);
+  assert.equal(extractBasicKindWires({
+    ...presented,
+    tag: "span",
+    directTextPresent: true,
+  }).neutral_presentation_leaf, 1);
+  assert.equal(extractBasicKindWires({ ...presented, tag: "div" }).neutral_presentation_leaf, 1);
+
+  for (const [name, fields] of [
+    ["native", { tag: "button" }],
+    ["explicit role", { role: "button" }],
+    ["focus", { tabIndexFocus: true }],
+    ["own pointer", { pointerCursor: true, parentPointerCursor: false }],
+    ["meaningful text", { nonFormatDirectTextPresent: true }],
+    ["descendant text", { descendantTextPresent: true }],
+    ["visible child", { childElementCount: 1, positiveAreaChildCount: 1 }],
+  ]) assert.equal(extractBasicKindWires({ ...presented, ...fields }).neutral_presentation_leaf, 0, name);
+  for (const [name, fields] of [
+    ["CSS background image", { backgroundImagePresent: true }],
+    ["CSS mask image", { maskImagePresent: true }],
+    ["pseudo glyph", { beforeContentPresent: true }],
+  ]) assert.equal(extractBasicKindWires({ ...presented, ...fields }).neutral_presentation_leaf, 0, name);
+
+  assert.equal(extractBasicKindWires({ ...presented, backgroundImagePresent: null }).neutral_presentation_leaf, null);
+  assert.equal(extractBasicKindWires({ ...presented, descendantTextPresent: null }).neutral_presentation_leaf, null);
+  assert.equal(extractBasicKindWires({ ...presented, backgroundImagePresent: null, tabIndexFocus: true }).neutral_presentation_leaf, 0);
+});
+
+test("repeated-child extent carries neutral div count evidence without crossing applicability", () => {
+  const base = {
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    childElementCount: 10,
+    positiveAreaChildCount: 2,
+    repeatedChildGeometry: true,
+  };
+  const extent = fields => extractBasicKindWires({ ...base, ...fields }).div_repeated_child_extent;
+  const observed = {
+    count2: extent({ positiveAreaChildCount: 2 }),
+    count4: extent({ positiveAreaChildCount: 4 }),
+    count10: extent({ positiveAreaChildCount: 10 }),
+    zero: extent({ positiveAreaChildCount: 0 }),
+    repeatedFalse: extent({ repeatedChildGeometry: false }),
+    repeatedMissing: extent({ repeatedChildGeometry: null }),
+    countMissing: extent({ positiveAreaChildCount: null }),
+    zeroWithRepeatedMissing: extent({ positiveAreaChildCount: 0, repeatedChildGeometry: null }),
+    repeatedFalseWithCountMissing: extent({ positiveAreaChildCount: null, repeatedChildGeometry: false }),
+    editableMissing: extent({ contentEditable: null }),
+    editableTrue: extent({ contentEditable: true }),
+    custom9: extractBasicKindWires({
+      ...base,
+      tag: "acme-grid",
+      childElementCount: 9,
+      positiveAreaChildCount: 9,
+    }).div_repeated_child_extent,
+    span6: extractBasicKindWires({
+      ...base,
+      tag: "span",
+      childElementCount: 6,
+      positiveAreaChildCount: 6,
+    }).div_repeated_child_extent,
+    ul9: extractBasicKindWires({
+      ...base,
+      tag: "ul",
+      childElementCount: 9,
+      positiveAreaChildCount: 9,
+    }).div_repeated_child_extent,
+    explicitRole9: extent({ role: "list", childElementCount: 9, positiveAreaChildCount: 9 }),
+    saturation15: extent({ positiveAreaChildCount: 15 }),
+    saturation16: extent({ positiveAreaChildCount: 16 }),
+    saturation20: extent({ positiveAreaChildCount: 20 }),
+  };
+  assert.deepEqual(observed, {
+    count2: 2 / 16,
+    count4: 4 / 16,
+    count10: 10 / 16,
+    zero: 0,
+    repeatedFalse: 0,
+    repeatedMissing: null,
+    countMissing: null,
+    zeroWithRepeatedMissing: 0,
+    repeatedFalseWithCountMissing: 0,
+    editableMissing: null,
+    editableTrue: 0,
+    custom9: 0,
+    span6: 0,
+    ul9: 0,
+    explicitRole9: 0,
+    saturation15: 15 / 16,
+    saturation16: 1,
+    saturation20: 1,
+  });
+});
+
+test("repeated-child extent migration adds only list and container zeros", () => {
+  assert.ok(BASIC_KIND_WIRE_NAMES.includes("div_repeated_child_extent"));
+  const old = structuredClone(LEGACY_BASIC_KIND_PROFILE);
+  for (const group of ["familyWeights", "leafWeights"]) {
+    for (const row of Object.values(old[group])) delete row.div_repeated_child_extent;
+  }
+  const before = structuredClone(old);
+  const migrated = migrateBasicKindProfile(old);
+  assert.deepEqual(old, before);
+  const addresses = [];
+  for (const group of ["familyWeights", "leafWeights"]) {
+    for (const [target, row] of Object.entries(migrated[group])) {
+      if (Object.hasOwn(row, "div_repeated_child_extent")) addresses.push([group, target, row.div_repeated_child_extent]);
+    }
+  }
+  assert.deepEqual(addresses, [
+    ["leafWeights", "container", 0],
+    ["leafWeights", "list", 0],
+  ]);
+
+  const properties = {
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    childElementCount: 10,
+    positiveAreaChildCount: 10,
+    repeatedChildGeometry: true,
+  };
+  const wires = extractBasicKindWires(properties);
+  const familyNames = Object.keys(BASIC_KIND_FAMILIES);
+  const leafNames = Object.values(BASIC_KIND_FAMILIES).flat();
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals("family", familyNames, migrated.familyWeights, wires),
+    computeBasicKindStageRawIntervals("family", familyNames, old.familyWeights, wires),
+  );
+  assert.deepEqual(
+    computeBasicKindStageRawIntervals("leaf", leafNames, migrated.leafWeights, wires),
+    computeBasicKindStageRawIntervals("leaf", leafNames, old.leafWeights, wires),
+  );
+});
+
+test("configured presentation score separates ignore leaves from guarded content", () => {
+  const profile = zeroProfile();
+  profile.id = "neutral-presentation-leaf-test";
+  profile.familyWeights.structure.neutral_presentation_leaf = 0.85;
+  profile.leafWeights.ignore.neutral_presentation_leaf = 0.85;
+  profile.familyWeights.media.css_background_image = 0.85;
+  profile.leafWeights.image.css_background_image = 0.85;
+  profile.familyWeights.media.css_before_content = 0.85;
+  profile.leafWeights.image.css_before_content = 0.85;
+  const presented = {
+    tag: "span",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    nonFormatDirectTextPresent: false,
+    beforeContentPresent: false,
+    afterContentPresent: false,
+    backgroundImagePresent: false,
+    maskImagePresent: false,
+    childElementCount: 0,
+    positiveAreaChildCount: 0,
+    descendantTextPresent: false,
+    tabIndexFocus: false,
+    pointerCursor: false,
+    parentPointerCursor: false,
+    borderPresent: null,
+  };
+  const formatLeaf = { ...presented, directTextPresent: true };
+  const separator = { ...presented, tag: "div" };
+  const hiddenPaint = { ...presented, tag: "xg-played", childElementCount: 3, pointerCursor: true, parentPointerCursor: true };
+  for (const [name, input] of [["empty placeholder", presented], ["format span", formatLeaf], ["thin separator", separator], ["hidden paint", hiddenPaint]]) {
+    const result = classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, profile);
+    assert.equal(result.basicKind, "ignore", name);
+    assert.equal(result.judgmentStatus, "judged", name);
+  }
+
+  const guarded = [
+    ["native", { ...presented, tag: "button" }],
+    ["explicit role", { ...presented, role: "button" }],
+    ["focus", { ...presented, tabIndexFocus: true }],
+    ["own pointer", { ...presented, pointerCursor: true, parentPointerCursor: false }],
+    ["meaningful text", { ...presented, nonFormatDirectTextPresent: true }],
+    ["descendant text", { ...presented, descendantTextPresent: true }],
+    ["visible child", { ...presented, childElementCount: 1, positiveAreaChildCount: 1 }],
+  ];
+  for (const [name, input] of guarded) assert.notEqual(classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, profile).basicKind, "ignore", name);
+
+  const backgroundImage = classifyBasicKind({ ...presented, backgroundImagePresent: true }, DEFAULT_BASIC_KIND_CONFIG, profile);
+  assert.equal(backgroundImage.basicKind, "image");
+  const pseudoGlyph = classifyBasicKind({ ...presented, beforeContentPresent: true }, DEFAULT_BASIC_KIND_CONFIG, profile);
+  assert.equal(pseudoGlyph.basicKind, "image");
+});
+
+test("presentation wire migration adds seven zeros and preserves sparse profiles", () => {
+  const cells = [
+    ["familyWeights", "structure", "neutral_presentation_leaf"],
+    ["familyWeights", "text", "neutral_presentation_leaf"],
+    ["familyWeights", "control", "neutral_presentation_leaf"],
+    ["leafWeights", "ignore", "neutral_presentation_leaf"],
+    ["leafWeights", "container", "neutral_presentation_leaf"],
+    ["leafWeights", "text", "neutral_presentation_leaf"],
+    ["leafWeights", "button", "neutral_presentation_leaf"],
+  ];
+  assert.ok(BASIC_KIND_WIRE_NAMES.includes("neutral_presentation_leaf"));
+  const properties = {
+    tag: "div",
+    role: null,
+    contentEditable: false,
+    directTextPresent: false,
+    nonFormatDirectTextPresent: false,
+    beforeContentPresent: false,
+    afterContentPresent: false,
+    backgroundImagePresent: false,
+    maskImagePresent: false,
+    childElementCount: 2,
+    positiveAreaChildCount: 1,
+    descendantTextPresent: true,
+    tabIndexFocus: false,
+    pointerCursor: true,
+    parentPointerCursor: false,
+  };
+  const wires = extractBasicKindWires(properties);
+  const familyNames = Object.keys(BASIC_KIND_FAMILIES);
+  const leafNames = Object.values(BASIC_KIND_FAMILIES).flat();
+  for (const source of [LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE]) {
+    const old = structuredClone(source);
+    for (const [group, target, wire] of cells) delete old[group][target][wire];
+    const before = structuredClone(old);
+    const migrated = migrateBasicKindProfile(old);
+    assert.deepEqual(old, before);
+    for (const [group, target, wire] of cells) assert.equal(migrated[group][target][wire], 0, `${source.id}.${group}.${target}.${wire}`);
+    assert.deepEqual(computeBasicKindStageRawIntervals("family", familyNames, migrated.familyWeights, wires), computeBasicKindStageRawIntervals("family", familyNames, old.familyWeights, wires));
+    assert.deepEqual(computeBasicKindStageRawIntervals("leaf", leafNames, migrated.leafWeights, wires), computeBasicKindStageRawIntervals("leaf", leafNames, old.leafWeights, wires));
+  }
+  assert.equal(LEGACY_BASIC_KIND_PROFILE.familyWeights.structure.neutral_presentation_leaf, undefined);
+  assert.equal(DEFAULT_BASIC_KIND_PROFILE.leafWeights.ignore.neutral_presentation_leaf, undefined);
+});
 
 test("ignore is a validated leaf and legacy migration preserves old structure intervals", () => {
   assert.deepEqual(BASIC_KIND_FAMILIES.structure, ["container", "list", "listitem", "ignore"]);

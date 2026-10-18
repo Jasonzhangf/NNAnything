@@ -1,5 +1,5 @@
 import { DOMInspectorController } from "../../extension/controller.js";
-import { stableNodeRefFor } from "../../lib/adapters/browser/live-dom.js";
+import { createStableNodeRefRegistry, observeLiveDom, stableNodeRefFor } from "../../lib/adapters/browser/live-dom.js";
 import { DEFAULT_BASIC_KIND_CONFIG, DEFAULT_BASIC_KIND_PROFILE } from "nnanything/browser-classify";
 import visualOverlayGraph from "../../workflows/browser-visual-overlay.graph.json";
 import captureGraph from "../../workflows/browser-capture.graph.json";
@@ -41,6 +41,9 @@ const ignoredParent = required<HTMLElement>("#fixture-ignored-parent");
 const ignoredChild = required<HTMLButtonElement>("#fixture-ignored-child");
 const unresolvedTarget = required<HTMLElement>("#fixture-unresolved");
 const conflictTarget = required<HTMLElement>("#fixture-conflict");
+const plainAncestorTarget = required<HTMLElement>("#fixture-plain-ancestor-deep");
+const buttonAncestorTarget = required<HTMLElement>("#fixture-button-ancestor-deep");
+const svgAncestorTarget = required<SVGElement>("#fixture-svg-ancestor-deep");
 const statusText = required<HTMLElement>("#status-text");
 const output = required<HTMLPreElement>("#recording-output");
 const startButton = required<HTMLButtonElement>("#start-recording");
@@ -329,6 +332,34 @@ async function verifyIgnoreAndUnresolved(): Promise<Record<string, boolean>> {
   };
 }
 
+function verifyFullAncestorFacts(): Record<string, boolean> {
+  const registry = createStableNodeRefRegistry("refresh-ancestor-facts");
+  const snapshot = observeLiveDom({
+    document,
+    window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "refresh-ancestor-facts",
+    documentRef: "refresh-fixture",
+  });
+  const plainRef = stableNodeRefFor(registry, plainAncestorTarget);
+  const buttonRef = stableNodeRefFor(registry, buttonAncestorTarget);
+  const svgRef = stableNodeRefFor(registry, svgAncestorTarget);
+  const plain = snapshot.properties.get(plainRef);
+  const button = snapshot.properties.get(buttonRef);
+  const svg = snapshot.properties.get(svgRef);
+  const exploration = snapshot.explorationInputs?.get(plainRef);
+  const ancestorHops = exploration?.containment.ancestorEdges.map(edge => edge.relativeHops) ?? [];
+  return {
+    deepPlainOutsideControl: plain?.withinControlAncestor === false && plain.inSvgAncestor === false,
+    deepButtonWithinControl: button?.withinControlAncestor === true,
+    deepSvgWithinSvg: svgAncestorTarget.namespaceURI === "http://www.w3.org/2000/svg" && svg?.inSvgAncestor === true,
+    fullAncestorRelationsBoundedTo4: exploration?.containment.maxRelationHops === 4
+      && ancestorHops.join(",") === "1,2,3,4"
+      && exploration.containment.ancestorBoundary === "hop_limit_reached",
+  };
+}
+
 async function runRecording(): Promise<void> {
   if (running) return;
   running = true;
@@ -444,6 +475,7 @@ async function runRecording(): Promise<void> {
     staleCallbackCapturedNothing: settledMetrics.sessionTotal === 0,
     recovered: settled && settledMetrics.boxes > 0,
     ...await verifyBoundaries(),
+    ...verifyFullAncestorFacts(),
     ...await verifyIgnoreAndUnresolved(),
   };
   const result = {
