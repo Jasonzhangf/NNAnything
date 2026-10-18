@@ -148,6 +148,7 @@ export function createTrainingNodeDefinitions(input: TrainingNodeResources): rea
         baseProfileId: baseProfile.id,
         profile: fitted.profile,
         trajectory: fitted.trajectory,
+        timing: fitted.timing,
         lossBefore: fitted.lossBefore,
         lossAfter: fitted.lossAfter,
         sampleCoverage: { trainRows: rows.length, labelCounts },

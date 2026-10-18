@@ -1,5 +1,15 @@
 # DOM 基础种类分层连线
 
+## 可选优先级拓扑
+
+`profile.topology` 缺省或为 `family_leaf_v1` 时使用下文原两阶段路径；旧 profile 不被自动改写。`priority_staged_v1` 使用四阶段：direct_interaction（input/select/button/link）→ own_content（text/image/video/audio）→ meaningful_structure（list/listitem/container）→ redundant_ignore（ignore）。内部图与实验边界见 [优先级实验](priority-classifier.md)。
+
+`LEAF_SUPPORT_WIRES` 声明各细类的正向适用证据。只有已测且大于零的支撑 wire 打开目标；该判断与参数符号无关，反向证据不能打开目标。family gate 为其细类支撑的并集。关闭目标的整个区间为零；打开目标后仍按缺测区间评分。CSS before/after 既可支持 text，也可支持 image，实际结果由评分决定。
+
+每阶段按适用细类求联合区间 `J=[min(F.min,L.min), min(F.max,L.max)]`，F/L 均先限制在 [0,1]。无适用类为 skip；全部上界低于 minScore 为 weak。二者继续下一阶段。最佳下界达到门限、且对其余上界的间隔达到 minMargin 才输出 judged；明确竞争输出 conflict，其余强歧义输出 unknown。unknown/conflict 立即结束并输出 other，不落入 ignore。共享 structure family 不让 ignore 提前参与有意义结构阶段。
+
+`PRIORITY_BASIC_KIND_INITIAL_PROFILE` 使用全零稀疏参数，不能当作已训练模型。新权重资产使用 contractVersion 2；legacy 使用 1。版本与 topology 交叉组合拒绝加载。默认 profile 与扩展当前资产保持原选择。
+
 状态：候选内容，实施中复核（candidate under verification）。本文描述本轮 wire、profile 与标签合同；旧黄金、来源留出和真实页面回归完成前，不表示新增权重已交付或已采用。
 
 当前实现目标是第一层基础种类。第二层再组合帖子、作者、评论、广告等应用语义。本文件是节点内部 wire 算法的唯一设计 owner；节点事件卡见 [节点清单](../lib/nodes/README.md)。

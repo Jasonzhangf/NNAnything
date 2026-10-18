@@ -94,6 +94,7 @@ npm run demo:training -- --handwired-root <path-to-handwired>
 - [真实权重资产目录说明 (training/weights/)](training/weights/README.md)
 - [可复用经验节点合同](docs/node-contract.md)
 - [Workflow基础配置](docs/workflow-config.md)
+- [优先级分类器、训练对照与规模计时](docs/priority-classifier.md)
 - [Viewport、Focus、白黑名单与单标签合同](docs/focus-and-labeling.md)
 
 ### 2. 实施计划与工程治理

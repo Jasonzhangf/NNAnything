@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "taskId": "dom.basic-kinds.v1",
+  "rows": [
+    {
+      "sampleId": "synthetic-native-link",
+      "inputRef": {"snapshotRef":"synthetic-native-link","documentRef":"synthetic-native-link","frameRef":"top","nodeRef":"link","index":0},
+      "provenanceRef": "synthetic/html-standard/a-href",
+      "sourceAssociations": {"snapshotRefs":["synthetic-native-link"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"a","role":null,"inputType":null,"hrefPresent":true,"contentEditable":false,"directTextPresent":true,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":false,"hidden":false},
+      "proposal": {"ruleRef":"html-standard-a-href","label":"link","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"link","reviewerRef":"llm-standards-fixture-review","evidenceRef":"synthetic/html-standard/a-href","otherReason":null}
+    },
+    {
+      "sampleId": "synthetic-native-video",
+      "inputRef": {"snapshotRef":"synthetic-native-video","documentRef":"synthetic-native-video","frameRef":"top","nodeRef":"video","index":1},
+      "provenanceRef": "synthetic/html-standard/video",
+      "sourceAssociations": {"snapshotRefs":["synthetic-native-video"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"video","role":null,"inputType":null,"hrefPresent":false,"contentEditable":false,"directTextPresent":false,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":false,"hidden":false},
+      "proposal": {"ruleRef":"html-standard-video","label":"video","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"video","reviewerRef":"llm-standards-fixture-review","evidenceRef":"synthetic/html-standard/video","otherReason":null}
+    },
+    {
+      "sampleId": "synthetic-native-audio",
+      "inputRef": {"snapshotRef":"synthetic-native-audio","documentRef":"synthetic-native-audio","frameRef":"top","nodeRef":"audio","index":2},
+      "provenanceRef": "synthetic/html-standard/audio",
+      "sourceAssociations": {"snapshotRefs":["synthetic-native-audio"],"postRefs":[],"assetRefs":[]},
+      "candidateQualification": {"status":"ok","reasons":[]},
+      "captureCoverage": {"frameContent":"captured","directChildren":"complete"},
+      "properties": {"tag":"audio","role":null,"inputType":null,"hrefPresent":false,"contentEditable":false,"directTextPresent":false,"childElementCount":0,"positiveAreaChildCount":0,"repeatedChildGeometry":false,"inVerifiedListParent":false,"disabled":false,"hidden":false},
+      "proposal": {"ruleRef":"html-standard-audio","label":"audio","status":"matched"},
+      "review": {"status":"verified","expectedLabel":"audio","reviewerRef":"llm-standards-fixture-review","evidenceRef":"synthetic/html-standard/audio","otherReason":null}
+    }
+  ]
+}

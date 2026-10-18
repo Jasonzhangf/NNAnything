@@ -1,5 +1,23 @@
 # 基础种类离线训练公开 Consumer
 
+优先级分类器对照与规模计时：
+
+```sh
+npm run build
+node scripts/benchmark-priority-training.mjs \
+  --input <prepared-request.json> \
+  --reference-weight <legacy-weight-or-reference.json> \
+  --gold-reference <legacy-reference.json> \
+  --dataset-notes <dataset-notes.json> \
+  --handwired-root <source-root> \
+  --out-dir <reports-dir> --weights-dir <weights-dir> \
+  --fixture playground/training/reviewed.fixture.json
+```
+
+脚本通过公开包接口，比较当前采用的旧权重、旧结构全零重训、新结构全零重训。正式预算为 500 轮；新结构计时矩阵为 32、64、全量唯一源各 100 轮，以及两倍重复负载 100 轮。正式 500 轮结果复用，不再额外重跑。结果与权重分目录保存，不自动采用。缺后端等失败会先保存失败报告和实际部分计时，再非零退出。
+
+`priority-native.fixture.json` 的 link/video/audio 为标准元素合成样本，由 LLM 复核，不是人工确认或真实页面。可选 reviewed.fixture 的六个旧合成样本同样只补基础覆盖。正式报告分别保留来源、增强、合成和重复计数。报告中的本机线性拟合仅供规模估算，不代表独立参数量实验或跨硬件性能。
+
 在仓库根执行：
 
 ```sh

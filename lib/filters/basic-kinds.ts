@@ -14,7 +14,15 @@ Object.freeze(BASIC_KIND_FAMILIES);
 export type SpecificBasicKindLabel = typeof BASIC_KIND_FAMILIES[BasicKindFamily][number];
 export type BasicKindLabel = SpecificBasicKindLabel | "other";
 export type BasicKindStatus = "judged" | "unknown" | "conflict" | "excluded";
+export type BasicKindTopology = "family_leaf_v1" | "priority_staged_v1";
 export type BasicKindWireValue = number | null;
+export const PRIORITY_BASIC_KIND_STAGES = Object.freeze([
+  Object.freeze({ id: "direct_interaction" as const, labels: Object.freeze(["input", "select", "button", "link"] as const) }),
+  Object.freeze({ id: "own_content" as const, labels: Object.freeze(["text", "image", "video", "audio"] as const) }),
+  Object.freeze({ id: "meaningful_structure" as const, labels: Object.freeze(["list", "listitem", "container"] as const) }),
+  Object.freeze({ id: "redundant_ignore" as const, labels: Object.freeze(["ignore"] as const) }),
+] as const);
+type PriorityBasicKindStageId = typeof PRIORITY_BASIC_KIND_STAGES[number]["id"];
 export interface ScoreInterval { readonly min: number; readonly max: number }
 export interface BasicKindMeasurements {
   readonly inputType?: string | null;
@@ -137,8 +145,44 @@ export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
 export type BasicKindWeights = Readonly<Partial<Record<BasicKindWireName, number>>>;
 export interface BasicKindProfile {
   readonly id: string;
+  readonly topology?: BasicKindTopology;
   readonly familyWeights: Readonly<Record<BasicKindFamily, BasicKindWeights>>;
   readonly leafWeights: Readonly<Record<SpecificBasicKindLabel, BasicKindWeights>>;
+}
+
+const leafSupportWires = {
+  input: ["nat_control_text", "nat_input_tag", "role_input", "input_type_text", "attr_editable", "editable_non_input", "input_text_combobox", "neutral_focusable_control"],
+  select: ["nat_control_select", "role_select", "input_type_select", "input_text_combobox", "listitem_role_select", "neutral_list_choice"],
+  button: ["nat_control_button", "role_button", "input_type_button", "own_pointer_boundary", "neutral_focusable_control", "empty_pointer_extent"],
+  link: ["nat_anchor", "anchor_href", "role_link"],
+  text: ["nat_text", "role_text", "span_direct_text", "div_direct_text", "direct_non_format_text", "nat_inline_format_text", "css_before_content", "css_after_content"],
+  image: ["nat_image", "role_image", "nat_svg", "svg_graphic_children", "css_before_content", "css_after_content", "css_background_image", "css_mask_image"],
+  video: ["nat_video"],
+  audio: ["nat_audio"],
+  list: ["nat_list", "role_list", "div_repeated_children", "div_repeated_child_extent"],
+  listitem: ["nat_listitem", "role_listitem", "div_in_list"],
+  container: ["nat_container", "role_container", "div_multi_child", "neutral_multi_child", "composite_descendant_text"],
+  ignore: ["neutral_same_rect_wrapper", "single_child_div", "neutral_single_child", "div_single_child", "neutral_presentation_leaf", "svg_internal_part", "empty_border_extent", "nat_document_root", "role_presentational"],
+} as const satisfies Readonly<Record<SpecificBasicKindLabel, readonly BasicKindWireName[]>>;
+for (const wires of Object.values(leafSupportWires)) Object.freeze(wires);
+export const LEAF_SUPPORT_WIRES: Readonly<Record<SpecificBasicKindLabel, readonly BasicKindWireName[]>> = Object.freeze(leafSupportWires);
+
+export function basicKindLeafSupportGate(
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  label: SpecificBasicKindLabel,
+): 0 | 1 {
+  for (const wire of LEAF_SUPPORT_WIRES[label]) {
+    const value = wires[wire];
+    if (value !== null && value > 0) return 1;
+  }
+  return 0;
+}
+
+export function basicKindFamilySupportGate(
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  family: BasicKindFamily,
+): 0 | 1 {
+  return BASIC_KIND_FAMILIES[family].some(label => basicKindLeafSupportGate(wires, label)) ? 1 : 0;
 }
 
 const NEW_BASIC_KIND_WIRE_TARGETS = [
@@ -278,7 +322,12 @@ function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
     }
     return Object.freeze(frozen);
   };
-  return Object.freeze({ id: profile.id, familyWeights: freezeRows(profile.familyWeights), leafWeights: freezeRows(profile.leafWeights) });
+  return Object.freeze({
+    id: profile.id,
+    ...(profile.topology === undefined ? {} : { topology: profile.topology }),
+    familyWeights: freezeRows(profile.familyWeights),
+    leafWeights: freezeRows(profile.leafWeights),
+  });
 }
 
 export const LEGACY_BASIC_KIND_PROFILE: BasicKindProfile = freezeProfile({
@@ -324,6 +373,28 @@ export const DEFAULT_BASIC_KIND_PROFILE: BasicKindProfile = freezeProfile({
   },
 });
 
+function zeroLayout<T extends string>(
+  rows: Readonly<Record<T, BasicKindWeights>>,
+  additions: Partial<Record<T, readonly BasicKindWireName[]>> = {},
+): Readonly<Record<T, BasicKindWeights>> {
+  return Object.freeze(Object.fromEntries(Object.entries(rows).map(([name, weights]) => {
+    const wires = new Set<BasicKindWireName>([
+      ...Object.keys(weights as BasicKindWeights) as BasicKindWireName[],
+      ...(additions[name as T] ?? []),
+    ]);
+    return [name, Object.freeze(Object.fromEntries([...wires].map(wire => [wire, 0])))];
+  })) as Readonly<Record<T, BasicKindWeights>>);
+}
+
+const priorityKnownLayout = migrateBasicKindProfile(DEFAULT_BASIC_KIND_PROFILE);
+
+export const PRIORITY_BASIC_KIND_INITIAL_PROFILE: BasicKindProfile = freezeProfile({
+  id: "dom-basic-kinds-priority-v1",
+  topology: "priority_staged_v1",
+  familyWeights: zeroLayout(priorityKnownLayout.familyWeights, { control: ["span_direct_text"] }),
+  leafWeights: zeroLayout(priorityKnownLayout.leafWeights),
+});
+
 export function migrateBasicKindProfile(raw: unknown): BasicKindProfile {
   const input = expectRecord(raw, "basic-kind profile");
   const rawLeaves = expectRecord(input.leafWeights, "profile.leafWeights");
@@ -335,6 +406,7 @@ export function migrateBasicKindProfile(raw: unknown): BasicKindProfile {
   const leafWeights = cloneRows(validated.leafWeights);
   const profile = {
     id: validated.id,
+    ...(validated.topology === undefined ? {} : { topology: validated.topology }),
     familyWeights,
     leafWeights,
   };
@@ -407,7 +479,11 @@ export function validateBasicKindConfig(value: unknown): BasicKindConfig {
 }
 export function validateBasicKindProfile(value: unknown): BasicKindProfile {
   const input = expectRecord(value, "basic-kind profile");
-  onlyKeys(input, ["id", "familyWeights", "leafWeights"], "profile");
+  onlyKeys(input, ["id", "topology", "familyWeights", "leafWeights"], "profile");
+  const topology = input.topology;
+  if (topology !== undefined && topology !== "family_leaf_v1" && topology !== "priority_staged_v1") {
+    throw new TypeError("profile.topology must be family_leaf_v1 or priority_staged_v1");
+  }
   const wireNames = [...Object.keys(tagSets), ...Object.keys(roleSets), ...Object.keys(typeSets), ...localWireNames];
   function rows<T extends string>(raw: unknown, names: readonly T[], label: string): Record<T, BasicKindWeights> {
     const group = expectRecord(raw, label);
@@ -423,7 +499,12 @@ export function validateBasicKindProfile(value: unknown): BasicKindProfile {
       return [name, coefficients];
     })) as Record<T, BasicKindWeights>;
   }
-  return { id: expectNonEmptyString(input.id, "profile.id"), familyWeights: rows(input.familyWeights, Object.keys(BASIC_KIND_FAMILIES) as BasicKindFamily[], "familyWeights"), leafWeights: rows(input.leafWeights, Object.values(BASIC_KIND_FAMILIES).flat(), "leafWeights") };
+  return {
+    id: expectNonEmptyString(input.id, "profile.id"),
+    ...(topology === undefined ? {} : { topology }),
+    familyWeights: rows(input.familyWeights, Object.keys(BASIC_KIND_FAMILIES) as BasicKindFamily[], "familyWeights"),
+    leafWeights: rows(input.leafWeights, Object.values(BASIC_KIND_FAMILIES).flat(), "leafWeights"),
+  };
 }
 
 export function extractBasicKindWires(input: BasicKindProperties): Readonly<Record<BasicKindWireName, BasicKindWireValue>> {
@@ -583,7 +664,7 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
 }
 
 export interface BasicKindTerm { readonly stage: "family" | "leaf"; readonly target: string; readonly wire: BasicKindWireName; readonly value: BasicKindWireValue; readonly weight: number; readonly contribution: ScoreInterval }
-export interface BasicKindStageDecision { readonly stage: "family" | "leaf"; readonly status: "judged" | "unknown" | "conflict"; readonly selected: string | null; readonly score: number; readonly margin: number; readonly reasons: readonly string[] }
+export interface BasicKindStageDecision { readonly stage: "family" | "leaf" | PriorityBasicKindStageId; readonly status: "judged" | "unknown" | "conflict" | "skip" | "weak"; readonly selected: string | null; readonly score: number; readonly margin: number; readonly reasons: readonly string[] }
 export interface BasicKindJudgment {
   readonly familyStatus: BasicKindStatus; readonly family: BasicKindFamily | null;
   readonly familyScores: Readonly<Record<string, ScoreInterval>> | null;
@@ -596,13 +677,26 @@ export interface BasicKindJudgment {
 }
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 export function computeBasicKindStageRawIntervals(
-  _stage: "family" | "leaf",
+  stage: "family" | "leaf",
   names: readonly string[],
   rows: Readonly<Record<string, BasicKindWeights>>,
   wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  topology?: BasicKindTopology,
 ): Readonly<Record<string, ScoreInterval>> {
+  if (topology !== undefined && topology !== "family_leaf_v1" && topology !== "priority_staged_v1") {
+    throw new TypeError("unsupported basic-kind topology");
+  }
   const scores: Record<string, ScoreInterval> = {};
   for (const target of names) {
+    const gate = topology !== "priority_staged_v1"
+      ? true
+      : stage === "family"
+        ? Object.hasOwn(BASIC_KIND_FAMILIES, target) && basicKindFamilySupportGate(wires, target as BasicKindFamily) === 1
+        : Object.hasOwn(LEAF_SUPPORT_WIRES, target) && basicKindLeafSupportGate(wires, target as SpecificBasicKindLabel) === 1;
+    if (!gate) {
+      scores[target] = { min: 0, max: 0 };
+      continue;
+    }
     let min = 0, max = 0;
     for (const [name, weight] of Object.entries(rows[target]!)) {
       const wire = name as BasicKindWireName, value = wires[wire];
@@ -630,7 +724,7 @@ function scoreStage(stage: "family" | "leaf", names: readonly string[], rows: Re
   const best = ordered[0]!, first = scores[best]!, second = ordered[1] === undefined ? 0 : scores[ordered[1]!]!.min;
   const rivalUpper = Math.max(0, ...ordered.slice(1).map(name => scores[name]!.max));
   const margin = first.min - rivalUpper;
-  let status: BasicKindStageDecision["status"], reasons: string[];
+  let status: "judged" | "unknown" | "conflict", reasons: string[];
   if (first.min < config.minScore) {
     status = "unknown"; reasons = [first.max >= config.minScore ? "unresolved_missing_feature" : "below_min_score"];
   } else if (second >= config.minScore && (first.min === second || first.min - second < config.minMargin)) {
@@ -638,14 +732,155 @@ function scoreStage(stage: "family" | "leaf", names: readonly string[], rows: Re
   } else if (margin <= 0 || margin < config.minMargin) {
     status = "unknown"; reasons = ["unresolved_missing_feature"];
   } else { status = "judged"; reasons = []; }
-  const decision: BasicKindStageDecision = { stage, status, selected: status === "judged" ? best : null, score: first.min, margin, reasons };
+  const decision: BasicKindStageDecision & { status: "judged" | "unknown" | "conflict" } = { stage, status, selected: status === "judged" ? best : null, score: first.min, margin, reasons };
   return { scores, decision };
+}
+function appendPriorityTerms(
+  stage: "family" | "leaf",
+  target: string,
+  row: BasicKindWeights,
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  terms: BasicKindTerm[],
+): void {
+  for (const [name, weight] of Object.entries(row)) {
+    const wire = name as BasicKindWireName, value = wires[wire];
+    const contribution = value === null
+      ? { min: Math.min(weight, 0), max: Math.max(weight, 0) }
+      : { min: weight * value, max: weight * value };
+    if (value !== 0 && weight !== 0) terms.push({ stage, target, wire, value, weight, contribution });
+  }
+}
+function clampedScores(raw: Readonly<Record<string, ScoreInterval>>): Record<string, ScoreInterval> {
+  return Object.fromEntries(Object.entries(raw).map(([target, score]) => [
+    target,
+    { min: clamp(score.min), max: clamp(score.max) },
+  ]));
+}
+function familyForLabel(label: SpecificBasicKindLabel): BasicKindFamily {
+  return (Object.keys(BASIC_KIND_FAMILIES) as BasicKindFamily[]).find(family => BASIC_KIND_FAMILIES[family].includes(label as never))!;
+}
+function scorePriorityStage(
+  stage: typeof PRIORITY_BASIC_KIND_STAGES[number],
+  familyScores: Readonly<Record<string, ScoreInterval>>,
+  leafScores: Readonly<Record<string, ScoreInterval>>,
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  config: BasicKindConfig,
+): BasicKindStageDecision {
+  const active = stage.labels
+    .filter(label => basicKindLeafSupportGate(wires, label) === 1)
+    .map(label => {
+      const familyScore = familyScores[familyForLabel(label)]!;
+      const leafScore = leafScores[label]!;
+      return { label, score: { min: Math.min(familyScore.min, leafScore.min), max: Math.min(familyScore.max, leafScore.max) } };
+    });
+  if (active.length === 0) {
+    return { stage: stage.id, status: "skip", selected: null, score: 0, margin: 0, reasons: [`priority_stage_${stage.id}_skip`] };
+  }
+  const ordered = [...active].sort((left, right) =>
+    right.score.min - left.score.min ||
+    right.score.max - left.score.max ||
+    left.label.localeCompare(right.label));
+  const best = ordered[0]!;
+  const rivalUpper = Math.max(0, ...ordered.slice(1).map(candidate => candidate.score.max));
+  const margin = best.score.min - rivalUpper;
+  if (ordered.every(candidate => candidate.score.max < config.minScore)) {
+    return { stage: stage.id, status: "weak", selected: null, score: best.score.min, margin, reasons: [`priority_stage_${stage.id}_weak_evidence`] };
+  }
+  const conflict = ordered.slice(1).some(candidate =>
+    candidate.score.min >= config.minScore && best.score.min - candidate.score.min < config.minMargin);
+  if (conflict) {
+    return { stage: stage.id, status: "conflict", selected: null, score: best.score.min, margin, reasons: ["competing_basic_kinds"] };
+  }
+  if (best.score.min >= config.minScore && margin >= config.minMargin) {
+    return { stage: stage.id, status: "judged", selected: best.label, score: best.score.min, margin, reasons: [] };
+  }
+  return { stage: stage.id, status: "unknown", selected: null, score: best.score.min, margin, reasons: ["unresolved_missing_feature"] };
 }
 function emptyJudgment(status: "unknown" | "excluded", reasons: readonly string[], input?: BasicKindProperties): BasicKindJudgment {
   return { familyStatus: status, family: null, familyScores: null, judgmentStatus: status, basicKind: null, leafScores: null, score: null, margin: null, confidenceState: "not_applicable", calibratedConfidence: null, reasons, evidence: { stateFlags: { disabled: input?.disabled ?? null, hidden: input?.hidden ?? null }, wires: {}, activeTerms: [], path: [] } };
 }
+function addPriorityDiagnosticReasons(input: BasicKindProperties, status: BasicKindStageDecision["status"], reasons: string[]): void {
+  if (status === "conflict" && input.role !== null) reasons.push("tag_role_conflict");
+  if (status === "unknown") {
+    if (input.tag === "input" && !input.inputType) reasons.push("missing_input_type");
+    if (input.tag === "input" && input.inputType === "hidden") reasons.push("hidden_input_type");
+    if (input.tag === "a") reasons.push(input.hrefPresent == null ? "missing_link_evidence" : input.hrefPresent === false ? "empty_anchor_or_missing_href" : "insufficient_link_evidence");
+    if (input.tag === "span" && input.directTextPresent == null) reasons.push("insufficient_text_evidence");
+    if (input.tag === "div" && input.positiveAreaChildCount == null) reasons.push("incomplete_child_geometry");
+  }
+}
+function classifyPriority(input: BasicKindProperties, config: BasicKindConfig, profile: BasicKindProfile, wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>): BasicKindJudgment {
+  const familyNames = Object.keys(BASIC_KIND_FAMILIES), leafNames = Object.values(BASIC_KIND_FAMILIES).flat();
+  const familyScores = clampedScores(computeBasicKindStageRawIntervals("family", familyNames, profile.familyWeights, wires, "priority_staged_v1"));
+  const leafScores = clampedScores(computeBasicKindStageRawIntervals("leaf", leafNames, profile.leafWeights, wires, "priority_staged_v1"));
+  const activeTerms: BasicKindTerm[] = [];
+  for (const family of familyNames as BasicKindFamily[]) {
+    if (basicKindFamilySupportGate(wires, family) === 1) appendPriorityTerms("family", family, profile.familyWeights[family], wires, activeTerms);
+  }
+  for (const label of leafNames) {
+    if (basicKindLeafSupportGate(wires, label) === 1) appendPriorityTerms("leaf", label, profile.leafWeights[label], wires, activeTerms);
+  }
+  const path: BasicKindStageDecision[] = [];
+  for (const stage of PRIORITY_BASIC_KIND_STAGES) {
+    const decision = scorePriorityStage(stage, familyScores, leafScores, wires, config);
+    path.push(decision);
+    if (decision.status === "judged") {
+      const label = decision.selected as SpecificBasicKindLabel;
+      return {
+        familyStatus: "judged",
+        family: familyForLabel(label),
+        familyScores,
+        judgmentStatus: "judged",
+        basicKind: label,
+        leafScores,
+        score: decision.score,
+        margin: decision.margin,
+        confidenceState: "uncalibrated",
+        calibratedConfidence: null,
+        reasons: ["basic_kind_judged"],
+        evidence: { stateFlags: { disabled: input.disabled ?? null, hidden: input.hidden ?? null }, wires, activeTerms, path },
+      };
+    }
+    if (decision.status === "unknown" || decision.status === "conflict") {
+      const reasons = [...decision.reasons];
+      addPriorityDiagnosticReasons(input, decision.status, reasons);
+      reasons.push("fallback_other");
+      return {
+        familyStatus: decision.status,
+        family: null,
+        familyScores,
+        judgmentStatus: decision.status,
+        basicKind: "other",
+        leafScores,
+        score: null,
+        margin: null,
+        confidenceState: "uncalibrated",
+        calibratedConfidence: null,
+        reasons,
+        evidence: { stateFlags: { disabled: input.disabled ?? null, hidden: input.hidden ?? null }, wires, activeTerms, path },
+      };
+    }
+  }
+  const reasons = [...(path.at(-1)?.reasons ?? ["priority_stages_exhausted"]), "fallback_other"];
+  addPriorityDiagnosticReasons(input, "unknown", reasons);
+  return {
+    familyStatus: "unknown",
+    family: null,
+    familyScores,
+    judgmentStatus: "unknown",
+    basicKind: "other",
+    leafScores,
+    score: null,
+    margin: null,
+    confidenceState: "uncalibrated",
+    calibratedConfidence: null,
+    reasons,
+    evidence: { stateFlags: { disabled: input.disabled ?? null, hidden: input.hidden ?? null }, wires, activeTerms, path },
+  };
+}
 function classify(input: BasicKindProperties, config: BasicKindConfig, profile: BasicKindProfile): BasicKindJudgment {
   const wires = extractBasicKindWires(input), activeTerms: BasicKindTerm[] = [];
+  if (profile.topology === "priority_staged_v1") return classifyPriority(input, config, profile, wires);
   const families = scoreStage("family", Object.keys(BASIC_KIND_FAMILIES), profile.familyWeights, wires, config, activeTerms);
   const family = families.decision.selected as BasicKindFamily | null;
   // The leaf stage is only evaluated after family selection.

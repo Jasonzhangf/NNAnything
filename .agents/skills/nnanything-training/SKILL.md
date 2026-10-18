@@ -36,5 +36,6 @@ description: NNAnything项目内的DOM基础种类训练、特征与wire升级�
 4. 训练输出候选profile和逐例比较。分别报告训练、开发回放、旧黄金与未见页面，保留fixed/regressed/retained/unresolved/unassessed。不要用loss下降代替类别与状态回归。
 5. 达到本轮验收即停。先用已有样本检查效果；只有明确存在覆盖缺口才扩大采集，不以增加样本代替修测量／wire。
 6. 新拟合使旧校准失效。分数保持uncalibrated，候选not_applied。页面未知减少不等于准确率提高；未标注页面只报告覆盖和变化，再检查代表性新判断与剩余未知。
+7. 训练须保存实际计时与行处理量；失败保留部分计时。字段与遍历口径以训练合同为准，规模实验沿公开benchmark脚本，不给旧未计时结果补估计值。拓扑变化保留旧profile与旧输出对照，版本兼容以算法合同为准，不覆盖当前采用权重。
 
 特征升级、迁移和增量规则见[incremental.md](references/incremental.md)。代码实现、Review、集成和资源回收沿项目与全局既有流程，不新增审批链。

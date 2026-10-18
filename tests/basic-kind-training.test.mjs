@@ -559,6 +559,9 @@ test("public six-node consumer fits, saves, reloads and classifies with the cand
   const report = JSON.parse(await readFile(result.outputEvent.payload.resultFileRef, "utf8"));
   assert.equal(report.calibrated, false);
   assert.equal(report.candidateAdoption, "not_applied");
+  assert.ok(report.timing?.fitTotalMs >= 0, "workflow must persist the actual fit timing");
+  assert.equal(report.timing.completedEpochs, report.assessment.candidate.trajectory.length);
+  assert.deepEqual(result.outputEvent.payload.timing, report.timing);
 });
 
 test("public six-node consumer trains a migrated zero coefficient and parse reloads it", async t => {

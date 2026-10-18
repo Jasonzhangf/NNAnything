@@ -2,6 +2,7 @@ import { lstat, mkdir, open, realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import {
   BASIC_KIND_FAMILIES,
+  PRIORITY_BASIC_KIND_STAGES,
   classifyBasicKind,
   migrateBasicKindProfile,
   validateBasicKindProfile,
@@ -28,6 +29,7 @@ import {
 } from "./basic-kind-samples.js";
 import {
   validateBasicKindTrainingConfig,
+  type BasicKindFitTiming,
   type BasicKindTrainingConfig,
   type FitProgress,
 } from "./basic-kind-numeric.js";
@@ -70,6 +72,7 @@ export interface BasicKindCandidate {
   readonly baseProfileId: string;
   readonly profile: BasicKindProfile;
   readonly trajectory: readonly FitProgress[];
+  readonly timing?: BasicKindFitTiming;
   readonly lossBefore: number;
   readonly lossAfter: number;
   readonly sampleCoverage: {
@@ -185,6 +188,7 @@ export interface BasicKindTrainingResult {
   readonly evaluationMode: BasicKindPartitions["evaluationMode"] | null;
   readonly recommendation: BasicKindAssessment["recommendation"];
   readonly summary: Readonly<Record<BasicKindTransition, number>>;
+  readonly timing?: BasicKindFitTiming;
 }
 
 export interface BasicKindArtifactReceipt {
@@ -526,6 +530,42 @@ function readTrajectory(value: unknown): FitProgress[] {
   });
 }
 
+function readFitTiming(value: unknown): BasicKindFitTiming {
+  const input = expectRecord(value, "fit timing");
+  onlyKeys(input, [
+    "backendLoadMs",
+    "circuitBuildMs",
+    "baselineEvalMs",
+    "trainEpochGradMs",
+    "postEpochEvalMs",
+    "finalEvalMs",
+    "fitTotalMs",
+    "completedEpochs",
+    "processedRowCount",
+    "gradientRowEpochs",
+    "totalRowPasses",
+    "trainableParamCount",
+    "totalSparseCells",
+  ], "fit timing");
+  return {
+    backendLoadMs: nonNegativeFinite(input.backendLoadMs, "fit timing.backendLoadMs"),
+    circuitBuildMs: nonNegativeFinite(input.circuitBuildMs, "fit timing.circuitBuildMs"),
+    baselineEvalMs: nonNegativeFinite(input.baselineEvalMs, "fit timing.baselineEvalMs"),
+    trainEpochGradMs: nonNegativeFinite(input.trainEpochGradMs, "fit timing.trainEpochGradMs"),
+    postEpochEvalMs: nonNegativeFinite(input.postEpochEvalMs, "fit timing.postEpochEvalMs"),
+    finalEvalMs: nonNegativeFinite(input.finalEvalMs, "fit timing.finalEvalMs"),
+    fitTotalMs: nonNegativeFinite(input.fitTotalMs, "fit timing.fitTotalMs"),
+    completedEpochs: integer(input.completedEpochs, "fit timing.completedEpochs"),
+    processedRowCount: integer(input.processedRowCount, "fit timing.processedRowCount"),
+    gradientRowEpochs: integer(input.gradientRowEpochs, "fit timing.gradientRowEpochs"),
+    totalRowPasses: integer(input.totalRowPasses, "fit timing.totalRowPasses"),
+    trainableParamCount: integer(input.trainableParamCount, "fit timing.trainableParamCount"),
+    ...(input.totalSparseCells === undefined ? {} : {
+      totalSparseCells: integer(input.totalSparseCells, "fit timing.totalSparseCells"),
+    }),
+  };
+}
+
 export function readBasicKindCandidate(value: unknown): BasicKindCandidate {
   const input = expectRecord(value, "candidate");
   onlyKeys(input, [
@@ -538,6 +578,7 @@ export function readBasicKindCandidate(value: unknown): BasicKindCandidate {
     "lossBefore",
     "lossAfter",
     "sampleCoverage",
+    "timing",
   ], "candidate");
   if (input.schemaVersion !== 1 || input.taskId !== BASIC_KIND_TASK_ID) throw new TypeError("candidate schema/task mismatch");
   const coverage = expectRecord(input.sampleCoverage, "sampleCoverage");
@@ -549,6 +590,7 @@ export function readBasicKindCandidate(value: unknown): BasicKindCandidate {
     baseProfileId: expectNonEmptyString(input.baseProfileId, "baseProfileId"),
     profile: validateBasicKindProfile(input.profile),
     trajectory: readTrajectory(input.trajectory),
+    ...(input.timing === undefined ? {} : { timing: readFitTiming(input.timing) }),
     lossBefore: nonNegativeFinite(input.lossBefore, "lossBefore"),
     lossAfter: nonNegativeFinite(input.lossAfter, "lossAfter"),
     sampleCoverage: {
@@ -580,7 +622,7 @@ function comparisonJudgment(judgment: BasicKindJudgment): ComparisonJudgment {
 
 function correct(label: BasicKindLabel, judgment: BasicKindJudgment): boolean {
   return label === "other"
-    ? judgment.basicKind === "other"
+    ? judgment.judgmentStatus === "judged" && judgment.basicKind === "other"
     : judgment.judgmentStatus === "judged" && judgment.basicKind === label;
 }
 
@@ -654,8 +696,12 @@ function readComparisonJudgment(value: unknown): ComparisonJudgment | null {
     const stage = expectRecord(entry, `comparison judgment.path[${index}]`);
     onlyKeys(stage, ["stage", "status", "selected", "score", "margin", "reasons"], `comparison judgment.path[${index}]`);
     return {
-      stage: oneOf(stage.stage, ["family", "leaf"] as const, "path.stage"),
-      status: oneOf(stage.status, ["judged", "unknown", "conflict"] as const, "path.status"),
+      stage: oneOf(stage.stage, [
+        "family",
+        "leaf",
+        ...PRIORITY_BASIC_KIND_STAGES.map(item => item.id),
+      ] as const, "path.stage"),
+      status: oneOf(stage.status, ["judged", "unknown", "conflict", "skip", "weak"] as const, "path.status"),
       selected: stage.selected === null ? null : expectNonEmptyString(stage.selected, "path.selected"),
       score: expectFiniteNumber(stage.score, "path.score"),
       margin: expectFiniteNumber(stage.margin, "path.margin"),
@@ -1041,6 +1087,7 @@ export function readBasicKindResult(value: unknown): BasicKindTrainingResult {
     "evaluationMode",
     "recommendation",
     "summary",
+    "timing",
   ], "training result");
   if (input.schemaVersion !== 1 || input.taskId !== BASIC_KIND_TASK_ID) throw new TypeError("training result schema/task mismatch");
   if (input.candidateAdoption !== "not_applied" || input.calibrated !== false) throw new TypeError("training result cannot auto-adopt or claim calibration");
@@ -1079,6 +1126,7 @@ export function readBasicKindResult(value: unknown): BasicKindTrainingResult {
       "evidence_insufficient",
     ] as const, "training result.recommendation"),
     summary: readTransitionCounts(input.summary),
+    ...(input.timing === undefined ? {} : { timing: readFitTiming(input.timing) }),
   };
 }
 
@@ -1089,6 +1137,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
   readonly taskId: typeof BASIC_KIND_TASK_ID;
   readonly reason?: string;
   readonly assessment: BasicKindAssessment | null;
+  readonly timing?: BasicKindFitTiming;
 }): Promise<BasicKindTrainingResult> {
   if (input.taskId !== BASIC_KIND_TASK_ID) throw new TypeError(`taskId must be ${BASIC_KIND_TASK_ID}`);
   const allowedRoot = expectNonEmptyString(input.allowedRoot, "allowedRoot");
@@ -1100,6 +1149,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
     : readBasicKindAssessment(input.assessment);
   if (assessment.taskId !== input.taskId) throw new TypeError("assessment taskId differs from report request");
   const inference = assessment.comparison?.inference ?? null;
+  const timing = input.timing ?? assessment.candidate?.timing;
   const root = await realpath(resolve(allowedRoot));
   if (!(await stat(root)).isDirectory()) throw new TypeError("allowedRoot must be an existing directory");
   const weightsDirectory = await ensureDirectory(root, config.weightsDirectory);
@@ -1115,7 +1165,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
     await writeNewJson(weightPath, {
       targetOperator: "dom.basic_kinds",
       operatorVersion: "0.1.0",
-      contractVersion: 1,
+      contractVersion: assessment.candidate.profile.topology === "priority_staged_v1" ? 2 : 1,
       taskId: assessment.taskId,
       profileId: assessment.candidate.profile.id,
       baseProfileId: assessment.candidate.baseProfileId,
@@ -1147,6 +1197,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
     evaluationMode: assessment.comparison?.evaluationMode ?? null,
     recommendation: assessment.recommendation,
     summary,
+    ...(timing === undefined ? {} : { timing }),
   };
   try {
     await writeNewJson(resultPath, {
@@ -1162,6 +1213,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
       inference: result.inference,
       weightFileRef,
       summary,
+      ...(timing === undefined ? {} : { timing }),
       assessment: reportAssessment(assessment, weightFileRef),
     });
   } catch (error) {

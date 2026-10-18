@@ -1,5 +1,15 @@
 # 节点训练 workflow 设计
 
+## 优先级实验与实际计时
+
+`priority_staged_v1` 的正类目标拉高所属 family/leaf 下界，压低同阶段和前序适用竞争分支的上界，不压低后序分支。ignore 与有意义结构共享 structure family，因此 ignore 监督压低前序结构 leaf，不压低自己的 family。静态 gate 同时作用于已测项和缺测项，数值后端与正式前向使用同一支撑定义。旧 topology 的损失路径保持原行为。
+
+`fitBasicKinds` 返回 `timing`：backendLoadMs、circuitBuildMs、baselineEvalMs、trainEpochGradMs、postEpochEvalMs、finalEvalMs、fitTotalMs，以及 completedEpochs、processedRowCount、gradientRowEpochs、totalRowPasses、trainableParamCount、totalSparseCells。单调时钟 `performance.now()` 记录实际耗时；每轮包含一次梯度遍历和一次更新后评估，另有基线及最终评估。正常完成 E 轮、R 行时，梯度行数 E×R，总行遍历 (2E+2)×R。失败按已完成工作记录，不套正常公式。
+
+错误保留原消息/cause，附带 completedEpochs 与 timing。进度回调在该轮完成后调用，回调失败仍计入已完成轮数。未实现取消协议，不宣称 cancelled。训练报告可保存 timing；旧报告缺省该字段仍可读取。重新拟合保持 uncalibrated、not_applied。
+
+公开脚本、三方对照和最小计时矩阵见 [Consumer](../playground/training/README.md)。规模记录区分唯一源、合成、增强和重复负载；参数量未独立变化时，不推断参数量的独立缩放规律。黄金回归不能参与拟合或挑轮数。
+
 状态：2026-10-17，候选内容，实施中复核（candidate under verification）。本文是当前第一层 DOM 基础种类离线训练的合同、连线与验收说明。六个训练算子（training.prepare / partition / fit / compare / assess / report @ 0.1.0）与真实 Handwired Circuit evaluate/backprop 拟合路径存在；本增量的小红书纠错集、旧黄金及场景回归尚未完成整体交付，不能据此宣称候选已采用或未知已清零。保存的候选 profile 绝不自动替换基础 profile；初始及候选参数保持未校准（uncalibrated）；新拟合使旧校准失效。
 
 外层复用已有事件、节点与 Flowed 执行合同，不增加调度器。内部使用 Handwired 数值图。workflow 的边不传梯度；拟合循环在 training.fit 内部执行，不给 DAG 增加回边。基础前向算法与类别真源见 [基础种类连线](basic-kinds-wiring.md)，持久拓扑唯一位于 [训练图](../workflows/node-training.graph.json)。

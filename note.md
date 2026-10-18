@@ -1,5 +1,11 @@
 # 当前任务
 
+优先级milestone整体Review：独立AGY Gemini4medium b096be76-2a49-426f-be11-e81337d760fa，实际gemini-4-argon-medium，SUCCESS/exit0；structured_output经既有controller同源schema/scope裁决PASS，findings=[]。代码与实测报告通过审查，不代表失败候选质量被批准采用。开始main集成，保持扩展当前采用旧权重不变。
+
+2026-10-18优先级分类器与训练计时milestone：5项工作中设计、图/红测、实现、真实训练对照4项已验收；整体Review与main交付待收口。外层三个DAG拓扑不变且闭合，内部四阶段SESE图见docs/priority-classifier.md。独立Gemini4medium修订计划ef1728c6-9c6d-4f26-8beb-fc8f7676ee23已接受；GCM分工实现filter/numeric/benchmark，部分worker最终仅进度文本且未完成，主Agent按实际文件接管收口并修类型、consumer严格I/O、统计与workflow计时传递；不把exit0当完成。自有剩余两个worker已显式TERM并exit143，未留活动执行者。
+
+作者验收171/171测试、UI类型检查；legacy参考382行kind/status/scores/path逐项不变。真实Handwired同预算112行500轮：旧从零3.948s，新从零5.288s；新训练111/112，但黄金161/357、相对旧采用权重退化116，候选not_applied。旧从零黄金110/357，当前采用旧权重274/357。训练不含357黄金，15合成/1增强另计，111唯一标识仅18来源组；25诊断不算准确率。规模100轮32/64/111/222重复行分别0.324/0.624/1.127/2.073s，完整流程13.579s。详细结果及实际限制见docs/priority-classifier.md；本地原始输入training/samples/priority-classifier，正式报告training/results/priority-classifier/final，权重training/weights/priority-classifier/final。失败和早期报告保留，不覆盖已采用SVG-pair。当前候选不采用，不需要用户重载扩展，三站未知清零仍未完成。
+
 2026-10-18用户再次重载并发图；小红书实际面板已确认“构建加载 · layout-ignore-svg-pair-v1.weight.json · layout-ignore-svg-pair-v1”，安装态验证完成。347候选／322judged（含28ignore）／25unknown／0conflict，鼠标悬浮期间24–25unknown波动；顶层观测，2iframe内部仍未评估。公开采集按钮和下载得到25unreviewed原件，保留training/samples/post-reload-20261018/xhs-home.json，公开extract成功25行。主Agent逐项tag/class/rect唯一匹配25/25，后续DOM证据单独留post-reload-xhs/manual25-later-observation.json。10点赞区域、6footer包装、3播放标记包装、1头像重叠包装、2列表组、1信息组、2分隔/占位；不是全部忽略目标。其他两站现场仍显示上传资源，不冒称三站都验证了构建启动。
 
 GCM数值诊断：25行29字段齐全，无derived-null或weighted-null；缺省role不等于缺测。10点赞的own_pointer_boundary=1但现权重0；多子元素／列表计数等路径也缺已训练贡献。独立OAuthmedium小计划后，GCM实际Handwired500轮受限拟合10LLMteacherbutton＋1已有select反例，仅control/button两cell变化。10/10按钮可判，但357黄金26个原text变unknown，且select反例仍错为button，因此候选拒绝、未加载/构建/采用。58SVG回放不变、7自身文字未误ignore；这些不抵消失败。执行日志另有12行pilot，正式脚本11行；报告fitCallCount1只统计脚本，不作为整个任务只拟合一次的证明，父审计纠正见parent-experiment-audit.md。未改框架、参数合同、阈值或原始gold。
