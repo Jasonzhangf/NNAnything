@@ -1,5 +1,11 @@
 # 当前任务
 
+2026-10-18用户再次重载并发图；小红书实际面板已确认“构建加载 · layout-ignore-svg-pair-v1.weight.json · layout-ignore-svg-pair-v1”，安装态验证完成。347候选／322judged（含28ignore）／25unknown／0conflict，鼠标悬浮期间24–25unknown波动；顶层观测，2iframe内部仍未评估。公开采集按钮和下载得到25unreviewed原件，保留training/samples/post-reload-20261018/xhs-home.json，公开extract成功25行。主Agent逐项tag/class/rect唯一匹配25/25，后续DOM证据单独留post-reload-xhs/manual25-later-observation.json。10点赞区域、6footer包装、3播放标记包装、1头像重叠包装、2列表组、1信息组、2分隔/占位；不是全部忽略目标。其他两站现场仍显示上传资源，不冒称三站都验证了构建启动。
+
+GCM数值诊断：25行29字段齐全，无derived-null或weighted-null；缺省role不等于缺测。10点赞的own_pointer_boundary=1但现权重0；多子元素／列表计数等路径也缺已训练贡献。独立OAuthmedium小计划后，GCM实际Handwired500轮受限拟合10LLMteacherbutton＋1已有select反例，仅control/button两cell变化。10/10按钮可判，但357黄金26个原text变unknown，且select反例仍错为button，因此候选拒绝、未加载/构建/采用。58SVG回放不变、7自身文字未误ignore；这些不抵消失败。执行日志另有12行pilot，正式脚本11行；报告fitCallCount1只统计脚本，不作为整个任务只拟合一次的证明，父审计纠正见parent-experiment-audit.md。未改框架、参数合同、阈值或原始gold。
+
+新独立局部计划next-plan.md将下一步分为family缺测竞争和button/select叶竞争，需现有span_direct_text与neutral_list_choice等路径及真实非黄金text反例；原拟议5cell冻结机制还需核对wire级API，不能暗中解冻其他非零cell。主Agent已用公开检查/采集入口补采真实span.count文本“2”（node424），原记录ambiguous、0human确认，独立26行新包保留xhs-home-with-text-counterexample.json，旧25包不覆盖；尚未用于拟合。整个post-reload-xhs外置run保留计划、原始命令、逐例结果及截图。当前权重仍为已交付SVG-pair，剩余未知与三站目标未结束。
+
 GCM剩余样本只读任务session72883已exit0；最终文本只写未来动作，主Agent未接受为完成报告，只收其实际jq输出并整理remaining-primary-summary.md。保存393项回放仍263unknown／12conflict。按观测优先顺序划分为控件祖先内63、自身文字62、CSS呈现11、多子元素40、其他中性87；这些只是诊断组，不是已确认类别，63不等于63个控件。WB141 OBJECT内部仍未读，ZH15 combobox与11LI/tab包含A的冲突仍需评分与归属复核。未增加硬过滤、未改原始标签，后续需对有足够事实的组选择性标注拟合，并保持357及整页原已知回归。
 
 本轮启动权重修复已合入并推送main6c38a1d。canonical显式构建`npm run build:extension -- --weight-file training/weights/layout-ignore-svg-pair-v1.weight.json`成功，回执确认profile layout-ignore-svg-pair-v1；本地权重保留在忽略目录，不入Git。清理前注册树2，本轮核销initial-weight1，保留canonical1；自有验收tab23已关闭、HTTP PID92940已停止、node_modules链接／工作树／分支已回收。当前知乎现场仍是上传资源svg-pair-weight-v1.json，125unknown／12conflict／53ignore；已请求用户重载新包并核对“构建加载”来源，不能把上传会话当成安装态已验证。GCM只读执行worker继续汇总剩余未知的现有特征与标注缺口，产品未再次改动。
