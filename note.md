@@ -1,6 +1,8 @@
 # 当前任务
 
-2026-10-17预处理／呈现输入候选完成，独立整体Review通过，准备main集成。依据用户“所有过滤、调整集中预处理”的要求，既有候选节点继续负责范围，adapter读原始DOM/CSS后调用共享纯整形一次，分类器只用typed properties。新增非格式直接文本与四项CSS存在性观测、六条wire、四十二个零起点地址；按名迁移保留旧系数。格式字符不导致删除节点，普通fixed/shadow保留；工具根及显式资源排除同步影响子计数／关系。新字段缺测仍null，旧文本trim语义保留，无新类别、无阈值或非零默认分数调整。关系仍未进入数值fit，不能称框架语义输入已全部充分。
+2026-10-17预处理／呈现输入已交付，独立整体Review通过，实现2c6441e已ff-only合入main并推送。依据用户“所有过滤、调整集中预处理”的要求，既有候选节点继续负责范围，adapter读原始DOM/CSS后调用共享纯整形一次，分类器只用typed properties。新增非格式直接文本与四项CSS存在性观测、六条wire、四十二个零起点地址；按名迁移保留旧系数。格式字符不导致删除节点，普通fixed/shadow保留；工具根及显式资源排除同步影响子计数／关系。新字段缺测仍null，旧文本trim语义保留，无新类别、无阈值或非零默认分数调整。关系仍未进入数值fit，不能称框架语义输入已全部充分。
+
+交付回执：正式目录npm run build:extension成功，产物artifacts/chrome-extension；canonical公开consumer再次确认格式字符分离、CSS内容参数、缺测null和通用文字wire。清理前2个注册worktree，本轮核销1个自有树/分支，prune且旧路径不存在；仅保留canonical main。测试页15及PID50424服务已关闭，7个用户站点标签未刷新、未关闭。已重建扩展文件不等于用户页面已加载新版；需正常重载扩展和刷新页面后再作现场计数。下一轮重点为关系数值投影和包装保留／忽略监督，复用本轮逐行证据，不把333个剩余未知自动加入黄金。
 
 独立Gemini4整体Review：conversation8b15bb6e-1dda-49f5-a403-8499ce763406，实际gemini-4-argon-medium、medium，SUCCESS、exit0，统一schema/controller裁决pass，findings=[]。覆盖完整功能与架构，并检查本地Skill/AGENTS与本轮变化一致，无需新增规则。审查结果docs/reviews/gemini4-preprocessing-inputs-review.json；原始事件及controller位于上述外置run。临时浏览器fixture已关闭，PID50424服务已终止，用户站点页面未刷新、未冒称已加载新版。
 
