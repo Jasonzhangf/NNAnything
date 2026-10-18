@@ -1,5 +1,15 @@
 # 当前任务
 
+本轮构建权重供给与最小忽略模型已完成一次独立Gemini4medium整体Review：60b7f10f-513e-4db7-961c-5c85554ac69d，SUCCESS／exit0，structured_output经同源controller裁pass、findings=[]。原始证据与裁决在ignore-profile-slice/review-{events,result,final,controller}文件。Reviewer引用报告的“30 controls”只是沿用脚本字段名；实际是30个非外层SVG行，不作为30个交互控件验收。有效保护证据是三站1126原已知类别不变及真实consumer的button/input/text/image检查。当前进入main集成与显式权重构建，内置浏览器新版安装态仍待确认，三站未知清零目标未完成。
+
+2026-10-18用户重载后反馈未知包装仍多。主Agent现场确认三站仍用手写权重、ignore0；前次只交测量/wire而没有采用权重，不能再以重载冒称可见修复。新原始采集snapshot387仍出现旧4跳祖先null，具体加载来源原因未确认，不归咎用户。当前沿最小忽略配置消融和真实整页回归推进，完整v6仍未采用。
+
+本轮新训练：真实Handwired58行（29内部SVG绘图节点ignore＋29外层SVGimage），500epochs，仅svg_internal_part与nat_svg_child两个既有wire可训练。外层SVG的student祖先null保持原样；另存当前完整父链teacher证据。family.structure两个系数由0／0.79899变为0.39879／0.40081；leaf.ignore.svg_internal_part由0.79899变0.81017，其余wire冻结。旧357逐项输出完全不变，0新增退化／0误ignore。先前只投影忽略权重的候选在真页面造成29外层SVG变unknown，已撤回再训练；不能只用旧gold或未知数下降验收。
+
+新候选layout-ignore-svg-pair-v1已通过public文件入口在三站作现场验证：微博142→108unknown、ignore34；知乎178→125unknown、ignore53，冲突12保留；XHS61→30unknown、ignore31（悬浮引起1项候选变化，另帧60→29）。三个页面原已知445＋397＋284＝1126节点逐项类别不变；截图和paired-full-frame.json保存在/Volumes/Intel/playground/nnanything-runs/ignore-profile-slice。剩余未知和冲突未解决，不称整站全覆盖或独立准确率。原393包仍unreviewed，训练使用独立LLM复核ledger，非human gold。
+
+为使明确选择的权重随启动加载，新小增量由独立OAuthgpt6.1medium规划，packaging-plan.md已接受（最终整体Review沿Gemini4milestone档）。新增唯一树/Volumes/Intel/playground/nnanything/initial-weight，基于origin/mainb8d2c37，前树已清理、开工仅canonical1树，无旧树堆积。GCM完成extension初始typed资源与构建--weight-file入口及相关文档；不改默认profile、算法、权限、存储、外层DAG。真实contententry红测已证实有效参数被忽略、missingfile也exit0，证据configured-build-red.json/build-invalid-red.log。修复后154/154测试、UI类型检查、默认/所选两类构建通过；缺文件/非法JSON/错合同非零退出且不覆写既有包。主Agent真实CUA运行configured.html加载实际content.js，验证所选profile/config生效、文字/外层SVG/按钮/输入保留、上传覆盖/无效保留、重载恢复构建选择；提高测试阈值时10项均unknown，确认config也供给，而不是只传profile。最终正式文件名连续重载仍10judged/0unknown/ignore3，面板无水平溢出。权重本地training/weights/layout-ignore-svg-pair-v1.weight.json不入Git，作者验证完毕，进入一次完整整体Review。真实网站当前通过上传使用权重；新包安装态尚未验证，不以localhost证明已更新内置浏览器副本。
+
 2026-10-18继续原三站未知／冲突闭环，目标未结束。用户已确认重载并刷新；现场微博显示新版合并采集入口，但点击后会话仍0，不能冒称采集成功。小红书／知乎仍是旧入口，主Agent刷新两页后面板关闭；已请用户仅重新打开三站标注，不重复要求重载。工具无扩展工具栏入口，桌面工具拒绝控制Codex应用，不绕过。前一milestone已交付main0f87877并构建。所有实验权重均未采用。主Agent负责手工复检、架构与验收，执行仍交GCM。
 
 当前semantic-refinement已交付main45d31b8并推送，fetch后main与origin/main无未合入提交；正式目录build:extension成功。作者154/154测试、build:extension、typecheck:ui实际exit0；最终构建真实CUA回放33/33 PASS、61帧无空框，browser-final-result.json／browser-final-pass.png保留在本轮run。独立计划已有presentation／loss／ancestor／count四项证据，外层DAG拓扑未变。独立Gemini4medium整体Reviewer15f10844-7b4a-4453-965a-1ebe3cf96163，SUCCESS／exit0，structured_output经同源controller裁pass、findings=[]；review-final.json及review-controller.json留本轮run。此Review不批准采用拟合权重，不宣称三站闭环。用户页面尚未加载本轮45d31b8，不能冒称现场使用了候选。

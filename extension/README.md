@@ -38,9 +38,10 @@ Local Chrome/Chromium browser extension and evaluation test harness for NNAnythi
    - `导出 JSON 样本包`: Calls capture workflow export and triggers a client-side Blob JSON download anchor (`nnanything-capture-<sessionId>.json`).
 
 6. **Custom Weight Asset Loader**:
-   - Allows loading custom `.json` weight assets via file input.
+   - Allows loading custom `.json` weight assets via file input for the current session.
    - Validated through `parseBrowserWeightAsset(rawJson, sourceLabel)`.
    - On parse/validation failure, displays error details and retains current profile and configuration without corruption.
+   - File upload is not persistent. Reloading the page restores the profile selected by the build command.
 
 7. **Lifecycle & Coalescing**:
    - Coalesced `requestAnimationFrame` refresh pending flag prevents concurrent workflow executions and self-observer loops.
@@ -68,9 +69,16 @@ npm run typecheck:ui
 
 # 2. Build the extension and harness bundles (via esbuild)
 npm run build:extension
+
+# Optional: embed one validated weight asset in the local content bundle
+npm run build:extension -- --weight-file training/weights/layout-ignore-svg-pair-v1.weight.json
 ```
 
 The command builds the library first, then bundles the extension and harness into `artifacts/chrome-extension` and `artifacts/overlay-harness`. A missing dependency fails the build.
+
+Use the optional command above to embed one selected local weight asset in the content bundle. The build validates the file and weight contract before it writes artifacts. The panel shows the file name and profile ID. Without `--weight-file`, the build uses the handwritten baseline.
+
+An invalid path, JSON document, or contract fails with a nonzero exit and does not fall back to the baseline. The selected file stays local and is not committed. The choice is embedded in the built extension, not stored by Chrome. A file chosen through the panel replaces it for the current session only; reloading restores the build-time choice. This packaging step does not adopt a candidate profile as a project default.
 
 ---
 

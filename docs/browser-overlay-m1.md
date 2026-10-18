@@ -43,6 +43,16 @@ flowchart TD
 - `extension/`：MV3壳和Shadow DOM视图，只有activeTab+scripting权限，无host_permissions。图标显式开关；浏览器包复用Flowed官方browser入口。单个esbuild开发依赖，不引入UI框架或自造打包器。
 - `playground/overlay/`：同一视图与测量器的真实网页consumer、可重复fixture和本地HTTP入口，用于浏览器黑盒验收。
 
+构建时可显式选择一个已校验的本地权重资产：
+
+```sh
+npm run build:extension -- --weight-file training/weights/layout-ignore-svg-pair-v1.weight.json
+```
+
+无参数构建继续使用手写基线。带参数时，构建先读取并通过`parseBrowserWeightAsset`校验文件，再把typed profile/config仅嵌入content bundle；面板来源显示“构建加载”、文件basename和profile ID。缺文件、非法JSON或合同不符必须非零退出，不能回退基线或覆盖已有构建产物。绝对输入路径只进入本地构建回执，不进入页面UI。
+
+面板文件上传仍只覆盖当前会话，不写入Chrome storage，也不发网络请求。页面重载后恢复构建时选择的资产；该本地构建选择不自动采用候选profile为项目默认。
+
 采集包含 kind=`nnanything.browser-capture-bundle.v1`、会话/Focus/profile 引用、trainingRequest 和按证据引用索引的 evidenceSidecar。trainingRequest 仅由 readBasicKindTrainingRequest 校验，不能错误套用接收 CandidateBatch 的 validateBasicKindRequest；显式 extractTrainingRequestFromBundle 拒绝错类型。学生 `properties` 只用 `BasicKindMeasurements` 与 tag/role 等许可字段；raw class/id 只在证据区，作为来源线索，不进入学生输入。证据不读取 input.value、密码、Cookie、浏览器存储或网络请求；不伪造原始整页 HTML 覆盖。采集保留原始槽位、兄弟/直接父子关系、子元素观测和 Focus 范围，不能为去重或 ignore 展示删除这些关系证据。
 
 ## 主任务路径与UX

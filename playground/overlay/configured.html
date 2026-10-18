@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>NNAnything configured weight consumer</title>
+<style>
+  body { margin: 32px; font: 16px system-ui; min-height: 500px; }
+  main { max-width: 480px; padding: 20px; }
+  svg { width: 32px; height: 32px; }
+  button, input { margin: 12px; padding: 10px; }
+</style>
+<main>
+  <h1>Configured weight consumer</h1>
+  <p id="reading-target">可读正文 <em>保留文字</em></p>
+  <svg id="outer-icon" viewBox="0 0 24 24" aria-label="图形">
+    <path id="drawing-part" d="M3 3h18v18H3z" fill="green"></path>
+  </svg>
+  <button id="action-target" type="button">可用按钮</button>
+  <input id="input-target" aria-label="测试输入" placeholder="可输入">
+</main>
+<script src="../../artifacts/chrome-extension/content.js"></script>
+</html>

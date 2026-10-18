@@ -24,6 +24,7 @@ import {
   type LiveCaptureCoverage,
   type BrowserCaptureAnnotation,
   type BrowserCaptureBundleV1,
+  type BrowserWeightAsset,
   DEFAULT_EXCLUDED_TOOL_ROOT_IDS,
 } from "nnanything/browser-classify";
 
@@ -32,6 +33,7 @@ export interface DOMInspectorOptions {
   captureGraph: unknown;
   document?: Document;
   window?: Window;
+  initialWeight?: BrowserWeightAsset;
 }
 
 export const CATEGORY_COLORS: Record<string, { border: string; bg: string; text: string; zh: string }> = {
@@ -127,8 +129,14 @@ export class DOMInspectorController {
       createdAt: new Date().toISOString(),
     });
 
-    this.currentProfile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
-    this.currentConfig = structuredClone(DEFAULT_BASIC_KIND_CONFIG);
+    if (options.initialWeight) {
+      this.currentProfile = structuredClone(options.initialWeight.profile);
+      this.currentConfig = structuredClone(options.initialWeight.config);
+      this.profileSourceLabel = `构建加载 · ${options.initialWeight.sourceLabel} · ${options.initialWeight.profile.id}`;
+    } else {
+      this.currentProfile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+      this.currentConfig = structuredClone(DEFAULT_BASIC_KIND_CONFIG);
+    }
 
     this.boundOnScroll = () => this.scheduleRefresh();
     this.boundOnResize = () => this.scheduleRefresh();
