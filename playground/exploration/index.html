@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>探索输入浏览器验收</title>
+<style>body{font:16px system-ui;margin:32px;color:#0f172a}#outer{padding:12px;border:1px solid #64748b;width:420px}#middle,#inner{display:block;padding:8px}pre{white-space:pre-wrap;background:#f1f5f9;padding:20px}iframe{width:180px;height:60px}</style>
+<h1>探索输入浏览器验收</h1>
+<div id="outer"><span id="middle"><span id="inner"><a id="leaf" href="#target">实际链接元素</a></span></span></div>
+<label>搜索展示 <input type="text" role="combobox" value="合成展示内容"></label>
+<iframe srcdoc="<p>未采集的内部文档</p>"></iframe><div id="shadow"></div>
+<pre id="result">运行中</pre>
+<script type="module" src="/fixture.js"></script>
+</html>

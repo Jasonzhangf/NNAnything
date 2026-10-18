@@ -7,3 +7,4 @@ export * from "./training/samples.js";
 export * from "./nodes/sampling.js";
 export * from "./filters/basic-kinds.js";
 export * from "./nodes/basic-kinds.js";
+export * from "./adapters/browser/exploration-input.js";

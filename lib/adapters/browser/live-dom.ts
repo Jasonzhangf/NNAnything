@@ -1,5 +1,6 @@
 import type { BasicKindMeasurements, BasicKindProperties } from "../../filters/basic-kinds.js";
 import { isSafeRuleAttribute, type ObservationNode, type PageObservation, type Rect } from "./observation.js";
+import { buildExplorationInputs, type ExplorationInputV1 } from "./exploration-input.js";
 
 export interface StableNodeRefRegistry {
   readonly refByElement: WeakMap<Element, string>;
@@ -57,6 +58,7 @@ export interface LiveDomSnapshot {
   readonly properties: ReadonlyMap<string, BasicKindProperties>;
   readonly evidence: ReadonlyMap<string, LiveDomEvidence>;
   readonly coverage: LiveCaptureCoverage;
+  readonly explorationInputs?: ReadonlyMap<string, ExplorationInputV1>;
   resolveElement(nodeRef: string): Element | null;
 }
 
@@ -131,6 +133,7 @@ function clippedBox(element: Element, window: Window, rect: Rect): Rect | null {
 
 export function observeLiveDom(input: {
   document: Document; window: Window; registry: StableNodeRefRegistry; excludeRoot: Element | null; snapshotRef: string; documentRef: string;
+  maxRelationHops?: number;
 }): LiveDomSnapshot {
   const { document, window, registry } = input;
   const nodes: ObservationNode[] = [], itemObservations: ({ nodeRef: string } & BasicKindMeasurements)[] = [];
@@ -183,9 +186,12 @@ export function observeLiveDom(input: {
   }
   for (const ref of registry.elementByRef.keys()) resolveStableNodeRef(registry, ref);
   const clipping = nodes.every(node => node.clippedRect !== null) ? "assessed" : nodes.some(node => node.clippedRect !== null) ? "mixed" : "unassessed";
+  const observation: PageObservation = { viewport: { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }, nodes, coverage: { geometry: "assessed", fragments: "assessed", clipping } };
+  const unassessedInteriors = new Map([...evidence].map(([ref, ev]) => [ref, (ev.unassessedChildContent ?? []) as readonly ("iframe" | "shadow_root")[]]));
+  const explorationInputs = buildExplorationInputs({ observation, itemObservations, maxRelationHops: input.maxRelationHops ?? 4, ...(nodes[0] ? { rootNodeRef: nodes[0].nodeRef } : {}), directChildrenStatus: "complete", unassessedInteriors });
   return {
     snapshotRef: input.snapshotRef, documentRef: input.documentRef, frameRef: "top", pageRef: input.documentRef,
-    observation: { viewport: { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }, nodes, coverage: { geometry: "assessed", fragments: "assessed", clipping } },
+    observation, explorationInputs,
     itemObservations, properties, evidence,
     coverage: { scope: "top_document_only", frameContent: "captured", directChildren: "complete", traversedElementCount: nodes.length, excludedElementCount: excluded, unassessedIframeCount: frames, unassessedOpenShadowRootCount: shadows, closedShadowRootDetection: "not_available" },
     resolveElement: ref => resolveStableNodeRef(registry, ref),

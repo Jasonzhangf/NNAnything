@@ -110,6 +110,7 @@ export class BrowserCaptureSession {
       // This row describes the top-document host element, never its unread inner document.
       captureCoverage: { frameContent: "not_applicable", directChildren: "complete" },
       properties: validateBasicKindProperties(properties), proposal, review,
+      ...(frame.snapshot.explorationInputs?.get(nodeRef) ? { explorationInput: structuredClone(frame.snapshot.explorationInputs.get(nodeRef)!) } : {}),
     };
     // Validate only the new row here; batch validation occurs once at export.
     readBasicKindTrainingRequest({ schemaVersion: 1, taskId: "dom.basic-kinds.v1", rows: [row] });

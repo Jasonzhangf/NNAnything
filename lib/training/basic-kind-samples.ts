@@ -12,6 +12,7 @@ import {
   expectRecord,
   expectStringArray,
 } from "../core/schema.js";
+import { validateExplorationInput, type ExplorationInputV1 } from "../adapters/browser/exploration-input.js";
 
 export const BASIC_KIND_TASK_ID = "dom.basic-kinds.v1" as const;
 export type BasicKindInputScope = "candidate_qualified" | "properties_offline";
@@ -44,6 +45,7 @@ export interface ReviewedBasicKindRow {
     readonly directChildren: "complete" | "incomplete" | "unknown";
   };
   readonly properties: BasicKindProperties;
+  readonly explorationInput?: ExplorationInputV1 | null;
   readonly proposal: {
     readonly ruleRef: string | null;
     readonly label: BasicKindLabel | null;
@@ -174,6 +176,7 @@ function readReviewedRow(value: unknown, rowIndex: number, label: string): Revie
     "candidateQualification",
     "captureCoverage",
     "properties",
+    "explorationInput",
     "proposal",
     "review",
   ], label);
@@ -203,6 +206,8 @@ function readReviewedRow(value: unknown, rowIndex: number, label: string): Revie
   if (expectedLabel !== "other" && otherReason !== null) throw new TypeError("otherReason is valid only for gold other");
 
   const projectedProperties = validateBasicKindProperties(input.properties);
+  const explorationInput = input.explorationInput == null ? input.explorationInput : validateExplorationInput(input.explorationInput);
+  if (explorationInput && explorationInput.nodeRef !== inputRef.nodeRef) throw new TypeError("explorationInput nodeRef must match inputRef.nodeRef");
   return {
     sampleId: expectNonEmptyString(input.sampleId, "sampleId"),
     inputRef,
@@ -217,6 +222,7 @@ function readReviewedRow(value: unknown, rowIndex: number, label: string): Revie
       directChildren: oneOf(coverage.directChildren, ["complete", "incomplete", "unknown"] as const, "captureCoverage.directChildren"),
     },
     properties: projectedProperties,
+    ...(explorationInput !== undefined ? { explorationInput } : {}),
     proposal: {
       ruleRef: nullableString(proposal.ruleRef, "proposal.ruleRef"),
       label: proposalLabel,
@@ -315,6 +321,7 @@ export function readBasicKindSamples(value: unknown): BasicKindSamples {
       "candidateQualification",
       "captureCoverage",
       "properties",
+      "explorationInput",
       "proposal",
       "review",
       "index",

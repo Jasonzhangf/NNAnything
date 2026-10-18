@@ -198,3 +198,6 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 对应 `workflows/browser-visual-overlay.graph.json`（4N3E）和 `workflows/browser-capture.graph.json`（1N0E）。节点不训练；采集只收合格候选。未复核、待定和仅标错样本保留空黄金字段；用户明确确认具体类别后才可被现有 training.prepare 接纳。`other` 需理由。数组导出重排 index，证据与学生属性分开，class/id/正文不进入学生。失效 Focus 返回不可采集状态，不扩大范围。iframe/shadow 内部未评估。
 
 公开 workflow consumer、2501 条导出及复核隔离测试：`tests/browser-overlay-foundation.test.mjs`。真实浏览器入口、安装及覆盖限制见 `extension/README.md` 和 `docs/browser-overlay-m1.md`。
+## 探索输入扩展
+
+既有实时观测与采集节点随样本携带可选`ExplorationInputV1`，无需新增operator或修改DAG。adapter内纯builder保留所有包装及内容节点、直接和跨层包含边、局部组成与缺测边界；实时资源可配置`maxRelationHops`，默认4，采集包记录实际值。没有自动忽略、预测类别输入或权重修改。导出与prepare保留新字段；第一层数值fit明确不使用它，未来可训练目标需另立I/O和监督合同。完整合同见`docs/training-workflow.md`的探索输入节。

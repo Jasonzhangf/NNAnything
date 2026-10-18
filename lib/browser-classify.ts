@@ -5,6 +5,7 @@ export * from "./filters/candidate-chain.js";
 export * from "./filters/basic-kinds.js";
 export * from "./training/basic-kind-samples.js";
 export * from "./adapters/browser/live-dom.js";
+export * from "./adapters/browser/exploration-input.js";
 export * from "./adapters/browser/weight-asset.js";
 export * from "./adapters/browser/capture-bundle.js";
 export * from "./nodes/browser-overlay.js";

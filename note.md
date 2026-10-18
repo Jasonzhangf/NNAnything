@@ -1,5 +1,9 @@
 # 当前任务
 
+2026-10-17探索输入／跨层包含候选完成：按用户最新“先确认输入与框架，再标定分类”的顺序，新建adapter纯投影ExplorationInputV1，保留直接父子与跨层contains/contained_by、相对间隔、局部组成/几何和覆盖边界；纯builder显式要求maxRelationHops，实时适配器默认4跳且可配，触限不冒充完整。采集/导出/回载/prepare保留可选新字段，旧请求可省略。没有新增类别、打分wire、权重或阈值，没有自动忽略/剪枝/后代语义传播。第一层fit仍只消费旧properties，不冒称已使用关系参数；类别条件关系与消融在标定后进行。
+
+本轮4个新用例先红后绿，完整109测试0skip，UI类型检查/扩展构建通过；真实浏览器fixture16节点8项验收PASS。三站当前4564条经公开builder/reader/JSON回载/prepare关系不丢、入训0；旧158+199确认行在两套原profile下714次完整判断一致，旧reader结果一致。具体证据在/Volumes/Intel/playground/nnanything-runs/exploration-inputs/verification.md及相关JSON，原始和派生样本留本地training/samples/input-audit-20261017。图拓扑不变，复用已闭合现图。Gemini4独立整体Review conversation4fec55f7-ad81-4d00-bc59-e595979bfe76，实际gemini-4-argon-medium、SUCCESS，统一schema/controller pass、findings=[]；同时检查本地Skill/规则，无需新增长期规则。结果docs/reviews/gemini4-exploration-input-review.json。当前准备main集成与正式目录构建；用户页新版字段仍需重载扩展后才能现场确认，不冒称已注入。
+
 2026-10-17输入完整性优先：用户澄清先逐项解释未知，确认框架与输入不缺失，再标定／训练；弱评分本身不是bug。格式包装按包含关系与有效元素区分，后续忽略只影响语义视图，不剪枝后代或变基础负例。三站当前顶层4564元素（知乎1037、小红书1214、微博2313）已逐索引采集与输入审计，父子引用无断裂；143未知现有基础字段应测项无缺测，仍全部unreviewed。局部包含关系存在观测包，未进入当前单节点训练输入；保留／忽略目标与语义投影尚无正式合同。未改代码／权重／阈值、未分类或训练。覆盖与输入信息合并的实际限度见docs/input-completeness-audit.md；完整本地证据在/Volumes/Intel/playground/nnanything-runs/exploration-inputs。前序计划／提议派单因用户连续细化范围中止，不能作为有效计划或后端不可用证据；未合入实现。自有代码工作树无改动已移除，当前等待明确范围下的独立最小输入方案，不重新扫描已完成证据。
 
 2026-10-17特征升级与标准流程：新增1项SVG子元素观测、5条wire、10个新增目标系数的按名零初始化迁移；补测现有列表父级／重复几何。旧默认LEGACY与新默认v2分开，浏览器资产和训练加载接入迁移，通用核心仍不含DOM。完整105测试、UI类型检查、扩展构建通过。目录根级登记直接由AGENTS唯一名单驱动npm编译前检查，3组红绿行为测试通过；本地训练Skill包含训练规则、特征升级、增量、缺测、先验与回归边界，格式和链接通过。

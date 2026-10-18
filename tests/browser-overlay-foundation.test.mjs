@@ -7,6 +7,7 @@ import {
   BROWSER_CAPTURE_REQUEST_EVENT_TYPE,
   BROWSER_OVERLAY_REQUEST_EVENT_TYPE,
   BrowserCaptureSession,
+  buildExplorationInputs,
   DEFAULT_BASIC_KIND_CONFIG,
   DEFAULT_BASIC_KIND_PROFILE,
   LEGACY_BASIC_KIND_PROFILE,
@@ -353,6 +354,20 @@ test("unknown bulk includes only qualified unknown slots and preserves existing 
   assert.equal(second.collected, 0);
   assert.equal(second.existingReviewed, 1);
   assert.equal(session.stats().ambiguous, 1);
+});
+
+test("capture carries raw exploration through export and prepare without relabeling", () => {
+  const frame = makeFrame();
+  frame.snapshot.explorationInputs = buildExplorationInputs({ observation: frame.snapshot.observation, itemObservations: frame.snapshot.itemObservations, maxRelationHops: 4, directChildrenStatus: "complete" });
+  const session = new BrowserCaptureSession({ sessionId: "exploration", createdAt: "2026-10-17T12:00:00.000Z" });
+  session.captureSelected(frame, "unknown", { kind: "unsure" });
+  const request = extractTrainingRequestFromBundle(JSON.parse(JSON.stringify(session.toBundle())));
+  assert.deepEqual(request.rows[0].explorationInput, frame.snapshot.explorationInputs.get("unknown"));
+  assert.equal(request.rows[0].review.status, "ambiguous");
+  assert.equal(JSON.stringify(request.rows[0].explorationInput).includes("secret-class"), false);
+  const prepared = prepareBasicKindSamples(request, { taskId: "dom.basic-kinds.v1", inputScope: "candidate_qualified" });
+  assert.equal(prepared.includedIndices.length, 0);
+  assert.deepEqual(prepared.rows[0].explorationInput, request.rows[0].explorationInput);
 });
 
 test("capture export preserves order, reindexes without a 2500 row cap, and keeps student fields clean", () => {

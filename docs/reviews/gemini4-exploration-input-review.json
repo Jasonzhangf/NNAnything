@@ -1,0 +1,19 @@
+{
+  "contract_version": "1",
+  "findings": [],
+  "module_boundary_evidence": [
+    {
+      "edges": "Authoritative user exploration-first & transitive containment instructions -> docs/input-completeness-audit.md & containment-plan.md -> lib/adapters/browser/exploration-input.ts (buildExplorationInputs, validateExplorationInput) -> lib/adapters/browser/live-dom.ts (observeLiveDom) & lib/nodes/browser-overlay.ts (createBrowserOverlayNodeDefinitions) -> lib/adapters/browser/capture-bundle.ts (BrowserCaptureSession.put, toBundle, extractTrainingRequestFromBundle) -> lib/training/basic-kind-samples.ts (readBasicKindTrainingRequest, prepareBasicKindSamples, readBasicKindSamples, toBasicKindFitRows intentional first-layer projection) -> public barrels (lib/browser-classify.ts, lib/browser.ts, lib/training.ts) -> verification endpoints (tests/exploration-input.test.mjs, tests/browser-overlay-foundation.test.mjs, playground/exploration/fixture.mjs, replay-exploration-inputs.mjs)",
+      "gates": "npm test 109/109 pass (0 skipped) including 4 new exploration/capture red-green tests; npm run typecheck & UI/extension build exit 0; real browser fixture playground/exploration PASS (8 checks, 16 nodes, maxRelationHops=2, browser-fixture-result.json); 3-site 4,564-node offline replay roundtrip PASS with includedForTraining=0 (exploration-replay-result.json); 158+199 historical verified rows x 2 profiles (714 comparisons) exact compatibility regression PASS (compatibility-result.json); live Chrome extension reload on user pages explicitly recorded pending user action",
+      "module": "browser-exploration-input-and-containment",
+      "owner": "lib/adapters/browser/exploration-input.ts (schema & pure builder), lib/adapters/browser/live-dom.ts (live DOM measurement), lib/adapters/browser/capture-bundle.ts (bundle retention), lib/training/basic-kind-samples.ts (sample request/prepare retention & first-layer fit boundary)",
+      "paths": "lib/adapters/browser/exploration-input.ts; lib/adapters/browser/live-dom.ts; lib/adapters/browser/capture-bundle.ts; lib/nodes/browser-overlay.ts; lib/training/basic-kind-samples.ts; lib/browser-classify.ts; lib/browser.ts; lib/training.ts; tests/exploration-input.test.mjs; tests/browser-overlay-foundation.test.mjs; playground/exploration/index.html; playground/exploration/fixture.mjs; docs/input-completeness-audit.md; docs/training-workflow.md; lib/nodes/README.md",
+      "resources": "User instructions on input-first audit, wrapper ignore semantics, and multi-hop containment (note.md, docs/input-completeness-audit.md); .appsdk/requirements.json absent (skipped per rule); unchanged SESE graphs workflows/browser-visual-overlay.graph.json (4N3E), workflows/browser-capture.graph.json (1N0E), workflows/node-training.graph.json (6N6E); run artifacts in /Volumes/Intel/playground/nnanything-runs/exploration-inputs/ (verification.md, plan-acceptance.md, containment-plan.md, browser-fixture-result.json, exploration-replay-result.json, compatibility-result.json); local skill .agents/skills/nnanything-training/SKILL.md audited and aligned"
+    }
+  ],
+  "scope": {
+    "base": null,
+    "commit": null,
+    "mode": "uncommitted"
+  }
+}

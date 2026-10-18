@@ -19,6 +19,7 @@ type ClassifiedFrame = QualifiedFrame & { readonly basicKindBatch: BrowserOverla
 
 export function createBrowserOverlayNodeDefinitions(resources: {
   document: Document; window: Window; registry: StableNodeRefRegistry; excludeHost: Element | null;
+  maxRelationHops?: number;
   present: (frame: BrowserOverlayFrame) => unknown | Promise<unknown>;
 }): readonly NodeDefinition[] {
   return [
