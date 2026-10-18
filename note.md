@@ -1,5 +1,7 @@
 # 当前任务
 
+交付回执：前景遮挡修复d7f7c73已ff-only合入main并推送，fetch后双方无未合入提交。正式目录build:extension成功，artifacts/chrome-extension及公开foreground验收页已重建。自有foreground-filter工作树／分支已移除并prune，临时测试页已关闭，HTTP服务PID10600已停止；用户7个网站标签未关闭或刷新。代码、回归、审查与集成已完成；当前小红书仍待常规重载扩展及刷新后的现场确认，不把本地构建冒充已加载新版。后续训练人类可观测filter另立增量，尚未实施。
+
 2026-10-17独立Review收口：Gemini整体检查指出的问题已修正；其流中断回执未冒充PASS。OAuth整体复核补出3P1后，作者保留真实浏览器三项红测，修正visibility覆盖、grid／flex层叠和现代颜色alpha；独立OAuth局部复核findings=[]、exit0，统一controller判pass。整体覆盖与修订闭包复用，不重做无关扫描。最终119测试、浏览器15轮27断言、UI／构建通过。原始证据归档本地training/results/foreground-filter-20261017，正式审查正文docs/reviews/foreground-filter-review.json。代码交付与扩展重载现场验收分开，后者仍待用户按常规入口重载。
 
 最新前景修订：独立审查发现穿透命中、后景顺序、祖先圆角及visibility覆盖／grid层叠／现代颜色透明度误排除。全部修订并加反例；最后三项在真实公开consumer保留先红后三绿证据。最终浏览器15轮27断言、119测试、UI检查及扩展构建通过；旧714次分类比较未变。尚待findings局部独立复核与正式集成，下文7轮19项为首轮历史。后续可训练人类可观测filter仍未实施。
