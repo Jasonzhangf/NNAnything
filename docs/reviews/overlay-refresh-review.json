@@ -1,0 +1,19 @@
+{
+  "contract_version": "1",
+  "findings": [],
+  "module_boundary_evidence": [
+    {
+      "edges": "user_requirement(panel_and_marks_flicker_fix) -> docs/browser-overlay-m1.md(UX_refresh_contract) -> extension/controller.ts(scheduleRefresh/runOverlayPipeline/renderPanel/renderSelectedNodeSection/saveSelectedAnnotation/runCaptureAction) -> workflows/browser-visual-overlay.graph.json(unchanged_4N3E_SESE:observe_live->qualify_live->classify_live->present) & workflows/browser-capture.graph.json(unchanged_1N0E_SESE) -> playground/overlay/refresh-harness.ts(public_controller_and_window_RAF_proxy) -> browser-red.json(25_empty_runs) & browser-green.json(18_checks_all_true) & foreground-regression.json(15_runs_27_checks_all_true)",
+      "gates": "npm test (119/119 passed in tests.log); npm run typecheck:ui (exit 0 in ui.log); npm run build:extension (exit 0 in build.log); real browser refresh harness red->green (browser-red.json 25 empty runs -> browser-green.json 18/18 checks true, 0 empty frames in 61, 25 mutation callbacks non-blank, panel height 688..688, stale bulk/manual callbacks captured 0, burst 100->1 run, in-flight follow-up->2 runs, reopen discards old generation, error/empty/stale-Focus clear and recover, own panel no loop); foreground regression harness (foreground-regression.json 15 runs, 27 checks true)",
+      "module": "extension-overlay-controller-and-refresh-harness",
+      "owner": "extension/controller.ts, playground/overlay/refresh-harness.ts, playground/overlay/refresh.html, scripts/build-extension.mjs, docs/browser-overlay-m1.md, note.md",
+      "paths": "extension/controller.ts; playground/overlay/refresh-harness.ts; playground/overlay/refresh.html; scripts/build-extension.mjs; docs/browser-overlay-m1.md; workflows/browser-visual-overlay.graph.json; note.md",
+      "resources": "Authority requirements: user report of panel and overlay box flicker on live Zhihu search (verified via two read-only DOM snapshots in accepted.md/verification.md: 844 boxes/559px panel vs 0 boxes/599px panel during loading, live Zhihu still on old extension prior to reload); .appsdk/requirements.json absent (skipped per rule); docs/browser-overlay-m1.md; AGENTS.md; /Volumes/Intel/playground/nnanything-runs/overlay-flicker/{plan.md,accepted.md,verification.md,browser-red.json,browser-green.json,foreground-regression.json,tests.log,ui.log,build.log}"
+    }
+  ],
+  "scope": {
+    "base": null,
+    "commit": null,
+    "mode": "uncommitted"
+  }
+}

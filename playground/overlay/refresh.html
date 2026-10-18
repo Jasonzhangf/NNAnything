@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NNAnything overlay refresh observer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #0f172a;
+      background: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; }
+    #fixture-target {
+      position: fixed;
+      top: 96px;
+      left: 24px;
+      width: min(320px, calc(100vw - 368px));
+      min-width: 100px;
+      padding: 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+    #fixture-target h1 { margin: 0 0 8px; font-size: 18px; }
+    #fixture-target p { margin: 0 0 12px; color: #475569; }
+    #target-button {
+      padding: 8px 12px;
+      border: 1px solid #2563eb;
+      border-radius: 6px;
+      background: #2563eb;
+      color: #ffffff;
+      font: inherit;
+      cursor: pointer;
+    }
+    #fixture-detail { margin-top: 12px; color: #64748b; font-size: 13px; }
+    #codex-browser-sidebar-comments-root {
+      position: fixed;
+      left: 24px;
+      bottom: 24px;
+      width: min(560px, calc(100vw - 380px));
+      min-width: 220px;
+      max-height: 48vh;
+      padding: 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      overflow: auto;
+    }
+    #codex-browser-sidebar-comments-root strong { display: block; margin-bottom: 8px; }
+    .fixture-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+    .fixture-actions button {
+      padding: 5px 9px;
+      border: 1px solid #94a3b8;
+      border-radius: 5px;
+      background: #ffffff;
+      color: #0f172a;
+      font: inherit;
+      cursor: pointer;
+    }
+    #recording-output {
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #334155;
+    }
+  </style>
+</head>
+<body>
+  <main id="fixture-target">
+    <h1>Stable target</h1>
+    <p id="status-text">Benign content 0</p>
+    <button id="target-button" type="button">Visible target button</button>
+    <div id="fixture-detail"><span id="detail-copy">Small stable content</span></div>
+  </main>
+
+  <aside id="codex-browser-sidebar-comments-root" aria-label="observer controls">
+    <strong>Observer controls</strong>
+    <div class="fixture-actions">
+      <button id="start-recording" type="button">Start recording</button>
+      <button id="replay-recording" type="button">Replay recording</button>
+    </div>
+    <pre id="recording-output" data-status="IDLE">Waiting for the first stable overlay frame.</pre>
+  </aside>
+
+  <script src="refresh-harness.js"></script>
+</body>
+</html>

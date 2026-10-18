@@ -1,5 +1,9 @@
 # 当前任务
 
+插件抖动Review已收口：独立Gemini4medium conversation542a4541-bdda-40b5-98e1-4d4a38a99639、SUCCESS／exit0，真实structured_output经统一controller裁pass，findings=[]。审查覆盖刷新／呈现／采集隔离、代际与公开浏览器回归；旧类算法和训练Skill不受影响，不新增另一套规则。正文docs/reviews/overlay-refresh-review.json，红绿及过程归档本地training/results/overlay-flicker-20261017。当前进入正式集成与原目录构建，真实知乎更新前后的验收仍分开记录。
+
+2026-10-17插件抖动修复作者验收：用户确认面板与标注一起抖动。知乎搜索现场读到正常844框／面板559px，更新时0框／统计0／面板599px；宿主均存在，未据此冒称真实toggle。动态公开controller红测2秒25次空框且宿主identity稳定。根因为scheduleRefresh先清实际帧、清框、重建零统计并插入加载行。修复分开实际可采集帧与上一帧展示；pending不清框，保留统计并固定状态行；revision拒绝过期完成，RAF单运行＋合并后续；显式失效仍清框。当前真实浏览器18断言全过，普通更新61帧均非空、25次mutation均不空、面板688px固定、旧手动／未知回调未采集。119测试、UI和构建通过，前景15轮27断言不退化。外置run overlay-flicker保存红绿证据，当前待整体Review及集成；真实知乎仍运行旧插件，不能冒称现场已加载修复。
+
 交付回执：前景遮挡修复d7f7c73已ff-only合入main并推送，fetch后双方无未合入提交。正式目录build:extension成功，artifacts/chrome-extension及公开foreground验收页已重建。自有foreground-filter工作树／分支已移除并prune，临时测试页已关闭，HTTP服务PID10600已停止；用户7个网站标签未关闭或刷新。代码、回归、审查与集成已完成；当前小红书仍待常规重载扩展及刷新后的现场确认，不把本地构建冒充已加载新版。后续训练人类可观测filter另立增量，尚未实施。
 
 2026-10-17独立Review收口：Gemini整体检查指出的问题已修正；其流中断回执未冒充PASS。OAuth整体复核补出3P1后，作者保留真实浏览器三项红测，修正visibility覆盖、grid／flex层叠和现代颜色alpha；独立OAuth局部复核findings=[]、exit0，统一controller判pass。整体覆盖与修订闭包复用，不重做无关扫描。最终119测试、浏览器15轮27断言、UI／构建通过。原始证据归档本地training/results/foreground-filter-20261017，正式审查正文docs/reviews/foreground-filter-review.json。代码交付与扩展重载现场验收分开，后者仍待用户按常规入口重载。

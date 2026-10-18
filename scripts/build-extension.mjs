@@ -11,6 +11,7 @@ for (const [entry, output] of [
   ["extension/content.ts", "artifacts/chrome-extension/content.js"],
   ["playground/overlay/harness.ts", "artifacts/overlay-harness/harness.js"],
   ["playground/overlay/foreground-harness.ts", "artifacts/overlay-harness/foreground-harness.js"],
+  ["playground/overlay/refresh-harness.ts", "artifacts/overlay-harness/refresh-harness.js"],
 ]) {
   await build({ entryPoints: [path(entry)], outfile: path(output), bundle: true,
     platform: "browser", target: "chrome110", format: "iife", sourcemap: true });
@@ -21,5 +22,6 @@ for (const [source, target] of [
   ["playground/overlay/style.css", "artifacts/overlay-harness/style.css"],
   ["playground/overlay/foreground.html", "artifacts/overlay-harness/foreground.html"],
   ["playground/overlay/foreground.css", "artifacts/overlay-harness/foreground.css"],
+  ["playground/overlay/refresh.html", "artifacts/overlay-harness/refresh.html"],
 ]) await copyFile(path(source), path(target));
 console.log("Built artifacts/chrome-extension and artifacts/overlay-harness");

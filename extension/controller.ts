@@ -82,6 +82,9 @@ export class DOMInspectorController {
   private profileSourceLabel: string = "手写基础权重";
 
   private currentFrame: BrowserOverlayFrame | null = null;
+  // Presentation may remain visible while its measurements are invalidated.
+  private presentedFrame: BrowserOverlayFrame | null = null;
+  private refreshRevision = 0;
   private focusNodeRef: string | null = null;
   private isFocusStale: boolean = false;
   private selectedNodeRef: string | null = null;
@@ -209,12 +212,22 @@ export class DOMInspectorController {
     this.canvasContainer = null;
     this.panelContainer = null;
     this.currentFrame = null;
+    this.presentedFrame = null;
   }
 
   public scheduleRefresh(): void {
-    if (!this.isMounted() || this.rafId !== null) return;
+    if (!this.isMounted()) return;
+    this.refreshRevision++;
     this.currentFrame = null;
-    this.renderOverlayBoxes([]);
+    if (this.presentedFrame && (this.presentedFrame.focusSpec.within ?? null) !== this.focusNodeRef) {
+      this.presentedFrame = null;
+      this.renderOverlayBoxes([]);
+    }
+    if (this.isRefreshing) {
+      this.refreshPending = true;
+      return;
+    }
+    if (this.rafId !== null) return;
     this.renderPanel();
     this.rafId = this.win.requestAnimationFrame(async () => {
       this.rafId = null;
@@ -233,6 +246,7 @@ export class DOMInspectorController {
   private async runOverlayPipeline(): Promise<void> {
     if (!this.isMounted()) return;
     const generation = this.mountGeneration;
+    const revision = this.refreshRevision;
     this.isRefreshing = true;
     this.pipelineError = null;
 
@@ -252,6 +266,7 @@ export class DOMInspectorController {
       }
 
       if (this.isFocusStale) {
+        this.presentedFrame = null;
         this.renderOverlayBoxes([]);
         this.renderPanel();
         return;
@@ -304,18 +319,20 @@ export class DOMInspectorController {
       });
 
       const execution = await runWorkflow(compiledOverlay, inputEvent);
-      if (!this.isMounted() || generation !== this.mountGeneration) return;
+      if (!this.isMounted() || generation !== this.mountGeneration || revision !== this.refreshRevision) return;
       if (execution.status === "completed" && execution.outputEvent.status === "ok") {
         this.currentFrame = execution.outputEvent.payload as BrowserOverlayFrame;
+        this.presentedFrame = this.currentFrame;
         this.renderOverlayBoxes(this.currentFrame ? this.currentFrame.boxes : []);
         this.renderPanel();
       } else {
         throw new Error(execution.status === "failed" ? execution.error.message : `分类结果不可用：${(execution.outputEvent.payload as { reason: string }).reason}`);
       }
     } catch (err) {
-      if (!this.isMounted() || generation !== this.mountGeneration) return;
+      if (!this.isMounted() || generation !== this.mountGeneration || revision !== this.refreshRevision) return;
       console.error("[NNAnything DOM Inspector] Overlay execution error:", err);
       this.currentFrame = null;
+      this.presentedFrame = null;
       this.pipelineError = err instanceof Error ? err.message : String(err);
       this.renderOverlayBoxes([]);
       this.renderPanel();
@@ -818,15 +835,16 @@ export class DOMInspectorController {
       error.className = "notice-banner notice-warning";
       error.textContent = `分类失败，已清空旧结果：${this.pipelineError}。请点击刷新重试。`;
       body.appendChild(error);
-    } else if (!this.currentFrame && !this.isFocusStale) {
+    } else if (!this.isFocusStale) {
       const loading = this.doc.createElement("div");
       loading.className = "notice-banner notice-info";
-      loading.textContent = "正在更新页面分类，暂不可采集。";
+      loading.style.minHeight = "32px";
+      loading.textContent = this.currentFrame ? "页面分类已更新。" : "正在更新，暂不可采集。";
       body.appendChild(loading);
     }
 
     // 3. Metrics Summary
-    const counts: OverlayCounts = this.currentFrame?.presentation.view.counts ?? {
+    const counts: OverlayCounts = this.presentedFrame?.presentation.view.counts ?? {
       totalNodes: 0,
       candidates: 0,
       judged: 0,
@@ -835,7 +853,7 @@ export class DOMInspectorController {
       excluded: 0,
       candidateUnknown: 0,
     };
-    const coverage: LiveCaptureCoverage | undefined = this.currentFrame?.presentation.view.coverage;
+    const coverage: LiveCaptureCoverage | undefined = this.presentedFrame?.presentation.view.coverage;
 
     const metricsGrid = this.doc.createElement("div");
     metricsGrid.className = "metrics-grid";
@@ -900,7 +918,7 @@ export class DOMInspectorController {
     showAllCheckbox.checked = this.showAllLabels;
     showAllCheckbox.onchange = () => {
       this.showAllLabels = showAllCheckbox.checked;
-      this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
+      this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
     };
     showAllLabelToggle.appendChild(showAllCheckbox);
     showAllLabelToggle.appendChild(this.doc.createTextNode("显示全部标签"));
@@ -919,7 +937,7 @@ export class DOMInspectorController {
     allBtn.textContent = "全部";
     allBtn.onclick = () => {
       this.categoryFilters = new Set(Object.keys(CATEGORY_COLORS).concat(["unknown", "conflict"]));
-      this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
+      this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
       this.renderPanel();
     };
 
@@ -928,7 +946,7 @@ export class DOMInspectorController {
     knownBtn.textContent = "仅已知";
     knownBtn.onclick = () => {
       this.categoryFilters = new Set(Object.keys(CATEGORY_COLORS));
-      this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
+      this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
       this.renderPanel();
     };
 
@@ -937,7 +955,7 @@ export class DOMInspectorController {
     unknownBtn.textContent = "仅未知";
     unknownBtn.onclick = () => {
       this.categoryFilters = new Set(["unknown", "conflict"]);
-      this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
+      this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
       this.renderPanel();
     };
 
@@ -972,7 +990,7 @@ export class DOMInspectorController {
         } else {
           this.categoryFilters.delete(item.key);
         }
-        this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
+        this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
       };
 
       const dot = this.doc.createElement("span");
@@ -1004,7 +1022,7 @@ export class DOMInspectorController {
     sessionTitle.textContent = "样本采集与导出";
     sessionSection.appendChild(sessionTitle);
 
-    const eligibleUnknownCount = this.currentFrame?.basicKindBatch.slots.filter(
+    const eligibleUnknownCount = this.presentedFrame?.basicKindBatch.slots.filter(
       (slot: BasicKindSlot) => slot.candidateStatus === "ok" && slot.judgmentStatus === "unknown"
     ).length ?? 0;
 
@@ -1081,10 +1099,10 @@ export class DOMInspectorController {
   }
 
   private renderSelectedNodeSection(parent: HTMLElement): void {
-    if (!this.selectedNodeRef || !this.currentFrame) return;
+    if (!this.selectedNodeRef || !this.presentedFrame) return;
 
-    const slot = this.currentFrame.basicKindBatch.slots.find((s: BasicKindSlot) => s.nodeRef === this.selectedNodeRef);
-    const evidence = this.currentFrame.snapshot.evidence.get(this.selectedNodeRef);
+    const slot = this.presentedFrame.basicKindBatch.slots.find((s: BasicKindSlot) => s.nodeRef === this.selectedNodeRef);
+    const evidence = this.presentedFrame.snapshot.evidence.get(this.selectedNodeRef);
     const el = resolveStableNodeRef(this.registry, this.selectedNodeRef);
 
     const section = this.doc.createElement("div");
@@ -1106,7 +1124,7 @@ export class DOMInspectorController {
     deselectBtn.onclick = () => {
       this.selectedNodeRef = null;
       this.userReviewFeedback = null;
-      this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
+      this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
       this.renderPanel();
     };
 
@@ -1122,7 +1140,7 @@ export class DOMInspectorController {
     const scoreStr = slot?.score !== null && slot?.score !== undefined ? `${slot.score.toFixed(3)} (未校准)` : "无";
     const marginStr = slot?.margin !== null && slot?.margin !== undefined ? slot.margin.toFixed(3) : "无";
 
-    const candidate = this.currentFrame.candidateBatch.slots.find((item) => item.nodeRef === this.selectedNodeRef);
+    const candidate = this.presentedFrame.candidateBatch.slots.find((item) => item.nodeRef === this.selectedNodeRef);
     summary.textContent = `候选状态: ${candidate?.status ?? "unknown"}${candidate?.reasons.length ? ` (${candidate.reasons.join(", ")})` : ""}\n提议种类: ${kindZh} (${kind}) [提议]\n判断状态: ${slot?.judgmentStatus ?? "unknown"}\n分数: ${scoreStr} | 余量: ${marginStr}\n文本摘要: ${evidence?.textSummary?.slice(0, 80) ?? "无"}\nID: ${evidence?.id ?? "无"}`;
     summary.style.whiteSpace = "pre-wrap";
     section.appendChild(summary);
@@ -1238,9 +1256,9 @@ export class DOMInspectorController {
     saveBtn.className = "btn btn-primary";
     saveBtn.style.marginTop = "8px";
     saveBtn.textContent = "保存此元素样本";
-    saveBtn.disabled = slot?.candidateStatus !== "ok" || !el?.isConnected;
+    saveBtn.disabled = !this.currentFrame || slot?.candidateStatus !== "ok" || !el?.isConnected;
     saveBtn.onclick = async () => {
-      await this.saveSelectedAnnotation(slot);
+      await this.saveSelectedAnnotation();
     };
     section.appendChild(saveBtn);
 
@@ -1255,8 +1273,9 @@ export class DOMInspectorController {
     parent.appendChild(section);
   }
 
-  private async saveSelectedAnnotation(slot: BasicKindSlot | undefined): Promise<void> {
+  private async saveSelectedAnnotation(): Promise<void> {
     if (!this.selectedNodeRef || !this.currentFrame) return;
+    const slot = this.currentFrame.basicKindBatch.slots.find(item => item.nodeRef === this.selectedNodeRef);
 
     let annotation: BrowserCaptureAnnotation;
     if (this.userReviewSelection === "correct") {
@@ -1459,7 +1478,7 @@ export class DOMInspectorController {
     this.userOtherReason = "";
     this.userCorrectedLabel = "";
     this.userReviewSelection = "correct";
-    this.renderOverlayBoxes(this.currentFrame?.boxes ?? []);
+    this.renderOverlayBoxes(this.presentedFrame?.boxes ?? []);
     this.renderPanel();
   }
 
