@@ -1,5 +1,7 @@
 # 当前任务
 
+2026-10-17用户重载后确认“不抖动了，不过未知还很多”，抖动现场反馈收口，未知复检未完成。本轮复用browser-visual-overlay 4N3E和browser-capture 1N0E闭合图，未改分类器、训练参数或标签。知乎搜索AX返回598候选／405已判断／181未知／12冲突；但直接DOM和截图均显示新版永久状态行“正在更新页面分类，暂不可采集”、0框／0会话样本，AX与现场呈现矛盾，181／12不作为已保存或最新有效计数。未知按钮点击遇到失效索引与locator超时；通过可见刷新按钮后仍未获得可采集帧，页面error/warn日志为空。不能据此确认刷新调度根因或宣称采集成功。截图在本地training/results/unknown-recheck-20261017/zhihu-current.png。下一动作先定位分类更新未完成／观测入口不一致，再从有效帧导出未知与冲突；只对输入充分的复核样本训练，不将unknown自动映射other或忽略。
+
 交付回执：抖动修复504e8c0已ff-only合入main并推送，fetch核对双方无未合入提交；正式目录build:extension成功，原artifacts/chrome-extension已更新。自有overlay-flicker工作树／分支移除并prune，临时标签18已关闭、4173服务PID96184已停止，8765服务已不在当前进程表。观察worker自建Chrome标签的browser1绑定已不可用，未冒称主Agent已操作关闭；原用户7个网站标签未关闭。当前已请用户重载扩展后再确认知乎现场，代码交付完成与用户页加载状态分开。
 
 插件抖动Review已收口：独立Gemini4medium conversation542a4541-bdda-40b5-98e1-4d4a38a99639、SUCCESS／exit0，真实structured_output经统一controller裁pass，findings=[]。审查覆盖刷新／呈现／采集隔离、代际与公开浏览器回归；旧类算法和训练Skill不受影响，不新增另一套规则。正文docs/reviews/overlay-refresh-review.json，红绿及过程归档本地training/results/overlay-flicker-20261017。当前进入正式集成与原目录构建，真实知乎更新前后的验收仍分开记录。
