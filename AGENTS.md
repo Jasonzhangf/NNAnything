@@ -64,7 +64,7 @@ node_modules
 
 逐能力实施先完成精确 `path.resolve(cwd,input)` 的函数表达训练，合同与结果唯一入口为 docs/cli-path-training.md。学生只学习符号动作，名称复制、栈原语和分词是手写基础；teacher与POSIX oracle不得进入学生rollout，不以teacher修正替代模型错误。独立cli-training入口显式加载候选，M0和浏览器权重不变；目录绑定、help与组合操作继续后置。
 
-后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。先逐项建立获取cwd→pwd、修改指定session cwd→cd的关系，再组合子目标；不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。该方向未由当前路径模型自动实现。
+后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。首个 `observe_cwd→pwd` 选择与观测绑定已实现，合同和实测唯一入口为docs/cli-goal-training.md；它只学习 `REJECT/PWD`、三个特征和六参数，不包含cd。修改指定session cwd→cd、多步组合及更广语义仍后置；不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。
 
 当前页面审计按用户可观测前景限定：已确认完全遮挡项在DOM候选预处理排除，部分露出按区域保留，工具自身不遮挡站点目标。原DOM与排除证据仍保留，不转训练负例、ignore或other。后续已明确要求训练人类可观测／可交互的保留filter，输入覆盖viewport、最上层／露出区域及交互承载；阅读／显示也有价值，不等于只保留可点击元素。该训练是后续增量，不把本轮确定性遮挡修复冒称已训练。算法与限制唯一入口为docs/browser-overlay-m1.md。
 

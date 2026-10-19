@@ -37,3 +37,8 @@
 5. **已完成小批真实试验证据**：
    - 证据记录于 `/Volumes/Intel/playground/nnanything-runs/training-m1/existing-trial-summary.json`；
    - 158 条 LLM 复核样本（XHS 120 训练 108->120，Zhihu 38 留出 32->38，fixed 18 / regressed 0，仅 2 来源组，无 audio/select，未见页面评估进行中）。
+6. **CLI Goal 六参数训练 (`cli-goal-numeric.ts`, `cli-goal-samples.ts`)**：
+   - 12 train / 6 development 结构化 Goal 样本，只含 `observe_cwd`、`set_cwd` 与其他对照；训练请求无 holdout；
+   - 2×3 线性 logit 共六参数，零初始化、全批 SGD、softmax 交叉熵，默认 200 epochs / lr 0.1；
+   - 真实 Handwired `evaluateReference`/`backpropagateReference`；候选保持 uncalibrated/not_applied；
+   - 合同、样本语义限制与实测唯一入口为 [docs/cli-goal-training.md](../../docs/cli-goal-training.md)。

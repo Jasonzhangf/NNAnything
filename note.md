@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-19 首个结构化 Goal 动作切片（训练、独立样本与整体审查通过，进入集成）
+
+已实现 `observe_cwd→pwd` 的首个 Goal/State/Action/observed New State/GoalResult 闭环。公开入口 `nnanything/cli-goal`；推理图 3N2E、训练图 4N3E 均通过 DAGpipe validate/inspect。动作固定 `REJECT/PWD`，三特征、六参数，真实 Handwired 全批 SGD 200 epochs / lr 0.1。`set_cwd` 与其他结构化 Goal 为拒绝对照，unsupported guard 不执行命令，策略准确率与 Goal 成功分开；失败保留旧知识，只有本次真实 pwd 观测可达成 Goal。候选保持 uncalibrated/not_applied，未实现 cd/NLP/help/search。
+
+正式 run `7b78d1f2-de24-42fb-a4ca-c9e04ecef38c`：12 train / 6 development，18 个独立 session，仅 3 个语义 feature vector。零/冻结动作正确分别为 train 8/12、dev 4/6；候选为 12/12、6/6，Goal achieved 为 train 4/4、dev 2/2。候选真实 pwd 执行 train 4 次、dev 2 次，对照零执行；fixed/regressed/retained/unresolved 为 train 4/0/8/0、dev 2/0/4/0。实际 fit 348.246ms（backend 333.961ms、梯度 12.616ms），evaluation 178.198ms，training workflow 564.266ms，fresh reload 176.273ms，consumer 747.717ms；2400 梯度行轮、2424 forward 行访问。
+
+最终复跑 run 为 `4929f70a-379c-4e76-9a01-838f4d29e79b`，在相同训练预算下修正运行与训练评估算子名称绑定，指标相同。fit 351.670ms、workflow 554.806ms、reload 205.590ms、consumer 768.875ms。样本、候选、报告分别在 `training/{samples,weights,results}/observe-cwd/<run>/`。独立测试只加载候选，动作18/18；真实有效目录8/8 achieved，预期拒绝/失败10/10 unmet。完整 transition 与原始日志在 `/Volumes/Intel/playground/nnanything-runs/pwd-goal-m1/independent-final-report.json` 和 `independent-final-test.log`。全仓217项：216 passed、0 failed、1因未传候选显式skipped；该独立套件另行运行1 passed、0 skipped。作者34项定向回归通过。独立环境测试仍只有3个语义向量，不声称未见概念泛化。整体Review及main集成待完成。
+
+独立OAuth gpt-6.1-sol medium整体Review exit0、findings=[]，canonical controller裁决pass；AGY本次参数拒绝后查询当前目录无Gemini4，按同源后备执行。独立经验审计已完成，补齐当前派发依据，不改全局规则或受管记忆。执行worker网络断连后由owner接管，所有验收来自真实公开入口。图设计已有独立计划，但持久图校验晚于缺模块红测的执行偏差已在parent-verification.md披露。样本/权重/报告已归档到canonical训练目录；历史样本cwd保留原现场，复现用公开consumer生成当前cwd样本。本轮7项中前6项已验收，剩第7项的main集成、推送与自有资源回收。
+
 ## 2026-10-19 结构化Goal与最小动作关系（设计更新）
 
 用户明确三层目标：概念、动作、Goal/State动作选择；随后将动作层收敛为获取cwd→pwd、修改指定session cwd→cd，逐个训练后作为子目标复用。唯一架构正文已更新docs/design.md 1.1，CLI操作合同只引用。pwd产生新的观测知识，cd改变指定会话的执行基准；实际New State与NN预测分开。当前路径控制器是固定Goal的小实验，不是通用Goal策略或pwd/cd模型，M0尚无cd。纯文档更新，运行图未变，不新增框架或实现；更大语义推理目标仍待逐能力推进。
