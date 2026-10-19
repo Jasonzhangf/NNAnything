@@ -7,6 +7,8 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
+| `cli-filesystem-curriculum.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design` | 真实目录沙盒中的CWD/pwd→cd→文件及子目录列举训练顺序；合同见docs/cli-filesystem-training.md |
+| `cli-filesystem-training.graph.json` | 设计态，无运行配置 | 8 节点 8 边 (8N8E SESE) | `0.1.0-design` | 单项能力共享训练过程，训练/开发资料与独立验证资料分支，候选后合流；不代表新执行器已实现 |
 | `cli-path-training.graph.json` | `cli-path-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 已实现 | 路径动作样本准备、真实Handwired拟合、自主完整路径评估与create-new候选/报告保存 |
 | `cli-path-resolve.graph.json` | `cli-path-resolve.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 显式profile绑定的词法路径函数，执行与评估共用相同node/rollout合同 |
 | `cli-goal-step.graph.json` | `cli-goal-step.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 结构化Goal选择动作、真实pwd执行或拒绝、实际观测绑定与GoalResult验证 |

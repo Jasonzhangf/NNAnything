@@ -1,5 +1,9 @@
 # 当前任务
 
+## 2026-10-19 真实目录沙盒与前三项训练顺序（设计已落盘）
+
+用户选择真实文件系统中的专用目录，不声称硬件隔离；明确顺序为CWD概念及pwd获取→cd改变指定会话目录→获取目录内文件和子目录。唯一合同docs/cli-filesystem-training.md；课程图cli-filesystem-curriculum为5N4E，共享单项训练图cli-filesystem-training为8N8E，均为design版本。训练/开发和独立验证资料分支，只在显式候选形成后合流；场景家族先分区再生成，验证不参与fit或调参。训练数据自身复核与最终独立验证职责分开。已有pwd结果保留；专用沙盒执行器、新分区样本、cd和目录列举尚未实现或训练。本轮仅文档与静态图，不修改运行代码或重训。每项训练和真实状态验收合同、文件名/链接边界及清理终点已列明。
+
 ## 2026-10-19 首个结构化 Goal 动作切片（7/7已交付）
 
 实现a9f728a合入main ccb0546并push成功。主树重新build，读取canonical保存候选的独立公开consumer再次通过18/18动作、8/8有效观测、10/10预期unmet。自有pwd-goal-m1工作树及分支已移除，所有本轮子进程已退出；保留无关three-site-zero工作树。训练资产位于主树忽略的training目录，未上传远端；源码、可生成样本的consumer与测试已推送。交付原件 `/Volumes/Intel/playground/nnanything-runs/pwd-goal-m1/delivery.md`，Review原件review-final.json、裁决review-verdict.json、经验审计audit.md。7项全部验收；cd、help泛化和组合操作仍为后续独立能力。
