@@ -1,6 +1,8 @@
 # 当前任务
 
-## 2026-10-19 首个结构化 Goal 动作切片（训练、独立样本与整体审查通过，进入集成）
+## 2026-10-19 首个结构化 Goal 动作切片（7/7已交付）
+
+实现a9f728a合入main ccb0546并push成功。主树重新build，读取canonical保存候选的独立公开consumer再次通过18/18动作、8/8有效观测、10/10预期unmet。自有pwd-goal-m1工作树及分支已移除，所有本轮子进程已退出；保留无关three-site-zero工作树。训练资产位于主树忽略的training目录，未上传远端；源码、可生成样本的consumer与测试已推送。交付原件 `/Volumes/Intel/playground/nnanything-runs/pwd-goal-m1/delivery.md`，Review原件review-final.json、裁决review-verdict.json、经验审计audit.md。7项全部验收；cd、help泛化和组合操作仍为后续独立能力。
 
 已实现 `observe_cwd→pwd` 的首个 Goal/State/Action/observed New State/GoalResult 闭环。公开入口 `nnanything/cli-goal`；推理图 3N2E、训练图 4N3E 均通过 DAGpipe validate/inspect。动作固定 `REJECT/PWD`，三特征、六参数，真实 Handwired 全批 SGD 200 epochs / lr 0.1。`set_cwd` 与其他结构化 Goal 为拒绝对照，unsupported guard 不执行命令，策略准确率与 Goal 成功分开；失败保留旧知识，只有本次真实 pwd 观测可达成 Goal。候选保持 uncalibrated/not_applied，未实现 cd/NLP/help/search。
 
