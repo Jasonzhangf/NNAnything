@@ -9,6 +9,8 @@
 | `workflows/` | DAG图与持久绑定配置；不存节点实现或训练数据 |
 | `lib/core/`、`lib/workflow/` | 通用合同、事件、配置编译和Flowed执行；不内置站点语义 |
 | `lib/adapters/browser/` | DOM观测、测量、采集包和浏览器资产解析 |
+| `lib/adapters/cli/` | 固定CLI进程与文件系统基础观测；不实现语义评分或通用shell执行 |
+| `lib/adapters/computer-use/` | 原生桌面视觉后续范围的文档占位；当前无实现 |
 | `lib/filters/` | 候选过滤、规则匹配、基础种类、评分wire与profile迁移纯逻辑 |
 | `lib/nodes/` | 可复用节点封装与节点合同卡；不重复实现filter算法 |
 | `lib/nodes/trainable/` | 可训练节点结构；不存训练权重 |
@@ -55,6 +57,8 @@ node_modules
 新增输入／wire、调整标签、训练、增量拟合和回归时，读取[训练Skill](.agents/skills/nnanything-training/SKILL.md)。算法合同仍由docs/basic-kinds-wiring.md维护，训练I/O合同由docs/training-workflow.md维护；Skill只维护操作方法，不复制第二套算法或规则正文。
 
 ## 当前交付边界
+
+2026-10-19 新增独立 CLI 方向，用户将起点收敛为 pwd、文件路径与文件属性。当前 M0 只实现三项基础观测和独立测试，合同见 docs/cli-foundation.md；通用核心不内置 CLI 分支。help/说明泛化、可训练能力与参数角色、目录下文件/符号名称搜索仍为后续目标，本轮不冒称训练或搜索已完成。Computer use 暂缓，仅 lib/adapters/computer-use/README.md 占位，不启动桌面观测或操作。CLI 任务的词语输入合同独立定义，不直接套用 DOM 学生身份字段禁令。
 
 当前页面审计按用户可观测前景限定：已确认完全遮挡项在DOM候选预处理排除，部分露出按区域保留，工具自身不遮挡站点目标。原DOM与排除证据仍保留，不转训练负例、ignore或other。后续已明确要求训练人类可观测／可交互的保留filter，输入覆盖viewport、最上层／露出区域及交互承载；阅读／显示也有价值，不等于只保留可点击元素。该训练是后续增量，不把本轮确定性遮挡修复冒称已训练。算法与限制唯一入口为docs/browser-overlay-m1.md。
 

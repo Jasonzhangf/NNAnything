@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-19 CLI 基础 M0
+
+用户将独立 CLI 模块的起点收敛为 pwd、文件路径与文件属性。当前已实现 `nnanything/cli`：显式固定 cwd、真实 `/bin/pwd -P`、纯词法路径解释、stat/lstat/readlink 属性与类型化错误。Computer use 只留 `lib/adapters/computer-use/README.md` 占位。help/说明学习与泛化、文件/符号名称搜索是后续目标，本轮没有训练或搜索，不改变浏览器权重。
+
+本轮6项中独立计划、图/红测、实现、作者验收、整体 Review 5项已验收；剩余main交付和清理。1N0E 持久图已 validate/inspect 并经现有 compiler/runner/Flowed 真实消费；六组公开测试先因模块缺失失败，实施后6/6通过；全仓177/177通过；`npm run demo:cli` 公开consumer验证真实进程、路径、属性/链接、ENOENT、拒权、目标内容与目录项未变及父cwd未变。整体独立OAuth gpt-6.1-sol medium审查exit0，canonical controller裁决PASS、findings=[]；本次目录无Gemini4，按规定后备。合同见 `docs/cli-foundation.md`。本轮独占过程与原始证据在 `/Volumes/Intel/playground/nnanything-runs/cli-help-m1/`，作者说明 `verification.md`，独立计划 `foundation-plan.md`，Review原件 `review-final.json`，Git与资源收口回执见 `delivery.md`。
+
+以下保留前序浏览器任务及历史证据，不作为 CLI 交付声明。
+
 本轮5项工作已完成实现、验收、整体Review和main交付。集成提交fad4f37已推送origin/main，保留原采用SVG-pair权重。正式结果在training/results/priority-classifier/final，输入在training/samples/priority-classifier；计划、红测、测试、真实consumer、Review原件与controller回执归档training/results/priority-classifier/evidence。剩余仅回收本轮独占worktree与临时run；清理回执留该evidence目录。三站未知清零属于后续总目标，当前失败候选未采用。
 
 优先级milestone整体Review：独立AGY Gemini4medium b096be76-2a49-426f-be11-e81337d760fa，实际gemini-4-argon-medium，SUCCESS/exit0；structured_output经既有controller同源schema/scope裁决PASS，findings=[]。代码与实测报告通过审查，不代表失败候选质量被批准采用。开始main集成，保持扩展当前采用旧权重不变。
