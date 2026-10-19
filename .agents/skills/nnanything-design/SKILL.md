@@ -29,6 +29,7 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 ## 复用与路由
 
 - CLI前三项顺序与真实目录沙盒：[文件系统训练设计](../../../docs/cli-filesystem-training.md)；操作类型：[CLI语义目录](../../../docs/cli-semantic-operations.md)。先CWD/pwd，再cd，再目录列举，不擅自扩到搜索和写操作。
+- 所有CLI命令接入先沿[参数简化合同](../../../docs/cli-call-contract.md)定义固定操作和最小typed引用，再设计harness映射。NN不生成shell/原生flags，不解析输出内容；固定机器协议解码与独立OS状态观测由harness负责，不算学生能力。
 - DOM特征/wire、增量拟合和跨页回归：沿[本地训练Skill](../nnanything-training/SKILL.md)。本Skill不重写其算法和命令，也不把静态DOM判断当浏览器operation验收。
 - 冲突先定位到观测、语义/特征、数值连线、参数、harness或评价owner。若需改连线，先更新唯一图纸与合同，再交独立计划/实现/验证；不改黄金语义或删退化例以取得升级。
 - 纯合同或图纸更新交付设计和校验结果；没有真实执行不宣称训练、全模型采集或自动升级完成。实际代码开发的独立Plan、gate/红测、Review、Git交付与资源收口沿已有项目/全局规则。

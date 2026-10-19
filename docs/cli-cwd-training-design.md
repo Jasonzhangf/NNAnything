@@ -2,6 +2,8 @@
 
 状态：可实施设计，2026-10-19；未运行本设计的新样本训练。已有有限pwd动作选择器及实测保持原样，见[cli-goal-training.md](cli-goal-training.md)。沙盒/分区沿[公共合同](cli-filesystem-training.md)，采用规则沿[模型演进合同](model-evolution.md)。本页是本项概念题、样本与训练连线的唯一owner。
 
+调用边界统一沿[参数简化合同](cli-call-contract.md)：PWD映射`cwd.get(session)`，NN不解析命令输出内容；既有pwd适配器的回执解码属于harness，不算学生能力。
+
 ## 目标与函数
 
 先建立“CWD属于指定会话”的关系，再学习为了获得本次CWD而调用PWD。训练两个独立最小函数，不把两个标签混进同一损失：

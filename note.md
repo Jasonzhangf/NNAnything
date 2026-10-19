@@ -1,5 +1,9 @@
 # 当前任务
 
+## 2026-10-19 CLI调用参数简化（设计补正）
+
+用户要求所有命令参数简化、不解析内容，以支持准确实际调用。唯一合同docs/cli-call-contract.md：所有接入命令使用固定operation与必要typed parameters；前三项映射既有cwd.get/cwd.set/directory.list，不另增协议别名。NN不生成shell或原生flags、不解析stdout/正文，harness绑定引用与原始路径argv、固定模板/默认参数、执行并读取机器回执或独立OS观测。三个详细训练设计、架构1.2、AGENTS及本地设计Skill已挂接；原pwd回执解析是现有adapter事实，不冒称NN学过。LIST固定helper的JSON解码是机器协议，不是训练内容理解。本轮仍仅设计，未修改运行代码。
+
 ## 2026-10-19 前三项训练详细设计（设计交付，不是新训练结果）
 
 三份唯一合同：docs/cli-cwd-training-design.md、cli-cd-training-design.md、cli-list-training-design.md；各有独立design训练DAG，分别8N9E、7N7E、7N7E。第一项增加CWD归属概念的6参数关系单元，PWD动作仍独立6参数；第二项独立6参数CD策略，以固定zsh调用成功后提交显式session资源，再用后续同S的PWD验证；第三项独立8参数LIST策略，通过固定结构化CLI helper无损列举，不宣称学习/bin/ls选项。字段校验/引用相等/参数复制/OS类型与真实效果均为手写harness，NN只学所声明函数；不冒称跨三模型总调度已实现。

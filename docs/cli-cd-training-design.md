@@ -2,6 +2,8 @@
 
 状态：可实施设计，2026-10-19；session变更、样本和模型尚未实现。前置为[设计1](cli-cwd-training-design.md)真实session观测通过；沙盒、样本分区及采用沿既有公共合同。本页是本项动作、持久状态及训练owner。
 
+调用边界统一沿[参数简化合同](cli-call-contract.md)：CD映射`cwd.set(session,directory)`，模型只携带typed引用，不生成命令文本或解析stdout。固定脚本和真实路径argv绑定仅由harness维护。
+
 ## 精确语义与学习目标
 
 `Goal {kind:"set_cwd",session:S,target:D}`要求改变S的执行基准。D为明确绝对目录引用；相对路径由调用前的独立path.resolve能力根据S解析，保留原始输入证据，本项不训练找目录或字符串生成。
