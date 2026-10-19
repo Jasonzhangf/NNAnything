@@ -32,6 +32,26 @@ CWD正式run `c30b2917-4980-4b0f-8c7f-e0954ce22270`：train/dev关系16/16、8/8
 
 LIST前全量回归244项：241通过、3显式skip、0失败；带已保存CWD/PWD/CD候选单独运行独立测试2通过、0skip，包含连续CD每次提交后的新PWD。此时尚未运行LIST候选，不能宣称三项训练全部完成。三项候选保持uncalibrated/not_applied；无verification资源的训练receipt明确fullyVerified=false。外部独立测试证据不冒充workflow内部verification。
 
+## 2026-10-19 Shell统一file.property属性目标与目录/文件补全
+
+验收：新增属性图6N5E与扩展curriculum7N6E均通过DAGpipe validate/inspect；节点为design，无运行绑定。git diff --check通过，新正文引用的图/合同存在；未修改数值训练或执行代码，不跑无关业务测试。本轮纯设计沿当前可信主树编辑，未新建worktree或后台资源。
+
+用户要求先补目录操作，再补文件操作，随后连续收敛为：路径与文件属性变化、Linux特殊文件共享对象抽象、不零散编辑Goal，统一 `file.property.xxx`。已将唯一领域目标合同写入 docs/cli-filesystem-semantics.md，内容/用途/操作条件归为属性及关系，不额外拆平行核心图。新增 cli-file-property 6N5E设计图：绑定四元素→选择必要Action→条件/固定执行→实际属性与副作用→评价满足度→使用采样/统一结果。每个属性单元保留独立typed值、可辨输入、训练/真值及反例，使用共享图不能代替单项合同。cli-semantic-operations补全常见目录/路径与文件操作，重命名复用移动，树操作复用有限单操作；curriculum扩为7N6E，前三项后接目录/文件属性单元。AGENTS、设计Skill、总体设计、调用与训练入口已挂接。不执行用户文件变更，不修改已有运行API或权重；统一属性算子、特殊文件细分、新harness及自动采样/采用仍未实现。
+
+## 2026-10-19 满足度阈值命名修订
+
+用户批准将原饥饿程度名称统一为 satisfactionThreshold（满足度阈值）。四元素为 Goal/satisfactionThreshold/State/Action；satisfaction 是实际评价结果，不增加基础元素。已同步当前架构合同、演进合同、设计 Skill、AGENTS 及下方当日汇总用语。仅命名和定义澄清，未改运行接口、DAG 拓扑或训练语义；已有三图校验证据复用。
+
+## 2026-10-19 单元升级 DAG 补正
+
+验收：三张修改图均通过 DAGpipe validate/inspect，分别为 project-design 7N6E、model-evolution 10N10E、model-conflict-design 5N4E；均单入口单出口、无回边，operator 仍为 design，未冒充运行绑定。git diff --check 通过。纯合同/Skill/图纸修改，不运行无关训练或业务测试，不另开实现 Review；本轮未创建 worktree 或后台资源。
+
+用户明确自动使用样本采集及训练为升级必要环节；无回归且满足既有提升/证据/兼容条件自动升级，存在回归或冲突不自动改权重，保留当前版本交大模型决定。已补唯一合同 docs/model-evolution.md，既有 model-evolution 升为 0.2.0-design（10N10E），明确自动采样、训练保存/回载和裁决移交；model-conflict-design 升为 0.2.0-design（5N4E），由强制改图改为按裁决保留/拒绝/补证/必要修复，保留不直接写当前权重的边界。AGENTS、设计Skill、治理文档及图清单挂接同一合同。仍为设计交付，自动全模型采样、自动采用及裁决执行链尚未实现，历史离线候选继续 not_applied。
+
+## 2026-10-19 四元素语义与训练治理标准冻结
+
+用户明确每个语义及训练设计必须围绕 Goal/satisfactionThreshold/State/Action 闭合、SESE、最小必要性，并要求由 DAGpipe 管理标准过程。已更新唯一基础合同 docs/design.md 1.1、设计流程 Skill 与既有 project-design 图至 0.2.0-design，保留 7N6E 单入口单出口。训练期反推与运行期真实状态评价分开；cwd 二元满足度 0/100，只有目标定义允许的 search 等使用中间满足度。Skill 逐节点规定产物、不通过条件和统一缺口回执，删除无必要节点/输入/wire/边/校验；AGENTS、治理文档及图清单仅挂接唯一 owner。不建立冻结快照、平行台账或自动审核器。本轮只修改治理合同，现有运行实现尚无 satisfactionThreshold/通用满足度，未宣称已完成全模型迁移。
+
 ## 2026-10-19 CLI调用参数简化（设计补正）
 
 用户要求所有命令参数简化、不解析内容，以支持准确实际调用。唯一合同docs/cli-call-contract.md：所有接入命令使用固定operation与必要typed parameters；前三项映射既有cwd.get/cwd.set/directory.list，不另增协议别名。NN不生成shell或原生flags、不解析stdout/正文，harness绑定引用与原始路径argv、固定模板/默认参数、执行并读取机器回执或独立OS观测。三个详细训练设计、架构1.2、AGENTS及本地设计Skill已挂接；原pwd回执解析是现有adapter事实，不冒称NN学过。LIST固定helper的JSON解码是机器协议，不是训练内容理解。本轮仍仅设计，未修改运行代码。

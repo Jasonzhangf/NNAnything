@@ -26,6 +26,21 @@
 
 ### 1.1 结构化语义的目标与状态推理
 
+2026-10-19 冻结四元素基础合同：每个语义及其训练设计均围绕 `Goal / satisfactionThreshold / State / Action`，形成语义闭合、单入口单出口（SESE）且满足最小必要性的 DAG。该合同适用于浏览器、CLI 及后续 computer use；不表示所有场景已实现。治理过程唯一入口为[本地设计流程](../.agents/skills/nnanything-design/SKILL.md)，拓扑唯一真源为 `workflows/project-design.graph.json`，由 DAGpipe 校验管理。冻结指当前标准生效；后续按明确需求修订同一正文，不建立冻结快照或身份包装。
+
+| 元素 | 必须明确的语义 |
+| --- | --- |
+| Goal | 目标及其满足度评价规则，包含必要条件与证据要求 |
+| satisfactionThreshold（满足度阈值） | 0–100 的最低满足度；结果达到要求即可结束，更高不是必要目标 |
+| State | 当前条件、对象及必要关系、知识与观测来源；实际结果以 New State 表达，未知不伪装为已知 |
+| Action | 必要操作、对象和参数引用、适用条件及预期状态变化；计算或识别也可作为增加知识的操作 |
+
+`satisfactionThreshold` 表示要求；`satisfaction` 表示实际满足度，是 Goal 对实际 State 的评价结果，不增加为第五个基础元素。满足度不等同于模型分数或动作执行成功。获取 cwd 等二元目标只用 0/100；search 等确有部分成果的目标才定义中间满足度。覆盖度只有在 Goal 明确定义时才代表满足度；搜索进度不能自动证明已找到目标。必要证据不足时保留未知，不编造数值。满足度达到阈值且 Goal 必要条件成立才算达标；满足度阈值不放宽权限、数据正确性或 Goal 的必要条件。
+
+反向推理属于训练过程：由 Goal 与 satisfactionThreshold 要求反推达标 State、所需 Action 和前置 State，形成可学习关系及监督；它与数值梯度反向传播分别说明。推理使用学到的关系选择操作与参数，执行后用实际 New State 评价；预测不能替代实际结果。对象关系、动作条件及评价均归入四元素，不另立平行基础要素。纯分类及固定函数显式声明固定 Goal/satisfactionThreshold、输入 State、计算 Action 和知识输出，不强造环境操作或可训练头。
+
+四元素不机械对应四个节点。仅当 State 或 satisfactionThreshold 会改变正确输出时，才需要相应的学生输入与区分样本；固定项可为显式配置。每个节点、输入、wire、边和验证步骤均须回答：删除后会破坏哪项语义闭合、必要可辨性或验收依据？无独立必要性则删除或复用。每次运行单入口单出口，达标、未达标、失败及证据不足均收束为明确结果；跨步迭代以实际 New State 开启新 run，不在单次 DAG 加回边。当前 CLI 切片尚无 satisfactionThreshold 或通用满足度实现，须在后续受影响能力接入时补齐，不能将本合同更新冒称运行能力完成。
+
 用户当前目标为结构化 `Goal → State → Action → New State`。手写基础概念、动作输入输出和执行结构；NN学习概念关系、动作与状态变化的关系，以及给定Goal/State的动作调用选择。全程使用结构化语义，不训练自然语言请求识别。概念层、动作层、推理层是此方向的三类训练职责，与下文浏览器基础语义/组合识别的两层分类对象不同。
 
 所有注册CLI命令收敛为单一共享模型和权重profile（`cli.command-policy.v1`）。输入为结构化Goal与State；公开入口以`createCliCommandPolicy({profile,sandbox,session:S})`绑定显式资源，再调用`.step({goal,state,directory?:D})`。模型输出标准调用序列。序列首项为实际Shell命令名，后续项为有类型的简化位置参数。当前增量拟合命令头，参数引用机械绑定，实际New State由harness观测与验证；未另训练状态预测头。
@@ -54,6 +69,8 @@
 所有模型的目标架构均包含使用时采集、训练/使用版本隔离、独立配对比较及条件自动升级。有明确提升、所有必需旧能力无回归且证据完整时自动采用；冲突或回归保留当前版本，留证据交大模型判断。大模型可以修订设计连线，但先更新对应外层DAG、内部数值图和合同，再走实现、训练与验证，不能直接改在用版本。唯一完整合同见[语义调用与模型演进](model-evolution.md)。这是当前新设计要求，不冒称已有离线训练已实现自动升级。
 
 ### 1.3 本地基础设计入口
+
+Shell 的领域目标进一步统一为 `file.property.xxx`，涵盖路径、目录及普通/特殊文件的属性观测与变化；不零散新增场景Goal。内容、用途及操作适用性归入同一属性体系。领域合同唯一源为 [cli-filesystem-semantics.md](cli-filesystem-semantics.md)，共享属性状态转换图为 `workflows/cli-file-property.graph.json`。类型共享推理合同，各自保留操作与真实效果语义；现有CLI接口未迁移，不将设计图标为运行能力。
 
 新增能力或修改I/O、状态、harness、数值连线、workflow及采用规则，统一使用[本地设计Skill](../.agents/skills/nnanything-design/SKILL.md)。基础流程是现状/缺口→语义目标与效果→固定调用与执行责任→内部数值图及外层DAG→样本隔离与进化验收→图纸合同校验→可实施设计或具体缺口。持久过程图见[project-design.graph.json](../workflows/project-design.graph.json)。这是本项目设计方法，不代替独立Plan和已有开发交付流程，也不把设计图当已实现算子。
 

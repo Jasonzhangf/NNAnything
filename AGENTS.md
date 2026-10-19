@@ -55,6 +55,8 @@ node_modules
 
 ## 本地设计与训练Skill
 
+每个语义及训练设计均按本地设计 Skill 的标准流程治理：Goal/satisfactionThreshold/State/Action 四元素闭合、SESE、最小必要性。基础合同唯一源为 docs/design.md 1.1；流程拓扑唯一源为 workflows/project-design.graph.json，由 DAGpipe validate/inspect 管理。缺口先收束为未就绪，不以静态通过替代真实训练和行为验收。复用未变有效设计，不增加平行台账或冻结快照。
+
 新增能力或修改语义I/O、状态、harness边界、特征/数值连线、workflow或自动采用条件前，读取[本地设计Skill](.agents/skills/nnanything-design/SKILL.md)。它维护基础设计方法；实际架构与采用规则分别由docs/design.md、docs/model-evolution.md维护。已有合同内的普通拟合不为此重做设计。
 
 新增输入／wire、调整标签、训练、增量拟合和回归时，读取[训练Skill](.agents/skills/nnanything-training/SKILL.md)。算法合同仍由docs/basic-kinds-wiring.md维护，训练I/O合同由docs/training-workflow.md维护；Skill只维护操作方法，不复制第二套算法或规则正文。
@@ -119,6 +121,8 @@ ignore的监督目标是“是否需要作为agent独立交互／读取目标”
 代码开发、测试、独立Review、Git集成和独占worktree沿全局AGENTS与适用Skills。本项目不新增机器manifest、全局插件注册服务或另一套执行引擎。
 
 ## 推进与授权
+
+单元升级另沿 workflows/model-evolution.graph.json 与 model-conflict-design.graph.json：自动使用采样及真实训练是必需环节；满足既有提升/无回归/证据条件自动升级，回归或冲突不得自动改权重，保留当前版本并交大模型裁决。唯一规则为 docs/model-evolution.md；当前仍为设计要求，不冒称自动链已实现。
 
 需求优先级依次为能动、能有核心功能、完善功能、提高兼容性。先交最小能动切片，不提前扩展。各层验收沿docs/implementation-plan.md，安全和数据正确性不后移。
 

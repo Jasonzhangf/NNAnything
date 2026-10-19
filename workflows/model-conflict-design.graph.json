@@ -1,17 +1,17 @@
 {
-  "id":"model-conflict-design","version":"0.1.0-design",
+  "id":"model-conflict-design","version":"0.2.0-design",
   "inputs":[{"id":"retained_model_conflict","schema":"Object"}],
   "nodes":[
     {"id":"读取冲突与原始证据","operator":"model.conflict.observe","operator_version":"0.1.0-design","inputs":["retained_model_conflict"],"output":{"id":"model_conflict_evidence","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"大模型定位失败责任与原因","operator":"model.conflict.diagnose","operator_version":"0.1.0-design","inputs":["model_conflict_evidence"],"output":{"id":"model_conflict_diagnosis","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"修订候选图纸与合同","operator":"model.conflict.design","operator_version":"0.1.0-design","inputs":["model_conflict_diagnosis"],"output":{"id":"model_design_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"校验图纸并给出实现验收步骤","operator":"model.conflict.validate-design","operator_version":"0.1.0-design","inputs":["model_design_candidate"],"output":{"id":"model_validated_design","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"大模型定位原因并裁决下一动作","operator":"model.conflict.diagnose","operator_version":"0.2.0-design","inputs":["model_conflict_evidence"],"output":{"id":"model_conflict_diagnosis","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按裁决保留补证或修订候选设计","operator":"model.conflict.design","operator_version":"0.2.0-design","inputs":["model_conflict_diagnosis"],"output":{"id":"model_design_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"核对裁决依据及适用修复验收步骤","operator":"model.conflict.validate-design","operator_version":"0.2.0-design","inputs":["model_design_candidate"],"output":{"id":"model_validated_design","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"保存下一轮修复候选不改使用版本","operator":"model.conflict.propose","operator_version":"0.1.0-design","inputs":["model_validated_design"],"output":{"id":"model_design_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges":[
-    {"from":"读取冲突与原始证据","to":"大模型定位失败责任与原因","arc_id":"model_conflict_evidence"},
-    {"from":"大模型定位失败责任与原因","to":"修订候选图纸与合同","arc_id":"model_conflict_diagnosis"},
-    {"from":"修订候选图纸与合同","to":"校验图纸并给出实现验收步骤","arc_id":"model_design_candidate"},
-    {"from":"校验图纸并给出实现验收步骤","to":"保存下一轮修复候选不改使用版本","arc_id":"model_validated_design"}
+    {"from":"读取冲突与原始证据","to":"大模型定位原因并裁决下一动作","arc_id":"model_conflict_evidence"},
+    {"from":"大模型定位原因并裁决下一动作","to":"按裁决保留补证或修订候选设计","arc_id":"model_conflict_diagnosis"},
+    {"from":"按裁决保留补证或修订候选设计","to":"核对裁决依据及适用修复验收步骤","arc_id":"model_design_candidate"},
+    {"from":"核对裁决依据及适用修复验收步骤","to":"保存下一轮修复候选不改使用版本","arc_id":"model_validated_design"}
   ],"outputs":["model_design_receipt"]
 }
