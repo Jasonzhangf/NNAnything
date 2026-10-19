@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-19 首个函数表达：词法路径训练
+
+当前7项中独立计划、图/红测、符号/数值实现、样本/公开consumer、训练/作者验收、整体Review6项已完成；剩余main交付/清理。独立OAuth gpt-6.1-sol medium整体Review exit0、findings=[]，canonical controller裁决PASS（当前agy目录无Gemini4，沿同源后备）。唯一合同和详细实测 `docs/cli-path-training.md`；独立过程 `/Volumes/Intel/playground/nnanything-runs/path-resolve-m1/`，审查原件review-final.json、裁决review-verdict.json，交付回执delivery.md。模型学习5种符号动作，9条wire、45参数，手写分词/栈/名称复制不冒称已学习。M0默认与DOM模型不变，目录绑定、自然语言、help和组合操作后置。
+
+新训练图4N3E、推理图1N0E已validate/inspect，实际从持久配置编译并由Flowed执行。实现前公开模块缺失红测、实现后零/破坏策略失败trace均保留。两GCM独立worker分别负责符号控制器与数值结构，父层负责teacher/数据/评估/图节点/公开consumer；独立OAuth gpt-6.1-sol medium规划READY（当前agy目录无Gemini4）。训练复用既有Handwired源码加载和reference前反传；动作softmax CE与全批SGD为独立节点，不复用DOM类别或loss。
+
+首轮正式run `5be5fe28-1dbe-4558-9d23-23d2b441870a`：64train请求/8族展开200动作行，16dev/2族96动作，32holdout/4族288动作。200轮lr0.1，train/dev先验证预算，留出未用于调参。完整路径baseline8/0/0、候选64/16/32；teacher-state动作200/96/288全对；无效rollout0，104fixed/8retained/0regressed/0unresolved。新进程读取保存profile后112完整分数/动作/栈/路径逐项一致。冻结epochs0参数不变，成绩复用同参数baseline，不虚增独立实验。
+
+实际fit552.254ms（后端326.297ms、梯度219.700ms），完整workflow600.077ms、fresh-process回载115.405ms、consumer718.002ms；40000梯度行轮，总forward访问40400。全部205项测试通过，未跳过。可读合成fixture与生成器随代码交付，本地样本/权重/报告分别在training/samples、weights、results的path-resolve/<run>。候选uncalibrated/not_applied，仅证明声明的有限词法组合，不是任意函数或文件系统理解。
+
 ## 2026-10-19 文件语义语言与最低层模糊训练设计
 
 本轮按用户要求仅交设计，2项完成：精确单操作总结；单个最低层次模糊训练设计。唯一正文 `docs/cli-semantic-operations.md`，M0合同和项目AGENTS只加入口及当前边界。语义输入不包含自然语言识别；首个模糊任务为已观测候选中按精确 name/type/parent 绑定目录引用，不做操作组合、近似名称或磁盘搜索。精确 `cwd+输入→绝对路径` 与模糊目标绑定分开。11种精确操作明确I/O/失败/副作用及现有3项M0映射；其余操作均设计态。

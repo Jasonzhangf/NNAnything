@@ -8,6 +8,20 @@
 
 ---
 
+## CLI 路径函数训练节点（0.1.0）
+
+路径训练增量另有 `cli.path.prepare/fit/evaluate/save@0.1.0` 四节点及 `cli.path.resolve@0.1.0` 推理节点，owner为 `cli-path-training.ts`。完整路径算法、profile/wire和样本合同唯一维护于 [路径函数训练](../../docs/cli-path-training.md)。公开入口 `nnanything/cli-training`，不与DOM训练profile混用。
+
+| operator | 输入schema/event → 输出schema/event | 配置、资源与effect |
+| --- | --- | --- |
+| `cli.path.prepare` | cli.path.training-request.v1 → cli.path.prepared.v1 | 显式分区样本与epochs/lr，零初始profile；无effect |
+| `cli.path.fit` | cli.path.prepared.v1 → cli.path.candidate.v1 | 工厂注入显式Handwired源码根；filesystem.read；只拟合train动作行 |
+| `cli.path.evaluate` | cli.path.candidate.v1 → cli.path.evaluation.v1 | 基线/冻结/候选，teacher-state和完整自主rollout分开；无业务effect |
+| `cli.path.save` | cli.path.evaluation.v1 → cli.path.training-receipt.v1 | 显式输出根；filesystem.write；samples/weights/results create-new与部分保存诊断 |
+| `cli.path.resolve` | cli.path.request.v1 → cli.path.result.v1 | 空config+显式path-controller profile绑定；无业务effect；错误动作保留失败trace |
+
+训练执行 `workflows/cli-path-training.graph.json`，推理执行 `cli-path-resolve.graph.json`，不复制拓扑。内部数值结构单独由 `lib/nodes/trainable/cli-path-controller.ts` 管理。schema/阶段数据在领域节点校验，compile检查profile和effects，runner按既有失败合同收束。实际拟合、失效后端、冻结/回载、根目录/父路径、拒权与写入边界验收见 cli-path 系列测试及公开consumer。
+
 ## CLI 基础观测节点（0.1.0）
 
 `cli.observe@0.1.0` 的实现 owner 为 `cli-observation.ts`。公开工厂 `createCliObservationNode({cwd})` 经 `nnanything/cli` 导出。`cwd` 为显式、固定的词法绝对路径，不读隐藏工作目录。节点没有 profile 或训练参数。

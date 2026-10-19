@@ -22,6 +22,10 @@
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
     },
+    "./cli-training": {
+      "types": "./dist/cli-training.d.ts",
+      "import": "./dist/cli-training.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"
@@ -40,6 +44,8 @@
     "demo:basic-kinds": "npm run build && node playground/basic-kinds/demo.mjs",
     "demo:training": "npm run build && node playground/training/demo.mjs",
     "demo:cli": "npm run build && node playground/cli/foundation.mjs",
+    "prepare:path-samples": "npm run build && node playground/cli/path-resolve/prepare.mjs",
+    "demo:path-training": "npm run build && node playground/cli/path-resolve/train.mjs",
     "build:extension": "npm run build && node scripts/build-extension.mjs",
     "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit"
   },
