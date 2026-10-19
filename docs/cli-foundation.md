@@ -53,3 +53,5 @@ pwd 不接收任意 executable、argv 或命令字符串。子进程使用 `shel
 运行 `npm run demo:cli` 可执行公开 consumer。它创建并回收自有目录，分别验证 pwd、路径、属性、链接、缺失路径与无权限结果，并确认目标内容和父进程 cwd 保持不变。测试入口为 `tests/cli-foundation.test.mjs`，覆盖绝对/相对路径、join、根目录、不存在路径、独立 session、真实 OS 属性、正常/断裂链接、错误隔离及 shell 元字符。
 
 后续按基础观测 → 文件/目录操作语义 → 搜索组合推进。CLI 的长期目标仍是从 help 或说明学习能力及参数角色，再完成“在路径下找文件／找符号名称”。这些观测可提供训练行为证据；本轮没有拟合模型，不建立训练集/profile，也不宣称已实现 help 泛化、搜索或语义定义/引用解析。原生 [computer use](../lib/adapters/computer-use/README.md) 只有目录与说明占位。
+
+最新的精确单操作词表及首个有界目录目标绑定训练设计见 [文件语义语言](cli-semantic-operations.md)。该文档为设计态，不改变本页已实现 API；输入使用语义语言，首轮不包含自然语言识别或组合规划。
