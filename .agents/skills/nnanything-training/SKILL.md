@@ -7,6 +7,8 @@ description: NNAnything项目内的DOM基础种类训练、特征与wire升级�
 
 先读项目[AGENTS.md](../../../AGENTS.md)的目录边界。学生输入、wire、标签和训练I/O分别以[基础种类算法](../../../docs/basic-kinds-wiring.md)、[训练合同](../../../docs/training-workflow.md)为准。不要在Skill中另建schema、调度器或权重注册表。
 
+若需改变语义I/O、输入、wire、节点连线或采用规则，先沿[本地设计方法](../nnanything-design/SKILL.md)更新唯一合同与图纸；已有合同内的普通拟合直接走下文。跨模型使用采集、训练/使用隔离和条件自动升级沿[模型演进合同](../../../docs/model-evolution.md)。当前离线候选仍not_applied，不能因设计要求已落盘就宣称自动升级已运行。
+
 ## 开始前确定变化的owner
 
 | 观察到的问题 | 先处理的owner |

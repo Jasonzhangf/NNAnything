@@ -16,12 +16,13 @@
 | `lib/nodes/trainable/` | 可训练节点结构；不存训练权重 |
 | `lib/training/` | 样本合同、数值后端、训练profile加载、拟合、分区和评估逻辑 |
 | `training/samples/` | 原始／派生训练样本和teacher证据；本地忽略 |
-| `training/results/`、`training/weights/` | 比较报告与候选权重；本地忽略，不自动采用 |
+| `training/results/`、`training/weights/` | 比较报告与候选权重；本地忽略；当前离线候选不自动采用，后续统一升级条件沿docs/model-evolution.md |
 | `extension/` | Chrome扩展入口和权限声明 |
 | `playground/`、`tests/` | 公开consumer、合成fixture、合同及黑盒回归 |
 | `scripts/`、`artifacts/`、`dist/` | 构建工具、浏览器构建产物、库编译产物；不作为业务源码目录 |
 | `docs/`、`research/` | 架构合同与调研；真实页面资料按现有忽略规则留本地 |
 | `.agents/skills/nnanything-training/` | 本项目训练方法、特征升级与增量策略的操作Skill |
+| `.agents/skills/nnanything-design/` | 本项目语义能力、harness边界、连线图纸、样本及自进化的基础设计方法；不复制全局开发流程 |
 | `note.md` | 单一项目进度与证据入口；任务过程放仓库外独占run目录 |
 
 根目录条目只允许下列注册名单。Agent写入前先选择既有owner目录；禁止另建平行的src、tmp、output、runs或模型资产根。确需新增根级目录／文件时，先在当前授权方案中说明职责并更新本名单，再创建。子目录沿上表职责管理，不为每个样本文件建立注册表。`npm run build`在编译前执行`scripts/check-layout.mjs`，直接读取本名单；未注册项或登记源缺失会让构建失败，不自动删除或登记文件。目录边界检查只防根级漂移，不宣称是操作系统写权限隔离。
@@ -52,7 +53,9 @@ node_modules
 ```
 <!-- root-layout:end -->
 
-## 本地训练Skill
+## 本地设计与训练Skill
+
+新增能力或修改语义I/O、状态、harness边界、特征/数值连线、workflow或自动采用条件前，读取[本地设计Skill](.agents/skills/nnanything-design/SKILL.md)。它维护基础设计方法；实际架构与采用规则分别由docs/design.md、docs/model-evolution.md维护。已有合同内的普通拟合不为此重做设计。
 
 新增输入／wire、调整标签、训练、增量拟合和回归时，读取[训练Skill](.agents/skills/nnanything-training/SKILL.md)。算法合同仍由docs/basic-kinds-wiring.md维护，训练I/O合同由docs/training-workflow.md维护；Skill只维护操作方法，不复制第二套算法或规则正文。
 
@@ -89,6 +92,8 @@ node_modules
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 
 ## 后续实现必须保持的边界
+
+用户已明确所有模型包含自进化方向：使用时本地采集，固定语义调用由harness执行，训练候选与使用版本隔离；有明确提升、必需旧能力无回归且独立证据完整无冲突时自动升级，冲突保留并交大模型判断。大模型可修订设计连线，必须先改图纸，再实现、训练、独立验证。唯一合同docs/model-evolution.md；当前自动采用与全模型采集尚未实现，原离线候选继续not_applied，不能把设计状态写成已运行。
 
 通用核心不内置DOM/站点类别。正式应用与训练使用同一workflow执行合同；候选采用Flowed调度，DAGpipe CLI负责静态图检查。画布可选。节点内部Handwired数值图和外部workflow分别管理，跨节点连线不自动反传。
 

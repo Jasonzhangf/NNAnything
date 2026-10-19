@@ -1,0 +1,21 @@
+{
+  "id":"project-design","version":"0.1.0-design",
+  "inputs":[{"id":"capability_design_request","schema":"Object"}],
+  "nodes":[
+    {"id":"读取现有架构与能力缺口","operator":"project.design.observe","operator_version":"0.1.0-design","inputs":["capability_design_request"],"output":{"id":"capability_design_observation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"定义语义目标状态及效果","operator":"project.design.semantics","operator_version":"0.1.0-design","inputs":["capability_design_observation"],"output":{"id":"capability_semantic_contract","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"确定固定调用与执行责任","operator":"project.design.boundary","operator_version":"0.1.0-design","inputs":["capability_semantic_contract"],"output":{"id":"capability_boundary_design","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"设计数值连线与外层流程图纸","operator":"project.design.wiring","operator_version":"0.1.0-design","inputs":["capability_boundary_design"],"output":{"id":"capability_wiring_design","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"设计独立样本及版本进化验收","operator":"project.design.acceptance","operator_version":"0.1.0-design","inputs":["capability_wiring_design"],"output":{"id":"capability_acceptance_design","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"校验图纸合同与责任闭合","operator":"project.design.validate","operator_version":"0.1.0-design","inputs":["capability_acceptance_design"],"output":{"id":"capability_design_assessment","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"交付可实施设计或具体缺口","operator":"project.design.report","operator_version":"0.1.0-design","inputs":["capability_design_assessment"],"output":{"id":"capability_design_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges":[
+    {"from":"读取现有架构与能力缺口","to":"定义语义目标状态及效果","arc_id":"capability_design_observation"},
+    {"from":"定义语义目标状态及效果","to":"确定固定调用与执行责任","arc_id":"capability_semantic_contract"},
+    {"from":"确定固定调用与执行责任","to":"设计数值连线与外层流程图纸","arc_id":"capability_boundary_design"},
+    {"from":"设计数值连线与外层流程图纸","to":"设计独立样本及版本进化验收","arc_id":"capability_wiring_design"},
+    {"from":"设计独立样本及版本进化验收","to":"校验图纸合同与责任闭合","arc_id":"capability_acceptance_design"},
+    {"from":"校验图纸合同与责任闭合","to":"交付可实施设计或具体缺口","arc_id":"capability_design_assessment"}
+  ],"outputs":["capability_design_receipt"]
+}
