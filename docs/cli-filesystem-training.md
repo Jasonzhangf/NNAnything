@@ -62,6 +62,8 @@ training/weights/filesystem/<capability>/<run>/
 
 共享训练图适用于目录与文件属性单元，入口必须提供具体属性键、对象、Goal条件、satisfactionThreshold、可见State及可学习Action关系。训练期反推达标属性与前置条件；每项补齐自己的输入/wire/参数/损失后才可实施。当前图没有自动获得新属性模型或新harness，具体缺口沿属性合同第5节记录；完成训练与独立回载后再进入既有model-evolution单元升级流程。
 
+普通属性单元现已由 [cli-property-training-design.md](cli-property-training-design.md) 补全B/P/R/C输入、电路、监督和验证配方；固定调用方案由 [cli-command-design.md](cli-command-design.md)维护。共享图0.2.0-design首节点显式包含训练期属性效果反推，仍为8N8E；后续分区、拟合/保存、回载、评价与资源收口不变。前三项旧方案仍保留其已实施状态，不能把新设计当作新训练证据。
+
 共享过程是单源单汇DAG。分区声明之后分成两条资料链：训练/开发准备与独立验证准备。拟合节点只收到训练资料；独立验证资料在候选形成后才与候选合流。验证不回流修改本轮参数。
 
 ```mermaid

@@ -15,7 +15,7 @@
 | `model-evolution.graph.json` | 设计态，无运行配置 | 10 节点 10 边 (10N10E SESE) | `0.2.0-design` | 单元升级：必需自动采样、隔离训练/回载、独立配对评价与回归、条件自动采用，回归/冲突保留并移交裁决；唯一合同docs/model-evolution.md |
 | `model-conflict-design.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.2.0-design` | 大模型对回归/冲突定位owner并裁决保留、拒绝、补证或修复；必要时修图并输出下一轮方案，不直接改在用权重 |
 | `cli-filesystem-curriculum.graph.json` | 设计态，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | CWD/pwd→cd→列举→补全目录/路径属性单元→文件属性单元；每项沿统一file.property图和独立训练合同，尚未实现新增单元 |
-| `cli-filesystem-training.graph.json` | 设计态，无运行配置 | 8 节点 8 边 (8N8E SESE) | `0.1.0-design` | 单项能力共享训练过程，训练/开发资料与独立验证资料分支，候选后合流；不代表新执行器已实现 |
+| `cli-filesystem-training.graph.json` | 设计态，无运行配置 | 8 节点 8 边 (8N8E SESE) | `0.2.0-design` | file.property效果反推与分区→训练/开发及独立验证资料分支→候选后合流；B/P/R/C设计见cli-property-training-design，不代表已训练或新执行器已实现 |
 | `cli-path-training.graph.json` | `cli-path-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 已实现 | 路径动作样本准备、真实Handwired拟合、自主完整路径评估与create-new候选/报告保存 |
 | `cli-path-resolve.graph.json` | `cli-path-resolve.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 显式profile绑定的词法路径函数，执行与评估共用相同node/rollout合同 |
 | `cli-goal-step.graph.json` | `cli-goal-step.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 结构化Goal选择动作、真实pwd执行或拒绝、实际观测绑定与GoalResult验证 |

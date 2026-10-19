@@ -1,8 +1,8 @@
 {
-  "id":"cli-filesystem-training","version":"0.1.0-design",
+  "id":"cli-filesystem-training","version":"0.2.0-design",
   "inputs":[{"id":"filesystem_capability_contract","schema":"Object"}],
   "nodes":[
-    {"id":"声明能力合同与场景分区","operator":"cli.fs.training.partition","operator_version":"0.1.0-design","inputs":["filesystem_capability_contract"],"output":{"id":"filesystem_partition_plan","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"反推属性效果并声明训练分区","operator":"cli.fs.training.partition","operator_version":"0.2.0-design","inputs":["filesystem_capability_contract"],"output":{"id":"filesystem_partition_plan","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"生成并复核训练与开发样本","operator":"cli.fs.training.prepare","operator_version":"0.1.0-design","inputs":["filesystem_partition_plan"],"output":{"id":"filesystem_fit_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"独立生成并复核验证样本","operator":"cli.fs.verification.prepare","operator_version":"0.1.0-design","inputs":["filesystem_partition_plan"],"output":{"id":"filesystem_verification_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"拟合并做开发集比较","operator":"cli.fs.training.fit","operator_version":"0.1.0-design","inputs":["filesystem_fit_dataset"],"output":{"id":"filesystem_fit_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
@@ -12,8 +12,8 @@
     {"id":"保存报告并回收本轮沙盒","operator":"cli.fs.training.close","operator_version":"0.1.0-design","inputs":["filesystem_capability_report"],"output":{"id":"filesystem_capability_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges":[
-    {"from":"声明能力合同与场景分区","to":"生成并复核训练与开发样本","arc_id":"filesystem_partition_plan"},
-    {"from":"声明能力合同与场景分区","to":"独立生成并复核验证样本","arc_id":"filesystem_partition_plan"},
+    {"from":"反推属性效果并声明训练分区","to":"生成并复核训练与开发样本","arc_id":"filesystem_partition_plan"},
+    {"from":"反推属性效果并声明训练分区","to":"独立生成并复核验证样本","arc_id":"filesystem_partition_plan"},
     {"from":"生成并复核训练与开发样本","to":"拟合并做开发集比较","arc_id":"filesystem_fit_dataset"},
     {"from":"拟合并做开发集比较","to":"保存显式候选","arc_id":"filesystem_fit_result"},
     {"from":"保存显式候选","to":"加载候选执行独立验证","arc_id":"filesystem_candidate_receipt"},

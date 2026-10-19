@@ -11,7 +11,7 @@ type FilePropertyGoal = {
   property: FilePropertyKey; // 完整标识统一为 file.property.xxx
   requirement:
     | { kind: "observed"; freshness: "this_run" }
-    | { kind: "equals"; expected: TypedValue }
+    | { kind: "equals"; expected: TypedValue; requiredTargetType?: "regular" | "directory" | "symlink" }
     | { kind: "matches"; predicate: DeclaredTypedPredicate };
 };
 type Request = {
@@ -24,6 +24,8 @@ type Request = {
 以上为设计形状，不是现有可导入类型。`property` 使用下面表中的完整属性键；不再为新能力新增 observe_config、find_source 等同义 Goal kind。ObjectRef/PathRef 是明确 typed 绑定，不是任意路径字符串或自由文本执行。ScopedFileQuery 在显式范围内按已声明关系定位未知对象，例如 `{relation:"sessionCwd", session:S}` 获取S的当前目录；它不是隐式磁盘搜索，也不能预填待观测的正确路径。目标不存在时使用 PathRef 及父目录/名称证据，不能伪造已存在的文件对象。predicate 按该属性的固定 schema 声明，不接收脚本或任意表达式。
 
 四元素为：Goal 指定目标属性及条件；satisfactionThreshold 指定最低满足度；State 保存实际属性、关系及观测来源；Action 选择固定 CLI/计算操作及必要参数。`observed` 增加属性知识；`equals/matches` 可要求属性的实际值改变，也可能当前已满足。观测到属性不符合时不得当作目标完成。运行前评价已有状态；已满足且证据符合要求时不执行多余修改，要求本次观测则必须获取本次证据。
+
+创建的Goal示例为 `property:"file.property.exists", requirement:{kind:"equals",expected:true,requiredTargetType:"directory"}`，目标是明确父目录下的新条目引用。requiredTargetType来自Goal，observedType来自实际State；目标不存在时两者不能混为同一输入。候选选择的类型来自typed `entrySelector.type`，局部字节修改使用typed `patch(offset,bytes)`；整文件equals与局部patch分别编码，防止同一学生向量需要互斥操作。精确词表与维度见训练设计，不由harness替学生选择动作。
 
 ## 2. 文件属性目录与操作映射
 
@@ -84,11 +86,13 @@ type Request = {
 | 进入目录 | 同属性关系 equals目标D；100 | S当前cwd、D → cwd.set → 同S后续pwd验证，其他S不变 | 一次子进程cd、改错S、提交后验证失败 |
 | 列举目录 | `file.property.directory.entries` 本次完整observed；100 | D → directory.list → 独立核对直接子项及类型/覆盖 | 隐藏/换行名称丢失、后代混入、partial当complete |
 | 创建/移动/删除 | exists/path.parent/path.name对应明确条件；100 | 真实前树和source/destination → 精确操作 → 独立核对前后树及其他条目 | 覆盖已有目标、同名错目录、链接目标被误删 |
-| 写/追加 | content.bytes equals明确字节；100 | 原F与内容、offset → file.write/append → 分段核对受影响与保留字节 | 部分写入却成功、追加变覆盖、文本trim丢字节 |
+| 整文件替换 | content.bytes 的equals.bytes为完整期望内容；100 | 原F与完整Bytes → file.replace → 核对全部内容与长度 | 把定点写入当整体替换、遗留旧后缀、部分写入却成功 |
+| 局部写入 | content.bytes 的patch.bytes(offset,bytes)；100 | 原F与offset/Bytes → file.write → 核对写入区间及区间外保留字节 | 偷偷截断、写错偏移、文本trim丢字节 |
+| 后缀追加 | content.bytes 的append.suffix(bytes)；100 | 原F与后缀Bytes → file.append → 核对原有前缀及新增后缀 | 追加变覆盖、隐式创建、部分追加却成功 |
 | 内容/用途判断 | content.format/role 的指定关系observed；100 | 真实文件证据 → parser或独立模型 → 对照复核真值，保留未知 | 同后缀不同内容、配置示例与生效配置、生成源码角色重叠 |
 | 操作条件 | operation.applicability 对指定操作observed；100 | 类型/状态及声明能力 → 判断 → 独立合同/执行证据核对 | mode当实际权限、设备按普通文件处理、缺测当允许 |
 
-训练复用 [cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。新模型实施前还须定义该属性所需学生输入、wire、参数、损失、teacher及独立真值；仅有表项不算已具备训练设计。固定确定函数不强训，没有可辨证据先报具体缺口。
+训练复用 [cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。[完整训练设计](cli-property-training-design.md)已给出B对象绑定、P属性效果策略、R用途关系、C组合下一步的学生输入、数值wire、参数/损失、teacher与独立真值计划；固定确定函数不强训。具体固定harness及操作回执见 [命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
 
 每单元按 [project-design](../workflows/project-design.graph.json) 完成四元素、SESE和最小必要性准入，按 [model-evolution](../workflows/model-evolution.graph.json) 自动采样、复核、训练及采用，回归/冲突交大模型裁决。采用条件只引用 [model-evolution.md](model-evolution.md)，不建平行门槛。真实OS效果、动作选择、参数绑定和知识判断分别计分。
 
@@ -98,4 +102,4 @@ type Request = {
 
 现有 `observe_cwd/set_cwd/list_directory` 是历史实现/设计接口，不在本轮文本修改中直接删除或更改。后续由其owner显式迁移到 file.property 语义并保留原公开入口回归；不新增同义Goal，不声称新合同已在运行入口生效。
 
-当前未实现：本图六个属性算子与绑定、统一四元素请求/结果、扩展对象引用与特殊文件细分、新操作harness、内容/角色内部数值图与实际训练、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket与挂载/ACL等只具统一对象位置，具体操作须后续按类型给合同和真实设备/fixture证据，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
+设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前未实现：本图六个属性算子与绑定、统一四元素请求/结果、扩展对象引用与特殊文件细分、新操作harness、实际训练、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。

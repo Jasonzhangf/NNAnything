@@ -22,6 +22,8 @@ S/D是有类型引用。目录实际path由显式资源绑定，字符串原样�
 
 补全的目录/文件操作按语义目录2.1/2.2的必要参数接入：引用 source/destination/parent/file/session 与 typed Bytes、offset、length、mode、uid/gid、时间或link文本，字段按具体operation固定。创建目标用已知父目录与明确目标路径，不要求伪造已有引用。固定harness在 `lib/adapters/cli/`，仅接已声明操作，不开放通用shell；OS/固定helper映射及部分副作用验收须在各操作实现前补齐。递归创建、树复制/删除等由有限单操作组合，不给命令加隐含递归/覆盖fallback。
 
+上述操作的具体typed参数、固定命令/OS API、无覆盖rename、字节协议、类型限制和部分副作用方案已由 [cli-command-design.md](cli-command-design.md) 补齐；本页只维护调用原则，不复制第二份映射。训练特征、参数矩阵、监督、分区与独立验收由 [cli-property-training-design.md](cli-property-training-design.md) 维护。两者均为设计，当前没有新增helper或运行接口。
+
 ## 2. 准确调用由边界保障
 
 固定流水为：已验证语义调用→检查操作和参数类型→绑定session/目录资源→检查授权及场景归属→构造固定CLI/argv→执行→保存回执与独立状态观测。复用现有CLI动作workflow，不另建调度器。概念/动作选择错误、参数绑定错误、调用构造错误及OS失败分别报告。

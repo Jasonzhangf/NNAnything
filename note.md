@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-19 文件属性命令与训练设计补全（仅设计）
+
+设计及独立Review已完成：GCM修复P4目标类型、P3候选类型可辨性，并封闭六策略族词表/维度；调用签名与保存/追加/整理组合终点已统一。独立OAuth gpt-6.1-sol受影响复核由controller裁决PASS，原P1关闭，仅有一处旧字节写入示例P2，已按equals.bytes→replace、patch.bytes→write、append.suffix→append同步消除。GCM执行均为独立gcm profile，Reviewer未参与修改。完成的设计包含25个精确operation、B/P/R/C独立数值与验证计划；没有生成样本、拟合、改代码或更改运行权重。main提交/推送及资源清理回执保存外置任务目录delivery.md。
+
+用户要求补齐旧合同未覆盖的命令及训练设计、独立Review后提交main，随后明确不做训练和代码，并要求可派任务尽量GCM。四项工作为固定调用设计、训练设计、独立审查、main交付。新增docs/cli-command-design.md覆盖25个精确operation与有限组合的typed参数、固定CLI/helper/OS方案、回执及失败/部分副作用；新增docs/cli-property-training-design.md定义B对象绑定、P属性效果、R用途关系、C组合下一步的特征、内部数值连线、参数/损失、监督、分区及独立验收。只沿file.property目标，不新建场景Goal；helper/模型尚未实现或训练。
+
+共享训练图首节点补显式属性效果反推，0.2.0-design仍8N8E，DAGpipe validate/inspect通过。原6N5E属性图未变，复用有效证据。GCM作者核对确认25操作均有映射、检查的59个本地链接缺失0，所发现predicate词表、参数写法和少数组合终点问题均已修订。独立Gemini4实际因配额429失败，无有效结论；后备独立OAuth整体Review发现P4目标类型缺失P1，修复并扩展同类P3可辨性与P5范围对照后，受影响复核PASS；没有通过切换Reviewer绕过finding。
+
+任务过程、原始Review和GCM结果位于 /Volumes/Intel/playground/nnanything-runs/file-property-design-completion-20261019/。文档用当前可信主树；保留他人cli-basics-training、three-site-zero树，不动其代码/权重/资源。本轮不执行业务命令、样本生成、拟合或安装。
+
 ## 2026-10-19 Shell统一file.property属性目标与目录/文件补全
 
 验收：新增属性图6N5E与扩展curriculum7N6E均通过DAGpipe validate/inspect；节点为design，无运行绑定。git diff --check通过，新正文引用的图/合同存在；未修改数值训练或执行代码，不跑无关业务测试。本轮纯设计沿当前可信主树编辑，未新建worktree或后台资源。

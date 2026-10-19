@@ -2,11 +2,11 @@
 
 状态：可实施设计，2026-10-19；列举harness、样本与模型尚未实现。前两项见[CWD/pwd](cli-cwd-training-design.md)、[cd](cli-cd-training-design.md)。本项先训练精确单操作，不将“进入目录再列举”组合规划作为前置。
 
-调用边界统一沿[参数简化合同](cli-call-contract.md)：LIST映射`directory.list(session,directory)`。NN不解析ls输出或文件正文；固定helper返回结构化条目，由harness处理机器协议，不能将该处理算作NN内容理解。
+调用边界统一沿[参数简化合同](cli-call-contract.md)：LIST映射`directory.list(session:S,directory:D)`。NN不解析ls输出或文件正文；固定helper返回结构化条目，由harness处理机器协议，不能将该处理算作NN内容理解。
 
 ## 语义目标与NN责任
 
-Goal为`{kind:"list_directory",session:S,directory:D}`，D为明确绝对目录引用，语义对应既有`directory.list(D)`。Action固定为`{kind:"LIST",session:S,directory:D}`。NN独立学习`LIST / REJECT`，harness按固定字段绑定参数；不生成shell参数、文件名或条目列表。文件/目录是OS观测事实，本轮不训练通过扩展名猜对象类型的分类器。
+Goal为`{kind:"list_directory",session:S,directory:D}`，D为明确绝对目录引用。当前设计签名固定为`directory.list(session:S,directory:D)`，Action为`{kind:"LIST",session:S,directory:D}`。本轮只统一设计合同，不改变运行API；旧单参数目录形式原本未实现，不作为兼容接口。NN独立学习`LIST / REJECT`，harness按固定字段绑定参数；不生成shell参数、文件名或条目列表。文件/目录是OS观测事实，本轮不训练通过扩展名猜对象类型的分类器。
 
 学生输入为`[1,goalListDirectory,goalObserveCwd,goalSetCwd]`，REJECT/LIST两个logit，共8参数；同分REJECT。内部乘权→求和→logit→argmax/softmax交叉熵图沿[CWD设计的数值图](cli-cwd-training-design.md#nn内部图与手写边界)，此处输入4维且profile独立。目录名、条目数量和目标是否存在不进入动作特征；合法list Goal上选择LIST，不把OS错误算成动作错误。
 
