@@ -18,6 +18,10 @@
       "types": "./dist/browser-classify.d.ts",
       "import": "./dist/browser-classify.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"
@@ -35,6 +39,7 @@
     "demo:sampling": "npm run build && node playground/sampling/demo.mjs",
     "demo:basic-kinds": "npm run build && node playground/basic-kinds/demo.mjs",
     "demo:training": "npm run build && node playground/training/demo.mjs",
+    "demo:cli": "npm run build && node playground/cli/foundation.mjs",
     "build:extension": "npm run build && node scripts/build-extension.mjs",
     "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit"
   },

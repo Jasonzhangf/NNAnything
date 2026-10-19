@@ -8,6 +8,17 @@
 
 ---
 
+## CLI 基础观测节点（0.1.0）
+
+`cli.observe@0.1.0` 的实现 owner 为 `cli-observation.ts`。公开工厂 `createCliObservationNode({cwd})` 经 `nnanything/cli` 导出。`cwd` 为显式、固定的词法绝对路径，不读隐藏工作目录。节点没有 profile 或训练参数。
+
+- 输入 `cli_request`：schema `cli/request/v1`，事件 `cli.request.v1`；请求联合为 pwd、path、attributes。未知字段、空路径与缺失链接策略均拒绝。
+- 输出 `cli_observation`：schema `cli/result/v1`，事件 `cli.result.v1`；成功观测或带 operation/stage/code/message 的显式失败。合同和语义唯一入口为 [CLI 基础合同](../../docs/cli-foundation.md)。
+- 依赖：纯路径交给 `filters/cli-path.ts`；实际 pwd 与 stat/lstat/readlink 交给 `adapters/cli/observation.ts`。节点只做合同与 workflow 封装。
+- Effects：按请求从现有 context.grantedEffects 检查。path 无业务 IO；attributes 需 filesystem.read；pwd 需 filesystem.read 与 process.exec。静态 effects 为空，避免纯路径被全量 IO 权限阻断；动态权限在唯一观测适配器检查并返回 authorize 失败，不是取消权限检查。
+- 图与兼容：只读取 `workflows/cli-foundation.graph.json` 与持久配置，1N0E；不在源码复制拓扑。没有节点内部数值图，不声明可训练。
+- 验收：`tests/cli-foundation.test.mjs` 与 `playground/cli/foundation.mjs` 分别验证基础能力、真实进程、OS 属性、链接、拒权、错误隔离与无目标写入。
+
 ## 1. 基础规则采样流 3 节点合同卡（0.1.0）
 
 本节是 3 个采样算子合同卡（身份、输入、输出、配置与状态、副作用、训练能力、兼容条件、验收）的唯一规范真源。
