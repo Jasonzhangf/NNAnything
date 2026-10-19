@@ -1,0 +1,6 @@
+{
+  "configVersion": 1,
+  "graphRef": "./cli-goal-training.graph.json",
+  "configs": {},
+  "bindings": {}
+}

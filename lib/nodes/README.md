@@ -22,6 +22,22 @@
 
 训练执行 `workflows/cli-path-training.graph.json`，推理执行 `cli-path-resolve.graph.json`，不复制拓扑。内部数值结构单独由 `lib/nodes/trainable/cli-path-controller.ts` 管理。schema/阶段数据在领域节点校验，compile检查profile和effects，runner按既有失败合同收束。实际拟合、失效后端、冻结/回载、根目录/父路径、拒权与写入边界验收见 cli-path 系列测试及公开consumer。
 
+## CLI Goal 动作与观测绑定节点（0.1.0）
+
+首个结构化 Goal 切片另有 `cli.goal.select/execute/evaluate@0.1.0` 三节点及训练 `cli.goal.prepare/fit/evaluate/save@0.1.0` 四节点。完整 Goal/State/action/profile、样本、执行和 GoalResult 合同唯一维护于 [Goal动作训练](../../docs/cli-goal-training.md)。公开入口 `nnanything/cli-goal`，不与路径、DOM 或 `cd` 语义混用。
+
+| operator | 输入schema/event → 输出schema/event | 配置、资源与effect |
+| --- | --- | --- |
+| `cli.goal.select` | cli.goal.step-request.v1 → cli.goal.selection.v1 | 空config+显式`cli-goal-policy` profile；读取显式Goal/State并输出3 features/2 scores/selectedAction；无effect |
+| `cli.goal.execute` | cli.goal.selection.v1 → cli.goal.execution.v1 | 工厂注入显式session；REJECT或unsupported不执行；observe_cwd的PWD调用现有pwd adapter；无静态effect，业务授权由CLI session检查 |
+| `cli.goal.evaluate` | cli.goal.execution.v1 → cli.goal.transition.v1 | 只把本次成功pwd观测绑定为新知识；失败保留旧知识；记录policy_error与GoalResult；无effect |
+| `cli.goal.prepare` | cli.goal.training-request.v1 → cli.goal.prepared.v1 | 12/6 train/development、无holdout、零profile；无effect |
+| `cli.goal.fit` | cli.goal.prepared.v1 → cli.goal.candidate.v1 | 显式Handwired源码根；filesystem.read；只拟合train的12行、6参数 |
+| `cli.goal.training.evaluate` | cli.goal.candidate.v1 → cli.goal.evaluation.v1 | 零/冻结/候选均经同一step workflow；策略准确率与Goal成功分开；无静态effect |
+| `cli.goal.save` | cli.goal.evaluation.v1 → cli.goal.training-receipt.v1 | 显式输出根；filesystem.write；samples/weights/results create-new与部分保存诊断 |
+
+推理执行 `workflows/cli-goal-step.graph.json`（3N2E SESE），训练执行 `workflows/cli-goal-training.graph.json`（4N3E SESE），不复制拓扑。内部六参数电路由 `lib/nodes/trainable/cli-goal-policy.ts` 管理。真实执行、拒绝零调用、授权/执行失败、fresh-process回载和实际拟合证据见 `tests/cli-goal.test.mjs`、公开consumer与运行证据目录。
+
 ## CLI 基础观测节点（0.1.0）
 
 `cli.observe@0.1.0` 的实现 owner 为 `cli-observation.ts`。公开工厂 `createCliObservationNode({cwd})` 经 `nnanything/cli` 导出。`cwd` 为显式、固定的词法绝对路径，不读隐藏工作目录。节点没有 profile 或训练参数。
