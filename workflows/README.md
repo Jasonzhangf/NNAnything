@@ -7,6 +7,8 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
+| `cli-path-training.graph.json` | `cli-path-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 已实现 | 路径动作样本准备、真实Handwired拟合、自主完整路径评估与create-new候选/报告保存 |
+| `cli-path-resolve.graph.json` | `cli-path-resolve.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 显式profile绑定的词法路径函数，执行与评估共用相同node/rollout合同 |
 | `cli-foundation.graph.json` | `cli-foundation.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | CLI 独立基础观测：显式 cwd、pwd、纯路径解释及 stat/lstat 属性；不训练、不搜索 |
 | `dom-candidates.graph.json` | `dom-candidates.workflow.json` | 7 节点 6 边 (7N6E SESE) | `0.1.0` 已实现 | L1 能动候选切片：读取页面观测并经视口、focus、黑白名单与拆分复检输出有序候选槽位与排除映射 |
 | `dom-rule-sampling.graph.json` | `dom-rule-sampling.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 基础规则采样流：显式 semantic rules 确定性分类 DOM 记录、下游按任务映射正负监督并持久化至本地 JSONL |

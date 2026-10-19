@@ -55,3 +55,5 @@ pwd 不接收任意 executable、argv 或命令字符串。子进程使用 `shel
 后续按基础观测 → 文件/目录操作语义 → 搜索组合推进。CLI 的长期目标仍是从 help 或说明学习能力及参数角色，再完成“在路径下找文件／找符号名称”。这些观测可提供训练行为证据；本轮没有拟合模型，不建立训练集/profile，也不宣称已实现 help 泛化、搜索或语义定义/引用解析。原生 [computer use](../lib/adapters/computer-use/README.md) 只有目录与说明占位。
 
 最新的精确单操作词表及首个有界目录目标绑定训练设计见 [文件语义语言](cli-semantic-operations.md)。该文档为设计态，不改变本页已实现 API；输入使用语义语言，首轮不包含自然语言识别或组合规划。
+
+逐能力训练的首项实现为 [路径函数训练](cli-path-training.md)：独立 `nnanything/cli-training` 入口，真实Handwired拟合、显式profile和自主符号rollout。它不替换本页确定性M0，也不自动采用候选。
