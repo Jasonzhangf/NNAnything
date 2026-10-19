@@ -649,7 +649,8 @@ test("translated cards retain measured clipping for descendants; non-translation
     const dom = fakeDom(), root = dom.document.documentElement;
     root.clientLeft = 5; root.clientTop = 7;
     root.clientWidth = 790; root.clientHeight = 100;
-    const card = { ...root, tagName: "SECTION", parentElement: root, children: [], childNodes: [],
+    const clip = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [] };
+    const card = { ...root, tagName: "SECTION", parentElement: clip, children: [], childNodes: [],
       getBoundingClientRect: () => ({ x: 200, y: 80, width: 300, height: 100 }),
       getClientRects: () => [{ x: 200, y: 80, width: 300, height: 100 }],
     };
@@ -657,9 +658,9 @@ test("translated cards retain measured clipping for descendants; non-translation
       getBoundingClientRect: () => ({ x: 210, y: 85, width: 100, height: 50 }),
       getClientRects: () => [{ x: 210, y: 85, width: 100, height: 50 }],
     };
-    root.children = [card]; card.children = [child];
+    root.children = [clip]; clip.children = [card]; card.children = [child];
     const baseStyle = dom.window.getComputedStyle();
-    dom.window.getComputedStyle = el => ({ ...baseStyle, ...(el === card ? individual : {}), transform: el === card ? transform : "none", overflowY: el === root ? "hidden" : "visible" });
+    dom.window.getComputedStyle = el => ({ ...baseStyle, ...(el === card ? individual : {}), transform: el === card ? transform : "none", overflowY: el === clip ? "hidden" : "visible" });
     const registry = createStableNodeRefRegistry("translation-test");
     const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "translated", documentRef: "fixture" });
     assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, card)).clippedRect,
@@ -976,13 +977,14 @@ test("public overlay graph runs through compileWorkflow and runWorkflow with a n
   html.clientLeft = html.clientTop = 0;
   html.clientWidth = 800;
   html.clientHeight = 30;
-  const child = { ...html, tagName: "BUTTON", parentElement: html, isConnected: true,
+  const clip = { ...html, tagName: "DIV", parentElement: html, children: [], childNodes: [], isConnected: true };
+  const child = { ...html, tagName: "BUTTON", parentElement: clip, isConnected: true,
     getBoundingClientRect: () => ({ x: 0, y: 20, width: 100, height: 40 }),
     getClientRects: () => [{ x: 0, y: 20, width: 100, height: 40 }],
   };
-  html.children = [child];
+  html.children = [clip]; clip.children = [child];
   const getStyle = dom.window.getComputedStyle;
-  dom.window.getComputedStyle = element => ({ ...getStyle(), overflowY: element === html ? "hidden" : "visible" });
+  dom.window.getComputedStyle = element => ({ ...getStyle(), overflowY: element === clip ? "hidden" : "visible" });
   const registry = createStableNodeRefRegistry("overlay-test");
   let presentCalls = 0;
   const definitions = createBrowserOverlayNodeDefinitions({

@@ -35,6 +35,8 @@ flowchart TD
 
 ## 输入、输出和唯一owner
 
+根滚动区域：标准模式且已确认`document.scrollingElement === document.documentElement`、双轴auto overflow、无变换／zoom与前导边框／内边距的HTML根，使用视口原点`(0,0)`和实测client尺寸作为scrollport。不能使用随文档滚动上移的根border box，否则滚动超过一屏会把全页候选排除。普通嵌套滚动仍使用自身client box；根身份或当前支持条件缺测时保留裁剪未知，不补成空矩形。该修复只改变几何观测，不更改分类权重或门限。
+
 - `lib/adapters/browser/live-dom.ts`：顶层Document/Window与稳定节点引用表→PageObservation、局部属性与元素映射。全页遍历无2000条截断，候选仍按viewportOnly/subtree/focus/黑白名单筛选。完整children与getClientRects、实际祖先overflow裁剪；computed `matrix(1,0,0,1,tx,ty)`（含identity）是纯2D平移，视口矩形已含偏移，保留单位比例的client尺寸完成裁剪，不因此排除整棵子树。旋转/缩放/倾斜、matrix3d、非none的独立translate/rotate/scale/perspective属性、clip-path及其他未测定裁剪仍保留null。未知重复几何与未验证列表父级不得补假值。iframe和shadow内部只报告未覆盖，不推断closed shadow数量。
 - `lib/adapters/browser/weight-asset.ts`：显式训练权重资产→已校验profile、compatibility门限、未校准标志。加载失败保留原生效配置；结果报告不能当权重加载。私人权重不提交。
 - `lib/adapters/browser/capture-bundle.ts`：当前分类帧、选中引用和用户复核决定→本地采集会话与单文件bundle。批量收集只纳入合格候选且保持未复核；`collect_unresolved` 同时纳入 qualified `unknown` 与 `conflict`，并分别给出 `eligibleUnknown`、`eligibleConflict`；既有 `collect_unknown` 仍只纳入 qualified `unknown`。按 snapshot/frame/node 去重，保序重排 `inputRef.index`。采集会话不产生训练梯度。

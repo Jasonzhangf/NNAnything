@@ -12,6 +12,14 @@
 
 独立OAuth gpt-6.1-sol medium整体Review exit0、findings=[]，canonical controller裁决pass；AGY本次参数拒绝后查询当前目录无Gemini4，按同源后备执行。独立经验审计已完成，补齐当前派发依据，不改全局规则或受管记忆。执行worker网络断连后由owner接管，所有验收来自真实公开入口。图设计已有独立计划，但持久图校验晚于缺模块红测的执行偏差已在parent-verification.md披露。样本/权重/报告已归档到canonical训练目录；历史样本cwd保留原现场，复现用公开consumer生成当前cwd样本。本轮7项中前6项已验收，剩第7项的main集成、推送与自有资源回收。
 
+## 2026-10-19 微博滚动后候选全部排除：紧急恢复
+
+用户截图为3685个DOM全部排除、候选0。实时微博根元素在scrollY=2491时border box为y=-2491、height1878，实际scrollingElement是HTML、overflow为auto。旧观测把该随文档滚动的矩形当成根scrollport，滚动超过视口高度后会裁掉所有后代。最小修复只在标准模式、根身份及既有无变换/零前导边界条件明确时，改用(0,0,clientWidth,clientHeight)。普通嵌套滚动使用自身client box；缺测保留unknown。分类权重和门限不变，新的训练改动不进入此紧急包。
+
+作者验证：根滚动红测5项失败；修复后相关31项及最新main全量212项通过，UI类型检查通过。真实内置浏览器公开四节点consumer在scroll2520、viewport720、根y=-2520时，将可见按钮保留为button/judged，候选6，展示1次。小红书、知乎当前根overflow均visible，不进入新增根裁剪分支。完整微博DOM读回受接口3秒超时限制，本记录不冒称取得当前整页新分类计数。过程证据位于外置three-site-zero目录的hotfix-root-*、hotfix-full-test.log及hotfix-cross-site-root-facts.json。
+
+独立OAuth gpt-6.1-sol medium整体Review PASS、findings为空，审查仅覆盖此根滚动hotfix。当前AGY目录无Gemini4，按既定后备路由执行。安装态仍是旧包，尚未宣称恢复。后续三站训练与观测milestone保存在feat/three-site-zero的内部checkpoint，未审、未采用；本条不替代该总目标验收。
+
 ## 2026-10-19 结构化Goal与最小动作关系（设计更新）
 
 用户明确三层目标：概念、动作、Goal/State动作选择；随后将动作层收敛为获取cwd→pwd、修改指定session cwd→cd，逐个训练后作为子目标复用。唯一架构正文已更新docs/design.md 1.1，CLI操作合同只引用。pwd产生新的观测知识，cd改变指定会话的执行基准；实际New State与NN预测分开。当前路径控制器是固定Goal的小实验，不是通用Goal策略或pwd/cd模型，M0尚无cd。纯文档更新，运行图未变，不新增框架或实现；更大语义推理目标仍待逐能力推进。
