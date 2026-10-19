@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-19 公共设计354978c与候选合流
+
+canonical公共file.property命令/训练设计提交354978c已推送origin/main，本次以正常merge合入当前CLI候选。保留公共新增的cli-command-design、cli-property-training-design及属性/语义合同扩展；保留候选真实8N8E训练图和绑定，算子仍为`cli.command.*@0.1.0`。公共基于旧main的`cli.fs.*@0.2.0-design`图内容作为未来属性单元设计保留在合同，不覆盖运行图；observe_cwd/set_cwd/list_directory兼容切片未迁移，不能据此宣称新属性模型已训练或采用。curriculum保持公共7N6E设计，公开consumer仍只执行PWD→CD→LS前三阶段。
+
+合流后的构建、回载与新进程验证结果见仓库外run的integration-result.md；未重训、未重复无关全仓测试，已有CLI审查PASS复用。
+
 ## 2026-10-19 共享CLI满足度与来源隔离终验
 
 原共享计划7项的T1–T6保持验收，T7独立复核已通过，main交付待收口。GCM完成固定`CLI_COMMAND_GOAL_CONFIG.satisfactionThreshold=100`及实际`goal_result.satisfaction`：支持命令正常100、已证失败0、未知语义/partial/提交后证据不足null；错头unsupported仍为policy_error与unmet/0。配置/结果类型公开，模型权重、wire和拟合函数未变。统一file.property入口仍未迁移。共享推理图仅更新既有节点职责，3N2E校验通过。领域合同分别将共享命令与CWD关系绑定公共设计/升级/冲突图，明确自动采集、当前版本引用、自动配对采用与LLM冲突执行链未实现。
@@ -43,6 +49,16 @@ GCM作者测试24通过/0失败/0skip；全仓`npm test`249项中248通过/1显�
 CWD正式run `c30b2917-4980-4b0f-8c7f-e0954ce22270`：train/dev关系16/16、8/8，PWD动作12/12、6/6，实际PWD4/4、2/2；独立关系16/16、动作12/12、4正常PWD及2失败探针通过，另4次关系知识取得。CD正式run `b7f48942-4b3d-4b87-b0c1-fbac2de702ed`：train/dev动作12/12、6/6，真实提交后同S新PWD4/4、2/2；新独立家族12/12、4正常提交、8失败探针通过，含1受控提交后观测故障。权重和预算不按独立集调节。原CD验证失败保留，修复后仅作回归。两项保存后均有fresh-process回载。详细结果唯一入口`docs/cli-filesystem-training-results.md`。
 
 LIST前全量回归244项：241通过、3显式skip、0失败；带已保存CWD/PWD/CD候选单独运行独立测试2通过、0skip，包含连续CD每次提交后的新PWD。此时尚未运行LIST候选，不能宣称三项训练全部完成。三项候选保持uncalibrated/not_applied；无verification资源的训练receipt明确fullyVerified=false。外部独立测试证据不冒充workflow内部verification。
+
+## 2026-10-19 文件属性命令与训练设计补全（仅设计）
+
+设计及独立Review已完成：GCM修复P4目标类型、P3候选类型可辨性，并封闭六策略族词表/维度；调用签名与保存/追加/整理组合终点已统一。独立OAuth gpt-6.1-sol受影响复核由controller裁决PASS，原P1关闭，仅有一处旧字节写入示例P2，已按equals.bytes→replace、patch.bytes→write、append.suffix→append同步消除。GCM执行均为独立gcm profile，Reviewer未参与修改。完成的设计包含25个精确operation、B/P/R/C独立数值与验证计划；没有生成样本、拟合、改代码或更改运行权重。main提交/推送及资源清理回执保存外置任务目录delivery.md。
+
+用户要求补齐旧合同未覆盖的命令及训练设计、独立Review后提交main，随后明确不做训练和代码，并要求可派任务尽量GCM。四项工作为固定调用设计、训练设计、独立审查、main交付。新增docs/cli-command-design.md覆盖25个精确operation与有限组合的typed参数、固定CLI/helper/OS方案、回执及失败/部分副作用；新增docs/cli-property-training-design.md定义B对象绑定、P属性效果、R用途关系、C组合下一步的特征、内部数值连线、参数/损失、监督、分区及独立验收。只沿file.property目标，不新建场景Goal；helper/模型尚未实现或训练。
+
+共享训练图首节点补显式属性效果反推，0.2.0-design仍8N8E，DAGpipe validate/inspect通过。原6N5E属性图未变，复用有效证据。GCM作者核对确认25操作均有映射、检查的59个本地链接缺失0，所发现predicate词表、参数写法和少数组合终点问题均已修订。独立Gemini4实际因配额429失败，无有效结论；后备独立OAuth整体Review发现P4目标类型缺失P1，修复并扩展同类P3可辨性与P5范围对照后，受影响复核PASS；没有通过切换Reviewer绕过finding。
+
+任务过程、原始Review和GCM结果位于 /Volumes/Intel/playground/nnanything-runs/file-property-design-completion-20261019/。文档用当前可信主树；保留他人cli-basics-training、three-site-zero树，不动其代码/权重/资源。本轮不执行业务命令、样本生成、拟合或安装。
 
 ## 2026-10-19 Shell统一file.property属性目标与目录/文件补全
 

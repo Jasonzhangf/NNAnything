@@ -8,6 +8,8 @@
 
 Goal为`{kind:"list_directory",session:S,target:absoluteTarget}`；调用另带`directory:DirectoryRef`。`DirectoryRef.path`在调用时相对S当前cwd解析，`Goal.target`必须与本次绑定引用解析出的目标一致；harness不做隐藏重定向。模型内部通过共享profile选择命令头`ls`，输出调用序列 `["ls", D]`；首项是实际Shell命令名，后续是机械绑定的typed引用，不生成自由参数文本。harness按固定字段绑定参数；模型不生成Shell选项、文件名或条目列表。文件/目录类型是OS观测事实，本轮不训练通过扩展名猜对象类型的分类器。
 
+[调用设计](cli-command-design.md)中的`directory.list(session:S,directory:D)`是未来typed属性操作设计，尚未替换当前共享命令`["ls", D]`入口或训练权重。
+
 在共享命令模型中，第3阶段输入连线为`[bias, goalObserveCwd, goalSetCwd, goalListDirectory]`，动作行包含`unsupported, pwd, cd, ls`，共16个参数（4×4矩阵）。加载上一阶段保存的CD候选，按名称扩展并补零，全量回放历史PWD与CD训练样本，并对新增LS样本拟合。
 
 初始真实Handwired训练预算为200epochs/lr0.1、全批SGD。冻结对照使用扩展后的初始矩阵且不做参数更新（等价初始状态`epochs:0`），只做预测；零权重对照同样只做预测，不执行命令。数值拟合器的`epochs:0`路径由作者单独测试。目录名、条目数量和目标是否存在不进入动作特征；在合法list_directory Goal上选择`ls`，不把OS错误算成模型动作错误。
