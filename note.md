@@ -29,6 +29,53 @@
 三站未知闭环仍在候选验证，未提交／合入／推送本轮改动，未采用新权重。直接IAB采集r6与原公开workflow回放：微博848合格、分类unknown/conflict均0、观测未知4；小红书485／0／0、观测未知1、另有2个未读iframe；知乎599／0／0、观测未知0。当前页面结果不是未见页面准确率。候选focus/three-site-20261019021043807-5730-7dfad959.weight.json保持not_applied、uncalibrated。过程唯一入口为外置three-site-zero/note.md；真实输入和报告留在training/{samples,results}/three-site-zero/direct-*-r6.*。
 
 键盘焦点按用户要求保留。9个直接检查的知乎tabindex0容器加入415行受限训练，仅训练7个neutral_focusable_control系数，500轮实际19.920283416秒；9修复、406旧开发行保留、0新增回退。原357黄金274正确保留、0新增回退、83仍未达原标签，不声称全量通过。r6合格输入中明确非负tabindex：微博6、知乎10，全部judged且无ignore；小红书0项显式标记，此计数不含未声明tabindex的原生控件。真实activeElement仍为知乎首个结果容器。负tabindex程序焦点和动态焦点机制尚未证明覆盖，不能扩大已验收范围。
+## 2026-10-19 首个结构化 Goal 动作切片（7/7已交付）
+
+实现a9f728a合入main ccb0546并push成功。主树重新build，读取canonical保存候选的独立公开consumer再次通过18/18动作、8/8有效观测、10/10预期unmet。自有pwd-goal-m1工作树及分支已移除，所有本轮子进程已退出；保留无关three-site-zero工作树。训练资产位于主树忽略的training目录，未上传远端；源码、可生成样本的consumer与测试已推送。交付原件 `/Volumes/Intel/playground/nnanything-runs/pwd-goal-m1/delivery.md`，Review原件review-final.json、裁决review-verdict.json、经验审计audit.md。7项全部验收；cd、help泛化和组合操作仍为后续独立能力。
+
+已实现 `observe_cwd→pwd` 的首个 Goal/State/Action/observed New State/GoalResult 闭环。公开入口 `nnanything/cli-goal`；推理图 3N2E、训练图 4N3E 均通过 DAGpipe validate/inspect。动作固定 `REJECT/PWD`，三特征、六参数，真实 Handwired 全批 SGD 200 epochs / lr 0.1。`set_cwd` 与其他结构化 Goal 为拒绝对照，unsupported guard 不执行命令，策略准确率与 Goal 成功分开；失败保留旧知识，只有本次真实 pwd 观测可达成 Goal。候选保持 uncalibrated/not_applied，未实现 cd/NLP/help/search。
+
+正式 run `7b78d1f2-de24-42fb-a4ca-c9e04ecef38c`：12 train / 6 development，18 个独立 session，仅 3 个语义 feature vector。零/冻结动作正确分别为 train 8/12、dev 4/6；候选为 12/12、6/6，Goal achieved 为 train 4/4、dev 2/2。候选真实 pwd 执行 train 4 次、dev 2 次，对照零执行；fixed/regressed/retained/unresolved 为 train 4/0/8/0、dev 2/0/4/0。实际 fit 348.246ms（backend 333.961ms、梯度 12.616ms），evaluation 178.198ms，training workflow 564.266ms，fresh reload 176.273ms，consumer 747.717ms；2400 梯度行轮、2424 forward 行访问。
+
+最终复跑 run 为 `4929f70a-379c-4e76-9a01-838f4d29e79b`，在相同训练预算下修正运行与训练评估算子名称绑定，指标相同。fit 351.670ms、workflow 554.806ms、reload 205.590ms、consumer 768.875ms。样本、候选、报告分别在 `training/{samples,weights,results}/observe-cwd/<run>/`。独立测试只加载候选，动作18/18；真实有效目录8/8 achieved，预期拒绝/失败10/10 unmet。完整 transition 与原始日志在 `/Volumes/Intel/playground/nnanything-runs/pwd-goal-m1/independent-final-report.json` 和 `independent-final-test.log`。全仓217项：216 passed、0 failed、1因未传候选显式skipped；该独立套件另行运行1 passed、0 skipped。作者34项定向回归通过。独立环境测试仍只有3个语义向量，不声称未见概念泛化。整体Review及main集成待完成。
+
+独立OAuth gpt-6.1-sol medium整体Review exit0、findings=[]，canonical controller裁决pass；AGY本次参数拒绝后查询当前目录无Gemini4，按同源后备执行。独立经验审计已完成，补齐当前派发依据，不改全局规则或受管记忆。执行worker网络断连后由owner接管，所有验收来自真实公开入口。图设计已有独立计划，但持久图校验晚于缺模块红测的执行偏差已在parent-verification.md披露。样本/权重/报告已归档到canonical训练目录；历史样本cwd保留原现场，复现用公开consumer生成当前cwd样本。本轮7项中前6项已验收，剩第7项的main集成、推送与自有资源回收。
+
+## 2026-10-19 微博滚动后候选全部排除：紧急恢复
+
+用户截图为3685个DOM全部排除、候选0。实时微博根元素在scrollY=2491时border box为y=-2491、height1878，实际scrollingElement是HTML、overflow为auto。旧观测把该随文档滚动的矩形当成根scrollport，滚动超过视口高度后会裁掉所有后代。最小修复只在标准模式、根身份及既有无变换/零前导边界条件明确时，改用(0,0,clientWidth,clientHeight)。普通嵌套滚动使用自身client box；缺测保留unknown。分类权重和门限不变，新的训练改动不进入此紧急包。
+
+作者验证：根滚动红测5项失败；修复后相关31项及最新main全量212项通过，UI类型检查通过。真实内置浏览器公开四节点consumer在scroll2520、viewport720、根y=-2520时，将可见按钮保留为button/judged，候选6，展示1次。小红书、知乎当前根overflow均visible，不进入新增根裁剪分支。完整微博DOM读回受接口3秒超时限制，本记录不冒称取得当前整页新分类计数。过程证据位于外置three-site-zero目录的hotfix-root-*、hotfix-full-test.log及hotfix-cross-site-root-facts.json。
+
+独立OAuth gpt-6.1-sol medium整体Review PASS、findings为空，审查仅覆盖此根滚动hotfix。当前AGY目录无Gemini4，按既定后备路由执行。安装态仍是旧包，尚未宣称恢复。后续三站训练与观测milestone保存在feat/three-site-zero的内部checkpoint，未审、未采用；本条不替代该总目标验收。
+
+## 2026-10-19 结构化Goal与最小动作关系（设计更新）
+
+用户明确三层目标：概念、动作、Goal/State动作选择；随后将动作层收敛为获取cwd→pwd、修改指定session cwd→cd，逐个训练后作为子目标复用。唯一架构正文已更新docs/design.md 1.1，CLI操作合同只引用。pwd产生新的观测知识，cd改变指定会话的执行基准；实际New State与NN预测分开。当前路径控制器是固定Goal的小实验，不是通用Goal策略或pwd/cd模型，M0尚无cd。纯文档更新，运行图未变，不新增框架或实现；更大语义推理目标仍待逐能力推进。
+
+## 2026-10-19 首个函数表达：词法路径训练
+
+本轮7项全部已交付：实现099bafe合入main2674300并push成功；主树重新build和新进程回载112/112完整路径、584/584动作通过；自有path-resolve-m1工作树/分支/依赖链接/worker已回收，保留无关dirty three-site-zero。独立OAuth gpt-6.1-sol medium整体Review exit0、findings=[]，canonical controller裁决PASS（当前agy目录无Gemini4，沿同源后备）。唯一合同和详细实测 `docs/cli-path-training.md`；独立过程 `/Volumes/Intel/playground/nnanything-runs/path-resolve-m1/`，审查原件review-final.json、裁决review-verdict.json，交付回执delivery.md。模型学习5种符号动作，9条wire、45参数，手写分词/栈/名称复制不冒称已学习。M0默认与DOM模型不变，目录绑定、自然语言、help和组合操作后置。
+
+新训练图4N3E、推理图1N0E已validate/inspect，实际从持久配置编译并由Flowed执行。实现前公开模块缺失红测、实现后零/破坏策略失败trace均保留。两GCM独立worker分别负责符号控制器与数值结构，父层负责teacher/数据/评估/图节点/公开consumer；独立OAuth gpt-6.1-sol medium规划READY（当前agy目录无Gemini4）。训练复用既有Handwired源码加载和reference前反传；动作softmax CE与全批SGD为独立节点，不复用DOM类别或loss。
+
+首轮正式run `5be5fe28-1dbe-4558-9d23-23d2b441870a`：64train请求/8族展开200动作行，16dev/2族96动作，32holdout/4族288动作。200轮lr0.1，train/dev先验证预算，留出未用于调参。完整路径baseline8/0/0、候选64/16/32；teacher-state动作200/96/288全对；无效rollout0，104fixed/8retained/0regressed/0unresolved。新进程读取保存profile后112完整分数/动作/栈/路径逐项一致。冻结epochs0参数不变，成绩复用同参数baseline，不虚增独立实验。
+
+实际fit552.254ms（后端326.297ms、梯度219.700ms），完整workflow600.077ms、fresh-process回载115.405ms、consumer718.002ms；40000梯度行轮，总forward访问40400。全部205项测试通过，未跳过。可读合成fixture与生成器随代码交付，本地样本/权重/报告分别在training/samples、weights、results的path-resolve/<run>。候选uncalibrated/not_applied，仅证明声明的有限词法组合，不是任意函数或文件系统理解。
+
+## 2026-10-19 文件语义语言与最低层模糊训练设计
+
+本轮按用户要求仅交设计，2项完成：精确单操作总结；单个最低层次模糊训练设计。唯一正文 `docs/cli-semantic-operations.md`，M0合同和项目AGENTS只加入口及当前边界。语义输入不包含自然语言识别；首个模糊任务为已观测候选中按精确 name/type/parent 绑定目录引用，不做操作组合、近似名称或磁盘搜索。精确 `cwd+输入→绝对路径` 与模糊目标绑定分开。11种精确操作明确I/O/失败/副作用及现有3项M0映射；其余操作均设计态。
+
+训练方案只学习三条关系的合取，teacher由确定性形式合同给出，8种完整wire组合覆盖；缺测不补0，整场景族分区，完整范围才能not_found，违反父目录名称唯一性的样本拒绝。精确规则baseline与模型成绩分开，不把teacher修正后的结果算学习成果。真实Handwired拟合、冻结参数对照、回载和独立macOS目录验收均尚未执行，不报告效果。当前1N0E观测图未变；纯文档无新增执行路径，不建虚构业务图，不开代码worktree或独立实现Review。
+
+## 2026-10-19 CLI 基础 M0
+
+用户将独立 CLI 模块的起点收敛为 pwd、文件路径与文件属性。当前已实现 `nnanything/cli`：显式固定 cwd、真实 `/bin/pwd -P`、纯词法路径解释、stat/lstat/readlink 属性与类型化错误。Computer use 只留 `lib/adapters/computer-use/README.md` 占位。help/说明学习与泛化、文件/符号名称搜索是后续目标，本轮没有训练或搜索，不改变浏览器权重。
+
+本轮6项已全部验收并交付。实现提交b0bf6ef经独立整体Review后合入main，集成提交6bcf4b9已推送origin/main；主树 `npm run demo:cli` 再验收通过。自有 cli-help-m1 工作树、分支、依赖链接与执行进程均已回收；无关 dirty three-site-zero 保留。1N0E 持久图已 validate/inspect 并经现有 compiler/runner/Flowed 真实消费；六组公开测试先因模块缺失失败，实施后6/6通过；全仓177/177通过；公开consumer验证真实进程、路径、属性/链接、ENOENT、拒权、目标内容与目录项未变及父cwd未变。整体独立OAuth gpt-6.1-sol medium审查exit0，canonical controller裁决PASS、findings=[]；本次目录无Gemini4，按规定后备。合同见 `docs/cli-foundation.md`。本轮独占过程与原始证据在 `/Volumes/Intel/playground/nnanything-runs/cli-help-m1/`，作者说明 `verification.md`，独立计划 `foundation-plan.md`，Review原件 `review-final.json`，Git与资源收口回执见 `delivery.md`。当前只是基础M0交付，help泛化/训练与搜索总目标未完成，不在本次内部milestone另派结案经验审计。
+
+以下保留前序浏览器任务及历史证据，不作为 CLI 交付声明。
 
 本轮5项工作已完成实现、验收、整体Review和main交付。集成提交fad4f37已推送origin/main，保留原采用SVG-pair权重。正式结果在training/results/priority-classifier/final，输入在training/samples/priority-classifier；计划、红测、测试、真实consumer、Review原件与controller回执归档training/results/priority-classifier/evidence。剩余仅回收本轮独占worktree与临时run；清理回执留该evidence目录。三站未知清零属于后续总目标，当前失败候选未采用。
 

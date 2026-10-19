@@ -6,6 +6,10 @@
 
 新增 Chrome/Chromium 页面标注与采集入口，复用上述第一层分类器。支持类别色框、Focus、点选确认/纠错、未知批量采集和本地 JSON 导出。扩展构建与加载步骤见 [extension/README.md](extension/README.md)，节点与证据边界见 [docs/browser-overlay-m1.md](docs/browser-overlay-m1.md)。采集不会自动训练。
 
+独立 CLI 基础入口为 `nnanything/cli`，从显式工作目录、pwd、纯路径解释和文件属性开始。运行 `npm run demo:cli` 可验证三项公开能力。合同和后续 help 学习范围见 [CLI 基础语义](docs/cli-foundation.md)。当前不包含搜索或训练；原生 Computer use 仅文档占位。
+
+首个函数表达训练现由独立 `nnanything/cli-training` 提供：`cwd+input→词法绝对路径`。公开合成样本64train/16development/32holdout，真实Handwired动作拟合和新进程回载；运行 `npm run demo:path-training -- --handwired-root /absolute/handwired`。见 [路径训练合同与实测](docs/cli-path-training.md)。该模型不自动采用，也不替换CLI基础入口。
+
 ## 快速开始（L1 能动切片与离线训练）
 
 基线要求：Node.js >= 20（ESM 模块规范）。测试环境已验证 Node 22（Bun 未经验证）；TypeScript 为已安装的 devDependency。

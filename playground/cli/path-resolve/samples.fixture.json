@@ -1,0 +1,901 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "id": "g0-v0",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../plain-0",
+      "expected": "/plain-0"
+    },
+    {
+      "id": "g0-v1",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../代码-0",
+      "expected": "/代码-0"
+    },
+    {
+      "id": "g0-v2",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../with space-0",
+      "expected": "/with space-0"
+    },
+    {
+      "id": "g0-v3",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../same-0",
+      "expected": "/same-0"
+    },
+    {
+      "id": "g0-v4",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../back\\slash-0",
+      "expected": "/back\\slash-0"
+    },
+    {
+      "id": "g0-v5",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../$HOME-0",
+      "expected": "/$HOME-0"
+    },
+    {
+      "id": "g0-v6",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../*.txt-0",
+      "expected": "/*.txt-0"
+    },
+    {
+      "id": "g0-v7",
+      "sourceGroup": "structure-0",
+      "partition": "train",
+      "cwd": "/",
+      "input": "../$(literal)-0",
+      "expected": "/$(literal)-0"
+    },
+    {
+      "id": "g1-v0",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-0-0",
+      "input": "plain-1",
+      "expected": "/base-1-0-0/plain-1"
+    },
+    {
+      "id": "g1-v1",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-1-0",
+      "input": "代码-1",
+      "expected": "/base-1-1-0/代码-1"
+    },
+    {
+      "id": "g1-v2",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-2-0",
+      "input": "with space-1",
+      "expected": "/base-1-2-0/with space-1"
+    },
+    {
+      "id": "g1-v3",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-3-0",
+      "input": "same-1",
+      "expected": "/base-1-3-0/same-1"
+    },
+    {
+      "id": "g1-v4",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-4-0",
+      "input": "back\\slash-1",
+      "expected": "/base-1-4-0/back\\slash-1"
+    },
+    {
+      "id": "g1-v5",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-5-0",
+      "input": "$HOME-1",
+      "expected": "/base-1-5-0/$HOME-1"
+    },
+    {
+      "id": "g1-v6",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-6-0",
+      "input": "*.txt-1",
+      "expected": "/base-1-6-0/*.txt-1"
+    },
+    {
+      "id": "g1-v7",
+      "sourceGroup": "structure-1",
+      "partition": "train",
+      "cwd": "/base-1-7-0",
+      "input": "$(literal)-1",
+      "expected": "/base-1-7-0/$(literal)-1"
+    },
+    {
+      "id": "g2-v0",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-0-0/base-2-0-1",
+      "input": "../plain-2",
+      "expected": "/base-2-0-0/plain-2"
+    },
+    {
+      "id": "g2-v1",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-1-0/base-2-1-1",
+      "input": "../代码-2",
+      "expected": "/base-2-1-0/代码-2"
+    },
+    {
+      "id": "g2-v2",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-2-0/base-2-2-1",
+      "input": "../with space-2",
+      "expected": "/base-2-2-0/with space-2"
+    },
+    {
+      "id": "g2-v3",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-3-0/base-2-3-1",
+      "input": "../same-2",
+      "expected": "/base-2-3-0/same-2"
+    },
+    {
+      "id": "g2-v4",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-4-0/base-2-4-1",
+      "input": "../back\\slash-2",
+      "expected": "/base-2-4-0/back\\slash-2"
+    },
+    {
+      "id": "g2-v5",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-5-0/base-2-5-1",
+      "input": "../$HOME-2",
+      "expected": "/base-2-5-0/$HOME-2"
+    },
+    {
+      "id": "g2-v6",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-6-0/base-2-6-1",
+      "input": "../*.txt-2",
+      "expected": "/base-2-6-0/*.txt-2"
+    },
+    {
+      "id": "g2-v7",
+      "sourceGroup": "structure-2",
+      "partition": "train",
+      "cwd": "/base-2-7-0/base-2-7-1",
+      "input": "../$(literal)-2",
+      "expected": "/base-2-7-0/$(literal)-2"
+    },
+    {
+      "id": "g3-v0",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-0-0/base-3-0-1/base-3-0-2",
+      "input": "./plain-3/../next-plain-3",
+      "expected": "/base-3-0-0/base-3-0-1/base-3-0-2/next-plain-3"
+    },
+    {
+      "id": "g3-v1",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-1-0/base-3-1-1/base-3-1-2",
+      "input": "./代码-3/../next-代码-3",
+      "expected": "/base-3-1-0/base-3-1-1/base-3-1-2/next-代码-3"
+    },
+    {
+      "id": "g3-v2",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-2-0/base-3-2-1/base-3-2-2",
+      "input": "./with space-3/../next-with space-3",
+      "expected": "/base-3-2-0/base-3-2-1/base-3-2-2/next-with space-3"
+    },
+    {
+      "id": "g3-v3",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-3-0/base-3-3-1/base-3-3-2",
+      "input": "./same-3/../same-3",
+      "expected": "/base-3-3-0/base-3-3-1/base-3-3-2/same-3"
+    },
+    {
+      "id": "g3-v4",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-4-0/base-3-4-1/base-3-4-2",
+      "input": "./back\\slash-3/../next-back\\slash-3",
+      "expected": "/base-3-4-0/base-3-4-1/base-3-4-2/next-back\\slash-3"
+    },
+    {
+      "id": "g3-v5",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-5-0/base-3-5-1/base-3-5-2",
+      "input": "./$HOME-3/../next-$HOME-3",
+      "expected": "/base-3-5-0/base-3-5-1/base-3-5-2/next-$HOME-3"
+    },
+    {
+      "id": "g3-v6",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-6-0/base-3-6-1/base-3-6-2",
+      "input": "./*.txt-3/../next-*.txt-3",
+      "expected": "/base-3-6-0/base-3-6-1/base-3-6-2/next-*.txt-3"
+    },
+    {
+      "id": "g3-v7",
+      "sourceGroup": "structure-3",
+      "partition": "train",
+      "cwd": "/base-3-7-0/base-3-7-1/base-3-7-2",
+      "input": "./$(literal)-3/../next-$(literal)-3",
+      "expected": "/base-3-7-0/base-3-7-1/base-3-7-2/next-$(literal)-3"
+    },
+    {
+      "id": "g4-v0",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-0-0/base-4-0-1",
+      "input": "/plain-4/next-plain-4",
+      "expected": "/plain-4/next-plain-4"
+    },
+    {
+      "id": "g4-v1",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-1-0/base-4-1-1",
+      "input": "/代码-4/next-代码-4",
+      "expected": "/代码-4/next-代码-4"
+    },
+    {
+      "id": "g4-v2",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-2-0/base-4-2-1",
+      "input": "/with space-4/next-with space-4",
+      "expected": "/with space-4/next-with space-4"
+    },
+    {
+      "id": "g4-v3",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-3-0/base-4-3-1",
+      "input": "/same-4/same-4",
+      "expected": "/same-4/same-4"
+    },
+    {
+      "id": "g4-v4",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-4-0/base-4-4-1",
+      "input": "/back\\slash-4/next-back\\slash-4",
+      "expected": "/back\\slash-4/next-back\\slash-4"
+    },
+    {
+      "id": "g4-v5",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-5-0/base-4-5-1",
+      "input": "/$HOME-4/next-$HOME-4",
+      "expected": "/$HOME-4/next-$HOME-4"
+    },
+    {
+      "id": "g4-v6",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-6-0/base-4-6-1",
+      "input": "/*.txt-4/next-*.txt-4",
+      "expected": "/*.txt-4/next-*.txt-4"
+    },
+    {
+      "id": "g4-v7",
+      "sourceGroup": "structure-4",
+      "partition": "train",
+      "cwd": "/base-4-7-0/base-4-7-1",
+      "input": "/$(literal)-4/next-$(literal)-4",
+      "expected": "/$(literal)-4/next-$(literal)-4"
+    },
+    {
+      "id": "g5-v0",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-0-0/base-5-0-1",
+      "input": "/../plain-5",
+      "expected": "/plain-5"
+    },
+    {
+      "id": "g5-v1",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-1-0/base-5-1-1",
+      "input": "/../代码-5",
+      "expected": "/代码-5"
+    },
+    {
+      "id": "g5-v2",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-2-0/base-5-2-1",
+      "input": "/../with space-5",
+      "expected": "/with space-5"
+    },
+    {
+      "id": "g5-v3",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-3-0/base-5-3-1",
+      "input": "/../same-5",
+      "expected": "/same-5"
+    },
+    {
+      "id": "g5-v4",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-4-0/base-5-4-1",
+      "input": "/../back\\slash-5",
+      "expected": "/back\\slash-5"
+    },
+    {
+      "id": "g5-v5",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-5-0/base-5-5-1",
+      "input": "/../$HOME-5",
+      "expected": "/$HOME-5"
+    },
+    {
+      "id": "g5-v6",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-6-0/base-5-6-1",
+      "input": "/../*.txt-5",
+      "expected": "/*.txt-5"
+    },
+    {
+      "id": "g5-v7",
+      "sourceGroup": "structure-5",
+      "partition": "train",
+      "cwd": "/base-5-7-0/base-5-7-1",
+      "input": "/../$(literal)-5",
+      "expected": "/$(literal)-5"
+    },
+    {
+      "id": "g6-v0",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-0-0",
+      "input": "../.././plain-6",
+      "expected": "/plain-6"
+    },
+    {
+      "id": "g6-v1",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-1-0",
+      "input": "../.././代码-6",
+      "expected": "/代码-6"
+    },
+    {
+      "id": "g6-v2",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-2-0",
+      "input": "../.././with space-6",
+      "expected": "/with space-6"
+    },
+    {
+      "id": "g6-v3",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-3-0",
+      "input": "../.././same-6",
+      "expected": "/same-6"
+    },
+    {
+      "id": "g6-v4",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-4-0",
+      "input": "../.././back\\slash-6",
+      "expected": "/back\\slash-6"
+    },
+    {
+      "id": "g6-v5",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-5-0",
+      "input": "../.././$HOME-6",
+      "expected": "/$HOME-6"
+    },
+    {
+      "id": "g6-v6",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-6-0",
+      "input": "../.././*.txt-6",
+      "expected": "/*.txt-6"
+    },
+    {
+      "id": "g6-v7",
+      "sourceGroup": "structure-6",
+      "partition": "train",
+      "cwd": "/base-6-7-0",
+      "input": "../.././$(literal)-6",
+      "expected": "/$(literal)-6"
+    },
+    {
+      "id": "g7-v0",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g7-v1",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g7-v2",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g7-v3",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g7-v4",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g7-v5",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g7-v6",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g7-v7",
+      "sourceGroup": "structure-7",
+      "partition": "train",
+      "cwd": "/",
+      "input": "/",
+      "expected": "/"
+    },
+    {
+      "id": "g8-v0",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-0-0/base-8-0-1/base-8-0-2/base-8-0-3",
+      "input": "../plain-8/./../next-plain-8",
+      "expected": "/base-8-0-0/base-8-0-1/base-8-0-2/next-plain-8"
+    },
+    {
+      "id": "g8-v1",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-1-0/base-8-1-1/base-8-1-2/base-8-1-3",
+      "input": "../代码-8/./../next-代码-8",
+      "expected": "/base-8-1-0/base-8-1-1/base-8-1-2/next-代码-8"
+    },
+    {
+      "id": "g8-v2",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-2-0/base-8-2-1/base-8-2-2/base-8-2-3",
+      "input": "../with space-8/./../next-with space-8",
+      "expected": "/base-8-2-0/base-8-2-1/base-8-2-2/next-with space-8"
+    },
+    {
+      "id": "g8-v3",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-3-0/base-8-3-1/base-8-3-2/base-8-3-3",
+      "input": "../same-8/./../same-8",
+      "expected": "/base-8-3-0/base-8-3-1/base-8-3-2/same-8"
+    },
+    {
+      "id": "g8-v4",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-4-0/base-8-4-1/base-8-4-2/base-8-4-3",
+      "input": "../back\\slash-8/./../next-back\\slash-8",
+      "expected": "/base-8-4-0/base-8-4-1/base-8-4-2/next-back\\slash-8"
+    },
+    {
+      "id": "g8-v5",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-5-0/base-8-5-1/base-8-5-2/base-8-5-3",
+      "input": "../$HOME-8/./../next-$HOME-8",
+      "expected": "/base-8-5-0/base-8-5-1/base-8-5-2/next-$HOME-8"
+    },
+    {
+      "id": "g8-v6",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-6-0/base-8-6-1/base-8-6-2/base-8-6-3",
+      "input": "../*.txt-8/./../next-*.txt-8",
+      "expected": "/base-8-6-0/base-8-6-1/base-8-6-2/next-*.txt-8"
+    },
+    {
+      "id": "g8-v7",
+      "sourceGroup": "structure-8",
+      "partition": "development",
+      "cwd": "/base-8-7-0/base-8-7-1/base-8-7-2/base-8-7-3",
+      "input": "../$(literal)-8/./../next-$(literal)-8",
+      "expected": "/base-8-7-0/base-8-7-1/base-8-7-2/next-$(literal)-8"
+    },
+    {
+      "id": "g9-v0",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-0-0/base-9-0-1/base-9-0-2/base-9-0-3",
+      "input": "/plain-9/../next-plain-9/./last-plain-9",
+      "expected": "/next-plain-9/last-plain-9"
+    },
+    {
+      "id": "g9-v1",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-1-0/base-9-1-1/base-9-1-2/base-9-1-3",
+      "input": "/代码-9/../next-代码-9/./last-代码-9",
+      "expected": "/next-代码-9/last-代码-9"
+    },
+    {
+      "id": "g9-v2",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-2-0/base-9-2-1/base-9-2-2/base-9-2-3",
+      "input": "/with space-9/../next-with space-9/./last-with space-9",
+      "expected": "/next-with space-9/last-with space-9"
+    },
+    {
+      "id": "g9-v3",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-3-0/base-9-3-1/base-9-3-2/base-9-3-3",
+      "input": "/same-9/../same-9/./last-same-9",
+      "expected": "/same-9/last-same-9"
+    },
+    {
+      "id": "g9-v4",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-4-0/base-9-4-1/base-9-4-2/base-9-4-3",
+      "input": "/back\\slash-9/../next-back\\slash-9/./last-back\\slash-9",
+      "expected": "/next-back\\slash-9/last-back\\slash-9"
+    },
+    {
+      "id": "g9-v5",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-5-0/base-9-5-1/base-9-5-2/base-9-5-3",
+      "input": "/$HOME-9/../next-$HOME-9/./last-$HOME-9",
+      "expected": "/next-$HOME-9/last-$HOME-9"
+    },
+    {
+      "id": "g9-v6",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-6-0/base-9-6-1/base-9-6-2/base-9-6-3",
+      "input": "/*.txt-9/../next-*.txt-9/./last-*.txt-9",
+      "expected": "/next-*.txt-9/last-*.txt-9"
+    },
+    {
+      "id": "g9-v7",
+      "sourceGroup": "structure-9",
+      "partition": "development",
+      "cwd": "/base-9-7-0/base-9-7-1/base-9-7-2/base-9-7-3",
+      "input": "/$(literal)-9/../next-$(literal)-9/./last-$(literal)-9",
+      "expected": "/next-$(literal)-9/last-$(literal)-9"
+    },
+    {
+      "id": "g10-v0",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-0-0/base-10-0-1/base-10-0-2/base-10-0-3/base-10-0-4",
+      "input": "../../../plain-10/../next-plain-10/./last-plain-10",
+      "expected": "/base-10-0-0/base-10-0-1/next-plain-10/last-plain-10"
+    },
+    {
+      "id": "g10-v1",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-1-0/base-10-1-1/base-10-1-2/base-10-1-3/base-10-1-4",
+      "input": "../../../代码-10/../next-代码-10/./last-代码-10",
+      "expected": "/base-10-1-0/base-10-1-1/next-代码-10/last-代码-10"
+    },
+    {
+      "id": "g10-v2",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-2-0/base-10-2-1/base-10-2-2/base-10-2-3/base-10-2-4",
+      "input": "../../../with space-10/../next-with space-10/./last-with space-10",
+      "expected": "/base-10-2-0/base-10-2-1/next-with space-10/last-with space-10"
+    },
+    {
+      "id": "g10-v3",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-3-0/base-10-3-1/base-10-3-2/base-10-3-3/base-10-3-4",
+      "input": "../../../same-10/../same-10/./last-same-10",
+      "expected": "/base-10-3-0/base-10-3-1/same-10/last-same-10"
+    },
+    {
+      "id": "g10-v4",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-4-0/base-10-4-1/base-10-4-2/base-10-4-3/base-10-4-4",
+      "input": "../../../back\\slash-10/../next-back\\slash-10/./last-back\\slash-10",
+      "expected": "/base-10-4-0/base-10-4-1/next-back\\slash-10/last-back\\slash-10"
+    },
+    {
+      "id": "g10-v5",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-5-0/base-10-5-1/base-10-5-2/base-10-5-3/base-10-5-4",
+      "input": "../../../$HOME-10/../next-$HOME-10/./last-$HOME-10",
+      "expected": "/base-10-5-0/base-10-5-1/next-$HOME-10/last-$HOME-10"
+    },
+    {
+      "id": "g10-v6",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-6-0/base-10-6-1/base-10-6-2/base-10-6-3/base-10-6-4",
+      "input": "../../../*.txt-10/../next-*.txt-10/./last-*.txt-10",
+      "expected": "/base-10-6-0/base-10-6-1/next-*.txt-10/last-*.txt-10"
+    },
+    {
+      "id": "g10-v7",
+      "sourceGroup": "structure-10",
+      "partition": "holdout",
+      "cwd": "/base-10-7-0/base-10-7-1/base-10-7-2/base-10-7-3/base-10-7-4",
+      "input": "../../../$(literal)-10/../next-$(literal)-10/./last-$(literal)-10",
+      "expected": "/base-10-7-0/base-10-7-1/next-$(literal)-10/last-$(literal)-10"
+    },
+    {
+      "id": "g11-v0",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-0-0/base-11-0-1/base-11-0-2/base-11-0-3/base-11-0-4/base-11-0-5",
+      "input": "/plain-11//next-plain-11/../last-plain-11/./plain-11/",
+      "expected": "/plain-11/last-plain-11/plain-11"
+    },
+    {
+      "id": "g11-v1",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-1-0/base-11-1-1/base-11-1-2/base-11-1-3/base-11-1-4/base-11-1-5",
+      "input": "/代码-11//next-代码-11/../last-代码-11/./代码-11/",
+      "expected": "/代码-11/last-代码-11/代码-11"
+    },
+    {
+      "id": "g11-v2",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-2-0/base-11-2-1/base-11-2-2/base-11-2-3/base-11-2-4/base-11-2-5",
+      "input": "/with space-11//next-with space-11/../last-with space-11/./with space-11/",
+      "expected": "/with space-11/last-with space-11/with space-11"
+    },
+    {
+      "id": "g11-v3",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-3-0/base-11-3-1/base-11-3-2/base-11-3-3/base-11-3-4/base-11-3-5",
+      "input": "/same-11//same-11/../last-same-11/./same-11/",
+      "expected": "/same-11/last-same-11/same-11"
+    },
+    {
+      "id": "g11-v4",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-4-0/base-11-4-1/base-11-4-2/base-11-4-3/base-11-4-4/base-11-4-5",
+      "input": "/back\\slash-11//next-back\\slash-11/../last-back\\slash-11/./back\\slash-11/",
+      "expected": "/back\\slash-11/last-back\\slash-11/back\\slash-11"
+    },
+    {
+      "id": "g11-v5",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-5-0/base-11-5-1/base-11-5-2/base-11-5-3/base-11-5-4/base-11-5-5",
+      "input": "/$HOME-11//next-$HOME-11/../last-$HOME-11/./$HOME-11/",
+      "expected": "/$HOME-11/last-$HOME-11/$HOME-11"
+    },
+    {
+      "id": "g11-v6",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-6-0/base-11-6-1/base-11-6-2/base-11-6-3/base-11-6-4/base-11-6-5",
+      "input": "/*.txt-11//next-*.txt-11/../last-*.txt-11/./*.txt-11/",
+      "expected": "/*.txt-11/last-*.txt-11/*.txt-11"
+    },
+    {
+      "id": "g11-v7",
+      "sourceGroup": "structure-11",
+      "partition": "holdout",
+      "cwd": "/base-11-7-0/base-11-7-1/base-11-7-2/base-11-7-3/base-11-7-4/base-11-7-5",
+      "input": "/$(literal)-11//next-$(literal)-11/../last-$(literal)-11/./$(literal)-11/",
+      "expected": "/$(literal)-11/last-$(literal)-11/$(literal)-11"
+    },
+    {
+      "id": "g12-v0",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-0-0/base-12-0-1/base-12-0-2/base-12-0-3/base-12-0-4/base-12-0-5/base-12-0-6",
+      "input": "../../../../../../../../plain-12",
+      "expected": "/plain-12"
+    },
+    {
+      "id": "g12-v1",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-1-0/base-12-1-1/base-12-1-2/base-12-1-3/base-12-1-4/base-12-1-5/base-12-1-6",
+      "input": "../../../../../../../../代码-12",
+      "expected": "/代码-12"
+    },
+    {
+      "id": "g12-v2",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-2-0/base-12-2-1/base-12-2-2/base-12-2-3/base-12-2-4/base-12-2-5/base-12-2-6",
+      "input": "../../../../../../../../with space-12",
+      "expected": "/with space-12"
+    },
+    {
+      "id": "g12-v3",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-3-0/base-12-3-1/base-12-3-2/base-12-3-3/base-12-3-4/base-12-3-5/base-12-3-6",
+      "input": "../../../../../../../../same-12",
+      "expected": "/same-12"
+    },
+    {
+      "id": "g12-v4",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-4-0/base-12-4-1/base-12-4-2/base-12-4-3/base-12-4-4/base-12-4-5/base-12-4-6",
+      "input": "../../../../../../../../back\\slash-12",
+      "expected": "/back\\slash-12"
+    },
+    {
+      "id": "g12-v5",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-5-0/base-12-5-1/base-12-5-2/base-12-5-3/base-12-5-4/base-12-5-5/base-12-5-6",
+      "input": "../../../../../../../../$HOME-12",
+      "expected": "/$HOME-12"
+    },
+    {
+      "id": "g12-v6",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-6-0/base-12-6-1/base-12-6-2/base-12-6-3/base-12-6-4/base-12-6-5/base-12-6-6",
+      "input": "../../../../../../../../*.txt-12",
+      "expected": "/*.txt-12"
+    },
+    {
+      "id": "g12-v7",
+      "sourceGroup": "structure-12",
+      "partition": "holdout",
+      "cwd": "/base-12-7-0/base-12-7-1/base-12-7-2/base-12-7-3/base-12-7-4/base-12-7-5/base-12-7-6",
+      "input": "../../../../../../../../$(literal)-12",
+      "expected": "/$(literal)-12"
+    },
+    {
+      "id": "g13-v0",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-0-0/base-13-0-1/base-13-0-2/base-13-0-3/base-13-0-4/base-13-0-5/base-13-0-6/base-13-0-7",
+      "input": "./plain-13/next-plain-13/../../last-plain-13/../plain-13/next-plain-13",
+      "expected": "/base-13-0-0/base-13-0-1/base-13-0-2/base-13-0-3/base-13-0-4/base-13-0-5/base-13-0-6/base-13-0-7/plain-13/next-plain-13"
+    },
+    {
+      "id": "g13-v1",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-1-0/base-13-1-1/base-13-1-2/base-13-1-3/base-13-1-4/base-13-1-5/base-13-1-6/base-13-1-7",
+      "input": "./代码-13/next-代码-13/../../last-代码-13/../代码-13/next-代码-13",
+      "expected": "/base-13-1-0/base-13-1-1/base-13-1-2/base-13-1-3/base-13-1-4/base-13-1-5/base-13-1-6/base-13-1-7/代码-13/next-代码-13"
+    },
+    {
+      "id": "g13-v2",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-2-0/base-13-2-1/base-13-2-2/base-13-2-3/base-13-2-4/base-13-2-5/base-13-2-6/base-13-2-7",
+      "input": "./with space-13/next-with space-13/../../last-with space-13/../with space-13/next-with space-13",
+      "expected": "/base-13-2-0/base-13-2-1/base-13-2-2/base-13-2-3/base-13-2-4/base-13-2-5/base-13-2-6/base-13-2-7/with space-13/next-with space-13"
+    },
+    {
+      "id": "g13-v3",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-3-0/base-13-3-1/base-13-3-2/base-13-3-3/base-13-3-4/base-13-3-5/base-13-3-6/base-13-3-7",
+      "input": "./same-13/same-13/../../last-same-13/../same-13/same-13",
+      "expected": "/base-13-3-0/base-13-3-1/base-13-3-2/base-13-3-3/base-13-3-4/base-13-3-5/base-13-3-6/base-13-3-7/same-13/same-13"
+    },
+    {
+      "id": "g13-v4",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-4-0/base-13-4-1/base-13-4-2/base-13-4-3/base-13-4-4/base-13-4-5/base-13-4-6/base-13-4-7",
+      "input": "./back\\slash-13/next-back\\slash-13/../../last-back\\slash-13/../back\\slash-13/next-back\\slash-13",
+      "expected": "/base-13-4-0/base-13-4-1/base-13-4-2/base-13-4-3/base-13-4-4/base-13-4-5/base-13-4-6/base-13-4-7/back\\slash-13/next-back\\slash-13"
+    },
+    {
+      "id": "g13-v5",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-5-0/base-13-5-1/base-13-5-2/base-13-5-3/base-13-5-4/base-13-5-5/base-13-5-6/base-13-5-7",
+      "input": "./$HOME-13/next-$HOME-13/../../last-$HOME-13/../$HOME-13/next-$HOME-13",
+      "expected": "/base-13-5-0/base-13-5-1/base-13-5-2/base-13-5-3/base-13-5-4/base-13-5-5/base-13-5-6/base-13-5-7/$HOME-13/next-$HOME-13"
+    },
+    {
+      "id": "g13-v6",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-6-0/base-13-6-1/base-13-6-2/base-13-6-3/base-13-6-4/base-13-6-5/base-13-6-6/base-13-6-7",
+      "input": "./*.txt-13/next-*.txt-13/../../last-*.txt-13/../*.txt-13/next-*.txt-13",
+      "expected": "/base-13-6-0/base-13-6-1/base-13-6-2/base-13-6-3/base-13-6-4/base-13-6-5/base-13-6-6/base-13-6-7/*.txt-13/next-*.txt-13"
+    },
+    {
+      "id": "g13-v7",
+      "sourceGroup": "structure-13",
+      "partition": "holdout",
+      "cwd": "/base-13-7-0/base-13-7-1/base-13-7-2/base-13-7-3/base-13-7-4/base-13-7-5/base-13-7-6/base-13-7-7",
+      "input": "./$(literal)-13/next-$(literal)-13/../../last-$(literal)-13/../$(literal)-13/next-$(literal)-13",
+      "expected": "/base-13-7-0/base-13-7-1/base-13-7-2/base-13-7-3/base-13-7-4/base-13-7-5/base-13-7-6/base-13-7-7/$(literal)-13/next-$(literal)-13"
+    }
+  ]
+}

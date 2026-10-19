@@ -18,6 +18,18 @@
       "types": "./dist/browser-classify.d.ts",
       "import": "./dist/browser-classify.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
+    "./cli-training": {
+      "types": "./dist/cli-training.d.ts",
+      "import": "./dist/cli-training.js"
+    },
+    "./cli-goal": {
+      "types": "./dist/cli-goal.d.ts",
+      "import": "./dist/cli-goal.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"
@@ -35,6 +47,11 @@
     "demo:sampling": "npm run build && node playground/sampling/demo.mjs",
     "demo:basic-kinds": "npm run build && node playground/basic-kinds/demo.mjs",
     "demo:training": "npm run build && node playground/training/demo.mjs",
+    "demo:cli": "npm run build && node playground/cli/foundation.mjs",
+    "prepare:path-samples": "npm run build && node playground/cli/path-resolve/prepare.mjs",
+    "demo:path-training": "npm run build && node playground/cli/path-resolve/train.mjs",
+    "prepare:goal-samples": "npm run build && node playground/cli/observe-cwd/prepare.mjs",
+    "demo:goal-training": "npm run build && node playground/cli/observe-cwd/train.mjs",
     "build:extension": "npm run build && node scripts/build-extension.mjs",
     "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit"
   },
