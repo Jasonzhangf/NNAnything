@@ -201,7 +201,24 @@ function subtractAll(source: readonly Rect[], blocker: Rect): Rect[] | null {
   }
   return result;
 }
-function clippedBox(element: Element, window: Window, rect: Rect): Rect | null {
+function rootScrollport(document: Document, window: Window, root: Element, style: CSSStyleDeclaration): Rect | null {
+  if (document.compatMode !== "CSS1Compat" || document.scrollingElement !== root
+    || root !== document.documentElement || root.tagName.toLowerCase() !== "html"
+    || root.namespaceURI !== "http://www.w3.org/1999/xhtml") return null;
+  if (style.overflowX !== "auto" || style.overflowY !== "auto"
+    || style.transform !== "none" || style.translate !== "none" || style.rotate !== "none"
+    || style.scale !== "none" || style.perspective !== "none" || style.zoom !== "1"
+    || style.borderLeftWidth !== "0px" || style.borderTopWidth !== "0px"
+    || style.paddingLeft !== "0px" || style.paddingTop !== "0px") return null;
+  if (root.clientLeft !== 0 || root.clientTop !== 0
+    || ![root.clientWidth, root.clientHeight, root.scrollLeft, root.scrollTop, window.innerWidth, window.innerHeight].every(Number.isFinite)
+    || root.scrollLeft < 0 || root.scrollTop < 0
+    || window.innerWidth <= 0 || window.innerHeight <= 0
+    || root.clientWidth < 0 || root.clientHeight < 0
+    || root.clientWidth > window.innerWidth || root.clientHeight > window.innerHeight) return null;
+  return { x: 0, y: 0, width: root.clientWidth, height: root.clientHeight };
+}
+function clippedBox(element: Element, window: Window, rect: Rect, document: Document): Rect | null {
   let left = rect.x, top = rect.y, right = rect.x + rect.width, bottom = rect.y + rect.height;
   for (let parent: Element | null = element; parent; parent = parent.parentElement) {
     const style = window.getComputedStyle(parent);
@@ -214,6 +231,13 @@ function clippedBox(element: Element, window: Window, rect: Rect): Rect | null {
     const clipsX = ["hidden", "clip", "scroll", "auto"].includes(style.overflowX);
     const clipsY = ["hidden", "clip", "scroll", "auto"].includes(style.overflowY);
     if (!clipsX && !clipsY) continue;
+    if (parent === document.documentElement && parent.tagName.toLowerCase() === "html") {
+      const viewport = rootScrollport(document, window, parent, style);
+      if (viewport === null) return null;
+      if (clipsX) { left = Math.max(left, viewport.x); right = Math.min(right, viewport.x + viewport.width); }
+      if (clipsY) { top = Math.max(top, viewport.y); bottom = Math.min(bottom, viewport.y + viewport.height); }
+      continue;
+    }
     const bounds = parent.getBoundingClientRect();
     const x = bounds.x + parent.clientLeft, y = bounds.y + parent.clientTop;
     if (clipsX) { left = Math.max(left, x); right = Math.min(right, x + parent.clientWidth); }
@@ -415,7 +439,7 @@ export function observeLiveDom(input: {
     hiddenByElement.set(element, hidden);
     const visible = !hidden && style.visibility !== "hidden" && style.visibility !== "collapse";
     const fragments = visible ? Array.from(element.getClientRects(), rectOf) : [];
-    const clippedRect = clippedBox(element, window, rect);
+    const clippedRect = clippedBox(element, window, rect, document);
     const attributes: Record<string, string | boolean> = {};
     for (const key of ["aria-disabled", "aria-expanded", "aria-hidden", "aria-selected", "contenteditable", "disabled", "hidden", "tabindex"]) {
       const value = element.getAttribute(key);
