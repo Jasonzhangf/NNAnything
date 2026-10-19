@@ -17,6 +17,8 @@ L1-L4表示实现层次。每层开始时明确本轮入口、必需节点、结
 
 ## 2. DAGpipe与AppSDK分工
 
+每个语义及训练设计统一执行[本地设计标准流程](../.agents/skills/nnanything-design/SKILL.md#按依赖形成设计)，治理拓扑唯一源为 `workflows/project-design.graph.json`（0.2.0-design）。四元素基础合同唯一源为 [design.md 1.1](design.md#11-结构化语义的目标与状态推理)。准入要求为四元素语义闭合、SESE及最小必要性；任一不满足，回执给出具体缺口，只停止受影响下游。DAGpipe 管理持久图与静态校验，不代替语义判断、真实训练或行为验收。此为当前生效标准，不新增冻结快照、自动审核器或治理台账。
+
 DAGpipe管理项目对象流拓扑。任务先读受影响图，确认入口、依赖与结束闭合；缺边先修图。项目图放 workflows/ 顶层，执行配置引用它，不手抄第二套图。改图后validate/inspect一次；未变且证据有效时复用，不因写笔记、派单或改文字重验。L1候选图与基础规则采样图（dom-rule-sampling）及对应算子版本已升级为 0.1.0，并经 dagpipe validate/inspect 静态验证；其余远期图（dom-recognition、node-training、operation-episode）保持设计态（0.1.0-design）。静态通过不等于运行验收。流程清单与状态见 [workflows/README.md](../workflows/README.md)。
 
 AppSDK约束需求、治理资源和适用交付入口，不能替代业务行为验收。项目存在有效.appsdk/requirements.json时，通过正式requirements show读取适用条目并据此设计/验收；不存在或为空则注明跳过，不建占位文件，不伪称已受管。本轮没有初始化AppSDK控制面，也不执行服务安装/重启。
@@ -24,6 +26,8 @@ AppSDK约束需求、治理资源和适用交付入口，不能替代业务行�
 后续确需首次AppSDK入驻时，沿既有prepare→用户确认具体项目边界→init→verify合同。不代用户确认prepare，不用fresh/reset处理普通规则更新；初始化边界确认不扩展为日常agent派发许可。AppSDK和Collab状态分属不同owner，协作未注册不阻断独立开发或质量验收。
 
 ## 3. 派发与审批边界
+
+单元升级是独立于语义设计的 SESE 流程，图为 `workflows/model-evolution.graph.json`，裁决子图为 `model-conflict-design.graph.json`；唯一升级合同为 [model-evolution.md](model-evolution.md)。使用自动采样与真实训练是必要步骤，满足既有条件自动采用；存在回归或冲突时保留当前权重并交大模型裁决，不自动升级。两图修改后由 DAGpipe validate/inspect 管理，静态通过不代表升级功能已运行。
 
 已授权NNAnything项目范围内，只要符合全局宿主/角色/模型/权限与文件owner原则，编排者可直接派发观察、计划、执行和Review任务，无需逐次询问。派单明确目标、读写范围、依赖、验收、停止条件与回传位置。Planner、实现者和Reviewer分离，不用低档执行角色替代独立规划或Review。
 

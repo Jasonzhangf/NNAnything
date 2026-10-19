@@ -10,9 +10,9 @@
 | `cli-cwd-learning.graph.json` | 设计态，无运行配置 | 8 节点 9 边 (8N9E SESE) | `0.1.0-design` | CWD归属关系和PWD动作分别拟合、保存候选，在独立沙盒验证关系/动作/真实观测；docs/cli-cwd-training-design.md |
 | `cli-cd-learning.graph.json` | 设计态，无运行配置 | 7 节点 7 边 (7N7E SESE) | `0.1.0-design` | CD动作训练、实际执行及会话提交、后续同会话PWD验证；docs/cli-cd-training-design.md |
 | `cli-list-learning.graph.json` | 设计态，无运行配置 | 7 节点 7 边 (7N7E SESE) | `0.1.0-design` | LIST动作训练、固定结构化CLI列举、独立名称/类型/完整性及状态验证；docs/cli-list-training-design.md |
-| `project-design.graph.json` | 设计方法，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` | 本地基础设计资料流：语义目标、固定调用/harness、数值及外层图、独立样本/进化验收；操作方法归nnanything-design Skill |
-| `model-evolution.graph.json` | 设计态，无运行配置 | 10 节点 10 边 (10N10E SESE) | `0.1.0-design` | 所有模型使用采集、训练/使用隔离、配对评价、条件自动采用及冲突保留；统一合同docs/model-evolution.md |
-| `model-conflict-design.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design` | 大模型根据保留冲突定位owner、修订候选连线图纸并输出下一轮实现验证方案，不改在用版本 |
+| `project-design.graph.json` | 当前治理标准，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | 每个语义及训练设计的四元素闭合、训练反推、固定调用、图纸、独立验收与最小必要性准入；操作方法归nnanything-design Skill，不是自动审核器 |
+| `model-evolution.graph.json` | 设计态，无运行配置 | 10 节点 10 边 (10N10E SESE) | `0.2.0-design` | 单元升级：必需自动采样、隔离训练/回载、独立配对评价与回归、条件自动采用，回归/冲突保留并移交裁决；唯一合同docs/model-evolution.md |
+| `model-conflict-design.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.2.0-design` | 大模型对回归/冲突定位owner并裁决保留、拒绝、补证或修复；必要时修图并输出下一轮方案，不直接改在用权重 |
 | `cli-filesystem-curriculum.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design` | 真实目录沙盒中的CWD/pwd→cd→文件及子目录列举训练顺序；合同见docs/cli-filesystem-training.md |
 | `cli-filesystem-training.graph.json` | 设计态，无运行配置 | 8 节点 8 边 (8N8E SESE) | `0.1.0-design` | 单项能力共享训练过程，训练/开发资料与独立验证资料分支，候选后合流；不代表新执行器已实现 |
 | `cli-path-training.graph.json` | `cli-path-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 已实现 | 路径动作样本准备、真实Handwired拟合、自主完整路径评估与create-new候选/报告保存 |

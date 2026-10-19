@@ -1,28 +1,28 @@
 {
-  "id":"model-evolution","version":"0.1.0-design",
+  "id":"model-evolution","version":"0.2.0-design",
   "inputs":[{"id":"model_usage_episode","schema":"Object"}],
   "nodes":[
-    {"id":"采集使用样本及实际证据","operator":"model.evolution.capture","operator_version":"0.1.0-design","inputs":["model_usage_episode"],"output":{"id":"model_sample_pool","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"自动采集使用样本及实际证据","operator":"model.evolution.capture","operator_version":"0.2.0-design","inputs":["model_usage_episode"],"output":{"id":"model_sample_pool","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"复核监督并按来源分区","operator":"model.evolution.partition","operator_version":"0.1.0-design","inputs":["model_sample_pool"],"output":{"id":"model_partition_bundle","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"仅准备训练及开发资料","operator":"model.evolution.prepare-fit","operator_version":"0.1.0-design","inputs":["model_partition_bundle"],"output":{"id":"model_fit_request","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"准备独立验证及旧回归资料","operator":"model.evolution.prepare-evaluation","operator_version":"0.1.0-design","inputs":["model_partition_bundle"],"output":{"id":"model_evaluation_request","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"隔离拟合并保存候选版本","operator":"model.evolution.fit","operator_version":"0.1.0-design","inputs":["model_fit_request"],"output":{"id":"model_candidate_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"隔离训练保存并回载候选版本","operator":"model.evolution.fit","operator_version":"0.2.0-design","inputs":["model_fit_request"],"output":{"id":"model_candidate_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"配对比较当前版本与候选","operator":"model.evolution.compare","operator_version":"0.1.0-design","inputs":["model_candidate_receipt","model_evaluation_request"],"output":{"id":"model_comparison","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"判定提升回归冲突及证据","operator":"model.evolution.assess","operator_version":"0.1.0-design","inputs":["model_comparison"],"output":{"id":"model_adoption_decision","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"满足条件切换否则保留当前版本","operator":"model.evolution.adopt-or-hold","operator_version":"0.1.0-design","inputs":["model_adoption_decision"],"output":{"id":"model_adoption_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"保存冲突供大模型处理","operator":"model.evolution.retain-conflicts","operator_version":"0.1.0-design","inputs":["model_adoption_receipt"],"output":{"id":"model_conflict_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"保留回归冲突并移交大模型裁决","operator":"model.evolution.retain-conflicts","operator_version":"0.2.0-design","inputs":["model_adoption_receipt"],"output":{"id":"model_conflict_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
     {"id":"归档本轮版本结果","operator":"model.evolution.report","operator_version":"0.1.0-design","inputs":["model_conflict_receipt"],"output":{"id":"model_evolution_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges":[
-    {"from":"采集使用样本及实际证据","to":"复核监督并按来源分区","arc_id":"model_sample_pool"},
+    {"from":"自动采集使用样本及实际证据","to":"复核监督并按来源分区","arc_id":"model_sample_pool"},
     {"from":"复核监督并按来源分区","to":"仅准备训练及开发资料","arc_id":"model_partition_bundle"},
     {"from":"复核监督并按来源分区","to":"准备独立验证及旧回归资料","arc_id":"model_partition_bundle"},
-    {"from":"仅准备训练及开发资料","to":"隔离拟合并保存候选版本","arc_id":"model_fit_request"},
-    {"from":"隔离拟合并保存候选版本","to":"配对比较当前版本与候选","arc_id":"model_candidate_receipt"},
+    {"from":"仅准备训练及开发资料","to":"隔离训练保存并回载候选版本","arc_id":"model_fit_request"},
+    {"from":"隔离训练保存并回载候选版本","to":"配对比较当前版本与候选","arc_id":"model_candidate_receipt"},
     {"from":"准备独立验证及旧回归资料","to":"配对比较当前版本与候选","arc_id":"model_evaluation_request"},
     {"from":"配对比较当前版本与候选","to":"判定提升回归冲突及证据","arc_id":"model_comparison"},
     {"from":"判定提升回归冲突及证据","to":"满足条件切换否则保留当前版本","arc_id":"model_adoption_decision"},
-    {"from":"满足条件切换否则保留当前版本","to":"保存冲突供大模型处理","arc_id":"model_adoption_receipt"},
-    {"from":"保存冲突供大模型处理","to":"归档本轮版本结果","arc_id":"model_conflict_receipt"}
+    {"from":"满足条件切换否则保留当前版本","to":"保留回归冲突并移交大模型裁决","arc_id":"model_adoption_receipt"},
+    {"from":"保留回归冲突并移交大模型裁决","to":"归档本轮版本结果","arc_id":"model_conflict_receipt"}
   ],"outputs":["model_evolution_receipt"]
 }

@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-19 单元升级 DAG 补正
+
+验收：三张修改图均通过 DAGpipe validate/inspect，分别为 project-design 7N6E、model-evolution 10N10E、model-conflict-design 5N4E；均单入口单出口、无回边，operator 仍为 design，未冒充运行绑定。git diff --check 通过。纯合同/Skill/图纸修改，不运行无关训练或业务测试，不另开实现 Review；本轮未创建 worktree 或后台资源。
+
+用户明确自动使用样本采集及训练为升级必要环节；无回归且满足既有提升/证据/兼容条件自动升级，存在回归或冲突不自动改权重，保留当前版本交大模型决定。已补唯一合同 docs/model-evolution.md，既有 model-evolution 升为 0.2.0-design（10N10E），明确自动采样、训练保存/回载和裁决移交；model-conflict-design 升为 0.2.0-design（5N4E），由强制改图改为按裁决保留/拒绝/补证/必要修复，保留不直接写当前权重的边界。AGENTS、设计Skill、治理文档及图清单挂接同一合同。仍为设计交付，自动全模型采样、自动采用及裁决执行链尚未实现，历史离线候选继续 not_applied。
+
+## 2026-10-19 四元素语义与训练治理标准冻结
+
+用户明确每个语义及训练设计必须围绕 Goal/Hungry/State/Action 闭合、SESE、最小必要性，并要求由 DAGpipe 管理标准过程。已更新唯一基础合同 docs/design.md 1.1、设计流程 Skill 与既有 project-design 图至 0.2.0-design，保留 7N6E 单入口单出口。训练期反推与运行期真实状态评价分开；cwd 二元满足度 0/100，只有目标定义允许的 search 等使用中间满足度。Skill 逐节点规定产物、不通过条件和统一缺口回执，删除无必要节点/输入/wire/边/校验；AGENTS、治理文档及图清单仅挂接唯一 owner。不建立冻结快照、平行台账或自动审核器。本轮只修改治理合同，现有运行实现尚无 Hungry/通用满足度，未宣称已完成全模型迁移。
+
 ## 2026-10-19 CLI调用参数简化（设计补正）
 
 用户要求所有命令参数简化、不解析内容，以支持准确实际调用。唯一合同docs/cli-call-contract.md：所有接入命令使用固定operation与必要typed parameters；前三项映射既有cwd.get/cwd.set/directory.list，不另增协议别名。NN不生成shell或原生flags、不解析stdout/正文，harness绑定引用与原始路径argv、固定模板/默认参数、执行并读取机器回执或独立OS观测。三个详细训练设计、架构1.2、AGENTS及本地设计Skill已挂接；原pwd回执解析是现有adapter事实，不冒称NN学过。LIST固定helper的JSON解码是机器协议，不是训练内容理解。本轮仍仅设计，未修改运行代码。
