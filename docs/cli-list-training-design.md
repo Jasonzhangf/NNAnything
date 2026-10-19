@@ -52,6 +52,6 @@ Goal为`{kind:"list_directory",session:S,target:absoluteTarget}`；调用另带`
 
 ## 外层DAG与owner
 
-未发布的独立`cli-list-learning.graph.json`已删除。当前推理统一走`cli-command-step.graph.json`（3节点/2边，0.1.0）。多阶段训练走`cli-filesystem-training.graph.json`（8节点/8边，0.1.0）及同名workflow配置；它接收调用者准备并分区的dataset，不生成fixture或自行启动新进程回载。`cli-filesystem-curriculum.graph.json`（5节点/4边，0.1.0-design）只是公开consumer的PWD→CD→LS顺序流程设计描述，不是运行配置或新引擎。
+未发布的独立`cli-list-learning.graph.json`已删除。当前推理统一走`cli-command-step.graph.json`（3节点/2边，0.1.0）。多阶段训练走`cli-filesystem-training.graph.json`（8节点/8边，0.1.0）及同名workflow配置；它接收调用者准备并分区的dataset，不生成fixture或自行启动新进程回载。`cli-filesystem-curriculum.graph.json`（7节点/6边，0.2.0-design）只是公开consumer的PWD→CD→LS前三阶段及后续属性单元设计描述，不是运行配置或新引擎。
 
 owner：`lib/adapters/cli/`负责固定helper与实际列举；`lib/filters/`负责条目校验与后条件；数值电路与拟合由共享训练owner承担。实现前红测抓“用空白拆文件名”、“漏点开头条目”、“列举后代”、“partial冒充complete”和“列举误改cwd”。

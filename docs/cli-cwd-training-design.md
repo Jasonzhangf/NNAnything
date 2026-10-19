@@ -74,7 +74,7 @@ train家族：普通双session、含空格目录、同目录不同session、已�
 
 ## 外层DAG、验收与实施owner
 
-旧`cli-cwd-learning.graph.json`及同名workflow配置从未发布，已随“一份共享profile”的要求删除；不得引用为当前图。当前推理图是`workflows/cli-command-step.graph.json`（3节点/2边，0.1.0）及同名workflow配置。多阶段训练图是`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.1.0）及同名workflow配置，接收调用者准备并分区的dataset，不生成fixture或自行启动新进程回载；这些由公开consumer完成。`workflows/cli-filesystem-curriculum.graph.json`（5节点/4边，0.1.0-design）只是公开consumer 5N4E顺序流程的设计描述，不是运行配置或新引擎。独立验证由单独consumer载入已保存候选，不进入fitter。未提供workflow可选verification资源时，receipt的fullyVerified为false；train/dev accepted不冒充独立验收。
+旧`cli-cwd-learning.graph.json`及同名workflow配置从未发布，已随“一份共享profile”的要求删除；不得引用为当前图。当前推理图是`workflows/cli-command-step.graph.json`（3节点/2边，0.1.0）及同名workflow配置。多阶段训练图是`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.1.0）及同名workflow配置，接收调用者准备并分区的dataset，不生成fixture或自行启动新进程回载；这些由公开consumer完成。`workflows/cli-filesystem-curriculum.graph.json`（7节点/6边，0.2.0-design）只是公开consumer前三阶段及后续属性单元的设计描述，不是运行配置或新引擎。独立验证由单独consumer载入已保存候选，不进入fitter。未提供workflow可选verification资源时，receipt的fullyVerified为false；train/dev accepted不冒充独立验收。
 
 历史独立基线验收为：关系16/16和动作12/12验证题均正确；4个正常真实pwd均满足后条件；所有失败探针都未错误达成Goal；已有pwd/路径回归零退化；新进程回载分数/动作一致；所有必需指标完整，否则不采用。这里是历史有限样本精确门槛，不是概率校准声明。当前共享模型的验收结果与计数见[共享模型实测](cli-filesystem-training-results.md)，本文不重复。动作guard与错误策略分别计数。
 
