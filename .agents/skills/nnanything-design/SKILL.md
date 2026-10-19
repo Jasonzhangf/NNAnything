@@ -46,8 +46,9 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 
 ## 复用与路由
 
-- CLI统一共享命令模型与增量训练唯一权威合同：[文件系统训练合同](../../../docs/cli-filesystem-training.md)；操作目录：[CLI语义目录](../../../docs/cli-semantic-operations.md)。全命令收敛为单一模型（`cli.command-policy.v1`），依序递进增量训练PWD（4参数）→CD（9参数）→LS（16参数）。
-- 所有CLI命令输出标准调用序列 `["pwd"]`、`["cd", D]`、`["ls", D]`，S置于显式信封，由harness分流执行对应固定操作；参数与调用规范沿[参数简化合同](../../../docs/cli-call-contract.md)。模型不生成shell语法/原生flags，不解析输出内容；`ls`由固定编译helper列举直接子项，不训练`/bin/ls`文本解析。
+- CLI统一目标为 [file.property.xxx](../../../docs/cli-filesystem-semantics.md)，路径、目录、普通/特殊文件的属性观测与变化共用 `cli-file-property.graph.json`；不新增零散Goal或平行核心语义。目录/文件操作完整设计目录沿 [CLI语义目录](../../../docs/cli-semantic-operations.md)。训练顺序与真实目录沙盒沿 [文件系统训练设计](../../../docs/cli-filesystem-training.md)，先CWD/pwd→cd→列举，再目录操作、文件操作；设计补全不等于已实现或授权操作真实用户文件。
+- 所有CLI命令接入先沿[参数简化合同](../../../docs/cli-call-contract.md)定义固定操作和最小typed引用，再设计harness映射。NN不生成shell/原生flags，不解析输出内容；固定机器协议解码与独立OS状态观测由harness负责，不算学生能力。
+- 当前兼容切片使用单一共享命令模型 `cli.command-policy.v1`，PWD→CD→LS增量扩展4→9→16参数，输出 `["pwd"]`、`["cd",D]`、`["ls",D]`；S在显式绑定中，参数由harness机械绑定。实测沿文件系统训练合同，统一属性Goal尚未迁移。
 - DOM特征/wire、增量拟合和跨页回归：沿[本地训练Skill](../nnanything-training/SKILL.md)。本Skill不重写其算法和命令，也不把静态DOM判断当浏览器operation验收。
 - 冲突先定位到观测、语义/特征、数值连线、参数、harness或评价owner。若需改连线，先更新唯一图纸与合同，再交独立计划/实现/验证；不改黄金语义或删退化例以取得升级。
 - 纯合同或图纸更新交付设计和校验结果；没有真实执行不宣称训练、全模型采集或自动升级完成。实际代码开发的独立Plan、gate/红测、Review、Git交付与资源收口沿已有项目/全局规则。

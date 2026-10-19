@@ -1,17 +1,21 @@
 {
-  "id":"cli-filesystem-curriculum","version":"0.1.0-design",
+  "id":"cli-filesystem-curriculum","version":"0.2.0-design",
   "inputs":[{"id":"filesystem_curriculum_request","schema":"Object"}],
   "nodes":[
-    {"id":"确定沙盒与样本分区","operator":"cli.command.curriculum.prepare","operator_version":"0.1.0-design","inputs":["filesystem_curriculum_request"],"output":{"id":"filesystem_curriculum_plan","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"拟合PWD阶段共享候选","operator":"cli.command.curriculum.pwd","operator_version":"0.1.0-design","inputs":["filesystem_curriculum_plan"],"output":{"id":"pwd_shared_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"按名称扩展并拟合CD阶段共享候选","operator":"cli.command.curriculum.cd","operator_version":"0.1.0-design","inputs":["pwd_shared_candidate"],"output":{"id":"cd_shared_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"按名称扩展并拟合LS阶段共享候选","operator":"cli.command.curriculum.ls","operator_version":"0.1.0-design","inputs":["cd_shared_candidate"],"output":{"id":"ls_shared_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"汇总共享候选与分命令结果","operator":"cli.command.curriculum.report","operator_version":"0.1.0-design","inputs":["ls_shared_candidate"],"output":{"id":"filesystem_curriculum_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+    {"id":"确定沙盒与样本分区","operator":"cli.fs.curriculum.prepare","operator_version":"0.1.0-design","inputs":["filesystem_curriculum_request"],"output":{"id":"filesystem_curriculum_plan","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"训练CWD概念及pwd获取","operator":"cli.fs.curriculum.cwd","operator_version":"0.1.0-design","inputs":["filesystem_curriculum_plan"],"output":{"id":"cwd_capability_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"训练cd改变会话目录","operator":"cli.fs.curriculum.cd","operator_version":"0.1.0-design","inputs":["cwd_capability_receipt"],"output":{"id":"cd_capability_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"训练目录文件与子目录列举","operator":"cli.fs.curriculum.list","operator_version":"0.1.0-design","inputs":["cd_capability_receipt"],"output":{"id":"list_capability_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"补全目录与路径属性操作单元","operator":"cli.fs.curriculum.directory-properties","operator_version":"0.1.0-design","inputs":["list_capability_receipt"],"output":{"id":"directory_properties_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"补全文件属性操作及关联单元","operator":"cli.fs.curriculum.file-properties","operator_version":"0.1.0-design","inputs":["directory_properties_receipt"],"output":{"id":"file_properties_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总属性单元验收及具体缺口","operator":"cli.fs.curriculum.report","operator_version":"0.2.0-design","inputs":["file_properties_receipt"],"output":{"id":"filesystem_curriculum_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges":[
-    {"from":"确定沙盒与样本分区","to":"拟合PWD阶段共享候选","arc_id":"filesystem_curriculum_plan"},
-    {"from":"拟合PWD阶段共享候选","to":"按名称扩展并拟合CD阶段共享候选","arc_id":"pwd_shared_candidate"},
-    {"from":"按名称扩展并拟合CD阶段共享候选","to":"按名称扩展并拟合LS阶段共享候选","arc_id":"cd_shared_candidate"},
-    {"from":"按名称扩展并拟合LS阶段共享候选","to":"汇总共享候选与分命令结果","arc_id":"ls_shared_candidate"}
+    {"from":"确定沙盒与样本分区","to":"训练CWD概念及pwd获取","arc_id":"filesystem_curriculum_plan"},
+    {"from":"训练CWD概念及pwd获取","to":"训练cd改变会话目录","arc_id":"cwd_capability_receipt"},
+    {"from":"训练cd改变会话目录","to":"训练目录文件与子目录列举","arc_id":"cd_capability_receipt"},
+    {"from":"训练目录文件与子目录列举","to":"补全目录与路径属性操作单元","arc_id":"list_capability_receipt"},
+    {"from":"补全目录与路径属性操作单元","to":"补全文件属性操作及关联单元","arc_id":"directory_properties_receipt"},
+    {"from":"补全文件属性操作及关联单元","to":"汇总属性单元验收及具体缺口","arc_id":"file_properties_receipt"}
   ],"outputs":["filesystem_curriculum_receipt"]
 }

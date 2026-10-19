@@ -1,6 +1,9 @@
 # 文件系统沙盒与共享命令模型增量训练
 
 状态：实施合同，源码已实现；正式共享训练（PWD→CD→LS）与独立验证已通过；作者全量回归、整体Review与集成待完成。实测计数、计时与run记录见[共享模型实测](cli-filesystem-training-results.md)，本文不重复历史表。本文是全命令统一共享模型与增量训练的唯一权威合同。总体Goal/State定义见[总体设计1.1](design.md#11-结构化语义的目标与状态推理)；调用与资源信封见[参数简化合同](cli-call-contract.md)；精确操作与固定映射见[语义目录](cli-semantic-operations.md)。
+2026-10-19 设计扩展：前三项仍为首轮实施顺序，之后补全目录/路径操作，再补文件操作，目录见 [cli-semantic-operations.md](cli-semantic-operations.md)2.1/2.2。所有新语义统一为 [file.property.xxx](cli-filesystem-semantics.md)，内容、用途、条件与能力关联均归为属性判断和属性状态变化，复用 `cli-file-property.graph.json`，不零散增加Goal。下列原始题型和已实现入口保持历史真实合同；迁移由各owner在独占实现中完成，不靠文档冒称迁移生效。
+
+用户已选择真实文件系统中的专用沙盒目录，不声称硬件、虚拟机或操作系统权限隔离。目录/文件属性扩展仍为设计，不将静态图校验称为新增执行器已实现。
 
 ## 1. 统一共享命令模型
 
@@ -55,6 +58,9 @@ const transition = await policy.step({
 ## 3. 样本分区与监督标签迁移
 
 保留来源家族隔离：共享数据集含4个train家族与2个development家族，同一家族不跨分区。正式共享run未提供可选verification资源；4个独立verification家族由独立作者另建，由父级独立报告单独记录。
+共享训练图适用于目录与文件属性单元，入口必须提供具体属性键、对象、Goal条件、satisfactionThreshold、可见State及可学习Action关系。训练期反推达标属性与前置条件；每项补齐自己的输入/wire/参数/损失后才可实施。当前图没有自动获得新属性模型或新harness，具体缺口沿属性合同第5节记录；完成训练与独立回载后再进入既有model-evolution单元升级流程。
+
+共享过程是单源单汇DAG。分区声明之后分成两条资料链：训练/开发准备与独立验证准备。拟合节点只收到训练资料；独立验证资料在候选形成后才与候选合流。验证不回流修改本轮参数。
 
 每条样本按实际语义打标，严禁将支持的命令在其他命令训练中打上REJECT：
 - `observe_cwd` → `pwd`
