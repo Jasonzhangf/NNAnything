@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-19 CLI共享前三项最终集成验收
+
+本轮共享CLI计划7/7项均已验收：CLI候选全仓回归253/253通过、0失败、0skip；真实训练、独立验收、满足度与来源隔离修复均沿用已有有效证据。独立复核`review-final.json`无finding，`review-verdict.json`为PASS，未发现新增实质变化，不重复整体Review。
+
+候选在clean状态下与最新origin/main核对后，以正常git merge --ff-only合入canonical main。此时origin/main未出现候选未组合的新提交，保留公共file.property设计与真实8N8E运行图。canonical npm run build通过；新进程执行public reload entry，结果为24题、18次显式正常调用、fitted=false，未重训、未采用候选。
+
+共享命令候选保持uncalibrated/not_applied。自动采集、当前版本引用、自动配对采用、LLM冲突裁决及file.property新算子/harness仍未实现。本段只记录集成验收；push与自有worktree清理的最终回执见外置`/Volumes/Intel/playground/nnanything-runs/cli-basics-training/delivery-result.md`，不在本段预写未来结果。
+
 ## 2026-10-19 公共设计354978c与候选合流
 
 canonical公共file.property命令/训练设计提交354978c已推送origin/main，本次以正常merge合入当前CLI候选。保留公共新增的cli-command-design、cli-property-training-design及属性/语义合同扩展；保留候选真实8N8E训练图和绑定，算子仍为`cli.command.*@0.1.0`。公共基于旧main的`cli.fs.*@0.2.0-design`图内容作为未来属性单元设计保留在合同，不覆盖运行图；observe_cwd/set_cwd/list_directory兼容切片未迁移，不能据此宣称新属性模型已训练或采用。curriculum保持公共7N6E设计，公开consumer仍只执行PWD→CD→LS前三阶段。
