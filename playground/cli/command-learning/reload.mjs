@@ -23,7 +23,8 @@ for (const recorded of [...report.comparison.train.rows, ...report.comparison.de
       state: { session: 's', cwdObservation: null, directoryListing: null }, ...(directory ? { directory } : {}),
     });
     assert.equal(transition.policy.selectedHead, sample.expectedHead);
-    assert.equal(transition.goal_result.status, sample.expectedHead === 'unsupported' ? 'unmet' : 'achieved');
+    assert.equal(transition.goal_result.status, sample.expectedHead === 'unsupported' ? 'unverified' : 'achieved');
+    assert.equal(transition.goal_result.satisfaction, sample.expectedHead === 'unsupported' ? null : 100);
     if (sample.expectedHead !== 'unsupported') {
       executions++;
       assert.equal(transition.invocation[0], sample.expectedHead);

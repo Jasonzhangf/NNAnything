@@ -60,6 +60,15 @@ test('LIST receipt records the complete native argv and refuses a mismatched Goa
     assert.equal(mismatch.goal_result.reason, 'target_mismatch');
     assert.equal(mismatch.execution_result.executorInvoked, false);
     assert.deepEqual(sandbox.getSession(session), before);
+    const wrongUnsupported = await api.createCliCommandPolicy({ profile: api.zeroCliCommandProfile(['pwd', 'cd', 'ls']), sandbox, session }).step({
+      goal: { kind: 'observe_cwd', session: 's' },
+      state: { session: 's', cwdObservation: null, directoryListing: null },
+    });
+    assert.deepEqual(wrongUnsupported.policy_error, { expectedHead: 'pwd', selectedHead: 'unsupported' });
+    assert.equal(wrongUnsupported.execution_result.status, 'rejected');
+    assert.equal(wrongUnsupported.execution_result.executorInvoked, false);
+    assert.deepEqual(wrongUnsupported.goal_result, { status: 'unmet', satisfaction: 0, reason: 'unexpected_command', changed: false });
+    assert.deepEqual(sandbox.getSession(session), before);
   } finally { if (sandbox) await sandbox.cleanup(); await rm(root, { recursive: true, force: true }); }
 });
 

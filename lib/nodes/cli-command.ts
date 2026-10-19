@@ -12,6 +12,13 @@ export type CliCommandState = CliGoalState & Readonly<{ directoryListing: null |
 }> }>;
 export type CliCommandRequest = Readonly<{ goal: StructuredCliGoal; state: CliCommandState; directory?: DirectoryRef }>;
 export type CliCommandInvocation = readonly ["pwd"] | readonly ["cd" | "ls", DirectoryRef];
+export const CLI_COMMAND_GOAL_CONFIG = Object.freeze({ satisfactionThreshold: 100 as const });
+export type CliCommandGoalResult = Readonly<{
+  status: "achieved" | "unmet" | "unverified";
+  satisfaction: 0 | 100 | null;
+  reason: string;
+  changed: boolean;
+}>;
 export type CliCommandTransition = Readonly<{
   goal: StructuredCliGoal; state_before: CliCommandState;
   policy: ReturnType<typeof predictCliCommand>;
@@ -22,7 +29,7 @@ export type CliCommandTransition = Readonly<{
   session_before: SessionSnapshot; session_after: SessionSnapshot;
   observed_state_after: CliCommandState;
   postcondition: null | Readonly<{ receipt: SemanticCallReceipt; matchedTarget: boolean }>;
-  goal_result: Readonly<{ status: "achieved" | "unmet" | "unverified"; reason: string; changed: boolean }>;
+  goal_result: CliCommandGoalResult;
 }>;
 export type CliCommandBinding = Readonly<{ profile: CliCommandProfile; sandbox: CliFilesystemSandbox; session: SessionRef }>;
 
@@ -41,6 +48,12 @@ export function validateCliCommandRequest(value: unknown, session: SessionRef): 
 
 const record = (value: unknown) => expectRecord(value, "command workflow payload");
 const port = (name: string) => ({ name, schemaId: `cli.${name}.v1`, eventType: `cli.${name}.v1`, validate: record });
+const goalResult = (status: CliCommandGoalResult["status"], reason: string, changed: boolean): CliCommandGoalResult => Object.freeze({
+  status,
+  satisfaction: status === "achieved" ? CLI_COMMAND_GOAL_CONFIG.satisfactionThreshold : status === "unmet" ? 0 : null,
+  reason,
+  changed,
+});
 
 export function createCliCommandStepNodes(binding: CliCommandBinding): readonly NodeDefinition[] {
   const profile = validateCliCommandProfile(binding.profile), { sandbox, session } = binding;
@@ -81,34 +94,44 @@ export function createCliCommandStepNodes(binding: CliCommandBinding): readonly 
         };
         const { input, policy, receipt } = item;
         let state = input.state, postcondition: CliCommandTransition["postcondition"] = null;
-        let status: "achieved" | "unmet" | "unverified" = "unmet", reason = item.reason;
+        let status: CliCommandGoalResult["status"] = "unmet", reason = item.reason;
         const changed = item.after.revision !== item.before.revision || item.after.cwd !== item.before.cwd;
-        if (receipt?.execution.status === "succeeded") {
+        if (receipt === null && item.policy_error === null && policy.selectedHead === "unsupported") {
+          status = "unverified"; reason = "unsupported";
+        } else if (receipt?.execution.status === "succeeded") {
           const observed = receipt.execution.observation;
           if (policy.selectedHead === "cd" && observed.kind === "cwd.set") {
             const post = await sandbox.execute({ operation: "cwd.get", parameters: { session } });
-            const matchedTarget = post.execution.status === "succeeded" && post.execution.observation.kind === "pwd"
+            const validPost = post.execution.status === "succeeded" && post.execution.observation.kind === "pwd";
+            const matchedTarget = validPost
               && post.execution.observation.physicalCwd === observed.targetPhysicalPath && sandbox.getSession(session).cwd === observed.targetPhysicalPath;
             postcondition = { receipt: post, matchedTarget };
-            status = matchedTarget ? "achieved" : "unverified"; reason = matchedTarget ? "fresh_pwd_matches_target" : "postcommit_observation_failed";
-            if (matchedTarget && post.execution.status === "succeeded" && post.execution.observation.kind === "pwd") state = { ...state,
-              cwdObservation: { physicalCwd: post.execution.observation.physicalCwd, evidence: post.execution.observation, sourceRun: post.execution.runId } };
+            if (matchedTarget && validPost) {
+              status = "achieved"; reason = "fresh_pwd_matches_target";
+              state = { ...state, cwdObservation: { physicalCwd: post.execution.observation.physicalCwd,
+                evidence: post.execution.observation, sourceRun: post.execution.runId } };
+            } else if (validPost) {
+              status = "unmet"; reason = "postcommit_target_mismatch";
+            } else {
+              status = "unverified"; reason = "postcommit_observation_failed";
+            }
           } else if (observed.kind === "pwd" && !changed) {
             state = { ...state, cwdObservation: { physicalCwd: observed.physicalCwd, evidence: observed, sourceRun: receipt.execution.runId } };
             status = "achieved"; reason = "fresh_pwd_observation";
           } else if (observed.kind === "directory.list" && !changed) {
-            if (observed.coverage === "complete") {
+            if (observed.coverage === "complete" && observed.entries.every(entry => entry.type !== "unknown")) {
               state = { ...state, directoryListing: { directory: observed.physicalDirectory, entries: observed.entries, coverage: "complete", errors: [], evidence: observed, sourceRun: receipt.execution.runId } };
               status = "achieved"; reason = "complete_listing";
-            } else reason = "partial_coverage";
-          } else reason = "unexpected_state_change";
+            } else { status = "unverified"; reason = "partial_coverage"; }
+          } else if (changed) reason = "unexpected_state_change";
+          else { status = "unverified"; reason = "unexpected_observation"; }
         }
         const result: CliCommandTransition = { goal: input.goal, state_before: input.state, policy, policy_error: item.policy_error,
           invocation: item.invocation, call: item.call,
           execution_result: { status: receipt === null ? item.policy_error === null && policy.selectedHead === "unsupported" ? "unsupported" : "rejected" : receipt.status,
             executorInvoked: receipt?.execution.executorInvoked ?? false, receipt, reason: item.reason },
           session_before: item.before, session_after: sandbox.getSession(session), observed_state_after: state, postcondition,
-          goal_result: { status, reason, changed } };
+          goal_result: goalResult(status, reason, changed) };
         return context.emit(result);
       } },
   ];

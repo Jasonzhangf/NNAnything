@@ -5,6 +5,45 @@
 
 用户已选择真实文件系统中的专用沙盒目录，不声称硬件、虚拟机或操作系统权限隔离。目录/文件属性扩展仍为设计，不将静态图校验称为新增执行器已实现。
 
+## 0. 固定四元素与满足度评价
+
+当前共享命令入口固定 `satisfactionThreshold=100`。公开固定配置为 `CLI_COMMAND_GOAL_CONFIG`，运行时不能从`.step()`请求、profile或环境选择任意阈值。`goal_result`使用公开`CliCommandGoalResult`类型，保存实际`satisfaction: 0 | 100 | null`；结果不重复保存阈值。
+
+| 单元 | Goal / satisfactionThreshold | State | Action与达标事实 |
+| --- | --- | --- | --- |
+| PWD | 本请求新观测S的物理cwd；100 | 显式S、旧知识及来源、harness执行条件 | 共享模型选`pwd`；harness执行本次真实观测；S.cwd/revision不变且证据属于本次S |
+| CD | 本请求执行并确认S到达D；100 | S当前执行基准、D typed绑定、授权及旧知识 | 共享模型选`cd`；harness提交S，再用同一S的新PWD确认目标 |
+| LS | 本请求完整观测D的直接条目及类型；100 | S、D、旧目录知识及执行条件 | 共享模型选`ls`；harness返回本次完整、有类型证据的直接列举，S不变 |
+| CWD关系 | 正确判定候选知识是否属于查询S；100 | 查询引用、候选观测槽位；学生输入仍为`sameSession/hasObservation` | 计算既有六参数模型，输出`MATCH/NO_MATCH`；有监督时正确为100、错误为0，无评价真值时未知 |
+
+PWD、CD、LS都要求本请求的新动作及新证据。旧知识、同目标CD或关系`MATCH`均不提前完成Goal。State、授权及固定阈值当前不改变该切片的正确命令头，因此保留在harness或固定配置中；学生仍只学习Goal kind到命令头的选择。训练期反推关系为`Goal + 固定100 → 必需实际New State/证据 → 所需命令 → harness前置条件`。这是监督和样本设计关系，不是数值梯度反传；既有Handwired梯度路径不变。
+
+| 实际路径 | Goal结果 | 边界 |
+| --- | --- | --- |
+| PWD成功，本次观测有效且S未变 | `achieved / 100` | 写入本次cwd知识及来源 |
+| PWD native OS或grant失败 | `unmet / 0` | 本请求新观测未完成；旧知识保留，不评价未知真实cwd |
+| 错命令头被guard拒绝或目标引用不匹配 | `unmet / 0` | 保留`policy_error`或目标绑定错误，不执行错误动作 |
+| 未支持或没有定义评价规则的语义Goal | `unverified / null` | `execution_result.status=unsupported`，不调用executor |
+| CD提交前失败或拒绝 | `unmet / 0` | S不变；旧cwd已等于目标也不能算本请求完成 |
+| CD提交后同S新PWD与目标一致 | `achieved / 100` | 保留真实提交、新观测及副作用 |
+| CD已提交，后续观测失败或证据不足 | `unverified / null` | 保留新S、实际`changed`及失败回执，不回滚 |
+| CD后续观测有效且明确不匹配 | `unmet / 0` | 保留实际改变，不以未知覆盖已证失败 |
+| LS完整且全部必要类型有证据，S未变 | `achieved / 100` | 写入本次完整目录知识 |
+| LS native或grant失败 | `unmet / 0` | 本请求新列举未完成，旧知识保留 |
+| LS partial、类型unknown或必要条目证据不足 | `unverified / null` | 不定义比例满足度，不覆盖旧完整知识 |
+| 已证发生禁止的cwd/revision副作用 | `unmet / 0` | 必要条件为假，即使产生观测也不能达成 |
+
+`changed`只表示实际session的cwd/revision变化，不表示知识变化或目标成败。PWD/LS新增知识可以为`changed:false`；CD验证失败仍可能为`changed:true`。固定100不提高模型分数、执行成功或harness权限的效力，满足度也不代替真实Goal验收。
+
+两个CLI可训练单元按公共设计资料流和升级对象流挂接，不复制公共规则：
+
+| 单元 | 设计流程 | 单元升级与冲突 | 当前状态 | 具体缺口 |
+| --- | --- | --- | --- | --- |
+| 共享命令模型 | `workflows/project-design.graph.json` | `workflows/model-evolution.graph.json`、`workflows/model-conflict-design.graph.json` | 离线增量训练、保存后新进程回载、独立评价及旧命令回归已有证据；候选`uncalibrated/not_applied` | 使用样本自动采集、显式当前版本引用、自动配对比较采用、自动冲突移交及LLM裁决执行链未实现 |
+| CWD关系模型 | `workflows/project-design.graph.json` | `workflows/model-evolution.graph.json`、`workflows/model-conflict-design.graph.json` | 六参数关系分类、历史离线评价及回载证据保留；不作为命令selector | 使用样本自动采集、显式当前版本引用、自动比较采用、自动冲突移交及LLM裁决执行链未实现 |
+
+下一步顺序沿公共合同：先补自动使用采集及使用/候选隔离，再补当前版本与配对比较/自动采用，最后补冲突裁决执行链。当前不得把自动升级、自动采集或LLM裁决写成已完成。
+
 ## 1. 统一共享命令模型
 
 本项目使用单一共享模型与权重profile承载所有已注册的CLI命令（`pwd`、`cd`、`ls`）与不支持识别：
@@ -92,7 +131,7 @@ const transition = await policy.step({
 
 - 推理DAG：`workflows/cli-command-step.graph.json`（3节点/2边，0.1.0）及同名workflow配置，负责接收Goal/State，通过共享profile计算分数，选出命令头与参数引用，经harness分流执行并验证后条件，收敛于统一SESE出口。
 - 训练DAG：`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.1.0）及同名workflow配置，接收调用者准备并分区的dataset。它不生成fixture，也不自行启动新进程回载；fixture由公开consumer的`makeCliCommandFixture`创建，各阶段保存候选后由consumer重新读取，并以新进程运行reload脚本。
-- 阶段调度：`workflows/cli-filesystem-curriculum.graph.json`（5节点/4边，0.1.0-design）是公开consumer按PWD→CD→LS顺序执行5N4E流程的设计描述，不是运行配置、新引擎或workflow绑定。旧未发布的cli-cwd/cd/list-learning图已删除。
+- 阶段调度：`workflows/cli-filesystem-curriculum.graph.json`现为7节点/6边、0.2.0-design，前三项后接目录/文件属性设计；公开consumer只执行已实现的PWD→CD→LS共享增量训练，不执行新增设计单元。课程图不是运行配置、新引擎或workflow绑定。旧未发布的cli-cwd/cd/list-learning图已删除。
 - 拟合迭代：epoch循环在数值拟合器内完成，不给外层workflow加回边。
 
 ## 6. 当前实施状态与验收底线

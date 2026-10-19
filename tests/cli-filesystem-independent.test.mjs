@@ -71,7 +71,8 @@ test('saved shared CLI candidate passes independent command, state, naming and f
       const policy = api.createCliCommandPolicy({ profile, sandbox: scene.sandbox, session: scene.query });
       const transition = await policy.step({ goal, state: emptyState(scene.query), ...(directory ? { directory } : {}) });
       assert.equal(transition.policy.selectedHead, head); assert.equal(transition.policy_error, null);
-      assert.equal(transition.goal_result.status, head === 'unsupported' ? 'unmet' : 'achieved');
+      assert.equal(transition.goal_result.status, head === 'unsupported' ? 'unverified' : 'achieved');
+      assert.equal(transition.goal_result.satisfaction, head === 'unsupported' ? null : 100);
       if (head === 'unsupported') {
         assert.equal(transition.invocation, null); assert.equal(transition.execution_result.executorInvoked, false);
       } else {
@@ -161,9 +162,10 @@ test('saved shared CLI candidate passes independent command, state, naming and f
       assert.equal(transition.policy.selectedHead, head); assert.equal(transition.policy_error, null);
       assert.notEqual(transition.goal_result.status, 'achieved');
       if (probe === 'postcommit-observation') {
-        assert.equal(transition.goal_result.status, 'unverified'); assert.equal(transition.goal_result.changed, true);
+        assert.equal(transition.goal_result.status, 'unverified'); assert.equal(transition.goal_result.satisfaction, null); assert.equal(transition.goal_result.changed, true);
         assert.equal(transition.session_after.cwd, await realpath(target)); assert.equal(transition.session_after.revision, before.revision + 1);
       } else {
+        assert.equal(transition.goal_result.status, 'unmet'); assert.equal(transition.goal_result.satisfaction, 0);
         assert.equal(transition.execution_result.receipt.status, 'failed');
         assert.ok(transition.execution_result.receipt.execution.error.code); assert.deepEqual(scene.sandbox.getSession(scene.query), before);
       }
@@ -190,7 +192,7 @@ test('saved shared CLI candidate passes independent command, state, naming and f
     const initial = await policy.step({ goal, state: emptyState(scene.query), directory }); assert.equal(initial.goal_result.status, 'achieved');
     fault = true;
     const partial = await policy.step({ goal, state: initial.observed_state_after, directory });
-    assert.equal(partial.policy.selectedHead, 'ls'); assert.equal(partial.goal_result.status, 'unmet'); assert.equal(partial.goal_result.reason, 'partial_coverage');
+    assert.equal(partial.policy.selectedHead, 'ls'); assert.equal(partial.goal_result.status, 'unverified'); assert.equal(partial.goal_result.satisfaction, null); assert.equal(partial.goal_result.reason, 'partial_coverage');
     const observed = partial.execution_result.receipt.execution.observation;
     assert.equal(observed.coverage, 'partial'); assert.equal(observed.entries.find(entry => entry.name === scene.spec.files[0]).type, 'unknown');
     assert.deepEqual(observed.errors.map(({ name, code }) => ({ name, code })), [{ name: scene.spec.files[0], code: 'ENOENT' }]);

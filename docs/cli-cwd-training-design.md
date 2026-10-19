@@ -4,6 +4,14 @@
 
 调用边界统一沿[参数简化合同](cli-call-contract.md)：模型输出调用序列 `["pwd"]`。profile、sandbox与session在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`；每次调用传`step({ goal, state })`，请求没有`resources`字段。harness固定映射到 `cwd.get(session:S)`。NN不解析命令输出内容。
 
+## 固定Goal、阈值与评价
+
+共享命令入口的PWD Goal固定`satisfactionThreshold=100`，实际`satisfaction`只取100、0或null。成功要求本请求产生属于S的新PWD观测，且S.cwd/revision不变：完全成立为`achieved/100`；native OS或grant失败为`unmet/0`；没有定义评价真值时为`unverified/null`。过期观测、关系`MATCH`和其他session的PWD都不提前完成Goal。固定配置和公开结果类型唯一维护于[文件系统训练合同](cli-filesystem-training.md)。
+
+CWD关系概念仍只输出`MATCH/NO_MATCH`分类。训练评价以监督真值固定100/0；没有评价真值时满足度未知，不把分类输出本身冒充目标满足度。保留现有分类输出，不增加环境操作、命令头或推理期teacher。
+
+单元接入只引用公共图：[project-design](../workflows/project-design.graph.json)、[model-evolution](../workflows/model-evolution.graph.json)与[model-conflict-design](../workflows/model-conflict-design.graph.json)。共享命令模型和CWD关系模型的使用采集、当前版本、自动比较采用及LLM冲突处理均未实现；候选保持`uncalibrated/not_applied`，本地旧入口是兼容切片，不迁移为新的零散Goal。
+
 ## 目标与函数
 
 CWD关系概念测量与共享命令模型分工明确：

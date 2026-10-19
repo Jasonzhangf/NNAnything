@@ -28,10 +28,13 @@ DirectoryRef.path在调用时相对于S当前cwd解析。CD后要重新绑定相
 
 | 边界 | New State与GoalResult |
 | --- | --- |
-| 目标校验、授权或CLI执行失败，尚未提交 | S.cwd/revision保持原值，旧知识保留但不证明Goal；明确失败 |
-| 执行与提交成功，后续S的pwd也符合目标 | 记录新S.cwd/revision和本次新观测，Goal achieved |
-| 已提交，但后续验证失败或证据不足 | 如实记录已改变的S状态，Goal为未验证/未达成并标明changed；不能伪报旧cwd，也不自动回滚 |
+| 目标校验、授权或CLI执行失败，尚未提交 | S.cwd/revision保持原值，旧知识保留但不证明Goal；`unmet/0` |
+| 执行与提交成功，后续S的pwd也符合目标 | 记录新S.cwd/revision和本次新观测；`achieved/100` |
+| 已提交，但后续观测失败或证据不足 | 如实记录已改变的S状态；`unverified/null`并标明changed，不能伪报旧cwd或自动回滚 |
+| 已提交，后续观测有效且明确不匹配 | 保留实际改变；`unmet/0`，不能把已证不匹配降为未知 |
 | 其他session或父进程cwd改变 | 未声明副作用，验收失败，不采用候选 |
+
+固定`satisfactionThreshold=100`、公开结果类型及完整三值评价表唯一维护于[文件系统训练合同](cli-filesystem-training.md)。同目标CD仍必须执行并提交本请求动作，旧cwd相等不提前完成Goal。共享命令模型与CWD关系模型均引用公共[设计流程](../workflows/project-design.graph.json)、[模型演进](../workflows/model-evolution.graph.json)和[冲突设计](../workflows/model-conflict-design.graph.json)；自动采集、当前版本、自动比较采用及LLM冲突处理仍未实现，旧`set_cwd`入口只作兼容，不迁移为本轮新Goal。
 
 普通稳定场景下，预期D的物理路径由独立OS检查取得。目标移除/并发变化等会导致验证失败，保留实际效果，不承诺TOCTOU原子文件系统隔离。初版场景由harness独占，不引入并发攻击训练。
 

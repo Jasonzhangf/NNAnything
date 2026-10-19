@@ -26,6 +26,10 @@ Goal为`{kind:"list_directory",session:S,target:absoluteTarget}`；调用另带`
 
 `["ls", D]`调用绝不改变S.cwd/revision、其他session、目录结构或文件内容。成功增加本次目录条目观测；失败/partial不能覆盖旧知识后伪装成完整新知识，Goal未达成或证据不足。
 
+共享命令入口固定`satisfactionThreshold=100`。完整列举且直接条目的名称与类型都有本次证据、S未变时为`achieved/100`；native OS或grant失败为`unmet/0`；coverage为partial、任一必要类型为unknown或条目证据不足时为`unverified/null`；已证发生cwd/revision等禁止副作用时为`unmet/0`。partial没有比例满足度，也不能覆盖旧完整知识。固定配置、公开结果类型和三值边界唯一维护于[文件系统训练合同](cli-filesystem-training.md)。
+
+共享命令模型与CWD关系模型均接入公共[设计流程](../workflows/project-design.graph.json)、[模型演进](../workflows/model-evolution.graph.json)和[冲突设计](../workflows/model-conflict-design.graph.json)。使用采集、显式当前版本、自动比较采用及LLM冲突裁决执行尚未实现；`list_directory`是兼容入口，不新增零散Goal。候选保持`uncalibrated/not_applied`。
+
 验证作者先写场景配方及期望直接条目集合，实际创建后独立核对对象类型。harness/helper的返回值不能直接当teacher真值。验证比较原始名称集合与类型；隐藏项、同名不同目录、伪装扩展名均有反例。
 
 ## 样本计划与独立验证

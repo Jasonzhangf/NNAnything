@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-19 共享CLI满足度与来源隔离终验
+
+原共享计划7项的T1–T6保持验收，T7独立复核已通过，main交付待收口。GCM完成固定`CLI_COMMAND_GOAL_CONFIG.satisfactionThreshold=100`及实际`goal_result.satisfaction`：支持命令正常100、已证失败0、未知语义/partial/提交后证据不足null；错头unsupported仍为policy_error与unmet/0。配置/结果类型公开，模型权重、wire和拟合函数未变。统一file.property入口仍未迁移。共享推理图仅更新既有节点职责，3N2E校验通过。领域合同分别将共享命令与CWD关系绑定公共设计/升级/冲突图，明确自动采集、当前版本引用、自动配对采用与LLM冲突执行链未实现。
+
+原整体Review唯一P1为可选verification与train/dev来源重叠。GCM已在拟合前检查所有声明sourceGroup；重叠红测失败，修复绿测通过，独立来源公开训练入口可fullyVerified=true；未改变teacher或独立题型。父级另加错头unknown反例，红测后GCM修复并复核3/3。
+
+独立GCM验证于作者结束后完成：`standards-regression.log`为253/253、0fail、0skip；`standards-independent-report.json`及日志为共享命令16/16、CWD关系16/16、16失败探针（14native/grant、2注入），保留特殊名称、祖先链接、其他session及文件树副作用检查；`standards-reload.log`为新进程24题、18显式正常调用、fitted=false。本轮未重训。新增报告已归档canonical training/results/filesystem/command/d7c4a3e5-4111-4e09-857f-5f20f4fa18c0/。原报告不追溯冒称已有三值字段。完整回执`standards-result.md`、`guard-fix-result.md`、`verification-result.md`在外置独占run。
+
+公共设计13a7c00已通过正常merge合入候选，保留file.property 6N5E、curriculum7N6E设计及共享训练8N8E运行绑定。canonical主树另有公共设计owner活动修改，最终合入其提交时须保留本次运行绑定，不把新操作设计冒称已有执行器。不得清理该owner或three-site-zero资源。
+
+局部独立OAuth gpt-6.1-sol medium复核退出0，`review-final.json`无finding，canonical controller的`review-verdict.json`为pass。复用`review-first.json`未变模块证据；原P1、满足度增量、错头guard均已闭合，不重做全模块审查。
+
 ## 2026-10-19 共享CLI三阶段实测与终验（候选待集成）
 
 最新修订计划`plan-shared-final.md`共7项。T1合同与图、T2共享推理、T3数值/样本/退役重复owner、T4真实增量训练及回载、T5独立验证、T6作者与全仓回归已验收，6/7；T7整体Review、main推送及自有树回收待完成。实现/作者测试与文档收尾由独立GCM worker执行，父代理负责独立验证与最终交付。当前只接入pwd/cd/ls，未实现自然语言、help、搜索、组合规划或自动采用。

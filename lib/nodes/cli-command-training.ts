@@ -66,7 +66,8 @@ async function executeSample(sample: CommandSample, scene: CommandScenario, prof
     const after = sandbox.getSession(session), observed = transition.execution_result.receipt?.execution;
     const observation = observed?.status === "succeeded" ? observed.observation : null;
     let effectsOk = false;
-    if (sample.expectedHead === "unsupported") effectsOk = transition.invocation === null && !transition.execution_result.executorInvoked && transition.goal_result.status === "unmet";
+    if (sample.expectedHead === "unsupported") effectsOk = transition.invocation === null && !transition.execution_result.executorInvoked
+      && transition.goal_result.status === "unverified" && transition.goal_result.satisfaction === null;
     if (sample.expectedHead === "pwd") effectsOk = transition.goal_result.status === "achieved" && observation?.kind === "pwd" && observation.physicalCwd === physicalStart && after.cwd === before.cwd && after.revision === before.revision;
     if (sample.expectedHead === "cd") effectsOk = transition.goal_result.status === "achieved" && after.cwd === physicalTarget && after.revision === before.revision + 1 && transition.postcondition?.matchedTarget === true;
     if (sample.expectedHead === "ls") effectsOk = transition.goal_result.status === "achieved" && observation?.kind === "directory.list"

@@ -3,11 +3,11 @@
   "inputs":[{"id":"command_request","schema":"Object"}],
   "nodes":[
     {"id":"共享权重选择命令头","operator":"cli.command.select","operator_version":"0.1.0","inputs":["command_request"],"output":{"id":"command_selection","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"绑定简化参数并按命令执行","operator":"cli.command.execute","operator_version":"0.1.0","inputs":["command_selection"],"output":{"id":"command_execution","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"观测实际状态并验证目标","operator":"cli.command.verify","operator_version":"0.1.0","inputs":["command_execution"],"output":{"id":"command_transition","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+    {"id":"执行固定语义命令并保留实际回执","operator":"cli.command.execute","operator_version":"0.1.0","inputs":["command_selection"],"output":{"id":"command_execution","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按固定100评价实际状态或标记未知","operator":"cli.command.verify","operator_version":"0.1.0","inputs":["command_execution"],"output":{"id":"command_transition","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges":[
-    {"from":"共享权重选择命令头","to":"绑定简化参数并按命令执行","arc_id":"command_selection"},
-    {"from":"绑定简化参数并按命令执行","to":"观测实际状态并验证目标","arc_id":"command_execution"}
+    {"from":"共享权重选择命令头","to":"执行固定语义命令并保留实际回执","arc_id":"command_selection"},
+    {"from":"执行固定语义命令并保留实际回执","to":"按固定100评价实际状态或标记未知","arc_id":"command_execution"}
   ],"outputs":["command_transition"]
 }

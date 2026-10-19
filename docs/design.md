@@ -39,7 +39,7 @@
 
 反向推理属于训练过程：由 Goal 与 satisfactionThreshold 要求反推达标 State、所需 Action 和前置 State，形成可学习关系及监督；它与数值梯度反向传播分别说明。推理使用学到的关系选择操作与参数，执行后用实际 New State 评价；预测不能替代实际结果。对象关系、动作条件及评价均归入四元素，不另立平行基础要素。纯分类及固定函数显式声明固定 Goal/satisfactionThreshold、输入 State、计算 Action 和知识输出，不强造环境操作或可训练头。
 
-四元素不机械对应四个节点。仅当 State 或 satisfactionThreshold 会改变正确输出时，才需要相应的学生输入与区分样本；固定项可为显式配置。每个节点、输入、wire、边和验证步骤均须回答：删除后会破坏哪项语义闭合、必要可辨性或验收依据？无独立必要性则删除或复用。每次运行单入口单出口，达标、未达标、失败及证据不足均收束为明确结果；跨步迭代以实际 New State 开启新 run，不在单次 DAG 加回边。当前 CLI 切片尚无 satisfactionThreshold 或通用满足度实现，须在后续受影响能力接入时补齐，不能将本合同更新冒称运行能力完成。
+四元素不机械对应四个节点。仅当 State 或 satisfactionThreshold 会改变正确输出时，才需要相应的学生输入与区分样本；固定项可为显式配置。每个节点、输入、wire、边和验证步骤均须回答：删除后会破坏哪项语义闭合、必要可辨性或验收依据？无独立必要性则删除或复用。每次运行单入口单出口，达标、未达标、失败及证据不足均收束为明确结果；跨步迭代以实际 New State 开启新 run，不在单次 DAG 加回边。当前共享CLI命令切片已采用固定 satisfactionThreshold=100，并输出实际 satisfaction 100/0/null；该接入不表示自动采集或自动采用链已实现。
 
 用户当前目标为结构化 `Goal → State → Action → New State`。手写基础概念、动作输入输出和执行结构；NN学习概念关系、动作与状态变化的关系，以及给定Goal/State的动作调用选择。全程使用结构化语义，不训练自然语言请求识别。概念层、动作层、推理层是此方向的三类训练职责，与下文浏览器基础语义/组合识别的两层分类对象不同。
 
@@ -58,7 +58,7 @@
 
 训练/反馈样本统一为 `{goal, state_before, invocation, execution_result, observed_state_after, goal_result}`。NN预测调用序列，真正的New State由harness执行与OS观测提供；预测不能充当事实。目标检查器按结构化Goal验证，失败/未知均保留，不由模型自报成功。
 
-实施状态：当前共享命令策略（`createCliCommandPolicy`）与多分类增量训练（`runCliCommandTraining`）正在`nnanything/cli-goal`实现中。原有六参数二分类PWD API及模型保持兼容基线，新共享入口不调用旧profile。实际共享训练与独立验证尚未完成，候选保持`uncalibrated`与`not_applied`。
+实施状态：当前共享命令策略（`createCliCommandPolicy`）与多分类增量训练（`runCliCommandTraining`）已在`nnanything/cli-goal`实现。原有六参数二分类PWD API及模型保持兼容基线，新共享入口不调用旧profile。正式共享训练、保存后新进程回载及独立验证已有实测证据；候选保持`uncalibrated`与`not_applied`。
 
 ### 1.2 固定语义调用与全模型自进化
 

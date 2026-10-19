@@ -38,6 +38,24 @@ npm run demo:command-training -- --handwired-root /Volumes/extension/code/handwi
 
 完整独立测试需显式提供`NN_CLI_COMMAND_PROFILE`；可额外提供`NN_CWD_RELATION_PROFILE`检验历史概念单元。独立场景在`tests/cli-filesystem-independent-fixtures.mjs`，执行入口为`tests/cli-filesystem-independent.test.mjs`。测试只有4种命令特征向量，覆盖独立环境及执行合同，不证明自然语言、help、搜索、多步规划或未见Goal语义。当前只实现pwd/cd/ls；未来命令沿同一权重合同增量接入，不代表任意系统命令已可执行。
 
+## 2026-10-19 固定满足度独立复核
+
+作者完成固定满足度增量后，由独立验证worker在保存候选上复核。复核没有拟合、重训，也没有修改fixture、标签、权重、预算或源码。构建通过。公开固定配置为`CLI_COMMAND_GOAL_CONFIG.satisfactionThreshold=100`，结果使用`achieved/100`、`unmet/0`与`unverified/null`三值评价。
+
+同一保存候选取`d7c4a3e5-4111-4e09-857f-5f20f4fa18c0/candidate.json`，关系模型取`c30b2917-4980-4b0f-8c7f-e0954ce22270/relation-candidate.json`。独立测试通过，命令选择16/16，CWD关系16/16；常规题中pwd、cd、ls、unsupported各4题，失败项中pwd 2题、cd 8题、ls 6题。14项为native/grant失败，2项为受控故障注入。测试断言支持命令的正常项为`achieved/100`，未知语义的unsupported为`unverified/null`且不执行；已知失败项为`unmet/0`，CD提交后观测失败与LS partial项为`unverified/null`。报告为`standards-independent-report.json`，日志为`standards-independent.log`。
+
+全仓命令`npm test`在显式Handwired根、共享命令候选、CWD关系候选和动作候选下通过：253/253，0失败，0跳过，0取消。日志为`standards-regression.log`。新进程公开回载通过：`checked=24`、`executions=18`、`fitted=false`，日志为`standards-reload.log`。
+
+P1来源独立gate由三组真实测试覆盖：
+
+- `shared prepare rejects scenario source groups that cross partitions`拒绝同一source group跨train/development分区。
+- `optional verification rejects primary train or development source groups before fitting`证明来源重叠在拟合前拒绝，且不留下部分路径。
+- `optional verification with disjoint source groups evaluates and fully verifies`证明独立来源可评价，4条验证行均保留独立source group并达到`fullyVerified=true`。
+
+该gate按显式`sourceGroup`判断不重叠。它不证明不同标签掩盖同一原始资产，也不证明任意新来源的代表性。独立命令fixture仍只有4种有限语义向量，关系评价仍是有限真值组合；这些结果不证明未见Goal语义、自然语言、help、搜索、多步规划或完整自动进化链。
+
+本轮新增评价证据不追溯改写旧独立报告。旧报告形成时没有`satisfaction`字段，不能据此宣称旧结果已经验证本次三值满足度合同。历史计数、先红测和原错保留。共享权重不变，候选继续为`uncalibrated/not_applied`。后续`file.property.xxx`统一Goal运行入口尚未迁移；自动使用采集、显式当前引用、自动配对评价采用及LLM冲突裁决执行链仍未实现。
+
 ## 历史独立profile基线
 
 2026-10-19。下列结果是逐命令独立profile的历史实验基线。用户随后要求所有命令采用一份共享权重并增量训练，不能将这些基线冒称共享模型已完成。实际使用本地Handwired源码`/Volumes/extension/code/handwired`求值与反传。每个单元零初始化、200 epochs、learning rate 0.1、全批SGD。候选均为uncalibrated/not_applied，不覆盖当前profile。使用真实文件系统专用目录，不声称硬件或OS隔离。
