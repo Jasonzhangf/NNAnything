@@ -24,7 +24,7 @@
 
 ## CLI Goal 动作与观测绑定节点（0.1.0）
 
-首个结构化 Goal 切片另有 `cli.goal.select/execute/evaluate@0.1.0` 三节点及训练 `cli.goal.prepare/fit/evaluate/save@0.1.0` 四节点。完整 Goal/State/action/profile、样本、执行和 GoalResult 合同唯一维护于 [Goal动作训练](../../docs/cli-goal-training.md)。公开入口 `nnanything/cli-goal`，不与路径、DOM 或 `cd` 语义混用。
+首个结构化 Goal 切片另有 `cli.goal.select/execute/evaluate@0.1.0` 三节点及训练 `cli.goal.prepare/fit/evaluate/save@0.1.0` 四节点。它们保留为六参数 PWD 历史兼容基线，不是当前共享命令入口。完整兼容合同与历史实测唯一维护于 [Goal动作训练](../../docs/cli-goal-training.md)。当前 `pwd/cd/ls` 模型使用下方共享命令节点与 `cli.command-policy.v1`。
 
 | operator | 输入schema/event → 输出schema/event | 配置、资源与effect |
 | --- | --- | --- |
@@ -37,6 +37,28 @@
 | `cli.goal.save` | cli.goal.evaluation.v1 → cli.goal.training-receipt.v1 | 显式输出根；filesystem.write；samples/weights/results create-new与部分保存诊断 |
 
 推理执行 `workflows/cli-goal-step.graph.json`（3N2E SESE），训练执行 `workflows/cli-goal-training.graph.json`（4N3E SESE），不复制拓扑。内部六参数电路由 `lib/nodes/trainable/cli-goal-policy.ts` 管理。真实执行、拒绝零调用、授权/执行失败、fresh-process回载和实际拟合证据见 `tests/cli-goal.test.mjs`、公开consumer与运行证据目录。
+
+## CLI 共享命令节点（0.1.0）
+
+公开入口为 `nnanything/cli-goal`。`createCliCommandPolicy` 使用同一 `cli.command-policy.v1` profile 完成 `pwd`、`cd`、`ls` 推理，`runCliCommandTraining` 按 PWD→CD→LS 名称扩展并增量拟合，参数为 4→9→16。模型只输出命令头与 typed directory 引用；固定语义调用、session 副作用和实际后条件由 harness 执行并观测。旧六参数 `createCliGoalPolicy`/`runCliGoalTraining` API 保留为兼容基线；新共享入口不按命令加载旧 profile。CWD 关系测量保留为独立概念测量，不产生命令候选。
+
+| operator | I/O和职责 | effect和资源 |
+| --- | --- | --- |
+| `cli.command.select` | command_request → command_selection；同一共享 profile 选择命令头并记录策略错误 | 无effect |
+| `cli.command.execute` | command_selection → command_execution；按 pwd/cd/ls 固定分流，绑定显式 session 与 directory | 业务 read/exec/session.write 由 sandbox 动态检查 |
+| `cli.command.verify` | command_execution → command_transition；读取实际 pwd、CD 后新 PWD、LS 完整直接条目并验证 GoalResult | 无静态effect |
+| `cli.command.training.partition` | command_training_request → command_partition；验证请求、预算、来源分区和共享候选形状 | 无effect |
+| `cli.command.training.prepare` | command_partition → command_fit_data；只准备 train 及历史训练回放 | 无effect |
+| `cli.command.training.prepare-verification` | command_partition → command_verification_data；可选验证资料仅供评价 | 无effect；缺资源明确 `not_provided` |
+| `cli.command.training.fit` | command_fit_data → command_fitted；从上一阶段候选按名称扩展后真实拟合 | filesystem.read；显式 Handwired 源码根 |
+| `cli.command.training.save` | command_fitted → command_candidate；独占保存样本与共享候选 | filesystem.write；显式 outputRoot |
+| `cli.command.training.execute` | command_candidate + command_verification_data → command_executions；同一候选真实调用各命令 | 临时场景与 session 授权由 sandbox 检查，finally 清理 |
+| `cli.command.training.verify` | command_executions → command_evaluation；逐命令比较策略、真实效果、历史回归和名称/类型 | 无effect |
+| `cli.command.training.report` | command_evaluation → command_training_receipt；保存分命令结果、计时和清理证据 | filesystem.write |
+
+推理执行 `workflows/cli-command-step.graph.json`（3N2E SESE，配置 `cli-command-step.workflow.json`），训练执行 `workflows/cli-filesystem-training.graph.json`（8N8E SESE，配置 `cli-filesystem-training.workflow.json`），不复制拓扑。内部多分类线性电路由 `lib/nodes/trainable/cli-command-policy.ts` 管理。`workflows/cli-filesystem-curriculum.graph.json` 只说明公开 consumer 的 PWD→CD→LS 顺序和 `sharedCandidate` 传递，不代表已有独立 Flowed 课程引擎。
+
+`accepted` 只覆盖实际提供的评价分区；无 verification 资源时 `fullyVerified=false`。候选保持 `uncalibrated/not_applied`。固定调用、边界和后条件见[文件系统训练合同](../../docs/cli-filesystem-training.md)。作者测试为 `tests/cli-command.test.mjs`、`tests/cli-command-training.test.mjs` 及 CLI sandbox/binding/evaluation 用例；公开训练与新进程回载入口为 `playground/cli/command-learning/`。
 
 ## CLI 基础观测节点（0.1.0）
 

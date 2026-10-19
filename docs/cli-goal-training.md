@@ -1,6 +1,6 @@
 # 首个结构化 Goal 动作训练：observe_cwd -> pwd
 
-状态：实现与实测合同，2026-10-19。本文是首个 `Goal -> State -> Action -> 实际 New State -> GoalResult` 能力唯一正文。总体目标合同仍见 [design.md](design.md) 1.1；本文只实现一个有限动作关系，不代表 `cd`、自然语言、搜索、help 或组合规划已完成。
+状态：历史实现与实测合同（2026-10-19），作为兼容基线保留。本文记录首个单项 `observe_cwd -> pwd` 的真实实测数据与6参数模型结构。该六参数API（`createCliGoalPolicy`、`runCliGoalTraining`）仅作为历史兼容基线保留，新共享入口不调用该旧API与旧profile。全命令统一共享模型（`cli.command-policy.v1`）唯一权威合同见[文件系统训练合同](cli-filesystem-training.md)。历史记录与实测数据保留原貌，不重写历史。
 
 ## 1. 范围
 
@@ -162,4 +162,4 @@ CLI_GOAL_PROFILE="$PWD/training/weights/observe-cwd/4929f70a-379c-4e76-9a01-838f
 
 ## 7. 边界
 
-本能力不实现 `cd`、目录搜索、文件读写、自然语言识别、help 学习、多步规划或通用工具选择。它证明一个有界结构化动作选择与真实观测绑定闭环；有限 3-vector 数据不能证明未见语义泛化。
+本能力不实现 `cd`、目录搜索、文件读写、自然语言识别、help 学习、多步规划或通用工具选择。它证明一个有界结构化动作选择与真实观测绑定闭环；有限 3-vector 数据不能证明未见语义泛化。后续全命令选择与多阶段增量训练统一由[文件系统训练合同](cli-filesystem-training.md)管理，本页仅作为历史单项验证基线。

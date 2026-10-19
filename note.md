@@ -1,5 +1,37 @@
 # 当前任务
 
+## 2026-10-19 共享CLI三阶段实测与终验（候选待集成）
+
+最新修订计划`plan-shared-final.md`共7项。T1合同与图、T2共享推理、T3数值/样本/退役重复owner、T4真实增量训练及回载、T5独立验证、T6作者与全仓回归已验收，6/7；T7整体Review、main推送及自有树回收待完成。实现/作者测试与文档收尾由独立GCM worker执行，父代理负责独立验证与最终交付。当前只接入pwd/cd/ls，未实现自然语言、help、搜索、组合规划或自动采用。
+
+正式共享入口为`createCliCommandPolicy`、`runCliCommandTraining`；语义Goal/State输入，命令序列输出`["pwd"]`、`["cd",D]`、`["ls",D]`。单一profile按名称扩展4→9→16参数，后阶段从前阶段保存候选继续，回放历史训练行；旧二分类命令selector、独立训练包装及其图已退役。旧main六参数PWD API只保兼容，不被新入口调用。CWD关系测量不是命令selector。
+
+三阶段run为pwd `333bb151-003e-4188-a027-e145eb591760`、cd `a22e71aa-dbd5-44ce-ab1e-56a7a89f6d57`、ls最终 `d7c4a3e5-4111-4e09-857f-5f20f4fa18c0`。train/dev分别8/8及4/4、12/12及6/6、16/16及8/8；每个已接入命令4/4及2/2真实效果通过。旧命令回归0退化，零/冻结对照正确保留未学会新命令的差异。三阶段均保存后由新进程回载重放。详见`docs/cli-filesystem-training-results.md`和`shared-training-final.log`。
+
+最终同一共享权重的独立验证16/16，pwd/cd/ls/unsupported各4题；16失败探针通过（14真实文件系统校验或grant拒绝，2受控注入）。另有5次补充PWD、1次连续CD、1次其他session列举，历史CWD概念关系16/16。祖先内部链接作为CD/LS的真实参数路径执行通过，越界链接拒绝；特殊名称、名称与类型、partial旧知识保留、文件树及正文无写入副作用均验证。`shared-independent-complete-report.json`与对应log是补全后的独立证据；未调权重或预算。
+
+GCM作者测试24通过/0失败/0skip；全仓`npm test`249项中248通过/1显式skip，旧兼容候选独立项已单独补跑1通过，全部249项均有通过证据。共享测试扩展祖先链接后只重跑受影响独立项1通过。`git diff --check`通过；设计与训练Skill的quick_validate均通过。共享推理图3N2E、训练图8N8E静态validate/inspect通过并有真实Flowed consumer；课程图5N4E是consumer顺序设计，未冒称独立课程引擎。
+
+正式训练资产与历史基线已归档到主项目同名`training/{samples,weights,results}/filesystem/`，不改写原报告中的历史路径。独立样本单独保存于`training/samples/filesystem/verification/shared-cli-20261019/samples.json`，不进入拟合。候选仍uncalibrated/not_applied；未提供图内可选verification时fullyVerified=false，外部独立结果不冒充图内结果。
+
+独立结案经验审计`closeout-final.md`要求同步状态及增加CLI训练Skill路由，已修正唯一owner并验证链接/Skill结构。不新增全局规则或受管记忆，不递归审计。原共享consumer同目标空相对路径失败、首次独立探针在bind阶段拒绝、旧独立CD验证失败等记录均保留，未当作成功或新模型调参证据。
+
+## 2026-10-19 用户补正：一份CLI共享权重与增量训练
+
+最新要求覆盖原逐命令独立profile设计：所有已接入CLI命令使用一个共享模型/权重，按命令分开提供样本与统计结果，通过增量训练扩展。内部先确定命令头，再分流到固定参数和执行分支。用户明确输入仍是结构化语义请求，模型返回命令调用；调用序列第一项为真实shell命令名，后续为typed简化参数，例如`["pwd"]`、`["cd",D]`、`["ls",D]`，S在显式请求/资源中绑定。不是把命令名预先输入模型来替代Goal推理。
+
+此前CWD/PWD与CD独立profile实测保留为实验基线，不作为最终多个在用命令模型交付。原二分类跨命令REJECT标签不能直接合并进共享模型；共享teacher需按实际语义重建。新增命令后回放旧命令并分别验收，共享候选仍uncalibrated/not_applied。独立计划正在按新要求补正，依赖该选择的实现/最终验证待计划就绪；已授权主线继续。
+
+通用harness预检查已修正3项：LIST回执完整记录实际Node argv；验收同时比较名称和类型；场景清理等待全部结果并显式暴露失败。`list-parent-preflight-red.log`1通过3失败，修复后`list-parent-preflight-green.log`4通过0skip。GCM LIST worker自有PID90883已由父代理SIGINT停止并确认退出；这是owner接管，不是模型或产品训练失败。尚未执行独立LIST候选验证。
+
+## 2026-10-19 CLI前三项真实训练（实施中）
+
+独占树`/Volumes/Intel/playground/nnanything/cli-basics-training`，过程证据`/Volumes/Intel/playground/nnanything-runs/cli-basics-training`。独立计划7项：T1合同/图、T2沙盒、T3 CWD/PWD、T4 CD已验收；T5 LIST正在实现；T6整体回归及T7独立Review/集成尚未验收。沿既有图和Flowed运行，不新建执行引擎。原M0固定session和read/exec effect保持不变，新增sandbox独立支持session.write。
+
+CWD正式run `c30b2917-4980-4b0f-8c7f-e0954ce22270`：train/dev关系16/16、8/8，PWD动作12/12、6/6，实际PWD4/4、2/2；独立关系16/16、动作12/12、4正常PWD及2失败探针通过，另4次关系知识取得。CD正式run `b7f48942-4b3d-4b87-b0c1-fbac2de702ed`：train/dev动作12/12、6/6，真实提交后同S新PWD4/4、2/2；新独立家族12/12、4正常提交、8失败探针通过，含1受控提交后观测故障。权重和预算不按独立集调节。原CD验证失败保留，修复后仅作回归。两项保存后均有fresh-process回载。详细结果唯一入口`docs/cli-filesystem-training-results.md`。
+
+LIST前全量回归244项：241通过、3显式skip、0失败；带已保存CWD/PWD/CD候选单独运行独立测试2通过、0skip，包含连续CD每次提交后的新PWD。此时尚未运行LIST候选，不能宣称三项训练全部完成。三项候选保持uncalibrated/not_applied；无verification资源的训练receipt明确fullyVerified=false。外部独立测试证据不冒充workflow内部verification。
+
 ## 2026-10-19 CLI调用参数简化（设计补正）
 
 用户要求所有命令参数简化、不解析内容，以支持准确实际调用。唯一合同docs/cli-call-contract.md：所有接入命令使用固定operation与必要typed parameters；前三项映射既有cwd.get/cwd.set/directory.list，不另增协议别名。NN不生成shell或原生flags、不解析stdout/正文，harness绑定引用与原始路径argv、固定模板/默认参数、执行并读取机器回执或独立OS观测。三个详细训练设计、架构1.2、AGENTS及本地设计Skill已挂接；原pwd回执解析是现有adapter事实，不冒称NN学过。LIST固定helper的JSON解码是机器协议，不是训练内容理解。本轮仍仅设计，未修改运行代码。

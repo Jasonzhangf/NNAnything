@@ -1,26 +1,42 @@
 # CLI调用参数简化合同
 
-状态：2026-10-19设计要求。适用于所有接入的CLI能力，不表示已支持系统中的所有命令。当前实际API仍以各已实现模块为准。本页只定义固定语义调用与参数边界；Goal推理及训练沿[总体架构](design.md)，不重写命令算法或执行引擎。
+状态：2026-10-19设计合同，共享命令模型源码已实现；正式三阶段train/dev与独立验证已通过，作者全量回归、整体Review与集成待完成。实测计数见[共享模型实测](cli-filesystem-training-results.md)。适用于所有接入的CLI能力，不表示已支持系统中的所有命令。当前模型唯一权威合同见[文件系统训练合同](cli-filesystem-training.md)；Goal推理及训练沿[总体架构](design.md)1.1节。
 
-## 1. 训练调用，不解析输出内容
+## 1. 模型输出调用序列与显式资源信封
 
-NN输出声明的操作标识及必要参数引用。它不生成完整命令文本，不解释shell语法、命令help或输出正文，也不从自由文本中提取文件名、路径或错误原因来完成本轮任务。之后若训练help泛化或内容语义，另立能力，不混入这三项调用训练。
+统一共享模型（`cli.command-policy.v1`）接收结构化Goal与State，输出标准调用序列。序列首项取自命令头，是小写实际Shell命令名；后续项是机械绑定的typed位置参数引用，模型不生成自由参数文本。
 
-统一形状为`{operation, parameters}`。操作名以[已有精确语义目录](cli-semantic-operations.md)为准；一个操作有一个固定参数schema，不另建GET_CWD等协议别名。训练策略内部的PWD/CD/LIST是动作类别，由harness映射到该语义操作，不把分类标签当任意可执行程序名。
+profile、sandbox与会话在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`；每次调用传`step({ goal, state, directory? })`。请求没有`resources`或`directories`字段。模型不生成完整命令文本，不生成Shell标志位，不解释Shell语法，也不解析命令stdout/stderr正文。
 
-| 语义调用 | NN需要选择/携带的参数 | harness固定的内容 |
-| --- | --- | --- |
-| `{operation:"cwd.get",parameters:{session:S}}` | session引用 | PWD映射、`/bin/pwd -P`、显式cwd、授权、回执来源 |
-| `{operation:"cwd.set",parameters:{session:S,directory:D}}` | session和目录引用 | CD映射、固定执行模板、目标路径绑定、成功后提交S、后续观测验证 |
-| `{operation:"directory.list",parameters:{session:S,directory:D}}` | session和目录引用 | LIST映射、固定结构化CLI helper、只列直接条目、隐藏项保留、不跟随链接、不递归 |
+```ts
+const policy = createCliCommandPolicy({ profile, sandbox, session: S });
+await policy.step({
+  goal: { kind: "set_cwd", session: S.sessionId, target: absoluteTarget },
+  state: { session: S.sessionId, cwdObservation: null, directoryListing: null },
+  directory: D,
+});
+```
 
-S/D是有类型引用。目录实际path由显式资源绑定，字符串原样作为单个参数传递；不让模型拆空格、加引号或猜绝对根。调用方提供路径文本时，先经过已有路径解析和目录引用校验，再进入调用，不要求NN通过读输出正文找目标。缺少参数或引用未解析时明确返回缺口，不猜默认目录。
+`DirectoryRef.path`在调用时相对S当前cwd解析；CD提交后调用者重新绑定。`Goal.target`是配置后的绝对路径，必须与本次绑定引用解析出的目标一致；harness不做隐藏重定向。
 
-其他命令后续接入时同样先登记精确语义操作和必要字段；命令flags、参数顺序、输出格式及默认行为收在harness映射中。首版不暴露任意`options`字典、额外argv、shell管道/重定向、脚本和未知字段。只有任务明确需要可选参数时才将其作为typed字段加入合同，并补图/样本/验证；不让NN学习所有工具的原生参数语法。
+| 结构化语义 | 模型输出调用序列 | harness固定映射与语义操作 | harness固定执行与验证内容 |
+| --- | --- | --- | --- |
+| `observe_cwd(S)` | `["pwd"]` | `cwd.get(session:S)` | 读取S当前cwd，执行`/bin/pwd -P`，回执解码与证据记录 |
+| `set_cwd(S,D)` | `["cd", D]` | `cwd.set(session:S, directory:D)` | 绑定D，执行固定CD脚本，提交S，并在同一S执行真实PWD验证后条件 |
+| `list_directory(S,D)` | `["ls", D]` | `directory.list(session:S, directory:D)` | 绑定D，通过固定结构化helper列举直接子条目；不调用未编译自由命令，不解析`/bin/ls`文本 |
+| 未支持的语义Goal | 无调用（`unsupported`） | 不分流，不执行 | 策略`selectedHead:"unsupported"`，`invocation: null`，`executorInvoked:false`；不执行任何Shell命令 |
+
+合同要求：
+- `["cd", D]`是单次调用的参数序列，不是多步规划。
+- 未支持语义输出内部`unsupported`分类，不输出可执行Shell命令，也不输出`["REJECT"]`。
+- 共享路径不建立逐命令binary profile；旧六参数PWD API（`cli.goal-policy.v1`）只保留兼容，不被共享入口调用。
+- `ls`的native实现继续使用固定编译结构化helper，harness与模型均不解析`/bin/ls`面向人类的文本输出。
+- 命令头预测错误时，guard拒绝执行但仍记录`policy_error`，不能把错误伪装成`unsupported`或OS失败。
+- 模型预测的新状态或机械调用完成不能等同于目标达成，实际状态由harness观测提供。
 
 ## 2. 准确调用由边界保障
 
-固定流水为：已验证语义调用→检查操作和参数类型→绑定session/目录资源→检查授权及场景归属→构造固定CLI/argv→执行→保存回执与独立状态观测。复用现有CLI动作workflow，不另建调度器。概念/动作选择错误、参数绑定错误、调用构造错误及OS失败分别报告。
+固定流水为：已验证语义调用序列→检查命令头及参数类型→从策略绑定与调用字段取session/目录资源→检查授权及场景归属→构造固定CLI/argv→执行→保存回执与独立状态观测。复用现有CLI动作workflow，不另建调度器。模型选择错误、参数绑定错误、调用构造错误及OS失败分别报告。
 
 实际argv必须与模板逐参数一致；路径含空格、中文、换行、引号或shell元字符仍是一个原始参数。不得把整条命令拼成字符串执行。为cd调用固定zsh脚本时，仅允许已声明的恒定脚本，目录通过独立argv传入；模型不能改脚本或可执行路径。
 
@@ -34,6 +50,6 @@ S/D是有类型引用。目录实际path由显式资源绑定，字符串原样�
 
 ## 4. 训练与设计流程接入
 
-每项训练只监督语义操作选择和明确的参数角色；参数引用是否指向正确session/目录单独验收。原始路径复制、argv编码、输出解码和OS类型不是NN训练目标。CWD归属概念题仍只用结构关系，不引入内容解析。
+每项训练只监督命令头选择和明确的参数角色；参数引用是否指向正确session/目录单独验收。原始路径复制、argv编码、输出解码和OS类型不是NN训练目标。CWD归属概念题仍只用结构关系，不引入内容解析。共享训练图接收调用者准备并分区的dataset；fixture创建与新进程回载由公开consumer负责，不是图内行为。
 
-设计时先写“简化调用schema→固定harness映射→实际观测后条件”，再定学生特征、样本与训练图。所有接入能力都给出精确调用、缺参数、错引用、特殊路径参数和执行失败反例。语义/数值/训练图的唯一owner沿已有合同，完整训练分区及自动采用条件仍沿[模型演进合同](model-evolution.md)。
+设计时先写“简化调用序列→固定harness映射→实际观测后条件”，再定学生特征、样本与训练图。所有接入能力都给出精确调用、缺参数、错引用、特殊路径参数和执行失败反例。统一共享命令模型唯一训练合同为[文件系统训练合同](cli-filesystem-training.md)，完整训练分区及自动采用条件仍沿[模型演进合同](model-evolution.md)。

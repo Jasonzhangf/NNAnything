@@ -148,22 +148,26 @@ function validatePwdObservation(value: unknown): PwdObservation {
   });
 }
 
+export function validateCwdKnowledge(value: unknown): CwdKnowledge {
+  const knowledge = isRecord(value) ? value : null;
+  if (knowledge === null) throw new TypeError("state.cwdObservation must be null or an object");
+  exactKeys(knowledge, ["physicalCwd", "evidence", "sourceRun"], "state.cwdObservation");
+  return Object.freeze({
+    physicalCwd: absolutePath(knowledge.physicalCwd, "state.cwdObservation.physicalCwd"),
+    evidence: validatePwdObservation(knowledge.evidence),
+    sourceRun: nonEmpty(knowledge.sourceRun, "state.cwdObservation.sourceRun"),
+  });
+}
+
 export function validateCliGoalState(value: unknown): CliGoalState {
   const state = isRecord(value) ? value : null;
   if (state === null) throw new TypeError("state must be an object");
   exactKeys(state, ["session", "cwdObservation"], "state");
   const session = nonEmpty(state.session, "state.session");
   if (state.cwdObservation === null) return Object.freeze({ session, cwdObservation: null });
-  const knowledge = isRecord(state.cwdObservation) ? state.cwdObservation : null;
-  if (knowledge === null) throw new TypeError("state.cwdObservation must be null or an object");
-  exactKeys(knowledge, ["physicalCwd", "evidence", "sourceRun"], "state.cwdObservation");
   return Object.freeze({
     session,
-    cwdObservation: Object.freeze({
-      physicalCwd: absolutePath(knowledge.physicalCwd, "state.cwdObservation.physicalCwd"),
-      evidence: validatePwdObservation(knowledge.evidence),
-      sourceRun: nonEmpty(knowledge.sourceRun, "state.cwdObservation.sourceRun"),
-    }),
+    cwdObservation: validateCwdKnowledge(state.cwdObservation),
   });
 }
 

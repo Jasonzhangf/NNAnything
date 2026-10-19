@@ -1,18 +1,16 @@
 # 训练设计2：cd改变指定会话CWD
 
-状态：可实施设计，2026-10-19；session变更、样本和模型尚未实现。前置为[设计1](cli-cwd-training-design.md)真实session观测通过；沙盒、样本分区及采用沿既有公共合同。本页是本项动作、持久状态及训练owner。
+状态：历史独立基线已验证，当前正式模型并入统一共享命令模型。历史独立CD动作题记录为train/dev 12/12、6/6，独立验证12/12、4次正常提交、8个失败探针通过（作为历史基线保留，不直接作为共享模型成绩）。旧独立二分类`CD / REJECT`模型合同已退役。CD现作为共享命令模型（`cli.command-policy.v1`）的第2增量阶段（9参数），唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。
 
-调用边界统一沿[参数简化合同](cli-call-contract.md)：CD映射`cwd.set(session,directory)`，模型只携带typed引用，不生成命令文本或解析stdout。固定脚本和真实路径argv绑定仅由harness维护。
+调用边界统一沿[参数简化合同](cli-call-contract.md)：模型输出调用序列 `["cd", D]`，S置于显式资源信封中。模型只携带typed引用，不生成Shell脚本或解析stdout。固定脚本和真实路径argv绑定由harness维护。
 
 ## 精确语义与学习目标
 
 `Goal {kind:"set_cwd",session:S,target:D}`要求改变S的执行基准。D为明确绝对目录引用；相对路径由调用前的独立path.resolve能力根据S解析，保留原始输入证据，本项不训练找目录或字符串生成。
 
-NN独立选择`CD / REJECT`。动作固定为`{kind:"CD",session:S,directory:D}`；harness按字段合同绑定S和D。其他Goal在该单项模型中监督REJECT。它不替代原PWD模型，不宣称已完成跨三个模型的总调度器；旧模型作为只读回归保留。后续组合调度是另一个明确目标。
+在共享命令模型中，模型根据Goal与State选择命令头`cd`并输出参数序列 `["cd", D]`。旧独立二分类CD选择器与profile退役，相关权重并入共享profile的9参数矩阵（`unsupported, pwd, cd` × `bias, goalObserveCwd, goalSetCwd`），按名称扩展并回放历史PWD样本。
 
-学生输入`[1, goalSetCwd, goalObserveCwd]`；2×3线性logit、6参数、softmax交叉熵、同分REJECT。内部图沿设计1的乘权→求和→logit→argmax/训练loss结构，标签词表换成REJECT/CD，profile独立命名，禁止把PWD权重按数组位置当CD权重。目标目录名、是否存在、OS权限均不进动作特征；在合法set_cwd输入上选CD，即使执行将失败。授权/存在性由harness检查，失败不等于模型动作选错。
-
-教师输出动作标签；真实执行转换记录提供效果监督与验收。本轮不另训练状态预测头，也不把固定goalSetCwd特征解释为自动理解自然语言。初始训练预算为200epochs/lr0.1的真实Handwired全批SGD，开发集决定是否需要调整，独立验证不挑预算。
+目标目录名、是否存在、OS权限均不进动作特征；在合法set_cwd输入上选cd，即使执行将失败。授权与存在性由harness检查，失败不等于模型动作选错。
 
 ## harness与会话持久性的确定方案
 
@@ -20,9 +18,11 @@ NN独立选择`CD / REJECT`。动作固定为`{kind:"CD",session:S,directory:D}`
 
 真实CLI映射固定为`/bin/zsh -f -c 'builtin cd -- "$1" && /bin/pwd -P' nnanything-cd D`，D作为独立argv传入，不拼入脚本文本；启动cwd来自S。harness先验证目标类型、沙盒归属及授权，执行成功并复核返回物理路径后，才将S.cwd更新为该物理目录并增加revision。后续所有S命令从更新后的资源取cwd。最终目标条目是symlink时拒绝，祖先链接与物理归属按原精确操作合同处理。
 
-这里不是声称子进程修改了父进程：实际持久效果由成功执行之后显式提交S的执行基准提供，必须用后续S命令证明。`session.write`是待实现的typed effect；当前M0不支持该授权或变更，不能把它塞进metadata绕过现有合同。
+实际持久效果由成功执行之后显式提交S的执行基准提供，必须用后续S命令证明。`session.write`由新的CliSandboxEffect承载；原只读固定session不变。
 
-提交后另发一轮同一S的`observe_cwd→PWD`，读取更新后的会话资源，作为独立后条件验证。NN选择CD的成功率、harness提交成功率和后续pwd验证率分别记录，不能以script内pwd代替后续S验证。
+DirectoryRef.path在调用时相对于S当前cwd解析。CD后要重新绑定相对引用；policy同时校验Goal.target与本次引用解析目标相同。跨session/scenario引用在启动进程前拒绝。目标目录的存在、类型、真实归属由harness检查，返回typed错误，不解析错误文案。
+
+提交后另发一轮同一S的`observe_cwd→pwd`，读取更新后的会话资源，作为独立后条件验证。模型选择`cd`、harness提交和后续pwd验证分别记录，不能以script内pwd代替后续S验证。
 
 ## 成功、失败与部分效果
 
@@ -37,26 +37,24 @@ NN独立选择`CD / REJECT`。动作固定为`{kind:"CD",session:S,directory:D}`
 
 ## 样本计划与独立验证
 
-| 分区 | 独立场景家族 | 每家族动作题 | 计划动作题总数 |
-| --- | ---: | ---: | ---: |
-| train | 4 | set_cwd、observe_cwd拒绝、其他Goal拒绝各1 | 12 |
-| development | 2 | 同上 | 6 |
-| verification | 4 | 同上 | 12 |
+保留4 / 2 / 4个来源家族：
+- 4个train家族、2个development家族、4个独立verification家族。
+- 在共享模型中，每家族包含真实set_cwd（正例标cd）与真实unsupported负例，历史observe_cwd（标pwd）作为回放资料共同训练，严禁将支持命令打为REJECT。
 
-train使用兄弟目录、子目录、父目录、同目标目录四种关系；development使用不同多层树和空格目录；verification由独立配方提供中文/尾随空格、多session、连续两次cd、祖先链接目标。关系只影响真实环境，不进入本项三向量策略，不能声称学会了新的路径算法。
+验证探针（8个失败探针保持完整，严格区分native/grant/受控注入）：
+1. 不存在目录（native ENOENT）
+2. 普通文件（native ENOTDIR）
+3. 最终链接（native symlink rejected）
+4. 词法越界（harness sandbox bounds）
+5. 链接解析后越界（harness sandbox bounds）
+6. 缺process.exec（grant拒权）
+7. 缺session.write（grant拒权）
+8. 提交后观测失败（受控注入验证changed状态报告）
 
-验证另加8个失败探针：不存在目录、普通文件、最终链接、词法越界、链接解析后越界、缺process.exec、缺session.write、提交后观测失败。最后一项通过受控删除或观测故障注入验证“已改变但未验证”报告；它是副作用合同测试，不冒称纯真实OS成功场景。每个探针注明native还是受控注入。安全拒绝不能算学对动作。
+清理失败显式记录并暴露。
 
-每条有副作用样本重新创建独立树与session。连续两次cd只在同一条明确轨迹内共享session，整条轨迹不得跨分区。零/冻结/候选比较，旧PWD及路径黄金只读回归；开发调优后再运行独立验证。
+## 外层DAG与owner
 
-train只用2至3个目录的单步场景；development使用不同三层分支树；verification配方采用至少两条不同深度分支、三session和多步轨迹，另叠加特殊名称或链接。验证作者独立声明目标/预期，不复用train构造器后仅换名称。关系类型可以相同，实际配方来源与轨迹必须分开，并报告只有三种学生动作向量。
+未发布的独立CD学习图已退役。正式推理统一走`cli-command-step.graph.json`，每阶段训练走`cli-filesystem-training.graph.json`。`cli-filesystem-curriculum.graph.json`是公开consumer按PWD→CD→LS传递共享候选的设计图，没有独立运行配置或新课程执行引擎。
 
-## 外层DAG、验收与owner
-
-训练图：[cli-cd-learning.graph.json](../workflows/cli-cd-learning.graph.json)。独立验证节点必须包含“执行CD→提交S→下一run同一S执行PWD→比较后条件”；这些是harness事务与验证步骤，不在DAG加重试回边。
-
-只有已提交的CD场景触发后续PWD；策略拒绝与提交前失败保留typed结果直接检查状态，不额外调用PWD后冒称对照零执行。每个正常/失败终态先保存证据，再在report收口自有场景；异常退出也由场景owner回收，不用成功图出口假定一定清理。
-
-验收：验证12/12动作正确；4个正常场景均在后续S的pwd中达到目标；连续轨迹每步基准正确；8个失败探针都符合实际效果合同；其他session与父进程不变；旧能力零退化；保存/回载一致。证据缺项保持候选，不自动采用。
-
-唯一owner：`lib/adapters/cli/`管理session资源、固定执行映射与提交；`lib/filters/`/`lib/nodes/trainable/`实现独立CD评分及6参数电路；`lib/training/`负责样本、真实拟合及比较。现有`createCliSession`固定cwd合同不得偷偷改变：新增明确可变session入口或显式扩展版本，原只读入口保持兼容。实现前红测必须抓住“一次性子进程cd看似成功但后续S未改变”、失败后误提交和跨session污染。
+owner：`lib/adapters/cli/`管理session资源、固定执行映射与提交；`lib/filters/`负责纯特征和共享评分；`lib/nodes/`封装参数绑定、workflow与目标后条件；数值电路与拟合由共享训练owner承担。历史独立结果保留，新交付统一经共享候选与公开入口验收。

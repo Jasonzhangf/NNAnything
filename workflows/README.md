@@ -7,18 +7,16 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
-| `cli-cwd-learning.graph.json` | 设计态，无运行配置 | 8 节点 9 边 (8N9E SESE) | `0.1.0-design` | CWD归属关系和PWD动作分别拟合、保存候选，在独立沙盒验证关系/动作/真实观测；docs/cli-cwd-training-design.md |
-| `cli-cd-learning.graph.json` | 设计态，无运行配置 | 7 节点 7 边 (7N7E SESE) | `0.1.0-design` | CD动作训练、实际执行及会话提交、后续同会话PWD验证；docs/cli-cd-training-design.md |
-| `cli-list-learning.graph.json` | 设计态，无运行配置 | 7 节点 7 边 (7N7E SESE) | `0.1.0-design` | LIST动作训练、固定结构化CLI列举、独立名称/类型/完整性及状态验证；docs/cli-list-training-design.md |
+| `cli-command-step.graph.json` | `cli-command-step.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 同一共享命令 profile 选择 `pwd`、`cd`、`ls`，绑定 typed directory 后执行固定语义调用并验证实际状态；docs/cli-filesystem-training.md |
+| `cli-filesystem-training.graph.json` | `cli-filesystem-training.workflow.json` | 8 节点 8 边 (8N8E SESE) | `0.1.0` 已实现 | 从 PWD 共享候选按名称扩展至 CD、LS，回放历史训练题，真实执行 train/development，可选独立验证与候选保存；docs/cli-filesystem-training.md |
 | `project-design.graph.json` | 设计方法，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` | 本地基础设计资料流：语义目标、固定调用/harness、数值及外层图、独立样本/进化验收；操作方法归nnanything-design Skill |
 | `model-evolution.graph.json` | 设计态，无运行配置 | 10 节点 10 边 (10N10E SESE) | `0.1.0-design` | 所有模型使用采集、训练/使用隔离、配对评价、条件自动采用及冲突保留；统一合同docs/model-evolution.md |
 | `model-conflict-design.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design` | 大模型根据保留冲突定位owner、修订候选连线图纸并输出下一轮实现验证方案，不改在用版本 |
-| `cli-filesystem-curriculum.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design` | 真实目录沙盒中的CWD/pwd→cd→文件及子目录列举训练顺序；合同见docs/cli-filesystem-training.md |
-| `cli-filesystem-training.graph.json` | 设计态，无运行配置 | 8 节点 8 边 (8N8E SESE) | `0.1.0-design` | 单项能力共享训练过程，训练/开发资料与独立验证资料分支，候选后合流；不代表新执行器已实现 |
+| `cli-filesystem-curriculum.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design` | 公开 consumer 的 PWD→CD→LS 顺序说明，阶段间传递 `sharedCandidate`；不代表已有独立 Flowed 课程引擎 |
 | `cli-path-training.graph.json` | `cli-path-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 已实现 | 路径动作样本准备、真实Handwired拟合、自主完整路径评估与create-new候选/报告保存 |
 | `cli-path-resolve.graph.json` | `cli-path-resolve.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 显式profile绑定的词法路径函数，执行与评估共用相同node/rollout合同 |
-| `cli-goal-step.graph.json` | `cli-goal-step.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 结构化Goal选择动作、真实pwd执行或拒绝、实际观测绑定与GoalResult验证 |
-| `cli-goal-training.graph.json` | `cli-goal-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 已实现 | 12/6 Goal样本准备、六参数Handwired拟合、零/冻结/候选评估与候选报告保存 |
+| `cli-goal-step.graph.json` | `cli-goal-step.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 兼容基线 | 历史六参数 PWD 动作选择、真实 pwd 执行与 GoalResult 验证；新共享入口不调用 |
+| `cli-goal-training.graph.json` | `cli-goal-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 兼容基线 | 历史 12/6 Goal 样本准备、六参数 Handwired 拟合与候选保存；不作为当前 `pwd/cd/ls` 训练路径 |
 | `cli-foundation.graph.json` | `cli-foundation.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | CLI 独立基础观测：显式 cwd、pwd、纯路径解释及 stat/lstat 属性；不训练、不搜索 |
 | `dom-candidates.graph.json` | `dom-candidates.workflow.json` | 7 节点 6 边 (7N6E SESE) | `0.1.0` 已实现 | L1 能动候选切片：读取页面观测并经视口、focus、黑白名单与拆分复检输出有序候选槽位与排除映射 |
 | `dom-rule-sampling.graph.json` | `dom-rule-sampling.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现 | 基础规则采样流：显式 semantic rules 确定性分类 DOM 记录、下游按任务映射正负监督并持久化至本地 JSONL |
@@ -28,8 +26,8 @@
 | `operation-episode.graph.json` | 待按需配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` 设计态 | L3 操作闭环设计示例：观测、目标识别、策略决策、条件执行、新观测验证与统一收束 |
 
 > [!NOTE]
-> `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。
-> 运行时可通过 `compileWorkflow` 配合 `nnanything/browser` 与 `nnanything/training` 导出的算子节点执行。当前第一层基础种类判断与离线训练框架已闭环，第二层业务卡片语义（`dom-recognition.graph.json`）仍保持后续设计态。
+> `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。CLI 共享推理图 `cli-command-step.graph.json` 与训练图 `cli-filesystem-training.graph.json` 也通过同一静态校验；课程顺序图保持设计态。
+> 运行时可通过 `compileWorkflow` 配合 `nnanything/browser`、`nnanything/training` 与 `nnanything/cli-goal` 导出的算子节点执行。当前第一层基础种类判断、离线训练框架及共享 CLI 命令推理/训练路径已闭环，第二层业务卡片语义（`dom-recognition.graph.json`）仍保持后续设计态。
 
 训练图、节点端口、内部 wire、数据范围、真实试验证据及验收统一见 [训练 workflow 设计](../docs/training-workflow.md)。公开离线 consumer 见 [playground/training/README.md](../playground/training/README.md)。
 

@@ -6,9 +6,11 @@
 
 新增 Chrome/Chromium 页面标注与采集入口，复用上述第一层分类器。支持类别色框、Focus、点选确认/纠错、未知批量采集和本地 JSON 导出。扩展构建与加载步骤见 [extension/README.md](extension/README.md)，节点与证据边界见 [docs/browser-overlay-m1.md](docs/browser-overlay-m1.md)。采集不会自动训练。
 
-独立 CLI 基础入口为 `nnanything/cli`，从显式工作目录、pwd、纯路径解释和文件属性开始。运行 `npm run demo:cli` 可验证三项公开能力。合同和后续 help 学习范围见 [CLI 基础语义](docs/cli-foundation.md)。当前不包含搜索或训练；原生 Computer use 仅文档占位。
+独立 CLI 基础入口为 `nnanything/cli`，从显式工作目录、pwd、纯路径解释和文件属性开始。运行 `npm run demo:cli` 可验证三项公开能力。合同和后续 help 学习范围见 [CLI 基础语义](docs/cli-foundation.md)。基础入口本身不包含搜索或训练；文件系统训练由下方共享命令模型提供。原生 Computer use 仅文档占位。
 
 首个函数表达训练现由独立 `nnanything/cli-training` 提供：`cwd+input→词法绝对路径`。公开合成样本64train/16development/32holdout，真实Handwired动作拟合和新进程回载；运行 `npm run demo:path-training -- --handwired-root /absolute/handwired`。见 [路径训练合同与实测](docs/cli-path-training.md)。该模型不自动采用，也不替换CLI基础入口。
+
+文件系统语义训练由 `nnanything/cli-goal` 提供 `createCliCommandPolicy`、`runCliCommandTraining` 与单一共享 `CliCommandProfile` 合同 `cli.command-policy.v1`。模型只选择命令头，输出 `["pwd"]`、`["cd", D]`、`["ls", D]`；显式 session 与 typed directory 引用由 harness 绑定并执行固定语义调用，模型不生成 shell 语法，也不解析输出正文。训练按 PWD→CD→LS 名称扩展，参数为 4→9→16，上一阶段已保存候选读回后继续拟合并回放历史训练题。运行 `npm run demo:command-training -- --handwired-root /absolute/handwired` 完成真实拟合、保存和每阶段新进程回载。最终共享候选 train 16/16、development 8/8；pwd、cd、ls 各 4/4 与 2/2 真实效果，最终新进程回载 24 题、18 次真实执行。候选保持 uncalibrated/not_applied，历史六参数 PWD API 与 CWD 关系测量只作兼容基线。合同与结果见[文件系统训练](docs/cli-filesystem-training.md)和[共享训练实测](docs/cli-filesystem-training-results.md)。
 
 ## 快速开始（L1 能动切片与离线训练）
 
@@ -41,6 +43,9 @@ npm run demo:basic-kinds
 
 # 运行基础种类离线训练公开 Consumer（6 节点工作流、Handwired 拟合与回载复核）
 npm run demo:training -- --handwired-root <path-to-handwired>
+
+# 运行共享 CLI 命令训练公开 Consumer（PWD→CD→LS 增量拟合、保存与新进程回载）
+npm run demo:command-training -- --handwired-root <path-to-handwired>
 ```
 
 - 浏览器 Consumer 固定入口为 playground/browser/demo.mjs，负责完整演示保存观测加载、7 节点有限图编译运行及保序候选槽位输出。

@@ -67,7 +67,7 @@ node_modules
 
 逐能力实施先完成精确 `path.resolve(cwd,input)` 的函数表达训练，合同与结果唯一入口为 docs/cli-path-training.md。学生只学习符号动作，名称复制、栈原语和分词是手写基础；teacher与POSIX oracle不得进入学生rollout，不以teacher修正替代模型错误。独立cli-training入口显式加载候选，M0和浏览器权重不变；目录绑定、help与组合操作继续后置。
 
-后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。首个 `observe_cwd→pwd` 选择与观测绑定已实现，合同和实测唯一入口为docs/cli-goal-training.md；它只学习 `REJECT/PWD`、三个特征和六参数，不包含cd。修改指定session cwd→cd、多步组合及更广语义仍后置；不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。
+后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。所有已注册CLI命令统一使用单一共享模型和权重profile（`cli.command-policy.v1`），依序增量拟合PWD（4参数）、CD（9参数）、LS（16参数）。历史二分类CD/LIST独立模型合同已退役，唯一训练合同为docs/cli-filesystem-training.md。`nnanything/cli-goal`已实现`createCliCommandPolicy`与`runCliCommandTraining`；三阶段真实训练、保存后新进程回载及最终候选独立验证已有实测证据，见docs/cli-filesystem-training-results.md。候选保持uncalibrated/not_applied；审查与Git交付记录沿note.md，不把代码集成等同于自动采用权重。历史独立PWD/CD结果只作基线。不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。
 
 当前页面审计按用户可观测前景限定：已确认完全遮挡项在DOM候选预处理排除，部分露出按区域保留，工具自身不遮挡站点目标。原DOM与排除证据仍保留，不转训练负例、ignore或other。后续已明确要求训练人类可观测／可交互的保留filter，输入覆盖viewport、最上层／露出区域及交互承载；阅读／显示也有价值，不等于只保留可点击元素。该训练是后续增量，不把本轮确定性遮挡修复冒称已训练。算法与限制唯一入口为docs/browser-overlay-m1.md。
 
@@ -89,6 +89,7 @@ node_modules
 - 项目图拓扑与流程清单：workflows/*.graph.json 与 workflows/README.md；可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
 - 基础采样与训练节点完整合同卡唯一owner：lib/nodes/README.md。
 - DOM focus/单标签与数组规则：docs/focus-and-labeling.md；首个结构实验电路：docs/structure-circuit-m1.md。research中的旧organic或多标签草案不得覆盖当前合同。
+- 统一CLI共享命令模型与文件系统训练合同唯一owner：docs/cli-filesystem-training.md；参数简化调用合同：docs/cli-call-contract.md。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 
 ## 后续实现必须保持的边界

@@ -6,9 +6,9 @@
 
 后续用户将实施起点进一步收敛为逐能力训练，先完成精确 `path.resolve(cwd,input)` 的函数表达。已实现的流程、样本与首轮实测见 [路径函数训练](cli-path-training.md)。下方目录目标绑定仍为后置设计，不与首项路径训练并行实施。
 
-动作学习的最新方向为 [总体设计1.1](design.md#11-结构化语义的目标与状态推理)：先分别训练“获取cwd→pwd”和“修改指定session的cwd→cd”，再将获取cwd复用为后续操作的子目标。首个 `observe_cwd→pwd` 切片已实现，合同与实测见[Goal动作训练](cli-goal-training.md)；`cd`仍未实现，不等于下面精确操作目录已全部可用。
+动作学习的最新方向为 [总体设计1.1](design.md#11-结构化语义的目标与状态推理)：全命令收敛为单一共享命令模型（`cli.command-policy.v1`），模型输出调用序列 `["pwd"]`、`["cd", D]`、`["ls", D]`，由harness分流执行对应固定操作。历史独立 `observe_cwd→pwd` 见[Goal动作训练](cli-goal-training.md)作为基线。当前各命令唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。
 
-当前训练顺序进一步明确为CWD概念与pwd获取→cd改变会话目录→获取目录内文件及子目录。真实专用目录沙盒、训练/开发/独立验证分区及对应训练DAG见[文件系统训练设计](cli-filesystem-training.md)。它是下一增量设计，不将专用目录称为硬件隔离，也不将下表其余操作提前纳入实现。
+当前训练顺序为统一共享模型的递进增量训练：PWD阶段（4参数）→CD阶段（9参数）→LS阶段（16参数）。旧独立CD/LIST模型合同已退役，其实际执行harness、效果与失败模式保留并迁入共享模型。真实专用目录沙盒、训练/开发/独立验证分区及训练DAG见[文件系统训练合同](cli-filesystem-training.md)。
 
 ## 1. 基础对象与表达
 
@@ -26,22 +26,22 @@
 
 纯路径解析先保留精确合同：`path.resolve(base, input) -> AbsolutePath`。完整 base 与 input 已给定时，它是确定任务。词法解析不访问文件系统、不展开 `~`/环境变量/glob，也不解析链接。实际对象类型通过观测取得，不能从扩展名或尾部 `/` 猜测。
 
-语义请求写为 `operation(arguments) -> result`。它是有类型的操作及参数，不是自然语言，也不是 shell 命令字符串。实现可以对应一个或多个必要 OS 调用；一个请求只承担一种对外语义，不自动搜索、补参或继续执行另一项操作。
+语义请求由harness执行，对应模型的调用序列与typed参数。实现可以对应一个或多个必要 OS 调用；一个请求只承担一种对外语义，不自动搜索、补参或继续执行另一项操作。
 
 ## 2. 精确单操作目录
 
 精确指执行入口时，目标、必要参数与策略已经明确。操作仍可能因状态、权限或 OS 原因失败；精确不等于保证成功。除 `path.resolve` 外，路径参数均为已解析的 `AbsolutePath`，避免隐藏 cwd 依赖。权限、可执行程序配置与 session 状态由显式 typed resource 承载，不塞进业务 metadata。
 
-下表是设计目录。只有映射栏明确列出的 M0 能力已经实现；其余名称均不是现有可调用 API。
+下表是设计目录。只有映射栏明确列出的能力已纳入固定harness执行；其余名称均不是现有可调用 API。
 
-| 语义操作 | 精确输入 | 成功输出及行为 | 关键失败与边界 | 当前映射 |
+| 语义操作 | 精确输入 | 成功输出及行为 | 关键失败与边界 | 共享模型映射 |
 | --- | --- | --- | --- | --- |
-| `cwd.get` | `session: SessionRef` | 该 session 的 cwd 观测与证据 | 目录失效、观察失败；不改变状态 | M0 `observe({kind:'pwd'})`，固定 `pwd -P` |
-| `path.resolve` | `base: AbsolutePath, input: PathText` | 词法绝对路径及父路径 | 非法路径；不检查存在性；绝对 input 不依赖 base | M0 `kind:'path'`／`interpretCliPath` |
+| `cwd.get` | `session: SessionRef` | 该 session 的 cwd 观测与证据 | 目录失效、观察失败；不改变状态 | 模型输出 `["pwd"]`，固定 `pwd -P` 观测 |
+| `path.resolve` | `base: AbsolutePath, input: PathText` | 词法绝对路径及父路径 | 非法路径；不检查存在性；绝对 input 不依赖 base | 独立函数 `kind:'path'`／`interpretCliPath` |
 | `entry.inspect` | `path, follow_symlinks: boolean` | 类型、大小、mode/uid/gid、OS 时间；不跟随时可返回链接文本 | ENOENT、EACCES；stat/lstat 明确区分 | M0 `kind:'attributes'` |
-| `directory.list` | `directory: AbsolutePath` | 直接子条目及覆盖状态；包括点开头名称，不含 `.`/`..` | 不是目录、拒权、读取未完成；不递归 | 设计态 |
+| `directory.list` | `directory: AbsolutePath` | 直接子条目及覆盖状态；包括点开头名称，不含 `.`/`..` | 不是目录、拒权、读取未完成；不递归 | 模型输出 `["ls", D]`，固定编译结构化helper |
 | `file.read` | `file: AbsolutePath, offset: uint, length: uint` | 从指定字节位置读取，返回 Bytes、实际长度和 EOF | 不是普通文件、拒权、IO 失败；不隐式文本解码 | 设计态 |
-| `cwd.set` | `session: SessionRef, directory: AbsolutePath` | 设置该 session 后续操作的 cwd，并返回成功后的 cwd | 不是目录、目录不可进入；失败不得报告已进入 | 设计态，M0 session 的 cwd 仍固定 |
+| `cwd.set` | `session: SessionRef, directory: AbsolutePath` | 设置该 session 后续操作的 cwd，并返回成功后的 cwd | 不是目录、目录不可进入；失败不得报告已进入 | 模型输出 `["cd", D]`，固定CD脚本+提交S+PWD验证 |
 | `directory.create` | `path: AbsolutePath` | 新建一个目录 | 父目录不存在、目标已存在、拒权；不递归补父目录 | 设计态 |
 | `file.create` | `path: AbsolutePath` | 以 create-new 方式建立空普通文件 | 目标已存在、父目录不存在、拒权；不覆盖 | 设计态 |
 | `file.replace` | `file: AbsolutePath, content: Bytes` | 用给定字节替换已有普通文件的全部内容 | 目标不存在或不是普通文件、拒权、IO 失败；不是追加；不预先承诺原子替换 | 设计态 |
@@ -52,7 +52,7 @@
 
 首版对象操作的最终条目策略固定：`directory.list`、`file.read`、`file.replace`、`cwd.set` 要求最终条目本身为所需普通文件或目录，遇到最终 symlink 明确拒绝；需要跟随时先用显式观测取得目标引用。`entry.move/remove` 操作链接自身，create-new 遇到已有链接也算目标已存在。祖先路径仍可能经过 OS 链接解析；这不提供文件系统隔离，也不承诺抵御并发替换。未来实现必须对相应边界给出实际行为验收，不能把先检查类型再操作称为原子保证。
 
-`cwd.set` 成功后的 cwd 按物理目录观测返回，与当前 `pwd -P` 基础合同一致。它更新的是指定 session 的执行基准，不修改父进程或其他 session。此约定尚未实现。
+`cwd.set` 成功后的 cwd 按物理目录观测返回，与当前 `pwd -P` 基础合同一致。它更新的是指定 session 的执行基准，不修改父进程或其他 session。
 
 只读结果使用 `ok(value)` 或 `error(code,evidence)`。`directory.list` 的未完成覆盖必须显式返回，不能将部分结果当成完整目录。文件写入的副作用不能仅靠返回值宣称成功。
 
@@ -66,7 +66,7 @@ entry.inspect(path="/workspace/humanagent", follow_symlinks=false)
 cwd.set(session=S, directory="/workspace/humanagent")
 ```
 
-这是三个分别可以调用的操作，不是本轮要训练的一条组合序列。`cwd.set` 不负责寻找名称为 humanagent 的对象；搜索范围和目标消歧也不隐藏在它内部。独立子进程中的 `cd` 不会自动改变父进程或别的 session。
+这是三个分别可以调用的操作，不是本轮要训练的一条组合序列。模型调用 `["cd", D]` 是单次调用的参数序列，不是多步规划。CD 后的 PWD 验证是固定 harness 事务，不等于模型学会了调度组合。`cwd.set` 不负责寻找名称为 humanagent 的对象；搜索范围和目标消歧也不隐藏在它内部。独立子进程中的 `cd` 不会自动改变父进程或别的 session。
 
 精确的 `path.resolve(cwd,input)` 可以先训练和评估，但不能把它的确定性输出称为模糊选择能力。
 

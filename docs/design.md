@@ -6,7 +6,7 @@
 
 2026-10-17 第一层基础种类算法与六节点离线训练已实现（详见[训练合同](training-workflow.md)）。6N6E SESE 工作流接入真实Handwired求值、反传与Adam。已有158项试验、六页201项评估及随后明确授权的MAP式增量实验已运行，范围和局限见[实验结果](training-m1-results.md)。阈值固定，置信度未校准，候选不自动采用。历史卡片sigmoid、alpha/beta或完整贝叶斯分布不作为本轮多分类实现。第二层业务语义、WebUI、Rust保持后续范围。
 
-2026-10-19 新增结构化语义状态推理方向，以下1.1节为其目标合同。首个固定函数 `cwd+input→词法绝对路径` 已实现真实训练与回载，见[路径训练](cli-path-training.md)。首个 Goal 驱动的 `observe_cwd→pwd` 动作选择、真实执行与观测绑定已实现并有实测，见[Goal动作训练](cli-goal-training.md)；`cd`、组合规划和未见语义泛化仍为后续增量。
+2026-10-19 新增结构化语义状态推理方向，以下1.1节为其目标合同。首个固定函数 `cwd+input→词法绝对路径` 已实现真实训练与回载，见[路径训练](cli-path-training.md)。历史独立 `observe_cwd→pwd` 实测见[Goal动作训练](cli-goal-training.md)（作为兼容基线保留）。当前正式收敛为全命令单一共享模型与权重profile，依序增量拟合PWD、CD、LS，唯一训练合同见[文件系统训练合同](cli-filesystem-training.md)。
 
 ## 1. 目标与边界
 
@@ -26,30 +26,30 @@
 
 ### 1.1 结构化语义的目标与状态推理
 
-用户当前目标为结构化 `Goal → State → Action → New State`。手写基础概念、动作输入输出和执行结构；NN学习概念关系、动作与状态变化的关系，以及给定Goal/State的动作选择。全程使用结构化语义，不训练自然语言请求识别。概念层、动作层、推理层是此方向的三类训练职责，与下文浏览器基础语义/组合识别的两层分类对象不同。
+用户当前目标为结构化 `Goal → State → Action → New State`。手写基础概念、动作输入输出和执行结构；NN学习概念关系、动作与状态变化的关系，以及给定Goal/State的动作调用选择。全程使用结构化语义，不训练自然语言请求识别。概念层、动作层、推理层是此方向的三类训练职责，与下文浏览器基础语义/组合识别的两层分类对象不同。
 
-先逐个训练最小动作关系，不预先训练多步规划：
+所有注册CLI命令收敛为单一共享模型和权重profile（`cli.command-policy.v1`）。输入为结构化Goal与State；公开入口以`createCliCommandPolicy({profile,sandbox,session:S})`绑定显式资源，再调用`.step({goal,state,directory?:D})`。模型输出标准调用序列。序列首项为实际Shell命令名，后续项为有类型的简化位置参数。当前增量拟合命令头，参数引用机械绑定，实际New State由harness观测与验证；未另训练状态预测头。
 
-| Goal | State中需要的已知条件 | Action | 实际New State与验证 |
+| Goal | 显式资源信封条件 | 模型输出调用序列 | harness固定执行与实际New State验证 |
 | --- | --- | --- | --- |
-| `{kind:observe_cwd, session:S}` | 有效的明确执行会话 | `pwd(session:S)` | 执行上下文cwd不变；新增实际cwd观测及证据；验证输出来自S的实际工作目录 |
-| `{kind:set_cwd, session:S, target:D}` | 已明确目标绝对目录与执行会话 | `cd(session:S, directory:D)` | S后续操作的cwd改变；在同一S重新观测并核对目标；失败不能报告已进入 |
+| `observe_cwd(S)` | 显式session S | `["pwd"]` | 读取S当前cwd，执行固定PWD观测；执行基准不变；新增实际cwd观测及证据 |
+| `set_cwd(S,D)` | 显式session S与目录D | `["cd", D]` | 绑定D，执行固定CD脚本，成功后显式提交S的执行基准；在同一S重新执行真实PWD观测核对目标 |
+| `list_directory(S,D)` | 显式session S与目录D | `["ls", D]` | 绑定D，通过固定结构化helper列举直接子条目；不解析`/bin/ls`面向人类文本；S状态及FS内容不变 |
+| 未支持的语义Goal | 任意输入 | 无调用（`unsupported`） | 策略记录`unsupported`，不调用任何Shell命令，不修改任何状态 |
 
-在当前动作词表中，pwd是获取cwd的实现，cd是修改cwd的实现；训练要建立Goal与这些效果的对应。后续操作若缺cwd，可以提出observe_cwd子目标，再复用已学的pwd选择和结果绑定。这里的“必然”限于已声明的动作词表与适用条件，不宣称任意工具环境中只有一种实现。
+在此共享模型中，模型只负责内部命令头路由与参数角色输出。`["cd", D]`是一次调用的参数序列，不是多步规划。CD后的PWD是harness固定后条件验证步骤，不冒称模型学会了多步规划。
 
-读取与修改分开：pwd改变的是已知信息，不能误标为修改执行目录；cd改变指定会话的执行基准，不能通过一次性子进程中的cd冒充父会话已改变。当前M0 session仍固定cwd，尚未实现cd。后续执行器使用明确session资源，不隐式修改Agent父进程cwd。
+读取与修改分开：pwd改变的是已知信息，不能误标为修改执行目录；cd改变指定会话的执行基准，不能通过一次性子进程中的cd冒充父会话已改变。执行器使用明确session资源，不隐式修改Agent父进程cwd。
 
-训练/反馈样本为 `{goal, state_before, action, execution_result, observed_state_after, goal_result}`，动作参数与引用显式保留。NN可预测效果或选择动作，真正的New State由执行与观测提供；预测不能充当事实。目标检查器按结构化Goal验证，失败/未知均保留，不由模型自报成功。新增样本按场景分区、回归、拟合/回载后形成候选；持续训练不等于每步自动改写当前采用权重。
+训练/反馈样本统一为 `{goal, state_before, invocation, execution_result, observed_state_after, goal_result}`。NN预测调用序列，真正的New State由harness执行与OS观测提供；预测不能充当事实。目标检查器按结构化Goal验证，失败/未知均保留，不由模型自报成功。
 
-状态机承载“选择动作—执行—新观测—检查目标”的有限推理过程。每个实际操作沿既有workflow合同执行；跨操作继续时发起新run，保持单次DAG闭合，不为此新建第二个执行引擎。具体可训练单元按独立职责拆分，不把每个语义名称机械等同为一个已实现神经元。
-
-首个路径模型只是固定Goal下的动作控制器，已学习五个符号动作；分词/栈/名称复制仍手写。2026-10-19 的首个 Goal 切片已增加三特征、六参数的 `REJECT/PWD` 选择器，并完成 `observe_cwd→pwd` 的真实执行、观测绑定和 GoalResult 闭环，见[Goal动作训练](cli-goal-training.md)。它只有三种语义向量，不能当作通用Goal条件推理；`cd`选择器和多步组合仍未交付。
+实施状态：当前共享命令策略（`createCliCommandPolicy`）与多分类增量训练（`runCliCommandTraining`）正在`nnanything/cli-goal`实现中。原有六参数二分类PWD API及模型保持兼容基线，新共享入口不调用旧profile。实际共享训练与独立验证尚未完成，候选保持`uncalibrated`与`not_applied`。
 
 ### 1.2 固定语义调用与全模型自进化
 
-用户进一步明确：因为需要CWD，推理选择获取CWD的语义动作；动作调用语法固定，由harness转换为实际CLI调用。语义目标、动作选择、参数绑定、真实执行与效果验证分工明确。浏览器沿同一固定I/O边界，分类器保持分类职责，不自动变成操作器。
+用户进一步明确：推理选择获取目标所需的语义命令头与位置参数；调用序列固定，由harness转换为实际固定CLI调用与语义操作（`cwd.get`、`cwd.set`、`directory.list`）。语义目标、调用选择、参数绑定、真实执行与效果验证分工明确。
 
-所有接入CLI命令先简化为`{operation,parameters}`及每操作固定的最小typed参数，不训练原生flags、shell文本或输出内容解析。命令/argv/默认行为和机器回执由harness负责；唯一合同为[CLI调用参数简化](cli-call-contract.md)。
+所有接入CLI命令统一按[CLI调用参数简化](cli-call-contract.md)约定：输出`["command", ...params]`，S置于信封，不训练原生flags、shell脚本编写或输出正文解析。命令/argv/默认行为和机器回执由harness负责。
 
 所有模型的目标架构均包含使用时采集、训练/使用版本隔离、独立配对比较及条件自动升级。有明确提升、所有必需旧能力无回归且证据完整时自动采用；冲突或回归保留当前版本，留证据交大模型判断。大模型可以修订设计连线，但先更新对应外层DAG、内部数值图和合同，再走实现、训练与验证，不能直接改在用版本。唯一完整合同见[语义调用与模型演进](model-evolution.md)。这是当前新设计要求，不冒称已有离线训练已实现自动升级。
 

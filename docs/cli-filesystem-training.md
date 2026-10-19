@@ -1,90 +1,102 @@
-# 文件系统沙盒与前三项语义训练
+# 文件系统沙盒与共享命令模型增量训练
 
-状态：设计态，2026-10-19。用户已选择真实文件系统中的专用沙盒目录，不声称硬件、虚拟机或操作系统权限隔离。本轮只定义训练顺序、样本分离和训练过程DAG；不将图校验称为沙盒执行器已实现。总体Goal/State合同见[design.md 1.1](design.md#11-结构化语义的目标与状态推理)。精确操作类型沿[语义目录](cli-semantic-operations.md)，不另造操作词表。
+状态：实施合同，源码已实现；正式共享训练（PWD→CD→LS）与独立验证已通过；作者全量回归、整体Review与集成待完成。实测计数、计时与run记录见[共享模型实测](cli-filesystem-training-results.md)，本文不重复历史表。本文是全命令统一共享模型与增量训练的唯一权威合同。总体Goal/State定义见[总体设计1.1](design.md#11-结构化语义的目标与状态推理)；调用与资源信封见[参数简化合同](cli-call-contract.md)；精确操作与固定映射见[语义目录](cli-semantic-operations.md)。
 
-固定调用由harness转成实际CLI，使用采集与候选自动升级的跨模型规则统一沿[模型演进合同](model-evolution.md)。本页的分区/沙盒是CLI领域执行与验证条件，不另建采用策略。
+## 1. 统一共享命令模型
 
-## 1. 当前顺序
+本项目使用单一共享模型与权重profile承载所有已注册的CLI命令（`pwd`、`cd`、`ls`）与不支持识别：
 
-基础路径函数已有独立训练结果，是本轮可复用前置；不重新训练或扩大范围。前三项按下面顺序交付。每项都走同一个独立训练流程，但目标、样本、损失与候选分别保存，不混成一个模型。
+- 合同标识：`cli.command-policy.v1`
+- 命令头（heads）：`unsupported`, `pwd`, `cd`, `ls`
+- 输入连线（wires）：`bias`, `goalObserveCwd`, `goalSetCwd`, `goalListDirectory`
+- 最终参数结构：4×4，共16个参数
+- 状态属性：`calibration: "uncalibrated"`, `adoption: "not_applied"`
+- 同分规则：稳定顺序，`unsupported`优先；结果严格按teacher计分
 
-| 顺序 | 理解与训练目标 | 结构化Goal与动作 | State及真实验收 | 当前状态 |
-| --- | --- | --- | --- | --- |
-| 1 | CWD是某一会话当前目录；获取CWD | `observe_cwd(S) → pwd(S)` | 新增本次真实CWD观测；执行基准不变；已有观测不能替代本次观测 | 首个有限选择器已训练；[本项完整训练设计](cli-cwd-training-design.md)已落盘，专用沙盒样本管线待接入 |
-| 2 | 改变指定会话的CWD | `set_cwd(S,D) → cd(S,D)` | 在同一S中再次执行pwd，核对目标物理目录；其他会话和父进程不变；提交前失败不改CWD，提交后验证失败如实报告效果 | [本项训练设计](cli-cd-training-design.md)已落盘，尚未实现会话变更或训练 |
-| 3 | 获取目录内的文件与子目录 | `directory.list(D) → LIST(D)`，对应ls列举能力 | 得到直接子条目及文件/目录类型；与独立OS观测比较；不递归、不读取正文；列举不改变CWD | [本项训练设计](cli-list-training-design.md)已落盘；首版固定结构化CLI helper，不宣称训练ls参数；尚未实现或训练 |
+模型接收结构化Goal与State；profile、sandbox与会话在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`，每次调用传`step({ goal, state, directory? })`。请求没有`resources`或`directories`字段。模型输出调用序列首项取自命令头，是小写实际Shell命令名；后续项是机械绑定的typed位置参数引用，模型不生成自由参数文本：
+- `observe_cwd(S)` → `["pwd"]`（harness执行固定PWD观测）
+- `set_cwd(S,D)` → `["cd", D]`（harness执行固定CD脚本，提交S，并在同一S执行PWD验证）
+- `list_directory(S,D)` → `["ls", D]`（harness通过固定编译结构化helper列举）
+- 未支持语义Goal → 内部输出`unsupported`，`invocation: null`，`executorInvoked: false`，不执行任何Shell命令
 
-第1项先训练基础概念关系：`cwd属于哪个session`、`cwd观测与执行基准的区别`、`相对路径以该session的cwd解析`。再训练获取动作。已有path.resolve模型及pwd模型提供部分证据，不表示完整概念层已验收。结构化概念题和动作题分别统计，不以命令选择正确替代概念理解。
+示例（set_cwd）：
 
-第2项只训练目标目录已明确的精确单操作。第3项先显式给出目录D，不以组合规划作为前置。后续才组合“获取CWD→进入目录→列举”。`ls`的命令参数与机器可读观测入口须在实现时固定；不把空格分词或解析面向人的多列输出作为文件名真值。隐藏条目、空目录及特殊文件名必须保留。普通文件、目录、链接分别观测，不能从扩展名猜类型；未读取的类型保持未知。符号链接策略沿现有精确操作合同。
-
-训练顺序图：[cli-filesystem-curriculum.graph.json](../workflows/cli-filesystem-curriculum.graph.json)。节点表示独立能力训练的依赖与验收次序，不是已有运行算子。共享训练过程：[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)。
-
-## 2. 真实文件系统沙盒
-
-沙盒执行器的职责是创建本轮专用根目录、按场景构造实际文件树、提供显式session、执行单项动作、独立观测前后状态及回收自有目录。它不负责生成NN预测，不参与目标成功的自我证明。后续唯一实现owner为`lib/adapters/cli/`；样本和拟合仍归`lib/training/`，不增加第二套调度器。
-
-每个分区、每条有副作用的样本各用独立目录与session，避免cd或其他状态污染下一条样本。每次重试创建新的场景目录，保留失败证据；不在DAG中加回边。真实路径仅属于执行资源与teacher证据，学生使用结构化类型、关系和显式引用，不记忆沙盒绝对根、文件名或session名来答题。
-
-目录是训练fixture边界，不提供OS隔离。首轮执行入口只接受声明的语义动作和显式参数，不接受任意shell字符串。相对路径在指定session中解析；目标引用不得逃出本轮场景。涉及符号链接的目标按真实解析结果检查。该限制必须在执行边界实现并给出越界拒绝反例，不能以字符串前缀判断宣称安全，也不能把“专用目录”本身当成已实现限制。首轮不开放任意命令或未声明的写入操作。
-
-训练数据放在既有忽略目录，不新建根级资产目录：
-
-```text
-training/samples/filesystem/<capability>/<run>/train/
-training/samples/filesystem/<capability>/<run>/development/
-training/samples/filesystem/<capability>/<run>/verification/
-training/results/filesystem/<capability>/<run>/
-training/weights/filesystem/<capability>/<run>/
+```ts
+const policy = createCliCommandPolicy({ profile, sandbox, session: S });
+const transition = await policy.step({
+  goal: { kind: "set_cwd", session: S.sessionId, target: absoluteTarget },
+  state: { session: S.sessionId, cwdObservation: null, directoryListing: null },
+  directory: D,
+});
 ```
 
-实际fixture在运行时临时目录中创建；保存结构化场景配方、输入输出及原始执行证据，不让历史临时路径成为唯一复现入口。清理只针对本轮owner创建的场景；所有成功/失败路径都先保存结果，再回收资源，清理失败显式记录。
+`DirectoryRef.path`在调用时相对S当前cwd解析；CD提交后，调用者必须重新绑定相对引用。`set_cwd`与`list_directory`的`Goal.target`是配置后的绝对路径，必须与本次绑定引用解析出的目标一致；harness不做隐藏重定向。命令头预测错误时，guard拒绝执行但仍记录`policy_error`，不能把错误伪装成`unsupported`或OS失败。
 
-## 3. 样本生成与复核验证分开
+历史独立的二分类CD/LIST模型合同已退役。旧main的六参数PWD API（`cli.goal-policy.v1`）作为历史兼容基线保留，不被新共享入口调用；新共享路径不存在逐命令binary profile。CWD关系是独立概念测量：`MATCH/NO_MATCH`，`x=[1, sameSession, hasObservation]`，共6个参数；历史16/8只是样本计数，不产生命令selector。
 
-先声明能力合同和场景家族，再按家族分配用途，之后才创建文件树和生成样本。同一树模板的换名、同一session的轨迹及其派生样本不得跨分区。分目录保存只是物理分离，不能代替来源分离。
+## 2. 递进增量训练（Curriculum）
 
-| 分区 | 生成与复核 | 可以做什么 | 禁止用途 |
-| --- | --- | --- | --- |
-| train | 训练场景配方→实际执行与观测→检查标签和状态转换→合格样本 | 拟合参数；保留失败样本及明确预期 | 未复核预测不能直接变黄金监督 |
-| development | 独立的开发场景家族→同一公开执行入口 | 选训练预算、查错、比较零/冻结/候选 | 不报告为最终独立验证 |
-| verification | 独立作者或独立配方，在拟合前定义预期，单独创建实际场景 | 保存候选后只读加载，真实执行并复核 | 不进fit、不选epoch、不改标签迎合模型、不作为修复后新的未见集 |
+共享候选采用三阶段递进训练，阶段间按名称保留权重并扩展，上一阶段保存的候选作为下一阶段的输入起点：
 
-训练样本自身也需要复核。训练数据复核与最终独立验证是两种职责：前者确保监督正确，后者检验候选在未用于调参的样本上能否完成目标。验证作者可以复用相同动作合同与公开执行入口，但不复用训练fixture生成器来宣称独立场景。
+| 阶段 | 动作集合 | 输入wires | 参数规模 | 输入起点与扩展规则 | 训练资料构成 |
+| --- | --- | --- | ---: | --- | --- |
+| 1. PWD | `unsupported`, `pwd` | `bias`, `goalObserveCwd` | 2×2=4 | 零初始化 | PWD正例 + 真实unsupported负例 |
+| 2. CD | 追加 `cd` | 追加 `goalSetCwd` | 3×3=9 | 加载上一阶段保存的PWD候选；按名称扩展，新增行与列补零 | CD新正例 + PWD历史行全量回放 + unsupported |
+| 3. LS | 追加 `ls` | 追加 `goalListDirectory` | 4×4=16 | 加载上一阶段保存的CD候选；按名称扩展，新增行与列补零 | LS新正例 + PWD/CD历史行全量回放 + unsupported |
 
-样本保留`goal, state_before, action, execution_result, observed_state_after, goal_result`。概念层另保存结构化问题、关系输入与期望关系输出。目标评估器依据独立OS观测判定；NN预测的新状态永远不作为实际观测。失败、unknown、权限拒绝与部分结果均显式保留。
+注意：按名称扩展补零仅保证初始结构兼容，绝不代表数学上必然无回归（补零仍可能改变softmax分母与argmax）。每阶段必须同时记录：
+1. 扩展后冻结对照：使用扩展后的初始矩阵且不做参数更新（等价初始状态`epochs:0`），只做预测。
+2. 零权重对照：只做预测，不执行命令。
+3. 真实Handwired拟合后候选（200 epochs，lr 0.1，源码根 `/Volumes/extension/code/handwired`）。
+4. 历史命令逐项回归与逐命令独立统计（fixed / regressed / retained / unresolved）。
 
-发现验证失败时保留原始报告。修复后原验证集只能作回归集；若要再次报告未见验证，另建新场景家族。候选保持`uncalibrated/not_applied`，每轮训练不自动替换已采用权重。
+数值拟合器自身的`epochs:0`路径由作者单独测试，不属于上述两个预测对照。
 
-## 4. 每项能力的最小训练过程
+## 3. 样本分区与监督标签迁移
 
-共享过程是单源单汇DAG。分区声明之后分成两条资料链：训练/开发准备与独立验证准备。拟合节点只收到训练资料；独立验证资料在候选形成后才与候选合流。验证不回流修改本轮参数。
+保留来源家族隔离：共享数据集含4个train家族与2个development家族，同一家族不跨分区。正式共享run未提供可选verification资源；4个独立verification家族由独立作者另建，由父级独立报告单独记录。
 
-```mermaid
-flowchart TD
-  A([声明能力合同与场景分区]):::boundary --> B[生成并复核训练与开发样本]:::action
-  A --> V[独立生成并复核验证样本]:::action
-  B --> C[拟合并做开发集比较]:::action
-  C --> D[保存显式候选]:::data
-  D --> E[加载候选执行独立验证]:::action
-  V --> E
-  E --> F[汇总概念动作及真实效果]:::action
-  F --> G([保存报告并回收本轮沙盒]):::boundary
-  classDef boundary fill:#E9EEF5,stroke:#64748B,color:#0F172A,stroke-width:1.5px
-  classDef action fill:#E8F1FF,stroke:#2563EB,color:#0F172A,stroke-width:1.5px
-  classDef data fill:#F1EAFE,stroke:#7C3AED,color:#0F172A,stroke-width:1.5px
-```
+每条样本按实际语义打标，严禁将支持的命令在其他命令训练中打上REJECT：
+- `observe_cwd` → `pwd`
+- `set_cwd` → `cd`
+- `list_directory` → `ls`
+- 未支持语义Goal → `unsupported`
 
-图中“拟合并做开发集比较”复用对应能力的细粒度训练workflow。训练/开发标签只在其资料链中可见；最终目标检查器所需验证预期不进入学生输入。错误结果沿原有workflow失败合同结束，资源由场景owner收口；图中的单出口表示报告与资源终态，不把失败转为成功。
+数据集构成：
+- 4个train家族与2个development家族，每个家族包含pwd、cd、ls及真实unsupported各1题。
+- 最终全量数据集：16条train行（4家族×4类别），8条development行（2家族×4类别）。
+- 阶段数据集：PWD阶段为8 train / 4 dev（pwd + unsupported）；CD阶段为12 train / 6 dev（+cd）；LS阶段为16 train / 8 dev（+ls）。
+- 验证集由独立作者配方另行提供，加上各命令专属失败探针；父级独立报告单独记录，不进入默认train/development分区。若调用者显式提供可选verification资源，receipt才记录`evaluation`分支。测试覆盖有限特征向量与真实环境变化（空格、中文、嵌套、链接等），不冒称未见语义泛化。
 
-分别报告概念关系正确率、动作选择正确率、参数绑定正确率、真实操作效果、错误是否保持状态、未声明副作用及跨场景影响。同时给出独立场景家族数和学生可见的不同输入结构数；换目录名不能冒称语义泛化。
+## 4. 真实文件系统沙盒与harness边界
 
-## 5. 前三项的最小独立验证
+沙盒执行器（`lib/adapters/cli/`）提供隔离的场景目录与显式session资源。每个分区与每条带副作用的样本独立创建目录与session：
 
-| 能力 | 正常样本 | 抓错反例 |
-| --- | --- | --- |
-| CWD / pwd | 多session、不同实际目录、空格/中文目录、过期知识后重新观测 | 将其他session的cwd当答案；把pwd误标为改变cwd；用旧知识冒充新观测；授权/目录失败却报成功 |
-| cd | 已知绝对目录、相对当前cwd的目标、连续两次变更 | 子进程退出后cwd未持久；其他session被改；不是目录/不存在/越界时仍变更；目标验证来自不同session |
-| 目录列举 | 空目录、文件与子目录混合、点开头名称、空格/中文/换行名称 | 漏条目或拆错文件名；把后代当直接子项；按扩展名猜类型；读取未完成却报完整；列举意外改变cwd |
+- **PWD**：执行`/bin/pwd -P`，读取物理cwd观测。S.cwd保持不变。
+- **CD**：执行固定zsh脚本，先验证目录类型与归属，成功后提交S.cwd与revision；紧接着在同一S上执行真实PWD验证后条件。提交前失败不修改S；提交后验证失败如实报告实际修改状态，不伪报回滚。
+- **LS**：通过固定编译本地helper执行（`process.execPath + helperPath + D`），返回直接条目的结构化JSON（包含精确名称、由OS lstat观测的类型、coverage及errors）。不修改S.cwd，不修改文件系统。partial结果不能覆盖旧知识或冒充完整列举。严禁将`/bin/ls`面向人类的文本输出分词或flags称为NN训练。
+- **失败与清理分类**：报告中严格区分native OS错误、grant授权拒绝、受控故障注入；native与注入不合并计数，fixture创建失败、清理失败与模型策略错误分别计数。清理失败显式暴露。
 
-这些是计划验收，尚未生成新的沙盒训练/验证样本，尚未训练cd或目录列举。下一实施切片先接入CWD/pwd的场景沙盒和严格分区样本，再依序推进cd与目录列举；不重开浏览器或computer use范围。
+资产保存在既有目录，不新建根级资产目录：
+- 样本：`training/samples/filesystem/<capability>/<run>/`
+- 候选：`training/weights/filesystem/<capability>/<run>/candidate.json`
+- 报告：`training/results/filesystem/<capability>/<run>/report.json`
+
+## 5. 推理与训练DAG
+
+- 推理DAG：`workflows/cli-command-step.graph.json`（3节点/2边，0.1.0）及同名workflow配置，负责接收Goal/State，通过共享profile计算分数，选出命令头与参数引用，经harness分流执行并验证后条件，收敛于统一SESE出口。
+- 训练DAG：`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.1.0）及同名workflow配置，接收调用者准备并分区的dataset。它不生成fixture，也不自行启动新进程回载；fixture由公开consumer的`makeCliCommandFixture`创建，各阶段保存候选后由consumer重新读取，并以新进程运行reload脚本。
+- 阶段调度：`workflows/cli-filesystem-curriculum.graph.json`（5节点/4边，0.1.0-design）是公开consumer按PWD→CD→LS顺序执行5N4E流程的设计描述，不是运行配置、新引擎或workflow绑定。旧未发布的cli-cwd/cd/list-learning图已删除。
+- 拟合迭代：epoch循环在数值拟合器内完成，不给外层workflow加回边。
+
+## 6. 当前实施状态与验收底线
+
+当前状态：源码已实现（`createCliCommandPolicy`与`runCliCommandTraining`），正式共享训练三阶段与独立测试已通过。当前共享run为pwd `333bb151-003e-4188-a027-e145eb591760`、cd `a22e71aa-dbd5-44ce-ab1e-56a7a89f6d57`、ls及最终候选 `d7c4a3e5-4111-4e09-857f-5f20f4fa18c0`；profile保持`uncalibrated`/`not_applied`。作者全量回归、整体Review与集成仍待完成，完整计数和计时见[共享模型实测](cli-filesystem-training-results.md)。
+
+历史独立PWD与CD实测数据保留为历史基线，不直接抄写为共享模型结果。`accepted`只表示train/dev与历史回归通过；未提供可选verification资源时`fullyVerified=false`。训练图的冻结/零权重对照只做预测，不执行命令；独立测试由父级独立报告另行记录，不声称在训练图内执行。
+
+验收门槛：
+1. 共享模型经统一公开入口在新进程加载，逐命令独立验证通过：已通过（父级独立报告）。
+2. 历史必需能力零回归：train/dev历史回放已通过。
+3. 真实argv、权限拒绝、受控注入和清理回执完整无遗漏：独立测试已覆盖；作者全量回归仍待完成。
+4. 当前只支持`pwd`/`cd`/`ls`。未来命令复用同一增量合同，不代表任意系统命令已可执行。自然语言识别、help泛化、文件搜索、多步组合规划、browser与自动升级保持在范围外。
