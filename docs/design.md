@@ -70,6 +70,8 @@
 
 ### 1.3 本地基础设计入口
 
+Shell 的领域目标进一步统一为 `file.property.xxx`，涵盖路径、目录及普通/特殊文件的属性观测与变化；不零散新增场景Goal。内容、用途及操作适用性归入同一属性体系。领域合同唯一源为 [cli-filesystem-semantics.md](cli-filesystem-semantics.md)，共享属性状态转换图为 `workflows/cli-file-property.graph.json`。类型共享推理合同，各自保留操作与真实效果语义；现有CLI接口未迁移，不将设计图标为运行能力。
+
 新增能力或修改I/O、状态、harness、数值连线、workflow及采用规则，统一使用[本地设计Skill](../.agents/skills/nnanything-design/SKILL.md)。基础流程是现状/缺口→语义目标与效果→固定调用与执行责任→内部数值图及外层DAG→样本隔离与进化验收→图纸合同校验→可实施设计或具体缺口。持久过程图见[project-design.graph.json](../workflows/project-design.graph.json)。这是本项目设计方法，不代替独立Plan和已有开发交付流程，也不把设计图当已实现算子。
 
 ## 2. 手写入口、四层职责与两层训练

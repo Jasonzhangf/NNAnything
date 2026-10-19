@@ -63,6 +63,8 @@ node_modules
 
 ## 当前交付边界
 
+Shell统一目标为 `file.property.xxx`，领域合同为 docs/cli-filesystem-semantics.md，共享状态转换图为 workflows/cli-file-property.graph.json。路径、目录、普通文件与Linux设备/FIFO/socket等共享属性目标框架，类型保留各自操作与验收语义。目录/文件完整常见操作设计沿 docs/cli-semantic-operations.md；内容、用途、条件和目标关联纳入属性/状态转换，不建零散Goal。新增属性算子、特殊文件操作及旧Goal接口迁移均未实现，不把设计目录当运行API。
+
 2026-10-19 新增独立 CLI 方向，用户将起点收敛为 pwd、文件路径与文件属性。当前 M0 只实现三项基础观测和独立测试，合同见 docs/cli-foundation.md；通用核心不内置 CLI 分支。help/说明泛化及其能力/参数角色学习、目录下文件/符号名称搜索仍为后续目标。路径动作训练见下方独立增量，不能据此冒称help或搜索已完成。Computer use 暂缓，仅 lib/adapters/computer-use/README.md 占位，不启动桌面观测或操作。CLI 任务的词语输入合同独立定义，不直接套用 DOM 学生身份字段禁令。
 
 当前 CLI 设计按语义语言推进，不做自然语言请求识别。先定义精确单操作，再设计单个最低层次的模糊目标绑定；唯一合同为 docs/cli-semantic-operations.md。首轮“模糊”指目标未提供完整路径，在显式已观测范围内绑定目录，不含名称近似、隐式目录扫描或组合规划。该设计不等于已训练，也不扩大 M0 运行能力。

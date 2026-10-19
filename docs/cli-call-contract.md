@@ -8,6 +8,8 @@ NN输出声明的操作标识及必要参数引用。它不生成完整命令文
 
 统一形状为`{operation, parameters}`。操作名以[已有精确语义目录](cli-semantic-operations.md)为准；一个操作有一个固定参数schema，不另建GET_CWD等协议别名。训练策略内部的PWD/CD/LIST是动作类别，由harness映射到该语义操作，不把分类标签当任意可执行程序名。
 
+Shell 的统一 Goal 为 [file.property.xxx](cli-filesystem-semantics.md)，指定对象、属性及要求；本页 `operation` 仍是 Action，不将属性键当可执行程序名，也不为每个属性增加一个原生命令。已有 observe_cwd 等接口尚未迁移；后续须显式接入并保留旧入口回归，不以设计正文替代运行变更。
+
 | 语义调用 | NN需要选择/携带的参数 | harness固定的内容 |
 | --- | --- | --- |
 | `{operation:"cwd.get",parameters:{session:S}}` | session引用 | PWD映射、`/bin/pwd -P`、显式cwd、授权、回执来源 |
@@ -17,6 +19,8 @@ NN输出声明的操作标识及必要参数引用。它不生成完整命令文
 S/D是有类型引用。目录实际path由显式资源绑定，字符串原样作为单个参数传递；不让模型拆空格、加引号或猜绝对根。调用方提供路径文本时，先经过已有路径解析和目录引用校验，再进入调用，不要求NN通过读输出正文找目标。缺少参数或引用未解析时明确返回缺口，不猜默认目录。
 
 其他命令后续接入时同样先登记精确语义操作和必要字段；命令flags、参数顺序、输出格式及默认行为收在harness映射中。首版不暴露任意`options`字典、额外argv、shell管道/重定向、脚本和未知字段。只有任务明确需要可选参数时才将其作为typed字段加入合同，并补图/样本/验证；不让NN学习所有工具的原生参数语法。
+
+补全的目录/文件操作按语义目录2.1/2.2的必要参数接入：引用 source/destination/parent/file/session 与 typed Bytes、offset、length、mode、uid/gid、时间或link文本，字段按具体operation固定。创建目标用已知父目录与明确目标路径，不要求伪造已有引用。固定harness在 `lib/adapters/cli/`，仅接已声明操作，不开放通用shell；OS/固定helper映射及部分副作用验收须在各操作实现前补齐。递归创建、树复制/删除等由有限单操作组合，不给命令加隐含递归/覆盖fallback。
 
 ## 2. 准确调用由边界保障
 

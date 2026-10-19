@@ -10,6 +10,8 @@
 
 当前训练顺序进一步明确为CWD概念与pwd获取→cd改变会话目录→获取目录内文件及子目录。真实专用目录沙盒、训练/开发/独立验证分区及对应训练DAG见[文件系统训练设计](cli-filesystem-training.md)。它是下一增量设计，不将专用目录称为硬件隔离，也不将下表其余操作提前纳入实现。
 
+2026-10-19 用户要求补齐目录操作，再补文件操作，并明确不零散编辑Goal，统一为 `file.property.xxx`：路径、目录及各文件类型的属性观测或变化是目标，CLI是Action，实际属性是State。本页扩充精确操作与组合目录；四元素、属性键、持久图绑定、训练和缺口见 [file.property核心合同](cli-filesystem-semantics.md)。内容、用途和条件归入属性体系，不各立核心Goal。扩充是设计范围，不扩大当前运行 API，也不授权对真实用户文件执行修改或删除。
+
 ## 1. 基础对象与表达
 
 | 类型 | 含义 | 不包含的保证 |
@@ -55,6 +57,63 @@
 `cwd.set` 成功后的 cwd 按物理目录观测返回，与当前 `pwd -P` 基础合同一致。它更新的是指定 session 的执行基准，不修改父进程或其他 session。此约定尚未实现。
 
 只读结果使用 `ok(value)` 或 `error(code,evidence)`。`directory.list` 的未完成覆盖必须显式返回，不能将部分结果当成完整目录。文件写入的副作用不能仅靠返回值宣称成功。
+
+### 2.1 目录、路径和共享条目操作补全
+
+以下与上表共同构成当前常见 POSIX 文件系统操作设计目录。S 是 session 引用，D/F/E 是目录/文件/条目引用；P 是明确的目标绝对路径。引用必须绑定观测、路径及对象类型，不能因名称或扩展名猜类型。除已有 M0 和路径/PWD 训练外，均未实现。`mode` 是 POSIX 权限位，`owner` 是明确 uid/gid；不提供任意 flags 或 shell 文本。
+
+| 需求/操作 | 必要输入 | 实际结果与验收 | 边界/反例 |
+| --- | --- | --- | --- |
+| 获取/进入目录 `cwd.get/set` | S；set 另给 D | 同一 S 后续 pwd 核对；其他 S 不变 | 不以子进程 cd 成功冒充会话变化 |
+| 解释/拼接路径 `path.resolve` | base、input | 得到词法绝对路径 | 不证明存在，不展开 glob/环境变量 |
+| 相对路径 `path.relative` | from、to 两个绝对路径 | 词法相对路径，与明确 from 组合后等价于 to | 不证明两个别名指向同一物理对象 |
+| 物理路径 `path.realpath` | E 或 P | 真实 OS 解析路径与来源 | 断链、循环、失效显式失败 |
+| 路径分解 `path.parts` | 明确路径 | parent、basename；根目录显式处理 | 这是词法结构，不等于已观测的所属目录 |
+| 检查目录 `entry.inspect` | D/P、follow_symlinks | 属性、存在性或错误 | EACCES 不能当 ENOENT，mode 不等于有效权限 |
+| 列举 `directory.list` | S、D | 完整直接子项及类型；不改 cwd | 隐藏项/特殊名称无损；partial 不假称 complete |
+| 绑定目录 `directory.select` | 已观测候选、name/type/parent、coverage | 唯一对象引用或明确未找到/证据不足 | 沿本文第4–6节；不是隐式扫描 |
+| 建单目录 `directory.create` | P；父目录已存在 | 新目录存在，原有条目不变 | create-new；已存在/拒权不静默成功 |
+| 移动/重命名 `entry.move` | source E、destination P | 新路径对象正确、旧路径消失 | 同父目录即重命名；目标不覆盖；跨设备不自动 copy+delete |
+| 删除空目录 `entry.remove` | D | 目录条目消失，兄弟不变 | 非空目录失败，不偷偷递归 |
+| 设置权限 `entry.mode.set` | E、mode | 读回声明的权限位 | 最终 symlink 拒绝；不宣称 ACL 或实际访问同步成立 |
+| 设置归属 `entry.owner.set` | E、uid、gid | 读回 uid/gid 及实际变动属性 | 权限失败保留；不默认提权，不承诺保留被 OS 清除的 mode 位 |
+| 设置时间 `entry.times.set` | E、atime、mtime | 按 OS 支持精度读回 | 不设置 ctime/birthtime，不伪造精确纳秒支持 |
+| 创建符号链接 `link.create` | linkPath P、targetText | 链接自身存在且 readlink 文本一致 | 不覆盖；目标可不存在，不误称已跟随成功 |
+| 读取链接 `entry.inspect(false)` | 链接 E/P | lstat 与 readlink 证据 | 已有 M0；读取文本不是目标存在证明 |
+
+递归能力有必要语义，但复用上述原语，不另造同义底层操作。每个有限批次执行现有单操作图，外层新 run 继续，最后验证整体效果。
+
+| 目录组合 Goal | 组合 Action | 完成与失败条件 |
+| --- | --- | --- |
+| 创建多级目录 | path.parts/inspect → 按父子顺序 directory.create | 所需链均为目录；已有目录可作为明确的既有状态，已有文件冲突；不越过范围 |
+| 遍历/搜索树 | directory.list → 明确深度/范围的下一目录批次 → 语义匹配 | 不默认跟随链接；记录已覆盖与未访问范围，拒权不算已完整搜索 |
+| 复制目录树 | list/inspect → create → file.copy/link.create → 核对目标树 | 源保留，目标 create-new；保留结构、字节和链接文本，不默认承诺 ACL/xattr 保真；失败返回已创建清单，不静默清除部分结果 |
+| 删除目录树 | list/inspect → 后序 entry.remove | 显式树目标与授权；不跟随链接，保留已删/未删清单；部分删除不能回报原状态未变 |
+| 目录统计/比较 | 完整遍历 → 汇总/配对实际条目 | 覆盖不完整时返回部分结果；目录 stat 大小不是子树大小 |
+
+“全部”在此指上述日常目录/路径语义及可复用组合。挂载、卷管理、ACL/xattr、硬链接目录、监听器等具有独立 OS 合同，不混入此单元；作为明确的专用扩展缺口，不能宣称 POSIX 全功能覆盖。
+
+### 2.2 文件操作补全
+
+文件通过已观测父目录和明确路径绑定；文件内容、文件角色与路径文本分别管理。最终 symlink 不自动当普通文件。Bytes/offset/length 等为 typed 参数，原样传递，不训练 shell 引号和重定向。
+
+| 需求/操作 | 必要输入 | 实际结果与验收 | 边界/反例 |
+| --- | --- | --- | --- |
+| 定位文件 `file.select` | 明确候选、name/type/parent、coverage | 与 directory.select 同一关系合同，目标类型为 file | 同名不同父目录、未知类型不误绑定；不把名称当用途真值 |
+| 检查/解析/移动/删除 | 复用 entry.inspect、path.*、entry.move/remove | 核对指定文件及父目录前后状态 | 不为文件重写同义原语；删除链接只作用链接本身 |
+| 建空文件 `file.create` | P | create-new 空文件，父目录其他条目不变 | 已存在不截断，不递归建父目录 |
+| 读字节 `file.read` | F、offset、length | 原始 Bytes、实际长度、EOF，与独立 fixture 字节核对 | EOF 不是读错；不自动解码或裁剪空白 |
+| 整体替换 `file.replace` | F、Bytes | 目标字节恰为给定内容 | 不自动创建，不声称原子；失败可能已有部分修改，实际观测并报告 |
+| 定点写入 `file.write` | F、offset、Bytes | 写入区间正确；区间外保持，必要扩展明确 | 不隐式截断；越 EOF 的空隙沿 OS 字节合同核对；保留实际写入长度/错误 |
+| 追加 `file.append` | F、Bytes | 原内容前缀保持，新增后缀正确 | 不隐式创建；并发顺序不预先保证，部分写入如实报告 |
+| 调整长度 `file.truncate` | F、length | 长度符合；截断保留前缀，扩展区读回为零字节 | 不把 truncate 当写入任意内容；失败核对实际长度 |
+| 复制 `file.copy` | source F、destination P | 源不变，新文件字节一致 | create-new，拒绝目录/最终链接；不承诺自动复制 ACL/xattr；部分目标保留并报告 |
+| 硬链接 `file.link` | source F、destination P | 同一文件系统共享同一实际对象的证据 | 不复制字节；跨设备失败；不同于 link.create；删除一名称不证明内容被销毁 |
+| 权限/归属/时间 | 复用 entry.mode/owner/times.set | 读回实际属性 | 不从属性设置推断用户已具备某操作权限 |
+| 文件比较 | 分段 file.read → 比较字节 | 报告相等/不同/未完成 | 不引入 checksum 清单；未读完整不能报告全部相等 |
+| 文本处理/内容搜索 | file.read → 显式解码/匹配 → 带来源的内容结果 | 编码、范围、匹配语义明确，字节来源可追踪 | 非文本不强行解码；不是命令 stdout 自由文本解析 |
+
+文件保存、日志追加、整理/归档等是以上单元的目标组合。内容格式识别、用途关联及目标选择必须使用 [核心语义 DAG](cli-filesystem-semantics.md)，不能用后缀猜角色后直接执行。文件执行属于程序执行语义，压缩解压属于格式转换语义，均不混入普通字节读写合同。
 
 ## 3. 单操作与组合的边界
 

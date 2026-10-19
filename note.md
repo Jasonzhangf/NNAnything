@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-19 Shell统一file.property属性目标与目录/文件补全
+
+验收：新增属性图6N5E与扩展curriculum7N6E均通过DAGpipe validate/inspect；节点为design，无运行绑定。git diff --check通过，新正文引用的图/合同存在；未修改数值训练或执行代码，不跑无关业务测试。本轮纯设计沿当前可信主树编辑，未新建worktree或后台资源。
+
+用户要求先补目录操作，再补文件操作，随后连续收敛为：路径与文件属性变化、Linux特殊文件共享对象抽象、不零散编辑Goal，统一 `file.property.xxx`。已将唯一领域目标合同写入 docs/cli-filesystem-semantics.md，内容/用途/操作条件归为属性及关系，不额外拆平行核心图。新增 cli-file-property 6N5E设计图：绑定四元素→选择必要Action→条件/固定执行→实际属性与副作用→评价满足度→使用采样/统一结果。每个属性单元保留独立typed值、可辨输入、训练/真值及反例，使用共享图不能代替单项合同。cli-semantic-operations补全常见目录/路径与文件操作，重命名复用移动，树操作复用有限单操作；curriculum扩为7N6E，前三项后接目录/文件属性单元。AGENTS、设计Skill、总体设计、调用与训练入口已挂接。不执行用户文件变更，不修改已有运行API或权重；统一属性算子、特殊文件细分、新harness及自动采样/采用仍未实现。
+
 ## 2026-10-19 满足度阈值命名修订
 
 用户批准将原饥饿程度名称统一为 satisfactionThreshold（满足度阈值）。四元素为 Goal/satisfactionThreshold/State/Action；satisfaction 是实际评价结果，不增加基础元素。已同步当前架构合同、演进合同、设计 Skill、AGENTS 及下方当日汇总用语。仅命名和定义澄清，未改运行接口、DAG 拓扑或训练语义；已有三图校验证据复用。
