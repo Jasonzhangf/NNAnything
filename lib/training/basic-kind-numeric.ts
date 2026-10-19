@@ -5,6 +5,7 @@ import {
   PRIORITY_BASIC_KIND_STAGES,
   basicKindFamilySupportGate,
   basicKindLeafSupportGate,
+  classifyBasicKind,
   extractBasicKindWires,
   validateBasicKindProperties,
   validateBasicKindProfile,
@@ -24,8 +25,20 @@ export type BasicKindTrainingConfig = {
   taskId: string;
   minScore: number;
   minMargin: number;
-  objective: { targetScore: number; rivalCeiling: number; otherGap: number };
-  fit: { epochs: number; learningRate: number; anchorLambda: number; trainableWires?: readonly BasicKindWireName[] };
+  objective: {
+    targetScore: number;
+    rivalCeiling: number;
+    otherGap: number;
+    mode?: "priority_decision_v1";
+    boundarySlack?: number;
+  };
+  fit: {
+    epochs: number;
+    learningRate: number;
+    anchorLambda: number;
+    trainableWires?: readonly BasicKindWireName[];
+    stopWhen?: "objective_feasible";
+  };
 };
 export type BasicKindFitRow = { properties: BasicKindProperties; expectedLabel: BasicKindLabel };
 export type FitProgress = {
@@ -76,6 +89,7 @@ type Inspected = {
   knownLoss: number;
   otherLoss: number;
 };
+type StoppingReason = "objective_feasible" | "epoch_limit";
 
 const familyNames = Object.keys(BASIC_KIND_FAMILIES) as BasicKindFamily[];
 const leafNames = Object.values(BASIC_KIND_FAMILIES).flat() as SpecificBasicKindLabel[];
@@ -87,15 +101,9 @@ for (const family of familyNames) {
   for (const label of BASIC_KIND_FAMILIES[family]) familyByLeaf[label] = family;
 }
 const priorityStageIndexByLabel = new Map<SpecificBasicKindLabel, number>();
-const priorityFamiliesByStage: readonly BasicKindFamily[][] = PRIORITY_BASIC_KIND_STAGES.map((stage, stageIndex) => {
-  const families = new Set<BasicKindFamily>();
-  for (const label of stage.labels) {
-    const specific = label as SpecificBasicKindLabel;
-    priorityStageIndexByLabel.set(specific, stageIndex);
-    families.add(familyByLeaf[specific]);
-  }
-  return [...families];
-});
+for (const [stageIndex, stage] of PRIORITY_BASIC_KIND_STAGES.entries()) {
+  for (const label of stage.labels) priorityStageIndexByLabel.set(label as SpecificBasicKindLabel, stageIndex);
+}
 const priorityLeavesByStage: readonly (readonly SpecificBasicKindLabel[])[] = PRIORITY_BASIC_KIND_STAGES.map(
   stage => stage.labels as readonly SpecificBasicKindLabel[],
 );
@@ -116,6 +124,10 @@ function onlyKeys(value: Record<string, unknown>, keys: readonly string[], label
   for (const key of Object.keys(value)) {
     if (!keys.includes(key)) throw new TypeError(`${label} has unsupported field ${key}`);
   }
+}
+
+function decisionObjective(config: BasicKindTrainingConfig): boolean {
+  return config.objective.mode === "priority_decision_v1";
 }
 
 function optionalTrainableWires(value: unknown): readonly BasicKindWireName[] | undefined {
@@ -143,7 +155,7 @@ export function validateBasicKindTrainingConfig(value: unknown): BasicKindTraini
   if (minScore <= 0 || minScore > 1) throw new TypeError("minScore must be in (0,1]");
   if (minMargin < 0 || minMargin > 1) throw new TypeError("minMargin must be in [0,1]");
   const objective = expectRecord(input.objective, "objective");
-  onlyKeys(objective, ["targetScore", "rivalCeiling", "otherGap"], "objective");
+  onlyKeys(objective, ["targetScore", "rivalCeiling", "otherGap", "mode", "boundarySlack"], "objective");
   const targetScore = expectFiniteNumber(objective.targetScore, "targetScore");
   const rivalCeiling = expectFiniteNumber(objective.rivalCeiling, "rivalCeiling");
   const otherGap = expectFiniteNumber(objective.otherGap, "otherGap");
@@ -152,22 +164,49 @@ export function validateBasicKindTrainingConfig(value: unknown): BasicKindTraini
   if (targetScore < Math.max(minScore, minMargin)) throw new TypeError("targetScore must be at least minScore and minMargin");
   if (targetScore - rivalCeiling <= minMargin) throw new TypeError("targetScore - rivalCeiling must exceed minMargin");
   if (otherGap <= 0 || otherGap >= minScore) throw new TypeError("otherGap must be in (0,minScore)");
+  const mode = objective.mode;
+  if (mode !== undefined && mode !== "priority_decision_v1") {
+    throw new TypeError("objective.mode must be priority_decision_v1");
+  }
+  if (objective.boundarySlack !== undefined && mode === undefined) {
+    throw new TypeError("objective.boundarySlack requires objective.mode priority_decision_v1");
+  }
+  const boundarySlack = mode === "priority_decision_v1"
+    ? (objective.boundarySlack === undefined ? 0.0001 : expectFiniteNumber(objective.boundarySlack, "boundarySlack"))
+    : undefined;
+  if (boundarySlack !== undefined && (boundarySlack <= 0 || boundarySlack >= minScore)) {
+    throw new TypeError("boundarySlack must be in (0,minScore)");
+  }
   const fit = expectRecord(input.fit, "fit");
-  onlyKeys(fit, ["epochs", "learningRate", "anchorLambda", "trainableWires"], "fit");
+  onlyKeys(fit, ["epochs", "learningRate", "anchorLambda", "trainableWires", "stopWhen"], "fit");
   const epochs = nonnegativeInteger(fit.epochs, "epochs");
   const learningRate = expectFiniteNumber(fit.learningRate, "learningRate");
   if (learningRate <= 0) throw new TypeError("learningRate must be positive");
+  const stopWhen = fit.stopWhen;
+  if (stopWhen !== undefined && stopWhen !== "objective_feasible") {
+    throw new TypeError("fit.stopWhen must be objective_feasible");
+  }
+  if (stopWhen === "objective_feasible" && mode !== "priority_decision_v1") {
+    throw new TypeError("fit.stopWhen objective_feasible requires objective.mode priority_decision_v1");
+  }
   const trainableWires = optionalTrainableWires(fit.trainableWires);
   return {
     taskId,
     minScore,
     minMargin,
-    objective: { targetScore, rivalCeiling, otherGap },
+    objective: {
+      targetScore,
+      rivalCeiling,
+      otherGap,
+      ...(mode === undefined ? {} : { mode }),
+      ...(boundarySlack === undefined ? {} : { boundarySlack }),
+    },
     fit: {
       epochs,
       learningRate,
       anchorLambda: nonnegativeNumber(fit.anchorLambda, "anchorLambda"),
       ...(trainableWires === undefined ? {} : { trainableWires }),
+      ...(stopWhen === undefined ? {} : { stopWhen }),
     },
   };
 }
@@ -313,6 +352,100 @@ function excessLoss(values: Float32Array, output: { min: HandwiredWire; max: Han
   return excess ** 2;
 }
 
+type Endpoint = { value: number; wire: HandwiredWire };
+
+function effectiveLowerEndpoint(
+  values: Float32Array,
+  family: { min: HandwiredWire; max: HandwiredWire },
+  leaf: { min: HandwiredWire; max: HandwiredWire },
+): Endpoint {
+  const familyValue = values[family.min]!;
+  const leafValue = values[leaf.min]!;
+  return familyValue < leafValue ? { value: familyValue, wire: family.min } : { value: leafValue, wire: leaf.min };
+}
+
+function effectiveUpperEndpoint(
+  values: Float32Array,
+  family: { min: HandwiredWire; max: HandwiredWire },
+  leaf: { min: HandwiredWire; max: HandwiredWire },
+): Endpoint {
+  const familyValue = values[family.max]!;
+  const leafValue = values[leaf.max]!;
+  return familyValue < leafValue ? { value: familyValue, wire: family.max } : { value: leafValue, wire: leaf.max };
+}
+
+function addGradient(gradients: Float32Array, wire: HandwiredWire, value: number): void {
+  gradients[wire] = Math.fround(gradients[wire]! + value);
+}
+
+function effectiveUpperExcess(
+  values: Float32Array,
+  graph: CircuitGraph,
+  label: SpecificBasicKindLabel,
+  threshold: number,
+  gradients: Float32Array,
+): { loss: number; excess: number } {
+  const endpoint = effectiveUpperEndpoint(values, graph.family[familyByLeaf[label]], graph.leaf[label]);
+  const excess = Math.max(0, endpoint.value - threshold);
+  if (excess > 0) addGradient(gradients, endpoint.wire, 2 * excess);
+  return { loss: excess ** 2, excess };
+}
+
+function priorityDecisionKnownLoss(
+  values: Float32Array,
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  expectedLabel: SpecificBasicKindLabel,
+  graph: CircuitGraph,
+  config: BasicKindTrainingConfig,
+  gradients: Float32Array,
+): number {
+  const slack = config.objective.boundarySlack!;
+  const expectedFamily = familyByLeaf[expectedLabel];
+  const expectedStage = priorityStageIndexByLabel.get(expectedLabel);
+  if (expectedStage === undefined) throw new TypeError(`priority stage is missing for ${expectedLabel}`);
+  const target = effectiveLowerEndpoint(values, graph.family[expectedFamily], graph.leaf[expectedLabel]);
+  const targetThreshold = config.minScore + slack;
+  const targetDeficit = Math.max(0, targetThreshold - target.value);
+  if (targetDeficit > 0) addGradient(gradients, target.wire, -2 * targetDeficit);
+  let loss = targetDeficit ** 2;
+
+  const earlierThreshold = config.minScore - slack;
+  for (let stage = 0; stage < expectedStage; stage++) {
+    for (const label of priorityLeavesByStage[stage] ?? []) {
+      if (basicKindLeafSupportGate(wires, label) !== 1) continue;
+      loss += effectiveUpperExcess(values, graph, label, earlierThreshold, gradients).loss;
+    }
+  }
+
+  const clampedTarget = Math.max(0, Math.min(1, target.value));
+  const sameStageThreshold = clampedTarget - config.minMargin - slack;
+  for (const label of priorityLeavesByStage[expectedStage] ?? []) {
+    if (label === expectedLabel || basicKindLeafSupportGate(wires, label) !== 1) continue;
+    const competitor = effectiveUpperExcess(values, graph, label, sameStageThreshold, gradients);
+    loss += competitor.loss;
+    if (competitor.excess > 0 && target.value > 0 && target.value < 1) {
+      addGradient(gradients, target.wire, -2 * competitor.excess);
+    }
+  }
+  return loss;
+}
+
+function priorityDecisionOtherLoss(
+  values: Float32Array,
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  graph: CircuitGraph,
+  config: BasicKindTrainingConfig,
+  gradients: Float32Array,
+): number {
+  const threshold = config.minScore - config.objective.boundarySlack!;
+  let loss = 0;
+  for (const label of leafNames) {
+    if (basicKindLeafSupportGate(wires, label) !== 1) continue;
+    loss += effectiveUpperExcess(values, graph, label, threshold, gradients).loss;
+  }
+  return loss;
+}
+
 function priorityKnownLoss(
   values: Float32Array,
   expectedLabel: SpecificBasicKindLabel,
@@ -329,13 +462,12 @@ function priorityKnownLoss(
 
   const rivalFamilies = new Set<BasicKindFamily>();
   for (let stage = 0; stage <= expectedStage; stage++) {
-    for (const family of priorityFamiliesByStage[stage] ?? []) {
+    for (const label of priorityLeavesByStage[stage] ?? []) {
+      const family = familyByLeaf[label];
       if (family !== expectedFamily) rivalFamilies.add(family);
     }
   }
-  for (const family of rivalFamilies) {
-    loss += excessLoss(values, graph.family[family], config.objective.rivalCeiling, gradients);
-  }
+  for (const family of rivalFamilies) loss += excessLoss(values, graph.family[family], config.objective.rivalCeiling, gradients);
 
   for (const label of priorityLeavesByStage[expectedStage] ?? []) {
     if (label !== expectedLabel) loss += excessLoss(values, graph.leaf[label], config.objective.rivalCeiling, gradients);
@@ -356,14 +488,25 @@ function priorityOtherLoss(values: Float32Array, graph: CircuitGraph, config: Ba
   return loss;
 }
 
-function evaluateGraph(graph: CircuitGraph, source: Float32Array, expectedLabel: BasicKindLabel, config: BasicKindTrainingConfig) {
+function evaluateGraph(
+  graph: CircuitGraph,
+  source: Float32Array,
+  wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>,
+  expectedLabel: BasicKindLabel,
+  config: BasicKindTrainingConfig,
+) {
+  if (decisionObjective(config) && !graph.priority) {
+    throw new TypeError("objective.mode priority_decision_v1 requires profile.topology priority_staged_v1");
+  }
   const values = graph.circuit.evaluateReference(source);
   const gradients = new Float32Array(values.length);
   const familyExpected = expectedLabel === "other" ? null : familyNames.find(family => BASIC_KIND_FAMILIES[family].includes(expectedLabel as never))!;
   let knownLoss = 0;
   let otherLoss = 0;
   if (familyExpected === null) {
-    if (graph.priority) otherLoss = priorityOtherLoss(values, graph, config, gradients);
+    if (graph.priority && decisionObjective(config)) {
+      otherLoss = priorityDecisionOtherLoss(values, wires, graph, config, gradients);
+    } else if (graph.priority) otherLoss = priorityOtherLoss(values, graph, config, gradients);
     else {
       const threshold = config.minScore - config.objective.otherGap;
       for (const family of familyNames) {
@@ -372,6 +515,8 @@ function evaluateGraph(graph: CircuitGraph, source: Float32Array, expectedLabel:
         if (excess > 0) gradients[graph.family[family].max] = Math.fround(gradients[graph.family[family].max]! + 2 * excess);
       }
     }
+  } else if (graph.priority && decisionObjective(config)) {
+    knownLoss = priorityDecisionKnownLoss(values, wires, expectedLabel as SpecificBasicKindLabel, graph, config, gradients);
   } else if (graph.priority) {
     knownLoss = priorityKnownLoss(values, expectedLabel as SpecificBasicKindLabel, graph, config, gradients);
   } else {
@@ -403,7 +548,7 @@ async function inspectWithModule(module: HandwiredModule, value: unknown, expect
   const wires = extractBasicKindWires(properties);
   const graph = buildCircuit(module, current);
   const source = sourceFor(graph, graph.weights.map(item => item.base), wires);
-  const evaluated = evaluateGraph(graph, source, expectedLabel, config);
+  const evaluated = evaluateGraph(graph, source, wires, expectedLabel, config);
   return {
     family: evaluated.family,
     leaf: evaluated.leaf,
@@ -443,6 +588,27 @@ function readRows(value: unknown): readonly BasicKindFitRow[] {
   });
 }
 
+function verifyObjectiveFeasibleRows(
+  rows: readonly BasicKindFitRow[],
+  config: BasicKindTrainingConfig,
+  profile: BasicKindProfile,
+): void {
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index]!;
+    const judgment = classifyBasicKind(
+      row.properties,
+      { taskId: config.taskId, minScore: config.minScore, minMargin: config.minMargin },
+      profile,
+    );
+    if (judgment.basicKind !== row.expectedLabel || judgment.judgmentStatus !== "judged") {
+      throw new Error(
+        `priority_decision_v1 numerical feasibility disagrees with public classification at row ${index}: `
+        + `expected ${row.expectedLabel}/judged, got ${judgment.basicKind}/${judgment.judgmentStatus}`,
+      );
+    }
+  }
+}
+
 function attachFitTiming(error: unknown, completedEpochs: number, timing: BasicKindFitTiming): never {
   timing.completedEpochs = completedEpochs;
   if (error !== null && (typeof error === "object" || typeof error === "function")) {
@@ -465,7 +631,14 @@ export async function fitBasicKinds(value: {
   config: BasicKindTrainingConfig;
   candidateId: string;
   onProgress?: (progress: FitProgress) => void;
-}): Promise<{ profile: BasicKindProfile; trajectory: FitProgress[]; lossBefore: number; lossAfter: number; timing: BasicKindFitTiming }> {
+}): Promise<{
+  profile: BasicKindProfile;
+  trajectory: FitProgress[];
+  lossBefore: number;
+  lossAfter: number;
+  timing: BasicKindFitTiming;
+  stoppingReason: StoppingReason;
+}> {
   const fitStarted = performance.now();
   const timing: BasicKindFitTiming = {
     backendLoadMs: 0,
@@ -517,14 +690,16 @@ export async function fitBasicKinds(value: {
     const evaluateAll = (current: readonly number[], gradientPass: boolean) => {
       const gradient = new Float64Array(weights.length);
       let known = 0, other = 0, anchor = 0;
+      let feasible = true;
       for (const row of rows) {
         const wires = extractBasicKindWires(row.properties);
         const source = sourceFor(graph, current, wires);
-        const evaluated = evaluateGraph(graph, source, row.expectedLabel, config);
+        const evaluated = evaluateGraph(graph, source, wires, row.expectedLabel, config);
         timing.totalRowPasses++;
         if (gradientPass) timing.gradientRowEpochs++;
         known += evaluated.knownLoss;
         other += evaluated.otherLoss;
+        if (evaluated.knownLoss + evaluated.otherLoss > 0) feasible = false;
         for (let index = 0; index < weights.length; index++) gradient[index] = gradient[index]! + evaluated.gradients[graph.weights[index]!.wire]! / rows.length;
       }
       for (let index = 0; index < weights.length; index++) {
@@ -541,7 +716,7 @@ export async function fitBasicKinds(value: {
       const knownLoss = known / rows.length, otherLoss = other / rows.length;
       if (![knownLoss, otherLoss, anchor, knownLoss + otherLoss + anchor].every(Number.isFinite)
         || !gradient.every(Number.isFinite)) throw new Error("Non-finite training loss or gradient");
-      return { gradient, knownLoss, otherLoss, anchorLoss: anchor };
+      return { gradient, knownLoss, otherLoss, anchorLoss: anchor, feasible };
     };
 
     const baselineStarted = performance.now();
@@ -552,7 +727,13 @@ export async function fitBasicKinds(value: {
       timing.baselineEvalMs = performance.now() - baselineStarted;
     }
     const lossBefore = before.knownLoss + before.otherLoss + before.anchorLoss;
-    for (let epoch = 0; epoch < config.fit.epochs; epoch++) {
+    let stoppingReason: StoppingReason = "epoch_limit";
+    if (config.fit.stopWhen === "objective_feasible" && before.feasible) {
+      const baselineProfile = profileFromWeights(base, graph, weights, candidateId);
+      verifyObjectiveFeasibleRows(rows, config, baselineProfile);
+      stoppingReason = "objective_feasible";
+    }
+    for (let epoch = 0; epoch < config.fit.epochs && stoppingReason === "epoch_limit"; epoch++) {
       const trainStarted = performance.now();
       let state;
       let projectedWeightCount = 0;
@@ -596,6 +777,11 @@ export async function fitBasicKinds(value: {
       trajectory.push(progress);
       timing.completedEpochs = trajectory.length;
       value.onProgress?.(progress);
+      if (config.fit.stopWhen === "objective_feasible" && next.feasible) {
+        const candidate = profileFromWeights(base, graph, weights, candidateId);
+        verifyObjectiveFeasibleRows(rows, config, candidate);
+        stoppingReason = "objective_feasible";
+      }
     }
     const finalStarted = performance.now();
     let after;
@@ -607,7 +793,14 @@ export async function fitBasicKinds(value: {
     const profile = profileFromWeights(base, graph, weights, candidateId);
     validateBasicKindProfile(profile);
     timing.fitTotalMs = performance.now() - fitStarted;
-    return { profile, trajectory, lossBefore, lossAfter: after.knownLoss + after.otherLoss + after.anchorLoss, timing };
+    return {
+      profile,
+      trajectory,
+      lossBefore,
+      lossAfter: after.knownLoss + after.otherLoss + after.anchorLoss,
+      timing,
+      stoppingReason,
+    };
   } catch (error) {
     timing.fitTotalMs = performance.now() - fitStarted;
     attachFitTiming(error, trajectory.length, timing);

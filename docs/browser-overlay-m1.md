@@ -35,7 +35,13 @@ flowchart TD
 
 ## 输入、输出和唯一owner
 
-- `lib/adapters/browser/live-dom.ts`：顶层Document/Window与稳定节点引用表→PageObservation、局部属性与元素映射。全页遍历无2000条截断，候选仍按viewportOnly/subtree/focus/黑白名单筛选。完整children与getClientRects、实际祖先overflow裁剪；computed `matrix(1,0,0,1,tx,ty)`（含identity）是纯2D平移，视口矩形已含偏移，保留单位比例的client尺寸完成裁剪，不因此排除整棵子树。旋转/缩放/倾斜、matrix3d、非none的独立translate/rotate/scale/perspective属性、clip-path及其他未测定裁剪仍保留null。未知重复几何与未验证列表父级不得补假值。iframe和shadow内部只报告未覆盖，不推断closed shadow数量。
+Agent复检使用内置浏览器的只读DOM入口，将同一测量器的观测交给现有候选与基础类别workflow，在本地回放和保存采集包。扩展仅用于用户验收。观测不足、分类未知、冲突和已确认排除项分别保留；现场计数下降不代替正确性检查。
+
+`contentEditable` 表示有效HTML可编辑状态。原生Boolean优先并直接采用；原生getter抛错保留null，不回退。仅在完整可读HTML父链内测量；非input/textarea的合格目标可用一次原生`matches(':read-write')`的Boolean结果代替推断，方法缺失、抛错或非Boolean都不得记为false。无可信selector时，按最近的精确contenteditable声明与文档designMode判断：空值、true、plaintext-only为编辑声明，false阻断更外层true，无效词按继承处理，不裁剪两端空白；designMode为on时覆盖false声明，off时编辑声明为true、false或无声明为false，未知时编辑声明为true、false或无声明保留null。不从根selector推断文档designMode，不用CSS userModify。无法证明的有效状态保留null，批处理不再用原始属性替换null。历史已存Boolean保持原件；只有来源足以证明时另存修正输入，不批量翻转旧样本。
+
+根滚动口与普通祖先框分开：已证明CSS1Compat、HTML实际scrollingElement、auto/auto overflow、无变换且zoom1、leading边框/padding及client偏移为零、原生尺寸和滚动偏移有效时，根裁剪框固定为视口原点的clientWidth/clientHeight。不得使用已随滚动移动的根DOMRect，或给普通嵌套滚动容器补偿滚动量。不支持的根事实保留null。viewport-fixed元素仅在完整祖先事实证明视口为包含块时逃逸外层普通overflow；实际legacy clip、clip-path及元素自身对子节点的overflow仍保留。不把普通fixed标签或缺测当作证明。
+
+- `lib/adapters/browser/live-dom.ts`：顶层Document/Window与稳定节点引用表→PageObservation、局部属性与元素映射。全页遍历无2000条截断，候选仍按viewportOnly/subtree/focus/黑白名单筛选。完整children与getClientRects、实际祖先overflow裁剪；computed `none` 与 `matrix(a,b,c,d,e,f)` 中 `b=c=0` 且 `a>0,d>0` 的正对角矩阵按正比例缩放与平移处理。视口矩形已含变换，不再二次缩放；裁剪祖先按自身到根的累计正比例换算client偏移与尺寸。负比例/零比例、旋转、倾斜、matrix3d、非none的独立translate/rotate/scale/perspective属性、clip-path、SVG用户坐标裁剪及其他未测定裁剪仍保留null。legacy `clip` 仅在computed position为absolute/fixed时适用；适用且为`rect(0px,0px,0px,0px)`返回已知空交集，static/relative/sticky声明不生效，其他legacy rect仍保留null。未知重复几何与未验证列表父级不得补假值。iframe和shadow内部只报告未覆盖，不推断closed shadow数量。`document.activeElement` 每次观测只读一次并映射到本次稳定引用；命中节点记 `activeElementFocus=true`，其他已观测节点记 false，不可读、null 或不可映射保持 null。`tabIndexFocus` 仍只表示显式非负 tabindex 属性，负 tabindex 单独不构成焦点证明。
 - `lib/adapters/browser/weight-asset.ts`：显式训练权重资产→已校验profile、compatibility门限、未校准标志。加载失败保留原生效配置；结果报告不能当权重加载。私人权重不提交。
 - `lib/adapters/browser/capture-bundle.ts`：当前分类帧、选中引用和用户复核决定→本地采集会话与单文件bundle。批量收集只纳入合格候选且保持未复核；`collect_unresolved` 同时纳入 qualified `unknown` 与 `conflict`，并分别给出 `eligibleUnknown`、`eligibleConflict`；既有 `collect_unknown` 仍只纳入 qualified `unknown`。按 snapshot/frame/node 去重，保序重排 `inputRef.index`。采集会话不产生训练梯度。
 - `lib/browser-classify.ts`：纯浏览器入口，复用已有观察/Focus/候选/类别及复核schema。浏览器workflow适配单独导出已有compiler/runner，不能导入Node磁盘loader或重复分类算法。
@@ -70,6 +76,26 @@ npm run build:extension -- --weight-file training/weights/layout-ignore-svg-pair
 语义判断前，实时DOM观测生成可选`foreground`（visible／occluded／unassessed）和`exposedRects`。候选预处理排除已确认完全遮挡的节点，原因`occluded`；未测定绘制保持候选unknown。原始rect、DOM顺序和排除槽位保留。旧观测没有新字段时保持原行为，不伪称已检查遮挡。分类器、权重和训练标签不变。
 
 只对已测定的轴对齐纯色矩形做覆盖差集。接收指针且有背景色的表面包含半透明遮罩；鼠标穿透表面仅在背景完全不透明时提供视觉遮挡证据。原生命中栈按目标与遮挡面自身提供前后关系，不用其小块后代代替整个表面。鼠标穿透目标或表面使用显式层叠路径比较，不把后代z-index直接与另一个根比较。祖先圆角裁剪、图片透明度和复杂变换不能冒充矩形全覆盖；不确定区域不画框。有限采样点全被挡住不构成完全遮挡证明。本轮不承诺逐像素可见性、完整CSS绘制引擎或iframe/shadow内部覆盖。
+
+剩余观测增量的验收合同：圆角、定位或非单位透明度本身不产生像素；无自身绘制的包装不能仅因此成为遮挡面。边框存在性使用宽度、样式和颜色联合观测，缺测保持未知。仅有边框时，可保守计算已证明透明的内部矩形；圆角须按CSS规则归一并换算到viewport，不能把整个padding矩形视为透明。遮挡差集只扣除该内部矩形以外的可能绘制区域；命中栈也只能在已证明透明的点跳过该表面。阴影、outline、伪元素、图片、mask和filter仍属于绘制证据，无法界定时保留不确定。原有纯色半透明遮罩合同不变。
+
+祖先圆角增量合同：仅在实际包含和定位关系证明该裁剪约束后代、单分片HTML盒、零边框／padding、正轴对齐映射及相关绘制效果均已知时，使用既有归一化圆角算法约束后代表面的可能绘制范围。hidden裁剪与可能扩展clip margin的clip分开处理。已证明透明的角区同时供差集与点命中判断消费，不能只修一端。目标自身或祖先裁剪会排除的角区不能被计为露出；祖先自己的背景、边框与其他绘制仍独立判断。该增量不推断图片alpha，不继承父节点可见性，不把未知改为ignore；源码与真实入口验收以note.md为准。
+
+背景图片的声明存在性与实际绘制范围分开。新增横向无绘制证明仅支持：单URL图层、`100% auto`、严格px横向位置、`no-repeat`、`scroll` attachment、padding-box origin、border-box clip，以及已知零边框/padding、单分片block盒的正computed px宽W。图片横向区间为[X,X+W]；只有X+W≤0或X≥W时可排除该图片的绘制贡献。相交、重复、缺测或不支持语法保持原不确定行为；排除图片后仍检查其他自身绘制。学生`backgroundImagePresent`继续记录CSS声明，不改为几何证明，也不据此重标ignore或推断资源alpha。实现及现场验收进度见note.md。
+
+SVG增量只接受可证明的正轴对齐viewport/viewBox映射与局部矩形clipPath。物理viewport负责overflow裁剪，不能以viewBox映射后的内容矩形替代，否则会误删留白区域。嵌套偏移与尺寸须由实际属性和已知父映射推导；资源ID只用于解析裁剪证据。缺测、冲突的同名资源、旋转、倾斜和不支持的路径仍保留未知，不伪造CTM或切换浏览器通道。该段是新增实现与黑盒验收的目标；是否已交付以note.md证据为准。
+
+后续受限二维根SVG合同：仅对外层变换明确none、物理computed CSS尺寸及零边距已知、有效viewBox与meet、单直接fill path的根建立局部包含证书。读取实际computed d；只支持完整消费的显式绝对M/C/Z闭合路径。所有端点与控制点须严格位于viewBox内，且无stroke、markers、mask/filter、额外clip或中间变换。Bezier控制凸包与meet证明路径填充在根viewport内；根的同一有限可逆二维变换不破坏包含。只跳过受证根对自身box／该fill的overflow裁剪，继续全部外层裁剪；不反解AABB、不扩边界、不伪造单位scale。其他旋转和HTML变换继续未知，证书不证明实心像素或不透明性。该增量按独立计划实现及验收，当前状态仍以note.md为准。
+
+原子SVG补充证书接受目标子树内已显式测定的正衰减opacity（0＜值≤1）、经既有局部矩形clipPath解析器同时校验属性与computed值的限制裁剪，以及正轴对齐祖先变换；反射根只复用既有directPath物理viewport证明，不制造单位映射或二次变换。双轴明确为hidden且其余映射与绘制条件成立时，根物理viewport直接约束目标填充范围；原始bounds越界不再要求额外子级clip，也不使用误差容限。overflow为clip时可能存在扩展clip margin，仍沿既有较窄证明：原始bounds须包含于viewport，或存在已解析的链上clip并有正交集。所有声明的局部clip仍须可解析；缺测、未解析或冲突资源、其他根样式和可能扩大绘制的filter/mask/stroke/marker/shadow/outline/pseudo继续拒绝。该证书只用于原子顺序的范围证明，不推断填充像素、透明度或可见性；不改变旧contained/reflected/resource合同、原始rect或统一目标状态。
+
+图片资源观测由显式可选producer承载。原`browser.observe_live`节点先用同步DOM观测收集几何上确需资源证明的图片，再等待这些图片的读取，最后重新观测当前DOM；外层四节点DAG不变，展示只提交最终一次结果。启用producer时必须授予`browser.resource.read` effect；不启用时不读取资源。第二遍只接受producer同步peek返回的当前文档、节点、加载代次、来源和尺寸均匹配的已完成证明；异步等待期间的源变更、load/error、脱离文档或dispose使旧证明失效。失败保留观测未知，不转为ignore。producer只读取请求到的图片，不遍历下载全页，不上传资料；controller关闭时dispose并中止在途读取，原刷新代次保护继续阻止过期结果展示。
+
+部分命中顺序不等于明确在后：IMG中心在目标前方但角落命中不完整时，仅在图片自身绘制范围有界、无逃逸效果且几何已测定时，从可能露出区域扣除其可能绘制范围，再通过既有owner命中检查剩余区域。该分支不减少已证明未遮挡集合，不把图片提升为不透明，不改变鼠标穿透表面的既有层叠判断。缺少绘制边界仍保留未知；祖先自身阴影不自动当作图片自身像素。
+
+普通绘制顺序补证只处理受限的“目标自身绘制位于后出现的正层叠分支之后”情形：目标和遮挡面同属顶层HTML文档，目标独占祖先路径与遮挡面在已知正定位层叠上下文之上的路径均为static/relative且z-index:auto，共享分歧为普通block，目标子树在DOM绘制顺序中早于遮挡子树；目标自身还须无可见outline、生成伪元素、阴影或未界定的绘制效果。证明沿两条祖先路径线性检查，允许任何额外零层级动画上下文，不要求动画缺席；top-layer须由实际fullscreen、modal和popover状态证明为假，getter不可用时才使用原生`:fullscreen`选择器结果。任一必需CSS或原生事实缺测、3D、共享flex/grid顺序反转、目标为正层叠或原生栈显示目标在遮挡面前方时均返回unsupported。该证明只补充顺序，完整遮挡仍依赖既有几何与表面差集；部分覆盖保留露出区域，结果不传给后代，也不修改paintParticipation或legacy比较器。
+
+圆角外角证书当前只接入已知零边框／padding、双轴overflow clip、无额外绘制／逃逸效果、祖先zoom均为1的IMG。归一化椭圆半径后，各角选择距边[r/8,r/4]的小矩形；矩形严格位于椭圆外。差集和点绘制判断消费同一证书，目标具有未建模的圆角裁剪祖先时禁用此证书。PICTURE本身不产生解码图片像素，但其自身背景／边框等绘制及IMG后代继续分别计入。边框外角接入未实现，旧透明内部证书继续使用同一半径归一化函数。没有引入通用伪元素绘制器。
 
 标注只画已保留的露出矩形。同一节点的多个露出框共享 nodeRef，计数仍按节点槽位。被排除节点不计入分类未知/冲突，不进入未解决批量采集或手动样本保存，不转 ignore/other/负例。`ignore` 只改变默认标注呈现，不剪除节点、子节点、关系或采集失败证据。工具自身宿主与已声明工具根不参与遮挡。重新观测后，关闭遮罩的背景可恢复候选。
 

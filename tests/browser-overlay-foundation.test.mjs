@@ -576,6 +576,130 @@ function liveMeasurementDom() {
   return { document, window, html };
 }
 
+function surfaceAliasFixture({
+  maskImage = "none",
+  webkitMaskImage = "none",
+  backdropFilter = "none",
+  webkitBackdropFilter = "none",
+} = {}) {
+  const dom = liveMeasurementDom(), { html } = dom;
+  const target = {
+    ...html,
+    tagName: "A",
+    parentElement: html,
+    children: [],
+    childNodes: [{ nodeType: 3, textContent: "visible target" }],
+    childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 100, y: 0, width: 58, height: 62 }),
+    getClientRects: () => [{ x: 100, y: 0, width: 58, height: 62 }],
+  };
+  const blocker = {
+    ...html,
+    tagName: "DIV",
+    parentElement: html,
+    children: [],
+    childNodes: [],
+    childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 100, y: 0, width: 58, height: 62 }),
+    getClientRects: () => [{ x: 100, y: 0, width: 58, height: 62 }],
+  };
+  html.children = [target, blocker];
+  html.childNodes = [target, blocker];
+  html.childElementCount = 2;
+  const style = {
+    display: "block",
+    visibility: "visible",
+    transform: "none",
+    translate: "none",
+    rotate: "none",
+    scale: "none",
+    perspective: "none",
+    overflowX: "visible",
+    overflowY: "visible",
+    clipPath: "none",
+    clip: "auto",
+    position: "static",
+    zIndex: "auto",
+    opacity: "1",
+    backgroundColor: "rgba(0, 0, 0, 0)",
+    backgroundImage: "none",
+    backgroundClip: "border-box",
+    maskImage,
+    webkitMaskImage,
+    backdropFilter,
+    webkitBackdropFilter,
+    filter: "none",
+    mixBlendMode: "normal",
+    isolation: "auto",
+    contain: "none",
+    pointerEvents: "auto",
+    borderTopWidth: "0px",
+    borderRightWidth: "0px",
+    borderBottomWidth: "0px",
+    borderLeftWidth: "0px",
+    borderTopLeftRadius: "0px",
+    borderTopRightRadius: "0px",
+    borderBottomLeftRadius: "0px",
+    borderBottomRightRadius: "0px",
+  };
+  dom.window.getComputedStyle = (element, pseudo) => {
+    if (pseudo) return { content: "none" };
+    return element === blocker ? { ...style, pointerEvents: "none" } : style;
+  };
+  dom.document.elementsFromPoint = () => [target, html];
+  return { ...dom, html, target, blocker };
+}
+
+function observedSurfaceAlias(overrides) {
+  const dom = surfaceAliasFixture(overrides);
+  const registry = createStableNodeRefRegistry("surface-alias-test");
+  const snapshot = observeLiveDom({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "surface-alias",
+    documentRef: "fixture",
+  });
+  const targetRef = stableNodeRefFor(registry, dom.target);
+  const targetNode = snapshot.observation.nodes.find(node => node.nodeRef === targetRef);
+  const candidates = checkCandidates(
+    observeCandidates({ observation: snapshot.observation }),
+    createFocusSpec(),
+  );
+  return { targetNode, targetRef, candidates };
+}
+
+test("empty webkit mask alias does not turn a standard no-mask surface into an uncertain blocker", () => {
+  const { targetNode, targetRef, candidates } = observedSurfaceAlias({ webkitMaskImage: "" });
+  assert.equal(targetNode.foreground, "visible");
+  assert.deepEqual(targetNode.exposedRects, [{ x: 100, y: 0, width: 58, height: 62 }]);
+  assert.ok(candidates.candidateRefs.includes(targetRef));
+  assert.equal(candidates.slots.find(slot => slot.nodeRef === targetRef).status, "ok");
+});
+
+test("empty webkit backdrop alias does not turn a standard no-backdrop surface into an uncertain blocker", () => {
+  const { targetNode, targetRef, candidates } = observedSurfaceAlias({ webkitBackdropFilter: "" });
+  assert.equal(targetNode.foreground, "visible");
+  assert.deepEqual(targetNode.exposedRects, [{ x: 100, y: 0, width: 58, height: 62 }]);
+  assert.ok(candidates.candidateRefs.includes(targetRef));
+  assert.equal(candidates.slots.find(slot => slot.nodeRef === targetRef).status, "ok");
+});
+
+test("genuine standard and prefixed mask or backdrop effects remain uncertain", () => {
+  for (const [label, overrides] of [
+    ["prefixed mask", { webkitMaskImage: "linear-gradient(#000, #000)" }],
+    ["prefixed backdrop", { webkitBackdropFilter: "blur(2px)" }],
+    ["standard mask", { webkitMaskImage: "", maskImage: "linear-gradient(#000, #000)" }],
+    ["standard backdrop", { webkitBackdropFilter: "", backdropFilter: "blur(2px)" }],
+  ]) {
+    const { targetNode, targetRef, candidates } = observedSurfaceAlias(overrides);
+    assert.equal(targetNode.foreground, "unassessed", label);
+    assert.equal(targetNode.exposedRects, null, label);
+    assert.equal(candidates.slots.find(slot => slot.nodeRef === targetRef).status, "unknown", label);
+  }
+});
+
 test("capture excludes the injected tool subtree while retaining normal fixed and shadow nodes", () => {
   const dom = liveMeasurementDom(), { html } = dom;
   const style = { display: "block", visibility: "visible", transform: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto", position: "fixed", content: "none", backgroundImage: "none", maskImage: "none", webkitMaskImage: "none" };
@@ -633,13 +757,15 @@ test("live appearance measurements preserve raw text and derive CSS declarations
   assert.equal(studentJson.includes("secret.test"), false);
 });
 
-test("translated cards retain measured clipping for descendants; non-translation transforms remain unknown", () => {
+test("translated and positively scaled cards retain measured clipping; unsupported transforms remain unknown", () => {
   for (const [transform, measured, individual = {}] of [
     ["none", true], ["matrix(1, 0, 0, 1, 0, 0)", true],
     ["matrix(1, 0, 0, 1, 258.5, 384.59375)", true],
-    ["matrix(0.8, 0, 0, 0.8, 258.5, 0)", false],
+    ["matrix(0.8, 0, 0, 0.8, 258.5, 0)", true],
     ["matrix(0, 1, -1, 0, 0, 0)", false],
     ["matrix(1, 0, 0.25, 1, 0, 0)", false],
+    ["matrix(-1, 0, 0, 1, 0, 0)", false],
+    ["matrix(0, 0, 0, 0, 0, 0)", false],
     ["matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 1, 1)", false],
     ["none", false, { rotate: "10deg" }],
     ["none", false, { scale: "1.7" }],
@@ -647,9 +773,12 @@ test("translated cards retain measured clipping for descendants; non-translation
     ["none", false, { translate: "10px 20px" }],
   ]) {
     const dom = fakeDom(), root = dom.document.documentElement;
-    root.clientLeft = 5; root.clientTop = 7;
-    root.clientWidth = 790; root.clientHeight = 100;
-    const card = { ...root, tagName: "SECTION", parentElement: root, children: [], childNodes: [],
+    root.clientLeft = 0; root.clientTop = 0;
+    root.clientWidth = 800; root.clientHeight = 600;
+    const clip = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [],
+      clientLeft: 5, clientTop: 7, clientWidth: 790, clientHeight: 100,
+    };
+    const card = { ...root, tagName: "SECTION", parentElement: clip, children: [], childNodes: [],
       getBoundingClientRect: () => ({ x: 200, y: 80, width: 300, height: 100 }),
       getClientRects: () => [{ x: 200, y: 80, width: 300, height: 100 }],
     };
@@ -657,9 +786,9 @@ test("translated cards retain measured clipping for descendants; non-translation
       getBoundingClientRect: () => ({ x: 210, y: 85, width: 100, height: 50 }),
       getClientRects: () => [{ x: 210, y: 85, width: 100, height: 50 }],
     };
-    root.children = [card]; card.children = [child];
+    root.children = [clip]; clip.children = [card]; card.children = [child];
     const baseStyle = dom.window.getComputedStyle();
-    dom.window.getComputedStyle = el => ({ ...baseStyle, ...(el === card ? individual : {}), transform: el === card ? transform : "none", overflowY: el === root ? "hidden" : "visible" });
+    dom.window.getComputedStyle = el => ({ ...baseStyle, ...(el === card ? individual : {}), transform: el === card ? transform : "none", overflowY: el === clip ? "hidden" : "visible" });
     const registry = createStableNodeRefRegistry("translation-test");
     const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "translated", documentRef: "fixture" });
     assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, card)).clippedRect,
@@ -667,6 +796,249 @@ test("translated cards retain measured clipping for descendants; non-translation
     assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, child)).clippedRect,
       measured ? { x: 210, y: 85, width: 100, height: 22 } : null, `${transform}: child`);
   }
+});
+
+test("positive diagonal scale keeps measured viewport rectangles without rescaling", () => {
+  const dom = fakeDom(), root = dom.document.documentElement;
+  root.clientLeft = 0; root.clientTop = 0;
+  root.clientWidth = 800; root.clientHeight = 600;
+  const card = { ...root, tagName: "SECTION", parentElement: root, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 200, y: 80, width: 120, height: 50 }),
+    getClientRects: () => [{ x: 200, y: 80, width: 120, height: 50 }],
+  };
+  const child = { ...card, tagName: "IMG", parentElement: card, children: [], childNodes: [],
+    getBoundingClientRect: () => ({ x: 210, y: 85, width: 60, height: 25 }),
+    getClientRects: () => [{ x: 210, y: 85, width: 60, height: 25 }],
+  };
+  root.children = [card]; card.children = [child];
+  const baseStyle = dom.window.getComputedStyle();
+  dom.window.getComputedStyle = element => ({ ...baseStyle,
+    transform: element === card ? "matrix(1.2, 0, 0, 0.5, 30, -10)" : "none",
+    transformOrigin: element === card ? "10% 30%" : "0px 0px",
+    overflowX: "visible", overflowY: "visible",
+  });
+  const registry = createStableNodeRefRegistry("scale-no-clip");
+  const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "scale", documentRef: "fixture" });
+  assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, card)).clippedRect, { x: 200, y: 80, width: 120, height: 50 });
+  assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, child)).clippedRect, { x: 210, y: 85, width: 60, height: 25 });
+});
+
+test("scaled overflow ancestor converts client offsets and sizes through cumulative scale", () => {
+  const dom = fakeDom(), root = dom.document.documentElement;
+  const scroller = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [], childElementCount: 2,
+    clientLeft: 4, clientTop: 6, clientWidth: 100, clientHeight: 50,
+    getBoundingClientRect: () => ({ x: 100, y: 50, width: 300, height: 200 }),
+    getClientRects: () => [{ x: 100, y: 50, width: 300, height: 200 }],
+  };
+  const inside = { ...scroller, tagName: "BUTTON", parentElement: scroller, children: [], childNodes: [], childElementCount: 0,
+    clientLeft: 0, clientTop: 0, clientWidth: 0, clientHeight: 0,
+    getBoundingClientRect: () => ({ x: 140, y: 100, width: 40, height: 30 }),
+    getClientRects: () => [{ x: 140, y: 100, width: 40, height: 30 }],
+  };
+  const outside = { ...inside,
+    getBoundingClientRect: () => ({ x: 160, y: 130, width: 20, height: 20 }),
+    getClientRects: () => [{ x: 160, y: 130, width: 20, height: 20 }],
+  };
+  root.children = [scroller]; scroller.children = [inside, outside];
+  const baseStyle = dom.window.getComputedStyle();
+  dom.window.getComputedStyle = element => ({ ...baseStyle,
+    transform: element === scroller ? "matrix(0.5, 0, 0, 1.2, 0, 0)" : "none",
+    overflowX: element === scroller ? "hidden" : "visible",
+    overflowY: element === scroller ? "hidden" : "visible",
+  });
+  const registry = createStableNodeRefRegistry("scaled-clip");
+  const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "scaled-clip", documentRef: "fixture" });
+  assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, inside)).clippedRect, { x: 140, y: 100, width: 12, height: 117.2 - 100 });
+  assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, outside)).clippedRect, { x: 160, y: 130, width: 0, height: 0 });
+});
+
+test("nested scales compose for the inner clip and a target scale does not widen an outer clip", () => {
+  const dom = fakeDom(), root = dom.document.documentElement;
+  root.clientLeft = 0; root.clientTop = 0;
+  root.clientWidth = 1000; root.clientHeight = 1000;
+  root.getBoundingClientRect = () => ({ x: 0, y: 0, width: 1000, height: 1000 });
+  const outer = { ...root, tagName: "SECTION", parentElement: root, children: [], childNodes: [], childElementCount: 0,
+    clientLeft: 2, clientTop: 3, clientWidth: 200, clientHeight: 100,
+    getBoundingClientRect: () => ({ x: 100, y: 50, width: 400, height: 300 }),
+    getClientRects: () => [{ x: 100, y: 50, width: 400, height: 300 }],
+  };
+  const inner = { ...outer, tagName: "DIV", parentElement: outer, children: [], childNodes: [],
+    clientLeft: 0, clientTop: 0, clientWidth: 50, clientHeight: 40,
+    getBoundingClientRect: () => ({ x: 120, y: 60, width: 100, height: 80 }),
+    getClientRects: () => [{ x: 120, y: 60, width: 100, height: 80 }],
+  };
+  const deep = { ...inner, tagName: "SPAN", parentElement: inner, children: [], childNodes: [],
+    clientLeft: 0, clientTop: 0, clientWidth: 0, clientHeight: 0,
+    getBoundingClientRect: () => ({ x: 150, y: 80, width: 100, height: 60 }),
+    getClientRects: () => [{ x: 150, y: 80, width: 100, height: 60 }],
+  };
+  const side = { ...inner, tagName: "BUTTON", parentElement: outer, children: [], childNodes: [],
+    getBoundingClientRect: () => ({ x: 195, y: 55, width: 20, height: 20 }),
+    getClientRects: () => [{ x: 195, y: 55, width: 20, height: 20 }],
+  };
+  root.children = [outer]; outer.children = [inner, side]; inner.children = [deep];
+  const baseStyle = dom.window.getComputedStyle();
+  dom.window.getComputedStyle = element => ({ ...baseStyle,
+    transform: element === outer ? "matrix(0.5, 0, 0, 0.5, 0, 0)"
+      : element === inner ? "matrix(2, 0, 0, 2, 0, 0)"
+        : element === side ? "matrix(3, 0, 0, 3, 0, 0)" : "none",
+    overflowX: element === outer || element === inner ? "hidden" : "visible",
+    overflowY: element === outer || element === inner ? "hidden" : "visible",
+  });
+  const registry = createStableNodeRefRegistry("nested-scale");
+  const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "nested-scale", documentRef: "fixture" });
+  assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, deep)).clippedRect, { x: 150, y: 80, width: 20, height: 20 });
+  assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, side)).clippedRect, { x: 195, y: 55, width: 6, height: 20 });
+});
+
+test("legacy zero rect is empty only for absolute and fixed applicability", () => {
+  const dom = fakeDom(), root = dom.document.documentElement;
+  root.clientLeft = 0; root.clientTop = 0;
+  root.clientWidth = 800; root.clientHeight = 600;
+  const absolute = { ...root, tagName: "SPAN", parentElement: root, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 30, y: 40, width: 10, height: 10 }),
+    getClientRects: () => [{ x: 30, y: 40, width: 10, height: 10 }],
+  };
+  const fixed = { ...absolute,
+    getBoundingClientRect: () => ({ x: 60, y: 70, width: 12, height: 12 }),
+    getClientRects: () => [{ x: 60, y: 70, width: 12, height: 12 }],
+  };
+  const clippedParent = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 100, y: 100, width: 50, height: 50 }),
+    getClientRects: () => [{ x: 100, y: 100, width: 50, height: 50 }],
+  };
+  const descendant = { ...clippedParent, tagName: "B", parentElement: clippedParent, children: [], childNodes: [],
+    getBoundingClientRect: () => ({ x: 110, y: 110, width: 20, height: 20 }),
+    getClientRects: () => [{ x: 110, y: 110, width: 20, height: 20 }],
+  };
+  clippedParent.children = [descendant];
+  const staticTarget = { ...absolute,
+    getBoundingClientRect: () => ({ x: 200, y: 200, width: 10, height: 10 }),
+    getClientRects: () => [{ x: 200, y: 200, width: 10, height: 10 }],
+  };
+  const relativeTarget = { ...staticTarget,
+    getBoundingClientRect: () => ({ x: 220, y: 220, width: 10, height: 10 }),
+    getClientRects: () => [{ x: 220, y: 220, width: 10, height: 10 }],
+  };
+  root.children = [absolute, fixed, clippedParent, staticTarget, relativeTarget];
+  const baseStyle = dom.window.getComputedStyle();
+  dom.window.getComputedStyle = element => {
+    const style = { ...baseStyle, overflowX: "visible", overflowY: "visible", clip: "auto", position: "static" };
+    if (element === absolute) return { ...style, clip: "rect(0px, 0px, 0px, 0px)", position: "absolute" };
+    if (element === fixed) return { ...style, clip: "rect(0px, 0px, 0px, 0px)", position: "fixed" };
+    if (element === clippedParent) return { ...style, clip: "rect(0px, 0px, 0px, 0px)", position: "absolute" };
+    if (element === staticTarget) return { ...style, clip: "rect(0px, 0px, 0px, 0px)", position: "static" };
+    if (element === relativeTarget) return { ...style, clip: "rect(0px, 0px, 0px, 0px)", position: "relative" };
+    return style;
+  };
+  const registry = createStableNodeRefRegistry("legacy-clip");
+  const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "legacy-clip", documentRef: "fixture" });
+  const clippedRect = element => snapshot.evidence.get(stableNodeRefFor(registry, element)).clippedRect;
+  assert.deepEqual(clippedRect(absolute), { x: 30, y: 40, width: 0, height: 0 });
+  assert.deepEqual(clippedRect(fixed), { x: 60, y: 70, width: 0, height: 0 });
+  assert.deepEqual(clippedRect(descendant), { x: 110, y: 110, width: 0, height: 0 });
+  assert.deepEqual(clippedRect(staticTarget), { x: 200, y: 200, width: 10, height: 10 });
+  assert.deepEqual(clippedRect(relativeTarget), { x: 220, y: 220, width: 10, height: 10 });
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === stableNodeRefFor(registry, absolute)));
+  assert.ok(snapshot.evidence.has(stableNodeRefFor(registry, descendant)));
+});
+
+test("unsupported transforms, legacy rects and SVG clipping remain unknown", () => {
+  for (const [name, transform] of [
+    ["unmeasured", undefined],
+    ["empty", ""],
+    ["rotation", "matrix(0, 1, -1, 0, 0, 0)"],
+    ["skew", "matrix(1, 0, 0.25, 1, 0, 0)"],
+    ["reflection", "matrix(-1, 0, 0, 1, 0, 0)"],
+    ["zero-scale", "matrix(0, 0, 0, 0, 0, 0)"],
+    ["3d", "matrix3d(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 1, 1)"],
+    ["malformed", "matrix(0.5, 0, 0)"],
+  ]) {
+    const dom = fakeDom(), root = dom.document.documentElement;
+    root.clientLeft = 0; root.clientTop = 0;
+    root.clientWidth = 800; root.clientHeight = 600;
+    const target = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [], childElementCount: 0,
+      getBoundingClientRect: () => ({ x: 10, y: 10, width: 100, height: 40 }),
+      getClientRects: () => [{ x: 10, y: 10, width: 100, height: 40 }],
+    };
+    root.children = [target];
+    const baseStyle = dom.window.getComputedStyle();
+    dom.window.getComputedStyle = element => ({ ...baseStyle, transform: element === target ? transform : "none" });
+    const registry = createStableNodeRefRegistry(`unsupported-${name}`);
+    const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: name, documentRef: "fixture" });
+    assert.equal(snapshot.evidence.get(stableNodeRefFor(registry, target)).clippedRect, null, name);
+  }
+
+  for (const [name, position, clip] of [
+    ["nonzero legacy rect", "absolute", "rect(0px, 10px, 10px, 0px)"],
+    ["missing legacy position", "", "rect(0px, 0px, 0px, 0px)"],
+  ]) {
+    const dom = fakeDom(), root = dom.document.documentElement;
+    root.clientLeft = 0; root.clientTop = 0;
+    root.clientWidth = 800; root.clientHeight = 600;
+    const target = { ...root, tagName: "SPAN", parentElement: root, children: [], childNodes: [], childElementCount: 0,
+      getBoundingClientRect: () => ({ x: 10, y: 10, width: 100, height: 40 }),
+      getClientRects: () => [{ x: 10, y: 10, width: 100, height: 40 }],
+    };
+    root.children = [target];
+    const baseStyle = dom.window.getComputedStyle();
+    dom.window.getComputedStyle = element => ({ ...baseStyle,
+      ...(element === target ? { clip, position } : {}),
+    });
+    const registry = createStableNodeRefRegistry(`legacy-unsupported-${name}`);
+    const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: name, documentRef: "fixture" });
+    assert.equal(snapshot.evidence.get(stableNodeRefFor(registry, target)).clippedRect, null, name);
+  }
+
+  const dom = fakeDom(), root = dom.document.documentElement;
+  root.clientLeft = 0; root.clientTop = 0;
+  root.clientWidth = 800; root.clientHeight = 600;
+  const svg = { ...root, tagName: "svg", parentElement: root, children: [], childNodes: [], childElementCount: 1,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
+    getClientRects: () => [{ x: 0, y: 0, width: 100, height: 100 }],
+  };
+  const path = { ...svg, tagName: "path", parentElement: svg, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 10, y: 10, width: 20, height: 20 }),
+    getClientRects: () => [{ x: 10, y: 10, width: 20, height: 20 }],
+  };
+  svg.children = [path]; root.children = [svg];
+  const baseStyle = dom.window.getComputedStyle();
+  dom.window.getComputedStyle = element => ({ ...baseStyle, clipPath: element === svg ? 'url("#a")' : "none" });
+  const registry = createStableNodeRefRegistry("svg-clip");
+  const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "svg-clip", documentRef: "fixture" });
+  assert.equal(snapshot.evidence.get(stableNodeRefFor(registry, path)).clippedRect, null);
+
+  const overflowDom = fakeDom(), overflowRoot = overflowDom.document.documentElement;
+  overflowRoot.clientLeft = 0; overflowRoot.clientTop = 0;
+  overflowRoot.clientWidth = 800; overflowRoot.clientHeight = 600;
+  const overflowSvg = { ...overflowRoot, tagName: "svg", parentElement: overflowRoot, children: [], childNodes: [], childElementCount: 1,
+    clientWidth: 100, clientHeight: 100,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
+    getClientRects: () => [{ x: 0, y: 0, width: 100, height: 100 }],
+  };
+  const overflowPath = { ...overflowSvg, tagName: "path", parentElement: overflowSvg, children: [], childNodes: [], childElementCount: 0,
+    getBoundingClientRect: () => ({ x: 10, y: 10, width: 20, height: 20.78125 }),
+    getClientRects: () => [{ x: 10, y: 10, width: 20, height: 20.78125 }],
+  };
+  overflowSvg.children = [overflowPath]; overflowRoot.children = [overflowSvg];
+  const overflowBase = overflowDom.window.getComputedStyle();
+  overflowDom.window.getComputedStyle = element => ({ ...overflowBase,
+    overflowX: element === overflowSvg ? "hidden" : "visible",
+    overflowY: element === overflowSvg ? "hidden" : "visible",
+  });
+  const overflowRegistry = createStableNodeRefRegistry("svg-overflow");
+  const overflowSnapshot = observeLiveDom({ ...overflowDom, registry: overflowRegistry, excludeRoot: null, snapshotRef: "svg-overflow", documentRef: "fixture" });
+  assert.deepEqual(overflowSnapshot.evidence.get(stableNodeRefFor(overflowRegistry, overflowPath)).clippedRect,
+    { x: 10, y: 10, width: 20, height: 20.78125 });
+  const nestedSvg = { ...overflowSvg, parentElement: overflowSvg, clientWidth: 0, clientHeight: 0, children: [overflowPath] };
+  overflowPath.parentElement = nestedSvg;
+  overflowSvg.children = [nestedSvg];
+  overflowDom.window.getComputedStyle = element => ({ ...overflowBase,
+    overflowX: element === nestedSvg ? "hidden" : "visible",
+    overflowY: element === nestedSvg ? "hidden" : "visible",
+  });
+  const nestedSnapshot = observeLiveDom({ ...overflowDom, registry: overflowRegistry, excludeRoot: null, snapshotRef: "nested-svg", documentRef: "fixture" });
+  assert.equal(nestedSnapshot.evidence.get(stableNodeRefFor(overflowRegistry, overflowPath)).clippedRect, null);
 });
 
 test("live DOM measures declared list parent, repeated geometry and SVG children without closest", () => {
@@ -831,9 +1203,11 @@ test("singleChildSameRect uses real parent and sole child geometry with nullable
     borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0,0,0,0)",
     borderRightColor: "rgba(0,0,0,0)", borderBottomColor: "rgba(0,0,0,0)", borderLeftColor: "rgba(0,0,0,0)", content: "none", backgroundImage: "none", maskImage: "none" };
   const parent = { ...html, tagName: "DIV", parentElement: html, children: [], childNodes: [], childElementCount: 1,
-    getBoundingClientRect: () => ({ x: 10, y: 10, width: 100, height: 40 }), getAttribute: () => null };
+    getBoundingClientRect: () => ({ x: 10, y: 10, width: 100, height: 40 }), getAttribute: () => null,
+    isContentEditable: false };
   const child = { ...html, tagName: "BUTTON", parentElement: parent, children: [], childNodes: [], childElementCount: 0,
-    getBoundingClientRect: () => ({ x: 11, y: 11, width: 98, height: 38 }), getAttribute: () => null };
+    getBoundingClientRect: () => ({ x: 11, y: 11, width: 98, height: 38 }), getAttribute: () => null,
+    isContentEditable: false };
   parent.children = [child]; html.children = [parent];
   dom.window.getComputedStyle = () => style;
   const registry = createStableNodeRefRegistry("single-rect-test");
@@ -966,6 +1340,22 @@ test("overlay node definitions expose only the production graph nodes", () => {
   assert.deepEqual(definitions.map(definition => definition.operator), ["browser.observe_live", "browser.qualify_live", "browser.classify_live", "overlay.present"]);
 });
 
+test("optional resource producer requires explicit read effect before workflow execution", () => {
+  const graph = JSON.parse(readFileSync(new URL("../workflows/browser-visual-overlay.graph.json", import.meta.url), "utf8"));
+  let reads = 0;
+  const definitions = createBrowserOverlayNodeDefinitions({
+    document: {}, window: {}, registry: createStableNodeRefRegistry("resource-effects"), excludeHost: null,
+    imageResources: { read: async () => { reads++; return { status: "unavailable", reason: "read-failed" }; }, peek: () => undefined },
+    present: () => undefined,
+  });
+  assert.throws(() => compileWorkflow({ graph, bindings: {
+    "筛选当前视口与关注候选": { config: { viewportOnly: true, scopeMode: "subtree" } },
+    "判断DOM基础种类": { config: DEFAULT_BASIC_KIND_CONFIG },
+  } }, { nodeDefinitions: definitions, grantedEffects: ["browser.dom.read", "browser.overlay.present"] }),
+  error => error.code === "COMPILE_EFFECT_UNAUTHORIZED");
+  assert.equal(reads, 0);
+});
+
 test("public overlay graph runs through compileWorkflow and runWorkflow with a no-op present callback", async () => {
   const graph = JSON.parse(readFileSync(
     new URL("../workflows/browser-visual-overlay.graph.json", import.meta.url),
@@ -975,14 +1365,19 @@ test("public overlay graph runs through compileWorkflow and runWorkflow with a n
   const html = dom.document.documentElement;
   html.clientLeft = html.clientTop = 0;
   html.clientWidth = 800;
-  html.clientHeight = 30;
-  const child = { ...html, tagName: "BUTTON", parentElement: html, isConnected: true,
+  html.clientHeight = 600;
+  const clip = { ...html, tagName: "DIV", parentElement: html, isConnected: true,
+    clientLeft: 0, clientTop: 0, clientWidth: 800, clientHeight: 30,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 800, height: 30 }),
+    getClientRects: () => [{ x: 0, y: 0, width: 800, height: 30 }],
+  };
+  const child = { ...html, tagName: "BUTTON", parentElement: clip, isConnected: true,
     getBoundingClientRect: () => ({ x: 0, y: 20, width: 100, height: 40 }),
     getClientRects: () => [{ x: 0, y: 20, width: 100, height: 40 }],
   };
-  html.children = [child];
+  html.children = [clip]; clip.children = [child];
   const getStyle = dom.window.getComputedStyle;
-  dom.window.getComputedStyle = element => ({ ...getStyle(), overflowY: element === html ? "hidden" : "visible" });
+  dom.window.getComputedStyle = element => ({ ...getStyle(), overflowY: element === clip ? "hidden" : "visible" });
   const registry = createStableNodeRefRegistry("overlay-test");
   let presentCalls = 0;
   const definitions = createBrowserOverlayNodeDefinitions({

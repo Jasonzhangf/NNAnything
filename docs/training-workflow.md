@@ -4,7 +4,34 @@
 
 `priority_staged_v1` 的正类目标拉高所属 family/leaf 下界，压低同阶段和前序适用竞争分支的上界，不压低后序分支。ignore 与有意义结构共享 structure family，因此 ignore 监督压低前序结构 leaf，不压低自己的 family。静态 gate 同时作用于已测项和缺测项，数值后端与正式前向使用同一支撑定义。旧 topology 的损失路径保持原行为。
 
-`fitBasicKinds` 返回 `timing`：backendLoadMs、circuitBuildMs、baselineEvalMs、trainEpochGradMs、postEpochEvalMs、finalEvalMs、fitTotalMs，以及 completedEpochs、processedRowCount、gradientRowEpochs、totalRowPasses、trainableParamCount、totalSparseCells。单调时钟 `performance.now()` 记录实际耗时；每轮包含一次梯度遍历和一次更新后评估，另有基线及最终评估。正常完成 E 轮、R 行时，梯度行数 E×R，总行遍历 (2E+2)×R。失败按已完成工作记录，不套正常公式。
+### 行为可行目标
+
+`objective.mode: "priority_decision_v1"` 只接受 `priority_staged_v1` profile。旧 `targetScore`、`rivalCeiling`、`otherGap` 仍按原合同必填并校验；该模式改用 `minScore`、`minMargin` 和 `boundarySlack` 表达分类边界。`boundarySlack` 可选，默认 `0.0001`，必须大于 0 且小于 `minScore`。没有 `mode` 时继续使用原有目标，默认行为不变。
+
+对每个有效细类 k，令 family 原始区间为 `F_k`、leaf 原始区间为 `L_k`，定义：
+
+```text
+a_k = min(F_k.min, L_k.min)
+b_k = min(F_k.max, L_k.max)
+```
+
+已知目标 y 的损失为三组平方 hinge 之和：
+
+```text
+目标下界：      h((T+s)-a_y)²
+前序退出：      Σ h(b_k-(T-s))²       stage(k) < stage(y)
+同阶段相对间隔：Σ h(b_k-clamp(a_y,0,1)+M+s)²  k≠y 且 stage(k)=stage(y)
+```
+
+`T=minScore`、`M=minMargin`、`s=boundarySlack`。目标必须同时满足 family/leaf 的有效下界；前序分支只需有一个端点低于退出边界；同阶段竞争分支使用相对目标有效下界的间隔。上界比较使用未截断的 `b_k`，因此原始分大于 1 时仍保留下降梯度；目标 margin 使用截断后的 `a_y`。min 的并列点采用固定的 leaf 端点次梯度。缺测继续以 `[min(w,0), max(w,0)]` 进入上下界，不补零或 false。
+
+显式 `other` 监督的零损失条件是所有有效细类的 `b_k` 不高于 `T-s`。该约束只适用于明确监督的 other 行，不把 unknown 或 conflict 自动转成 other。
+
+`fit.stopWhen: "objective_feasible"` 时，基线或每轮更新后的评估检查每一行的全部约束。基线已经可行时允许 `completedEpochs=0`。数值约束全部满足后，使用当前实际权重构造候选 profile，并以公开 `classifyBasicKind` 检查所有训练行的类别等于期望值且状态为 `judged`；数值可行但公共分类不一致时直接抛错，不继续增加轮数。候选始终来自实际拟合得到的权重，不使用 witness、gold 或地址 mask。
+
+`fitBasicKinds` 返回 `stoppingReason`：`objective_feasible` 表示首次满足上述数值与公共分类条件，`epoch_limit` 表示使用完配置轮数。`trajectory` 与 `timing.completedEpochs` 记录实际完成轮数，配置的 `epochs` 只是上限。
+
+`fitBasicKinds` 返回 `timing`：backendLoadMs、circuitBuildMs、baselineEvalMs、trainEpochGradMs、postEpochEvalMs、finalEvalMs、fitTotalMs，以及 completedEpochs、processedRowCount、gradientRowEpochs、totalRowPasses、trainableParamCount、totalSparseCells。单调时钟 `performance.now()` 记录实际耗时；每轮包含一次梯度遍历和一次更新后评估，另有基线及最终评估。正常完成 E 个实际轮、R 行时，梯度行数 E×R，总行遍历 (2E+2)×R。`fitTotalMs` 包含行为可行检查中的公开分类耗时；公开分类不增加电路行遍历计数。失败按已完成工作记录，不套正常公式。
 
 错误保留原消息/cause，附带 completedEpochs 与 timing。进度回调在该轮完成后调用，回调失败仍计入已完成轮数。未实现取消协议，不宣称 cancelled。训练报告可保存 timing；旧报告缺省该字段仍可读取。重新拟合保持 uncalibrated、not_applied。
 

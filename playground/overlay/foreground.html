@@ -13,7 +13,9 @@
     <button id="toggle-partial" type="button" aria-pressed="false">开启局部覆盖</button>
     <button id="toggle-transparent" type="button" aria-pressed="false">开启透明穿透层</button>
     <button id="toggle-opaque" type="button" aria-pressed="false">开启不透明穿透层</button>
+    <button id="focus-target" type="button">聚焦实际目标</button>
     <button id="rerun" type="button">重跑验收</button>
+    <button id="editable-run" type="button" aria-label="运行可编辑状态验收">运行可编辑状态场景</button>
   </nav>
 
   <main id="fixture-stage">
@@ -58,6 +60,174 @@
         <h2>iframe 宿主边界</h2>
         <p>只评估 iframe 宿主矩形，不读取内部文档。</p>
         <iframe id="iframe-host" title="iframe host fixture" srcdoc="<button>iframe 内部按钮</button>"></iframe>
+      </section>
+
+      <section class="fixture-card" id="clipping-stage" aria-label="clipping scenarios">
+        <h2>缩放与 legacy 裁剪</h2>
+        <p>真实布局测量：非均匀缩放裁剪、嵌套缩放、legacy zero rect 与不支持的变换。</p>
+        <div id="scaled-free-outer">
+          <div id="scaled-free-target">缩放无裁剪</div>
+        </div>
+        <svg id="svg-root-viewport" width="100" height="100" viewBox="0 0 100 100" style="overflow:hidden">
+          <rect id="svg-root-shape" x="80" y="10" width="40" height="20" fill="green" />
+        </svg>
+        <div id="scaled-clip-outer">
+          <div id="scaled-retained">缩放后部分保留</div>
+          <div id="scaled-excluded">缩放后完全排除</div>
+        </div>
+        <div id="nested-clip-outer">
+          <div id="nested-clip-inner">
+            <button class="fixture-target" id="nested-clip-target" type="button">嵌套缩放目标</button>
+          </div>
+        </div>
+        <span class="fixture-target" id="legacy-absolute-target">legacy absolute</span>
+        <span class="fixture-target" id="legacy-static-target">legacy static</span>
+        <div class="fixture-target" id="unsupported-rotate-target">rotation</div>
+        <div class="fixture-target" id="unsupported-clip-path-target">clip path</div>
+      </section>
+
+      <section class="fixture-card" id="paint-svg-stage" aria-label="paint and SVG scenarios">
+        <h2>Paint 与 SVG 增量</h2>
+        <p>真实布局测量：嵌套 SVG 矩形裁剪、letterbox 物理 viewport、paint surface 与 shadow 反例。</p>
+        <div class="paint-fixture-grid">
+          <div class="paint-fixture" id="paint-nested-svg-fixture">
+            <span class="paint-fixture-label">嵌套 SVG 16px 矩形 clip</span>
+            <svg id="paint-svg-outer" class="paint-svg-viewport" data-target-name="paint.svg.outer"
+              width="16" height="16" viewBox="0 0 100 100" aria-label="nested svg outer">
+              <svg id="paint-svg-nested" class="paint-svg-viewport" data-target-name="paint.svg.nested"
+                width="100" height="100" viewBox="0 0 100 100" aria-label="nested svg inner">
+                <g id="paint-svg-clipped-group" data-target-name="paint.svg.clipped-group"
+                  clip-path="url(#paint-svg-clip-rect)">
+                  <path id="paint-svg-clipped-shape" data-target-name="paint.svg.clipped-shape"
+                    d="M0 0h100v100H0z" fill="#2f855a" />
+                </g>
+                <defs>
+                  <clipPath id="paint-svg-clip-rect" clipPathUnits="userSpaceOnUse">
+                    <path d="M0 0h100v100H0z" />
+                  </clipPath>
+                </defs>
+              </svg>
+            </svg>
+          </div>
+
+          <div class="paint-fixture" id="paint-letterbox-fixture">
+            <span class="paint-fixture-label">letterbox 物理 16px 方形</span>
+            <svg id="paint-letterbox-outer" class="paint-svg-viewport" data-target-name="paint.letterbox.outer"
+              width="16" height="16" viewBox="0 0 100 100" aria-label="letterbox outer">
+              <svg id="paint-letterbox-nested" class="paint-svg-viewport" data-target-name="paint.letterbox.nested"
+                width="100" height="100" viewBox="0 0 200 100" aria-label="letterbox inner">
+                <rect id="paint-letterbox-shape" data-target-name="paint.letterbox.shape"
+                  x="0" y="-50" width="200" height="200" fill="#2b6cb0" />
+              </svg>
+            </svg>
+          </div>
+
+          <div class="paint-fixture" id="paint-unpainted-radius-fixture">
+            <span class="paint-fixture-label">透明 radius/opacity 覆盖</span>
+            <div class="paint-image-box paint-image-box-48">
+              <img id="paint-unpainted-radius-image" class="paint-image"
+                data-target-name="paint.image.unpainted-radius" alt="" draggable="false"
+                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8' fill='%230f766e'/%3E%3Cpath d='M0 0h8v8H0z' fill='none' stroke='%23fbbf24' stroke-width='1'/%3E%3C/svg%3E">
+              <div id="paint-unpainted-radius-overlay" class="paint-overlay" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <div class="paint-fixture" id="paint-border-ring-fixture">
+            <span class="paint-fixture-label">24px 空边框环</span>
+            <div class="paint-image-box paint-image-box-24">
+              <img id="paint-border-ring-image" class="paint-image"
+                data-target-name="paint.image.border-ring" alt="" draggable="false"
+                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8' fill='%230f766e'/%3E%3Cpath d='M0 0h8v8H0z' fill='none' stroke='%23fbbf24' stroke-width='1'/%3E%3C/svg%3E">
+              <i id="paint-border-ring-overlay" class="paint-overlay" aria-hidden="true"></i>
+            </div>
+          </div>
+
+          <div class="paint-fixture" id="paint-opacity-zero-fixture">
+            <span class="paint-fixture-label">opacity 0 hover 覆盖</span>
+            <div class="paint-image-box paint-image-box-48">
+              <img id="paint-opacity-zero-image" class="paint-image"
+                data-target-name="paint.image.opacity-zero" alt="" draggable="false"
+                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8' fill='%230f766e'/%3E%3Cpath d='M0 0h8v8H0z' fill='none' stroke='%23fbbf24' stroke-width='1'/%3E%3C/svg%3E">
+              <button id="paint-opacity-zero-overlay" class="paint-overlay" type="button"
+                data-target-name="paint.overlay.opacity-zero" aria-label="hover overlay"></button>
+            </div>
+          </div>
+
+          <div class="paint-fixture" id="paint-opaque-header-fixture">
+            <span class="paint-fixture-label">content-box 白色 header + shadow</span>
+            <div class="paint-image-box paint-image-box-72x40">
+              <img id="paint-opaque-header-image" class="paint-image"
+                data-target-name="paint.image.opaque-header" alt="" draggable="false"
+                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8' fill='%230f766e'/%3E%3Cpath d='M0 0h8v8H0z' fill='none' stroke='%23fbbf24' stroke-width='1'/%3E%3C/svg%3E">
+              <header id="paint-opaque-header" class="paint-overlay"
+                data-target-name="paint.overlay.opaque-header" aria-label="opaque header"></header>
+            </div>
+          </div>
+
+          <div class="paint-fixture" id="paint-shadow-only-fixture">
+            <span class="paint-fixture-label">shadow-only 反例</span>
+            <div class="paint-image-box paint-image-box-72x40">
+              <img id="paint-shadow-only-image" class="paint-image"
+                data-target-name="paint.image.shadow-only" alt="" draggable="false"
+                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Crect width='8' height='8' fill='%230f766e'/%3E%3Cpath d='M0 0h8v8H0z' fill='none' stroke='%23fbbf24' stroke-width='1'/%3E%3C/svg%3E">
+              <div id="paint-shadow-only-overlay" class="paint-overlay"
+                data-target-name="paint.overlay.shadow-only" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="fixture-card" id="actual-focus-stage" aria-label="actual focus scenario">
+        <h2>实际焦点与中性包装</h2>
+        <p>按钮事件将焦点设置到负 tabindex 的中性 DIV；同尺寸未聚焦 DIV 保留为对照。</p>
+        <div class="actual-focus-row">
+          <div id="actual-focus-target" class="actual-focus-wrapper" tabindex="-1">
+            <span>焦点目标内容</span>
+          </div>
+          <div id="actual-focus-control" class="actual-focus-wrapper" tabindex="-1">
+            <span>未聚焦对照内容</span>
+          </div>
+        </div>
+        <button id="lose-focus" type="button">移除实际焦点</button>
+      </section>
+
+      <section class="fixture-card" id="editable-stage" aria-label="editable state scenario">
+        <h2>可编辑状态受控场景</h2>
+        <p>原生测量与仅遮蔽 isContentEditable 的隔离视图配对；designMode 在一次性同源文档内切换。选择器证据逐行记录原生 :read-write/:read-only 与 isContentEditable 的对照。</p>
+        <div class="editable-fixture-grid">
+          <label class="editable-fixture" for="editable-explicit-true">
+            <span>explicit true</span>
+            <div id="editable-explicit-true" class="editable-target" contenteditable="true">true</div>
+          </label>
+          <label class="editable-fixture" for="editable-explicit-false">
+            <span>explicit false</span>
+            <div id="editable-explicit-false" class="editable-target" contenteditable="false">false</div>
+          </label>
+          <label class="editable-fixture" for="editable-plaintext-only">
+            <span>plaintext-only</span>
+            <div id="editable-plaintext-only" class="editable-target" contenteditable="plaintext-only">plaintext</div>
+          </label>
+          <label class="editable-fixture" for="editable-padded-invalid">
+            <span>padded invalid</span>
+            <div id="editable-padded-invalid" class="editable-target" contenteditable=" true ">padded</div>
+          </label>
+          <label class="editable-fixture" for="editable-css-read-only">
+            <span>CSS read-only</span>
+            <div id="editable-css-read-only" class="editable-target editable-css-readonly" contenteditable="true">read-only override</div>
+          </label>
+          <label class="editable-fixture" for="editable-css-read-write">
+            <span>CSS read-write</span>
+            <div id="editable-css-read-write" class="editable-target editable-css-readwrite" contenteditable="true">read-write override</div>
+          </label>
+        </div>
+        <div id="editable-host" class="editable-host">
+          <div id="editable-true-parent" contenteditable="true" class="editable-parent">
+            <div id="editable-inherited-child" class="editable-target">inherited child target</div>
+            <div id="editable-nested-false-child" class="editable-target" contenteditable="false">false child target</div>
+            <div id="editable-nested-true-grandchild" class="editable-target" contenteditable="true">true grandchild target</div>
+          </div>
+        </div>
+        <div id="editable-frame-host" class="editable-frame-host" aria-label="disposable designMode fixtures"></div>
       </section>
     </div>
 

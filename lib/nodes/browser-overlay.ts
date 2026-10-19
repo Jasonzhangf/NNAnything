@@ -1,6 +1,7 @@
 import type { NodeDefinition } from "../core/contracts.js";
 import { expectNonEmptyString, expectRecord } from "../core/schema.js";
 import { observeLiveDom, type LiveDomSnapshot, type StableNodeRefRegistry } from "../adapters/browser/live-dom.js";
+import type { BrowserJpegImageResourceProducer } from "../adapters/browser/image-resource-browser.js";
 import { BrowserCaptureSession, type BrowserCaptureAnnotation, type BrowserCaptureDownloadCallback, type BrowserOverlayFrame, type OverlayBox } from "../adapters/browser/capture-bundle.js";
 import { createFocusSpec, type FocusSpec } from "../filters/focus.js";
 import { checkCandidates, observeCandidates, scopeIssue, splitCandidates, type CandidateBatch } from "../filters/candidate-chain.js";
@@ -31,17 +32,31 @@ export function createBrowserOverlayNodeDefinitions(resources: {
   document: Document; window: Window; registry: StableNodeRefRegistry; excludeHost: Element | null;
   excludeRoots?: readonly (Element | null)[]; excludeRootIds?: readonly string[];
   maxRelationHops?: number;
+  imageResources?: Pick<BrowserJpegImageResourceProducer, "read" | "peek">;
   present: (frame: BrowserOverlayFrame) => unknown | Promise<unknown>;
 }): readonly NodeDefinition[] {
   return [
     {
-      operator: "browser.observe_live", version: "0.1.0", inputPorts: [request], outputPort: observed, effects: ["browser.dom.read"],
-      execute: context => {
+      operator: "browser.observe_live", version: "0.1.0", inputPorts: [request], outputPort: observed,
+      effects: resources.imageResources ? ["browser.dom.read", "browser.resource.read"] : ["browser.dom.read"],
+      execute: async context => {
         const input = expectRecord(context.inputs[0]!.payload, "overlay request");
-        return context.emit(observeLiveDom({ document: resources.document, window: resources.window, registry: resources.registry, excludeRoot: resources.excludeHost,
+        const observationInput = { document: resources.document, window: resources.window, registry: resources.registry, excludeRoot: resources.excludeHost,
           ...(resources.excludeRoots ? { excludeRoots: resources.excludeRoots } : {}), ...(resources.excludeRootIds ? { excludeRootIds: resources.excludeRootIds } : {}),
           ...(resources.maxRelationHops === undefined ? {} : { maxRelationHops: resources.maxRelationHops }),
-          snapshotRef: expectNonEmptyString(input.snapshotRef, "snapshotRef"), documentRef: expectNonEmptyString(input.documentRef, "documentRef") }));
+          snapshotRef: expectNonEmptyString(input.snapshotRef, "snapshotRef"), documentRef: expectNonEmptyString(input.documentRef, "documentRef") };
+        const producer = resources.imageResources;
+        if (!producer) return context.emit(observeLiveDom(observationInput));
+        const requests = new Set<HTMLImageElement>();
+        const first = observeLiveDom({ ...observationInput, imageResourceFor: element => {
+          const image = element as HTMLImageElement;
+          const observation = producer.peek(image);
+          if (observation === undefined) requests.add(image);
+          return observation;
+        } });
+        if (requests.size === 0) return context.emit(first);
+        await Promise.all([...requests].map(image => producer.read(image)));
+        return context.emit(observeLiveDom({ ...observationInput, imageResourceFor: element => producer.peek(element as HTMLImageElement) }));
       },
     },
     {
@@ -128,6 +143,7 @@ export function createBrowserCaptureNodeDefinitions(resources: {
       else if (input.action === "capture_selected") receipt = resources.session.captureSelected(input.frame as BrowserOverlayFrame, expectNonEmptyString(input.nodeRef, "nodeRef"), input.annotation as BrowserCaptureAnnotation);
       else if (input.action === "collect_unknown") receipt = resources.session.collectUnknown(input.frame as BrowserOverlayFrame);
       else if (input.action === "collect_unresolved") receipt = resources.session.collectUnresolved(input.frame as BrowserOverlayFrame);
+      else if (input.action === "collect_qualified") receipt = resources.session.collectQualified(input.frame as BrowserOverlayFrame);
       else throw new TypeError("Unsupported browser capture action");
       return context.emit({ action: input.action, receipt });
     },

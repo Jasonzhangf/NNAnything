@@ -2,6 +2,7 @@ import {
   DEFAULT_BASIC_KIND_CONFIG,
   DEFAULT_BASIC_KIND_PROFILE,
   createStableNodeRefRegistry,
+  createBrowserJpegImageResourceProducer,
   stableNodeRefFor,
   resolveStableNodeRef,
   parseBrowserWeightAsset,
@@ -18,6 +19,8 @@ import {
   type BasicKindLabel,
   type BasicKindSlot,
   type StableNodeRefRegistry,
+  type BrowserJpegImageResourceProducer,
+  type BrowserImageDecoderConstructor,
   type BrowserOverlayFrame,
   type OverlayBox,
   type OverlayCounts,
@@ -104,6 +107,7 @@ export class DOMInspectorController {
   private originalCursor = "";
 
   private mutationObserver: MutationObserver | null = null;
+  private imageResources: BrowserJpegImageResourceProducer | null = null;
   private boundOnScroll: () => void;
   private boundOnResize: () => void;
   private boundOnPickClick: (e: MouseEvent) => void;
@@ -152,6 +156,13 @@ export class DOMInspectorController {
   public mount(): void {
     if (this.isMounted()) return;
     this.mountGeneration++;
+    const platform = this.win as Window & typeof globalThis & { ImageDecoder?: BrowserImageDecoderConstructor };
+    this.imageResources = createBrowserJpegImageResourceProducer({
+      document: this.doc, documentRef: this.documentRef,
+      nodeRefFor: element => stableNodeRefFor(this.registry, element),
+      platform: { fetch: platform.fetch.bind(platform), MutationObserver: platform.MutationObserver,
+        AbortController: platform.AbortController, ImageDecoder: platform.ImageDecoder ?? null },
+    });
 
     this.hostElement = this.doc.createElement("div");
     this.hostElement.id = "nnanything-dom-inspector-host";
@@ -194,6 +205,8 @@ export class DOMInspectorController {
 
   public destroy(): void {
     this.mountGeneration++;
+    this.imageResources?.dispose();
+    this.imageResources = null;
     this.refreshPending = false;
     if (this.rafId !== null) {
       this.win.cancelAnimationFrame(this.rafId);
@@ -286,6 +299,7 @@ export class DOMInspectorController {
         window: this.win,
         registry: this.registry,
         excludeHost: this.hostElement,
+        ...(this.imageResources ? { imageResources: this.imageResources } : {}),
         present: () => undefined,
       });
 
@@ -309,7 +323,7 @@ export class DOMInspectorController {
         {
           nodeDefinitions: overlayDefs,
           profiles: { current: this.currentProfile },
-          grantedEffects: ["browser.dom.read", "browser.overlay.present"],
+          grantedEffects: ["browser.dom.read", "browser.resource.read", "browser.overlay.present"],
         }
       );
 
@@ -1039,6 +1053,9 @@ export class DOMInspectorController {
     const eligibleUnresolvedCount = this.currentFrame
       ? Number(this.currentFrame.presentation.view.counts.unresolved ?? 0)
       : 0;
+    const qualifiedCount = this.currentFrame
+      ? Number(this.currentFrame.presentation.view.counts.candidates ?? 0)
+      : 0;
 
     const stats = this.captureSession.stats();
 
@@ -1064,6 +1081,14 @@ export class DOMInspectorController {
       await this.runCaptureAction({ action: "collect_unresolved" });
     };
 
+    const qualifiedBtn = this.doc.createElement("button");
+    qualifiedBtn.className = "btn";
+    qualifiedBtn.textContent = `收集当前候选 (${qualifiedCount})`;
+    qualifiedBtn.disabled = qualifiedCount === 0 || !this.currentFrame;
+    qualifiedBtn.onclick = async () => {
+      await this.runCaptureAction({ action: "collect_qualified" });
+    };
+
     const exportBtn = this.doc.createElement("button");
     exportBtn.className = "btn btn-primary";
     exportBtn.textContent = "导出 JSON 样本包";
@@ -1073,6 +1098,7 @@ export class DOMInspectorController {
     };
 
     actionRow.appendChild(bulkUnknownBtn);
+    actionRow.appendChild(qualifiedBtn);
     actionRow.appendChild(exportBtn);
     sessionSection.appendChild(actionRow);
 
@@ -1328,7 +1354,7 @@ export class DOMInspectorController {
   }
 
   private async runCaptureAction(input: {
-    action: "capture_selected" | "collect_unresolved" | "export";
+    action: "capture_selected" | "collect_qualified" | "collect_unresolved" | "export";
     nodeRef?: string;
     annotation?: BrowserCaptureAnnotation;
   }): Promise<any> {

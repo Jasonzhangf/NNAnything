@@ -35,6 +35,7 @@ Local Chrome/Chromium browser extension and evaluation test harness for NNAnythi
      - `标错` (Mark wrong): Prompts for corrected class from dropdown. If `other` is chosen, a reason is required. If marked wrong without a corrected class, status remains `rejected`.
      - `待复核` (Unsure): Marked as ambiguous.
    - `一键收集当前未知 (N)`: Captures all qualified unknown slots (`candidateStatus === 'ok' && judgmentStatus === 'unknown'`) without overwriting previously reviewed items.
+   - `收集当前候选 (N)`: Captures every qualified candidate (`candidateStatus === 'ok'`), including known, unknown, conflict, and judged `ignore` slots. Rows stay unreviewed with their original proposal; filtered and candidate-unknown slots are excluded.
    - `导出 JSON 样本包`: Calls capture workflow export and triggers a client-side Blob JSON download anchor (`nnanything-capture-<sessionId>.json`).
 
 6. **Custom Weight Asset Loader**:
@@ -80,6 +81,8 @@ Use the optional command above to embed one selected local weight asset in the c
 
 An invalid path, JSON document, or contract fails with a nonzero exit and does not fall back to the baseline. The selected file stays local and is not committed. The choice is embedded in the built extension, not stored by Chrome. A file chosen through the panel replaces it for the current session only; reloading restores the build-time choice. This packaging step does not adopt a candidate profile as a project default.
 
+Here, reloading means refreshing the website document. Reloading the extension in the extension manager does not refresh an existing website or remove its old inspector context. Export the current samples, reload the extension, refresh each target website, then open the inspector once. Opening the inspector before that website refresh can leave old and new panels together, with different weights and counts.
+
 ---
 
 ## Loading Unpacked Extension in Chrome / Chromium
@@ -123,6 +126,7 @@ Open `http://localhost:8080` in your browser.
    - Click "保存此元素样本": verify session stats counter updates.
 5. **Bulk Unknown Collection**:
    - Click "一键收集当前未知": verify eligible unknown candidates (`candidateStatus === 'ok' && judgmentStatus === 'unknown'`) are added to the session.
+   - Click "收集当前候选": verify all qualified slots are added as unreviewed rows and the button count matches the view's candidate count.
 6. **Export & Extraction**:
    - Click "导出 JSON 样本包": verify the browser downloads `nnanything-capture-<sessionId>.json`.
    - Run the extraction CLI:

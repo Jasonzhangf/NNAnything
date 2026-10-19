@@ -73,6 +73,7 @@ export interface BasicKindCandidate {
   readonly profile: BasicKindProfile;
   readonly trajectory: readonly FitProgress[];
   readonly timing?: BasicKindFitTiming;
+  readonly stoppingReason?: "objective_feasible" | "epoch_limit";
   readonly lossBefore: number;
   readonly lossAfter: number;
   readonly sampleCoverage: {
@@ -189,6 +190,7 @@ export interface BasicKindTrainingResult {
   readonly recommendation: BasicKindAssessment["recommendation"];
   readonly summary: Readonly<Record<BasicKindTransition, number>>;
   readonly timing?: BasicKindFitTiming;
+  readonly stoppingReason?: "objective_feasible" | "epoch_limit";
 }
 
 export interface BasicKindArtifactReceipt {
@@ -579,6 +581,7 @@ export function readBasicKindCandidate(value: unknown): BasicKindCandidate {
     "lossAfter",
     "sampleCoverage",
     "timing",
+    "stoppingReason",
   ], "candidate");
   if (input.schemaVersion !== 1 || input.taskId !== BASIC_KIND_TASK_ID) throw new TypeError("candidate schema/task mismatch");
   const coverage = expectRecord(input.sampleCoverage, "sampleCoverage");
@@ -590,6 +593,7 @@ export function readBasicKindCandidate(value: unknown): BasicKindCandidate {
     baseProfileId: expectNonEmptyString(input.baseProfileId, "baseProfileId"),
     profile: validateBasicKindProfile(input.profile),
     trajectory: readTrajectory(input.trajectory),
+    ...(input.stoppingReason === undefined ? {} : { stoppingReason: oneOf(input.stoppingReason, ["objective_feasible", "epoch_limit"] as const, "candidate.stoppingReason") }),
     ...(input.timing === undefined ? {} : { timing: readFitTiming(input.timing) }),
     lossBefore: nonNegativeFinite(input.lossBefore, "lossBefore"),
     lossAfter: nonNegativeFinite(input.lossAfter, "lossAfter"),
@@ -1088,6 +1092,7 @@ export function readBasicKindResult(value: unknown): BasicKindTrainingResult {
     "recommendation",
     "summary",
     "timing",
+    "stoppingReason",
   ], "training result");
   if (input.schemaVersion !== 1 || input.taskId !== BASIC_KIND_TASK_ID) throw new TypeError("training result schema/task mismatch");
   if (input.candidateAdoption !== "not_applied" || input.calibrated !== false) throw new TypeError("training result cannot auto-adopt or claim calibration");
@@ -1126,6 +1131,7 @@ export function readBasicKindResult(value: unknown): BasicKindTrainingResult {
       "evidence_insufficient",
     ] as const, "training result.recommendation"),
     summary: readTransitionCounts(input.summary),
+    ...(input.stoppingReason === undefined ? {} : { stoppingReason: oneOf(input.stoppingReason, ["objective_feasible", "epoch_limit"] as const, "training result.stoppingReason") }),
     ...(input.timing === undefined ? {} : { timing: readFitTiming(input.timing) }),
   };
 }
@@ -1150,6 +1156,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
   if (assessment.taskId !== input.taskId) throw new TypeError("assessment taskId differs from report request");
   const inference = assessment.comparison?.inference ?? null;
   const timing = input.timing ?? assessment.candidate?.timing;
+  const stoppingReason = assessment.candidate?.stoppingReason;
   const root = await realpath(resolve(allowedRoot));
   if (!(await stat(root)).isDirectory()) throw new TypeError("allowedRoot must be an existing directory");
   const weightsDirectory = await ensureDirectory(root, config.weightsDirectory);
@@ -1197,6 +1204,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
     evaluationMode: assessment.comparison?.evaluationMode ?? null,
     recommendation: assessment.recommendation,
     summary,
+    ...(stoppingReason === undefined ? {} : { stoppingReason }),
     ...(timing === undefined ? {} : { timing }),
   };
   try {
@@ -1213,6 +1221,7 @@ export async function writeBasicKindTrainingArtifacts(input: {
       inference: result.inference,
       weightFileRef,
       summary,
+      ...(stoppingReason === undefined ? {} : { stoppingReason }),
       ...(timing === undefined ? {} : { timing }),
       assessment: reportAssessment(assessment, weightFileRef),
     });
