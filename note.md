@@ -1,5 +1,9 @@
 # 当前任务
 
+## 2026-10-19 满足度阈值命名修订
+
+用户批准将原饥饿程度名称统一为 satisfactionThreshold（满足度阈值）。四元素为 Goal/satisfactionThreshold/State/Action；satisfaction 是实际评价结果，不增加基础元素。已同步当前架构合同、演进合同、设计 Skill、AGENTS 及下方当日汇总用语。仅命名和定义澄清，未改运行接口、DAG 拓扑或训练语义；已有三图校验证据复用。
+
 ## 2026-10-19 单元升级 DAG 补正
 
 验收：三张修改图均通过 DAGpipe validate/inspect，分别为 project-design 7N6E、model-evolution 10N10E、model-conflict-design 5N4E；均单入口单出口、无回边，operator 仍为 design，未冒充运行绑定。git diff --check 通过。纯合同/Skill/图纸修改，不运行无关训练或业务测试，不另开实现 Review；本轮未创建 worktree 或后台资源。
@@ -8,7 +12,7 @@
 
 ## 2026-10-19 四元素语义与训练治理标准冻结
 
-用户明确每个语义及训练设计必须围绕 Goal/Hungry/State/Action 闭合、SESE、最小必要性，并要求由 DAGpipe 管理标准过程。已更新唯一基础合同 docs/design.md 1.1、设计流程 Skill 与既有 project-design 图至 0.2.0-design，保留 7N6E 单入口单出口。训练期反推与运行期真实状态评价分开；cwd 二元满足度 0/100，只有目标定义允许的 search 等使用中间满足度。Skill 逐节点规定产物、不通过条件和统一缺口回执，删除无必要节点/输入/wire/边/校验；AGENTS、治理文档及图清单仅挂接唯一 owner。不建立冻结快照、平行台账或自动审核器。本轮只修改治理合同，现有运行实现尚无 Hungry/通用满足度，未宣称已完成全模型迁移。
+用户明确每个语义及训练设计必须围绕 Goal/satisfactionThreshold/State/Action 闭合、SESE、最小必要性，并要求由 DAGpipe 管理标准过程。已更新唯一基础合同 docs/design.md 1.1、设计流程 Skill 与既有 project-design 图至 0.2.0-design，保留 7N6E 单入口单出口。训练期反推与运行期真实状态评价分开；cwd 二元满足度 0/100，只有目标定义允许的 search 等使用中间满足度。Skill 逐节点规定产物、不通过条件和统一缺口回执，删除无必要节点/输入/wire/边/校验；AGENTS、治理文档及图清单仅挂接唯一 owner。不建立冻结快照、平行台账或自动审核器。本轮只修改治理合同，现有运行实现尚无 satisfactionThreshold/通用满足度，未宣称已完成全模型迁移。
 
 ## 2026-10-19 CLI调用参数简化（设计补正）
 
