@@ -1,8 +1,12 @@
 # 当前任务
 
+## 2026-10-19 结构化Goal与最小动作关系（设计更新）
+
+用户明确三层目标：概念、动作、Goal/State动作选择；随后将动作层收敛为获取cwd→pwd、修改指定session cwd→cd，逐个训练后作为子目标复用。唯一架构正文已更新docs/design.md 1.1，CLI操作合同只引用。pwd产生新的观测知识，cd改变指定会话的执行基准；实际New State与NN预测分开。当前路径控制器是固定Goal的小实验，不是通用Goal策略或pwd/cd模型，M0尚无cd。纯文档更新，运行图未变，不新增框架或实现；更大语义推理目标仍待逐能力推进。
+
 ## 2026-10-19 首个函数表达：词法路径训练
 
-当前7项中独立计划、图/红测、符号/数值实现、样本/公开consumer、训练/作者验收、整体Review6项已完成；剩余main交付/清理。独立OAuth gpt-6.1-sol medium整体Review exit0、findings=[]，canonical controller裁决PASS（当前agy目录无Gemini4，沿同源后备）。唯一合同和详细实测 `docs/cli-path-training.md`；独立过程 `/Volumes/Intel/playground/nnanything-runs/path-resolve-m1/`，审查原件review-final.json、裁决review-verdict.json，交付回执delivery.md。模型学习5种符号动作，9条wire、45参数，手写分词/栈/名称复制不冒称已学习。M0默认与DOM模型不变，目录绑定、自然语言、help和组合操作后置。
+本轮7项全部已交付：实现099bafe合入main2674300并push成功；主树重新build和新进程回载112/112完整路径、584/584动作通过；自有path-resolve-m1工作树/分支/依赖链接/worker已回收，保留无关dirty three-site-zero。独立OAuth gpt-6.1-sol medium整体Review exit0、findings=[]，canonical controller裁决PASS（当前agy目录无Gemini4，沿同源后备）。唯一合同和详细实测 `docs/cli-path-training.md`；独立过程 `/Volumes/Intel/playground/nnanything-runs/path-resolve-m1/`，审查原件review-final.json、裁决review-verdict.json，交付回执delivery.md。模型学习5种符号动作，9条wire、45参数，手写分词/栈/名称复制不冒称已学习。M0默认与DOM模型不变，目录绑定、自然语言、help和组合操作后置。
 
 新训练图4N3E、推理图1N0E已validate/inspect，实际从持久配置编译并由Flowed执行。实现前公开模块缺失红测、实现后零/破坏策略失败trace均保留。两GCM独立worker分别负责符号控制器与数值结构，父层负责teacher/数据/评估/图节点/公开consumer；独立OAuth gpt-6.1-sol medium规划READY（当前agy目录无Gemini4）。训练复用既有Handwired源码加载和reference前反传；动作softmax CE与全批SGD为独立节点，不复用DOM类别或loss。
 
