@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-19 前三项训练详细设计（设计交付，不是新训练结果）
+
+三份唯一合同：docs/cli-cwd-training-design.md、cli-cd-training-design.md、cli-list-training-design.md；各有独立design训练DAG，分别8N9E、7N7E、7N7E。第一项增加CWD归属概念的6参数关系单元，PWD动作仍独立6参数；第二项独立6参数CD策略，以固定zsh调用成功后提交显式session资源，再用后续同S的PWD验证；第三项独立8参数LIST策略，通过固定结构化CLI helper无损列举，不宣称学习/bin/ls选项。字段校验/引用相等/参数复制/OS类型与真实效果均为手写harness，NN只学所声明函数；不冒称跨三模型总调度已实现。
+
+每项计划train/dev/verification为4/2/4独立场景配方，动作题PWD为12/6/12、CD为12/6/12、LIST为16/8/16；CWD关系题16/8/16，均是待生成预算，不是样本交付数。独立验证另有pwd失败2、CD失败8、LIST失败6探针；受控注入与native证据分列。所有分区按来源/树结构/轨迹分离，不靠换名或随机种子假装独立，学生只有有限3或4动作向量的事实明确披露。数值wire/损失/初始预算、harness映射、partial/提交后失败、旧黄金/新进程回载与owner/红测均已定义。本轮没有改运行代码、生成新样本或训练cd/list，已有pwd候选不变。
+
 ## 2026-10-19 语义调用与全模型自进化（设计更新）
 
 用户进一步要求落实为本地架构设计、Skill沉淀和基础设计流程。已新增项目nnanything-design Skill，AGENTS挂接适用触发；现有DOM训练Skill在设计变更时引用它。架构1.3与implementation-plan入口引用同一方法，新增project-design7N6E设计资料流；未复制全局Git/Plan/Review机制。架构事实归docs，设计方法归Skill，拓扑归workflows，当前证据归note；没有写入受管记忆。

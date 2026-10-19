@@ -1,0 +1,25 @@
+{
+  "id":"cli-cwd-learning","version":"0.1.0-design",
+  "inputs":[{"id":"cwd_learning_contract","schema":"Object"}],
+  "nodes":[
+    {"id":"声明CWD场景与来源分区","operator":"cli.cwd.learning.partition","operator_version":"0.1.0-design","inputs":["cwd_learning_contract"],"output":{"id":"cwd_partition_plan","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"生成复核关系题与动作训练题","operator":"cli.cwd.learning.prepare-fit","operator_version":"0.1.0-design","inputs":["cwd_partition_plan"],"output":{"id":"cwd_fit_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"独立准备CWD验证场景","operator":"cli.cwd.learning.prepare-verification","operator_version":"0.1.0-design","inputs":["cwd_partition_plan"],"output":{"id":"cwd_verification_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"拟合会话CWD关系","operator":"cli.cwd.learning.fit-relation","operator_version":"0.1.0-design","inputs":["cwd_fit_dataset"],"output":{"id":"cwd_relation_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"拟合获取CWD的PWD选择","operator":"cli.cwd.learning.fit-action","operator_version":"0.1.0-design","inputs":["cwd_fit_dataset"],"output":{"id":"cwd_action_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"保存两个独立候选的评估包","operator":"cli.cwd.learning.save-candidates","operator_version":"0.1.0-design","inputs":["cwd_relation_candidate","cwd_action_candidate"],"output":{"id":"cwd_candidate_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"独立验证关系动作及真实pwd","operator":"cli.cwd.learning.evaluate","operator_version":"0.1.0-design","inputs":["cwd_candidate_receipt","cwd_verification_dataset"],"output":{"id":"cwd_learning_evaluation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总回归与回载并回收场景","operator":"cli.cwd.learning.report","operator_version":"0.1.0-design","inputs":["cwd_learning_evaluation"],"output":{"id":"cwd_learning_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges":[
+    {"from":"声明CWD场景与来源分区","to":"生成复核关系题与动作训练题","arc_id":"cwd_partition_plan"},
+    {"from":"声明CWD场景与来源分区","to":"独立准备CWD验证场景","arc_id":"cwd_partition_plan"},
+    {"from":"生成复核关系题与动作训练题","to":"拟合会话CWD关系","arc_id":"cwd_fit_dataset"},
+    {"from":"生成复核关系题与动作训练题","to":"拟合获取CWD的PWD选择","arc_id":"cwd_fit_dataset"},
+    {"from":"拟合会话CWD关系","to":"保存两个独立候选的评估包","arc_id":"cwd_relation_candidate"},
+    {"from":"拟合获取CWD的PWD选择","to":"保存两个独立候选的评估包","arc_id":"cwd_action_candidate"},
+    {"from":"保存两个独立候选的评估包","to":"独立验证关系动作及真实pwd","arc_id":"cwd_candidate_receipt"},
+    {"from":"独立准备CWD验证场景","to":"独立验证关系动作及真实pwd","arc_id":"cwd_verification_dataset"},
+    {"from":"独立验证关系动作及真实pwd","to":"汇总回归与回载并回收场景","arc_id":"cwd_learning_evaluation"}
+  ],"outputs":["cwd_learning_receipt"]
+}

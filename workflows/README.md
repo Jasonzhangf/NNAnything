@@ -7,6 +7,9 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
+| `cli-cwd-learning.graph.json` | 设计态，无运行配置 | 8 节点 9 边 (8N9E SESE) | `0.1.0-design` | CWD归属关系和PWD动作分别拟合、保存候选，在独立沙盒验证关系/动作/真实观测；docs/cli-cwd-training-design.md |
+| `cli-cd-learning.graph.json` | 设计态，无运行配置 | 7 节点 7 边 (7N7E SESE) | `0.1.0-design` | CD动作训练、实际执行及会话提交、后续同会话PWD验证；docs/cli-cd-training-design.md |
+| `cli-list-learning.graph.json` | 设计态，无运行配置 | 7 节点 7 边 (7N7E SESE) | `0.1.0-design` | LIST动作训练、固定结构化CLI列举、独立名称/类型/完整性及状态验证；docs/cli-list-training-design.md |
 | `project-design.graph.json` | 设计方法，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` | 本地基础设计资料流：语义目标、固定调用/harness、数值及外层图、独立样本/进化验收；操作方法归nnanything-design Skill |
 | `model-evolution.graph.json` | 设计态，无运行配置 | 10 节点 10 边 (10N10E SESE) | `0.1.0-design` | 所有模型使用采集、训练/使用隔离、配对评价、条件自动采用及冲突保留；统一合同docs/model-evolution.md |
 | `model-conflict-design.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design` | 大模型根据保留冲突定位owner、修订候选连线图纸并输出下一轮实现验证方案，不改在用版本 |

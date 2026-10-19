@@ -1,0 +1,22 @@
+{
+  "id":"cli-cd-learning","version":"0.1.0-design",
+  "inputs":[{"id":"cd_learning_contract","schema":"Object"}],
+  "nodes":[
+    {"id":"声明CD会话合同与场景分区","operator":"cli.cd.learning.partition","operator_version":"0.1.0-design","inputs":["cd_learning_contract"],"output":{"id":"cd_partition_plan","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"生成复核CD训练与开发题","operator":"cli.cd.learning.prepare-fit","operator_version":"0.1.0-design","inputs":["cd_partition_plan"],"output":{"id":"cd_fit_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"独立准备持久会话验证场景","operator":"cli.cd.learning.prepare-verification","operator_version":"0.1.0-design","inputs":["cd_partition_plan"],"output":{"id":"cd_verification_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"拟合并保存CD动作候选","operator":"cli.cd.learning.fit-save","operator_version":"0.1.0-design","inputs":["cd_fit_dataset"],"output":{"id":"cd_candidate_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"独立执行CD并记录提交或拒绝","operator":"cli.cd.learning.execute","operator_version":"0.1.0-design","inputs":["cd_candidate_receipt","cd_verification_dataset"],"output":{"id":"cd_execution_batch","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"同会话后续PWD验证实际状态","operator":"cli.cd.learning.verify-session","operator_version":"0.1.0-design","inputs":["cd_execution_batch"],"output":{"id":"cd_learning_evaluation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总失败副作用及旧能力回归","operator":"cli.cd.learning.report","operator_version":"0.1.0-design","inputs":["cd_learning_evaluation"],"output":{"id":"cd_learning_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges":[
+    {"from":"声明CD会话合同与场景分区","to":"生成复核CD训练与开发题","arc_id":"cd_partition_plan"},
+    {"from":"声明CD会话合同与场景分区","to":"独立准备持久会话验证场景","arc_id":"cd_partition_plan"},
+    {"from":"生成复核CD训练与开发题","to":"拟合并保存CD动作候选","arc_id":"cd_fit_dataset"},
+    {"from":"拟合并保存CD动作候选","to":"独立执行CD并记录提交或拒绝","arc_id":"cd_candidate_receipt"},
+    {"from":"独立准备持久会话验证场景","to":"独立执行CD并记录提交或拒绝","arc_id":"cd_verification_dataset"},
+    {"from":"独立执行CD并记录提交或拒绝","to":"同会话后续PWD验证实际状态","arc_id":"cd_execution_batch"},
+    {"from":"同会话后续PWD验证实际状态","to":"汇总失败副作用及旧能力回归","arc_id":"cd_learning_evaluation"}
+  ],"outputs":["cd_learning_receipt"]
+}

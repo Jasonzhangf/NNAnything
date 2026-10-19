@@ -1,0 +1,22 @@
+{
+  "id":"cli-list-learning","version":"0.1.0-design",
+  "inputs":[{"id":"list_learning_contract","schema":"Object"}],
+  "nodes":[
+    {"id":"声明目录条目合同与场景分区","operator":"cli.list.learning.partition","operator_version":"0.1.0-design","inputs":["list_learning_contract"],"output":{"id":"list_partition_plan","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"生成复核LIST训练与开发题","operator":"cli.list.learning.prepare-fit","operator_version":"0.1.0-design","inputs":["list_partition_plan"],"output":{"id":"list_fit_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"独立准备名称类型与失败场景","operator":"cli.list.learning.prepare-verification","operator_version":"0.1.0-design","inputs":["list_partition_plan"],"output":{"id":"list_verification_dataset","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"拟合并保存LIST动作候选","operator":"cli.list.learning.fit-save","operator_version":"0.1.0-design","inputs":["list_fit_dataset"],"output":{"id":"list_candidate_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"通过固定CLI实际列举或拒绝","operator":"cli.list.learning.execute","operator_version":"0.1.0-design","inputs":["list_candidate_receipt","list_verification_dataset"],"output":{"id":"list_execution_batch","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"比对直接条目类型完整性与状态","operator":"cli.list.learning.verify","operator_version":"0.1.0-design","inputs":["list_execution_batch"],"output":{"id":"list_learning_evaluation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总回归及回载并回收场景","operator":"cli.list.learning.report","operator_version":"0.1.0-design","inputs":["list_learning_evaluation"],"output":{"id":"list_learning_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges":[
+    {"from":"声明目录条目合同与场景分区","to":"生成复核LIST训练与开发题","arc_id":"list_partition_plan"},
+    {"from":"声明目录条目合同与场景分区","to":"独立准备名称类型与失败场景","arc_id":"list_partition_plan"},
+    {"from":"生成复核LIST训练与开发题","to":"拟合并保存LIST动作候选","arc_id":"list_fit_dataset"},
+    {"from":"拟合并保存LIST动作候选","to":"通过固定CLI实际列举或拒绝","arc_id":"list_candidate_receipt"},
+    {"from":"独立准备名称类型与失败场景","to":"通过固定CLI实际列举或拒绝","arc_id":"list_verification_dataset"},
+    {"from":"通过固定CLI实际列举或拒绝","to":"比对直接条目类型完整性与状态","arc_id":"list_execution_batch"},
+    {"from":"比对直接条目类型完整性与状态","to":"汇总回归及回载并回收场景","arc_id":"list_learning_evaluation"}
+  ],"outputs":["list_learning_receipt"]
+}
