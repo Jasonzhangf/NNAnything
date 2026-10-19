@@ -4,7 +4,7 @@
 
 用户将独立 CLI 模块的起点收敛为 pwd、文件路径与文件属性。当前已实现 `nnanything/cli`：显式固定 cwd、真实 `/bin/pwd -P`、纯词法路径解释、stat/lstat/readlink 属性与类型化错误。Computer use 只留 `lib/adapters/computer-use/README.md` 占位。help/说明学习与泛化、文件/符号名称搜索是后续目标，本轮没有训练或搜索，不改变浏览器权重。
 
-本轮6项中独立计划、图/红测、实现、作者验收、整体 Review 5项已验收；剩余main交付和清理。1N0E 持久图已 validate/inspect 并经现有 compiler/runner/Flowed 真实消费；六组公开测试先因模块缺失失败，实施后6/6通过；全仓177/177通过；`npm run demo:cli` 公开consumer验证真实进程、路径、属性/链接、ENOENT、拒权、目标内容与目录项未变及父cwd未变。整体独立OAuth gpt-6.1-sol medium审查exit0，canonical controller裁决PASS、findings=[]；本次目录无Gemini4，按规定后备。合同见 `docs/cli-foundation.md`。本轮独占过程与原始证据在 `/Volumes/Intel/playground/nnanything-runs/cli-help-m1/`，作者说明 `verification.md`，独立计划 `foundation-plan.md`，Review原件 `review-final.json`，Git与资源收口回执见 `delivery.md`。
+本轮6项已全部验收并交付。实现提交b0bf6ef经独立整体Review后合入main，集成提交6bcf4b9已推送origin/main；主树 `npm run demo:cli` 再验收通过。自有 cli-help-m1 工作树、分支、依赖链接与执行进程均已回收；无关 dirty three-site-zero 保留。1N0E 持久图已 validate/inspect 并经现有 compiler/runner/Flowed 真实消费；六组公开测试先因模块缺失失败，实施后6/6通过；全仓177/177通过；公开consumer验证真实进程、路径、属性/链接、ENOENT、拒权、目标内容与目录项未变及父cwd未变。整体独立OAuth gpt-6.1-sol medium审查exit0，canonical controller裁决PASS、findings=[]；本次目录无Gemini4，按规定后备。合同见 `docs/cli-foundation.md`。本轮独占过程与原始证据在 `/Volumes/Intel/playground/nnanything-runs/cli-help-m1/`，作者说明 `verification.md`，独立计划 `foundation-plan.md`，Review原件 `review-final.json`，Git与资源收口回执见 `delivery.md`。当前只是基础M0交付，help泛化/训练与搜索总目标未完成，不在本次内部milestone另派结案经验审计。
 
 以下保留前序浏览器任务及历史证据，不作为 CLI 交付声明。
 
