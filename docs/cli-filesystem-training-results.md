@@ -61,6 +61,10 @@
 
 样本、报告、执行记录和consumer摘要位于同一run的samples/weights/results目录。候选保持`uncalibrated`/`not_applied`；父级独立验证不通过本consumer宣称。
 
+作者结束后，独立GCM使用同一保存候选执行4个预先划分来源家族的33个场景及1个失效引用反例，34/34通过；16/16失败探针通过，其中native 10项、grant 4项、受控注入2项。独立consumer未调用训练API或读取train/dev生成器；真实观测、NOOP/DEFER零执行、阈值0/90/100、跨session/过期/篡改证据、特殊名称及文件树副作用均有断言。额外失效引用场景先取得真实PWD，再替换自有fixture目标，确认不能错误NOOP达标。
+
+独立公开基线4/4通过，全仓回归253/253通过，0失败、0跳过。原始证据在外置run `cli-property-migration-20261019/verification/`：`verification-execution-1792461444108.json`、`baseline-contract-r2.log`、`npm-test-r2-2.log`。首次验证器的fixture父目录、重复链接、旧executor边界及注入错误字段适配失败均保留原日志；修复仅限独立consumer和测试，不修改产品、训练标签或权重。外部独立结果不追溯修改作者报告的`fullyVerified=false`。
+
 复现当前公开训练和新进程回载：
 
 ```sh

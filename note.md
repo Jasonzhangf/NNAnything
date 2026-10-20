@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-19 属性迁移独立验收完成，整体Review进行中
+
+计划W1–W6已验收，W7独立行为部分通过，整体Review与W8交付尚待完成。独立GCM固定读取ba002b23-b650-4869-87ec-2d36f4fe7485候选，33预先配方场景及1失效引用反例34/34、16失败探针16/16（native10/grant4/injected2），基线公开consumer4/4，全仓253/253、0fail/skip。未重新拟合、未改模型/标签/预算。原始证据为外置run verification/verification-execution-1792461348175.json、baseline-contract-r2.log、npm-test-r2-2.log；验证器适配首轮错误保留，未算产品训练失败。正式资产已归档canonical training/{samples,results,weights}/filesystem/command/ba002b23-b650-4869-87ec-2d36f4fe7485/，候选仍not_applied。
+
+最新origin/main的R设计3336c72已正常合入候选，note冲突保留两侧记录后正常完成merge1179078；B设计066688d保留，B/R学习和执行仍未实现。独立milestone Review首选Gemini4 medium在本轮agy models目录缺失，按合同启动OAuth gpt-6.1-sol medium只读后备，审查整个迁移及B/R边界。结果尚未回传，不以候选提交或测试通过代替main推送。
+
 ## 2026-10-19 typed file.property迁移、单候选训练与作者回载（待父级独立验证）
 
 本次在同一独占树继续原任务。`migration-contract.md`与公共`c7c20ef`共同作为实施准入；typed请求、受信证据authority、NOOP/DEFER、显式0..100阈值和统一status已写入既有领域合同。旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`及旧cli-goal图已物理退役；旧4×4只保留按名离线迁移。
