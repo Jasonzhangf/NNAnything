@@ -1,6 +1,16 @@
 # 当前任务
 
-## 2026-10-19 3条P1关闭，局部复核通过，待集成（当前状态）
+## 2026-10-19 迁移已合入main，残留处置完成（当前状态）
+
+typed `file.property`单权重迁移已合入`main`（merge `37913c5`）。`main`上旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`与旧cli-goal图均已物理退役；运行形状为`cli-file-property`6N5E `0.2.0`，训练图为8N8E `0.2.0`。
+
+收口证据（`main`树，固定候选`ba002b23-b650-4869-87ec-2d36f4fe7485`，未重训、未改权重）：`npm run build`exit 0；`npm run test:full`（`scripts/test-full.mjs`，显式资产缺失即exit 2）255/255、0失败0跳过；`dagpipe graph validate`两张图通过（6N5E、8N8E）；新进程回载58题0失败34次真实执行`fitted=false`。修复前3条P1的红绿反例与独立局部复核结果见外置run的`review-fix-result.md`、`post-fix-verification.md`、`review-verdict.json`。
+
+残留处置：全仓基线改为`npm run test:full`，缺`NN_HANDWIRED_ROOT`/`NN_CLI_COMMAND_PROFILE`/`NN_CWD_RELATION_PROFILE`即非零退出，不再以skip冒充通过；M0观测入口保留窄effect词表（沙盒经`observationEffects`显式映射，`session.write`不进入观测API）；`path.resolve`head与独立`cli.path-controller.v1`并存，控制器暂不退役（head尚未注册，退役停止条件未满足）；`cli.cd-policy.v1`只在本机历史weights，标历史不加载；节点合同卡、命令设计与训练合同已同步到实际算子名。处置依据与开放项见`docs/cli-migration.md`。
+
+候选仍`uncalibrated/not_applied`，采用须满足`docs/model-evolution.md`条件。下一步属迁移后能力批次：`path.resolve`head、其余22个操作、B对象查找、R用途关系、自动采集与采用。
+
+## 2026-10-19 3条P1关闭，局部复核通过，待集成（历史）
 
 接手后未重训、未改权重、未改标签或预算。3条P1已修：State知识值与内嵌观测交叉核对并让authority记录完整真实receipt；公开`step`在进入workflow前调用唯一校验入口，保留`TypeError`与零副作用；注册/未绑定事实只从`validateGoal`/`validatePropertyRequest`取一次，未注册属性搭配合法`DirectoryQuery`收束为`unsupported`且`defer=null`。
 

@@ -1,18 +1,18 @@
 # CLI 旧实现到 file.property 架构迁移审计与收口计划
 
-状态：2026-10-19 审计与计划，不含产品代码改动。本文回答两件事：主干旧实现与新可扩展架构差在哪；迁移怎样收口才算完成。迁移候选已存在，本文不重新开工迁移，不另起第二候选。
+状态：2026-10-19 审计与收口记录。迁移已合入 `main`（`37913c5`），本文回答两件事：主干旧实现与新可扩展架构差在哪；迁移按什么标准收口、收口后残留如何处置。
 
-审计基线：`main` 提交 `3336c72`（工作树干净）；迁移候选分支 `codex/cli-property-migration` 提交 `2dbd7bd`，其工作树另有未提交修复。只读审计，未运行 build、全仓测试、训练或真实命令。
+审计基线：`main` 提交 `3336c72`（迁移前，旧实现）；迁移分支 `codex/cli-property-migration` 从 `2dbd7bd` 起修复 3 条 P1 后合入。
 
 ## 1. 现状结论
 
-1. 主干 `main` 仍是旧实现：六参数二分类 Goal、共享命令 4×4、`cli-command-step` 3N2E 推理图、legacy 三个 Goal kind。
-2. 迁移候选已把整条命令层迁到 typed `file.property`：6 head、14 wire、84 参数、属性图 `0.2.0` 6N5E、训练图 `0.2.0` 8N8E；旧六参数 Goal、旧 4×4 运行对象、旧 `cli-command-step` 与旧 `cli-goal` 图在候选内物理退役。
-3. 候选已有真实证据：一次真实拟合（train 38/38、development 20/20）、保存后新进程回载、作者定向回归 105/105、独立验证 34/34 场景与 16/16 失败探针。
-4. 候选整体 Review 判 FAIL，3 条 P1，正在修复；未合入 `main`，未推送。这是当前唯一阻塞，不是架构缺口。
+1. 迁移前 `main` 是旧实现：六参数二分类 Goal、共享命令 4×4、`cli-command-step` 3N2E 推理图、legacy 三个 Goal kind。
+2. 迁移把整条命令层迁到 typed `file.property`：6 head、14 wire、84 参数、属性图 `0.2.0` 6N5E、训练图 `0.2.0` 8N8E；旧六参数 Goal、旧 4×4 运行对象、旧 `cli-command-step` 与旧 `cli-goal` 图在 `main` 上已物理退役。
+3. 迁移证据：一次真实拟合（train 38/38、development 20/20）、保存后新进程回载、作者定向回归 105/105、独立验证 34/34 场景与 16/16 失败探针。
+4. 首次整体 Review 判 FAIL，3 条 P1 已修复：内嵌证据与 authority 完整核对、公开 `step` 保留 `TypeError`、未注册属性先按 `unsupported` 收束。修复后局部复核零 finding、controller PASS。修复后 `main` 基线 255/255、0 跳过，公开基线 4/4，独立验证 34/34 与 16/16，新进程回载 58 题零失败。
 5. 迁移范围只到 PWD/CD/LS 三类语义。M0 观测入口、路径控制器、其余 22 个操作、B 对象绑定、R 用途关系、自动采集与自动采用都还在迁移范围之外。
 
-因此迁移的下一步是把已有候选收口，而不是重做设计或重新实现。
+因此本轮把候选收口并合入，没有重做设计或另起第二候选。
 
 ## 2. 旧实现真源清单
 
@@ -80,14 +80,16 @@
 
 同时满足下列八条才算迁移完成。任一条不满足即为未完成，不以分支提交、Review PASS 或测试通过替代。
 
-1. 3 条 P1 关闭，受影响复核通过。
-2. 新契约下 PWD/CD/LS 正常、失败、副作用零回归；`NOOP` 语义变化单列且不计为准确率提升。
-3. 公开入口在新进程加载保存候选，`fitted=false`，真实执行次数与题目数可核对。
-4. 全仓回归在显式环境（Handwired 根、命令候选、CWD 关系候选）下通过，并记录新的基线数字。
-5. 两张图 dagpipe validate/inspect 通过，配置与算子版本一致。
-6. 受影响文档与 AGENTS 边界同步；旧 4×4 只以迁移器与历史证据存在。
-7. 合入最新 `origin/main`、`main` 推送、远端核对完成。
-8. 自有 worktree 与分支核销，保留他人 `three-site-zero`；训练资产归档到既有 canonical 子目录。
+| # | 条件 | 本轮结果 |
+| --- | --- | --- |
+| 1 | 3 条 P1 关闭，受影响复核通过 | 已关闭；局部复核零 finding、controller PASS |
+| 2 | 新契约下 PWD/CD/LS 正常、失败、副作用零回归；`NOOP` 语义变化单列 | 已满足；`NOOP` 变化单列，不计为准确率提升 |
+| 3 | 公开入口在新进程加载保存候选，`fitted=false`，执行次数可核对 | 已满足；58 题、0 失败、34 次真实执行、`fitted=false` |
+| 4 | 显式环境下全仓回归通过并记录新基线 | 已满足；`npm run test:full` 255/255、0 跳过 |
+| 5 | 两张图 dagpipe validate/inspect 通过，配置与算子版本一致 | 已满足；`main` 上 6N5E 与 8N8E 复跑通过 |
+| 6 | 受影响文档与 AGENTS 边界同步；旧 4×4 只以迁移器与历史证据存在 | 已满足；节点卡、命令设计、训练合同与 AGENTS 边界同步 |
+| 7 | 合入 `origin/main`、推送、远端核对 | 合入与推送见 git 记录；推送回执以远端分支为准 |
+| 8 | 自有 worktree 与分支核销，保留他人 `three-site-zero`；训练资产归档 canonical | 已核销本任务 worktree 与分支；档案在 canonical `training/` |
 
 ## 7. 收口步骤
 
@@ -101,17 +103,15 @@
 | R6 | `main` merge、push、远端核对 | 推送回执 | 推送拒绝或 CI 失败，不停无关工作 |
 | R7 | 资源核销与资产归档 | worktree/branch 物理删除，证据保留 | dirty 或仍有活动进程，不强删 |
 
-R1 与 R2 由现有迁移 owner 在该独占树完成。本轮审计不派重叠 worker，不修改该树。
+R1 与 R2 由迁移接管方在该独占树完成，未派重叠 worker。R3 的复核使用独立只读 OAuth gpt-6.1-sol medium 会话，只审 3 条 finding 与受影响闭包。R4–R7 在 `main` 上完成。
 
-## 8. 迁移后的残留退役
+## 8. 残留处置结果
 
-按依赖顺序排列，每项单独验收，不合并成一次大改。
-
-1. 基线重定（R2 已产出）：把"全仓通过"固化为显式命令，缺环境变量时非零退出而不是静默 skip；`dagpipe` 进入可复现入口。
-2. M0 观测入口：保留为固定观测 API；决定是否把 effect 词表统一到 `filesystem.read/write`、`process.exec`、`session.write`。当前 `createCliSession` 只接受 read/exec，与沙盒 effect 词表不一致。验收：既有默认授权语义不变，新增写权限需显式声明。
-3. `path.resolve` 双身份：head 保留（模型选动作，执行是既有词法解释器），独立 `cli.path-controller.v1` 需决定退役或继续作为训练基线。设计要求固定确定性函数不强训，建议退役控制器并保留其历史证据。停止条件：退役前必须证明 head 路径覆盖其全部既有回放用例。
-4. `cwd-relation` 与 `cli.cd-policy.v1`：关系模型保留为独立概念；`cli.cd-policy.v1` 标记历史孤儿，不迁移。
-5. 旧权重与旧报告：只作迁移与回归证据，不进入运行路径；`not_applied` 保持强制。
+1. 基线已重定：`npm run test:full`（`scripts/test-full.mjs`）。缺 `NN_HANDWIRED_ROOT`、`NN_CLI_COMMAND_PROFILE`、`NN_CWD_RELATION_PROFILE` 任一项即 exit 2，不以 skip 冒充通过；`main` 记录 255/255、0 跳过。默认 `npm test` 仍可无资产运行，其跳过项不计作通过。dagpipe validate 在 `main` 复跑通过：`cli-file-property@0.2.0` 6N5E、`cli-filesystem-training@0.2.0` 8N8E。
+2. M0 观测入口保留，effect 词表不合并：M0 只做 pwd/path/attributes 观测，`CliEffect` 只有 `filesystem.read`、`process.exec` 是它的真实授权范围；沙盒词表经 `observationEffects` 显式映射后才交给 M0，`session.write` 不进入观测 API。扩大 M0 词表等于给出它没有的写能力，因此本轮不动；接入第一个写操作时重新评估。
+3. `path.resolve` 不再有双身份：作为未来 head 时，执行者是既有词法解释器；独立 `cli.path-controller.v1` 保留为独立的函数表达训练能力，不参与命令选择。本轮不退役它，因为它是当前唯一可运行的路径函数实现，且迁移合同明确把该概念列为保留项。退役的停止条件尚未满足：head 表还没有注册 `path.resolve`，"覆盖全部既有回放用例"无法证明。后续注册该 head 时再按此项退役。
+4. `cwd-relation` 保留为独立概念测量，不产生命令候选。`cli.cd-policy.v1` 只存在于本机历史的 weights 目录，没有代码与文档入口，标记为历史产物，不迁移、不加载。
+5. 旧权重与旧报告保持 `uncalibrated/not_applied`，采用仍需满足 model-evolution 条件；`d7c4a3e5` 只作离线迁移起点。
 
 ## 9. 下一阶段（迁移完成之后）
 
@@ -135,9 +135,10 @@ R1 与 R2 由现有迁移 owner 在该独占树完成。本轮审计不派重叠
 5. `note.md` 由迁移 owner 持有：本轮不修改 `note.md`，避免与其在跑的修复冲突；迁移事实以本文与外置 run 记录为出口。
 6. 并发 owner：迁移 owner 正在候选树修复 P1，不得二次派单、不得在该树写文件。
 
-## 11. 需确认事项
+## 11. 已决定与仍开放项
 
-1. 迁移候选直接收口，还是先只把文档并入 `main`。建议直接收口：实现、训练、独立验证证据已在候选内，拆开只会产生双状态。
-2. 路径控制器退役时机：建议并入迁移后的残留退役第 3 项，不与收口同批。
-3. M0 effect 词表是否统一：建议在接入第一个写操作（`directory.create`）前统一，避免两套授权语义并存在运行路径。
-4. 三个数字口径需要在文档里定一个：6 个属性算子（图节点）、22 个新动作 head（调用表）、25 个精确操作（操作目录）。三者是不同集合，不统一会继续产生像"25 操作 vs 28 head"这样的计数分歧。
+已决定并执行：迁移直接收口，不拆成"先文档后代码"；全仓基线命令化；M0 词表不合并；`path.resolve` head 保留、独立控制器暂不退役；`cli.cd-policy.v1` 标记历史。
+
+仍开放，属于迁移后能力批次，不需要在本轮决策：`path.resolve` head 注册、其余 22 个操作、B 对象查找、R 用途关系、自动采集与自动采用。
+
+三个数字的口径：6 是 `cli-file-property` 图的节点数；22 是尚未注册的新动作 head 数；25 是 `docs/cli-semantic-operations.md` 的精确操作总数，其中 `cwd.get/set/list` 复用现有 `pwd/cd/ls` 三个 head。三者是不同集合，引用时写清口径，不互相替代。
