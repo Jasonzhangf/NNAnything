@@ -90,6 +90,7 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 ## 唯一Owner与入口
 
 - 总体架构入口：docs/design.md；D0交付与后续浏览器范围：docs/framework-m1.md。
+- 通用递归目标与节点反向满足设计：docs/recursive-goal-design.md；外层workflows/recursive-goal.graph.json，当前设计态。根Goal保持不变，每层仅选已启用技能，缺技能显式报错；cwd首例设计与实测边界见docs/recursive-goal-cwd-validation.md，不把外置consumer当通用runner已实现。
 - 通用节点/事件与workflow合同：docs/node-workflows.md、docs/canvas-events.md；持久基础配置：docs/workflow-config.md。
 - 可复用经验节点合同：docs/node-contract.md；目录和实施顺序：docs/implementation-plan.md。
 - 当前第一层训练合同、内部数值图与验收：docs/training-workflow.md；外层拓扑和配置：workflows/node-training.graph.json、node-training.workflow.json（算子与绑定均为 0.1.0）。

@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-20 通用递归目标与节点反向满足设计
+
+用户要求review并落盘通用递归框架，并明确根目标不丢失、衍生节点条件、每层只选已启用技能、无技能直接报错、真实证据沿依赖反向满足并收回全部链条。详细唯一owner为docs/recursive-goal-design.md，首例及实测为docs/recursive-goal-cwd-validation.md；总体1.4、workflow4.1及AGENTS只作入口衔接。没有新增file.property.plan、模型/权重或执行引擎。
+
+新增recursive-goal.graph.json，初次0.1.0-design、3N2E SESE，DAGpipe validate/inspect通过，三个算子仅设计，无可运行配置；现有CLI6N5E与14wire/84参数模型未变。根/父引用与fulfills条件映射显式，固定衍生/比较/预算不训练；原子或组合技能每次只选一个head，未知effect不重放。草案中的失败后直接next、all children成功替代父后验、强制至少一子Goal及30维说法已在review表修正。
+
+cwd外置consumer由GCM执行，4场景87/87断言：same一项必要pwd、无cd；different为pwd→cd且现有后验验证后根成功；cd实际失败不报根成功；提交后受控观察故障为unknown且不重复cd。补充NOOP单列，foreign/Agent cwd不变，fixture清理、profile不变。它证明当前公开原子workflow的组合，不冒称通用runner已实现。证据在`/Volumes/Intel/playground/nnanything-runs/recursive-goal-design-20261020/cwd-probe/`。
+
+本轮4项工作中前三项完成；独立设计复核亦已完成，最终Git交付回执沿外置run记录。GCM设计writer在用户纠正后以自有PID停止（143，未改产品），父级接管合同；GCM验证已实际完成并退出0。独立OAuth gpt-6.1-sol medium复核退出0、findings为空、controller PASS。复核按原始记录明确cd-failure是目标移除后绑定复核拒绝、executor未调用，不冒称shell cd原生失败；文档已据实细化。不重跑未变图或无关build/训练/测试。通用runner及组合技能学习仍未实现，实测不覆盖任意深度递归或跨域operation。
+
 ## 2026-10-20 三站第一层闭环收口（父 Agent 接任轮）
 
 - 观测源码：唯一 owner `lib/adapters/browser/live-dom.ts` 的 namespace 读取回归已修（`elementNamespace` 守卫），全量 664 通过、0 失败、7 跳过。
