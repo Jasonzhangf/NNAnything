@@ -109,7 +109,7 @@ type Request = {
 
 ## 6. 0.2.0 已实施切片：PWD/CD/LS typed 请求与统一结果（2026-10-19）
 
-本节是0.2.0运行实现的准入正文，与 `docs/cli-filesystem-training.md` §0.1、`docs/cli-call-contract.md` §1.1 共同生效。它只覆盖 sessionCwd observed/equals 与 directory.entries observed；0.3.0 的路径原语与 entry.inspect 合同见第7节，不得把合同当成已运行。
+本节是0.2.0运行实现的准入正文，与 `docs/cli-filesystem-training.md` §0.1、`docs/cli-call-contract.md` §1.1 共同生效。本节只覆盖 0.2.0 切片的 sessionCwd observed/equals 与 directory.entries observed；0.3.0 的路径原语与 `entry.inspect` 已实施并接入运行入口，其合同、实现状态与证据见第7节。
 
 ### 6.1 可导入请求形状
 
@@ -237,7 +237,7 @@ type ObservedObjectRef = Readonly<{
 
 旧 D 的四字段形状 `{kind:"cli.directory",scenarioId,sessionId,path}` 继续服务旧 `cd`/`ls`。它缺少对象身份时用于 `inspect` 必须返回 unknown 与 `binding_identity_missing`，不得静默降级为 P，也不得用遗留路径继续执行。`followSymlinks=true` 时先 `lstat` 核对来源条目身份，再 `stat` 目标；链接自身身份与解析目标身份分别保存，不能直接把链接自身 ino 与目标 ino 比较。session revision 变化、身份/类型不再匹配或引用过期时返回 stale/rejected，不猜测新对象。
 
-事件与校验契约：两张持久图的端口事件名保留 `cli.*.v1`，不因本次载荷扩展改名；`cli.file-property.*` 与 `cli.command.training.*` 的 `operator_version` 已升到 0.3.0，I5 必须同步对应 NodeDefinition.version 后用显式联合类型重新编译，不能把旧 6×14 形状当运行兼容。运行 schema 校验按本节的显式联合类型升级，不接受旧 6×14 形状、不按行索引猜兼容，也不复用未注册的 property/predicate 对。新增 `cli.path`、`cli.entry` 与 `cli.file` 引用由版本化验证器识别；旧四字段 D 之外的多余字段按非法 schema 拒绝。
+事件与校验契约：两张持久图的端口事件名保留 `cli.*.v1`，不因本次载荷扩展改名；`cli.file-property.*` 与 `cli.command.training.*` 的 `operator_version` 与对应 `NodeDefinition.version` 均已同步为 `0.3.0.0000`，并用显式联合类型重新编译；不能把旧 6×14 形状当运行兼容。运行 schema 校验按本节的显式联合类型升级，不接受旧 6×14 形状、不按行索引猜兼容，也不复用未注册的 property/predicate 对。新增 `cli.path`、`cli.entry` 与 `cli.file` 引用由版本化验证器识别；旧四字段 D 之外的多余字段按非法 schema 拒绝。
 
 ### 7.3 entry.inspect 属性值
 

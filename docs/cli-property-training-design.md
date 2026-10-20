@@ -33,7 +33,7 @@ sessionCwd关系复用CWD设计 `[1,sameSession,hasObservation]` 的2×3参数�
 
 不训练任意命令生成器，也不为每个操作族建立独立profile。所有命令/操作选择由[文件系统训练合同](cli-filesystem-training.md)§2.1-2.4的同一`cli.command-policy.v1`共享矩阵承担：同一head词表、同一wire顺序、同一softmax与CE。P1-P6不是部署单元，只是样本、统计与效果分组；prepare不按P族路由到独立selector，不按族过滤logits或硬mask，不保存P族候选。B对象关系与R用途是两个独立概念模型，它们不输出命令head；C组合下一步若选命令，同样使用这一共享矩阵。
 
-0.2.0运行schema当前登记 P3 的2个property、3个predicate、4个state位与1个交互项，并同时登记`unsupported/DEFER/NOOP/pwd/cd/ls`六个head。0.3.0合同登记 P1/P2/P3 的14个property、7个predicate、10个head，见[文件系统训练合同](cli-filesystem-training.md)§0.1；运行schema由I3切换。本页其余P组头/块仍是设计，不是已接入模型。
+0.2.0运行schema（历史状态）登记 P3 的2个property、3个predicate、4个state位与1个交互项，并同时登记`unsupported/DEFER/NOOP/pwd/cd/ls`六个head。0.3.0运行schema现已生效，登记 P1/P2/P3 的14个property、7个predicate、10个head，见[文件系统训练合同](cli-filesystem-training.md)§0.1；旧6×14形状只能由显式离线迁移转换。本页其余P组头/块仍是设计，不是已接入模型。
 
 下表只列各P组的样本覆盖与反例重点，不含K、F或参数数，不构成独立矩阵。
 

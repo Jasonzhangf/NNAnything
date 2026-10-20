@@ -11,7 +11,7 @@
 
 ### 0.1 0.2.0运行切片与0.3.0合同注册（2026-10-19）
 
-0.2.0 运行入口只接 sessionCwd 的 `observed(this_run)`/`equals` 与 directory.entries 的 `observed(this_run)`，其6×14证据继续有效。0.3.0 合同新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，以下注册表已由 I2–I7 实现，运行校验器已接受 10 个 head 与 30 条 wire；0.3.0 的运行证据见第 295 行与 `note.md`。
+0.2.0 切片（历史状态）只接 sessionCwd 的 `observed(this_run)`/`equals` 与 directory.entries 的 `observed(this_run)`，其6×14证据继续有效。0.3.0 合同新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，以下注册表已由 I2–I7 实现，运行校验器已接受 10 个 head 与 30 条 wire；0.3.0 的运行证据见第 295 行与 `note.md`。
 
 | 项 | 当前注册值 |
 | --- | --- |

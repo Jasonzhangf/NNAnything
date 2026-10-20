@@ -56,7 +56,7 @@ Shell 的统一 Goal 为 [file.property.xxx](cli-filesystem-semantics.md)，指�
 
 ### 1.1 实现切片、0.3.0合同与训练入口
 
-0.2.0 已实现 profile 保存精确的 `properties`、`predicates`、`heads`、`wires`、`weights` 顺序，head 为 `unsupported,DEFER,NOOP,pwd,cd,ls`，矩阵为 6×14=84 参数。I1 不修改运行校验器；0.3.0 运行接入由 I3–I5 完成。
+0.2.0 已实现 profile 保存精确的 `properties`、`predicates`、`heads`、`wires`、`weights` 顺序，head 为 `unsupported,DEFER,NOOP,pwd,cd,ls`，矩阵为 6×14=84 参数（历史形状，仅作显式离线迁移输入）。0.3.0 运行接入已由 I3–I5 完成，当前矩阵为 10×30=300 参数。
 
 0.3.0 合同 profile 的 head 顺序为 `unsupported,DEFER,NOOP,pwd,cd,ls,path.resolve,path.relative,path.parts,entry.inspect`。wire 顺序固定为：`bias,goalObserveCwd,goalSetCwd,goalListDirectory`；`property.path.absolute,property.path.relative,property.path.parent,property.path.name,property.exists,property.type,property.directory.entries,property.size,property.mode,property.owner,property.times,property.link.target,property.entry.identity,property.relation.sessionCwd`；`predicate.observe.absolute,predicate.observe.relative,predicate.observe.parts,predicate.observe.inspect,predicate.observe.sessionCwd,predicate.equals.sessionCwd,predicate.observe.entries`；`state.hasFreshEvidence,state.knownValue,state.requiredConditionHolds,state.hasDestinationRef` 与交互 `state.requiredConditionHolds*hasFreshEvidence`。`hasSessionRef` 恒为 1，只记录常量，不注册。`F=4+14+7+4+1=30`、`K=10`，合同矩阵为 10×30=300 参数。
 
