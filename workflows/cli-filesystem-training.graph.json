@@ -1,0 +1,24 @@
+{
+  "id":"cli-filesystem-training","version":"0.1.0",
+  "inputs":[{"id":"command_training_request","schema":"Object"}],
+  "nodes":[
+    {"id":"声明共享候选与来源分区","operator":"cli.command.training.partition","operator_version":"0.1.0","inputs":["command_training_request"],"output":{"id":"command_partition","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"准备新增命令及历史回放","operator":"cli.command.training.prepare","operator_version":"0.1.0","inputs":["command_partition"],"output":{"id":"command_fit_data","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"独立加载可选验证资料","operator":"cli.command.training.prepare-verification","operator_version":"0.1.0","inputs":["command_partition"],"output":{"id":"command_verification_data","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"从上阶段权重增量拟合","operator":"cli.command.training.fit","operator_version":"0.1.0","inputs":["command_fit_data"],"output":{"id":"command_fitted","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"保存共享候选与训练依据","operator":"cli.command.training.save","operator_version":"0.1.0","inputs":["command_fitted"],"output":{"id":"command_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"同一候选实际调用各命令","operator":"cli.command.training.execute","operator_version":"0.1.0","inputs":["command_candidate","command_verification_data"],"output":{"id":"command_executions","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"比对独立真值与历史回归","operator":"cli.command.training.verify","operator_version":"0.1.0","inputs":["command_executions"],"output":{"id":"command_evaluation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"保存分命令结果与清理证据","operator":"cli.command.training.report","operator_version":"0.1.0","inputs":["command_evaluation"],"output":{"id":"command_training_receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges":[
+    {"from":"声明共享候选与来源分区","to":"准备新增命令及历史回放","arc_id":"command_partition"},
+    {"from":"声明共享候选与来源分区","to":"独立加载可选验证资料","arc_id":"command_partition"},
+    {"from":"准备新增命令及历史回放","to":"从上阶段权重增量拟合","arc_id":"command_fit_data"},
+    {"from":"从上阶段权重增量拟合","to":"保存共享候选与训练依据","arc_id":"command_fitted"},
+    {"from":"保存共享候选与训练依据","to":"同一候选实际调用各命令","arc_id":"command_candidate"},
+    {"from":"独立加载可选验证资料","to":"同一候选实际调用各命令","arc_id":"command_verification_data"},
+    {"from":"同一候选实际调用各命令","to":"比对独立真值与历史回归","arc_id":"command_executions"},
+    {"from":"比对独立真值与历史回归","to":"保存分命令结果与清理证据","arc_id":"command_evaluation"}
+  ],"outputs":["command_training_receipt"]
+}

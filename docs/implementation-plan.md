@@ -1,5 +1,7 @@
 # D0交付与后续浏览器项目实施计划
 
+当前通用设计入口：新增或修改CLI、浏览器及其他模型能力时，先沿[本地设计Skill](../.agents/skills/nnanything-design/SKILL.md)形成语义/I/O/harness/图纸/样本与采用验收。跨模型演进架构唯一owner为[model-evolution.md](model-evolution.md)。本页继续维护阶段与文件导航，不另复制设计流程；下方D0/D1历史状态不覆盖后续已交付能力。
+
 状态：2026-10-17，L1 候选 7 节点与采样 3 节点保持已交付。当前用户明确要求实现第一层 DOM 基础种类判断算法（dom-basic-kinds）、dom.basic_kinds@0.1.0 节点封装及公开 workflow 验收。区分历史 L2 复合卡片（post.card）计划与当前已确认的基础种类判断前置需求：第一层输出基础结构与类型（control、media、navigation、text、structure），第二层再组合帖子、作者、评论、广告等业务语义。历史 L2-L4 设计保持完整并明确为后续规划。远端为 Jasonzhangf/NNAnything。
 
 本计划依据独立规划及其收敛决议。架构、目录职责与根目录注册名单由 [AGENTS.md](../AGENTS.md)唯一维护，第2节保留实施文件导航。工作流清单与真源索引见 [workflows/README.md](../workflows/README.md)，节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)，第一层基础种类算法真源见 [docs/basic-kinds-wiring.md](basic-kinds-wiring.md)。

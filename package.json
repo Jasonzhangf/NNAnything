@@ -52,6 +52,7 @@
     "demo:path-training": "npm run build && node playground/cli/path-resolve/train.mjs",
     "prepare:goal-samples": "npm run build && node playground/cli/observe-cwd/prepare.mjs",
     "demo:goal-training": "npm run build && node playground/cli/observe-cwd/train.mjs",
+    "demo:command-training": "npm run build && node playground/cli/command-learning/train.mjs",
     "build:extension": "npm run build && node scripts/build-extension.mjs",
     "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit"
   },

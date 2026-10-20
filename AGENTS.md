@@ -16,12 +16,13 @@
 | `lib/nodes/trainable/` | 可训练节点结构；不存训练权重 |
 | `lib/training/` | 样本合同、数值后端、训练profile加载、拟合、分区和评估逻辑 |
 | `training/samples/` | 原始／派生训练样本和teacher证据；本地忽略 |
-| `training/results/`、`training/weights/` | 比较报告与候选权重；本地忽略，不自动采用 |
+| `training/results/`、`training/weights/` | 比较报告与候选权重；本地忽略；当前离线候选不自动采用，后续统一升级条件沿docs/model-evolution.md |
 | `extension/` | Chrome扩展入口和权限声明 |
 | `playground/`、`tests/` | 公开consumer、合成fixture、合同及黑盒回归 |
 | `scripts/`、`artifacts/`、`dist/` | 构建工具、浏览器构建产物、库编译产物；不作为业务源码目录 |
 | `docs/`、`research/` | 架构合同与调研；真实页面资料按现有忽略规则留本地 |
 | `.agents/skills/nnanything-training/` | 本项目训练方法、特征升级与增量策略的操作Skill |
+| `.agents/skills/nnanything-design/` | 本项目语义能力、harness边界、连线图纸、样本及自进化的基础设计方法；不复制全局开发流程 |
 | `note.md` | 单一项目进度与证据入口；任务过程放仓库外独占run目录 |
 
 根目录条目只允许下列注册名单。Agent写入前先选择既有owner目录；禁止另建平行的src、tmp、output、runs或模型资产根。确需新增根级目录／文件时，先在当前授权方案中说明职责并更新本名单，再创建。子目录沿上表职责管理，不为每个样本文件建立注册表。`npm run build`在编译前执行`scripts/check-layout.mjs`，直接读取本名单；未注册项或登记源缺失会让构建失败，不自动删除或登记文件。目录边界检查只防根级漂移，不宣称是操作系统写权限隔离。
@@ -52,11 +53,17 @@ node_modules
 ```
 <!-- root-layout:end -->
 
-## 本地训练Skill
+## 本地设计与训练Skill
+
+每个语义及训练设计均按本地设计 Skill 的标准流程治理：Goal/satisfactionThreshold/State/Action 四元素闭合、SESE、最小必要性。基础合同唯一源为 docs/design.md 1.1；流程拓扑唯一源为 workflows/project-design.graph.json，由 DAGpipe validate/inspect 管理。缺口先收束为未就绪，不以静态通过替代真实训练和行为验收。复用未变有效设计，不增加平行台账或冻结快照。
+
+新增能力或修改语义I/O、状态、harness边界、特征/数值连线、workflow或自动采用条件前，读取[本地设计Skill](.agents/skills/nnanything-design/SKILL.md)。它维护基础设计方法；实际架构与采用规则分别由docs/design.md、docs/model-evolution.md维护。已有合同内的普通拟合不为此重做设计。
 
 新增输入／wire、调整标签、训练、增量拟合和回归时，读取[训练Skill](.agents/skills/nnanything-training/SKILL.md)。算法合同仍由docs/basic-kinds-wiring.md维护，训练I/O合同由docs/training-workflow.md维护；Skill只维护操作方法，不复制第二套算法或规则正文。
 
 ## 当前交付边界
+
+Shell统一目标为 `file.property.xxx`，领域合同为 docs/cli-filesystem-semantics.md，共享状态转换图为 workflows/cli-file-property.graph.json。路径、目录、普通文件与Linux设备/FIFO/socket等共享属性目标框架，类型保留各自操作与验收语义。目录/文件完整常见操作设计沿 docs/cli-semantic-operations.md；内容、用途、条件和目标关联纳入属性/状态转换，不建零散Goal。新增属性算子、特殊文件操作及旧Goal接口迁移均未实现，不把设计目录当运行API。
 
 2026-10-19 新增独立 CLI 方向，用户将起点收敛为 pwd、文件路径与文件属性。当前 M0 只实现三项基础观测和独立测试，合同见 docs/cli-foundation.md；通用核心不内置 CLI 分支。help/说明泛化及其能力/参数角色学习、目录下文件/符号名称搜索仍为后续目标。路径动作训练见下方独立增量，不能据此冒称help或搜索已完成。Computer use 暂缓，仅 lib/adapters/computer-use/README.md 占位，不启动桌面观测或操作。CLI 任务的词语输入合同独立定义，不直接套用 DOM 学生身份字段禁令。
 
@@ -64,7 +71,7 @@ node_modules
 
 逐能力实施先完成精确 `path.resolve(cwd,input)` 的函数表达训练，合同与结果唯一入口为 docs/cli-path-training.md。学生只学习符号动作，名称复制、栈原语和分词是手写基础；teacher与POSIX oracle不得进入学生rollout，不以teacher修正替代模型错误。独立cli-training入口显式加载候选，M0和浏览器权重不变；目录绑定、help与组合操作继续后置。
 
-后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。首个 `observe_cwd→pwd` 选择与观测绑定已实现，合同和实测唯一入口为docs/cli-goal-training.md；它只学习 `REJECT/PWD`、三个特征和六参数，不包含cd。修改指定session cwd→cd、多步组合及更广语义仍后置；不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。
+后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。所有已注册CLI命令统一使用单一共享模型和权重profile（`cli.command-policy.v1`），依序增量拟合PWD（4参数）、CD（9参数）、LS（16参数）。历史二分类CD/LIST独立模型合同已退役，唯一训练合同为docs/cli-filesystem-training.md。`nnanything/cli-goal`已实现`createCliCommandPolicy`与`runCliCommandTraining`；三阶段真实训练、保存后新进程回载及最终候选独立验证已有实测证据，见docs/cli-filesystem-training-results.md。候选保持uncalibrated/not_applied；审查与Git交付记录沿note.md，不把代码集成等同于自动采用权重。历史独立PWD/CD结果只作基线。不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。
 
 当前页面审计按用户可观测前景限定：已确认完全遮挡项在DOM候选预处理排除，部分露出按区域保留，工具自身不遮挡站点目标。原DOM与排除证据仍保留，不转训练负例、ignore或other。后续已明确要求训练人类可观测／可交互的保留filter，输入覆盖viewport、最上层／露出区域及交互承载；阅读／显示也有价值，不等于只保留可点击元素。该训练是后续增量，不把本轮确定性遮挡修复冒称已训练。算法与限制唯一入口为docs/browser-overlay-m1.md。
 
@@ -88,9 +95,14 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 - 项目图拓扑与流程清单：workflows/*.graph.json 与 workflows/README.md；可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
 - 基础采样与训练节点完整合同卡唯一owner：lib/nodes/README.md。
 - DOM focus/单标签与数组规则：docs/focus-and-labeling.md；首个结构实验电路：docs/structure-circuit-m1.md。research中的旧organic或多标签草案不得覆盖当前合同。
+- 统一CLI共享命令模型与文件系统训练合同唯一owner：docs/cli-filesystem-training.md；参数简化调用合同：docs/cli-call-contract.md。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 
 ## 后续实现必须保持的边界
+
+所有接入CLI命令先按docs/cli-call-contract.md简化为固定语义操作和必要typed参数，NN只选择操作/参数引用；harness负责命令、argv、默认行为及机器回执，不将shell文本生成或输出内容解析混入当前训练。调用构造、OS结果与目标达成分别验收。
+
+用户已明确所有模型包含自进化方向：使用时本地采集，固定语义调用由harness执行，训练候选与使用版本隔离；有明确提升、必需旧能力无回归且独立证据完整无冲突时自动升级，冲突保留并交大模型判断。大模型可修订设计连线，必须先改图纸，再实现、训练、独立验证。唯一合同docs/model-evolution.md；当前自动采用与全模型采集尚未实现，原离线候选继续not_applied，不能把设计状态写成已运行。
 
 通用核心不内置DOM/站点类别。正式应用与训练使用同一workflow执行合同；候选采用Flowed调度，DAGpipe CLI负责静态图检查。画布可选。节点内部Handwired数值图和外部workflow分别管理，跨节点连线不自动反传。
 
@@ -115,6 +127,8 @@ ignore的监督目标是“是否需要作为agent独立交互／读取目标”
 代码开发、测试、独立Review、Git集成和独占worktree沿全局AGENTS与适用Skills。本项目不新增机器manifest、全局插件注册服务或另一套执行引擎。
 
 ## 推进与授权
+
+单元升级另沿 workflows/model-evolution.graph.json 与 model-conflict-design.graph.json：自动使用采样及真实训练是必需环节；满足既有提升/无回归/证据条件自动升级，回归或冲突不得自动改权重，保留当前版本并交大模型裁决。唯一规则为 docs/model-evolution.md；当前仍为设计要求，不冒称自动链已实现。
 
 需求优先级依次为能动、能有核心功能、完善功能、提高兼容性。先交最小能动切片，不提前扩展。各层验收沿docs/implementation-plan.md，安全和数据正确性不后移。
 

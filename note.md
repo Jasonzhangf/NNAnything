@@ -158,6 +158,114 @@ T3原生浏览器句柄验收未完成：IAB本地页具备showOpenFilePicker/ge
 三站未知闭环仍在候选验证，未提交／合入／推送本轮改动，未采用新权重。直接IAB采集r6与原公开workflow回放：微博848合格、分类unknown/conflict均0、观测未知4；小红书485／0／0、观测未知1、另有2个未读iframe；知乎599／0／0、观测未知0。当前页面结果不是未见页面准确率。候选focus/three-site-20261019021043807-5730-7dfad959.weight.json保持not_applied、uncalibrated。过程唯一入口为外置three-site-zero/note.md；真实输入和报告留在training/{samples,results}/three-site-zero/direct-*-r6.*。
 
 键盘焦点按用户要求保留。9个直接检查的知乎tabindex0容器加入415行受限训练，仅训练7个neutral_focusable_control系数，500轮实际19.920283416秒；9修复、406旧开发行保留、0新增回退。原357黄金274正确保留、0新增回退、83仍未达原标签，不声称全量通过。r6合格输入中明确非负tabindex：微博6、知乎10，全部judged且无ignore；小红书0项显式标记，此计数不含未声明tabindex的原生控件。真实activeElement仍为知乎首个结果容器。负tabindex程序焦点和动态焦点机制尚未证明覆盖，不能扩大已验收范围。
+## 2026-10-19 CLI共享前三项最终集成验收
+
+本轮共享CLI计划7/7项均已验收：CLI候选全仓回归253/253通过、0失败、0skip；真实训练、独立验收、满足度与来源隔离修复均沿用已有有效证据。独立复核`review-final.json`无finding，`review-verdict.json`为PASS，未发现新增实质变化，不重复整体Review。
+
+候选在clean状态下与最新origin/main核对后，以正常git merge --ff-only合入canonical main。此时origin/main未出现候选未组合的新提交，保留公共file.property设计与真实8N8E运行图。canonical npm run build通过；新进程执行public reload entry，结果为24题、18次显式正常调用、fitted=false，未重训、未采用候选。
+
+共享命令候选保持uncalibrated/not_applied。自动采集、当前版本引用、自动配对采用、LLM冲突裁决及file.property新算子/harness仍未实现。本段只记录集成验收；push与自有worktree清理的最终回执见外置`/Volumes/Intel/playground/nnanything-runs/cli-basics-training/delivery-result.md`，不在本段预写未来结果。
+
+## 2026-10-19 公共设计354978c与候选合流
+
+canonical公共file.property命令/训练设计提交354978c已推送origin/main，本次以正常merge合入当前CLI候选。保留公共新增的cli-command-design、cli-property-training-design及属性/语义合同扩展；保留候选真实8N8E训练图和绑定，算子仍为`cli.command.*@0.1.0`。公共基于旧main的`cli.fs.*@0.2.0-design`图内容作为未来属性单元设计保留在合同，不覆盖运行图；observe_cwd/set_cwd/list_directory兼容切片未迁移，不能据此宣称新属性模型已训练或采用。curriculum保持公共7N6E设计，公开consumer仍只执行PWD→CD→LS前三阶段。
+
+合流后的构建、回载与新进程验证结果见仓库外run的integration-result.md；未重训、未重复无关全仓测试，已有CLI审查PASS复用。
+
+## 2026-10-19 共享CLI满足度与来源隔离终验
+
+原共享计划7项的T1–T6保持验收，T7独立复核已通过，main交付待收口。GCM完成固定`CLI_COMMAND_GOAL_CONFIG.satisfactionThreshold=100`及实际`goal_result.satisfaction`：支持命令正常100、已证失败0、未知语义/partial/提交后证据不足null；错头unsupported仍为policy_error与unmet/0。配置/结果类型公开，模型权重、wire和拟合函数未变。统一file.property入口仍未迁移。共享推理图仅更新既有节点职责，3N2E校验通过。领域合同分别将共享命令与CWD关系绑定公共设计/升级/冲突图，明确自动采集、当前版本引用、自动配对采用与LLM冲突执行链未实现。
+
+原整体Review唯一P1为可选verification与train/dev来源重叠。GCM已在拟合前检查所有声明sourceGroup；重叠红测失败，修复绿测通过，独立来源公开训练入口可fullyVerified=true；未改变teacher或独立题型。父级另加错头unknown反例，红测后GCM修复并复核3/3。
+
+独立GCM验证于作者结束后完成：`standards-regression.log`为253/253、0fail、0skip；`standards-independent-report.json`及日志为共享命令16/16、CWD关系16/16、16失败探针（14native/grant、2注入），保留特殊名称、祖先链接、其他session及文件树副作用检查；`standards-reload.log`为新进程24题、18显式正常调用、fitted=false。本轮未重训。新增报告已归档canonical training/results/filesystem/command/d7c4a3e5-4111-4e09-857f-5f20f4fa18c0/。原报告不追溯冒称已有三值字段。完整回执`standards-result.md`、`guard-fix-result.md`、`verification-result.md`在外置独占run。
+
+公共设计13a7c00已通过正常merge合入候选，保留file.property 6N5E、curriculum7N6E设计及共享训练8N8E运行绑定。canonical主树另有公共设计owner活动修改，最终合入其提交时须保留本次运行绑定，不把新操作设计冒称已有执行器。不得清理该owner或three-site-zero资源。
+
+局部独立OAuth gpt-6.1-sol medium复核退出0，`review-final.json`无finding，canonical controller的`review-verdict.json`为pass。复用`review-first.json`未变模块证据；原P1、满足度增量、错头guard均已闭合，不重做全模块审查。
+
+## 2026-10-19 共享CLI三阶段实测与终验（候选待集成）
+
+最新修订计划`plan-shared-final.md`共7项。T1合同与图、T2共享推理、T3数值/样本/退役重复owner、T4真实增量训练及回载、T5独立验证、T6作者与全仓回归已验收，6/7；T7整体Review、main推送及自有树回收待完成。实现/作者测试与文档收尾由独立GCM worker执行，父代理负责独立验证与最终交付。当前只接入pwd/cd/ls，未实现自然语言、help、搜索、组合规划或自动采用。
+
+正式共享入口为`createCliCommandPolicy`、`runCliCommandTraining`；语义Goal/State输入，命令序列输出`["pwd"]`、`["cd",D]`、`["ls",D]`。单一profile按名称扩展4→9→16参数，后阶段从前阶段保存候选继续，回放历史训练行；旧二分类命令selector、独立训练包装及其图已退役。旧main六参数PWD API只保兼容，不被新入口调用。CWD关系测量不是命令selector。
+
+三阶段run为pwd `333bb151-003e-4188-a027-e145eb591760`、cd `a22e71aa-dbd5-44ce-ab1e-56a7a89f6d57`、ls最终 `d7c4a3e5-4111-4e09-857f-5f20f4fa18c0`。train/dev分别8/8及4/4、12/12及6/6、16/16及8/8；每个已接入命令4/4及2/2真实效果通过。旧命令回归0退化，零/冻结对照正确保留未学会新命令的差异。三阶段均保存后由新进程回载重放。详见`docs/cli-filesystem-training-results.md`和`shared-training-final.log`。
+
+最终同一共享权重的独立验证16/16，pwd/cd/ls/unsupported各4题；16失败探针通过（14真实文件系统校验或grant拒绝，2受控注入）。另有5次补充PWD、1次连续CD、1次其他session列举，历史CWD概念关系16/16。祖先内部链接作为CD/LS的真实参数路径执行通过，越界链接拒绝；特殊名称、名称与类型、partial旧知识保留、文件树及正文无写入副作用均验证。`shared-independent-complete-report.json`与对应log是补全后的独立证据；未调权重或预算。
+
+GCM作者测试24通过/0失败/0skip；全仓`npm test`249项中248通过/1显式skip，旧兼容候选独立项已单独补跑1通过，全部249项均有通过证据。共享测试扩展祖先链接后只重跑受影响独立项1通过。`git diff --check`通过；设计与训练Skill的quick_validate均通过。共享推理图3N2E、训练图8N8E静态validate/inspect通过并有真实Flowed consumer；课程图5N4E是consumer顺序设计，未冒称独立课程引擎。
+
+正式训练资产与历史基线已归档到主项目同名`training/{samples,weights,results}/filesystem/`，不改写原报告中的历史路径。独立样本单独保存于`training/samples/filesystem/verification/shared-cli-20261019/samples.json`，不进入拟合。候选仍uncalibrated/not_applied；未提供图内可选verification时fullyVerified=false，外部独立结果不冒充图内结果。
+
+独立结案经验审计`closeout-final.md`要求同步状态及增加CLI训练Skill路由，已修正唯一owner并验证链接/Skill结构。不新增全局规则或受管记忆，不递归审计。原共享consumer同目标空相对路径失败、首次独立探针在bind阶段拒绝、旧独立CD验证失败等记录均保留，未当作成功或新模型调参证据。
+
+## 2026-10-19 用户补正：一份CLI共享权重与增量训练
+
+最新要求覆盖原逐命令独立profile设计：所有已接入CLI命令使用一个共享模型/权重，按命令分开提供样本与统计结果，通过增量训练扩展。内部先确定命令头，再分流到固定参数和执行分支。用户明确输入仍是结构化语义请求，模型返回命令调用；调用序列第一项为真实shell命令名，后续为typed简化参数，例如`["pwd"]`、`["cd",D]`、`["ls",D]`，S在显式请求/资源中绑定。不是把命令名预先输入模型来替代Goal推理。
+
+此前CWD/PWD与CD独立profile实测保留为实验基线，不作为最终多个在用命令模型交付。原二分类跨命令REJECT标签不能直接合并进共享模型；共享teacher需按实际语义重建。新增命令后回放旧命令并分别验收，共享候选仍uncalibrated/not_applied。独立计划正在按新要求补正，依赖该选择的实现/最终验证待计划就绪；已授权主线继续。
+
+通用harness预检查已修正3项：LIST回执完整记录实际Node argv；验收同时比较名称和类型；场景清理等待全部结果并显式暴露失败。`list-parent-preflight-red.log`1通过3失败，修复后`list-parent-preflight-green.log`4通过0skip。GCM LIST worker自有PID90883已由父代理SIGINT停止并确认退出；这是owner接管，不是模型或产品训练失败。尚未执行独立LIST候选验证。
+
+## 2026-10-19 CLI前三项真实训练（实施中）
+
+独占树`/Volumes/Intel/playground/nnanything/cli-basics-training`，过程证据`/Volumes/Intel/playground/nnanything-runs/cli-basics-training`。独立计划7项：T1合同/图、T2沙盒、T3 CWD/PWD、T4 CD已验收；T5 LIST正在实现；T6整体回归及T7独立Review/集成尚未验收。沿既有图和Flowed运行，不新建执行引擎。原M0固定session和read/exec effect保持不变，新增sandbox独立支持session.write。
+
+CWD正式run `c30b2917-4980-4b0f-8c7f-e0954ce22270`：train/dev关系16/16、8/8，PWD动作12/12、6/6，实际PWD4/4、2/2；独立关系16/16、动作12/12、4正常PWD及2失败探针通过，另4次关系知识取得。CD正式run `b7f48942-4b3d-4b87-b0c1-fbac2de702ed`：train/dev动作12/12、6/6，真实提交后同S新PWD4/4、2/2；新独立家族12/12、4正常提交、8失败探针通过，含1受控提交后观测故障。权重和预算不按独立集调节。原CD验证失败保留，修复后仅作回归。两项保存后均有fresh-process回载。详细结果唯一入口`docs/cli-filesystem-training-results.md`。
+
+LIST前全量回归244项：241通过、3显式skip、0失败；带已保存CWD/PWD/CD候选单独运行独立测试2通过、0skip，包含连续CD每次提交后的新PWD。此时尚未运行LIST候选，不能宣称三项训练全部完成。三项候选保持uncalibrated/not_applied；无verification资源的训练receipt明确fullyVerified=false。外部独立测试证据不冒充workflow内部verification。
+
+## 2026-10-19 文件属性命令与训练设计补全（仅设计）
+
+设计及独立Review已完成：GCM修复P4目标类型、P3候选类型可辨性，并封闭六策略族词表/维度；调用签名与保存/追加/整理组合终点已统一。独立OAuth gpt-6.1-sol受影响复核由controller裁决PASS，原P1关闭，仅有一处旧字节写入示例P2，已按equals.bytes→replace、patch.bytes→write、append.suffix→append同步消除。GCM执行均为独立gcm profile，Reviewer未参与修改。完成的设计包含25个精确operation、B/P/R/C独立数值与验证计划；没有生成样本、拟合、改代码或更改运行权重。main提交/推送及资源清理回执保存外置任务目录delivery.md。
+
+用户要求补齐旧合同未覆盖的命令及训练设计、独立Review后提交main，随后明确不做训练和代码，并要求可派任务尽量GCM。四项工作为固定调用设计、训练设计、独立审查、main交付。新增docs/cli-command-design.md覆盖25个精确operation与有限组合的typed参数、固定CLI/helper/OS方案、回执及失败/部分副作用；新增docs/cli-property-training-design.md定义B对象绑定、P属性效果、R用途关系、C组合下一步的特征、内部数值连线、参数/损失、监督、分区及独立验收。只沿file.property目标，不新建场景Goal；helper/模型尚未实现或训练。
+
+共享训练图首节点补显式属性效果反推，0.2.0-design仍8N8E，DAGpipe validate/inspect通过。原6N5E属性图未变，复用有效证据。GCM作者核对确认25操作均有映射、检查的59个本地链接缺失0，所发现predicate词表、参数写法和少数组合终点问题均已修订。独立Gemini4实际因配额429失败，无有效结论；后备独立OAuth整体Review发现P4目标类型缺失P1，修复并扩展同类P3可辨性与P5范围对照后，受影响复核PASS；没有通过切换Reviewer绕过finding。
+
+任务过程、原始Review和GCM结果位于 /Volumes/Intel/playground/nnanything-runs/file-property-design-completion-20261019/。文档用当前可信主树；保留他人cli-basics-training、three-site-zero树，不动其代码/权重/资源。本轮不执行业务命令、样本生成、拟合或安装。
+
+## 2026-10-19 Shell统一file.property属性目标与目录/文件补全
+
+验收：新增属性图6N5E与扩展curriculum7N6E均通过DAGpipe validate/inspect；节点为design，无运行绑定。git diff --check通过，新正文引用的图/合同存在；未修改数值训练或执行代码，不跑无关业务测试。本轮纯设计沿当前可信主树编辑，未新建worktree或后台资源。
+
+用户要求先补目录操作，再补文件操作，随后连续收敛为：路径与文件属性变化、Linux特殊文件共享对象抽象、不零散编辑Goal，统一 `file.property.xxx`。已将唯一领域目标合同写入 docs/cli-filesystem-semantics.md，内容/用途/操作条件归为属性及关系，不额外拆平行核心图。新增 cli-file-property 6N5E设计图：绑定四元素→选择必要Action→条件/固定执行→实际属性与副作用→评价满足度→使用采样/统一结果。每个属性单元保留独立typed值、可辨输入、训练/真值及反例，使用共享图不能代替单项合同。cli-semantic-operations补全常见目录/路径与文件操作，重命名复用移动，树操作复用有限单操作；curriculum扩为7N6E，前三项后接目录/文件属性单元。AGENTS、设计Skill、总体设计、调用与训练入口已挂接。不执行用户文件变更，不修改已有运行API或权重；统一属性算子、特殊文件细分、新harness及自动采样/采用仍未实现。
+
+## 2026-10-19 满足度阈值命名修订
+
+用户批准将原饥饿程度名称统一为 satisfactionThreshold（满足度阈值）。四元素为 Goal/satisfactionThreshold/State/Action；satisfaction 是实际评价结果，不增加基础元素。已同步当前架构合同、演进合同、设计 Skill、AGENTS 及下方当日汇总用语。仅命名和定义澄清，未改运行接口、DAG 拓扑或训练语义；已有三图校验证据复用。
+
+## 2026-10-19 单元升级 DAG 补正
+
+验收：三张修改图均通过 DAGpipe validate/inspect，分别为 project-design 7N6E、model-evolution 10N10E、model-conflict-design 5N4E；均单入口单出口、无回边，operator 仍为 design，未冒充运行绑定。git diff --check 通过。纯合同/Skill/图纸修改，不运行无关训练或业务测试，不另开实现 Review；本轮未创建 worktree 或后台资源。
+
+用户明确自动使用样本采集及训练为升级必要环节；无回归且满足既有提升/证据/兼容条件自动升级，存在回归或冲突不自动改权重，保留当前版本交大模型决定。已补唯一合同 docs/model-evolution.md，既有 model-evolution 升为 0.2.0-design（10N10E），明确自动采样、训练保存/回载和裁决移交；model-conflict-design 升为 0.2.0-design（5N4E），由强制改图改为按裁决保留/拒绝/补证/必要修复，保留不直接写当前权重的边界。AGENTS、设计Skill、治理文档及图清单挂接同一合同。仍为设计交付，自动全模型采样、自动采用及裁决执行链尚未实现，历史离线候选继续 not_applied。
+
+## 2026-10-19 四元素语义与训练治理标准冻结
+
+用户明确每个语义及训练设计必须围绕 Goal/satisfactionThreshold/State/Action 闭合、SESE、最小必要性，并要求由 DAGpipe 管理标准过程。已更新唯一基础合同 docs/design.md 1.1、设计流程 Skill 与既有 project-design 图至 0.2.0-design，保留 7N6E 单入口单出口。训练期反推与运行期真实状态评价分开；cwd 二元满足度 0/100，只有目标定义允许的 search 等使用中间满足度。Skill 逐节点规定产物、不通过条件和统一缺口回执，删除无必要节点/输入/wire/边/校验；AGENTS、治理文档及图清单仅挂接唯一 owner。不建立冻结快照、平行台账或自动审核器。本轮只修改治理合同，现有运行实现尚无 satisfactionThreshold/通用满足度，未宣称已完成全模型迁移。
+
+## 2026-10-19 CLI调用参数简化（设计补正）
+
+用户要求所有命令参数简化、不解析内容，以支持准确实际调用。唯一合同docs/cli-call-contract.md：所有接入命令使用固定operation与必要typed parameters；前三项映射既有cwd.get/cwd.set/directory.list，不另增协议别名。NN不生成shell或原生flags、不解析stdout/正文，harness绑定引用与原始路径argv、固定模板/默认参数、执行并读取机器回执或独立OS观测。三个详细训练设计、架构1.2、AGENTS及本地设计Skill已挂接；原pwd回执解析是现有adapter事实，不冒称NN学过。LIST固定helper的JSON解码是机器协议，不是训练内容理解。本轮仍仅设计，未修改运行代码。
+
+## 2026-10-19 前三项训练详细设计（设计交付，不是新训练结果）
+
+三份唯一合同：docs/cli-cwd-training-design.md、cli-cd-training-design.md、cli-list-training-design.md；各有独立design训练DAG，分别8N9E、7N7E、7N7E。第一项增加CWD归属概念的6参数关系单元，PWD动作仍独立6参数；第二项独立6参数CD策略，以固定zsh调用成功后提交显式session资源，再用后续同S的PWD验证；第三项独立8参数LIST策略，通过固定结构化CLI helper无损列举，不宣称学习/bin/ls选项。字段校验/引用相等/参数复制/OS类型与真实效果均为手写harness，NN只学所声明函数；不冒称跨三模型总调度已实现。
+
+每项计划train/dev/verification为4/2/4独立场景配方，动作题PWD为12/6/12、CD为12/6/12、LIST为16/8/16；CWD关系题16/8/16，均是待生成预算，不是样本交付数。独立验证另有pwd失败2、CD失败8、LIST失败6探针；受控注入与native证据分列。所有分区按来源/树结构/轨迹分离，不靠换名或随机种子假装独立，学生只有有限3或4动作向量的事实明确披露。数值wire/损失/初始预算、harness映射、partial/提交后失败、旧黄金/新进程回载与owner/红测均已定义。本轮没有改运行代码、生成新样本或训练cd/list，已有pwd候选不变。
+
+## 2026-10-19 语义调用与全模型自进化（设计更新）
+
+用户进一步要求落实为本地架构设计、Skill沉淀和基础设计流程。已新增项目nnanything-design Skill，AGENTS挂接适用触发；现有DOM训练Skill在设计变更时引用它。架构1.3与implementation-plan入口引用同一方法，新增project-design7N6E设计资料流；未复制全局Git/Plan/Review机制。架构事实归docs，设计方法归Skill，拓扑归workflows，当前证据归note；没有写入受管记忆。
+
+用户明确三点：语义Goal驱动调用，固定动作语法由harness转换实际CLI；所有模型包括浏览器使用时采集；训练与使用版本隔离，明确提升且必需旧能力无回归才自动升级，冲突留下交大模型判断，大模型可改设计连线，设计均需图纸。唯一跨模型合同docs/model-evolution.md，design.md 1.2及原训练/沙盒合同引用它；AGENTS区分当前离线not_applied事实与未来条件自动采用。新增model-evolution10N10E和model-conflict-design5N4E设计图，训练资料与独立评价分支；采用owner只在新请求边界切换兼容完整版本，比较基准已变化则重新比较。冲突修图后仍需gate/红测/实现/重训/独立验证，不改黄金语义迎合候选。当前仅合同/图纸，不宣称统一采集、自动升级或大模型改图执行器已实现。
+
+## 2026-10-19 真实目录沙盒与前三项训练顺序（设计已落盘）
+
+用户选择真实文件系统中的专用目录，不声称硬件隔离；明确顺序为CWD概念及pwd获取→cd改变指定会话目录→获取目录内文件和子目录。唯一合同docs/cli-filesystem-training.md；课程图cli-filesystem-curriculum为5N4E，共享单项训练图cli-filesystem-training为8N8E，均为design版本。训练/开发和独立验证资料分支，只在显式候选形成后合流；场景家族先分区再生成，验证不参与fit或调参。训练数据自身复核与最终独立验证职责分开。已有pwd结果保留；专用沙盒执行器、新分区样本、cd和目录列举尚未实现或训练。本轮仅文档与静态图，不修改运行代码或重训。每项训练和真实状态验收合同、文件名/链接边界及清理终点已列明。
+
 ## 2026-10-19 首个结构化 Goal 动作切片（7/7已交付）
 
 实现a9f728a合入main ccb0546并push成功。主树重新build，读取canonical保存候选的独立公开consumer再次通过18/18动作、8/8有效观测、10/10预期unmet。自有pwd-goal-m1工作树及分支已移除，所有本轮子进程已退出；保留无关three-site-zero工作树。训练资产位于主树忽略的training目录，未上传远端；源码、可生成样本的consumer与测试已推送。交付原件 `/Volumes/Intel/playground/nnanything-runs/pwd-goal-m1/delivery.md`，Review原件review-final.json、裁决review-verdict.json、经验审计audit.md。7项全部验收；cd、help泛化和组合操作仍为后续独立能力。

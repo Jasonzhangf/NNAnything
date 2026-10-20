@@ -6,7 +6,7 @@
 
 2026-10-17 第一层基础种类算法与六节点离线训练已实现（详见[训练合同](training-workflow.md)）。6N6E SESE 工作流接入真实Handwired求值、反传与Adam。已有158项试验、六页201项评估及随后明确授权的MAP式增量实验已运行，范围和局限见[实验结果](training-m1-results.md)。阈值固定，置信度未校准，候选不自动采用。历史卡片sigmoid、alpha/beta或完整贝叶斯分布不作为本轮多分类实现。第二层业务语义、WebUI、Rust保持后续范围。
 
-2026-10-19 新增结构化语义状态推理方向，以下1.1节为其目标合同。首个固定函数 `cwd+input→词法绝对路径` 已实现真实训练与回载，见[路径训练](cli-path-training.md)。首个 Goal 驱动的 `observe_cwd→pwd` 动作选择、真实执行与观测绑定已实现并有实测，见[Goal动作训练](cli-goal-training.md)；`cd`、组合规划和未见语义泛化仍为后续增量。
+2026-10-19 新增结构化语义状态推理方向，以下1.1节为其目标合同。首个固定函数 `cwd+input→词法绝对路径` 已实现真实训练与回载，见[路径训练](cli-path-training.md)。历史独立 `observe_cwd→pwd` 实测见[Goal动作训练](cli-goal-training.md)（作为兼容基线保留）。当前正式收敛为全命令单一共享模型与权重profile，依序增量拟合PWD、CD、LS，唯一训练合同见[文件系统训练合同](cli-filesystem-training.md)。
 
 ## 1. 目标与边界
 
@@ -26,24 +26,53 @@
 
 ### 1.1 结构化语义的目标与状态推理
 
-用户当前目标为结构化 `Goal → State → Action → New State`。手写基础概念、动作输入输出和执行结构；NN学习概念关系、动作与状态变化的关系，以及给定Goal/State的动作选择。全程使用结构化语义，不训练自然语言请求识别。概念层、动作层、推理层是此方向的三类训练职责，与下文浏览器基础语义/组合识别的两层分类对象不同。
+2026-10-19 冻结四元素基础合同：每个语义及其训练设计均围绕 `Goal / satisfactionThreshold / State / Action`，形成语义闭合、单入口单出口（SESE）且满足最小必要性的 DAG。该合同适用于浏览器、CLI 及后续 computer use；不表示所有场景已实现。治理过程唯一入口为[本地设计流程](../.agents/skills/nnanything-design/SKILL.md)，拓扑唯一真源为 `workflows/project-design.graph.json`，由 DAGpipe 校验管理。冻结指当前标准生效；后续按明确需求修订同一正文，不建立冻结快照或身份包装。
 
-先逐个训练最小动作关系，不预先训练多步规划：
+| 元素 | 必须明确的语义 |
+| --- | --- |
+| Goal | 目标及其满足度评价规则，包含必要条件与证据要求 |
+| satisfactionThreshold（满足度阈值） | 0–100 的最低满足度；结果达到要求即可结束，更高不是必要目标 |
+| State | 当前条件、对象及必要关系、知识与观测来源；实际结果以 New State 表达，未知不伪装为已知 |
+| Action | 必要操作、对象和参数引用、适用条件及预期状态变化；计算或识别也可作为增加知识的操作 |
 
-| Goal | State中需要的已知条件 | Action | 实际New State与验证 |
+`satisfactionThreshold` 表示要求；`satisfaction` 表示实际满足度，是 Goal 对实际 State 的评价结果，不增加为第五个基础元素。满足度不等同于模型分数或动作执行成功。获取 cwd 等二元目标只用 0/100；search 等确有部分成果的目标才定义中间满足度。覆盖度只有在 Goal 明确定义时才代表满足度；搜索进度不能自动证明已找到目标。必要证据不足时保留未知，不编造数值。满足度达到阈值且 Goal 必要条件成立才算达标；满足度阈值不放宽权限、数据正确性或 Goal 的必要条件。
+
+反向推理属于训练过程：由 Goal 与 satisfactionThreshold 要求反推达标 State、所需 Action 和前置 State，形成可学习关系及监督；它与数值梯度反向传播分别说明。推理使用学到的关系选择操作与参数，执行后用实际 New State 评价；预测不能替代实际结果。对象关系、动作条件及评价均归入四元素，不另立平行基础要素。纯分类及固定函数显式声明固定 Goal/satisfactionThreshold、输入 State、计算 Action 和知识输出，不强造环境操作或可训练头。
+
+四元素不机械对应四个节点。仅当 State 或 satisfactionThreshold 会改变正确输出时，才需要相应的学生输入与区分样本；固定项可为显式配置。每个节点、输入、wire、边和验证步骤均须回答：删除后会破坏哪项语义闭合、必要可辨性或验收依据？无独立必要性则删除或复用。每次运行单入口单出口，达标、未达标、失败及证据不足均收束为明确结果；跨步迭代以实际 New State 开启新 run，不在单次 DAG 加回边。当前共享CLI命令切片已采用固定 satisfactionThreshold=100，并输出实际 satisfaction 100/0/null；该接入不表示自动采集或自动采用链已实现。
+
+用户当前目标为结构化 `Goal → State → Action → New State`。手写基础概念、动作输入输出和执行结构；NN学习概念关系、动作与状态变化的关系，以及给定Goal/State的动作调用选择。全程使用结构化语义，不训练自然语言请求识别。概念层、动作层、推理层是此方向的三类训练职责，与下文浏览器基础语义/组合识别的两层分类对象不同。
+
+所有注册CLI命令收敛为单一共享模型和权重profile（`cli.command-policy.v1`）。输入为结构化Goal与State；公开入口以`createCliCommandPolicy({profile,sandbox,session:S})`绑定显式资源，再调用`.step({goal,state,directory?:D})`。模型输出标准调用序列。序列首项为实际Shell命令名，后续项为有类型的简化位置参数。当前增量拟合命令头，参数引用机械绑定，实际New State由harness观测与验证；未另训练状态预测头。
+
+| Goal | 显式资源信封条件 | 模型输出调用序列 | harness固定执行与实际New State验证 |
 | --- | --- | --- | --- |
-| `{kind:observe_cwd, session:S}` | 有效的明确执行会话 | `pwd(session:S)` | 执行上下文cwd不变；新增实际cwd观测及证据；验证输出来自S的实际工作目录 |
-| `{kind:set_cwd, session:S, target:D}` | 已明确目标绝对目录与执行会话 | `cd(session:S, directory:D)` | S后续操作的cwd改变；在同一S重新观测并核对目标；失败不能报告已进入 |
+| `observe_cwd(S)` | 显式session S | `["pwd"]` | 读取S当前cwd，执行固定PWD观测；执行基准不变；新增实际cwd观测及证据 |
+| `set_cwd(S,D)` | 显式session S与目录D | `["cd", D]` | 绑定D，执行固定CD脚本，成功后显式提交S的执行基准；在同一S重新执行真实PWD观测核对目标 |
+| `list_directory(S,D)` | 显式session S与目录D | `["ls", D]` | 绑定D，通过固定结构化helper列举直接子条目；不解析`/bin/ls`面向人类文本；S状态及FS内容不变 |
+| 未支持的语义Goal | 任意输入 | 无调用（`unsupported`） | 策略记录`unsupported`，不调用任何Shell命令，不修改任何状态 |
 
-在当前动作词表中，pwd是获取cwd的实现，cd是修改cwd的实现；训练要建立Goal与这些效果的对应。后续操作若缺cwd，可以提出observe_cwd子目标，再复用已学的pwd选择和结果绑定。这里的“必然”限于已声明的动作词表与适用条件，不宣称任意工具环境中只有一种实现。
+在此共享模型中，模型只负责内部命令头路由与参数角色输出。`["cd", D]`是一次调用的参数序列，不是多步规划。CD后的PWD是harness固定后条件验证步骤，不冒称模型学会了多步规划。
 
-读取与修改分开：pwd改变的是已知信息，不能误标为修改执行目录；cd改变指定会话的执行基准，不能通过一次性子进程中的cd冒充父会话已改变。当前M0 session仍固定cwd，尚未实现cd。后续执行器使用明确session资源，不隐式修改Agent父进程cwd。
+读取与修改分开：pwd改变的是已知信息，不能误标为修改执行目录；cd改变指定会话的执行基准，不能通过一次性子进程中的cd冒充父会话已改变。执行器使用明确session资源，不隐式修改Agent父进程cwd。
 
-训练/反馈样本为 `{goal, state_before, action, execution_result, observed_state_after, goal_result}`，动作参数与引用显式保留。NN可预测效果或选择动作，真正的New State由执行与观测提供；预测不能充当事实。目标检查器按结构化Goal验证，失败/未知均保留，不由模型自报成功。新增样本按场景分区、回归、拟合/回载后形成候选；持续训练不等于每步自动改写当前采用权重。
+训练/反馈样本统一为 `{goal, state_before, invocation, execution_result, observed_state_after, goal_result}`。NN预测调用序列，真正的New State由harness执行与OS观测提供；预测不能充当事实。目标检查器按结构化Goal验证，失败/未知均保留，不由模型自报成功。
 
-状态机承载“选择动作—执行—新观测—检查目标”的有限推理过程。每个实际操作沿既有workflow合同执行；跨操作继续时发起新run，保持单次DAG闭合，不为此新建第二个执行引擎。具体可训练单元按独立职责拆分，不把每个语义名称机械等同为一个已实现神经元。
+实施状态：当前共享命令策略（`createCliCommandPolicy`）与多分类增量训练（`runCliCommandTraining`）已在`nnanything/cli-goal`实现。原有六参数二分类PWD API及模型保持兼容基线，新共享入口不调用旧profile。正式共享训练、保存后新进程回载及独立验证已有实测证据；候选保持`uncalibrated`与`not_applied`。
 
-首个路径模型只是固定Goal下的动作控制器，已学习五个符号动作；分词/栈/名称复制仍手写。2026-10-19 的首个 Goal 切片已增加三特征、六参数的 `REJECT/PWD` 选择器，并完成 `observe_cwd→pwd` 的真实执行、观测绑定和 GoalResult 闭环，见[Goal动作训练](cli-goal-training.md)。它只有三种语义向量，不能当作通用Goal条件推理；`cd`选择器和多步组合仍未交付。
+### 1.2 固定语义调用与全模型自进化
+
+用户进一步明确：推理选择获取目标所需的语义命令头与位置参数；调用序列固定，由harness转换为实际固定CLI调用与语义操作（`cwd.get`、`cwd.set`、`directory.list`）。语义目标、调用选择、参数绑定、真实执行与效果验证分工明确。
+
+所有接入CLI命令统一按[CLI调用参数简化](cli-call-contract.md)约定：输出`["command", ...params]`，S置于信封，不训练原生flags、shell脚本编写或输出正文解析。命令/argv/默认行为和机器回执由harness负责。
+
+所有模型的目标架构均包含使用时采集、训练/使用版本隔离、独立配对比较及条件自动升级。有明确提升、所有必需旧能力无回归且证据完整时自动采用；冲突或回归保留当前版本，留证据交大模型判断。大模型可以修订设计连线，但先更新对应外层DAG、内部数值图和合同，再走实现、训练与验证，不能直接改在用版本。唯一完整合同见[语义调用与模型演进](model-evolution.md)。这是当前新设计要求，不冒称已有离线训练已实现自动升级。
+
+### 1.3 本地基础设计入口
+
+Shell 的领域目标进一步统一为 `file.property.xxx`，涵盖路径、目录及普通/特殊文件的属性观测与变化；不零散新增场景Goal。内容、用途及操作适用性归入同一属性体系。领域合同唯一源为 [cli-filesystem-semantics.md](cli-filesystem-semantics.md)，共享属性状态转换图为 `workflows/cli-file-property.graph.json`。类型共享推理合同，各自保留操作与真实效果语义；现有CLI接口未迁移，不将设计图标为运行能力。
+
+新增能力或修改I/O、状态、harness、数值连线、workflow及采用规则，统一使用[本地设计Skill](../.agents/skills/nnanything-design/SKILL.md)。基础流程是现状/缺口→语义目标与效果→固定调用与执行责任→内部数值图及外层DAG→样本隔离与进化验收→图纸合同校验→可实施设计或具体缺口。持久过程图见[project-design.graph.json](../workflows/project-design.graph.json)。这是本项目设计方法，不代替独立Plan和已有开发交付流程，也不把设计图当已实现算子。
 
 ## 2. 手写入口、四层职责与两层训练
 
@@ -201,7 +230,7 @@ flowchart TD
   linkStyle default stroke:#475569
 ```
 
-候选评分不默认自动覆盖当前版本；采用规则由实验合同预先声明。当前没有足够样本确定业务准确率界限，不在设计中编造数值目标。
+当前离线训练仍不自动覆盖使用版本。后续统一采用策略由[模型演进合同](model-evolution.md)维护：有明确提升、必需旧能力零回归、独立证据完整且无冲突时自动升级；否则保留当前版本与差异。上图为已有训练产生候选的过程，不代表自动采用链已接通。不在设计中编造业务准确率数值目标。
 
 ## 7. 批量采集与teacher标注
 
@@ -220,6 +249,8 @@ groupId取已知来源关联的传递闭包：同snapshot的节点必须同组�
 来源类别只在存在可区分的学生观测时启用。固定UI词仅限已声明局部槽位；图片广告标记需另审局部视觉/图像证据分支，几何或文件名不能替代识别。商业推广需明确可用的导流组件/结构或另经审计的商业语义证据；仅有“荐读”时只能确认recommendation，不能默认推导promotion。真实商业标签仍保留在标定层，缺乏可辨输入的目标保持未支持或待审，不伪造已识别结果。现有证据尚不能证明所有类别在当前特征下可分。
 
 ## 8. 监督回放与版本劣化
+
+本节维护领域回放和归因边界；跨CLI、浏览器及所有可训练节点的采集、版本隔离、条件自动升级与大模型改图统一沿[模型演进合同](model-evolution.md)，不另设第二套采用规则。
 
 每次查询/操作进入样本池，包含成功、失败、歧义、未知。保存当时证据，不能事后从变化页面伪造操作前状态。CDP成功回执不等于业务成功；expected后条件由动作/任务合同声明，无法判断保留unknown。
 

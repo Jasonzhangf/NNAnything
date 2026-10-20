@@ -1,11 +1,15 @@
 ---
 name: nnanything-training
-description: NNAnything项目内的DOM基础种类训练、特征与wire升级、旧权重迁移、增量拟合及跨页回归方法。用于本仓库相关任务，不处理浏览器operation或第二层业务语义。
+description: NNAnything项目内DOM基础种类与CLI共享命令的训练路由、特征与wire升级、权重迁移、增量拟合及回归方法。不处理浏览器operation或第二层业务语义。
 ---
 
 # NNAnything训练方法
 
+CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-training.md)，调用边界沿[参数简化合同](../../../docs/cli-call-contract.md)，公开consumer为`demo:command-training`。动作行扩展、标签迁移、历史回放和逐命令评价以该领域合同为准；命名补零不保证共享softmax无回归。下文DOM样本、特征、迁移参考及`demo:training`命令不直接套用于CLI。
+
 先读项目[AGENTS.md](../../../AGENTS.md)的目录边界。学生输入、wire、标签和训练I/O分别以[基础种类算法](../../../docs/basic-kinds-wiring.md)、[训练合同](../../../docs/training-workflow.md)为准。不要在Skill中另建schema、调度器或权重注册表。
+
+若需改变语义I/O、输入、wire、节点连线或采用规则，先沿[本地设计方法](../nnanything-design/SKILL.md)更新唯一合同与图纸；已有合同内的普通拟合直接走下文。跨模型使用采集、训练/使用隔离和条件自动升级沿[模型演进合同](../../../docs/model-evolution.md)。当前离线候选仍not_applied，不能因设计要求已落盘就宣称自动升级已运行。
 
 ## 开始前确定变化的owner
 
