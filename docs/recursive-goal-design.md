@@ -1,6 +1,6 @@
 # 通用递归目标：技能选择、节点衍生与反向满足
 
-状态：2026-10-20，设计合同与运行实现已完成行为验收。`lib/workflow/recursive-goal/contracts.ts`提供公共类型与结构守卫，`lib/workflow/recursive-goal/module.ts`包含有界controller及三个`goal.recursive.*@0.1.0` `NodeDefinition`，公开入口为`nnanything/recursive-goal`；图/配置为`0.1.0` 3N2E。递归测试42/42、正式全仓719/719通过；独立consumer与probe证据见[模块合同第13节](recursive-goal-module.md#13-当前实现状态与验收)，Review与main交付回执由note.md维护。组合技能选择当前是固定有限规则，不是已训练的任意高级Goal选择器；browser/computer operation未接入。四元素唯一基础为[design.md 1.1](design.md#11-结构化语义的目标与状态推理)，外层拓扑唯一源为[recursive-goal.graph.json](../workflows/recursive-goal.graph.json)。本合同适用于CLI、浏览器及后续computer use，不将通用机制定义为`file.property.plan`。独立模块的导入边界、公开结果类型与准确错误传播唯一源为[递归模块合同](recursive-goal-module.md)，本页维护目标/技能/反向满足算法，不复制第二套错误类型。
+状态：2026-10-20，设计合同与运行实现已完成行为验收。`lib/workflow/recursive-goal/contracts.ts`提供公共类型与结构守卫，`lib/workflow/recursive-goal/module.ts`包含有界controller及三个`goal.recursive.*@0.1.0` `NodeDefinition`，公开入口为`nnanything/recursive-goal`；图/配置为`0.1.0` 3N2E。公开递归回归与正式全仓均通过；完整consumer与probe证据见[模块合同第13节](recursive-goal-module.md#13-当前实现状态与验收)，Review与main交付回执由note.md维护。组合技能选择当前是固定有限规则，不是已训练的任意高级Goal选择器；browser/computer operation未接入。四元素唯一基础为[design.md 1.1](design.md#11-结构化语义的目标与状态推理)，外层拓扑唯一源为[recursive-goal.graph.json](../workflows/recursive-goal.graph.json)。本合同适用于CLI、浏览器及后续computer use，不将通用机制定义为`file.property.plan`。独立模块的导入边界、公开结果类型与准确错误传播唯一源为[递归模块合同](recursive-goal-module.md)，本页维护目标/技能/反向满足算法，不复制第二套错误类型。
 
 ## 1. 用户需求与草案Review
 

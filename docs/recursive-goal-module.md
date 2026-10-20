@@ -434,6 +434,9 @@ FrameControl<G, B> {
   expansion: "not_derived" | "more" | "closed";
   evaluation: FrameEvaluation | null;
   progressBaseline: ProgressBaseline | null;
+  pendingVerification: {
+    dispatchId; skillId; verificationErrorIds: string[]
+  } | null;
   obligationSnapshot: ObligationSnapshot | null
 }
 
@@ -451,6 +454,8 @@ DependencyState<G, B> {
 `DependencyState` 的 `ownerFrameId` 是派生该条件的父帧，`condition` 是规则原先给出的完整有限定义，而不是可由 condition id 重新推导的摘要。`fact`、`execution` 和 `childFrameId` 只记录当前依赖状态。condition 的 `dependsOn` 必须在本 owner 的定义表内闭合且无环，child frame 的 parent、condition、Goal、bindings、mode、阈值、evaluation/selection 与 effect scope 必须匹配同一 owner 引用。
 
 `FrameEvaluation` 保存最近一次可继续使用的评价。`ProgressBaseline` 的 `stateRef` 指回 `states` 表，`evaluation` 是动作前评价；不复制完整 State 或 Evidence。`ObligationSnapshot` 保存祖先义务比较所需的 mode、skill、未消解条件、State ref、Evidence refs 和当时的 ConditionFact 快照。恢复时可由这些显式 refs 重构纯比较输入，但不得从 cursor、业务 payload 或 frame id 重建控制。
+
+首次评价尚未选技能时，可以保存baseline；该合法阶段停止后仍可续接，累计消耗不清零。`pendingVerification` 单独保存已提交但后验失败的待验证义务，引用已有dispatch、技能及原验证错误。effect仍保持真实`known`；它不表示Goal已经验证。恢复只能选择显式启用的只读或无副作用原子补证技能；缺能力或仍选择mutation时返回evidence_unavailable，不重放已提交动作。未选分支保持fact:not_applicable、execution:not_started，取消和恢复不会把它改成已执行。
 
 调度稳定顺序不来自模型学习。图内不回边；stack 的 `phase` 是唯一阶段位置，frame control、dependency state、状态表和祖先快照共同构成中间 node 的可序列化显式 State。公开 `RunState` 不含函数、资源句柄或隐藏 controller。
 
@@ -735,11 +740,11 @@ cleanup/collect 输入含 accepted root、可信 State/Evidence/effects/atomic r
 
 本轮证据归档于 `/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/`：
 
-- `effect-scope-all.log`：42/42公开递归测试通过，无跳过。包括预算、循环、stalled、取消、未知/mixed effects、续接、错误引用闭包及权限交集。新增权限反例在修复前各真实执行一次未授权write；修复后两项均零执行。
-- `author-full.log`：正常 `npm run test:full` 为719/719通过，无跳过。独立verifier的只读全仓运行曾因扩展测试需要生成artifacts而受限；该限制由具有原始写入授权的owner执行完整命令闭合，未改测试或降低断言。
-- `verification-cwd.log`：独立公开cwd consumer为4/4通过，真实same、different、绑定拒绝与真实cd后受控观察故障分别保留原始回执；profile未训练、修改或采用。
-- `verification-finite.log`：同一runtime完成至少三级非CLI嵌套、同层三依赖、分支、persistent失效及60/100覆盖阈值。固定10项范围分别检查6项/10项；找到匹配另作必要条件。
-- `verification-integrity.log`：7/7独立完整性probe通过，覆盖根与历史隔离、无效证据拒绝、report-node故障后保留ledger。V05是定点fault injection，只证明该故障边界，不冒称真实OS故障。
+- `review-fix-all.log`：51/51公开递归测试通过，无跳过。在原42项上补充首轮Review发现的必要链、深层persistent、已提交后验失败、未选分支和首次评价停止边界反例。父局部条件达标不能绕过未闭合必要链；persistent子帧使用自己的条件集并自底向上重评。`effect-scope-red.log`中两个权限反例在修复前各真实执行一次未授权write；修复后均零执行。
+- `review-fix-full.log`：正常 `npm run test:full` 为728/728通过，无跳过。原`author-full.log`为修复前已覆盖范围的719/719。独立verifier的只读全仓运行曾因扩展测试需要生成artifacts而受限；该限制由具有原始写入授权的owner执行完整命令闭合，未改测试或降低断言。
+- `verification-cwd.log`：独立公开cwd consumer为4/4通过，修复后`review-fix-cwd.log`同样4/4。真实same、different、绑定拒绝与真实cd后受控观察故障分别保留原始回执；profile未训练、修改或采用。
+- `verification-finite.log`及修复后`review-fix-finite.log`：同一runtime完成至少三级非CLI嵌套、同层三依赖、分支、persistent失效及60/100覆盖阈值。固定10项范围分别检查6项/10项；找到匹配另作必要条件。
+- `verification-integrity.log`及修复后`review-fix-integrity.log`：独立设计的7项完整性probe均通过，覆盖根与历史隔离、无效证据拒绝、report-node故障后保留ledger。V05是定点fault injection，只证明该故障边界，不冒称真实OS故障。
 - `verification-public-api.log`：原子根一步完成、显式初始证据零动作完成、两个并发请求的根/ledger/预算隔离，3/3通过；这不是单次运行内部的动作并发调度。
 
 独立验证的逐项结论、整体Review与main交付回执由note.md单一入口维护。历史外置cwd probe的87/87只证明旧外部组合逻辑，不计算为上述新结果。组合选择器仍为显式有限规则；未训练递归层序、是否继续或任意高级Goal模型。调用者必须提供有界adapter；本模块不承诺进程崩溃后返回、永不返回callback的终止、跨进程exactly-once或并发重复恢复保护。

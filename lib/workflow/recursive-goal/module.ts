@@ -67,6 +67,7 @@ import {
   type RecursiveGoalModuleFault,
   type RecursiveGoalObligationSnapshot,
   type RecursiveGoalPartialRunReport,
+  type RecursiveGoalPendingVerification,
   type RecursiveGoalProgressBaseline,
   type RecursiveGoalRequestEnvelope,
   type RecursiveGoalResponse,
@@ -166,6 +167,7 @@ interface InternalFrame<G, B, C> {
   lastEvaluation: EvaluationReceipt | null;
   lastEvaluationAtTransition: number | null;
   progressBaseline: RecursiveGoalProgressBaseline | null;
+  pendingVerification: RecursiveGoalPendingVerification | null;
   obligationSnapshot: RecursiveGoalObligationSnapshot | null;
   pendingProgressCheck: boolean;
   safeRetrySkill: boolean;
@@ -646,6 +648,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluation: null,
       lastEvaluationAtTransition: null,
       progressBaseline: null,
+      pendingVerification: null,
       obligationSnapshot: null,
       pendingProgressCheck: false,
       safeRetrySkill: false,
@@ -757,6 +760,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
 
     if (frame.fact === "satisfied") {
+      if (this.activeConditions(frame).length > 0) {
+        frame.phase = "await_children";
+        return;
+      }
       frame.errorId = null;
       this.finishSatisfiedFrame(frame);
       return;
@@ -925,25 +932,30 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         effect.frameId === frame.frameId &&
         (effect.knowledge === "unknown" || effect.knowledge === "mixed"),
     );
-    if (unresolvedEffect) {
+    const pendingVerification = frame.pendingVerification;
+    const evidenceRecoveryRequired =
+      pendingVerification !== null || unresolvedEffect;
+    if (evidenceRecoveryRequired) {
       const recoveryCandidates = candidates.filter(
         skill => skill.effectClass === "none" || skill.effectClass === "read_only",
       );
       if (recoveryCandidates.length === 0) {
-        this.stopWithNewDiagnostic(
-          frame,
-          {
-            code: "evidence_unavailable",
-            stage: "effect",
-            message: "no declared read-only evidence skill can resolve the unknown effect",
-            category: "recovery_capability_missing",
-            effectKnowledge: aggregateEffectKnowledge(
-              this.ledger.filter(effect => effect.frameId === frame.frameId),
-            ),
-          },
-          "error",
-          "fatal_error",
-        );
+        const spec = {
+          code: "evidence_unavailable" as const,
+          stage: "effect" as const,
+          message: pendingVerification
+            ? "no declared read-only evidence skill can verify the committed effect"
+            : "no declared read-only evidence skill can resolve the unknown effect",
+          category: "recovery_capability_missing",
+          effectKnowledge: aggregateEffectKnowledge(
+            this.ledger.filter(effect => effect.frameId === frame.frameId),
+          ),
+        };
+        if (pendingVerification) {
+          this.stopPendingVerificationWithNewDiagnostic(frame, spec);
+        } else {
+          this.stopWithNewDiagnostic(frame, spec, "error", "fatal_error");
+        }
         return;
       }
     }
@@ -1087,22 +1099,28 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       );
       return;
     }
-    if (unresolvedEffect && skill.effectClass === "mutating") {
-      this.stopWithNewDiagnostic(
-        frame,
-        {
-          code: "evidence_unavailable",
-          stage: "effect",
-          message: "unknown effect must be clarified with a declared read-only skill",
-          owner: "adapter",
-          category: "unsafe_recovery_selection",
-          effectKnowledge: aggregateEffectKnowledge(
-            this.ledger.filter(effect => effect.frameId === frame.frameId),
-          ),
-        },
-        "error",
-        "fatal_error",
-      );
+    if (
+      evidenceRecoveryRequired &&
+      (skill.mode !== "atomic" ||
+        (skill.effectClass !== "none" && skill.effectClass !== "read_only"))
+    ) {
+      const spec = {
+        code: "evidence_unavailable" as const,
+        stage: "effect" as const,
+        message: pendingVerification
+          ? "committed effect can only be verified by a declared read-only skill"
+          : "unknown effect must be clarified with a declared read-only skill",
+        owner: "adapter" as const,
+        category: "unsafe_recovery_selection",
+        effectKnowledge: aggregateEffectKnowledge(
+          this.ledger.filter(effect => effect.frameId === frame.frameId),
+        ),
+      };
+      if (pendingVerification) {
+        this.stopPendingVerificationWithNewDiagnostic(frame, spec);
+      } else {
+        this.stopWithNewDiagnostic(frame, spec, "error", "fatal_error");
+      }
       return;
     }
 
@@ -1568,7 +1586,18 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.markRootUnknownFromAtomicFailure(
         receipt.evidence.map(item => item.id),
       );
-      this.finishAtomicFailure(frame, primary, "unknown");
+      if (receipt.effect.knowledge === "known") {
+        frame.pendingVerification = {
+          dispatchId,
+          skillId: skill.id,
+          verificationErrorIds: [...projection.verificationErrorIds],
+        };
+        frame.execution = "completed";
+        this.synchronizeFrameConditionExecution(frame, "completed", null);
+        this.stopPendingVerification(frame, primary);
+      } else {
+        this.finishAtomicFailure(frame, primary, "unknown");
+      }
       return;
     }
 
@@ -1652,6 +1681,47 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frameId: frame.frameId,
     };
     this.finished = true;
+  }
+
+  private stopPendingVerification(
+    frame: InternalFrame<G, B, C>,
+    diagnostic: RecursiveGoalErrorDiagnostic,
+  ): void {
+    if (this.finished) return;
+    frame.execution = "completed";
+    frame.errorId = diagnostic.errorId;
+    this.primaryErrorId = diagnostic.errorId;
+    this.synchronizeFrameConditionExecution(frame, "completed", null);
+    this.propagateDiagnostic(frame, diagnostic);
+    this.control = {
+      outcome: "error",
+      stopReason: "fatal_error",
+      frameId: frame.frameId,
+    };
+    this.finished = true;
+  }
+
+  private stopPendingVerificationWithNewDiagnostic(
+    frame: InternalFrame<G, B, C>,
+    spec: StopDiagnosticSpec,
+  ): void {
+    const diagnostic = this.diagnostics.create({
+      ...spec,
+      origin: {
+        frameId: frame.frameId,
+        skillId: frame.selectedSkillId,
+        conditionId: frame.fulfillsConditionId,
+        ...spec.origin,
+      },
+      category: spec.category ?? "pending_verification",
+      effectKnowledge:
+        spec.effectKnowledge ??
+        aggregateEffectKnowledge(
+          this.ledger.filter(effect => effect.frameId === frame.frameId),
+        ),
+    });
+    this.addDiagnostic(diagnostic);
+    this.stopPendingVerification(frame, diagnostic);
   }
 
   private requiredDiagnostic(errorId: string | undefined): RecursiveGoalErrorDiagnostic {
@@ -1791,6 +1861,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   }
 
   private finishSatisfiedFrame(frame: InternalFrame<G, B, C>): void {
+    if (this.activeConditions(frame).length > 0) {
+      throw new ModuleInvariantError(
+        `satisfied frame ${frame.frameId} still has active required conditions`,
+      );
+    }
     if (frame.frameId === this.rootFrame.frameId) {
       this.rootFrame.execution =
         this.rootFrame.execution === "not_started"
@@ -1937,6 +2012,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluation: null,
       lastEvaluationAtTransition: null,
       progressBaseline: null,
+      pendingVerification: null,
       obligationSnapshot: null,
       pendingProgressCheck: false,
       safeRetrySkill: false,
@@ -1957,98 +2033,157 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
 
   private async revalidatePersistentConditions(
     frame: InternalFrame<G, B, C>,
+    revalidating: Set<string> = new Set(),
   ): Promise<boolean> {
-    for (const condition of frame.conditions.values()) {
-      if (
-        condition.lifetime !== "persistent" ||
-        condition.childFrameId === null ||
-        condition.fact === "not_applicable"
-      ) {
-        continue;
-      }
-      const child = this.frames.get(condition.childFrameId);
-      if (child === undefined) {
-        throw new ModuleInvariantError(
-          `persistent condition ${condition.id} has no child frame`,
-        );
-      }
-      if (!this.beginTransition(child, "evaluation")) return false;
-      let receipt: EvaluationReceipt;
-      try {
-        receipt = readEvaluationReceipt(
-          await this.deps.adapter.evaluate({
-            context: this.context(child),
-            goal: this.callbackGoal(child.goal),
-            satisfactionThreshold: child.satisfactionThreshold,
-            bindings: this.callbackBindings(child.bindings),
-            state: this.callbackState(),
-            evidence: this.callbackEvidence(),
-            conditions: this.callbackConditions(frame),
-          }),
-          child.satisfactionThreshold,
-        );
-        if (receipt.evaluatorId !== child.evaluatorId) {
-          throw new TypeError("persistent evaluation changed evaluator");
+    if (revalidating.has(frame.frameId)) {
+      throw new ModuleInvariantError(
+        `persistent condition cycle at frame ${frame.frameId}`,
+      );
+    }
+    revalidating.add(frame.frameId);
+    try {
+      for (const condition of frame.conditions.values()) {
+        if (
+          condition.lifetime !== "persistent" ||
+          condition.childFrameId === null ||
+          condition.fact === "not_applicable"
+        ) {
+          continue;
         }
-        const evidenceFailure = this.evaluationEvidenceFailure(receipt);
-        if (evidenceFailure !== null) {
+        const child = this.frames.get(condition.childFrameId);
+        if (child === undefined) {
+          throw new ModuleInvariantError(
+            `persistent condition ${condition.id} has no child frame`,
+          );
+        }
+        if (
+          !(await this.revalidatePersistentConditions(child, revalidating))
+        ) {
+          return false;
+        }
+        const unresolved = this.activeConditions(child);
+        if (unresolved.length > 0) {
+          const closureFact = unresolved.some(
+            item => item.fact === "unknown" || item.fact === "not_evaluated",
+          )
+            ? "unknown"
+            : "unsatisfied";
+          condition.fact = closureFact;
+          condition.satisfaction = null;
+          condition.observedEvaluatorId = child.evaluatorId;
+          condition.evidenceRefs = [...child.evidenceRefs];
+          if (frame.frameId !== this.rootFrame.frameId) {
+            frame.fact = closureFact;
+          }
           this.stopWithNewDiagnostic(
-            child,
-            evidenceFailure,
+            frame,
+            {
+              code:
+                closureFact === "unknown"
+                  ? "evidence_unavailable"
+                  : "precondition_unsatisfied",
+              stage: "aggregation",
+              message: `persistent condition ${condition.id} has unresolved required child conditions`,
+              origin: {
+                frameId: frame.frameId,
+                conditionId: condition.id,
+                evaluatorId: child.evaluatorId,
+              },
+              owner: "adapter",
+              category: "persistent_condition",
+              effectKnowledge: aggregateEffectKnowledge(this.ledger),
+            },
             "error",
             "fatal_error",
           );
           return false;
         }
-      } catch (error) {
-        this.stopWithNewDiagnostic(
-          child,
-          {
-            code: "adapter_contract_invalid",
-            stage: "observation",
-            message: errorMessage(error),
-            owner: "adapter",
-            category: "persistent_revalidation",
-            cause: this.diagnostics.capturedCause(error),
-          },
-          "error",
-          "fatal_error",
-        );
-        return false;
-      }
-      child.lastEvaluation = receipt;
-      child.fact = receipt.result;
-      child.evidenceRefs = mergeStrings(child.evidenceRefs, receipt.evidenceRefs);
-      condition.fact = receipt.result;
-      condition.satisfaction = receipt.satisfaction;
-      condition.observedEvaluatorId = receipt.evaluatorId;
-      condition.evidenceRefs = [...receipt.evidenceRefs];
-      if (receipt.result !== "satisfied") {
-        this.stopWithNewDiagnostic(
-          frame,
-          {
-            code:
-              receipt.result === "unsatisfied"
-                ? "precondition_unsatisfied"
-                : "evidence_unavailable",
-            stage: "aggregation",
-            message: `persistent condition ${condition.id} failed current-state revalidation`,
-            origin: {
-              frameId: frame.frameId,
-              conditionId: condition.id,
-              evaluatorId: receipt.evaluatorId,
+        if (!this.beginTransition(child, "evaluation")) return false;
+        let receipt: EvaluationReceipt;
+        try {
+          receipt = readEvaluationReceipt(
+            await this.deps.adapter.evaluate({
+              context: this.context(child),
+              goal: this.callbackGoal(child.goal),
+              satisfactionThreshold: child.satisfactionThreshold,
+              bindings: this.callbackBindings(child.bindings),
+              state: this.callbackState(),
+              evidence: this.callbackEvidence(),
+              conditions: this.callbackConditions(child),
+            }),
+            child.satisfactionThreshold,
+          );
+          if (receipt.evaluatorId !== child.evaluatorId) {
+            throw new TypeError("persistent evaluation changed evaluator");
+          }
+          const evidenceFailure = this.evaluationEvidenceFailure(receipt);
+          if (evidenceFailure !== null) {
+            this.stopWithNewDiagnostic(
+              child,
+              evidenceFailure,
+              "error",
+              "fatal_error",
+            );
+            return false;
+          }
+        } catch (error) {
+          this.stopWithNewDiagnostic(
+            child,
+            {
+              code: "adapter_contract_invalid",
+              stage: "observation",
+              message: errorMessage(error),
+              owner: "adapter",
+              category: "persistent_revalidation",
+              cause: this.diagnostics.capturedCause(error),
             },
-            owner: "adapter",
-            category: "persistent_condition",
-            effectKnowledge: aggregateEffectKnowledge(this.ledger),
-          },
-          "error",
-          "fatal_error",
+            "error",
+            "fatal_error",
+          );
+          return false;
+        }
+        child.lastEvaluation = receipt;
+        child.fact = receipt.result;
+        child.evidenceRefs = mergeStrings(
+          child.evidenceRefs,
+          receipt.evidenceRefs,
         );
-        return false;
+        condition.fact = receipt.result;
+        condition.satisfaction = receipt.satisfaction;
+        condition.observedEvaluatorId = receipt.evaluatorId;
+        condition.evidenceRefs = [...receipt.evidenceRefs];
+        if (receipt.result !== "satisfied") {
+          if (frame.frameId !== this.rootFrame.frameId) {
+            frame.fact = receipt.result;
+          }
+          this.stopWithNewDiagnostic(
+            frame,
+            {
+              code:
+                receipt.result === "unsatisfied"
+                  ? "precondition_unsatisfied"
+                  : "evidence_unavailable",
+              stage: "aggregation",
+              message: `persistent condition ${condition.id} failed current-state revalidation`,
+              origin: {
+                frameId: frame.frameId,
+                conditionId: condition.id,
+                evaluatorId: receipt.evaluatorId,
+              },
+              owner: "adapter",
+              category: "persistent_condition",
+              effectKnowledge: aggregateEffectKnowledge(this.ledger),
+            },
+            "error",
+            "fatal_error",
+          );
+          return false;
+        }
       }
+      return true;
+    } finally {
+      revalidating.delete(frame.frameId);
     }
-    return true;
   }
 
   private recordAtomicReceipt(
@@ -2243,8 +2378,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       observedEvaluatorId: null,
       evidenceRefs: [],
       childFrameId: null,
-      execution:
-        condition.activation === "not_applicable" ? "completed" : "not_started",
+      execution: "not_started",
       errorId: null,
     };
   }
@@ -2441,6 +2575,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         lastEvaluation: null,
         lastEvaluationAtTransition: null,
         progressBaseline: null,
+        pendingVerification: null,
         obligationSnapshot: null,
         pendingProgressCheck: false,
         safeRetrySkill: false,
@@ -2830,6 +2965,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
               evaluatedAtTransition: frame.lastEvaluationAtTransition,
             },
       progressBaseline: frame.progressBaseline,
+      pendingVerification:
+        frame.fact === "satisfied" ? null : frame.pendingVerification,
       obligationSnapshot: frame.obligationSnapshot,
     }));
   }
@@ -3143,6 +3280,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluationAtTransition:
         control.evaluation?.evaluatedAtTransition ?? null,
       progressBaseline: control.progressBaseline,
+      pendingVerification: control.pendingVerification,
       obligationSnapshot: control.obligationSnapshot,
       pendingProgressCheck: false,
       safeRetrySkill: false,
@@ -3192,6 +3330,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluationAtTransition:
         control.evaluation?.evaluatedAtTransition ?? null,
       progressBaseline: control.progressBaseline,
+      pendingVerification: control.pendingVerification,
       obligationSnapshot: control.obligationSnapshot,
       pendingProgressCheck: false,
       safeRetrySkill: false,

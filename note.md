@@ -12,6 +12,10 @@
 
 当前剩余RG-09：一次完整独立milestone Review、正常main集成/推送及自有资源清理。尚未将Review或main交付写成完成。browser/computer operation、新组合selector训练、跨进程exactly-once和并发重复恢复保护不在本轮实现范围。
 
+整体Review首轮结果：Gemini4 medium实际配额拒绝后，新建独立OAuth gpt-6.1-sol medium，退出0且schema合法；controller判5条P1，暂不main。问题为已提交known effect后验失败续接可能重放、父局部达标跳过必要链、未选分支停止状态与continuation guard冲突、首评价后预算/取消边界无法续接、persistent组合子帧错用父conditions。已按方法/guard段明确互不覆盖的职责派3个GCM整改，每条先公开入口红测。原42/719通过是当时已覆盖范围的真实结果，不代替这些新增反例；修复后补受影响回归及独立finding闭包复核。
+
+Review整改作者验证完成：新增9项公开入口回归后，统一build通过，递归51/51、正式全仓728/728均通过且0skip；cwd4/4、finite-search和完整性7/7重放通过。`FrameControl.pendingVerification`显式保存已提交但待验证的dispatch/原验证错误；known效果保持known，恢复只能显式选只读/无效果原子补证，缺能力即错误且mutation仍一次。父局部事实达标也不得完成未闭合必要链；persistent组合条件使用自身条件集并自底向上刷新。未选分支保持not_started，合法pre-selection baseline可恢复且不清零预算。三worker无冲突修改后父接收，临时根笔记已移交外置证据目录；新增测试两处误用顶层error.category已改为合同规定source.category，预期类别及全部断言保留。当前等待5条finding独立闭包复核，仍未main。
+
 ## 2026-10-20 通用递归框架独立泛化性审查
 
 用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。

@@ -210,6 +210,12 @@ export interface RecursiveGoalProgressBaseline {
   readonly capturedAtTransition: number;
 }
 
+export interface RecursiveGoalPendingVerification {
+  readonly dispatchId: string;
+  readonly skillId: string;
+  readonly verificationErrorIds: readonly string[];
+}
+
 export interface RecursiveGoalObligationSnapshot {
   readonly mode: RecursiveGoalMode;
   readonly selectedSkillId: string | null;
@@ -562,6 +568,7 @@ export interface RecursiveGoalFrameControl<G, B> {
   readonly expansion: "not_derived" | "more" | "closed";
   readonly evaluation: RecursiveGoalFrameEvaluation | null;
   readonly progressBaseline: RecursiveGoalProgressBaseline | null;
+  readonly pendingVerification: RecursiveGoalPendingVerification | null;
   /** Facts used to compare this frame with the current ancestor path. */
   readonly obligationSnapshot: RecursiveGoalObligationSnapshot | null;
 }
@@ -714,6 +721,19 @@ export function sameStringSet(left: readonly string[], right: readonly string[])
   const rightSet = new Set(right);
   if (rightSet.size !== right.length) return false;
   return left.every(value => rightSet.has(value));
+}
+
+function sameEvaluationReceipt(
+  left: EvaluationReceipt,
+  right: EvaluationReceipt,
+): boolean {
+  return (
+    left.evaluatorId === right.evaluatorId &&
+    left.result === right.result &&
+    left.satisfaction === right.satisfaction &&
+    left.necessaryConditionsMet === right.necessaryConditionsMet &&
+    sameStringSet(left.evidenceRefs, right.evidenceRefs)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -2028,6 +2048,40 @@ function readObligationSnapshot(value: unknown): RecursiveGoalObligationSnapshot
   };
 }
 
+function readPendingVerification(
+  value: unknown,
+): RecursiveGoalPendingVerification {
+  if (!isRecord(value)) {
+    throw new TypeError("frameControl.pendingVerification must be an object");
+  }
+  assertExactKeys(
+    value,
+    ["dispatchId", "skillId", "verificationErrorIds"],
+    [],
+    "frameControl.pendingVerification",
+  );
+  const verificationErrorIds = stringArray(
+    value.verificationErrorIds,
+    "frameControl.pendingVerification.verificationErrorIds",
+  );
+  if (verificationErrorIds.length === 0) {
+    throw new TypeError(
+      "frameControl.pendingVerification.verificationErrorIds must not be empty",
+    );
+  }
+  return {
+    dispatchId: nonEmptyString(
+      value.dispatchId,
+      "frameControl.pendingVerification.dispatchId",
+    ),
+    skillId: nonEmptyString(
+      value.skillId,
+      "frameControl.pendingVerification.skillId",
+    ),
+    verificationErrorIds,
+  };
+}
+
 function readFrameControl<G, B>(value: unknown): RecursiveGoalFrameControl<G, B> {
   if (!isRecord(value)) throw new TypeError("frame control must be an object");
   assertExactKeys(
@@ -2041,6 +2095,7 @@ function readFrameControl<G, B>(value: unknown): RecursiveGoalFrameControl<G, B>
       "expansion",
       "evaluation",
       "progressBaseline",
+      "pendingVerification",
       "obligationSnapshot",
     ],
     [],
@@ -2072,6 +2127,10 @@ function readFrameControl<G, B>(value: unknown): RecursiveGoalFrameControl<G, B>
       value.progressBaseline === null
         ? null
         : readProgressBaseline(value.progressBaseline, satisfactionThreshold),
+    pendingVerification:
+      value.pendingVerification === null
+        ? null
+        : readPendingVerification(value.pendingVerification),
     obligationSnapshot:
       value.obligationSnapshot === null
         ? null
@@ -2441,6 +2500,7 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
   const frameIds = new Set(frames.map(frame => frame.frameId));
   const frameById = new Map(frames.map(frame => [frame.frameId, frame]));
   const controlById = new Map(frameControls.map(control => [control.frameId, control]));
+  const stackByFrameId = new Map(stack.map(entry => [entry.frameId, entry]));
   const rootFrame = frameById.get(acceptedRoot.rootFrameId);
   if (!rootFrame) throw new TypeError("continuation root frame is missing");
   if (
@@ -2541,7 +2601,25 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
       frameControl.progressBaseline !== null &&
       frame.selectedSkillId === null
     ) {
-      throw new TypeError("continuation progress baseline lacks selected skill");
+      const stackEntry = stackByFrameId.get(frame.frameId);
+      const evaluation = frameControl.evaluation;
+      const isPreSelectionBaseline =
+        stackEntry?.phase === "select" &&
+        frame.noProgressCount === 0 &&
+        frame.dispatchRefs.length === 0 &&
+        frame.atomicResultRefs.length === 0 &&
+        evaluation !== null &&
+        evaluation.evaluatedAtTransition ===
+          frameControl.progressBaseline.capturedAtTransition &&
+        sameEvaluationReceipt(
+          evaluation.receipt,
+          frameControl.progressBaseline.evaluation,
+        );
+      if (!isPreSelectionBaseline) {
+        throw new TypeError(
+          "continuation progress baseline lacks selected skill",
+        );
+      }
     }
     for (const result of frame.conditionResults) {
       if (result.childFrameId !== null && !frameIds.has(result.childFrameId)) {
@@ -2896,8 +2974,40 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
     }
   }
   const errorIds = new Set(errors.map(error => error.errorId));
-  const atomicIds = new Set(atomicResults.map(result => result.dispatchId));
+  const atomicById = new Map(
+    atomicResults.map(result => [result.dispatchId, result]),
+  );
+  const atomicIds = new Set(atomicById.keys());
   const ledgerById = new Map(ledger.map(effect => [effect.dispatchId, effect]));
+  for (const frame of frames) {
+    const pending = controlById.get(frame.frameId)?.pendingVerification;
+    if (pending === null || pending === undefined) continue;
+    const effect = ledgerById.get(pending.dispatchId);
+    const result = atomicById.get(pending.dispatchId);
+    if (
+      effect === undefined ||
+      result === undefined ||
+      frame.execution !== "completed" ||
+      effect.frameId !== frame.frameId ||
+      effect.skillId !== pending.skillId ||
+      result.frameId !== frame.frameId ||
+      result.skillId !== pending.skillId
+    ) {
+      throw new TypeError(
+        `continuation frame ${frame.frameId} pending verification disagrees with its committed dispatch`,
+      );
+    }
+    for (const errorId of pending.verificationErrorIds) {
+      if (
+        !errorIds.has(errorId) ||
+        !result.verificationErrorIds.includes(errorId)
+      ) {
+        throw new TypeError(
+          `continuation frame ${frame.frameId} pending verification has unknown error ${errorId}`,
+        );
+      }
+    }
+  }
   for (const result of atomicResults) {
     const effect = ledgerById.get(result.dispatchId);
     if (!effect) {

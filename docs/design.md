@@ -79,7 +79,7 @@ Shell 的领域目标进一步统一为 `file.property.xxx`，涵盖路径、目
 
 2026-10-20 用户要求高层目标可以递归衍生子目标，多轮执行后逐层返回目标达成。唯一详细合同为[通用递归目标设计](recursive-goal-design.md)，唯一外层拓扑为[recursive-goal.graph.json](../workflows/recursive-goal.graph.json)，运行图与配置为`0.1.0`、3N2E。它复用四元素，不增加第五项；目标帧、依赖、进度、预算及递归栈都是显式State，衍生/计算/原子执行属于Action。通用部分只管理目标生命周期，领域定义typed语义、确定性衍生规则、原子能力、证据有效性和评价，不把CLI或DOM规则内置核心。
 
-独立模块合同见[recursive-goal-module.md](recursive-goal-module.md)：源码owner为`lib/workflow/recursive-goal/`，公开门面`lib/recursive-goal.ts`通过`nnanything/recursive-goal`导出，通过领域适配器注入现有workflow，不内置领域执行器。模块分别返回入参拒绝、已接收目标的运行结果、可捕获模块fault；根事实、控制停止原因、原子失败与副作用知识分开。预期错误沿3N2E收束，底层引擎异常由入口保留可用cause和已知effects，不假设report节点必执行。42项递归测试、真实cwd与非CLI公开consumer已经验收；具体运行边界与证据见模块合同第13节。
+独立模块合同见[recursive-goal-module.md](recursive-goal-module.md)：源码owner为`lib/workflow/recursive-goal/`，公开门面`lib/recursive-goal.ts`通过`nnanything/recursive-goal`导出，通过领域适配器注入现有workflow，不内置领域执行器。模块分别返回入参拒绝、已接收目标的运行结果、可捕获模块fault；根事实、控制停止原因、原子失败与副作用知识分开。预期错误沿3N2E收束，底层引擎异常由入口保留可用cause和已知effects，不假设report节点必执行。公开递归回归、真实cwd与非CLI consumer已经验收；具体运行边界与证据见模块合同第13节。
 
 根Goal、阈值及目标绑定在全程保持不变；衍生节点携带rootRef、parentRef及它满足的上层条件。每层只从显式允许、符合训练/启用合同的技能中选择当前节点Goal/State对应的一个head；技能可为原子或组合，无可用技能直接报capability_missing并沿父链返回，不发明选项。固定比较不强造训练head。确定性控制器负责展开、分支、依赖、继续和递归返回，不训练层序或是否继续，不让模型一次输出整段计划。
 

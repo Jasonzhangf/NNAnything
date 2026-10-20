@@ -27,7 +27,7 @@
 > [!NOTE]
 > `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。当前 CLI 推理图 `cli-file-property.graph.json` 与训练图 `cli-filesystem-training.graph.json` 也通过同一静态校验；旧 `cli-command-step` 与旧 cli-goal 图已退役。
 > 运行时可通过 `compileWorkflow` 配合 `nnanything/browser`、`nnanything/training` 与 `nnanything/cli-goal` 导出的算子节点执行。当前第一层基础种类判断、离线训练框架及 typed `file.property` CLI 推理/训练路径已闭环，第二层业务卡片语义（`dom-recognition.graph.json`）仍保持后续设计态。
-> `recursive-goal.graph.json` 与配置均为 `0.1.0`，三个算子由 `nnanything/recursive-goal` 的公开运行时提供。42项递归测试与两个公开consumer通过；完整验收和交付回执见模块合同及note.md，静态图校验不替代这些运行证据。
+> `recursive-goal.graph.json` 与配置均为 `0.1.0`，三个算子由 `nnanything/recursive-goal` 的公开运行时提供。公开递归回归与两个consumer通过；完整验收和交付回执见模块合同及note.md，静态图校验不替代这些运行证据。
 
 训练图、节点端口、内部 wire、数据范围、真实试验证据及验收统一见 [训练 workflow 设计](../docs/training-workflow.md)。公开离线 consumer 见 [playground/training/README.md](../playground/training/README.md)。
 

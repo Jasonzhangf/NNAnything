@@ -57,7 +57,7 @@
 | `goal.recursive.run` | `recursive-goal.context` → `recursive-goal.outcome` | 在中间算子内部使用有界显式栈，逐层选择启用技能、衍生真实子条件并反向满足；adapter 每次只处理一步，领域 effects 走显式授权与 ledger |
 | `goal.recursive.report` | `recursive-goal.outcome` → `recursive-goal.result` | 生成 typed 根事实、control、frames、errors、effects 与 atomic results 投影；runner failure 由 facade 本地 finalize 收口 |
 
-验收从公开 subpath 导入并编译真实 3N2E 图。42项递归测试覆盖成功、失败、取消、预算、未知 effect、continuation 和权限交集；真实cwd及纯计算consumer均通过。完整证据见模块合同，Review 与 main 交付回执见项目note.md。
+验收从公开 subpath 导入并编译真实 3N2E 图。公开递归回归覆盖成功、失败、取消、预算、未知 effect、continuation 和权限交集；真实cwd及纯计算consumer均通过。完整证据见模块合同，Review 与 main 交付回执见项目note.md。
 
 ## CLI 基础观测节点（0.1.0）
 
