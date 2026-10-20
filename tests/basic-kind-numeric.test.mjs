@@ -7,11 +7,13 @@ import {
   DEFAULT_BASIC_KIND_CONFIG,
   DEFAULT_BASIC_KIND_PROFILE,
   extractBasicKindWires,
+  migrateBasicKindProfile,
   validateBasicKindProfile,
 } from "../dist/filters/basic-kinds.js";
 import {
   fitBasicKinds,
   inspectBasicKindNumericSample,
+  selectObjectiveRayCandidate,
   validateBasicKindTrainingConfig,
 } from "../dist/training/basic-kind-numeric.js";
 
@@ -240,6 +242,135 @@ test("training config rejects objectives that cannot guarantee the classifier ma
   }), /otherGap/);
 });
 
+test("objective ray step length is a validated opt-in and rejects unknown values", () => {
+  const validated = validateBasicKindTrainingConfig({
+    ...config,
+    fit: { ...config.fit, stepLength: "objective_ray_v1" },
+  });
+  assert.equal(validated.fit.stepLength, "objective_ray_v1");
+  assert.throws(() => validateBasicKindTrainingConfig({
+    ...config,
+    fit: { ...config.fit, stepLength: "fixed_ray" },
+  }), /stepLength/);
+});
+
+test("omitting stepLength preserves the fixed Adam trajectory", async () => {
+  const profile = cloneProfile();
+  profile.familyWeights.control.nat_control_button = 0;
+  profile.leafWeights.button.nat_control_button = 0;
+  const result = await fitBasicKinds({
+    handwiredRoot,
+    rows: [row("button", "button")],
+    baseProfile: profile,
+    config: {
+      ...config,
+      fit: {
+        epochs: 3,
+        learningRate: 0.1,
+        anchorLambda: 0,
+        trainableWires: ["nat_control_button"],
+      },
+    },
+    candidateId: "legacy-omission-fixture",
+  });
+  assert.equal(result.lossBefore, 1.2800000000000002);
+  assert.equal(result.lossAfter, 0.5044499622274294);
+  assert.deepEqual(result.trajectory.map(item => item.loss), [
+    0.9799999958276749,
+    0.7213645241403587,
+    0.5044499622274294,
+  ]);
+  assert.equal(result.profile.familyWeights.control.nat_control_button, 0.29777994751930237);
+  assert.equal(result.profile.leafWeights.button.nat_control_button, 0.29777994751930237);
+});
+
+test("objective ray step length improves a real public Handwired objective", async () => {
+  const profile = cloneProfile();
+  profile.familyWeights.control.nat_control_button = 0;
+  profile.leafWeights.button.nat_control_button = 0;
+  profile.familyWeights.media.css_background_image = 0;
+  profile.leafWeights.image.css_background_image = 0;
+  const image = properties("span", {
+    nonFormatDirectTextPresent: false,
+    beforeContentPresent: true,
+    afterContentPresent: true,
+    backgroundImagePresent: true,
+    maskImagePresent: true,
+  });
+  const result = await fitBasicKinds({
+    handwiredRoot,
+    rows: [row("button", "button"), { properties: image, expectedLabel: "image" }],
+    baseProfile: profile,
+    config: {
+      ...config,
+      fit: {
+        epochs: 3,
+        learningRate: 0.1,
+        anchorLambda: 0,
+        stepLength: "objective_ray_v1",
+      },
+    },
+    candidateId: "objective-ray-fixture",
+  });
+  assert.ok(result.lossAfter < result.lossBefore);
+  assert.equal(result.trajectory.length, 3);
+  validateBasicKindProfile(result.profile);
+});
+
+test("objective ray step length fails explicitly on a zero displacement", async () => {
+  await assert.rejects(fitBasicKinds({
+    handwiredRoot,
+    rows: [row("button", "button")],
+    baseProfile: cloneProfile(),
+    config: {
+      ...config,
+      fit: {
+        epochs: 1,
+        learningRate: 0.1,
+        anchorLambda: 0,
+        trainableWires: ["neutral_multi_child_shape"],
+        stepLength: "objective_ray_v1",
+      },
+    },
+    candidateId: "objective-ray-zero-displacement",
+  }), /zero displacement/);
+});
+
+test("objective ray accepts a numerically feasible point that does not strictly improve", () => {
+  const feasible = { scalar: 1, loss: 12, feasible: true };
+  const outcome = selectObjectiveRayCandidate({ accepted: null, best: null }, feasible, 10, true);
+  assert.equal(outcome.accepted, true);
+  assert.deepEqual(outcome.selection.accepted, feasible);
+});
+
+test("objective ray selection includes the already evaluated ordinary candidate", () => {
+  let selection = { accepted: null, best: null };
+  const ordinary = { scalar: 1, loss: 9, feasible: false };
+  let outcome = selectObjectiveRayCandidate(selection, ordinary, 10, true);
+  assert.deepEqual(outcome.selection.best, ordinary);
+  for (const candidate of [
+    { scalar: 5, loss: 10.5, feasible: false },
+    { scalar: 2.5, loss: 11, feasible: false },
+  ]) {
+    outcome = selectObjectiveRayCandidate(outcome.selection, candidate, 10, true);
+  }
+  assert.equal(outcome.selection.best.scalar, 1);
+  assert.equal(outcome.selection.best.loss, 9);
+  assert.equal(outcome.accepted, false);
+});
+
+test("objective ray selection keeps the smaller scalar on an equal loss", () => {
+  let outcome = selectObjectiveRayCandidate({ accepted: null, best: null }, { scalar: 1, loss: 9, feasible: false }, 10, true);
+  outcome = selectObjectiveRayCandidate(outcome.selection, { scalar: 0.5, loss: 9, feasible: false }, 10, true);
+  assert.equal(outcome.selection.best.scalar, 0.5);
+});
+
+test("objective ray selection ignores candidates that do not improve", () => {
+  const outcome = selectObjectiveRayCandidate({ accepted: null, best: null }, { scalar: 1, loss: 10, feasible: false }, 10, true);
+  assert.equal(outcome.selection.best, null);
+  assert.equal(outcome.accepted, false);
+});
+
 test("missing signed terms retain audit contributions and receive interval gradients", async () => {
   const profile = cloneProfile();
   profile.familyWeights.navigation.state_hidden = -0.2;
@@ -318,4 +449,46 @@ test("real Handwired fitting updates the new explicit-zero appearance cells", as
   const gradients = await inspect(image, "image", profile);
   assert.equal(Object.hasOwn(gradients.familyGradients.media, "nat_svg_child"), true);
   assert.equal(Object.hasOwn(gradients.leafGradients.image, "nat_svg_child"), true);
+});
+
+test("public Handwired numeric graph binds neutral_multi_child_shape on positive, negative and missing paths", async () => {
+  const wire = "neutral_multi_child_shape";
+  const shapeProperties = aspectRatio => properties("div", {
+    childElementCount: 2,
+    positiveAreaChildCount: 2,
+    repeatedChildGeometry: true,
+    aspectRatio,
+  });
+  const shapeProfile = (weight, id) => {
+    const profile = structuredClone(migrateBasicKindProfile(DEFAULT_BASIC_KIND_PROFILE));
+    profile.id = id;
+    profile.leafWeights.list[wire] = weight;
+    return profile;
+  };
+  const zeroProfile = shapeProfile(0, "shape-numeric-zero");
+
+  for (const [id, weight, aspectRatio, contribution] of [
+    ["shape-numeric-positive", 0.4, 0.25, [0.1, 0.1]],
+    ["shape-numeric-negative", -0.4, 0.25, [-0.1, -0.1]],
+    ["shape-numeric-missing", 0.4, null, [0, 0.4]],
+  ]) {
+    const input = shapeProperties(aspectRatio);
+    const profile = shapeProfile(weight, id);
+    const wires = extractBasicKindWires(input);
+    const formal = computeBasicKindStageRawIntervals(
+      "leaf",
+      Object.values(BASIC_KIND_FAMILIES).flat(),
+      profile.leafWeights,
+      wires,
+    );
+    const baseline = await inspect(input, "list", zeroProfile);
+    const evaluated = await inspect(input, "list", profile);
+
+    close(evaluated.leaf.list.min, formal.list.min);
+    close(evaluated.leaf.list.max, formal.list.max);
+    close(evaluated.leaf.list.min - baseline.leaf.list.min, contribution[0]);
+    close(evaluated.leaf.list.max - baseline.leaf.list.max, contribution[1]);
+    assert.equal(Object.hasOwn(evaluated.leafGradients.list, wire), true);
+    assert.equal(typeof evaluated.leafGradients.list[wire], "number");
+  }
 });

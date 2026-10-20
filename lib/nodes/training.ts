@@ -149,6 +149,7 @@ export function createTrainingNodeDefinitions(input: TrainingNodeResources): rea
         profile: fitted.profile,
         trajectory: fitted.trajectory,
         timing: fitted.timing,
+        stoppingReason: fitted.stoppingReason,
         lossBefore: fitted.lossBefore,
         lossAfter: fitted.lossAfter,
         sampleCoverage: { trainRows: rows.length, labelCounts },

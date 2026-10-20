@@ -316,3 +316,370 @@ test("exposed rectangles select only proven visible fragments inside Focus", () 
   assert.deepEqual(hiddenFocus.slots[0].reasons, ["outside_focus"]);
   assert.deepEqual(checkForeground(split, { region: { x: 0, y: 0, width: 10, height: 10 } }).candidateRefs, ["n"]);
 });
+
+test("saved currentView facts exclude only qualified neutral surfaces through the public candidate workflow", async () => {
+  const currentView = {
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+  };
+  const box = { x: 10, y: 10, width: 100, height: 40 };
+  const observationValue = {
+    viewport: { x: 0, y: 0, width: 320, height: 200 },
+    nodes: [
+      {
+        nodeRef: "root",
+        parentRef: null,
+        tag: "div",
+        role: "main",
+        rect: { x: 0, y: 0, width: 320, height: 200 },
+        fragments: [{ x: 0, y: 0, width: 320, height: 200 }],
+        clippedRect: { x: 0, y: 0, width: 320, height: 200 },
+      },
+      {
+        nodeRef: "transparent-div",
+        parentRef: "root",
+        tag: "div",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView,
+      },
+      {
+        nodeRef: "transparent-object",
+        parentRef: "transparent-div",
+        tag: "object",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView,
+      },
+      {
+        nodeRef: "focused-descendant",
+        parentRef: "transparent-div",
+        tag: "input",
+        role: null,
+        rect: { x: 20, y: 20, width: 40, height: 20 },
+        fragments: [{ x: 20, y: 20, width: 40, height: 20 }],
+        clippedRect: { x: 20, y: 20, width: 40, height: 20 },
+      },
+      {
+        nodeRef: "legacy-node",
+        parentRef: "root",
+        tag: "div",
+        role: null,
+        rect: { x: 150, y: 10, width: 60, height: 40 },
+        fragments: [{ x: 150, y: 10, width: 60, height: 40 }],
+        clippedRect: { x: 150, y: 10, width: 60, height: 40 },
+      },
+    ],
+  };
+
+  const result = await runCandidates({ observationValue });
+  assert.equal(result.status, "completed");
+  const slots = byRef(result.outputEvent.payload);
+  for (const ref of ["transparent-div", "transparent-object"]) {
+    assert.equal(slots.get(ref).status, "filtered_out", ref);
+    assert.deepEqual(slots.get(ref).reasons, ["current_view_nonrendered"], ref);
+  }
+  assert.equal(slots.get("focused-descendant").status, "ok");
+  assert.equal(slots.get("legacy-node").status, "ok");
+
+  const loaded = loadSavedObservation(observationValue);
+  assert.deepEqual(loaded.nodes.find(node => node.nodeRef === "transparent-div").currentView, currentView);
+});
+
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+function svgCurrentView(overrides = {}) {
+  return {
+    namespaceURI: SVG_NAMESPACE,
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: null,
+    editingContextActive: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+    ...overrides,
+  };
+}
+
+function svgObservation({
+  tag = "svg",
+  currentView = svgCurrentView(),
+  role = null,
+  attributes = {},
+  omitCurrentView = false,
+} = {}) {
+  const box = { x: 10, y: 10, width: 100, height: 40 };
+  return {
+    viewport: { x: 0, y: 0, width: 320, height: 200 },
+    nodes: [
+      {
+        nodeRef: "root",
+        parentRef: null,
+        tag: "div",
+        role: "main",
+        rect: { x: 0, y: 0, width: 320, height: 200 },
+        fragments: [{ x: 0, y: 0, width: 320, height: 200 }],
+        clippedRect: { x: 0, y: 0, width: 320, height: 200 },
+      },
+      {
+        nodeRef: "target",
+        parentRef: "root",
+        tag,
+        role,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        ...(omitCurrentView ? {} : { currentView }),
+        ...(Object.keys(attributes).length === 0 ? {} : { attributes }),
+      },
+    ],
+  };
+}
+
+function withoutField(value, field) {
+  const copy = { ...value };
+  delete copy[field];
+  return copy;
+}
+
+test("saved SVG svg/use under a strict zero-opacity ancestry filter without merging slots", async () => {
+  const box = { x: 10, y: 10, width: 100, height: 40 };
+  const observationValue = {
+    viewport: { x: 0, y: 0, width: 320, height: 200 },
+    nodes: [
+      {
+        nodeRef: "root",
+        parentRef: null,
+        tag: "div",
+        role: "main",
+        rect: { x: 0, y: 0, width: 320, height: 200 },
+        fragments: [{ x: 0, y: 0, width: 320, height: 200 }],
+        clippedRect: { x: 0, y: 0, width: 320, height: 200 },
+      },
+      {
+        nodeRef: "transparent",
+        parentRef: "root",
+        tag: "div",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+      },
+      {
+        nodeRef: "svg",
+        parentRef: "transparent",
+        tag: "svg",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView: svgCurrentView(),
+      },
+      {
+        nodeRef: "use",
+        parentRef: "svg",
+        tag: "use",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView: svgCurrentView(),
+      },
+      {
+        nodeRef: "focused",
+        parentRef: "transparent",
+        tag: "input",
+        role: null,
+        rect: { x: 20, y: 20, width: 40, height: 20 },
+        fragments: [{ x: 20, y: 20, width: 40, height: 20 }],
+        clippedRect: { x: 20, y: 20, width: 40, height: 20 },
+      },
+      {
+        nodeRef: "readable-sibling",
+        parentRef: "root",
+        tag: "svg",
+        role: null,
+        rect: { x: 150, y: 10, width: 60, height: 40 },
+        fragments: [{ x: 150, y: 10, width: 60, height: 40 }],
+        clippedRect: { x: 150, y: 10, width: 60, height: 40 },
+        currentView: svgCurrentView({
+          zeroOpacityInCurrentPaintPath: false,
+          directTextPresent: true,
+        }),
+      },
+    ],
+  };
+
+  const result = await runCandidates({ observationValue });
+  assert.equal(result.status, "completed");
+  const batch = result.outputEvent.payload;
+  const slots = byRef(batch);
+  for (const ref of ["svg", "use"]) {
+    assert.equal(slots.get(ref).status, "filtered_out", ref);
+    assert.deepEqual(slots.get(ref).reasons, ["current_view_nonrendered"], ref);
+  }
+  assert.equal(slots.get("focused").status, "ok");
+  assert.equal(slots.get("readable-sibling").status, "ok");
+  assert.deepEqual(
+    batch.slots.map(slot => slot.nodeRef),
+    ["root", "transparent", "svg", "use", "focused", "readable-sibling"],
+  );
+  assert.equal(batch.observation.nodes.length, observationValue.nodes.length);
+});
+
+test("SVG current-view exclusion requires every joint fact and never applies to a tag alone", () => {
+  const cases = [
+    ["missing namespace", { currentView: withoutField(svgCurrentView(), "namespaceURI") }],
+    ["null namespace", { currentView: svgCurrentView({ namespaceURI: null }) }],
+    ["HTML namespace", { currentView: svgCurrentView({ namespaceURI: "http://www.w3.org/1999/xhtml" }) }],
+    ["unsupported SVG tag", { tag: "path" }],
+    ["missing record", { omitCurrentView: true }],
+    ["editable context", { currentView: svgCurrentView({ editingContextActive: true }) }],
+    ["unknown editing context", { currentView: svgCurrentView({ editingContextActive: null }) }],
+    ["missing editing context", { currentView: withoutField(svgCurrentView(), "editingContextActive") }],
+    ["actual focus", { currentView: svgCurrentView({ activeElementFocus: true }) }],
+    ["focus within", { currentView: svgCurrentView({ focusWithin: true }) }],
+    ["native keyboard focus", { currentView: svgCurrentView({ nativeTabIndex: 0 }) }],
+    ["declared keyboard focus", { attributes: { tabindex: "0" } }],
+    ["known role", { role: "img" }],
+    ["own label", { currentView: svgCurrentView({ ownLabelPresent: true }) }],
+    ["direct text", { currentView: svgCurrentView({ directTextPresent: true }) }],
+    ["top layer", { currentView: svgCurrentView({ topLayer: true }) }],
+    ["unknown top layer", { currentView: svgCurrentView({ topLayer: null }) }],
+    ["positive opacity", { currentView: svgCurrentView({ zeroOpacityInCurrentPaintPath: false }) }],
+    ["unknown opacity", { currentView: svgCurrentView({ zeroOpacityInCurrentPaintPath: null }) }],
+    ["unknown pointer events", { currentView: svgCurrentView({ pointerEventsNone: null }) }],
+    ["unknown native tab index", { currentView: svgCurrentView({ nativeTabIndex: null }) }],
+  ];
+
+  for (const [label, overrides] of cases) {
+    const batch = checkForeground(svgObservation(overrides));
+    const target = batch.slots.find(slot => slot.nodeRef === "target");
+    assert.equal(target.status, "ok", label);
+    assert.equal(
+      target.reasons.includes("current_view_nonrendered"),
+      false,
+      label,
+    );
+  }
+
+  const complete = checkForeground(svgObservation());
+  const target = complete.slots.find(slot => slot.nodeRef === "target");
+  assert.deepEqual(target.reasons, ["current_view_nonrendered"]);
+  assert.equal(target.status, "filtered_out");
+});
+
+test("saved reader keeps optional SVG namespace and editing context facts without filling defaults", () => {
+  const observationValue = svgObservation({
+    currentView: svgCurrentView({ editingContextActive: null }),
+  });
+  const loaded = loadSavedObservation(observationValue);
+  const view = loaded.nodes.find(node => node.nodeRef === "target").currentView;
+  assert.equal(view.namespaceURI, SVG_NAMESPACE);
+  assert.equal(view.editingContextActive, null);
+  assert.equal(view.contentEditable, null);
+
+  const legacyValue = svgObservation({
+    currentView: {
+      zeroOpacityInCurrentPaintPath: true,
+      pointerEventsNone: true,
+      activeElementFocus: false,
+      focusWithin: false,
+      nativeTabIndex: -1,
+      contentEditable: null,
+      directTextPresent: false,
+      ownLabelPresent: false,
+      topLayer: false,
+    },
+  });
+  const legacy = loadSavedObservation(legacyValue).nodes
+    .find(node => node.nodeRef === "target").currentView;
+  assert.equal(Object.hasOwn(legacy, "namespaceURI"), false);
+  assert.equal(Object.hasOwn(legacy, "editingContextActive"), false);
+});
+
+function currentViewObservation(overrides = {}, omitCurrentView = false) {
+  const currentView = {
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+    ...overrides.currentView,
+  };
+  const observation = foregroundObservation({
+    tag: "div",
+    role: null,
+    ...overrides,
+    ...(omitCurrentView ? {} : { currentView }),
+  });
+  if (omitCurrentView) delete observation.nodes[0].currentView;
+  return observation;
+}
+
+test("current-view qualification preserves every required human interaction and unknown case", () => {
+  const cases = [
+    ["actual focus", { currentView: { activeElementFocus: true } }],
+    ["focus-within", { currentView: { focusWithin: true } }],
+    ["native keyboard focus", { currentView: { nativeTabIndex: 0 } }],
+    ["editable", { currentView: { contentEditable: true } }],
+    ["known role", { role: "status" }],
+    ["own label", { currentView: { ownLabelPresent: true } }],
+    ["direct text", { currentView: { directTextPresent: true } }],
+    ["positive opacity", { currentView: { zeroOpacityInCurrentPaintPath: false } }],
+    ["pointer-events none alone", { currentView: { zeroOpacityInCurrentPaintPath: false, pointerEventsNone: true } }],
+    ["native input", { tag: "input" }],
+    ["unknown facts", { currentView: {
+      zeroOpacityInCurrentPaintPath: null,
+      pointerEventsNone: null,
+      activeElementFocus: null,
+      focusWithin: null,
+      nativeTabIndex: null,
+      contentEditable: null,
+      directTextPresent: null,
+      ownLabelPresent: null,
+      topLayer: null,
+    } }],
+    ["missing record", {}],
+  ];
+
+  for (const [label, overrides] of cases) {
+    const batch = checkForeground(currentViewObservation(overrides, label === "missing record"));
+    assert.deepEqual(batch.candidateRefs, ["n"], label);
+    assert.equal(
+      batch.slots[0].reasons.includes("current_view_nonrendered"),
+      false,
+      label,
+    );
+  }
+});
+
+test("partial current-view records preserve missing facts without filtering or rejecting the snapshot", () => {
+  const complete = currentViewObservation();
+  for (const field of Object.keys(complete.nodes[0].currentView)) {
+    const partial = currentViewObservation();
+    delete partial.nodes[0].currentView[field];
+    const loaded = loadSavedObservation(partial);
+    assert.equal(Object.hasOwn(loaded.nodes[0].currentView, field), false, field);
+    if (field !== "topLayer") assert.deepEqual(checkForeground(partial).candidateRefs, ["n"], field);
+  }
+});

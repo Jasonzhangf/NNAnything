@@ -17,5 +17,13 @@
   <button id="action-target" type="button">可用按钮</button>
   <input id="input-target" aria-label="测试输入" placeholder="可输入">
 </main>
+<div id="bounded-parent" style="display:flex; gap:12px; margin:12px; width:680px">
+  <div id="bounded-text"><span>外层结构完整</span></div>
+  <div id="bounded-frame"><span>保留内嵌外框</span><iframe title="未读取的内嵌区域" src="about:blank" style="width:120px;height:50px"></iframe></div>
+</div>
+<div id="coincident-input-group" style="position:relative; margin:12px; width:220px; height:45px">
+  <textarea aria-label="重合输入前层" style="position:absolute;left:0;top:0;width:220px;height:40px;box-sizing:border-box"></textarea>
+  <textarea aria-label="重合输入后层" style="position:absolute;left:0;top:0;width:220px;height:40px;box-sizing:border-box"></textarea>
+</div>
 <script src="../../artifacts/chrome-extension/content.js"></script>
 </html>

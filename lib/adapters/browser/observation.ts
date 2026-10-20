@@ -8,6 +8,20 @@ export interface Rect {
 export type RuleAttributeValue = string | number | boolean | null;
 export type ForegroundState = "visible" | "occluded" | "unassessed";
 
+export interface ObservationCurrentView {
+  readonly namespaceURI?: string | null;
+  readonly zeroOpacityInCurrentPaintPath?: boolean | null;
+  readonly pointerEventsNone?: boolean | null;
+  readonly activeElementFocus?: boolean | null;
+  readonly focusWithin?: boolean | null;
+  readonly nativeTabIndex?: number | null;
+  readonly contentEditable?: boolean | null;
+  readonly editingContextActive?: boolean | null;
+  readonly directTextPresent?: boolean | null;
+  readonly ownLabelPresent?: boolean | null;
+  readonly topLayer?: boolean | null;
+}
+
 export interface ObservationNode {
   readonly nodeRef: string;
   readonly parentRef: string | null;
@@ -18,6 +32,7 @@ export interface ObservationNode {
   readonly clippedRect: Rect | null;
   readonly foreground?: ForegroundState;
   readonly exposedRects?: readonly Rect[] | null;
+  readonly currentView?: ObservationCurrentView;
   readonly attributes: Readonly<Record<string, RuleAttributeValue>>;
 }
 
@@ -162,6 +177,57 @@ function readOptionalText(value: unknown, field: string): string | null {
   return value;
 }
 
+function readNullableBoolean(value: unknown, field: string): boolean | null {
+  if (value === null) return null;
+  if (typeof value !== "boolean") {
+    throw new ObservationContractError(`${field} must be a boolean or null`);
+  }
+  return value;
+}
+
+function readCurrentView(value: unknown, field: string): ObservationCurrentView | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new ObservationContractError(`${field} must be an object`);
+  }
+  const booleanFields = [
+    "zeroOpacityInCurrentPaintPath",
+    "pointerEventsNone",
+    "activeElementFocus",
+    "focusWithin",
+    "contentEditable",
+    "editingContextActive",
+    "directTextPresent",
+    "ownLabelPresent",
+    "topLayer",
+  ] as const;
+  const booleans: Partial<Record<typeof booleanFields[number], boolean | null>> = {};
+  for (const name of booleanFields) {
+    if (Object.hasOwn(value, name)) booleans[name] = readNullableBoolean(value[name], `${field}.${name}`);
+  }
+  const nativeTabIndex = value.nativeTabIndex;
+  if (
+    Object.hasOwn(value, "nativeTabIndex") && nativeTabIndex !== null &&
+    (typeof nativeTabIndex !== "number" ||
+      !Number.isFinite(nativeTabIndex) ||
+      !Number.isInteger(nativeTabIndex))
+  ) {
+    throw new ObservationContractError(`${field}.nativeTabIndex must be an integer or null`);
+  }
+  let namespaceURI: string | null | undefined;
+  if (Object.hasOwn(value, "namespaceURI")) {
+    if (value.namespaceURI !== null && typeof value.namespaceURI !== "string") {
+      throw new ObservationContractError(`${field}.namespaceURI must be a string or null`);
+    }
+    namespaceURI = value.namespaceURI;
+  }
+  return {
+    ...(namespaceURI === undefined ? {} : { namespaceURI }),
+    ...booleans,
+    ...(Object.hasOwn(value, "nativeTabIndex") ? { nativeTabIndex: nativeTabIndex as number | null } : {}),
+  };
+}
+
 function readForeground(value: unknown, field: string): ForegroundState | undefined {
   if (value === undefined) return undefined;
   if (value === "visible" || value === "occluded" || value === "unassessed") return value;
@@ -222,6 +288,7 @@ export function loadSavedObservation(value: unknown): PageObservation {
     readonly clippedRect: Rect | null;
     readonly foreground?: ForegroundState;
     readonly exposedRects?: readonly Rect[] | null;
+    readonly currentView?: ObservationCurrentView;
     readonly attributes: Readonly<Record<string, RuleAttributeValue>>;
   }> = [];
 
@@ -246,6 +313,10 @@ export function loadSavedObservation(value: unknown): PageObservation {
       entry.raw.fragments !== undefined ? entry.raw.fragments : entry.raw.clientRects;
     const clippedRectValue =
       entry.raw.clippedRect !== undefined ? entry.raw.clippedRect : entry.raw.visibleRect;
+    const currentView = readCurrentView(
+      entry.raw.currentView,
+      `observation.nodes[${entry.position}].currentView`,
+    );
     const foreground = readForeground(entry.raw.foreground, `observation.nodes[${entry.position}].foreground`);
     const exposedRects = readFragments(entry.raw.exposedRects, `observation.nodes[${entry.position}].exposedRects`);
     records.push({
@@ -264,6 +335,7 @@ export function loadSavedObservation(value: unknown): PageObservation {
       ),
       ...(foreground === undefined ? {} : { foreground }),
       ...(entry.raw.exposedRects === undefined ? {} : { exposedRects }),
+      ...(currentView === undefined ? {} : { currentView }),
       attributes: readSafeAttributes(
         entry.raw.attributes,
         `observation.nodes[${entry.position}].attributes`,

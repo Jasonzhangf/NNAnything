@@ -1,5 +1,20 @@
 # DOM 基础种类分层连线
 
+## 最小语义单元与验收
+
+四元素定义沿 [总体设计 1.1](design.md#11-结构化语义的目标与状态推理)，设计准入沿项目本地设计 Skill。此处只声明第一层分类单元的领域映射，不增加训练头或环境操作。
+
+| 元素 | 当前单元的显式含义 |
+| --- | --- |
+| Goal | 对给定候选槽位判断一个基础种类，保留判断状态、缺测与路径；不是点击目标或第二层帖子语义 |
+| satisfactionThreshold | 固定为100；单项输出符合确认监督及当前合同才达标。实际satisfaction为100或0，证据不足单列未知；分类分数不等于满足度，页面未知比例也不是准确率 |
+| State | 同帧 CandidateBatch、许可测量及缺测、显式配置和本次 profile；nodeRef关联对象，原class/id/正文不进入学生输入 |
+| Action | 执行既有 wire 提取和数值分类，产生按原槽位保序的类别、判断状态及证据，增加知识，不修改网页 |
+
+训练期从目标标签与达标条件反推所需辨别事实、wire及确认监督；运行仅使用既定输入关系和本次参数。候选通过不证明标签正确，只有独立复核和监督比较能支持正确性。固定 Goal/satisfactionThreshold 不强造学生输入；若后续任务目标或达标条件改变正确输出，须先修改领域I/O及区分样本，不能隐式复用本单元。
+
+当前外层单节点图为 `dom-basic-kinds.graph.json`；overlay沿 `observe → qualify → classify → present` 单入口单出口复用它。排除、未知、冲突和成功都保留明确结果槽位。wire承担可辨性，缺测区间防止把未测事实当否定，评分及间隔区分竞争结果；移除这些会破坏对应合同。独立升级流程统一引用 [模型演进合同](model-evolution.md) 及其图，不复制采用规则。当前使用时自动采样、统一独立评价、条件自动切换及冲突裁决接线尚未实现；文件化权重只解决本次资源读取，不能算作升级链已闭合。
+
 ## 可选优先级拓扑
 
 `profile.topology` 缺省或为 `family_leaf_v1` 时使用下文原两阶段路径；旧 profile 不被自动改写。`priority_staged_v1` 使用四阶段：direct_interaction（input/select/button/link）→ own_content（text/image/video/audio）→ meaningful_structure（list/listitem/container）→ redundant_ignore（ignore）。内部图与实验边界见 [优先级实验](priority-classifier.md)。
@@ -27,7 +42,10 @@
 ```mermaid
 flowchart TD
   S([输入单节点属性与缺测状态]):::boundary --> G{候选资格通过}:::decision
-  G -->|否| X[保留排除或未知原因]:::action
+  G -->|否| Q{未知且仅因物理观测不足}
+  Q -->|否| X[保留排除或未知原因]:::action
+  Q -->|是且存在本地测量行| G2[以同配置同 profile 对本地测量做语义诊断]:::action
+  G2 --> X
   G -->|是| W[抽取明确命名的属性条件 wire]:::action
   W --> F[计算五个大类的分数区间]:::action
   F --> D{大类证据与间隔足够}:::decision
@@ -49,11 +67,31 @@ flowchart TD
 
 进入分类器且观测可用的节点，语义标签始终是 12 个具体类别之一或 `other`。`ignore` 属于 `structure` 大类，是与其他细类同一两阶段电路的叶子目标；它不是 tag 硬过滤、独立类别头或预处理删除。`unknown/conflict` 是判断状态，不是额外语义类别。当前未识别或证据冲突的节点输出残余 `other`，同时保留评分路径；`other` 不等于已判为 other，也不伪造 judged 状态。上游排除、跳过或不可用项不属于已分类输入，标签仍为 null，不能用 other 掩盖采集失败。
 
+## 观测未知的语义诊断（可选字段）
+
+候选资格与语义计算是两个独立事实。资格阶段因物理观测不足而停在 unknown 时，本地可能已经采到可分类的测量行；上图的诊断支路允许对这份已知测量做一次语义计算，但不改变资格结论。该支路不绕过资格、不复活排除项、不修改原始槽位。
+
+`BasicKindSlot` 增加一个可选字段 `semanticDiagnostic?: BasicKindJudgment`。它只在一个很窄的输入状态下出现：
+
+| 输入状态 | 顶层判断 | semanticDiagnostic |
+| --- | --- | --- |
+| 候选 ok | 既有分类，原样保留 | 不出现，不复制结果 |
+| 候选 unknown、原因 `insufficient_observation`、存在原始节点且有显式本地测量行 | 既有 unknown，class/score/margin 仍为 null，reasons 为 `candidate_unknown` | 使用本次请求同一 config 与 profile，对同一属性构造做的既有分类结果 |
+| 缺节点引用 | 既有 unknown | 不出现 |
+| 因规则观测（`insufficient_rule_observation`）或其他原因未知 | 既有 unknown | 本轮不出现 |
+| filtered_out 或 skipped | 既有 excluded | 不出现 |
+
+准入只看资格状态与证据可用性。它不使用 tag 名、期望标签、槽位号、站点名、父节点预测或任何固定数量。候选 `unknown` 的原因字符串由候选链在首次偏离阶段给定；资格一旦离开 ok 就不再被后续阶段改写。只有本地测量行存在才允许诊断，缺行没有诊断；但不要求每个可选测量都出现，缺测仍按既有区间语义处理，不能把缺测补成反例。
+
+诊断与合格分类共用同一属性构造：测量来自已验证的 `itemObservations` 行，tag/role 来自显式观测节点，hidden/disabled 解释不变，null 测量保持 null，不引入新的原始字段。分类器仍是唯一数值 owner；共享的是属性构造，不是第二套算法。
+
+诊断自身的状态可以仍是 judged、unknown 或 conflict，因为它只是同一分类器在当前输入上的结果。它不产生框、Focus、命中目标或交互能力，也不改变资格、顺序、原因或原始观测。诊断不得写成标签、监督或负例，尤其不能把预测的 `ignore` 或 `image` 转成资格、黄金 other 或训练极性。合格候选的数值行为与既有 profile/资产完全不变。
+
 ## 输入与观测边界
 
 公开节点接收现有 CandidateBatch，可在同一个对象增加 `itemObservations` 数组。既有候选链的输出可直接输入；未提供补充观测时，相关测量保持 null。补充项用 nodeRef 关联，不能覆盖 tag/role 或候选资格。tag/role 来自 batch.observation.nodes，几何与父子关系也只读取这份显式快照。引用不作为数值特征。
 
-补充观测只允许 nodeRef 及 `BasicKindMeasurements` 已声明字段。除输入类型、链接、可编辑、直接文本、CSS 存在性、子计数、重复几何、列表父级与 SVG 图形子元素外，新增十一项可选 nullable 测量：`pointerCursor`、`parentPointerCursor`、`tabIndexFocus`、`borderPresent`、`aspectRatio`、`descendantTextPresent`、`singleChildTag`、`singleChildSameRect`、`withinControlAncestor`、`inSvgAncestor`、`directListChildPresent`。省略或 null 表示未测；false 和 0 表示明确测到不存在。计数只能来自完整的直接子元素观测，不能把截断快照中的条数当作完整数目。旧离线样本缺少新字段时，验证和训练投影统一补为 null。
+补充观测只允许 nodeRef 及 `BasicKindMeasurements` 已声明字段。除输入类型、链接、可编辑、直接文本、CSS 存在性、子计数、重复几何、列表父级与 SVG 图形子元素外，新增十二项可选 nullable 测量：`pointerCursor`、`parentPointerCursor`、`tabIndexFocus`、`activeElementFocus`、`borderPresent`、`aspectRatio`、`descendantTextPresent`、`singleChildTag`、`singleChildSameRect`、`withinControlAncestor`、`inSvgAncestor`、`directListChildPresent`。省略或 null 表示未测；false 和 0 表示明确测到不存在。计数只能来自完整的直接子元素观测，不能把截断快照中的条数当作完整数目。旧离线样本缺少新字段时，验证和训练投影统一补为 null。
 
 - inputType 是采集器读取的 input.type 规范值；未读取为 null。浏览器默认 text 应显式提供 text。空字符串保持未知。
 - hrefPresent 表示 href 属性存在，空 href 也为 true；不接受原始 URL。
@@ -62,7 +100,7 @@ flowchart TD
 - repeatedChildGeometry 描述完整直接子元素几何是否重复。它不证明语义列表。初版由调用者明确测量，本算法不发明布局采集器。
 - inVerifiedListParent 描述直接父节点是否有 ul/ol/dl 或 list/feed/menu/tablist 声明。它不是第二轮模型历史判断。
 - svgGraphicChildren 只描述 svg 的直接图形子元素是否存在。图形元素集合为 path、use、g、circle、rect、line、polyline、polygon、ellipse、image、text；`svg` 自身不是图形子元素证据。非 svg 节点为明确 false。只检查完整的直接子元素，不推断后代图形。
-- pointerCursor、parentPointerCursor、tabIndexFocus、borderPresent、descendantTextPresent、withinControlAncestor、inSvgAncestor 是可选的事实测量；缺测保持 null。`singleChildTag` 来自同一观测的直接唯一子元素 tag。`singleChildSameRect` 只表示同一观测中父与唯一子元素的矩形相同，不能由 class 或 tag 推断。`aspectRatio` 是同一观测的相对宽高比，规范化到 [0,1]。
+- pointerCursor、parentPointerCursor、tabIndexFocus、activeElementFocus、borderPresent、descendantTextPresent、withinControlAncestor、inSvgAncestor 是可选的事实测量；缺测保持 null。`tabIndexFocus` 只表示显式非负 tabindex 属性，`activeElementFocus` 才表示本帧 `document.activeElement` 命中该节点；负 tabindex 或程序焦点只由后者表达。`singleChildTag` 来自同一观测的直接唯一子元素 tag。`singleChildSameRect` 只表示同一观测中父与唯一子元素的矩形相同，不能由 class 或 tag 推断。`aspectRatio` 是同一观测的相对宽高比，规范化到 [0,1]。
 
 实时 DOM 测量从直接父节点读取声明列表证据：native ul/ol/dl 或规范化的 list/feed/menu/tablist role。没有父节点或父节点不满足声明条件时，已观测无声明列表父级，为false。重复几何要求至少两个正面积直接子元素，并存在宽、高均相差不超过2px、位于同一行或同一列且位置不同的元素对。完整观察到正面积子元素不足两个时，已观测不重复，为false；矩形不可用时保留null。几何重复只支持结构证据，不能单独证明list。
 
@@ -76,9 +114,11 @@ flowchart TD
 
 `role_presentational`、`input_type_hidden`、`state_disabled`、`state_hidden` 是显式可配评分 wire。默认系数为 0，因为当前没有证据证明这些状态应改变基础种类；例如隐藏按钮仍可能是按钮。它们的值和缺测保留在 wires，完整系数保留在 profile。自定义非零系数会进入相同的区间计算，没有独立否决通道。原子属性的适用范围与具体类别裁决分开；任何单一属性都不硬返回一个类别或排除结果。
 
-原有 wire 名称与 tag 集合的含义保持不变。新增 `nat_svg` 只匹配 svg tag；`svg_graphic_children` 是 svg 范围、正直接子元素计数和 `svgGraphicChildren=true` 的三值 AND。已观测 false 操作数使结果为 0；未知操作数且没有已观测 false 时结果为 null。另增三个中性 div 组合 wire：`div_single_child` 要求一个正面积子元素且无直接文字，`div_leaf` 要求零元素子节点，`div_direct_text` 要求 div 叶状态且存在直接文字。单个 tag、role 或几何属性都不能独立裁决细类。
+原有 wire 名称与 tag 集合的含义保持不变，唯一例外是 `nat_container` 加入通用 HTML 内容分组标签 `figure`；它继续只表示原生结构证据，不表示 image、图形后代或第二层业务语义。新增 `nat_svg` 只匹配 svg tag；`svg_graphic_children` 是 svg 范围、正直接子元素计数和 `svgGraphicChildren=true` 的三值 AND。已观测 false 操作数使结果为 0；未知操作数且没有已观测 false 时结果为 null。另增三个中性 div 组合 wire：`div_single_child` 要求一个正面积子元素且无直接文字，`div_leaf` 要求零元素子节点，`div_direct_text` 要求 div 叶状态且存在直接文字。`single_child_div` 另要求已知原始直接子元素计数为 1；已知计数不为 1 时明确为 0，计数缺测或唯一子元素 tag 缺测时保留 null。单个 tag、role 或几何属性都不能独立裁决细类。
 
 关系与 ignore 扩展只增加显式组合：`neutral_single_child`、`neutral_multi_child` 与 `neutral_same_rect_wrapper` 要求中性容器；same-rect 组合还要求唯一直接子元素、无自身非格式直接文本、无自身 CSS 外观且 `singleChildSameRect=true`。`composite_descendant_text` 区分自身无文本但后代有文本的中性容器。`own_pointer_boundary`、`svg_internal_part` 只提供支持证据，不证明监听器归属。`empty_pointer_extent` 与 `empty_border_extent` 是布尔条件的连续乘积，`aspectRatio` 作为 [0,1] 因子参与；任一操作数缺测且没有已观测 0 时结果为 null，已观测 0 因子则明确为 0。
+
+`neutral_multi_child_shape`复用已有中性多子判定`g=neutral_multi_child`和已测量的`a=aspectRatio`：`g==0`或`a==0`时为0；`g==null`或`a==null`时为null；否则为`a`。它只登记`leafWeights.list.neutral_multi_child_shape`一个按名称迁移的0地址，不增加测量、支撑门禁、family、container或ignore地址，也不以阈值定类；几何只作为已有list评分的加权线索。
 
 每个目标 c 有稀疏权重 w。初始权重手写，范围 [-1,1]。不加隐式 bias。对每个 wire x：
 
@@ -89,9 +129,27 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 
 `neutral_focusable_control` 组合中性容器与明确可聚焦属性，补充非手形光标控件的评分路径。`neutral_list_choice` 组合中性容器、手形光标、直接选项列表与后代文本，区分选择控件和普通动作按钮。两条 wire 均为可训练贡献；新地址迁移补零，不硬定类、不修改阈值。
 
-`neutral_presentation_leaf` 为无意义的呈现叶节点提供评分路径。它组合中性容器、零个正面积直接子元素、无自身非格式文字、无后代文字、不可聚焦、无独立手形光标边界，以及明确不存在 before/after 内容、背景图片和 mask 的观测。隐藏子元素不阻止该条件，格式字符不算有效文字；边框缺测不等于这些 CSS 内容缺测。真实文字、可见子元素、CSS 图像或伪元素图标、明确控件和独立焦点目标都是反例。该 wire 只提供可训练贡献，不直接过滤元素；新权重仍从零迁移，原始槽位与后代保留。
+`neutral_actual_focus` 组合中性容器与本帧实际持有焦点的 `activeElementFocus`，为键盘或程序焦点目标提供独立评分路径。它不改变 `tabIndexFocus` 原含义，负 tabindex 单独不构成焦点证明；缺测、不可读或不可映射保持 null，不补 false。它只提供可训练贡献，新地址迁移补零，不硬定类、不降阈值、不替代前景或指针事实。
+
+`neutral_presentation_leaf` 为无意义的呈现叶节点提供评分路径。它组合中性容器、零个正面积直接子元素、无自身非格式文字、无后代文字、不可聚焦、无独立手形光标边界，以及明确不存在 before/after 内容、背景图片和 mask 的观测。该呈现叶准入还接受 `role=null`、`contentEditable=false` 的空 `<i>`；它仍须通过零自身直接文字、零直接子元素及无伪元素或图片外观的门禁，且不会放宽 `neutralContainer`、结构、焦点或多子元素 wire。隐藏子元素不阻止该条件，格式字符不算有效文字；边框缺测不等于这些 CSS 内容缺测。真实文字、可见子元素、CSS 图像或伪元素图标、明确控件和独立焦点目标都是反例。该 wire 只提供可训练贡献，不直接过滤元素；新权重仍从零迁移，原始槽位与后代保留。
+
+三站支持增量增加四条局部组合 wire，不改变已有 wire 的含义，也不增加 DOM 输入。`neutral_inherited_pointer_wrapper` 要求中性容器、无自身非格式文字、无自身 CSS 外观、至少一个直接子元素、手形光标同时来自父级继承且自身不可聚焦。它只表示冗余包装支持，不表示类别已裁决；自身手形边界、父级非手形、自身文字或 CSS 图像均为反例，任一关键操作数缺测时保留 null。该 wire 打开 `structure/ignore` 支撑，并只登记 `structure` family、`ignore` leaf 与 `container` counter-address 的零系数。
+
+`neutral_single_element_wrapper` 要求中性容器恰有一个直接子元素、无自身非格式文字、无自身 CSS 外观、不可聚焦，且 `own_pointer_boundary` 已观测为 0。它不使用正面积子元素计数，因此一个零面积直接子元素下仍有绝对定位后代的包装可被表达；该 wire 不直接忽略原生 region、image 或 control，子节点保留为独立候选。它打开 `structure/ignore` 支撑，并登记 `structure` family、`ignore` leaf 与 `container` counter-address 的零系数。
+
+`noninteractive_hidden_leaf` 要求已知且非 input/button/select/textarea/summary/a 的 tag、无显式交互角色、hidden=true、contentEditable=false、无自身非格式文字、无自身 CSS 外观、零直接子元素、非手形光标且不可聚焦。它只提供隐藏支持宿主的弱评分路径；`state_hidden` 单独不能打开该路径，所有适用事实仍须已测。原生 image 可满足该组合，但媒体路径先参与评分，因此它不是通用 hidden 过滤器，也不提前返回 ignore。该 wire 打开 `structure/ignore` 支撑，并登记对应 family 与 leaf 的零系数。
+
+`search_region_group` 要求 role=search、至少两个正面积直接子元素、存在后代文字且不可编辑。它补充搜索区域的分组支持，不改变现有 `role_container` 的集合或硬返回规则；原生搜索语义仍由显式评分决定。该 wire 打开 `structure/container` 支撑，并登记对应 family 与 leaf 的零系数。
+
+以上新增地址全部通过 `NEW_BASIC_KIND_WIRE_TARGETS` 在迁移时按名称补 0，默认与 legacy profile 的既有系数、阈值及输出不变。输入省略新 wire 的适用操作数时保留 null，不能把缺测补为反例；新系数只有训练并显式采用后才能提高对应目标。
 
 `div_repeated_child_extent` 把已有正面积子元素计数用于 list/container 的细类评分。它仅适用于无明确 role、非可编辑的中性 div，组合重复几何证据与 `min(positiveAreaChildCount,16)/16`。16 是把计数限定到 [0,1] 的归一化尺度，不是列表长度门限。零计数或明确没有重复时为 0，适用但缺测时保留 null；新地址只注册到 list 和 container，按名称迁移为 0。不新增输入字段，也不改变原生 ul/ol 或 role=list 的路径。小列表仍可得到其他 wire 的支持。
+
+中性子元素计数增量（源码合同；拟合与候选采用待验收）：`neutral_child_multiplicity` 把既有 `positiveAreaChildCount` 转成连续计数支持 `max(0,(n-1)/n)`，再与既有 `neutralContainer` 做三值连续组合。`n` 已测且不大于 1 时为 0，已测且至少为 2 时输出 `(n-1)/n`，适用但计数缺测时保留 null；中性条件明确为 0 时整体为 0。零面积直接子元素不计入 `n`，不使用 `childElementCount` 的特定值定类。该 wire 只登记 `leafWeights.list` 与 `leafWeights.container` 两个按名称迁移的 0 地址，不登记 structure family，不加入 `LEAF_SUPPORT_WIRES`，因此子元素较多不能单独打开 list。它不改变 `div_multi_child`、`neutral_multi_child`、peers、heterogeneity 或其他旧 wire 的含义，不新增采集器、属性或 schema。表示见证使用三条开发向量的新值 1/2、5/6、3/4，打破旧 peers 与 heterogeneity 一维向量的 1/3+2/3 凸组合；该见证只证明当前表示可分辨，不是候选权重。类别的实际阈值、旧 profile 兼容和页面回归仍须由公开 consumer 与真实拟合确认。
+
+`div_repeated_children` 另在 `text` family 与 `text` leaf 登记两个零地址。它们只提供可训练的相反证据：中性 div 的直接文本若仅由重复子组之间的分隔符构成，显式学到的负系数可以降低 text 分数；默认系数仍为 0，不直接排除、不改门限，也不改变普通文本叶或原生段落。普通 div 叶的重复几何已测为 false 时该 wire 为 0；非 div 的段落为 0；适用但缺测时保留 null，不能把缺测补成反例。是否最终判为 list 仍由完整评分与其他显式地址决定。
+
+无href交互锚点增量（待实现与拟合验收）：`anchor_pointer_boundary`组合既有事实：tag=a、规范化role为空、hrefPresent=false、contentEditable=false、pointerCursor=true、parentPointerCursor=false。它只提供button支撑及control/button评分，不扩展neutralContainer，不直接决定button，不把DOM的tabIndex默认值当成真实键盘焦点。适用的nullable测量缺失时保留null；role沿既有CandidateBatch的显式字符串／无role合同，不新增学生字段。新增`familyWeights.control`与`leafWeights.button`的该wire地址按名称迁移为0，保留旧系数和门限；旧420行前向与旧黄金须实际回归，不能仅凭补零就宣称任意输入输出恒定。实际按钮监督来自原生点击打开统计面板，而非class、文字或单一pointer样式。
 
 该区间描述未知 wire 在 [0,1] 变化时的分数边界。它不是统计置信区间，也不是贝叶斯后验。相关 wire 的独立边界可能较宽，初版允许保守弃判。
 
@@ -121,7 +179,35 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 
 ## 输出与训练接点
 
-每项保留 index、nodeRef、candidateStatus、candidateReasons、familyStatus、family、familyScores、judgmentStatus、basicKind、leafScores、score、margin、reasons、evidence。evidence 含 wire、缺测、实际权重项和两层决策路径。filtered_out/skipped 转为 excluded，上游 unknown 保持不可用，不能因补充属性而复活。输出只保留受限诊断，不透传原始观测。
+### 内容与用途的双向证据
+
+采集输入保留排版、分隔、装饰、零面积辅助及多层包装节点。候选分类为 `ignore` 只影响默认标注展示，不删除原节点、原始证据或后代。teacher 可记录这些节点的用途，作为 `ignore` 的监督依据和有意义内容的反例；用途说明不能从最终类别复制为学生输入。标签、提示或状态本身有独立读取价值时仍须保留，不能因为称为 badge 或包装就标为 `ignore`。
+
+学生使用直接文字、伪元素内容、图形声明、交互属性与包含关系等可测事实。新增 `shallowStructuralPeerRatio` 比较直接正面积子节点的受限结构和内容存在性，输出最大重复结构组的比例；只有单例组时为 0。它不要求文字链接宽高相同，重复几何由既有 `repeatedChildGeometry` 独立表达。新增 `coincidentChildPairRatio` 描述与父节点和其他子节点重合的图层比例。两者都保留缺测，不输出类别。结构比较仅使用局部 tag、role、内容布尔值和子层 tag 组合，不使用 class、id、原文、URL 或全局深度。
+
+四条评分 wire 分别表达中性重复结构、中性异构结构、无自身内容的单正面积子元素包装，以及无自身文字的重合图层包装。它们分别为 list、container 或 ignore 提供证据；不合并兄弟节点、不删除后代，也不改变既有四阶段决策顺序。新地址迁移补零，未训练不能宣称已采用。
+
+`ownLabelPresent` 只记录当前节点 title 或 aria-label 是否含非格式文字，不传原字符串。`graphicDescendantPresent` 记录实际观测到的近两层 img/picture/svg/canvas、role=img 或背景/mask 图形声明。伪元素内容和 role=figure 单独不足以证明图形；未完整观测且无正证据时保持 null。历史样本未测 title/aria-label 时，`ownLabelPresent` 保持 null，不能从 class 或 teacher 类别补造。
+
+`neutral_named_graphic_owner` 联合中性节点、自身标签、已观测图形后代、无直接非格式文字及单正面积子元素，为 media/image 提供评分路径，并允许 structure/ignore 的反向系数。该路径保留有独立提示或状态的图形包装；它不是 title 存在就直接判 image 的规则。独立按钮、链接与输入仍沿原交互阶段判断。
+
+独立焦点图形表示（源码合同；拟合与候选采用待验收）增加两条 wire。`own_focus_target` 是 `activeElementFocus` 与 `tabIndexFocus` 的 nullable OR：任一已测 true 为 1，全部已测 false 为 0，其余为 null。它表示当前节点自身具有焦点目标价值，不表示 button、input、select、link 或 container。`independent_graphic_content` 是自身图形证据与 `own_focus_target OR ownLabelPresent` 的 nullable AND：已测 false 操作数使其为 0，全部已测 true 才为 1，其余为 null。
+
+自身图形证据只使用有限 tag 集合和既有观测，不新增 class、id、URL、原始文字或 `isSvg` 字段。
+
+| 适用范围 | 自身图形证据 |
+| --- | --- |
+| HTML 直接图形载体 `img`、`canvas` | 已测为 1 |
+| 根 `svg` | 复用 `svg_graphic_children`：已测 true 为 1，已测 false 为 0，缺测为 null |
+| `inSvgAncestor=true` 的 `use`、`path`、`image`、`circle`、`rect`、`line`、`polyline`、`polygon`、`ellipse` | 1 |
+| `inSvgAncestor=true` 的 `g` | 与 `graphicDescendantPresent` 做 nullable AND；没有图形后代证据时为 0，缺测时为 null |
+| 其他 tag，包括资源定义 `defs`、`symbol`、`filter`、`mask`、`clipPath`、gradient、pattern、stop，以及 SVG `text` | 0 |
+
+`inSvgAncestor=false` 时，SVG 专属 tag 不取得自身图形正证据；`inSvgAncestor=null` 时保留 null。SVG `text` 继续沿 text 语义处理。中性 HTML 图形包装继续使用既有 `neutral_named_graphic_owner`，不由新 wire 改写。`independent_graphic_content` 只加入 image 的正向 leaf support，media family support 按现有叶子并集派生；两条新 wire 也加入 ignore 的反向贡献 support 路径，但 support 只打开目标，不裁决类别。它们不加入 button、input、select、link 或 container 的正向 support。既有 `neutral_actual_focus`、`neutral_named_graphic_owner` 与 `svg_internal_part` 的定义保持原样。
+
+四条新地址为 `familyWeights.media.independent_graphic_content`、`leafWeights.image.independent_graphic_content`、`leafWeights.ignore.independent_graphic_content`、`leafWeights.ignore.own_focus_target`。它们通过目标与 wire 名称迁移补 0，不手填已训练系数。新增 image support 会改变 support gate；旧系数不变不代表任意旧输入输出恒定。若零迁移改变旧行为，须报告具体支持路径与输入，不用 missing=0、门限或旧路径 fallback 掩盖。
+
+每项保留 index、nodeRef、candidateStatus、candidateReasons、familyStatus、family、familyScores、judgmentStatus、basicKind、leafScores、score、margin、reasons、evidence。evidence 含 wire、缺测、实际权重项和两层决策路径。filtered_out/skipped 转为 excluded，上游 unknown 保持不可用，不能因补充属性而复活。仅当候选 unknown 的原因是 `insufficient_observation`、原始节点存在且显式本地测量行存在时，另附可选 `semanticDiagnostic`；它保留同一分类器的判断与证据，但顶层 unknown、候选状态、原因、顺序和原始观测全部不变。输出只保留受限诊断，不透传原始观测。
 
 `confidenceState=uncalibrated`，`calibratedConfidence=null`。数字分数不称为准确概率。离线训练框架已通过 Handwired Circuit 实现参数拟合（保持相同的 I/O、缺测 mask 与 wire 语义，通过 Adam 优化器更新 familyWeights/leafWeights，见 [训练 workflow 设计](training-workflow.md)）。初始手写分数与新拟合的候选 profile 均保持未校准（uncalibrated）；重新拟合使旧校准自动失效；保存的候选 profile 绝不自动采用。
 

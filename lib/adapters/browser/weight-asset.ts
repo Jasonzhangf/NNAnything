@@ -8,6 +8,15 @@ export interface BrowserWeightAsset {
   readonly calibrated: false;
 }
 
+export interface BrowserWeightFileSource {
+  readonly sourceLabel: string;
+  readText(): Promise<string>;
+}
+
+export interface BrowserFileWeightOptions {
+  readonly weightFile: BrowserWeightFileSource;
+}
+
 export function parseBrowserWeightAsset(raw: unknown, sourceLabel = "本地权重"): BrowserWeightAsset {
   const value = expectRecord(typeof raw === "string" ? JSON.parse(raw) : raw, "weight asset");
   if ("recommendation" in value || "assessment" in value) throw new TypeError("A training result/report is not a weight asset");
@@ -24,4 +33,9 @@ export function parseBrowserWeightAsset(raw: unknown, sourceLabel = "本地权�
   }
   if (value.profileId !== profile.id) throw new TypeError("Weight profileId differs from profile.id");
   return { profile, config, sourceLabel, calibrated: false };
+}
+
+export async function loadBrowserWeightAsset(options: BrowserFileWeightOptions): Promise<BrowserWeightAsset> {
+  const raw = await options.weightFile.readText();
+  return parseBrowserWeightAsset(raw, options.weightFile.sourceLabel);
 }

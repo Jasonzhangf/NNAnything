@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NNAnything explicit weight source harness</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    #fixture-target {
+      max-width: 520px;
+      margin-top: 72px;
+      padding: 20px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+    #fixture-target h2 { margin: 0 0 8px; font-size: 18px; }
+    #fixture-target p { margin: 0 0 16px; color: #475569; }
+    #fixture-target-button {
+      padding: 9px 14px;
+      border: 1px solid #1d4ed8;
+      border-radius: 6px;
+      background: #2563eb;
+      color: #ffffff;
+      font: inherit;
+      cursor: pointer;
+    }
+    #controls {
+      position: fixed;
+      left: 24px;
+      bottom: 24px;
+      width: min(660px, calc(100vw - 48px));
+      max-height: 46vh;
+      overflow: auto;
+      padding: 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.10);
+    }
+    #controls h2 { margin: 0 0 8px; font-size: 15px; }
+    #selected-source { font-weight: 700; color: #1d4ed8; }
+    .control-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .fixture-note { margin: 0 0 8px; color: #64748b; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Explicit weight source controller harness</h1>
+    <span class="counter-badge">public consumer</span>
+  </header>
+
+  <main>
+    <section id="fixture-target">
+      <h2>Deterministic classification target</h2>
+      <p>Source A and source B use the same profileId. A produces a button box. B produces a different outcome.</p>
+      <button id="fixture-target-button" type="button">Target button</button>
+    </section>
+
+    <aside id="controls" aria-label="weight source controls">
+      <h2>Controller source boundary</h2>
+      <p class="fixture-note">The A/B and delayed sources are in-memory race fixtures. They are not persistent disk files or native file handles. Use the inspector panel's "选择权重文件" button for a real native file handle.</p>
+      <div class="control-row">
+        <button id="source-a" class="harness-btn harness-btn-primary" type="button">Source A</button>
+        <button id="source-b" class="harness-btn" type="button">Source B</button>
+        <button id="source-failure" class="harness-btn harness-btn-danger" type="button">Broken source</button>
+        <button id="source-delayed" class="harness-btn" type="button">Delayed source</button>
+        <button id="resolve-delayed" class="harness-btn" type="button">Resolve delayed read</button>
+        <button id="source-unconfigured" class="harness-btn" type="button">Unconfigure</button>
+      </div>
+      <div class="control-row">
+        <button id="refresh" class="harness-btn" type="button">Refresh</button>
+        <button id="mutate-source-a" class="harness-btn" type="button">Change A fixture to B contents</button>
+        <button id="restore-source-a" class="harness-btn" type="button">Restore A fixture</button>
+        <button id="close" class="harness-btn" type="button">Close</button>
+        <button id="reopen" class="harness-btn" type="button">Reopen</button>
+        <button id="run-checks" class="harness-btn harness-btn-primary" type="button">Run public checks</button>
+      </div>
+      <div>Selected source: <span id="selected-source">source A</span></div>
+      <pre id="output" data-status="READY" aria-live="polite">Waiting for the first public controller frame.</pre>
+    </aside>
+  </main>
+
+  <script src="weight-source-harness.js"></script>
+</body>
+</html>

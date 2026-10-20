@@ -225,6 +225,110 @@ test("scrolled HTML root uses the viewport-anchored client scrollport", () => {
   assert.ok(clipped.y >= 0 && clipped.y + clipped.height <= VIEWPORT.height);
 });
 
+function hiddenRootFixture(options = {}) {
+  const fixture = makeFixture({
+    rootStyle: { overflowX: "hidden", overflowY: "hidden", ...(options.rootStyle ?? {}) },
+    rootClient: { left: 0, top: 0, width: 1280, height: 720 },
+    targetRect: { x: 100, y: 690, width: 240, height: 80 },
+    ...options,
+  });
+  fixture.window.innerWidth = 1280;
+  fixture.window.innerHeight = 720;
+  fixture.html.scrollTop = 0;
+  fixture.html.getBoundingClientRect = () => ({ x: 0, y: 0, width: 1280, height: 3533.984375 });
+  return fixture;
+}
+
+const ACTUAL_ROOT_WINDOW = { width: 1280, height: 720 };
+const ACTUAL_ROOT_CLIENT = { left: 0, top: 0, width: 1265, height: 720 };
+const ACTUAL_ROOT_TARGET = { x: 1260, y: 710, width: 40, height: 40 };
+
+function mixedRootFixture({ overflowX, overflowY, targetRect = ACTUAL_ROOT_TARGET }) {
+  const fixture = makeFixture({
+    rootStyle: { overflowX, overflowY },
+    rootClient: ACTUAL_ROOT_CLIENT,
+    targetRect,
+  });
+  fixture.window.innerWidth = ACTUAL_ROOT_WINDOW.width;
+  fixture.window.innerHeight = ACTUAL_ROOT_WINDOW.height;
+  fixture.html.scrollLeft = 0;
+  fixture.html.scrollTop = 595;
+  fixture.html.getBoundingClientRect = () => ({ x: 0, y: -595, width: 1265, height: 3533.984375 });
+  return fixture;
+}
+
+test("actual auto/scroll root clips to the native client scrollport", () => {
+  const fixture = mixedRootFixture({ overflowX: "auto", overflowY: "scroll" });
+  const result = observe(fixture);
+
+  assert.deepEqual(result.clippedRectFor(fixture.body), { x: 0, y: 0, width: 1265, height: 720 });
+  assert.deepEqual(result.rectFor(fixture.target), ACTUAL_ROOT_TARGET);
+  assert.deepEqual(result.clippedRectFor(fixture.target), {
+    x: 1260,
+    y: 710,
+    width: 5,
+    height: 10,
+  });
+});
+
+test("mixed root axis order and hidden/auto use the same client scrollport", () => {
+  for (const [label, overflowX, overflowY] of [
+    ["reverse mixed axes", "scroll", "auto"],
+    ["hidden/auto", "hidden", "auto"],
+  ]) {
+    const fixture = mixedRootFixture({ overflowX, overflowY });
+    assert.deepEqual(observe(fixture).clippedRectFor(fixture.target), {
+      x: 1260,
+      y: 710,
+      width: 5,
+      height: 10,
+    }, label);
+  }
+});
+
+test("actual hidden HTML root clips a crossing descendant to the client viewport", () => {
+  const fixture = hiddenRootFixture();
+  const result = observe(fixture);
+  assert.deepEqual(result.rectFor(fixture.target), { x: 100, y: 690, width: 240, height: 80 });
+  assert.deepEqual(result.clippedRectFor(fixture.target), { x: 100, y: 690, width: 240, height: 30 });
+});
+
+test("hidden root remains viewport-anchored after programmatic scrolling", () => {
+  const fixture = hiddenRootFixture();
+  fixture.html.scrollTop = 950;
+  fixture.html.getBoundingClientRect = () => ({ x: 0, y: -950, width: 1280, height: 3533.984375 });
+  assert.deepEqual(observe(fixture).clippedRectFor(fixture.target), { x: 100, y: 690, width: 240, height: 30 });
+});
+
+test("hidden root does not bypass identity, transform or leading-offset proof", () => {
+  const cases = [
+    { compatMode: "BackCompat" },
+    { scrollingElement: "body" },
+    { rootStyle: { overflowX: "hidden", overflowY: "hidden", transform: "matrix(2, 0, 0, 2, 0, 0)" } },
+    { rootStyle: { overflowX: "hidden", overflowY: "hidden", zoom: "2" } },
+    { rootClient: { left: 1, top: 0, width: 1280, height: 720 } },
+  ];
+  for (const options of cases) {
+    const fixture = hiddenRootFixture(options);
+    assert.equal(observe(fixture).clippedRectFor(fixture.target), null, JSON.stringify(options));
+  }
+});
+
+test("clip and visible root overflow stay unknown when the root would clip", () => {
+  for (const [label, rootStyle] of [
+    ["clip", { overflowX: "clip", overflowY: "hidden" }],
+    ["visible", { overflowX: "visible", overflowY: "hidden" }],
+  ]) {
+    const fixture = hiddenRootFixture({ rootStyle });
+    assert.equal(observe(fixture).clippedRectFor(fixture.target), null, label);
+  }
+});
+
+test("visible/visible root keeps the existing no-root-clip path", () => {
+  const fixture = hiddenRootFixture({ rootStyle: { overflowX: "visible", overflowY: "visible" } });
+  assert.deepEqual(observe(fixture).clippedRectFor(fixture.target), { x: 100, y: 690, width: 240, height: 80 });
+});
+
 test("root client width stays narrower than the inner viewport", () => {
   // y stays inside the original root rect so this case isolates the width rule.
   const targetRect = { x: 1210, y: 400, width: 100, height: 100 };
@@ -254,7 +358,7 @@ test("ordinary nested scroll keeps its shifted own client box", () => {
   });
 });
 
-test("nested scaling remains unassessed in the baseline observer", () => {
+test("positive nested scale is not reset by the root scrollport correction", () => {
   const fixture = makeFixture({
     nested: {
       rect: { x: 100, y: 200, width: 800, height: 600 },
@@ -266,7 +370,12 @@ test("nested scaling remains unassessed in the baseline observer", () => {
   });
   const observed = observe(fixture);
 
-  assert.equal(observed.clippedRectFor(fixture.target), null);
+  assert.deepEqual(observed.clippedRectFor(fixture.target), {
+    x: 120,
+    y: 750,
+    width: 100,
+    height: 50,
+  });
 });
 
 test("non-baseline root transform and zoom stay unknown when root overflow would clip", () => {
@@ -301,4 +410,3 @@ test("leading root client offsets stay unknown when root overflow would clip", (
     assert.equal(observe(fixture).clippedRectFor(fixture.target), null, label);
   }
 });
-

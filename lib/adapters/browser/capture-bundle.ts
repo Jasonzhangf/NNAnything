@@ -55,6 +55,7 @@ export interface BrowserCaptureBundleV1 {
 export interface BrowserCaptureStats { readonly total: number; readonly verified: number; readonly unreviewed: number; readonly ambiguous: number; readonly rejected: number }
 export interface BrowserCaptureRowReceipt { readonly sampleId: string; readonly reviewStatus: ReviewedBasicKindRow["review"]["status"]; readonly updated: boolean }
 export interface BrowserCaptureBulkReceipt {
+  readonly eligible: number;
   readonly eligibleUnknown: number;
   readonly eligibleConflict?: number;
   readonly collected: number;
@@ -146,7 +147,7 @@ export class BrowserCaptureSession {
       if (existing) { if (existing.review.status === "unreviewed") existingPending++; else existingReviewed++; continue; }
       this.put(frame, slot.nodeRef, null); collected++;
     }
-    return { eligibleUnknown, collected, existingReviewed, existingPending };
+    return { eligible: eligibleUnknown, eligibleUnknown, collected, existingReviewed, existingPending };
   }
   collectUnresolved(frame: BrowserOverlayFrame): BrowserCaptureBulkReceipt {
     let eligibleUnknown = 0, eligibleConflict = 0, collected = 0, existingReviewed = 0, existingPending = 0;
@@ -159,7 +160,19 @@ export class BrowserCaptureSession {
       if (existing) { if (existing.review.status === "unreviewed") existingPending++; else existingReviewed++; continue; }
       this.put(frame, slot.nodeRef, null); collected++;
     }
-    return { eligibleUnknown, eligibleConflict, collected, existingReviewed, existingPending };
+    return { eligible: eligibleUnknown + eligibleConflict, eligibleUnknown, eligibleConflict, collected, existingReviewed, existingPending };
+  }
+  collectQualified(frame: BrowserOverlayFrame): BrowserCaptureBulkReceipt {
+    let eligible = 0, collected = 0, existingReviewed = 0, existingPending = 0;
+    for (const slot of frame.basicKindBatch.slots) {
+      if (slot.candidateStatus !== "ok") continue;
+      eligible++;
+      const key = `${this.sessionId}:${frame.snapshot.snapshotRef}:${frame.snapshot.frameRef}:${slot.nodeRef}`;
+      const existing = this.rows.get(key);
+      if (existing) { if (existing.review.status === "unreviewed") existingPending++; else existingReviewed++; continue; }
+      this.put(frame, slot.nodeRef, null); collected++;
+    }
+    return { eligible, eligibleUnknown: 0, collected, existingReviewed, existingPending };
   }
   stats(): BrowserCaptureStats {
     const counts = { total: this.rows.size, verified: 0, unreviewed: 0, ambiguous: 0, rejected: 0 };

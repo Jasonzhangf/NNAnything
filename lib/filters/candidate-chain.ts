@@ -83,6 +83,52 @@ function intersection(a: Rect, b: Rect): Rect {
   return { x, y, width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - x), height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y) };
 }
 
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+function declaredKeyboardFocus(node: ObservationNode): boolean {
+  const raw = node.attributes.tabindex;
+  if (typeof raw === "number") return Number.isInteger(raw) && raw >= 0;
+  if (typeof raw !== "string") return false;
+  const text = raw.trim();
+  if (!/^[+-]?\d+$/.test(text)) return false;
+  const value = Number(text);
+  return Number.isFinite(value) && value >= 0;
+}
+
+function currentViewNonrendered(node: ObservationNode): boolean {
+  const tag = node.tag?.toLowerCase();
+  const view = node.currentView;
+  const htmlBranch = (tag === "div" || tag === "object")
+    && view !== undefined
+    && view.zeroOpacityInCurrentPaintPath === true
+    && view.pointerEventsNone === true
+    && view.activeElementFocus === false
+    && view.focusWithin === false
+    && typeof view.nativeTabIndex === "number"
+    && view.nativeTabIndex < 0
+    && view.contentEditable === false
+    && node.role === null
+    && view.ownLabelPresent === false
+    && view.directTextPresent === false;
+  const svgBranch = (tag === "svg" || tag === "use")
+    && view !== undefined
+    && view.namespaceURI === SVG_NAMESPACE
+    && view.zeroOpacityInCurrentPaintPath === true
+    && view.pointerEventsNone === true
+    && view.activeElementFocus === false
+    && view.focusWithin === false
+    && typeof view.nativeTabIndex === "number"
+    && Number.isInteger(view.nativeTabIndex)
+    && view.nativeTabIndex < 0
+    && !declaredKeyboardFocus(node)
+    && view.editingContextActive === false
+    && node.role === null
+    && view.ownLabelPresent === false
+    && view.directTextPresent === false
+    && view.topLayer === false;
+  return htmlBranch || svgBranch;
+}
+
 function geometry(slot: CandidateSlot, node: ObservationNode, area: Rect, outside: string): CandidateSlot {
   const evidence: CandidateSlot["evidence"] = {
     boundingBoxIntersection: node.rect === null ? "unassessed" : intersectsPositive(node.rect, area) ? "positive" : "none",
@@ -142,7 +188,10 @@ export function applyCandidateStage(batch: CandidateBatch, focus: FocusSpec, sta
     if (slot.status !== "ok") return slot;
     const node = nodes.get(slot.nodeRef);
     if (!node) return verdict(slot, "unknown", "missing_node_ref");
-    if (stage === "viewport") return geometry(slot, node, batch.observation.viewport, "outside_viewport");
+    if (stage === "viewport") {
+      if (currentViewNonrendered(node)) return verdict(slot, "filtered_out", "current_view_nonrendered");
+      return geometry(slot, node, batch.observation.viewport, "outside_viewport");
+    }
     if (stage === "focus") {
       if (focus.within !== undefined && !ancestors(node, nodes).some(ancestor => ancestor.nodeRef === focus.within)) return verdict(slot, "filtered_out", "outside_focus");
       return focus.region === undefined ? slot : geometry(slot, node, intersection(batch.observation.viewport, focus.region), "outside_focus");

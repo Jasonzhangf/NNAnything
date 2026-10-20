@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Finite native SVG USE boundary fixture</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #475569;
+      --line: #cbd5e1;
+      --surface: #ffffff;
+      --target: #ef4444;
+      --blocker: #2563eb;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--surface);
+      color: var(--ink);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      min-width: 1280px;
+      min-height: 720px;
+    }
+
+    header {
+      position: absolute;
+      inset: 0 0 auto;
+      height: 56px;
+      padding: 7px 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 19px;
+      letter-spacing: 0;
+    }
+
+    header p {
+      margin: 1px 0 0;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 14px;
+    }
+
+    .page-controls {
+      position: absolute;
+      right: 8px;
+      top: 13px;
+      display: flex;
+      gap: 6px;
+    }
+
+    .page-controls button {
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid #334155;
+      border-radius: 5px;
+      background: #ffffff;
+      color: #172033;
+      font: 600 11px/16px ui-sans-serif, system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    .page-controls button:first-child {
+      background: #172033;
+      color: #ffffff;
+    }
+
+    .grid {
+      position: absolute;
+      left: 8px;
+      top: 56px;
+      display: grid;
+      grid-template-columns: repeat(4, 316px);
+      grid-template-rows: repeat(3, 212px);
+    }
+
+    .scene {
+      position: relative;
+      width: 316px;
+      height: 212px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .scene h2 {
+      position: absolute;
+      left: 6px;
+      top: 4px;
+      margin: 0;
+      max-width: 284px;
+      color: var(--ink);
+      font-size: 11px;
+      line-height: 14px;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .scene-number {
+      position: absolute;
+      right: 5px;
+      top: 4px;
+      color: var(--muted);
+      font: 700 10px/14px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .root-viewport {
+      position: absolute;
+      width: 24px;
+      height: 24px;
+      background: #ffffff;
+    }
+
+    .test-root {
+      display: block;
+      width: 24px;
+      height: 24px;
+      background: transparent;
+      transform-origin: center;
+    }
+
+    .root-hidden {
+      overflow: hidden;
+      overflow-clip-margin: content-box;
+    }
+
+    .root-visible {
+      overflow: visible;
+    }
+
+    .caption {
+      position: absolute;
+      color: var(--muted);
+      font: 600 9px/11px ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: nowrap;
+    }
+
+    .admission {
+      position: absolute;
+      left: 6px;
+      bottom: 4px;
+      max-width: 302px;
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 12px;
+      white-space: nowrap;
+    }
+
+    .opaque-blocker {
+      position: absolute;
+      z-index: 5;
+      display: block;
+      background: var(--blocker);
+    }
+
+    .full-root-blocker {
+      left: 0;
+      top: 0;
+      width: 24px;
+      height: 24px;
+      pointer-events: none;
+    }
+
+    .bcr-blocker {
+      left: 16px;
+      top: 8px;
+      width: 18px;
+      height: 8px;
+      pointer-events: none;
+    }
+
+    .partial-auto {
+      left: 0;
+      top: 0;
+      width: 10px;
+      height: 24px;
+      pointer-events: auto;
+    }
+
+    .partial-none {
+      left: 0;
+      top: 0;
+      width: 10px;
+      height: 24px;
+      pointer-events: none;
+    }
+
+    .root-filter {
+      filter: drop-shadow(14px 0 0 var(--target));
+    }
+
+    .root-shadow {
+      box-shadow: 14px 0 0 0 var(--blocker);
+    }
+
+    .root-outline {
+      outline: 3px solid var(--blocker);
+      outline-offset: 4px;
+    }
+
+    .root-translate-scale {
+      transform: translateX(4px) scale(1.25);
+    }
+
+    .root-reflect {
+      transform: scaleX(-1);
+    }
+
+    .root-multifragment {
+      -webkit-mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000);
+      -webkit-mask-position: 1px 0, 15px 0;
+      -webkit-mask-size: 8px 24px, 8px 24px;
+      -webkit-mask-repeat: no-repeat;
+      mask-image: linear-gradient(#000, #000), linear-gradient(#000, #000);
+      mask-position: 1px 0, 15px 0;
+      mask-size: 8px 24px, 8px 24px;
+      mask-repeat: no-repeat;
+    }
+
+    .use-red {
+      color: var(--target);
+    }
+
+    .fo-target {
+      width: 60px;
+      height: 12px;
+      background: var(--target);
+    }
+
+    .top-popover-host {
+      width: 1px;
+      height: 1px;
+      overflow: visible;
+    }
+
+    #g9-popover {
+      position: fixed;
+      left: 24px;
+      top: 620px;
+      width: 46px;
+      height: 10px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: var(--target);
+      color: var(--target);
+    }
+
+    #probe-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      display: none;
+      pointer-events: none;
+    }
+
+    #probe-layer.visible {
+      display: block;
+    }
+
+    .probe-marker {
+      position: fixed;
+      width: 7px;
+      height: 7px;
+      border: 1px solid #0f172a;
+      background: transparent;
+      transform: translate(-3px, -3px);
+    }
+
+    .probe-marker::after {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 0;
+      width: 1px;
+      height: 5px;
+      background: #0f172a;
+    }
+
+    #result-host {
+      position: fixed;
+      left: 8px;
+      bottom: 4px;
+      z-index: 100;
+      width: 620px;
+      min-height: 20px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Finite native SVG USE boundary fixture</h1>
+    <p>1280x720 CSS-pixel scene. Red is the target witness. Blue is the optional opaque blocker.</p>
+    <div class="page-controls">
+      <button id="measure-all" type="button">Measure all</button>
+      <button id="show-probes" type="button" aria-pressed="false">Show probes</button>
+    </div>
+  </header>
+
+  <svg id="fixture-defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="g1-source" overflow="visible">
+        <path d="M-26 -18 L54 40 L-20 44 Z" fill="#ef4444"></path>
+        <path d="M8 3 H36 V21 H8 Z" fill="#ef4444"></path>
+      </symbol>
+
+      <symbol id="g2-source" overflow="visible">
+        <path d="M-8 12 H40" fill="none" stroke="currentColor" stroke-linecap="butt"></path>
+      </symbol>
+
+      <filter id="g3-soft" filterUnits="userSpaceOnUse" x="-24" y="-24" width="80" height="72">
+        <feGaussianBlur stdDeviation="2"></feGaussianBlur>
+      </filter>
+      <marker id="g3-arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M0 0 L12 6 L0 12 Z" fill="#ef4444"></path>
+      </marker>
+      <symbol id="g3-source" overflow="visible">
+        <path d="M-12 12 H38" fill="none" stroke="#ef4444" stroke-width="6"
+          filter="url(#g3-soft)" marker-end="url(#g3-arrow)"></path>
+      </symbol>
+
+      <symbol id="g5-source">
+        <rect x="4" y="4" width="16" height="16" fill="#ef4444"></rect>
+      </symbol>
+
+      <symbol id="g10-source" overflow="visible">
+        <rect x="16" y="8" width="18" height="8" fill="#ef4444"
+          stroke="#ef4444" stroke-width="10"></rect>
+      </symbol>
+      <symbol id="g10-path-source" overflow="visible">
+        <path d="M16 8H34V16H16Z" fill="#ef4444"
+          stroke="#ef4444" stroke-width="10"></path>
+      </symbol>
+    </defs>
+  </svg>
+
+  <main class="grid" aria-label="SVG USE boundary scenes">
+    <section class="scene" data-scene="1">
+      <h2>Local USE: extreme multipath</h2>
+      <span class="scene-number">01</span>
+      <div class="root-viewport" data-viewport data-root-id="g1-hidden" style="left:72px;top:70px">
+        <svg id="g1-hidden" class="test-root root-hidden use-red" data-scene="1" data-root-id="g1-hidden"
+          data-mode="hidden" data-domain="local-symbol-multipath" data-admission="candidate"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12|outside-bottom:12:34"
+          overflow="hidden">
+          <use href="#g1-source"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:72px;top:98px">HIDDEN</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g1-visible" style="left:184px;top:70px">
+        <svg id="g1-visible" class="test-root root-visible use-red" data-scene="1" data-root-id="g1-visible"
+          data-mode="visible" data-domain="local-symbol-multipath" data-admission="candidate"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12|outside-bottom:12:34"
+          overflow="visible">
+          <use href="#g1-source"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:98px">VISIBLE</span>
+      <span class="admission">candidate only; native paint proof required</span>
+    </section>
+
+    <section class="scene" data-scene="2">
+      <h2>Inherited stroke / currentColor</h2>
+      <span class="scene-number">02</span>
+      <div class="root-viewport" data-viewport data-root-id="g2-hidden" style="left:72px;top:70px">
+        <svg id="g2-hidden" class="test-root root-hidden" data-scene="2" data-root-id="g2-hidden"
+          data-mode="hidden" data-domain="same-source-different-use" data-admission="candidate"
+          data-probes="inside:20:12|outside-right:34:12" overflow="hidden">
+          <use href="#g2-source" x="0" y="0" stroke-width="3" color="#ef4444"></use>
+          <use href="#g2-source" x="0" y="12" stroke-width="8" color="#0f766e"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:72px;top:98px">HIDDEN</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g2-visible" style="left:184px;top:70px">
+        <svg id="g2-visible" class="test-root root-visible" data-scene="2" data-root-id="g2-visible"
+          data-mode="visible" data-domain="same-source-different-use" data-admission="candidate"
+          data-probes="inside:20:12|outside-right:34:12" overflow="visible">
+          <use href="#g2-source" x="0" y="0" stroke-width="3" color="#ef4444"></use>
+          <use href="#g2-source" x="0" y="12" stroke-width="8" color="#0f766e"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:98px">VISIBLE</span>
+      <span class="admission">red arm and dark inherited stroke are distinct instance facts</span>
+    </section>
+
+    <section class="scene" data-scene="3">
+      <h2>Internal filter + marker</h2>
+      <span class="scene-number">03</span>
+      <div class="root-viewport" data-viewport data-root-id="g3-hidden" style="left:72px;top:70px">
+        <svg id="g3-hidden" class="test-root root-hidden" data-scene="3" data-root-id="g3-hidden"
+          data-mode="hidden" data-domain="internal-filter-marker" data-admission="candidate"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12"
+          overflow="hidden">
+          <use href="#g3-source"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:72px;top:98px">HIDDEN</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g3-visible" style="left:184px;top:70px">
+        <svg id="g3-visible" class="test-root root-visible" data-scene="3" data-root-id="g3-visible"
+          data-mode="visible" data-domain="internal-filter-marker" data-admission="candidate"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12"
+          overflow="visible">
+          <use href="#g3-source"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:98px">VISIBLE</span>
+      <span class="admission">candidate only; internal effects must still be root-clipped</span>
+    </section>
+
+    <section class="scene" data-scene="4">
+      <h2>Root effects: inadmissible</h2>
+      <span class="scene-number">04</span>
+      <div class="root-viewport" data-viewport data-root-id="g4-filter" style="left:32px;top:88px">
+        <svg id="g4-filter" class="test-root root-hidden root-filter use-red" data-scene="4" data-root-id="g4-filter"
+          data-mode="hidden-root-filter" data-domain="root-filter" data-admission="unsupported"
+          data-probes="inside:12:12|outside-right:34:12" overflow="hidden">
+          <rect x="6" y="6" width="30" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:32px;top:116px">FILTER</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g4-shadow" style="left:104px;top:88px">
+        <svg id="g4-shadow" class="test-root root-hidden root-shadow use-red" data-scene="4" data-root-id="g4-shadow"
+          data-mode="hidden-root-shadow" data-domain="root-shadow" data-admission="unsupported"
+          data-probes="inside:12:12|outside-right:34:12" overflow="hidden">
+          <rect x="6" y="6" width="30" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:104px;top:116px">SHADOW</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g4-outline" style="left:184px;top:88px">
+        <svg id="g4-outline" class="test-root root-hidden root-outline use-red" data-scene="4" data-root-id="g4-outline"
+          data-mode="hidden-root-outline" data-domain="root-outline" data-admission="unsupported"
+          data-probes="inside:12:12|outside-right:34:12" overflow="hidden">
+          <rect x="6" y="6" width="30" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:116px">OUTLINE</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g4-control" style="left:256px;top:88px">
+        <svg id="g4-control" class="test-root root-visible use-red" data-scene="4" data-root-id="g4-control"
+          data-mode="visible-control" data-domain="no-root-effect" data-admission="control"
+          data-probes="inside:12:12|outside-right:34:12" overflow="visible">
+          <rect x="6" y="6" width="30" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:256px;top:116px">CONTROL</span>
+      <span class="admission">NOT ADMITTED: root paint can extend after clipping</span>
+    </section>
+
+    <section class="scene" data-scene="5">
+      <h2>Internal transform</h2>
+      <span class="scene-number">05</span>
+      <div class="root-viewport" data-viewport data-root-id="g5-hidden" style="left:72px;top:70px">
+        <svg id="g5-hidden" class="test-root root-hidden use-red" data-scene="5" data-root-id="g5-hidden"
+          data-mode="hidden" data-domain="internal-transform" data-admission="candidate"
+          data-probes="inside-right:20:12|outside-right:34:12" overflow="hidden">
+          <g transform="translate(14 0) scale(1.2)">
+            <use href="#g5-source"></use>
+          </g>
+        </svg>
+      </div>
+      <span class="caption" style="left:72px;top:98px">HIDDEN</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g5-visible" style="left:184px;top:70px">
+        <svg id="g5-visible" class="test-root root-visible use-red" data-scene="5" data-root-id="g5-visible"
+          data-mode="visible" data-domain="internal-transform" data-admission="candidate"
+          data-probes="inside-right:20:12|outside-right:34:12" overflow="visible">
+          <g transform="translate(14 0) scale(1.2)">
+            <use href="#g5-source"></use>
+          </g>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:98px">VISIBLE</span>
+      <span class="admission">candidate only; no instance CTM reconstruction required</span>
+    </section>
+
+    <section class="scene" data-scene="6">
+      <h2>ViewBox letterbox</h2>
+      <span class="scene-number">06</span>
+      <div class="root-viewport" data-viewport data-root-id="g6-hidden" style="left:72px;top:70px">
+        <svg id="g6-hidden" class="test-root root-hidden" data-scene="6" data-root-id="g6-hidden"
+          data-mode="hidden" data-domain="viewbox-versus-physical" data-admission="candidate"
+          data-probes="inside:12:12|outside-right:34:12|outside-bottom:12:34"
+          viewBox="-60 -36 120 72" preserveAspectRatio="xMidYMid meet" overflow="hidden">
+          <rect x="-60" y="-36" width="120" height="72" fill="#f1f5f9"></rect>
+          <path d="M-60 0 H120" fill="none" stroke="#ef4444" stroke-width="20"></path>
+          <path d="M0 -72 V108" fill="none" stroke="#ef4444" stroke-width="20"></path>
+        </svg>
+      </div>
+      <span class="caption" style="left:72px;top:98px">HIDDEN</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g6-visible" style="left:184px;top:70px">
+        <svg id="g6-visible" class="test-root root-visible" data-scene="6" data-root-id="g6-visible"
+          data-mode="visible" data-domain="viewbox-versus-physical" data-admission="candidate"
+          data-probes="inside:12:12|outside-right:34:12|outside-bottom:12:34"
+          viewBox="-60 -36 120 72" preserveAspectRatio="xMidYMid meet" overflow="visible">
+          <rect x="-60" y="-36" width="120" height="72" fill="#f1f5f9"></rect>
+          <path d="M-60 0 H120" fill="none" stroke="#ef4444" stroke-width="20"></path>
+          <path d="M0 -72 V108" fill="none" stroke="#ef4444" stroke-width="20"></path>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:98px">VISIBLE</span>
+      <span class="admission">candidate only; physical viewport differs from viewBox</span>
+    </section>
+
+    <section class="scene" data-scene="7">
+      <h2>External: loaded / 404</h2>
+      <span class="scene-number">07</span>
+      <div class="root-viewport" data-viewport data-root-id="g7-loaded-hidden" style="left:30px;top:76px">
+        <svg id="g7-loaded-hidden" class="test-root root-hidden" data-scene="7" data-root-id="g7-loaded-hidden"
+          data-mode="hidden-loaded" data-domain="same-origin-external" data-admission="candidate-resource-unknown"
+          data-resource-status="loaded-request-candidate-not-success"
+          data-probes="inside:12:12|outside-right:34:12" overflow="hidden">
+          <use href="svg-use-boundary.svg#external-basic"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:30px;top:104px">LOAD H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g7-loaded-visible" style="left:100px;top:76px">
+        <svg id="g7-loaded-visible" class="test-root root-visible" data-scene="7" data-root-id="g7-loaded-visible"
+          data-mode="visible-loaded" data-domain="same-origin-external" data-admission="candidate-resource-unknown"
+          data-resource-status="loaded-request-candidate-not-success"
+          data-probes="inside:12:12|outside-right:34:12" overflow="visible">
+          <use href="svg-use-boundary.svg#external-basic"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:100px;top:104px">LOAD V</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g7-missing-hidden" style="left:196px;top:76px">
+        <svg id="g7-missing-hidden" class="test-root root-hidden" data-scene="7" data-root-id="g7-missing-hidden"
+          data-mode="hidden-missing" data-domain="same-origin-external" data-admission="resource-unknown"
+          data-resource-status="missing-resource-unknown-not-success"
+          data-probes="inside:12:12|outside-right:34:12" overflow="hidden">
+          <use href="svg-use-boundary-missing.svg#missing"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:196px;top:104px">404 H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g7-missing-visible" style="left:266px;top:76px">
+        <svg id="g7-missing-visible" class="test-root root-visible" data-scene="7" data-root-id="g7-missing-visible"
+          data-mode="visible-missing" data-domain="same-origin-external" data-admission="resource-unknown"
+          data-resource-status="missing-resource-unknown-not-success"
+          data-probes="inside:12:12|outside-right:34:12" overflow="visible">
+          <use href="svg-use-boundary-missing.svg#missing"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:266px;top:104px">404 V</span>
+      <span class="admission">loaded is candidate; 404 remains resource unknown / not success</span>
+    </section>
+
+    <section class="scene" data-scene="8">
+      <h2>External: multipath + filter</h2>
+      <span class="scene-number">08</span>
+      <div class="root-viewport" data-viewport data-root-id="g8-hidden" style="left:72px;top:70px">
+        <svg id="g8-hidden" class="test-root root-hidden" data-scene="8" data-root-id="g8-hidden"
+          data-mode="hidden" data-domain="external-multipath-filter" data-admission="candidate-resource-unknown"
+          data-resource-status="loaded-request-candidate-not-success"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12" overflow="hidden">
+          <use href="svg-use-boundary.svg#external-effect"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:72px;top:98px">HIDDEN</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g8-visible" style="left:184px;top:70px">
+        <svg id="g8-visible" class="test-root root-visible" data-scene="8" data-root-id="g8-visible"
+          data-mode="visible" data-domain="external-multipath-filter" data-admission="candidate-resource-unknown"
+          data-resource-status="loaded-request-candidate-not-success"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12" overflow="visible">
+          <use href="svg-use-boundary.svg#external-effect"></use>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:98px">VISIBLE</span>
+      <span class="admission">candidate only after loaded-resource paint is observed</span>
+    </section>
+
+    <section class="scene" data-scene="9">
+      <h2>foreignObject: ordinary / top layer</h2>
+      <span class="scene-number">09</span>
+      <div class="root-viewport" data-viewport data-root-id="g9-fo-hidden" style="left:72px;top:64px">
+        <svg id="g9-fo-hidden" class="test-root root-hidden" data-scene="9" data-root-id="g9-fo-hidden"
+          data-mode="hidden-ordinary-fo" data-domain="ordinary-foreignObject" data-admission="candidate-foreignObject-risk"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12" overflow="hidden">
+          <foreignObject x="-18" y="4" width="60" height="16" overflow="visible">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="fo-target"></div>
+          </foreignObject>
+        </svg>
+      </div>
+      <span class="caption" style="left:72px;top:92px">FO H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g9-fo-visible" style="left:184px;top:64px">
+        <svg id="g9-fo-visible" class="test-root root-visible" data-scene="9" data-root-id="g9-fo-visible"
+          data-mode="visible-ordinary-fo" data-domain="ordinary-foreignObject" data-admission="candidate-foreignObject-risk"
+          data-probes="inside:12:12|outside-right:34:12|outside-left:-10:12" overflow="visible">
+          <foreignObject x="-18" y="4" width="60" height="16" overflow="visible">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="fo-target"></div>
+          </foreignObject>
+        </svg>
+      </div>
+      <span class="caption" style="left:184px;top:92px">FO V</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g9-top-hidden" style="left:250px;top:128px">
+        <svg id="g9-top-hidden" class="test-root root-hidden" data-scene="9" data-root-id="g9-top-hidden"
+          data-mode="hidden-top-layer-diagnostic" data-domain="top-layer-foreignObject" data-admission="unsupported"
+          data-probes="inside:12:12|escaped:-234:12" overflow="hidden">
+          <foreignObject x="0" y="0" width="24" height="24" overflow="visible">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="top-popover-host">
+              <div id="g9-popover" popover="manual"></div>
+            </div>
+          </foreignObject>
+        </svg>
+      </div>
+      <span class="caption" style="left:250px;top:156px">TOP H</span>
+      <span class="admission">top-layer report is diagnostic only; NOT ADMITTED</span>
+    </section>
+
+    <section class="scene" data-scene="10">
+      <h2>Blocker: root domain / USE BCR</h2>
+      <span class="scene-number">10</span>
+      <div class="root-viewport" data-viewport data-root-id="g10-full-hidden" style="left:72px;top:70px">
+        <svg id="g10-full-hidden" class="test-root root-hidden use-red" data-scene="10" data-root-id="g10-full-hidden"
+          data-mode="hidden-full-root-blocker" data-domain="full-root-domain" data-admission="candidate"
+          data-probes="inside:12:12|outside-right:36:12" overflow="hidden">
+          <use href="#g10-path-source"></use>
+        </svg>
+        <div id="g10-full-blocker" class="opaque-blocker full-root-blocker" data-blocker="full-root-domain"></div>
+      </div>
+      <span class="caption" style="left:72px;top:98px">FULL H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g10-bcr-visible" style="left:184px;top:70px">
+        <svg id="g10-bcr-visible" class="test-root root-visible use-red" data-scene="10" data-root-id="g10-bcr-visible"
+          data-mode="visible-use-bcr-blocker" data-domain="use-bcr-only" data-admission="negative-control"
+          data-probes="inside:12:12|stroke-left:13:12|outside-right:36:12" overflow="visible">
+          <use href="#g10-path-source"></use>
+        </svg>
+        <div id="g10-bcr-blocker" class="opaque-blocker bcr-blocker" data-blocker="use-bcr-only"></div>
+      </div>
+      <span class="caption" style="left:184px;top:98px">BCR V</span>
+      <span class="admission">full V vs measured USE BCR; stroke outside BCR must stay visible</span>
+    </section>
+
+    <section class="scene" data-scene="11">
+      <h2>Pointer auto / none, partial</h2>
+      <span class="scene-number">11</span>
+      <div class="root-viewport" data-viewport data-root-id="g11-auto-hidden" style="left:28px;top:82px">
+        <svg id="g11-auto-hidden" class="test-root root-hidden use-red" data-scene="11" data-root-id="g11-auto-hidden"
+          data-mode="hidden-pointer-auto" data-domain="partial-blocker-auto" data-admission="candidate-hit-risk"
+          data-probes="inside-left:4:12|inside-right:20:12|outside-right:34:12"
+          data-hit-probes="blocked-left:4:12|outside-right:34:12" overflow="hidden">
+          <rect x="4" y="6" width="32" height="12" fill="#ef4444"></rect>
+        </svg>
+        <div class="opaque-blocker partial-auto" data-blocker="partial-pointer-auto"></div>
+      </div>
+      <span class="caption" style="left:28px;top:110px">AUTO H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g11-auto-visible" style="left:104px;top:82px">
+        <svg id="g11-auto-visible" class="test-root root-visible use-red" data-scene="11" data-root-id="g11-auto-visible"
+          data-mode="visible-pointer-auto" data-domain="partial-blocker-auto" data-admission="candidate-hit-risk"
+          data-probes="inside-left:4:12|inside-right:20:12|outside-right:34:12"
+          data-hit-probes="blocked-left:4:12|outside-right:34:12" overflow="visible">
+          <rect x="4" y="6" width="32" height="12" fill="#ef4444"></rect>
+        </svg>
+        <div class="opaque-blocker partial-auto" data-blocker="partial-pointer-auto"></div>
+      </div>
+      <span class="caption" style="left:104px;top:110px">AUTO V</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g11-none-hidden" style="left:184px;top:82px">
+        <svg id="g11-none-hidden" class="test-root root-hidden use-red" data-scene="11" data-root-id="g11-none-hidden"
+          data-mode="hidden-pointer-none" data-domain="partial-blocker-none" data-admission="candidate-hit-risk"
+          data-probes="inside-left:4:12|inside-right:20:12|outside-right:34:12"
+          data-hit-probes="none-left:4:12|outside-right:34:12" overflow="hidden">
+          <rect x="4" y="6" width="32" height="12" fill="#ef4444"></rect>
+        </svg>
+        <div class="opaque-blocker partial-none" data-blocker="partial-pointer-none"></div>
+      </div>
+      <span class="caption" style="left:184px;top:110px">NONE H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g11-none-visible" style="left:260px;top:82px">
+        <svg id="g11-none-visible" class="test-root root-visible use-red" data-scene="11" data-root-id="g11-none-visible"
+          data-mode="visible-pointer-none" data-domain="partial-blocker-none" data-admission="candidate-hit-risk"
+          data-probes="inside-left:4:12|inside-right:20:12|outside-right:34:12"
+          data-hit-probes="none-left:4:12|outside-right:34:12" overflow="visible">
+          <rect x="4" y="6" width="32" height="12" fill="#ef4444"></rect>
+        </svg>
+        <div class="opaque-blocker partial-none" data-blocker="partial-pointer-none"></div>
+      </div>
+      <span class="caption" style="left:260px;top:110px">NONE V</span>
+      <span class="admission">paint and hit stacks remain separate facts</span>
+    </section>
+
+    <section class="scene" data-scene="12">
+      <h2>Unsupported mappings</h2>
+      <span class="scene-number">12</span>
+      <div class="root-viewport" data-viewport data-root-id="g12-transform-hidden" style="left:40px;top:62px">
+        <svg id="g12-transform-hidden" class="test-root root-hidden root-translate-scale use-red"
+          data-scene="12" data-root-id="g12-transform-hidden" data-mode="hidden-root-transform"
+          data-domain="root-transform" data-admission="unsupported"
+          data-probes="inside:12:12|outside-right:38:12" overflow="hidden">
+          <rect x="2" y="6" width="36" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:40px;top:47px">TRANSFORM H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g12-transform-visible" style="left:40px;top:124px">
+        <svg id="g12-transform-visible" class="test-root root-visible root-translate-scale use-red"
+          data-scene="12" data-root-id="g12-transform-visible" data-mode="visible-root-transform"
+          data-domain="root-transform" data-admission="control"
+          data-probes="inside:12:12|outside-right:38:12" overflow="visible">
+          <rect x="2" y="6" width="36" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:40px;top:151px">TRANSFORM V</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g12-fragment-hidden" style="left:146px;top:62px">
+        <svg id="g12-fragment-hidden" class="test-root root-hidden root-multifragment use-red"
+          data-scene="12" data-root-id="g12-fragment-hidden" data-mode="hidden-multifragment"
+          data-domain="root-multifragment" data-admission="unsupported"
+          data-probes="fragment-left:4:12|fragment-gap:12:12|fragment-right:20:12" overflow="hidden">
+          <rect x="2" y="6" width="36" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:146px;top:47px">FRAGMENT H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g12-fragment-visible" style="left:146px;top:124px">
+        <svg id="g12-fragment-visible" class="test-root root-visible use-red"
+          data-scene="12" data-root-id="g12-fragment-visible" data-mode="visible-baseline"
+          data-domain="root-multifragment" data-admission="control"
+          data-probes="fragment-left:4:12|fragment-gap:12:12|fragment-right:20:12" overflow="visible">
+          <rect x="2" y="6" width="36" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:146px;top:151px">BASELINE V</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g12-reflect-hidden" style="left:252px;top:62px">
+        <svg id="g12-reflect-hidden" class="test-root root-hidden root-reflect use-red"
+          data-scene="12" data-root-id="g12-reflect-hidden" data-mode="hidden-root-reflection"
+          data-domain="root-reflection" data-admission="unsupported"
+          data-probes="inside-right:20:12|outside-left:-10:12" overflow="hidden">
+          <rect x="2" y="6" width="36" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:252px;top:47px">REFLECT H</span>
+
+      <div class="root-viewport" data-viewport data-root-id="g12-reflect-visible" style="left:252px;top:124px">
+        <svg id="g12-reflect-visible" class="test-root root-visible root-reflect use-red"
+          data-scene="12" data-root-id="g12-reflect-visible" data-mode="visible-root-reflection"
+          data-domain="root-reflection" data-admission="control"
+          data-probes="inside-right:20:12|outside-left:-10:12" overflow="visible">
+          <rect x="2" y="6" width="36" height="12" fill="#ef4444"></rect>
+        </svg>
+      </div>
+      <span class="caption" style="left:252px;top:151px">REFLECT V</span>
+      <span class="admission">NOT ADMITTED: no single physical viewport is assumed</span>
+    </section>
+  </main>
+
+  <div id="probe-layer" aria-hidden="true"></div>
+  <div id="result-host" aria-label="isolated fixture measurement output"></div>
+  <script src="svg-use-boundary.js"></script>
+</body>
+</html>
