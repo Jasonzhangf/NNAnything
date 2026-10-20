@@ -1,6 +1,6 @@
 # file.property 最小单元训练设计
 
-状态：2026-10-19 设计完成候选；没有生成样本、运行拟合或修改代码。本页完成普通路径/目录/文件合同中的训练责任、特征/数值连线、分区和验证设计；单元不能因本页存在就标为已训练。所有命令/操作选择只使用[文件系统训练合同](cli-filesystem-training.md)§2的同一`cli.command-policy.v1`共享矩阵；P1-P6只是样本/统计/效果分组。B对象关系与R用途关系是独立概念模型；C组合下一步若选命令，复用同一共享矩阵。特殊文件只训练观测/拒绝关系，不学习未定义设备协议。语义和命令方案分别沿 [属性合同](cli-filesystem-semantics.md) 与 [固定调用设计](cli-command-design.md)。
+状态：2026-10-19 设计合同；P3 的 sessionCwd observed/equals 与 directory.entries observed 已接入运行入口并真实拟合。本页其余 P1/P2/P4/P5/P6、B 与 R 仍为设计，单元不能因本页存在就标为已训练。所有命令/操作选择只使用[文件系统训练合同](cli-filesystem-training.md)§2的同一`cli.command-policy.v1`共享矩阵；P1-P6只是样本/统计/效果分组。B对象关系与R用途关系是独立概念模型；C组合下一步若选命令，复用同一共享矩阵。特殊文件只训练观测/拒绝关系，不学习未定义设备协议。语义和命令方案分别沿 [属性合同](cli-filesystem-semantics.md) 与 [固定调用设计](cli-command-design.md)。
 
 ## 1. 四元素与分工
 
@@ -33,7 +33,7 @@ sessionCwd关系复用CWD设计 `[1,sameSession,hasObservation]` 的2×3参数�
 
 不训练任意命令生成器，也不为每个操作族建立独立profile。所有命令/操作选择由[文件系统训练合同](cli-filesystem-training.md)§2.1-2.4的同一`cli.command-policy.v1`共享矩阵承担：同一head词表、同一wire顺序、同一softmax与CE。P1-P6不是部署单元，只是样本、统计与效果分组；prepare不按P族路由到独立selector，不按族过滤logits或硬mask，不保存P族候选。B对象关系与R用途是两个独立概念模型，它们不输出命令head；C组合下一步若选命令，同样使用这一共享矩阵。
 
-当前运行schema只支持`pwd`/`cd`/`ls`，见[文件系统训练合同](cli-filesystem-training.md)§2.1边界；本页的共享矩阵扩展是设计，不是已接入模型。
+当前运行schema登记 P3 的 2 个 property、3 个 predicate、4 个 state 位与 1 个交互项，并同时登记 `unsupported/DEFER/NOOP/pwd/cd/ls` 六个 head，见[文件系统训练合同](cli-filesystem-training.md)§0.1；本页其余 P 组头/块仍是设计，不是已接入模型。
 
 下表只列各P组的样本覆盖与反例重点，不含K、F或参数数，不构成独立矩阵。
 
@@ -199,7 +199,7 @@ P3选择类型配对固定用于train、dev、verification三个分区。每分�
 
 ## 7. DAG、验收与升级闭合
 
-外层推理图为 [cli-file-property](../workflows/cli-file-property.graph.json)，训练图复用 [cli-filesystem-training](../workflows/cli-filesystem-training.graph.json)；合同/反推/分区→训练开发准备与独立验证准备分支→真实拟合→保存候选→回载独立执行→汇总→保存/清理。当前真实训练图与绑定保持`cli.command.*@0.1.0`、8N8E；本页的file.property扩展是设计，不写入真实图，也不新增第二套执行图。B与R是独立概念模型；P与C共用同一`cli.command-policy.v1`共享profile、同一head词表、同一softmax/CE。内部数值连线按共享矩阵注册表构建，外层跨节点不反传。
+外层推理图为 [cli-file-property](../workflows/cli-file-property.graph.json)，训练图复用 [cli-filesystem-training](../workflows/cli-filesystem-training.graph.json)；合同/反推/分区→训练开发准备与独立验证准备分支→真实拟合→保存候选→回载独立执行→汇总→保存/清理。当前真实训练图为`cli.command.*@0.2.0`、8N8E，推理图为`cli-file-property@0.2.0`、6N5E；P3 已接入，其余 P 组与 B/R 仍是设计，不写入真实图，也不新增第二套执行图。B与R是独立概念模型；P与C共用同一`cli.command-policy.v1`共享profile、同一head词表、同一softmax/CE。内部数值连线按共享矩阵注册表构建，外层跨节点不反传。
 
 验收分别统计：按head、按属性、按P1-P6样本分组的允许集合正确、参数绑定、真实属性效果及满足度、错误/unknown保持、副作用、保存回载、旧路径/PWD黄金回归。P1-P6统计分开报告，但selector只有一个profile；不得用分组统计掩盖某组退化。精确属性验证与必要错误/副作用用例全部满足，旧黄金零回归；角色验证必须保留未知/冲突，不以覆盖增加替代准确率；候选作用于新场景有明确修复才可沿既有升级条件采用。不能用loss下降、命令退出0或平均指标掩盖一项必要失败。
 

@@ -1,14 +1,14 @@
 # 文件语义语言：精确单操作与首个模糊训练设计
 
-状态：设计态，2026-10-19。起点为 macOS/POSIX。本文定义语义语言，不增加实现、模型、训练数据或运行入口。当前已实现的 cwd/path/attributes 观测仍以 [CLI M0 合同](cli-foundation.md) 为准。
+状态：语义目录设计，2026-10-19。起点为 macOS/POSIX。本文定义完整操作与组合语言；当前运行API只实现typed `file.property`的PWD/CD/LS及控制结果，其余条目仍是设计，不扩大运行授权。基础cwd/path/attributes观测以[CLI M0合同](cli-foundation.md)为准。
 
 用户顺序：先总结精确单操作，再设计一个最低层次的模糊任务。自然语言识别、help 文档学习、组合规划与“进入目录”的完整执行均不属于本轮。
 
 后续用户将实施起点进一步收敛为逐能力训练，先完成精确 `path.resolve(cwd,input)` 的函数表达。已实现的流程、样本与首轮实测见 [路径函数训练](cli-path-training.md)。下方目录目标绑定仍为后置设计，不与首项路径训练并行实施。
 
-动作学习的最新方向为 [总体设计1.1](design.md#11-结构化语义的目标与状态推理)：全命令收敛为单一共享命令模型（`cli.command-policy.v1`），模型输出调用序列 `["pwd"]`、`["cd", D]`、`["ls", D]`，由harness分流执行对应固定操作。历史独立 `observe_cwd→pwd` 见[Goal动作训练](cli-goal-training.md)作为基线。当前各命令唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。
+动作学习沿[总体设计1.1](design.md#11-结构化语义的目标与状态推理)：全命令收敛为单一共享命令模型（`cli.command-policy.v1`），当前typed `file.property`切片输出`["pwd"]`、`["cd", D]`、`["ls", D]`，或以`NOOP`、`DEFER`、`unsupported`零执行收束。历史独立`observe_cwd→pwd`见[Goal动作训练](cli-goal-training.md)，只作历史证据。当前各命令唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。
 
-当前训练顺序为统一共享模型的递进增量训练：PWD阶段（4参数）→CD阶段（9参数）→LS阶段（16参数）。旧独立CD/LIST模型合同已退役，其实际执行harness、效果与失败模式保留并迁入共享模型。真实专用目录沙盒、训练/开发/独立验证分区及训练DAG见[文件系统训练合同](cli-filesystem-training.md)。
+当前训练已是统一共享模型的单候选增量拟合：旧4×4按名称迁移到6×14、84参数矩阵，一次拟合PWD/CD/NOOP/DEFER/LS及证据配对，不保存4/9/16参数阶段候选。旧独立CD/LIST模型及旧运行图已退役，其执行harness、效果与失败模式保留并迁入共享模型。真实专用目录沙盒、训练/开发/独立验证分区及训练DAG见[文件系统训练合同](cli-filesystem-training.md)。
 
 2026-10-19 用户要求补齐目录操作，再补文件操作，并明确不零散编辑Goal，统一为 `file.property.xxx`：路径、目录及各文件类型的属性观测或变化是目标，CLI是Action，实际属性是State。本页扩充精确操作与组合目录；四元素、属性键、持久图绑定、训练和缺口见 [file.property核心合同](cli-filesystem-semantics.md)。内容、用途和条件归入属性体系，不各立核心Goal。扩充是设计范围，不扩大当前运行 API，也不授权对真实用户文件执行修改或删除。
 

@@ -1,15 +1,15 @@
 # LIST helper and listing harness contract
 
-Status: implementation contract, 2026-10-19. Stage 3 of the shared command model
-is implemented; the formal shared run and independent verification passed, while
-author full regression, overall review, and integration remain pending. See
-[cli-filesystem-training-results.md](cli-filesystem-training-results.md). This page
-owns the native listing helper, typed listing result format, and test-injection
-boundary. The standalone binary `cli.list-policy.v1` model profile is retired.
-Listing is now Stage 3 of the unified shared command model (`cli.command-policy.v1`),
-invoked as `["ls", D]` and trained via `runCliCommandTraining`. The authoritative
-shared training contract is [cli-filesystem-training.md](cli-filesystem-training.md);
-the simplified call contract is [cli-call-contract.md](cli-call-contract.md).
+Status: implementation contract, 2026-10-19. Listing is the typed
+`file.property.directory.entries` observed slice of the unified
+`cli.command-policy.v1` model. The current 6x14 matrix, real fit, fresh-process
+reload, and author regression are implemented; parent independent verification is
+separate. See [cli-filesystem-training-results.md](cli-filesystem-training-results.md).
+This page owns the native listing helper, typed listing result format, and
+test-injection boundary. The standalone binary `cli.list-policy.v1` profile is
+retired. The authoritative shared training contract is
+[cli-filesystem-training.md](cli-filesystem-training.md); the simplified call
+contract is [cli-call-contract.md](cli-call-contract.md).
 
 ## Shared command policy integration
 
@@ -22,16 +22,18 @@ invocation = ["ls", D]
 
 The profile, sandbox, and session are bound at the policy factory:
 `createCliCommandPolicy({ profile, sandbox, session: S })`. Each call passes
-`step({ goal, state, directory: D })` with
-`goal = { kind: "list_directory", session: S.sessionId, target: absoluteTarget }`
-and `state = { session: S.sessionId, cwdObservation: null, directoryListing: null }`.
-The request has no `resources` or `directories` field. The model does not generate
-arbitrary shell flags, command text, or entry contents. The harness maps
+`step({ goal, satisfactionThreshold, state })` with a typed `file.property` Goal
+whose `property` is `file.property.directory.entries`, `requirement.kind` is
+`observed`, and `target` is a `DirectoryRef` or a legal unbound `DirectoryQuery`.
+The request has no `resources`, `directories`, or separate `directory` field. A
+legal `DirectoryQuery` returns `DEFER` with no executor. The model does not
+generate arbitrary shell flags, command text, or entry contents. The harness maps
 `["ls", D]` to the fixed `directory.list(session, directory)` operation.
 
-Listing never changes the session cwd, revision, or filesystem content. If the
-call fails, or if partial results are returned, the goal remains unmet or
-unverified.
+Listing never changes the session cwd, revision, or filesystem content. A partial
+result remains `unknown/null`; a native or grant failure follows the unified
+`failed/0` or `rejected/0` result, and neither result overwrites a prior complete
+listing.
 
 ## Semantic call and listing result
 
@@ -44,9 +46,10 @@ type SemanticDirectoryListCall = {
 
 The sandbox requires `filesystem.read` and `process.exec`. A directory
 reference must belong to the selected session and scenario. `DirectoryRef.path`
-is relative and resolves against the session cwd at call time; `goal.target`
-must match the bound reference's resolved target. The harness does not retarget.
-The final target must not be a symlink.
+is relative and resolves against the session cwd at call time. The typed Goal
+target and the harness binding use the same `DirectoryRef`; the harness does not
+retarget or accept a precomputed answer field. The final target must not be a
+symlink.
 
 The helper receives exactly one raw directory argument:
 
@@ -78,15 +81,16 @@ that `/bin/ls` text parsing is trained or executed.
 
 ## Public types and native harness exports
 
-The `nnanything/cli-goal` entry exports the listing helper utilities and types:
+The `nnanything/cli-goal` entry exports the shared policy/training API plus the
+listing helper utilities and types:
 
 - `collectDirectoryListing`, `DirectoryListingIo`, `DirectoryListingStats`
 - `DirectoryListing`, `DirectoryListingEntry`, `DirectoryListingError`, `DirectoryListObservation`
 - `validateDirectoryListing`, `directoryListHelperPath`, `runDirectoryListHelper`, `observeDirectoryListing`
 
 Training and policy execution are unified under the shared command entrypoints:
-`createCliCommandPolicy` and `runCliCommandTraining`; the shared fixture helper is
-`makeCliCommandFixture`.
+`createCliCommandPolicy` and `runCliCommandTraining`. The typed request/goal
+helpers and current feature/profile validators are exported from the same entry.
 
 ## Test injection
 

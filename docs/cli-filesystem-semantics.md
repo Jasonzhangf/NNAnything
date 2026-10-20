@@ -1,6 +1,6 @@
 # file.property：Shell 文件属性目标与状态转换
 
-状态：2026-10-19 设计合同，尚无新增运行实现。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
+状态：2026-10-19 设计合同；本轮 PWD/CD/LS 三个 `file.property` 切片已接入统一运行入口。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
 
 ## 1. 唯一目标形式
 
@@ -92,7 +92,7 @@ type Request = {
 | 内容/用途判断 | content.format/role 的指定关系observed；100 | 真实文件证据 → parser或独立模型 → 对照复核真值，保留未知 | 同后缀不同内容、配置示例与生效配置、生成源码角色重叠 |
 | 操作条件 | operation.applicability 对指定操作observed；100 | 类型/状态及声明能力 → 判断 → 独立合同/执行证据核对 | mode当实际权限、设备按普通文件处理、缺测当允许 |
 
-训练复用 [cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。当前图文件及绑定仍是`cli.command.*@0.1.0`共享命令运行版；[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见 [命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
+训练复用[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。当前图文件及绑定是`cli.command.*@0.2.0`单阶段运行版；[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见[命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
 
 每单元按 [project-design](../workflows/project-design.graph.json) 完成四元素、SESE和最小必要性准入，按 [model-evolution](../workflows/model-evolution.graph.json) 自动采样、复核、训练及采用，回归/冲突交大模型裁决。采用条件只引用 [model-evolution.md](model-evolution.md)，不建平行门槛。真实OS效果、动作选择、参数绑定和知识判断分别计分。
 
@@ -100,6 +100,90 @@ type Request = {
 
 目录/路径操作目录已在 cli-semantic-operations.md 2.1补齐，文件操作在2.2补齐；均映射上述属性变化，不扩大 Goal kind。先完成既有CWD/pwd、cd、直接列举，再逐能力接入目录创建/移动/删除/属性/链接及组合，随后接入文件字节读写、复制等。属性判断在真实输入已具备时可独立推进，不必等待无关操作全部完成。
 
-现有 `observe_cwd/set_cwd/list_directory` 是历史实现/设计接口，不在本轮文本修改中直接删除或更改。后续由其owner显式迁移到 file.property 语义并保留原公开入口回归；不新增同义Goal，不声称新合同已在运行入口生效。
+现有 `observe_cwd/set_cwd/list_directory` 旧 Goal 已由本轮迁移显式退役；运行入口拒绝旧 Goal 对象。PWD/CD/LS 只接受本节第6条的 `file.property` typed 请求，不新增同义 Goal。
 
-设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前未实现：本图六个属性算子与绑定、统一四元素请求/结果、扩展对象引用与特殊文件细分、新操作harness、实际训练、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
+设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前已实现：本图六个属性算子与 `cli-file-property` 运行绑定、PWD/CD/LS 的 typed 请求/统一结果、单 profile 显式迁移与真实拟合/回载。当前未实现：B对象查找与训练、P1/P2/P4/P5/P6其余22个操作、特殊文件细分、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
+
+## 6. 当前实施切片：PWD/CD/LS typed 请求与统一结果（2026-10-19）
+
+本节是当前运行实现的准入正文，与 `docs/cli-filesystem-training.md` §0.1、`docs/cli-call-contract.md` §1.1 共同生效。它只覆盖 sessionCwd observed/equals 与 directory.entries observed，不把未来 22 个操作写成已运行。
+
+### 6.1 可导入请求形状
+
+```ts
+type SessionCwdQuery = {
+  kind: "cli.file-query";
+  relation: "sessionCwd";
+  session: SessionRef;
+};
+
+type DirectoryQuery = {
+  kind: "cli.file-query";
+  relation: "entrySelector";
+  scopes: readonly DirectoryScope[];
+  selector: { type: "directory"; name?: string };
+  cardinality: "one";
+};
+
+type CwdGoal = {
+  kind: "file.property";
+  property: "file.property.relation.sessionCwd";
+  target: SessionCwdQuery;
+  requirement:
+    | { kind: "observed"; freshness: "this_run" }
+    | { kind: "equals"; expected: DirectoryRef | DirectoryQuery };
+};
+
+type EntriesGoal = {
+  kind: "file.property";
+  property: "file.property.directory.entries";
+  target: DirectoryRef | DirectoryQuery;
+  requirement: { kind: "observed"; freshness: "this_run" };
+};
+
+type Request = {
+  goal: CwdGoal | EntriesGoal;
+  satisfactionThreshold: number;
+  state: ExplicitFileState;
+};
+```
+
+`SessionRef` 与 `DirectoryRef` 复用 `lib/adapters/cli/filesystem-sandbox.ts` 的 typed 形状。`SessionCwdQuery` 不允许 `path`、`cwd` 或答案字段；`DirectoryRef` 的 `path` 相对当前 session 解析。`DirectoryQuery` 的 `scopes` 是显式数组，`selector.type` 固定为 `directory`，`cardinality` 固定为 `one`。本轮不实现 B 查找，任何合法 `DirectoryQuery` 都形成 typed 未绑定缺口并进入 `DEFER`，不扫描磁盘。
+
+`ExplicitFileState` 保留显式 `session` 与 `cwdObservation`/`directoryListing` 槽位。`CwdKnowledge` 与 `DirectoryKnowledge` 增加 `revision` 与 `sourceRun`，由唯一中性合同 owner 校验；它们不包含 caller 自封的 `trusted` 位。
+
+### 6.2 阈值、证据与受信来源
+
+`satisfactionThreshold` 必填、有限、范围 0..100。实际 `satisfaction` 只取 `0 | 100 | null`，阈值只是最低要求，不替代实际事实。阈值 0 仍要求必要证据；阈值 90 的正常实际值仍是 100；缺必要事实仍是 null。
+
+每次 `.step()` 生成新的 property run 身份。`observed(this_run)` 在动作选择时没有本次证据，必须执行 PWD/LS。`equals` 可复用同一 policy/session 上下文中先前真实观测，但必须同时满足：同一 session、来源真实、当前 revision、物理目录关系成立。策略工厂持有局部观测 authority，只保存该 policy 实际产生的 receipt 标识、revision 与观测对应关系。修改 JSON 中的路径、`sourceRun`、`revision` 或 session 不能取得受信地位。
+
+证据特征分开表达：`knownValue` 表示有合法来源的值可知；`requiredConditionHolds` 表示已知值与要求比较的结果；`hasFreshEvidence` 表示证据当前对本 Goal 适用。过期但来源真实的相等值仍是 `knownValue=1`、`requiredConditionHolds=1`、`hasFreshEvidence=0`，不能 NOOP。未知值使用 `knownValue=0` 与中性 `requiredConditionHolds=0`，不解释成已知 false。
+
+### 6.3 动作表与状态词表
+
+| 输入事实 | 动作与必要结果 |
+| --- | --- |
+| sessionCwd observed，本次尚无证据（无论旧知识是否存在） | `pwd` |
+| directory.entries observed，D 完整（无论旧 listing 是否存在） | `ls` |
+| sessionCwd equals，适用真观测证明已等于 D | `NOOP`；`invocation:null`，零 executor |
+| sessionCwd equals，适用真观测证明不等 | `cd`；提交后以同一 session 的 CD 回执验证 |
+| sessionCwd equals，cwd 未知/过期但 S/D 完整可执行 | `cd`；不因未观测 cwd 一律 DEFER |
+| 已注册 Goal，目录仅为合法未绑定 `DirectoryQuery` | `DEFER`；typed `binding_unresolved`，零 executor |
+| 结构合法但本轮未注册的 property/predicate | `unsupported`；零 executor，`satisfaction:null` |
+
+统一顶层 `status` 词表为 `achieved | unmet | unknown | rejected | failed`。旧公开 `unverified` 分支退役。`achieved` 只在必要事实完整且实际 satisfaction=100；`unmet` 表示必要事实已证伪、actual=0；`unknown` 表示必要证据不足、actual=null；`rejected` 表示 typed/guard/绑定拒绝并保留具体原因；`failed` 表示真实必需操作失败。`policy_error`、绑定错误、native/grant 失败、partial 与 CD 后验失败分别保留，不用一个 `unsupported` 覆盖。
+
+### 6.4 统一结果与调用边界
+
+公开 `createCliCommandPolicy({ profile, sandbox, session, onSample? })` 返回的 `.step(request)` 只接受 `{ goal, satisfactionThreshold, state }`。结果至少包含：
+
+```text
+goal, satisfactionThreshold, state_before, action, invocation,
+policy, policy_error, execution_result, observed_state_after,
+satisfaction, status, reason, evidence, collection_result
+```
+
+并保留实际 `session_before`/`session_after`、`changed`、CD 后条件等诊断。`NOOP` 与 `DEFER` 的 `invocation` 为 null、`executorInvoked` 为 false。`onSample` 未配置时 `collection_result.status="not_configured"`；回调失败只记录 `collection_result.status="failed"`，不改变已发生业务结果。
+
+边界唯一选择：非法 schema、额外答案字段、坏 ref、跨 session 矛盾、旧 Goal kind 或旧 4×4 profile 直接抛 `TypeError`，零 OS 副作用；结构合法但未注册的 property/predicate 返回 `unsupported` 控制结果。guard 在策略选择后拒绝不可执行/不符合目标约束的 head，保留原 `policy_error`，不改选正确 head、不 mask logits、不把错误计成功。

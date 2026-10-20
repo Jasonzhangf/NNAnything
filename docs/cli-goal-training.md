@@ -1,8 +1,8 @@
-# 首个结构化 Goal 动作训练：observe_cwd -> pwd
+# 历史结构化 Goal 动作训练：observe_cwd -> pwd
 
-状态：历史实现与实测合同（2026-10-19），作为兼容基线保留。本文记录首个单项 `observe_cwd -> pwd` 的真实实测数据与6参数模型结构。该六参数API（`createCliGoalPolicy`、`runCliGoalTraining`）仅作为历史兼容基线保留，新共享入口不调用该旧API与旧profile。全命令统一共享模型（`cli.command-policy.v1`）唯一权威合同见[文件系统训练合同](cli-filesystem-training.md)。历史记录与实测数据保留原貌，不重写历史。
+状态：历史实现与实测记录（2026-10-19）。本文只保留首个单项 `observe_cwd -> pwd` 的历史数据与6参数模型结构，供溯因和回归对照。该六参数API（`createCliGoalPolicy`、`runCliGoalTraining`）、旧profile、旧三个Goal kind及`cli-goal-step`/`cli-goal-training`图已物理退役；运行入口不再接受这些对象，也没有兼容分支。当前typed `file.property`共享模型唯一权威合同见[文件系统训练合同](cli-filesystem-training.md)。历史记录与实测数据保留原貌。
 
-## 1. 范围
+## 1. 历史范围
 
 支持的结构化 Goal 为：
 
@@ -27,7 +27,7 @@ type State = {
 
 旧知识只作上下文，不能证明本次 Goal 成功。只有本次运行的真实 pwd 观测成功，且新状态绑定该观测与运行 ID，`goal_result.status` 才可为 `achieved`。拒绝或执行失败保留原知识对象。
 
-## 2. 学习结构
+## 2. 历史学习结构
 
 wire 固定顺序：`bias`、`goalObserveCwd`、`goalSetCwd`。输入向量只有三种：
 
@@ -54,54 +54,17 @@ type CliGoalProfile = {
 
 执行器另设确定性 unsupported guard。坏 profile 对 `set_cwd` 或其他 Goal 选择 `PWD` 时，guard 不执行命令，并保留 `policy_error.code="UNEXPECTED_ACTION"`。策略正确率只比较学习选择与 teacher action；guard 拒绝不计为学习成功。授权仍由现有 CLI executor 检查：`pwd` 需要 `filesystem.read` 与 `process.exec`。
 
-## 3. 样本
+## 3. 历史样本
 
 公开生成器产生 12 条 train、6 条 development，各分区对三类 Goal 均衡。每条样本有独立 scenario/session ID；train 与 development 的 source group 不交叉。覆盖无先前知识、正确知识、陈旧知识，以及每类 Goal 的有/无知识组合。训练请求没有 holdout 分区，父级独立测试不进入拟合、预算选择或调参。
 
 数据只有三个不同语义 feature vector。18 条记录不等于 18 个独立语义概念；目录改名、session 改名或旧观测变化不会创造新语义向量。fit 只消费 train 的 12 行，development 只用于回放比较。
 
-## 4. 图与公开入口
+## 4. 历史图与入口
 
-推理图 `cli-goal-step.graph.json` 为 3N2E SESE：
+历史推理图`cli-goal-step.graph.json`为3N2E SESE，历史训练图`cli-goal-training.graph.json`为4N3E SESE，均已在当前候选删除。历史公开符号为`createCliGoalPolicy`、`makeCliGoalFixture`、`runCliGoalTraining`与`zeroCliGoalProfile`，均不再从`nnanything/cli-goal`导出。当前入口、typed请求和图见[文件系统训练合同](cli-filesystem-training.md)与[参数简化合同](cli-call-contract.md)。
 
-1. `cli.goal.select` 读取显式 Goal/State 并计算 features、scores、`selectedAction`。
-2. `cli.goal.execute` 执行 `PWD`，或在不支持/拒绝时返回 typed rejection/failure。
-3. `cli.goal.evaluate` 绑定本次实际观测并验证 Goal，输出完整 transition。
-
-训练图 `cli-goal-training.graph.json` 为 4N3E SESE：准备样本 -> 拟合 -> 零/冻结/候选评估 -> 保存。推理和训练都从持久 workflow 配置经现有 loader、compiler、Flowed 执行。训练图的 fit 声明 `filesystem.read`，save 声明 `filesystem.write`；业务执行授权留在每条 session 内。
-
-公开入口 `nnanything/cli-goal`：
-
-```ts
-import {
-  createCliGoalPolicy,
-  makeCliGoalFixture,
-  runCliGoalTraining,
-  zeroCliGoalProfile,
-} from "nnanything/cli-goal";
-
-const session = {
-  id: "session-a",
-  cwd: "/absolute/existing/directory",
-  grantedEffects: ["filesystem.read", "process.exec"],
-};
-const policy = createCliGoalPolicy({ profile: zeroCliGoalProfile(), session });
-const transition = await policy.step({
-  goal: { kind: "observe_cwd", session: session.id },
-  state: { session: session.id, cwdObservation: null },
-});
-```
-
-零 profile 会返回 `selectedAction: "REJECT"` 与未达成 Goal。训练后的显式 profile 才能选择 `PWD`。候选始终 `uncalibrated`、`not_applied`，不会被 M0 自动采用。
-
-## 5. 运行与产物
-
-```sh
-npm run prepare:goal-samples -- --cwd /absolute/existing/directory --output /absolute/new-samples.json
-npm run demo:goal-training -- --handwired-root /Volumes/extension/code/handwired
-```
-
-训练 consumer 可传 `--output-root EXISTING_TRAINING_ROOT`、`--samples FILE`、`--epochs N`、`--learning-rate N`。默认输出到本项目 `training/`。产物：
+## 5. 历史产物
 
 ```text
 training/samples/observe-cwd/<run>/samples.json
@@ -110,9 +73,9 @@ training/results/observe-cwd/<run>/report.json
 training/results/observe-cwd/<run>/consumer-summary.json
 ```
 
-保存使用 create-new，不覆盖旧资产。训练完成后启动新 Node 进程，读取实际样本与候选，经同一推理图重放 train/development，并额外执行一个真实失败 session。`report.json` 保留零、冻结、候选的逐例 action、scores、执行次数、Goal 结果与 policy error；`consumer-summary.json` 记录 workflow、回载和完整 consumer 时间。
+历史`prepare:goal-samples`与`demo:goal-training` package脚本已删除。下列路径只标识早期本地证据，不再给出失效运行命令。历史保存使用create-new，不覆盖旧资产；训练完成后由新Node进程读取实际样本和候选，经同一旧推理图重放。`report.json`保留零、冻结、候选的逐例action、scores、执行次数、Goal结果与policy error；`consumer-summary.json`记录workflow、回载和完整consumer时间。
 
-## 6. 实测结果
+## 6. 历史实测结果
 
 2026-10-19 公开 consumer 使用真实 Handwired 源码根 `/Volumes/extension/code/handwired` 运行，正式 run 为 `7b78d1f2-de24-42fb-a4ca-c9e04ecef38c`。数据集为 12 train / 6 development，18 个独立 session，训练拟合只读取 12 条 train 行；两类分区都只有三种语义 feature vector。
 
@@ -151,15 +114,8 @@ training/weights/observe-cwd/7b78d1f2-de24-42fb-a4ca-c9e04ecef38c/candidate.json
 
 独立作者的 `tests/cli-goal-independent.test.mjs` 只加载已保存候选，不调用样本生成器或训练函数。最终候选的独立动作选择为 18/18，8 个有效目录观测全部 achieved，10 个预期拒绝/失败场景全部 unmet。覆盖普通、含空格、尾随空格、中文、符号链接目录、陈旧/重复观测、多 session、缺失目录、文件作为 cwd、缺少每种授权以及不支持的 Goal。另验证零权重不能用旧证据完成 Goal、错误策略的 guard 不掩盖选错、session 引用不匹配会拒绝。独立 fixture 没有未见语义向量，不冒称新概念泛化。完整 transition 保存在本地 `independent-report.json`。
 
-重跑独立测试：
-
-```sh
-CLI_GOAL_PROFILE="$PWD/training/weights/observe-cwd/4929f70a-379c-4e76-9a01-838f4d29e79b/candidate.json" \
-  node --test tests/cli-goal-independent.test.mjs
-```
-
-无 `CLI_GOAL_PROFILE` 时该独立套件显式跳过。最终全仓 `npm test` 为 216 passed、0 failed、1 skipped；独立套件用候选另行执行为 1 passed、0 skipped。
+历史`tests/cli-goal-independent.test.mjs`已随旧API退役删除，因此不再提供重跑命令。最终当时的全仓记录为216 passed、0 failed、1 skipped；独立套件用候选另行执行为1 passed、0 skipped。该计数只作历史证据。
 
 ## 7. 边界
 
-本能力不实现 `cd`、目录搜索、文件读写、自然语言识别、help 学习、多步规划或通用工具选择。它证明一个有界结构化动作选择与真实观测绑定闭环；有限 3-vector 数据不能证明未见语义泛化。后续全命令选择与多阶段增量训练统一由[文件系统训练合同](cli-filesystem-training.md)管理，本页仅作为历史单项验证基线。
+该历史能力不实现 `cd`、目录搜索、文件读写、自然语言识别、help 学习、多步规划或通用工具选择。它只证明一个有界结构化动作选择与真实观测绑定闭环；有限3-vector数据不能证明未见语义泛化。当前PWD/CD/LS已并入typed `file.property` 6×14共享模型，本页仅作为历史单项验证基线，已无运行入口。

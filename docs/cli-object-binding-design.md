@@ -1,6 +1,6 @@
 # CLI对象绑定：B关系概念设计
 
-状态：2026-10-19设计说明；未实现类型、算子、样本、训练或迁移。本文只补齐B对象关系绑定的typed I/O、集合消歧、覆盖与新鲜度、参数角色、使用采样和验收合同。现有边界继续由[file.property合同](cli-filesystem-semantics.md)、[固定调用设计](cli-command-design.md)、[训练设计](cli-property-training-design.md)和[模型演进合同](model-evolution.md)维护；本文不建立第二套算法、采用条件或执行引擎。
+状态：2026-10-19设计说明；基础显式 typed 绑定与六节点 `cli-file-property@0.2.0` 运行路径已实现，B 关系学习单元仍为 design，未实现 B profile、样本或训练。本文只补齐B对象关系绑定的typed I/O、集合消歧、覆盖与新鲜度、参数角色、使用采样和验收合同。现有边界继续由[file.property合同](cli-filesystem-semantics.md)、[固定调用设计](cli-command-design.md)、[训练设计](cli-property-training-design.md)和[模型演进合同](model-evolution.md)维护；本文不建立第二套算法、采用条件或执行引擎。
 
 ## 1. 位置、范围与权重边界
 
@@ -10,7 +10,7 @@ B是一个在对象参数进入属性动作策略前运行的独立关系概念�
 
 CLI最终只有一个统一动作策略权重`cli.command-policy.v1`，负责命令头及既有已声明动作选择。B的关系概念profile不属于这个CLI动作权重，不输出`pwd/cd/ls`等命令头，不替代统一动作策略；B也不是逐命令selector。其他P1/P2及共享权重策略由公共设计正文维护，本文不修改。
 
-迁移必须先满足本文设计闭合，再进入实现和旧入口迁移。当前`observe_cwd/set_cwd/list_directory`仍是既有运行事实；本文存在不表示它们已接入B或`file.property`。
+旧 `observe_cwd/set_cwd/list_directory` 已由本轮迁移退役；PWD/CD/LS 只接受 `file.property` typed 请求。六节点基础显式绑定已实现，但合法 `DirectoryQuery` 本轮只返回 `DEFER`，不执行本文 B 查找；B 关系学习单元仍为 design。
 
 ## 2. 四元素与执行责任
 
@@ -381,7 +381,7 @@ B的每次使用采样、复核、分区、真实拟合、候选保存/回载、
 - 当前没有可导入的`ObjectRef/PathRef/ScopedFileQuery`合同类型，现有`DirectoryRef`也没有本文要求的完整对象身份、父观测和覆盖字段。
 - 6N5E图的六个`cli.file-property.*@0.1.0-design`算子仍无运行实现；B没有运行profile、样本、拟合或回载。
 - 公开`directory.select/file.select`仍是单父、精确parent+name的首轮设计，尚无本文的多匹配、stale引用、角色消费和覆盖矩阵实现。
-- `file.property` request/result与旧PWD/CD/LS尚未迁移；统一动作策略单权重保持现状。
+- `file.property` request/result 与旧 PWD/CD/LS 已迁移；本轮合法 `DirectoryQuery` 只返回 `DEFER`，B 查找与关系学习未实现。
 - B使用采样、独立训练数据、profiles、自动比较采用及冲突裁决执行链均未实现。
 - 在实现前还需确认现有adapter可稳定提供的identity证据及覆盖诊断字段；不能提供时按`unknown`保留，不得用路径字符串补造。
 

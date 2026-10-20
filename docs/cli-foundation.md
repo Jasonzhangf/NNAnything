@@ -56,4 +56,4 @@ pwd 不接收任意 executable、argv 或命令字符串。子进程使用 `shel
 
 最新的精确单操作词表及首个有界目录目标绑定训练设计见 [文件语义语言](cli-semantic-operations.md)。该文档为设计态，不改变本页已实现 API；输入使用语义语言，首轮不包含自然语言识别或组合规划。
 
-逐能力训练的首项实现为 [路径函数训练](cli-path-training.md)：独立 `nnanything/cli-training` 入口，真实Handwired拟合、显式profile和自主符号rollout。首个结构化 Goal 动作切片见 [Goal动作训练](cli-goal-training.md)，公开入口为 `nnanything/cli-goal`。两者都不替换本页确定性M0，也不自动采用候选。
+逐能力训练的首项实现为[路径函数训练](cli-path-training.md)：独立`nnanything/cli-training`入口，真实Handwired拟合、显式profile和自主符号rollout。CLI命令训练当前由`nnanything/cli-goal`提供，只接typed`file.property`的PWD/CD/LS及控制结果；旧Goal动作入口已退役。两者都不替换本页确定性M0，也不自动采用候选。

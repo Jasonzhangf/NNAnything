@@ -5,7 +5,7 @@ description: NNAnything项目内DOM基础种类与CLI共享命令的训练路由
 
 # NNAnything训练方法
 
-CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-training.md)，调用边界沿[参数简化合同](../../../docs/cli-call-contract.md)，公开consumer为`demo:command-training`。动作行扩展、标签迁移、历史回放和逐命令评价以该领域合同为准；命名补零不保证共享softmax无回归。下文DOM样本、特征、迁移参考及`demo:training`命令不直接套用于CLI。
+CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-training.md)，调用边界沿[参数简化合同](../../../docs/cli-call-contract.md)，公开consumer为`demo:command-training`。当前只训练一份`cli.command-policy.v1` 6×14矩阵，覆盖typed `file.property` PWD/CD/NOOP/DEFER/LS；旧六参数PWD、旧Goal与旧4/9/16阶段候选已退役。动作行扩展、标签迁移、历史回放和逐命令评价以该领域合同为准；命名补零不保证共享softmax无回归。下文DOM样本、特征、迁移参考及`demo:training`命令不直接套用于CLI。
 
 先读项目[AGENTS.md](../../../AGENTS.md)的目录边界。学生输入、wire、标签和训练I/O分别以[基础种类算法](../../../docs/basic-kinds-wiring.md)、[训练合同](../../../docs/training-workflow.md)为准。不要在Skill中另建schema、调度器或权重注册表。
 
@@ -35,7 +35,7 @@ CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-
 ## 标准训练与验收
 
 1. 先读受影响现有DAG及有效证据。拓扑不变则复用，不为本轮再造图。内部wire变化更新算法owner；外部workflow变化更新对应图与绑定。
-2. 固定本轮训练集、开发回放、旧黄金回归及新页面留出用途。同页面／同资产关联组不得跨训练与独立验证。重复快照不是独立来源。
+2. 固定本轮训练集、开发回放、旧黄金回归及新页面/新场景留出用途。同页面/资产/结构关联组不得跨训练与独立验证。重复快照不是独立来源。CLI的typed State配对和未绑定query边界先按文件系统合同登记，不以执行结果或teacher head替代学生输入。
 3. 用真实Handwired后端拟合。显式提供源码根；缺失报错。公开起点是`npm run demo:training -- --handwired-root <源码根>`，实际数据试验使用`nnanything/training`公开接口。
 4. 训练输出候选profile和逐例比较。分别报告训练、开发回放、旧黄金与未见页面，保留fixed/regressed/retained/unresolved/unassessed。不要用loss下降代替类别与状态回归。
 5. 达到本轮验收即停。先用已有样本检查效果；只有明确存在覆盖缺口才扩大采集，不以增加样本代替修测量／wire。
