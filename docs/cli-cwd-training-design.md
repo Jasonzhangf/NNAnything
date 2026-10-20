@@ -19,7 +19,7 @@ CWD关系概念测量与共享命令模型分工明确：
 | 单元 | 学生输入与监督 | 输出/职责 | 交付形式 |
 | --- | --- | --- | --- |
 | CWD关系 | 查询session引用、候选观测槽位的结构关系；teacher给出是否是该session已有的CWD知识 | `MATCH / NO_MATCH`；在多个候选中确认知识归属，不生成路径字符串 | 独立概念测量，不生成正式命令候选 |
-| 获取动作 | typed `file.property.relation.sessionCwd` observed与State；teacher给出`pwd` | 统一共享命令模型中的`pwd` head（6×14单矩阵） | 统一共享profile候选（`cli.command-policy.v1`） |
+| 获取动作 | typed `file.property.relation.sessionCwd` observed与State；teacher给出`pwd` | 统一共享命令模型中的`pwd` head（0.2.0 为6×14，0.3.0 为10×30单矩阵） | 统一共享profile候选（`cli.command-policy.v1`） |
 
 概念请求为`{kind:"cwd.belongs_to", session:S, candidate:C}`。C为`{session, observation:null|{physicalCwd, evidence, sourceRun}}`槽位；引用合法性手写校验。候选有观测且属于S时MATCH，否则NO_MATCH。模型不接收teacher真值；名称相等计算和字段是否存在是手写特征，不冒称NN学习了字符串相等算法。匹配旧知识只说明归属，不证明本次Goal已完成。
 
@@ -29,7 +29,7 @@ CWD关系概念测量与共享命令模型分工明确：
 
 CWD关系输入固定为`x=[1, sameSession, hasObservation]`。两个logit分别为MATCH/NO_MATCH，`z[a]=Σ W[a,j]x[j]`，共6个参数。两个二值特征的4种组合全部覆盖；只在`sameSession=1 && hasObservation=1`时监督MATCH。标签组合规则是teacher，不在推理时覆写argmax。
 
-CWD关系单元保持上述6参数概念profile，同分NO_MATCH；它只回答知识归属，不选择命令。当前共享命令模型使用6个全head与14条有序wire，同分按`unsupported`优先。旧6参数独立PWD动作profile已退役。若关系模型选错，记录错误，不用teacher修正输出后计为正确；动作仍按真实Goal执行，与关系题准确率分开统计。
+CWD关系单元保持上述6参数概念profile，同分NO_MATCH；它只回答知识归属，不选择命令。共享命令模型在 0.2.0 使用 6 个 head 与 14 条有序 wire，0.3.0 起为 10 个 head 与 30 条 wire，同分按`unsupported`优先。旧6参数独立PWD动作profile已退役。若关系模型选错，记录错误，不用teacher修正输出后计为正确；动作仍按真实Goal执行，与关系题准确率分开统计。
 
 ```mermaid
 flowchart TD

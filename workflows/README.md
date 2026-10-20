@@ -13,7 +13,7 @@
 | `project-design.graph.json` | 当前治理标准，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | 每个语义及训练设计的四元素闭合、训练反推、固定调用、图纸、独立验收与最小必要性准入；操作方法归nnanything-design Skill，不是自动审核器 |
 | `model-evolution.graph.json` | 设计态，无运行配置 | 10 节点 10 边 (10N10E SESE) | `0.2.0-design` | 单元升级：必需自动采样、隔离训练/回载、独立配对评价与回归、条件自动采用，回归/冲突保留并移交裁决；唯一合同docs/model-evolution.md |
 | `model-conflict-design.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.2.0-design` | 大模型对回归/冲突定位owner并裁决保留、拒绝、补证或修复；必要时修图并输出下一轮方案，不直接改在用权重 |
-| `cli-filesystem-curriculum.graph.json` | 设计态，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | CWD/pwd→cd→列举→补全目录/路径属性单元→文件属性单元；每项沿统一file.property图和独立训练合同，尚未实现新增单元 |
+| `cli-filesystem-curriculum.graph.json` | 设计态，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | CWD/pwd→cd→列举→补全目录/路径属性单元→文件属性单元；每项沿统一file.property图和独立训练合同，批次1的路径与inspect单元已由现有共享图实现，其余新增单元尚未实现 |
 | `cli-path-training.graph.json` | `cli-path-training.workflow.json` | 4 节点 3 边 (4N3E SESE) | `0.1.0` 已实现 | 路径动作样本准备、真实Handwired拟合、自主完整路径评估与create-new候选/报告保存 |
 | `cli-path-resolve.graph.json` | `cli-path-resolve.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 显式profile绑定的词法路径函数，执行与评估共用相同node/rollout合同 |
 | `cli-foundation.graph.json` | `cli-foundation.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | CLI 独立基础观测：显式 cwd、pwd、纯路径解释及 stat/lstat 属性；不训练、不搜索 |
