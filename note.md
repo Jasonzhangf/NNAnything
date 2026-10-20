@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-20 通用递归框架独立泛化性审查
+
+用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。
+
+结论有条件：接口与有界控制合同可跨域实例化，未发现六类场景必须改通用核心的合同障碍；新领域仍须提供合法typed语义、技能/selector、证据有效性、evaluator与effect/error映射。数值权重不因此跨域通用，通用runner及运行泛化未验证。报告唯一入口docs/reviews/recursive-goal-generalization-20261020.md，包含具体Goal/State/技能/head/父条件及错误推演、前提与范围。原件在外置`/Volumes/Intel/playground/nnanything-runs/recursive-goal-generalization-20261020/`，本轮不改算法/代码/图/训练，不重复已有cwd/静态图验证。
+
 ## 2026-10-20 递归独立模块与执行错误返回设计
 
 用户要求在准确错误语义下完成独立模块设计，并明确“执行错误也要返回”。新唯一owner为docs/recursive-goal-module.md，原recursive-goal-design.md继续维护算法。拟定lib/workflow/recursive-goal/与lib/recursive-goal.ts门面，只依赖通用core/workflow并由应用注入领域adapter；未创建源码、package导出或第二执行器。
