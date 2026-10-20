@@ -26,6 +26,8 @@
 | `browser-single-action-training.graph.json` | `browser-single-action-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 独立50参数关系/能力profile；准备、family分区、Handwired拟合、比较、评价、保存；候选未采用，沿浏览器单次训练合同 |
 | `browser-feedback.graph.json` | `browser-feedback.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0.0000`，已实现 | 解释上次真实执行及后验；原事实/错误保留，诊断不替代目标验收 |
 | `browser-feedback-training.graph.json` | `browser-feedback-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 3×12独立反馈参数；候选未采用，先反馈拟合、再后续策略，不改原子50参数 |
+| `browser-strategy-step.graph.json` | `browser-strategy-step.workflow.json` | 5 节点 4 边 (5N4E SESE) | `0.1.0.0000`，实施中 | 当前策略与候选自身反馈→一次原子执行→真实回执；多轮仅由既有递归runner管理 |
+| `browser-strategy-training.graph.json` | `browser-strategy-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，实施中 | 20参数共享候选竞争，原子/F1固定，当前步监督不训练n与继续 |
 
 > [!NOTE]
 > `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。当前 CLI 推理图 `cli-file-property.graph.json` 与训练图 `cli-filesystem-training.graph.json` 也通过同一静态校验；旧 `cli-command-step` 与旧 cli-goal 图已退役。

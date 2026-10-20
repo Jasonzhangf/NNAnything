@@ -6,21 +6,27 @@ import { expectRecord } from "../core/schema.js";
 import {
   type NativeClickInvocation,
   type NativeClickReceipt,
+  type SelectedExpansionStrategy,
+  type SelectedSingleActionResources,
   type SingleActionControl,
   type SingleActionEpisodeResult,
   type SingleActionPrediction,
   type SingleActionRequest,
   type SingleActionResources,
   type SingleActionSnapshot,
+  type SingleActionTargetConstraint,
 } from "../adapters/browser/single-action-contract.js";
 import {
+  readSelectedSingleActionRequest,
   readSingleActionRequest,
   readSingleActionSnapshot,
 } from "../adapters/browser/single-action-observation.js";
 import {
   createBrowserSingleActionPolicy,
+  predictBrowserSingleActionForTarget,
   validateBrowserSingleActionProfile,
 } from "../filters/browser-single-action-policy.js";
+import type { BrowserExpansionStrategy } from "../adapters/browser/strategy-contract.js";
 import { compileWorkflow } from "../workflow/compiler.js";
 import { loadWorkflow } from "../workflow/loader.js";
 import { runWorkflow } from "../workflow/runner.js";
@@ -88,6 +94,11 @@ interface EpisodeStage {
   readonly collectionError: string | null;
 }
 
+export interface BrowserSingleActionExecutionConstraint {
+  readonly selectedStrategy: SelectedExpansionStrategy;
+  readonly strategyRegistry: readonly BrowserExpansionStrategy[];
+}
+
 function stageError(
   stage: EpisodeStage,
   code: string,
@@ -138,9 +149,22 @@ export function readBrowserSingleActionEpisodeResult(value: unknown): SingleActi
 
 export function createBrowserSingleActionEpisodeNodes(
   resources: SingleActionResources,
+  executionConstraint?: BrowserSingleActionExecutionConstraint,
 ): readonly NodeDefinition[] {
   const profile = validateBrowserSingleActionProfile(resources.profile);
   const policy = createBrowserSingleActionPolicy({ profile });
+  const constraint = executionConstraint === undefined
+    ? null
+    : Object.freeze({
+      selectedStrategy: executionConstraint.selectedStrategy,
+      strategyRegistry: executionConstraint.strategyRegistry,
+    });
+  const targetConstraint: SingleActionTargetConstraint | null = constraint === null
+    ? null
+    : Object.freeze({
+      targetRef: constraint.selectedStrategy.targetRef,
+      goalRegionRef: constraint.selectedStrategy.goalRegionRef,
+    });
   const operator = (
     name: string,
     inputPort: NodeDefinition["inputPorts"][number],
@@ -163,7 +187,12 @@ export function createBrowserSingleActionEpisodeNodes(
     OBSERVED_PORT,
     [],
     async context => {
-      const request = readSingleActionRequest(context.inputs[0]!.payload);
+      const request = constraint === null
+        ? readSingleActionRequest(context.inputs[0]!.payload)
+        : readSelectedSingleActionRequest(
+          context.inputs[0]!.payload,
+          constraint.strategyRegistry,
+        );
       const initial: EpisodeStage = {
         request, prediction: null, invocation: null, receipt: null,
         dispatchState: "not_dispatched", effectKnowledge: "none",
@@ -174,7 +203,14 @@ export function createBrowserSingleActionEpisodeNodes(
         if (snapshot.documentRef !== request.state.documentRef || snapshot.scopeRef !== request.state.scopeRef) {
           return context.emit(stageError(initial, "invalid_binding", "Fresh observation replaced the Goal document or scope"));
         }
-        const current = readSingleActionRequest({ ...request, state: snapshot });
+        const current = constraint === null
+          ? readSingleActionRequest({ ...request, state: snapshot })
+          : readSelectedSingleActionRequest({
+            ...request,
+            contract: "browser.single-action.selected.v1",
+            selectedStrategy: constraint.selectedStrategy,
+            state: snapshot,
+          }, constraint.strategyRegistry);
         let control: SingleActionControl;
         try {
           control = await resources.currentControl();
@@ -202,7 +238,10 @@ export function createBrowserSingleActionEpisodeNodes(
       const stage = context.inputs[0]!.payload as EpisodeStage;
       if (stage.error) return context.emit(stage);
       try {
-        return context.emit(Object.freeze({ ...stage, prediction: policy.predict(stage.request) }));
+        const prediction = targetConstraint === null
+          ? policy.predict(stage.request)
+          : predictBrowserSingleActionForTarget(stage.request, profile, targetConstraint);
+        return context.emit(Object.freeze({ ...stage, prediction }));
       } catch (error) {
         return context.emit(stageError(stage, "prediction_failed", errorText(error)));
       }
@@ -218,6 +257,9 @@ export function createBrowserSingleActionEpisodeNodes(
       const stage = context.inputs[0]!.payload as EpisodeStage;
       if (stage.error || stage.prediction === null) return context.emit(stage);
       const prediction = stage.prediction;
+      const scopedRelations = targetConstraint === null
+        ? prediction.relations
+        : prediction.relations.filter(relation => relation.ref === targetConstraint.targetRef);
       if (prediction.capability === "NOOP") {
         const region = stage.request.state.regions.find(item => item.ref === stage.request.goal.regionRef);
         if (region?.expanded.status !== "observed"
@@ -233,12 +275,14 @@ export function createBrowserSingleActionEpisodeNodes(
         if (!region || region.expanded.status !== "observed" || region.rendered.status !== "observed") {
           return context.emit(stageError(stage, "observation_insufficient", "DEFER: required region or relation facts are unknown"));
         }
-        const providers = prediction.relations.filter(item => item.judgment === "actionable_provider");
+        const providers = scopedRelations.filter(item => item.judgment === "actionable_provider");
         if (providers.length > 1) {
           return context.emit(stageError(stage, "binding_ambiguous", "DEFER: more than one provider was predicted"));
         }
-        const controls = stage.request.state.elements.filter(item => item.controls.status === "observed"
-          && item.controls.value.includes(stage.request.goal.regionRef));
+        const controls = targetConstraint === null
+          ? stage.request.state.elements.filter(item => item.controls.status === "observed"
+            && item.controls.value.includes(stage.request.goal.regionRef))
+          : stage.request.state.elements.filter(item => item.ref === targetConstraint.targetRef);
         if (controls.length > 0 && controls.every(item => (item.enabled.status === "observed" && !item.enabled.value)
           || (item.hit.status === "observed" && !item.hit.value))) {
           return context.emit(stageError(stage, "precondition_unsatisfied", "DEFER: all known controls are disabled or cannot be hit"));
@@ -252,7 +296,11 @@ export function createBrowserSingleActionEpisodeNodes(
       if (prediction.proposedTargetRef === null) {
         return context.emit(stageError(stage, "missing_click_target", "CLICK requires one proposed provider"));
       }
-      const providers = prediction.relations.filter(relation => relation.judgment === "actionable_provider");
+      if (targetConstraint !== null && prediction.proposedTargetRef !== targetConstraint.targetRef) {
+        return context.emit(stageError(stage, "invalid_click_proposal",
+          "CLICK proposal does not match the selected target"));
+      }
+      const providers = scopedRelations.filter(relation => relation.judgment === "actionable_provider");
       if (providers.length !== 1 || providers[0]!.ref !== prediction.proposedTargetRef) {
         return context.emit(stageError(stage, "invalid_click_proposal", "CLICK proposal is not the unique predicted provider"));
       }
@@ -343,7 +391,16 @@ export function createBrowserSingleActionEpisodeNodes(
           || newState.scopeRef !== stage.request.state.scopeRef) {
           return context.emit(stageError({ ...stage, newState }, "invalid_binding", "Post-action observation replaced the Goal document or scope"));
         }
-        readSingleActionRequest({ ...stage.request, state: newState });
+        if (constraint === null) {
+          readSingleActionRequest({ ...stage.request, state: newState });
+        } else {
+          readSelectedSingleActionRequest({
+            ...stage.request,
+            contract: "browser.single-action.selected.v1",
+            selectedStrategy: constraint.selectedStrategy,
+            state: newState,
+          }, constraint.strategyRegistry);
+        }
         let current: SingleActionControl;
         try {
           current = await resources.currentControl();
@@ -436,6 +493,52 @@ export async function runBrowserSingleActionEpisode(
     nodeDefinitions: createBrowserSingleActionEpisodeNodes({
       ...resources,
       profile: validateBrowserSingleActionProfile(resources.profile),
+    }),
+    grantedEffects: [...resources.grantedEffects],
+  });
+  const runId = randomUUID();
+  const result = await runWorkflow(compiled, createWorkflowInputEvent({
+    runId,
+    eventId: `${runId}:input`,
+    port: "request_event",
+    type: "browser.single-action.episode.request.v1",
+    payload: validated,
+  }));
+  if (result.status === "failed") {
+    throw Object.assign(new Error(result.error.message), {
+      category: result.error.category,
+      nodeId: result.error.nodeId,
+    });
+  }
+  return readBrowserSingleActionEpisodeResult(result.outputEvent.payload);
+}
+
+export async function runSelectedBrowserSingleActionEpisode(
+  request: unknown,
+  resources: SelectedSingleActionResources,
+): Promise<SingleActionEpisodeResult> {
+  if (resources === null || typeof resources !== "object"
+    || !Array.isArray(resources.strategyRegistry)
+    || !(resources.grantedEffects instanceof Set)
+    || typeof resources.observe !== "function"
+    || typeof resources.currentControl !== "function"
+    || typeof resources.nativeClick !== "function"
+    || typeof resources.collect !== "function") {
+    throw new TypeError("Explicit selected browser single action resources are required");
+  }
+  const validated = readSelectedSingleActionRequest(request, resources.strategyRegistry);
+  const definition = await loadWorkflow({ configPath, allowedRoot });
+  const compiled = compileWorkflow(definition, {
+    nodeDefinitions: createBrowserSingleActionEpisodeNodes({
+      profile: validateBrowserSingleActionProfile(resources.profile),
+      grantedEffects: resources.grantedEffects,
+      observe: resources.observe,
+      currentControl: resources.currentControl,
+      nativeClick: resources.nativeClick,
+      collect: resources.collect,
+    }, {
+      selectedStrategy: validated.selectedStrategy,
+      strategyRegistry: resources.strategyRegistry,
     }),
     grantedEffects: [...resources.grantedEffects],
   });

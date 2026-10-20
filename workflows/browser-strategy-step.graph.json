@@ -1,0 +1,11 @@
+{
+ "id":"browser-strategy-step","version":"0.1.0.0000","inputs":[{"id":"strategy_request","schema":"Object"}],
+ "nodes":[
+  {"id":"准备真实状态与等效策略","operator":"browser.strategy.prepare","operator_version":"0.1.0.0000","inputs":["strategy_request"],"output":{"id":"prepared","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"解释候选自身历史反馈","operator":"browser.strategy.feedback","operator_version":"0.1.0.0000","inputs":["prepared"],"output":{"id":"feedback","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"选择并核对当前策略","operator":"browser.strategy.select","operator_version":"0.1.0.0000","inputs":["feedback"],"output":{"id":"decision","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"执行选定原子单步","operator":"browser.strategy.apply","operator_version":"0.1.0.0000","inputs":["decision"],"output":{"id":"receipt","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"汇总真实效果与使用采集","operator":"browser.strategy.report","operator_version":"0.1.0.0000","inputs":["receipt"],"output":{"id":"strategy_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+ ],
+ "edges":[{"from":"准备真实状态与等效策略","to":"解释候选自身历史反馈","arc_id":"prepared"},{"from":"解释候选自身历史反馈","to":"选择并核对当前策略","arc_id":"feedback"},{"from":"选择并核对当前策略","to":"执行选定原子单步","arc_id":"decision"},{"from":"执行选定原子单步","to":"汇总真实效果与使用采集","arc_id":"receipt"}],"outputs":["strategy_result"]
+}

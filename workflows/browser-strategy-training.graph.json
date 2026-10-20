@@ -1,0 +1,12 @@
+{
+ "id":"browser-strategy-training","version":"0.1.0.0000","inputs":[{"id":"training_request","schema":"Object"}],
+ "nodes":[
+  {"id":"准备当前策略监督样本","operator":"browser.strategy.training.prepare","operator_version":"0.1.0.0000","inputs":["training_request"],"output":{"id":"samples","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"按页面家族与轨迹分区","operator":"browser.strategy.training.partition","operator_version":"0.1.0.0000","inputs":["samples"],"output":{"id":"partitions","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"拟合候选优选与拒绝","operator":"browser.strategy.training.fit","operator_version":"0.1.0.0000","inputs":["partitions"],"output":{"id":"candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"比较零权重与策略候选","operator":"browser.strategy.training.compare","operator_version":"0.1.0.0000","inputs":["partitions","candidate"],"output":{"id":"comparison","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"评价当前策略选择","operator":"browser.strategy.training.assess","operator_version":"0.1.0.0000","inputs":["comparison"],"output":{"id":"assessment","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+  {"id":"保存策略候选与比较报告","operator":"browser.strategy.training.report","operator_version":"0.1.0.0000","inputs":["assessment"],"output":{"id":"training_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+ ],
+ "edges":[{"from":"准备当前策略监督样本","to":"按页面家族与轨迹分区","arc_id":"samples"},{"from":"按页面家族与轨迹分区","to":"拟合候选优选与拒绝","arc_id":"partitions"},{"from":"按页面家族与轨迹分区","to":"比较零权重与策略候选","arc_id":"partitions"},{"from":"拟合候选优选与拒绝","to":"比较零权重与策略候选","arc_id":"candidate"},{"from":"比较零权重与策略候选","to":"评价当前策略选择","arc_id":"comparison"},{"from":"评价当前策略选择","to":"保存策略候选与比较报告","arc_id":"assessment"}],"outputs":["training_result"]
+}

@@ -18,6 +18,7 @@ import {
   assertRecursiveGoalInitialObservationContinuationBoundary,
   readAdapterDiagnostic,
   readAtomicReceipt,
+  readBoundedRetryPolicy,
   readDerivationReceipt,
   readEnabledEvaluator,
   readEnabledSkill,
@@ -34,6 +35,7 @@ import {
   type AcceptedRoot,
   type AtomicExecutionResult,
   type AtomicReceipt,
+  type BoundedRetryPolicy,
   type BudgetUsed,
   type ConditionFact,
   type DependencyState,
@@ -71,12 +73,15 @@ import {
   type RecursiveGoalProgressBaseline,
   type RecursiveGoalRequestEnvelope,
   type RecursiveGoalResponse,
+  type RecursiveGoalRetryControl,
   type RecursiveGoalRunReport,
   type RecursiveGoalRunResult,
   type RecursiveGoalStopReason,
   type RecursiveGoalUnexecutedReason,
   type RemainingRequirement,
   type RelatedIssue,
+  type RetryAssessment,
+  type RetrySelectionView,
   type RootEvaluation,
   type SelectorBinding,
   type StateRecord,
@@ -179,6 +184,26 @@ interface AtomicOutcomeProjection<F, R> {
   readonly result: AtomicExecutionResult<F, R>;
   readonly executionErrorIds: readonly string[];
   readonly verificationErrorIds: readonly string[];
+}
+
+interface MutableStrategyRetryState {
+  readonly skillId: string;
+  readonly failures: { failureKey: string; count: number }[];
+  exhausted: boolean;
+  latestAttemptRef: string | null;
+}
+
+interface MutableFrameStrategyRetryState {
+  readonly frameId: string;
+  lockedSkillId: string | null;
+  readonly strategies: MutableStrategyRetryState[];
+  lastAccountedDispatchId: string | null;
+}
+
+interface MutableRecursiveGoalRetryControl {
+  readonly policy: BoundedRetryPolicy;
+  atomicAttemptsUsed: number;
+  readonly frames: MutableFrameStrategyRetryState[];
 }
 
 interface StopDiagnosticSpec {
@@ -311,7 +336,11 @@ export async function runRecursiveGoal<G, S, B, E, F, R, C>(
       ) {
         throw new TypeError("continuation accepted root differs from the request");
       }
-      validateContinuationContracts(continuation, normalized);
+      validateContinuationContracts(
+        continuation,
+        normalized,
+        validated.retryPolicy,
+      );
       diagnostics.reserveIds(continuation.errors.map(error => error.errorId));
     }
   } catch (error) {
@@ -414,6 +443,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private cleanupReceipt: { readonly receiptId: string } | null = null;
   private collectionReceipt: { readonly receiptId: string } | null = null;
   private sideEffectsFinalized = false;
+  private retryControl: MutableRecursiveGoalRetryControl | null = null;
+  private readonly invocationLimit: 1 | null;
+  private atomicDispatchesThisInvocation = 0;
 
   constructor(
     admission: Admission<G, S, B, E, F, R, C>,
@@ -424,6 +456,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     this.deps = admission.dependencies;
     this.diagnostics = diagnostics;
     this.acceptedRoot = admission.acceptedRoot;
+    this.invocationLimit = admission.envelope.invocation?.maxAtomicDispatches ?? null;
 
     if (admission.continuation === null) {
       this.rootEvaluation = {
@@ -455,6 +488,14 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.rootFrame = this.createRootFrame();
       this.frames.set(this.rootFrame.frameId, this.rootFrame);
       this.stack.push(this.rootFrame);
+      if (this.validated.retryPolicy !== undefined) {
+        this.retryControl = {
+          policy: cloneRetryPolicy(this.validated.retryPolicy),
+          atomicAttemptsUsed: 0,
+          frames: [],
+        };
+        this.ensureRetryFrame(this.rootFrame);
+      }
       return;
     }
 
@@ -478,6 +519,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     this.relatedIssues = continuation.relatedIssues.map(issue => ({ ...issue }));
     this.transitionsUsed = continuation.budgetUsed.transitionsUsed;
     this.derivedGoalsUsed = continuation.budgetUsed.derivedGoalsUsed;
+    this.retryControl =
+      continuation.retryControl === undefined
+        ? null
+        : cloneRetryControl(continuation.retryControl);
     this.restoreFrames(continuation);
     this.rootFrame = this.frames.get(this.acceptedRoot.rootFrameId)!;
     if (this.rootFrame === undefined) {
@@ -695,6 +740,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
     if (!this.beginTransition(frame, "evaluation")) return;
+    const evaluatesCommittedAtomic = frame.pendingProgressCheck;
+    let receipt: EvaluationReceipt;
     let raw: unknown;
     try {
       raw = await this.deps.adapter.evaluate({
@@ -706,7 +753,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         evidence: this.callbackEvidence(),
         conditions: this.callbackConditions(frame),
       });
-      const receipt = readEvaluationReceipt(raw, frame.satisfactionThreshold);
+      receipt = readEvaluationReceipt(raw, frame.satisfactionThreshold);
       if (receipt.evaluatorId !== frame.evaluatorId) {
         throw new TypeError(
           `evaluation used ${receipt.evaluatorId}; expected ${frame.evaluatorId}`,
@@ -787,7 +834,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.finishSatisfiedFrame(frame);
       return;
     }
-    if (frame.noProgressCount >= 2) {
+    if (evaluatesCommittedAtomic) {
+      const retryHandled = await this.applyRetryGate(frame, receipt);
+      if (retryHandled) return;
+    }
+    if (!this.retryPolicyAppliesToFrame(frame) && frame.noProgressCount >= 2) {
       this.stopWithNewDiagnostic(
         frame,
         {
@@ -878,6 +929,351 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     frame.phase = "select";
   }
 
+  private async applyRetryGate(
+    frame: InternalFrame<G, B, C>,
+    evaluation: EvaluationReceipt,
+  ): Promise<boolean> {
+    const frameRetry = this.ensureRetryFrame(frame);
+    if (frameRetry === null) return false;
+    const skill = this.selectedSkill(frame);
+    if (skill === null) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "policy_error",
+          stage: "evaluation",
+          message: "retry evaluation has no selected strategy",
+          category: "retry_selected_skill_missing",
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    const strategyRetry = frameRetry.strategies.find(
+      strategy => strategy.skillId === skill.id,
+    );
+    if (strategyRetry === undefined) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "policy_error",
+          stage: "evaluation",
+          message: `strategy ${skill.id} is outside the bounded retry policy`,
+          origin: { skillId: skill.id },
+          category: "retry_strategy_outside_policy",
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    const dispatchId = frame.atomicResultRefs.at(-1);
+    if (dispatchId === undefined) {
+      throw new ModuleInvariantError(
+        "retry evaluation lacks a committed atomic dispatch",
+      );
+    }
+    if (frameRetry.lastAccountedDispatchId === dispatchId) return false;
+    const atomicResult = this.atomicResults.find(
+      result => result.dispatchId === dispatchId,
+    );
+    if (atomicResult === undefined) {
+      throw new ModuleInvariantError(
+        `retry evaluation references missing atomic result ${dispatchId}`,
+      );
+    }
+
+    if (evaluation.result !== "unsatisfied") {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "evidence_unavailable",
+          stage: "observation",
+          message: `retry requires an explicit unsatisfied evaluation, received ${evaluation.result}`,
+          category: "retry_evaluation_not_unsatisfied",
+          effectKnowledge: atomicResult.effect.knowledge,
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    if (
+      atomicResult.outcome !== "succeeded" ||
+      atomicResult.executionErrorIds.length > 0 ||
+      atomicResult.verificationErrorIds.length > 0
+    ) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "execution_failed",
+          stage: "execution",
+          message: "retry requires a succeeded atomic outcome without errors",
+          category: "retry_atomic_outcome_unsafe",
+          effectKnowledge: atomicResult.effect.knowledge,
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    if (atomicResult.effect.knowledge !== "none") {
+      const unknownEffect =
+        atomicResult.effect.knowledge === "unknown" ||
+        atomicResult.effect.knowledge === "mixed";
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: unknownEffect ? "effect_outcome_unknown" : "effect_denied",
+          stage: "effect",
+          message:
+            "automatic strategy retry requires explicit no-effect evidence",
+          category: "retry_effect_not_none",
+          effectKnowledge: atomicResult.effect.knowledge,
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    if (frame.pendingVerification !== null) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "evidence_unavailable",
+          stage: "observation",
+          message: "automatic strategy retry cannot precede pending verification",
+          category: "retry_pending_verification",
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    if (skill.retry !== "completed_no_effect") {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "policy_error",
+          stage: "evaluation",
+          message: `strategy ${skill.id} does not declare completed_no_effect retry`,
+          origin: { skillId: skill.id },
+          category: "retry_skill_contract",
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    if (
+      atomicResult.observedStateRef === null ||
+      atomicResult.observedStateRef !== this.currentStateRecord().id
+    ) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "evidence_unavailable",
+          stage: "observation",
+          message: "retry evaluation does not reference the current atomic postcondition",
+          category: "retry_current_postcondition_missing",
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    const evidenceById = new Map(this.evidence.map(item => [item.id, item]));
+    const evaluationEvidenceValid =
+      evaluation.evidenceRefs.length > 0 &&
+      evaluation.evidenceRefs.every(reference => {
+        const item = evidenceById.get(reference);
+        return item?.validity === "valid";
+      }) &&
+      evaluation.evidenceRefs.some(reference => {
+        const item = evidenceById.get(reference);
+        return item?.stateRef === atomicResult.observedStateRef;
+      });
+    if (!evaluationEvidenceValid) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "evidence_unavailable",
+          stage: "observation",
+          message:
+            "retry requires valid evaluation evidence from the current atomic postcondition",
+          category: "retry_evidence_insufficient",
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    if (this.deps.adapter.assessRetry === undefined) {
+      throw new ModuleInvariantError(
+        "retryPolicy admitted without adapter.assessRetry",
+      );
+    }
+
+    let rawAssessment: unknown;
+    try {
+      rawAssessment = await this.deps.adapter.assessRetry(
+        freezeSnapshot({
+          goal: this.callbackGoal(frame.goal),
+          bindings: this.callbackBindings(frame.bindings),
+          skill,
+          atomicResult,
+          evaluation,
+          state: this.callbackState(),
+          evidence: this.callbackEvidence(),
+        }),
+      );
+    } catch (error) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "adapter_contract_invalid",
+          stage: "evaluation",
+          message: errorMessage(error),
+          owner: "adapter",
+          category: "assess_retry",
+          effectKnowledge: atomicResult.effect.knowledge,
+          atomicResultRefs: [dispatchId],
+          cause: this.diagnostics.capturedCause(error),
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+
+    let assessment: RetryAssessment;
+    try {
+      assessment = readRetryAssessment(rawAssessment);
+    } catch (error) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "adapter_contract_invalid",
+          stage: "evaluation",
+          message: errorMessage(error),
+          owner: "adapter",
+          category: "assess_retry_receipt",
+          effectKnowledge: atomicResult.effect.knowledge,
+          atomicResultRefs: [dispatchId],
+          cause: this.diagnostics.capturedCause(error),
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+    if (assessment.kind === "stop") {
+      const stop = retryStopDiagnostic(assessment.reason);
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          ...stop,
+          message: `retry assessment stopped: ${assessment.reason}`,
+          category: `retry_assessment:${assessment.reason}`,
+          effectKnowledge: atomicResult.effect.knowledge,
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+
+    if (
+      assessment.evidenceRefs.length === 0 ||
+      !assessment.evidenceRefs.every(reference => {
+        const item = evidenceById.get(reference);
+        return item?.validity === "valid";
+      }) ||
+      !assessment.evidenceRefs.some(reference =>
+        evaluation.evidenceRefs.includes(reference),
+      )
+    ) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "evidence_unavailable",
+          stage: "observation",
+          message:
+            "safe retry must cite valid evidence from the current evaluation",
+          category: "retry_assessment_evidence",
+          atomicResultRefs: [dispatchId],
+        },
+        "error",
+        "fatal_error",
+      );
+      return true;
+    }
+
+    const failure = strategyRetry.failures.find(
+      entry => entry.failureKey === assessment.failureKey,
+    );
+    const nextCount = (failure?.count ?? 0) + 1;
+    if (nextCount > this.retryControl!.policy.sameFailureLimit) {
+      throw new ModuleInvariantError(
+        `strategy ${skill.id} exceeded sameFailureLimit`,
+      );
+    }
+    if (failure === undefined) {
+      strategyRetry.failures.push({
+        failureKey: assessment.failureKey,
+        count: nextCount,
+      });
+    } else {
+      failure.count = nextCount;
+    }
+    strategyRetry.latestAttemptRef = dispatchId;
+    strategyRetry.exhausted =
+      nextCount >= this.retryControl!.policy.sameFailureLimit;
+    frameRetry.lastAccountedDispatchId = dispatchId;
+    if (strategyRetry.exhausted) {
+      frameRetry.lockedSkillId = null;
+    } else {
+      if (
+        frameRetry.lockedSkillId !== null &&
+        frameRetry.lockedSkillId !== skill.id
+      ) {
+        throw new ModuleInvariantError(
+          `retry gate selected ${skill.id} while ${frameRetry.lockedSkillId} is locked`,
+        );
+      }
+      frameRetry.lockedSkillId = skill.id;
+    }
+
+    if (frameRetry.strategies.every(strategy => strategy.exhausted)) {
+      this.stopStrategiesExhausted(frame);
+      return true;
+    }
+    if (
+      this.retryControl!.atomicAttemptsUsed >=
+      this.retryControl!.policy.maxAtomicAttempts
+    ) {
+      this.stopAtomicAttemptBudget(frame);
+      return true;
+    }
+    if (
+      this.invocationLimit !== null &&
+      this.atomicDispatchesThisInvocation >= this.invocationLimit
+    ) {
+      this.yieldStep(frame);
+      return true;
+    }
+    return false;
+  }
+
   private async selectSkill(frame: InternalFrame<G, B, C>): Promise<void> {
     const selector = this.deps.selectorsById.get(frame.selectorId);
     if (selector === undefined) {
@@ -894,13 +1290,50 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       );
       return;
     }
-    const candidates = selector.skillIds.map(skillId => {
+    let candidates = selector.skillIds.map(skillId => {
       const skill = this.deps.skillsById.get(skillId);
       if (skill === undefined) {
         throw new ModuleInvariantError(`selector ${selector.id} references ${skillId}`);
       }
       return skill;
     });
+    const frameRetry = this.ensureRetryFrame(frame);
+    let retryView: RetrySelectionView | undefined;
+    if (frameRetry !== null) {
+      const exhaustedSkillIds = frameRetry.strategies
+        .filter(strategy => strategy.exhausted)
+        .map(strategy => strategy.skillId);
+      if (exhaustedSkillIds.length === frameRetry.strategies.length) {
+        this.stopStrategiesExhausted(frame);
+        return;
+      }
+      if (
+        this.retryControl!.atomicAttemptsUsed >=
+        this.retryControl!.policy.maxAtomicAttempts
+      ) {
+        this.stopAtomicAttemptBudget(frame);
+        return;
+      }
+      candidates = candidates.filter(
+        skill =>
+          !exhaustedSkillIds.includes(skill.id) &&
+          (frameRetry.lockedSkillId === null ||
+            skill.id === frameRetry.lockedSkillId),
+      );
+      retryView = freezeSnapshot({
+        eligibleSkillIds: candidates.map(skill => skill.id),
+        lockedSkillId: frameRetry.lockedSkillId,
+        exhaustedSkillIds,
+        remainingAtomicAttempts:
+          this.retryControl!.policy.maxAtomicAttempts -
+          this.retryControl!.atomicAttemptsUsed,
+      });
+    }
+    if (candidates.length === 0) {
+      throw new ModuleInvariantError(
+        `selector ${selector.id} has no candidate after retry filtering`,
+      );
+    }
 
     let coverage = false;
     try {
@@ -996,6 +1429,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
             ? null
             : freezeSnapshot(frame.lastEvaluation),
         candidates: this.callbackSkills(candidates),
+        ...(retryView === undefined ? {} : { retry: retryView }),
       });
     } catch (error) {
       this.stopWithNewDiagnostic(
@@ -1083,6 +1517,21 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         },
         "error",
         "fatal_error",
+      );
+      return;
+    }
+    if (selection.kind === "defer") {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "policy_deferred",
+          stage: "selection",
+          message: `selector deferred: ${selection.reason}`,
+          owner: "adapter",
+          category: "policy_deferred",
+        },
+        "stalled",
+        "no_progress",
       );
       return;
     }
@@ -1181,7 +1630,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frame.phase = "derive";
       return;
     }
-    await this.dispatchAtomic(frame, skill);
+    await this.dispatchAtomic(frame, skill, retryView);
   }
 
   private async deriveConditions(frame: InternalFrame<G, B, C>): Promise<void> {
@@ -1454,8 +1903,39 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private async dispatchAtomic(
     frame: InternalFrame<G, B, C>,
     skill: EnabledSkill,
+    selectedRetryView?: RetrySelectionView,
   ): Promise<void> {
+    const frameRetry = this.ensureRetryFrame(frame);
+    if (
+      this.retryControl !== null &&
+      this.retryControl!.atomicAttemptsUsed >=
+        this.retryControl!.policy.maxAtomicAttempts
+    ) {
+      this.stopAtomicAttemptBudget(frame);
+      return;
+    }
     if (!this.beginTransition(frame, "dispatch")) return;
+    let atomicRetryView: RetrySelectionView | undefined;
+    if (this.retryControl !== null) {
+      if (frameRetry !== null) {
+        atomicRetryView =
+          selectedRetryView ??
+          freezeSnapshot({
+            eligibleSkillIds: frameRetry.strategies
+              .filter(strategy => !strategy.exhausted)
+              .map(strategy => strategy.skillId),
+            lockedSkillId: frameRetry.lockedSkillId,
+            exhaustedSkillIds: frameRetry.strategies
+              .filter(strategy => strategy.exhausted)
+              .map(strategy => strategy.skillId),
+            remainingAtomicAttempts:
+              this.retryControl.policy.maxAtomicAttempts -
+              this.retryControl.atomicAttemptsUsed,
+          });
+      }
+      this.retryControl!.atomicAttemptsUsed += 1;
+      this.atomicDispatchesThisInvocation += 1;
+    }
     const dispatchId = `${frame.frameId}:dispatch:${this.ledger.length + 1}`;
     const riskEffect: EffectRecord<F> = {
       dispatchId,
@@ -1482,6 +1962,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         bindings: this.callbackBindings(frame.bindings),
         state: this.callbackState(),
         evidence: this.callbackEvidence(),
+        ...(atomicRetryView === undefined ? {} : { retry: atomicRetryView }),
       });
     } catch (error) {
       const returnedRisk: EffectRecord<F> = {
@@ -2092,6 +2573,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       throw new ModuleInvariantError(`duplicate child frame ${frameId}`);
     }
     this.frames.set(frameId, child);
+    this.ensureRetryFrame(child);
     condition.childFrameId = frameId;
     condition.execution = "not_started";
     this.derivedGoalsUsed += 1;
@@ -2356,6 +2838,36 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         );
       }
     }
+  }
+
+  private retryPolicyAppliesToFrame(frame: InternalFrame<G, B, C>): boolean {
+    return (
+      this.retryControl !== null &&
+      this.retryControl.policy.selectorId === frame.selectorId
+    );
+  }
+
+  private ensureRetryFrame(
+    frame: InternalFrame<G, B, C>,
+  ): MutableFrameStrategyRetryState | null {
+    if (!this.retryPolicyAppliesToFrame(frame)) return null;
+    const existing = this.retryControl!.frames.find(
+      state => state.frameId === frame.frameId,
+    );
+    if (existing !== undefined) return existing;
+    const state: MutableFrameStrategyRetryState = {
+      frameId: frame.frameId,
+      lockedSkillId: null,
+      strategies: this.retryControl!.policy.strategySkillIds.map(skillId => ({
+        skillId,
+        failures: [],
+        exhausted: false,
+        latestAttemptRef: null,
+      })),
+      lastAccountedDispatchId: null,
+    };
+    this.retryControl!.frames.push(state);
+    return state;
   }
 
   private currentFrame(): InternalFrame<G, B, C> {
@@ -2695,6 +3207,46 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       "exceeded",
       "budget",
     );
+  }
+
+  private stopAtomicAttemptBudget(frame: InternalFrame<G, B, C>): void {
+    this.stopWithNewDiagnostic(
+      frame,
+      {
+        code: "budget_exceeded",
+        stage: "dispatch",
+        message: "the bounded strategy maxAtomicAttempts budget is exhausted",
+        category: "atomic_attempt_budget",
+      },
+      "exceeded",
+      "budget",
+    );
+  }
+
+  private stopStrategiesExhausted(frame: InternalFrame<G, B, C>): void {
+    this.stopWithNewDiagnostic(
+      frame,
+      {
+        code: "no_progress",
+        stage: "aggregation",
+        message: "all bounded retry strategies reached their same-failure limit",
+        category: "strategies_exhausted",
+        effectKnowledge: this.frameEffectKnowledge(frame),
+      },
+      "stalled",
+      "no_progress",
+    );
+  }
+
+  private yieldStep(frame: InternalFrame<G, B, C>): void {
+    if (this.finished) return;
+    frame.phase = "select";
+    this.control = {
+      outcome: "yielded",
+      stopReason: "step_boundary",
+      frameId: frame.frameId,
+    };
+    this.finished = true;
   }
 
   private stopWithNewDiagnostic(
@@ -3082,6 +3634,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         selectorIds: this.deps.selectors.map(selector => selector.id),
         grantedEffects: [...this.deps.grantedEffects],
       },
+      ...(this.retryControl === null
+        ? {}
+        : { retryControl: retryControlSnapshot(this.retryControl) }),
     };
   }
 
@@ -3566,6 +4121,34 @@ function validateAdmissionVocabulary<G, S, B, E, F, R, C>(
       `root selector ${envelope.rootSelectorId} is not enabled`,
     );
   }
+  if (envelope.retryPolicy !== undefined) {
+    if (typeof deps.adapter.assessRetry !== "function") {
+      throw new TypeError("adapter.assessRetry is required by retryPolicy");
+    }
+    const selector = deps.selectorsById.get(envelope.retryPolicy.selectorId);
+    if (selector === undefined) {
+      throw new TypeError(
+        `retryPolicy selector ${envelope.retryPolicy.selectorId} is not enabled`,
+      );
+    }
+    if (!sameStringSet(selector.skillIds, envelope.retryPolicy.strategySkillIds)) {
+      throw new TypeError(
+        "retryPolicy strategySkillIds must equal the selector skill set",
+      );
+    }
+    for (const skillId of envelope.retryPolicy.strategySkillIds) {
+      const skill = deps.skillsById.get(skillId);
+      if (
+        skill === undefined ||
+        skill.mode !== "atomic" ||
+        skill.retry !== "completed_no_effect"
+      ) {
+        throw new TypeError(
+          `retryPolicy strategy ${skillId} must be an enabled atomic completed_no_effect skill`,
+        );
+      }
+    }
+  }
 }
 
 function validateValidatedRequest<G, S, B, E, F, R, C>(
@@ -3591,6 +4174,21 @@ function validateValidatedRequest<G, S, B, E, F, R, C>(
     validated.limits.maxDerivedGoals !== envelope.limits.maxDerivedGoals
   ) {
     throw new TypeError("adapter changed request limits");
+  }
+  if (
+    (envelope.retryPolicy === undefined) !==
+    (validated.retryPolicy === undefined)
+  ) {
+    throw new TypeError("adapter changed the presence of retryPolicy");
+  }
+  if (envelope.retryPolicy !== undefined && validated.retryPolicy !== undefined) {
+    const typedRetryPolicy = readBoundedRetryPolicy(
+      validated.retryPolicy,
+      "validated.retryPolicy",
+    );
+    if (!sameBoundedRetryPolicy(envelope.retryPolicy, typedRetryPolicy)) {
+      throw new TypeError("adapter changed retryPolicy");
+    }
   }
   if (!comparators.sameGoal(validated.rootGoal, envelope.rootGoal as G)) {
     throw new TypeError("adapter changed rootGoal");
@@ -3660,7 +4258,61 @@ function readValidatedContinuation<G, S, B, E, F, R, C>(
 function validateContinuationContracts<G, S, B, E, F, R, C>(
   continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C>,
   deps: NormalizedDependencies<G, S, B, E, F, R, C>,
+  requestRetryPolicy: BoundedRetryPolicy | undefined,
 ): void {
+  const continuationRetryPolicy = continuation.retryControl?.policy;
+  if (
+    (requestRetryPolicy === undefined) !==
+    (continuationRetryPolicy === undefined)
+  ) {
+    throw new TypeError("continuation retry policy presence changed");
+  }
+  if (
+    requestRetryPolicy !== undefined &&
+    continuationRetryPolicy !== undefined &&
+    !sameBoundedRetryPolicy(requestRetryPolicy, continuationRetryPolicy)
+  ) {
+    throw new TypeError("continuation retry policy changed");
+  }
+  if (continuationRetryPolicy !== undefined) {
+    const selector = deps.selectorsById.get(continuationRetryPolicy.selectorId);
+    if (selector === undefined) {
+      throw new TypeError("continuation retry selector is not enabled");
+    }
+    if (
+      !sameStringSet(
+        selector.skillIds,
+        continuationRetryPolicy.strategySkillIds,
+      )
+    ) {
+      throw new TypeError("continuation retry strategy set changed");
+    }
+    for (const strategySkillId of continuationRetryPolicy.strategySkillIds) {
+      const strategySkill = deps.skillsById.get(strategySkillId);
+      if (
+        strategySkill === undefined ||
+        strategySkill.mode !== "atomic" ||
+        strategySkill.retry !== "completed_no_effect"
+      ) {
+        throw new TypeError(
+          `continuation retry strategy ${strategySkillId} is not safely dispatchable`,
+        );
+      }
+    }
+    const retryFrameIds = new Set(
+      continuation.retryControl!.frames.map(frame => frame.frameId),
+    );
+    for (const frameControl of continuation.frameControls) {
+      if (
+        frameControl.selectorId === continuationRetryPolicy.selectorId &&
+        !retryFrameIds.has(frameControl.frameId)
+      ) {
+        throw new TypeError(
+          `continuation retry frame ${frameControl.frameId} is missing`,
+        );
+      }
+    }
+  }
   for (const control of continuation.frameControls) {
     if (control.pendingVerification === null) continue;
     const entry = continuation.stack.find(item => item.frameId === control.frameId);
@@ -3773,6 +4425,132 @@ function evaluationFromCondition<G, B>(
       condition.fact === "satisfied",
     evidenceRefs: [...condition.evidenceRefs],
   };
+}
+
+function cloneRetryPolicy(policy: BoundedRetryPolicy): BoundedRetryPolicy {
+  return {
+    kind: "bounded_strategy_retry.v1",
+    selectorId: policy.selectorId,
+    strategySkillIds: [...policy.strategySkillIds],
+    sameFailureLimit: policy.sameFailureLimit,
+    maxAtomicAttempts: policy.maxAtomicAttempts,
+  };
+}
+
+function sameBoundedRetryPolicy(
+  left: BoundedRetryPolicy,
+  right: BoundedRetryPolicy,
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.selectorId === right.selectorId &&
+    sameStringSet(left.strategySkillIds, right.strategySkillIds) &&
+    left.sameFailureLimit === right.sameFailureLimit &&
+    left.maxAtomicAttempts === right.maxAtomicAttempts
+  );
+}
+
+function cloneRetryControl(
+  control: RecursiveGoalRetryControl,
+): MutableRecursiveGoalRetryControl {
+  return {
+    policy: cloneRetryPolicy(control.policy),
+    atomicAttemptsUsed: control.atomicAttemptsUsed,
+    frames: control.frames.map(frame => ({
+      frameId: frame.frameId,
+      lockedSkillId: frame.lockedSkillId,
+      strategies: frame.strategies.map(strategy => ({
+        skillId: strategy.skillId,
+        failures: strategy.failures.map(failure => ({ ...failure })),
+        exhausted: strategy.exhausted,
+        latestAttemptRef: strategy.latestAttemptRef,
+      })),
+      lastAccountedDispatchId: frame.lastAccountedDispatchId,
+    })),
+  };
+}
+
+function retryControlSnapshot(
+  control: MutableRecursiveGoalRetryControl,
+): RecursiveGoalRetryControl {
+  return cloneRetryControl(control);
+}
+
+function readRetryAssessment(value: unknown): RetryAssessment {
+  if (!isRecord(value)) throw new TypeError("retry assessment must be an object");
+  if (value.kind === "safe_same_failure") {
+    if (Object.keys(value).some(key => key !== "kind" && key !== "failureKey" && key !== "evidenceRefs")) {
+      throw new TypeError("safe retry assessment has unsupported fields");
+    }
+    if (
+      typeof value.failureKey !== "string" ||
+      value.failureKey.length === 0 ||
+      value.failureKey.includes("\0")
+    ) {
+      throw new TypeError("retry assessment failureKey must be a non-empty string");
+    }
+    if (!Array.isArray(value.evidenceRefs)) {
+      throw new TypeError("retry assessment evidenceRefs must be an array");
+    }
+    const evidenceRefs = value.evidenceRefs.map((entry, index) => {
+      if (
+        typeof entry !== "string" ||
+        entry.length === 0 ||
+        entry.includes("\0")
+      ) {
+        throw new TypeError(
+          `retry assessment evidenceRefs[${index}] must be a non-empty string`,
+        );
+      }
+      return entry;
+    });
+    if (new Set(evidenceRefs).size !== evidenceRefs.length) {
+      throw new TypeError("retry assessment evidenceRefs contains duplicates");
+    }
+    return {
+      kind: "safe_same_failure",
+      failureKey: value.failureKey,
+      evidenceRefs,
+    };
+  }
+  if (value.kind === "stop") {
+    if (Object.keys(value).some(key => key !== "kind" && key !== "reason")) {
+      throw new TypeError("retry stop assessment has unsupported fields");
+    }
+    if (
+      value.reason !== "unsupported_retry" &&
+      value.reason !== "evidence_insufficient" &&
+      value.reason !== "effects_not_none" &&
+      value.reason !== "precondition_changed"
+    ) {
+      throw new TypeError("retry stop assessment reason is invalid");
+    }
+    return { kind: "stop", reason: value.reason };
+  }
+  throw new TypeError("retry assessment kind is invalid");
+}
+
+function retryStopDiagnostic(
+  reason: Extract<RetryAssessment, { readonly kind: "stop" }>["reason"],
+): Pick<StopDiagnosticSpec, "code" | "stage" | "owner"> {
+  switch (reason) {
+    case "unsupported_retry":
+      return { code: "policy_error", stage: "selection", owner: "adapter" };
+    case "evidence_insufficient":
+      return {
+        code: "evidence_unavailable",
+        stage: "observation",
+        owner: "adapter",
+      };
+    case "effects_not_none":
+      return { code: "effect_denied", stage: "effect", owner: "adapter" };
+    case "precondition_changed":
+      return {
+        code: "precondition_unsatisfied",
+        stage: "selection",
+        owner: "adapter",
+      };
+  }
 }
 
 function effectKnowledgeForSkill<F>(

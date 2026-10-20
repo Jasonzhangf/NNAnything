@@ -21,11 +21,14 @@ import {
 } from "./live-dom.js";
 import type {
   ActionObservation,
+  SelectedExpansionStrategy,
+  SelectedSingleActionRequest,
   SingleActionElement,
   SingleActionRegion,
   SingleActionRequest,
   SingleActionSnapshot,
 } from "./single-action-contract.js";
+import type { BrowserExpansionStrategy } from "./strategy-contract.js";
 
 export interface ObserveBrowserSingleActionInput {
   readonly document: Document;
@@ -363,6 +366,135 @@ export function readSingleActionRequest(value: unknown): SingleActionRequest {
     goal: { kind: "SetExpanded", regionRef, desired: true },
     satisfactionThreshold: 100,
     state,
+  };
+}
+
+function readSelectedExpansionStrategy(
+  value: unknown,
+  label: string,
+): SelectedExpansionStrategy {
+  const input = record(value, label);
+  exactKeys(input, [
+    "strategyRef",
+    "skillId",
+    "targetRef",
+    "goalRegionRef",
+    "equivalenceSetRef",
+    "evidenceRefs",
+  ], label);
+  return {
+    strategyRef: nonEmptyString(input.strategyRef, `${label}.strategyRef`),
+    skillId: nonEmptyString(input.skillId, `${label}.skillId`),
+    targetRef: nonEmptyString(input.targetRef, `${label}.targetRef`),
+    goalRegionRef: nonEmptyString(input.goalRegionRef, `${label}.goalRegionRef`),
+    equivalenceSetRef: nonEmptyString(input.equivalenceSetRef, `${label}.equivalenceSetRef`),
+    evidenceRefs: uniqueStrings(input.evidenceRefs, `${label}.evidenceRefs`, false),
+  };
+}
+
+function readStrategyRegistry(value: unknown): readonly BrowserExpansionStrategy[] {
+  const entries = array(value, "strategyRegistry");
+  if (entries.length === 0) throw new TypeError("strategyRegistry must not be empty");
+  const strategyRefs = new Set<string>();
+  const skillIds = new Set<string>();
+  return entries.map((entry, index) => {
+    const label = `strategyRegistry[${index}]`;
+    const input = record(entry, label);
+    exactKeys(input, [
+      "strategyRef",
+      "skillId",
+      "targetRef",
+      "goalRegionRef",
+      "equivalenceSetRef",
+      "documentRef",
+      "scopeRef",
+      "operation",
+      "evidenceRefs",
+    ], label);
+    if (input.operation !== "CLICK") {
+      throw new TypeError(`${label}.operation must be CLICK`);
+    }
+    const strategyRef = nonEmptyString(input.strategyRef, `${label}.strategyRef`);
+    const skillId = nonEmptyString(input.skillId, `${label}.skillId`);
+    if (strategyRefs.has(strategyRef)) {
+      throw new TypeError(`strategyRegistry contains duplicate strategyRef ${strategyRef}`);
+    }
+    if (skillIds.has(skillId)) {
+      throw new TypeError(`strategyRegistry contains duplicate skillId ${skillId}`);
+    }
+    strategyRefs.add(strategyRef);
+    skillIds.add(skillId);
+    return {
+      strategyRef,
+      skillId,
+      targetRef: nonEmptyString(input.targetRef, `${label}.targetRef`),
+      goalRegionRef: nonEmptyString(input.goalRegionRef, `${label}.goalRegionRef`),
+      equivalenceSetRef: nonEmptyString(input.equivalenceSetRef, `${label}.equivalenceSetRef`),
+      documentRef: nonEmptyString(input.documentRef, `${label}.documentRef`),
+      scopeRef: nonEmptyString(input.scopeRef, `${label}.scopeRef`),
+      operation: "CLICK" as const,
+      evidenceRefs: uniqueStrings(input.evidenceRefs, `${label}.evidenceRefs`, false),
+    };
+  });
+}
+
+export function readSelectedSingleActionRequest(
+  value: unknown,
+  strategyRegistry: unknown,
+): SelectedSingleActionRequest {
+  const input = record(value, "selected single-action request");
+  exactKeys(input, [
+    "contract",
+    "goal",
+    "satisfactionThreshold",
+    "state",
+    "selectedStrategy",
+  ], "selected single-action request");
+  if (input.contract !== "browser.single-action.selected.v1") {
+    throw new TypeError("selected single-action request.contract is invalid");
+  }
+  const base = readSingleActionRequest({
+    goal: input.goal,
+    satisfactionThreshold: input.satisfactionThreshold,
+    state: input.state,
+  });
+  const selectedStrategy = readSelectedExpansionStrategy(
+    input.selectedStrategy,
+    "selected single-action request.selectedStrategy",
+  );
+  const registry = readStrategyRegistry(strategyRegistry);
+  const registered = registry.find(entry =>
+    entry.strategyRef === selectedStrategy.strategyRef
+    && entry.skillId === selectedStrategy.skillId
+    && entry.targetRef === selectedStrategy.targetRef
+    && entry.goalRegionRef === selectedStrategy.goalRegionRef
+    && entry.equivalenceSetRef === selectedStrategy.equivalenceSetRef
+    && entry.evidenceRefs.length === selectedStrategy.evidenceRefs.length
+    && entry.evidenceRefs.every((ref, index) => ref === selectedStrategy.evidenceRefs[index]));
+  if (registered === undefined) {
+    throw new TypeError(
+      "selected single-action request.selectedStrategy is not registered with an explicit equivalence proof",
+    );
+  }
+  if (registered.documentRef !== base.state.documentRef
+    || registered.scopeRef !== base.state.scopeRef) {
+    throw new TypeError(
+      "selected strategy registry document/scope does not match the observed document/scope",
+    );
+  }
+  if (registered.goalRegionRef !== base.goal.regionRef) {
+    throw new TypeError("selected strategy goalRegionRef does not match the request Goal");
+  }
+  if (!base.state.regions.some(region => region.ref === registered.goalRegionRef)) {
+    throw new TypeError("selected strategy goalRegionRef is not an observed region");
+  }
+  if (!base.state.elements.some(element => element.ref === registered.targetRef)) {
+    throw new TypeError("selected strategy targetRef is not present in the observed DOM");
+  }
+  return {
+    ...base,
+    contract: "browser.single-action.selected.v1",
+    selectedStrategy,
   };
 }
 

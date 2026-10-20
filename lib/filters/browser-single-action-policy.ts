@@ -11,6 +11,7 @@ import {
   type SingleActionRegion,
   type SingleActionRelationPrediction,
   type SingleActionRequest,
+  type SingleActionTargetConstraint,
 } from "../adapters/browser/single-action-contract.js";
 
 type SingleActionRelationHead = typeof SINGLE_ACTION_RELATION_HEADS[number];
@@ -88,8 +89,15 @@ function readControlsObservation(value: unknown, label: string): { readonly stat
   return observation as { readonly status: "unknown" };
 }
 
-function readRequest(value: unknown): SingleActionRequest {
+function readRequest(
+  value: unknown,
+  options?: { readonly allowSelected?: boolean },
+): SingleActionRequest {
   const request = expectRecord(value, "single action request");
+  if (options?.allowSelected !== true
+    && (Object.hasOwn(request, "contract") || Object.hasOwn(request, "selectedStrategy"))) {
+    throw new TypeError("standalone single action request must not carry selected strategy fields");
+  }
   const goal = expectRecord(request.goal, "single action request.goal");
   if (goal.kind !== "SetExpanded" || goal.desired !== true) {
     throw new TypeError("single action request goal must be SetExpanded with desired true");
@@ -202,14 +210,42 @@ function validateRelations(
   }
 }
 
-function capabilityFeatures(request: SingleActionRequest, relations: readonly SingleActionRelationPrediction[]): readonly number[] {
-  readRequest(request);
-  validateRelations(request, relations);
+function readTargetConstraint(
+  request: SingleActionRequest,
+  value: unknown,
+): SingleActionTargetConstraint {
+  const input = expectRecord(value, "single action target constraint");
+  const targetRef = nonEmptyString(input.targetRef, "single action target constraint.targetRef");
+  const goalRegionRef = nonEmptyString(
+    input.goalRegionRef,
+    "single action target constraint.goalRegionRef",
+  );
+  if (goalRegionRef !== request.goal.regionRef) {
+    throw new TypeError("single action target constraint goalRegionRef does not match the request Goal");
+  }
+  if (!request.state.elements.some(element => element.ref === targetRef)) {
+    throw new TypeError("single action target constraint targetRef is absent from the request DOM");
+  }
+  return { targetRef, goalRegionRef };
+}
+
+function capabilityFeatureValues(
+  request: SingleActionRequest,
+  relations: readonly SingleActionRelationPrediction[],
+  targetRef: string | null,
+): readonly number[] {
   const region = readRegion(request);
   const expanded = region === null
     ? { status: "unknown" as const }
     : readBooleanObservation(region.expanded, `single action region ${region.ref}.expanded`);
-  const providers = relations.filter(relation => relation.judgment === "actionable_provider").length;
+  const scopedRelations = targetRef === null
+    ? relations
+    : relations.filter(relation => relation.ref === targetRef);
+  if (targetRef !== null && scopedRelations.length !== 1) {
+    throw new TypeError("single action target constraint must match exactly one relation");
+  }
+  const providers = scopedRelations.filter(relation =>
+    relation.judgment === "actionable_provider").length;
   const relationComplete = relations.every(relation => relation.features[CONTROLS_KNOWN] === 1);
   const actionabilityComplete = relations.every(relation =>
     relation.features[CONTROLS_TARGET] === 0
@@ -225,6 +261,15 @@ function capabilityFeatures(request: SingleActionRequest, relations: readonly Si
     "actionabilityCoverage.complete": actionabilityComplete ? 1 : 0,
   } satisfies Record<SingleActionCapabilityWire, number>;
   return Object.freeze(SINGLE_ACTION_CAPABILITY_WIRES.map(wire => values[wire]));
+}
+
+function capabilityFeatures(
+  request: SingleActionRequest,
+  relations: readonly SingleActionRelationPrediction[],
+): readonly number[] {
+  const validatedRequest = readRequest(request);
+  validateRelations(validatedRequest, relations);
+  return capabilityFeatureValues(validatedRequest, relations, null);
 }
 
 function dot(weights: readonly number[], features: readonly number[]): number {
@@ -297,9 +342,26 @@ export function singleActionCapabilityFeatures(
   return capabilityFeatures(request, relations);
 }
 
-export function predictBrowserSingleAction(request: SingleActionRequest, profile: BrowserSingleActionProfile): SingleActionPrediction {
+export function singleActionCapabilityFeaturesForTarget(
+  request: SingleActionRequest,
+  relations: readonly SingleActionRelationPrediction[],
+  constraint: SingleActionTargetConstraint,
+): readonly number[] {
+  const validatedRequest = readRequest(request, { allowSelected: true });
+  validateRelations(validatedRequest, relations);
+  const validatedConstraint = readTargetConstraint(validatedRequest, constraint);
+  return capabilityFeatureValues(validatedRequest, relations, validatedConstraint.targetRef);
+}
+
+function predictBrowserSingleActionInternal(
+  request: SingleActionRequest,
+  profile: BrowserSingleActionProfile,
+  constraintValue?: unknown,
+): SingleActionPrediction {
   const validated = validateBrowserSingleActionProfile(profile);
-  const validatedRequest = readRequest(request);
+  const validatedRequest = readRequest(request, {
+    allowSelected: constraintValue !== undefined,
+  });
   const relations = validatedRequest.state.elements.map(element => {
     const features = relationFeatures(validatedRequest, element);
     const scores = validated.relationWeights.map(weights => dot(weights, features));
@@ -311,11 +373,22 @@ export function predictBrowserSingleAction(request: SingleActionRequest, profile
       judgment: relationJudgment(scores, features),
     }) satisfies SingleActionRelationPrediction;
   });
-  const features = capabilityFeatures(validatedRequest, relations);
+  const constraint = constraintValue === undefined
+    ? null
+    : readTargetConstraint(validatedRequest, constraintValue);
+  const features = capabilityFeatureValues(
+    validatedRequest,
+    relations,
+    constraint?.targetRef ?? null,
+  );
   const scores = validated.capabilityWeights.map(weights => dot(weights, features));
   if (!scores.every(Number.isFinite)) throw new Error("Non-finite browser single action capability logits");
   const capability = capabilityHead(scores, SINGLE_ACTION_CAPABILITY_HEADS);
-  const providers = relations.filter(relation => relation.judgment === "actionable_provider");
+  const providers = constraint === null
+    ? relations.filter(relation => relation.judgment === "actionable_provider")
+    : relations.filter(relation =>
+      relation.ref === constraint.targetRef
+      && relation.judgment === "actionable_provider");
   return Object.freeze({
     relations: Object.freeze(relations),
     capability,
@@ -325,11 +398,30 @@ export function predictBrowserSingleAction(request: SingleActionRequest, profile
   });
 }
 
+export function predictBrowserSingleAction(
+  request: SingleActionRequest,
+  profile: BrowserSingleActionProfile,
+): SingleActionPrediction {
+  return predictBrowserSingleActionInternal(request, profile);
+}
+
+export function predictBrowserSingleActionForTarget(
+  request: SingleActionRequest,
+  profile: BrowserSingleActionProfile,
+  constraint: SingleActionTargetConstraint,
+): SingleActionPrediction {
+  return predictBrowserSingleActionInternal(request, profile, constraint);
+}
+
 export function createBrowserSingleActionPolicy(input: Readonly<{ profile: BrowserSingleActionProfile }>) {
   const value = expectRecord(input, "browser single action policy request");
   const profile = validateBrowserSingleActionProfile(value.profile);
   return Object.freeze({
     profile,
     predict: (request: SingleActionRequest) => predictBrowserSingleAction(request, profile),
+    predictForTarget: (
+      request: SingleActionRequest,
+      constraint: SingleActionTargetConstraint,
+    ) => predictBrowserSingleActionForTarget(request, profile, constraint),
   });
 }

@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-10-20 F2整体Review两P1已关闭，验收通过，待main集成
+
+两项P1修复后父build及公开回归20/20，全仓943/943零skip；新增真实rawunknown＋合法proof＋错误F1场景只输入1次后effect_outcome_unknown，未记安全重试；AAB修后复测成功。原生累计11轮20输入。独立OAuth gpt-6.1-sol medium定点复核PASS，37/37及apply同步/异步抛错两探针通过，确认两finding均关闭且影响闭包无新问题。完整Review与复核共同满足本milestone审查，未重新训练。run/ review-result.md保留原FAIL，review-recheck-result.md保存关闭依据。进入main集成与资源收口。
+
+完整独立Review（Gemini4本轮实际quota失败后OAuth gpt-6.1-sol medium只读）结论FAIL：一是F2缓存currentControl绕过apply前实时失效检查，rev2变3仍发点击；二是合法no-effect proof可把rawunknown effects映射none，再由故意错误F1放行retry。原936项及9native未覆盖这两项组合反例。已分别派互斥GCM owner修node/atomic type和recursive adapter，各新增公开接口红测；不重训、不改候选。原oracle裁决经整体Reviewer确认符合合同。必须补受影响验收并独立复核两P1后才main集成。
+
+当前F2作者验收：仅改损失的一次固定修订fit已达train36/36、dev12/12，新进程48/48，候选未采用。原独立24例保留FAIL22/24；两项正margin单候选DEFER gold经独立只读裁决为前提缺失，另列零权重2/2和负bias2/2，未改原JSON、答案或候选，未再训练。原生9场景16输入通过：AAB、AABB精确止步、n1、AA成功、unknown/disabled停、初始达成/zero策略零输入、重排且三新进程计数续跑。全仓936/936零skip。完整作者材料为外置run/progressive-strategy/author-acceptance.md；待一次整体Review、main/push与资源关闭，尚不算已交付。
+
+F1 main 2da1559已推送、canonical build与24例回载通过；独立整体Review零finding/正式裁决pass。旧feedback-strategy树在只读Planner结束后已remove/prune/test不存在，旧分支删除。当前唯一树 `/Volumes/Intel/playground/nnanything/browser-progressive-strategy`，codex/browser-progressive-strategy，base origin/main2da1559。独立strategy-detail-plan.md READY后先落共享contract及F2step5N4E、training6N6E，两图validate/inspect实际通过；原递归3N2E/原子7N6E拓扑不改。
+
+本阶段GCM已恢复可用，互斥owner：core typed重试/continuation、atomic显式selected范围、learning20参数+样本、verification独立24例；再补group5N4E/rootadapter与training6N6E/consumer。父sole共享合同/图/package/facade/build/实际fit/CUA/集成；各worker不build/真实训练/浏览器/Git。原子50/F1 36固定。首轮20参数真实Handwired拟合已执行，train30/36、dev8/12，accepted=false；完整candidate/report/trajectory保留于外置run/progressive-strategy/fitted。初始优选误选role，不能称学生已会优选/次选。36train含33合成+3真实教师当步，12dev合成，轨迹家族不跨区。
+
+拟合前已修正合成history未来revision、foreign document和collapsed/rendered事实矛盾；永久边界13/13绿。单元与组合集成后首轮全仓931项928过/3个训练fixture失败；修F1零权重造成的fixture监督冲突后931/931零skip。独立只读Planner在Gemini4实际quota失败后由OAuth gpt-6.1-sol medium完成：现有20参数可表达36/12，不改标签/wire/预算；静态分析否定简单投影等权，只建议完整决策集最大竞争项平方hinge损失，固定间隔1。修订一次fit未执行；原失败与首次未见verification继续保留。父追加三类F1前向断言及零F1冲突专门反例，测试6/6通过。
+
+父已原生采集教师示例A→A→B（两个A真实无效果且fixture trusted/noBusinessEffects证据，B真实打开Goal、邻区不变）。全部pre/post/audit在外置父run/progressive-strategy，observed-teacher-strategy-episodes及transitions明确教师而非学生rollout；当前步输入只含此前history，未来post另存。服务器现PID79223端口50501，前PID37389/65422已关闭；自有Chrome tab854002351仍持有教师完成页，后续用于真实候选验收。学生实际控制轨迹尚未运行。
+
 ## 2026-10-20 单次基础已main交付，继续失败反馈学习
 
 原子50参数切片f7b97a7已fast-forward main并push origin/main；canonical构建及独立20例新进程回载成功，main与origin/main同步。旧树browser-semantic-single-action已remove/prune且不存在，旧分支删除，自有tab854002349和四服务41811/56463/13613/10094已关闭。证据仍留外置原run，不删历史FAIL/红测。

@@ -1,4 +1,5 @@
 import type { BasicKindLabel, BasicKindStatus } from "../../filters/basic-kinds.js";
+import type { BrowserExpansionStrategy } from "./strategy-contract.js";
 
 /** Shared typed contract. Raw identifiers and content are never numeric student inputs. */
 export type ActionObservation<T> =
@@ -49,6 +50,29 @@ export interface SingleActionRequest {
   readonly goal: { readonly kind: "SetExpanded"; readonly regionRef: string; readonly desired: true };
   readonly satisfactionThreshold: 100;
   readonly state: SingleActionSnapshot;
+}
+
+export interface SingleActionTargetConstraint {
+  readonly targetRef: string;
+  readonly goalRegionRef: string;
+}
+
+export interface SelectedExpansionStrategy {
+  readonly strategyRef: string;
+  readonly skillId: string;
+  readonly targetRef: string;
+  readonly goalRegionRef: string;
+  readonly equivalenceSetRef: string;
+  readonly evidenceRefs: readonly string[];
+}
+
+export interface SelectedSingleActionRequest extends SingleActionRequest {
+  readonly contract: "browser.single-action.selected.v1";
+  readonly selectedStrategy: SelectedExpansionStrategy;
+}
+
+export interface SelectedSingleActionResources extends SingleActionResources {
+  readonly strategyRegistry: readonly BrowserExpansionStrategy[];
 }
 
 export const SINGLE_ACTION_RELATION_HEADS = ["actionable_provider", "not_provider"] as const;
@@ -121,7 +145,7 @@ export interface SingleActionResources {
   readonly profile: BrowserSingleActionProfile;
   readonly grantedEffects: ReadonlySet<string>;
   readonly observe: () => Promise<SingleActionSnapshot>;
-  readonly currentControl: () => SingleActionControl;
+  readonly currentControl: () => SingleActionControl | Promise<SingleActionControl>;
   readonly nativeClick: (invocation: NativeClickInvocation) => Promise<NativeClickReceipt>;
   readonly collect: (result: SingleActionEpisodeResult) => Promise<void>;
 }

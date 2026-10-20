@@ -42,6 +42,10 @@
       "types": "./dist/browser-feedback.d.ts",
       "import": "./dist/browser-feedback.js"
     },
+    "./browser-strategy": {
+      "types": "./dist/browser-strategy.d.ts",
+      "import": "./dist/browser-strategy.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"

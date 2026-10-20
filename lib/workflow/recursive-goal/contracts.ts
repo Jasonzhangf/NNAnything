@@ -26,18 +26,21 @@ export type RecursiveGoalControlOutcome =
   | "error"
   | "stalled"
   | "exceeded"
-  | "cancelled";
+  | "cancelled"
+  | "yielded";
 export type RecursiveGoalStopReason =
   | "root_evaluation"
   | "fatal_error"
   | "no_progress"
   | "budget"
   | "cancel"
-  | "no_remaining_work";
+  | "no_remaining_work"
+  | "step_boundary";
 export type RecursiveGoalErrorCode =
   | "invalid_request"
   | "invalid_binding"
   | "capability_missing"
+  | "policy_deferred"
   | "precondition_unsatisfied"
   | "evidence_unavailable"
   | "evidence_conflict"
@@ -72,6 +75,51 @@ export interface RecursiveGoalLimits {
   readonly maxDerivedGoals: number;
 }
 
+export interface BoundedRetryPolicy {
+  readonly kind: "bounded_strategy_retry.v1";
+  readonly selectorId: string;
+  readonly strategySkillIds: readonly string[];
+  /** Includes the first attempt and every completed safe same-failure retry. */
+  readonly sameFailureLimit: number;
+  readonly maxAtomicAttempts: number;
+}
+
+export interface RecursiveGoalInvocationControl {
+  readonly maxAtomicDispatches: 1;
+}
+
+export interface RetryFailureCount {
+  readonly failureKey: string;
+  readonly count: number;
+}
+
+export interface StrategyRetryState {
+  readonly skillId: string;
+  readonly failures: readonly RetryFailureCount[];
+  readonly exhausted: boolean;
+  readonly latestAttemptRef: string | null;
+}
+
+export interface FrameStrategyRetryState {
+  readonly frameId: string;
+  readonly lockedSkillId: string | null;
+  readonly strategies: readonly StrategyRetryState[];
+  readonly lastAccountedDispatchId: string | null;
+}
+
+export interface RecursiveGoalRetryControl {
+  readonly policy: BoundedRetryPolicy;
+  readonly atomicAttemptsUsed: number;
+  readonly frames: readonly FrameStrategyRetryState[];
+}
+
+export interface RetrySelectionView {
+  readonly eligibleSkillIds: readonly string[];
+  readonly lockedSkillId: string | null;
+  readonly exhaustedSkillIds: readonly string[];
+  readonly remainingAtomicAttempts: number;
+}
+
 export interface BudgetUsed {
   readonly transitionsUsed: number;
   readonly derivedGoalsUsed: number;
@@ -89,6 +137,8 @@ export interface RecursiveGoalRequestEnvelope {
   readonly limits: RecursiveGoalLimits;
   readonly initialObservation?: RecursiveGoalInitialObservation<unknown>;
   readonly continuation?: unknown;
+  readonly retryPolicy?: BoundedRetryPolicy;
+  readonly invocation?: RecursiveGoalInvocationControl;
 }
 
 export interface StateRecord<S> {
@@ -233,6 +283,10 @@ export type Selection =
   | {
       readonly kind: "no_capability";
       readonly searchedSkillIds: readonly string[];
+    }
+  | {
+      readonly kind: "defer";
+      readonly reason: string;
     };
 
 export interface AdapterCallbackContext {
@@ -268,6 +322,7 @@ export interface SelectionInput<G, S, B, E> {
   readonly conditions: readonly ConditionFact[];
   readonly previousEvaluation: EvaluationReceipt | null;
   readonly candidates: readonly EnabledSkill[];
+  readonly retry?: RetrySelectionView;
 }
 
 export interface DerivationInput<G, S, B, E, C> {
@@ -290,6 +345,7 @@ export interface AtomicInput<G, S, B, E> {
   readonly bindings: B;
   readonly state: S;
   readonly evidence: readonly EvidenceRecord<E>[];
+  readonly retry?: RetrySelectionView;
 }
 
 export interface DomainReceipt<R> {
@@ -364,6 +420,32 @@ export interface ValidatedRequest<G, S, B, E, F, R, C> {
   readonly limits: RecursiveGoalLimits;
   readonly initialObservation?: RecursiveGoalInitialObservation<E>;
   readonly continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C> | null;
+  readonly retryPolicy?: BoundedRetryPolicy;
+}
+
+export type RetryAssessment =
+  | {
+      readonly kind: "safe_same_failure";
+      readonly failureKey: string;
+      readonly evidenceRefs: readonly string[];
+    }
+  | {
+      readonly kind: "stop";
+      readonly reason:
+        | "unsupported_retry"
+        | "evidence_insufficient"
+        | "effects_not_none"
+        | "precondition_changed";
+    };
+
+export interface RetryAssessmentInput<G, S, B, E, F, R> {
+  readonly goal: G;
+  readonly bindings: B;
+  readonly skill: EnabledSkill;
+  readonly atomicResult: AtomicExecutionResult<F, R>;
+  readonly evaluation: EvaluationReceipt;
+  readonly state: S;
+  readonly evidence: readonly EvidenceRecord<E>[];
 }
 
 export interface RecursiveGoalAdapter<G, S, B, E, F, R, C> {
@@ -383,6 +465,10 @@ export interface RecursiveGoalAdapter<G, S, B, E, F, R, C> {
   executeAtomic(input: AtomicInput<G, S, B, E>): Promise<unknown>;
   /** Applies the application-owned domain receipt guard and tag. */
   validateAtomicReceipt(raw: unknown): AtomicReceipt<S, E, F, R>;
+  /** Pure retry classification for a committed, evaluated atomic attempt. */
+  assessRetry?(
+    input: RetryAssessmentInput<G, S, B, E, F, R>,
+  ): RetryAssessment | Promise<RetryAssessment>;
   /** Pure progress comparison over observed evaluations. */
   measureProgress(input: {
     readonly goal: G;
@@ -643,6 +729,7 @@ export interface RecursiveGoalContinuation<G, S, B, E, F, R, C> {
     readonly selectorIds: readonly string[];
     readonly grantedEffects: readonly string[];
   };
+  readonly retryControl?: RecursiveGoalRetryControl;
 }
 
 export type RecursiveGoalRunState<G, S, B, E, F, R, C> = Omit<
@@ -773,6 +860,13 @@ function nonnegativeInteger(value: unknown, label: string): number {
   return value;
 }
 
+function positiveInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${label} must be a positive integer`);
+  }
+  return value;
+}
+
 function satisfaction(value: unknown, label: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 100) {
     throw new TypeError(`${label} must be a finite number from 0 to 100`);
@@ -792,6 +886,204 @@ function effectClass(value: unknown): EnabledSkill["effectClass"] {
     throw new TypeError("effectClass must be none, read_only, or mutating");
   }
   return value;
+}
+
+export function readBoundedRetryPolicy(
+  value: unknown,
+  label = "retryPolicy",
+): BoundedRetryPolicy {
+  if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
+  assertExactKeys(
+    value,
+    [
+      "kind",
+      "selectorId",
+      "strategySkillIds",
+      "sameFailureLimit",
+      "maxAtomicAttempts",
+    ],
+    [],
+    label,
+  );
+  if (value.kind !== "bounded_strategy_retry.v1") {
+    throw new TypeError(`${label}.kind must be bounded_strategy_retry.v1`);
+  }
+  const strategySkillIds = stringArray(
+    value.strategySkillIds,
+    `${label}.strategySkillIds`,
+  );
+  if (strategySkillIds.length === 0) {
+    throw new TypeError(`${label}.strategySkillIds must not be empty`);
+  }
+  return {
+    kind: "bounded_strategy_retry.v1",
+    selectorId: nonEmptyString(value.selectorId, `${label}.selectorId`),
+    strategySkillIds,
+    sameFailureLimit: positiveInteger(
+      value.sameFailureLimit,
+      `${label}.sameFailureLimit`,
+    ),
+    maxAtomicAttempts: positiveInteger(
+      value.maxAtomicAttempts,
+      `${label}.maxAtomicAttempts`,
+    ),
+  };
+}
+
+function readRecursiveGoalInvocationControl(
+  value: unknown,
+): RecursiveGoalInvocationControl {
+  if (!isRecord(value)) throw new TypeError("request.invocation must be an object");
+  assertExactKeys(
+    value,
+    ["maxAtomicDispatches"],
+    [],
+    "request.invocation",
+  );
+  if (value.maxAtomicDispatches !== 1) {
+    throw new TypeError("request.invocation.maxAtomicDispatches must be 1");
+  }
+  return { maxAtomicDispatches: 1 };
+}
+
+function readRetryFailureCount(
+  value: unknown,
+  limit: number,
+  label: string,
+): RetryFailureCount {
+  if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
+  assertExactKeys(value, ["failureKey", "count"], [], label);
+  const count = positiveInteger(value.count, `${label}.count`);
+  if (count > limit) {
+    throw new TypeError(`${label}.count exceeds the policy sameFailureLimit`);
+  }
+  return {
+    failureKey: nonEmptyString(value.failureKey, `${label}.failureKey`),
+    count,
+  };
+}
+
+function readStrategyRetryState(
+  value: unknown,
+  policy: BoundedRetryPolicy,
+  label: string,
+): StrategyRetryState {
+  if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
+  assertExactKeys(
+    value,
+    ["skillId", "failures", "exhausted", "latestAttemptRef"],
+    [],
+    label,
+  );
+  if (!Array.isArray(value.failures)) {
+    throw new TypeError(`${label}.failures must be an array`);
+  }
+  const failures = value.failures.map((entry, index) =>
+    readRetryFailureCount(entry, policy.sameFailureLimit, `${label}.failures[${index}]`),
+  );
+  if (new Set(failures.map(entry => entry.failureKey)).size !== failures.length) {
+    throw new TypeError(`${label}.failures contains a duplicate failureKey`);
+  }
+  if (typeof value.exhausted !== "boolean") {
+    throw new TypeError(`${label}.exhausted must be boolean`);
+  }
+  const latestAttemptRef = nullableString(
+    value.latestAttemptRef,
+    `${label}.latestAttemptRef`,
+  );
+  if ((failures.length === 0) !== (latestAttemptRef === null)) {
+    throw new TypeError(`${label}.latestAttemptRef disagrees with failure history`);
+  }
+  const reachedLimit = failures.some(
+    failure => failure.count >= policy.sameFailureLimit,
+  );
+  if (value.exhausted !== reachedLimit) {
+    throw new TypeError(`${label}.exhausted disagrees with failure counts`);
+  }
+  return {
+    skillId: nonEmptyString(value.skillId, `${label}.skillId`),
+    failures,
+    exhausted: value.exhausted,
+    latestAttemptRef,
+  };
+}
+
+function readFrameStrategyRetryState(
+  value: unknown,
+  policy: BoundedRetryPolicy,
+  label: string,
+): FrameStrategyRetryState {
+  if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
+  assertExactKeys(
+    value,
+    ["frameId", "lockedSkillId", "strategies", "lastAccountedDispatchId"],
+    [],
+    label,
+  );
+  if (!Array.isArray(value.strategies)) {
+    throw new TypeError(`${label}.strategies must be an array`);
+  }
+  const strategies = value.strategies.map((entry, index) =>
+    readStrategyRetryState(entry, policy, `${label}.strategies[${index}]`),
+  );
+  assertUniqueIds(strategies, entry => entry.skillId, `${label}.strategies`);
+  if (!sameStringSet(strategies.map(entry => entry.skillId), policy.strategySkillIds)) {
+    throw new TypeError(`${label}.strategies must equal the policy strategy set`);
+  }
+  const lockedSkillId = nullableString(
+    value.lockedSkillId,
+    `${label}.lockedSkillId`,
+  );
+  if (lockedSkillId !== null) {
+    const locked = strategies.find(entry => entry.skillId === lockedSkillId);
+    if (locked === undefined || locked.exhausted) {
+      throw new TypeError(`${label}.lockedSkillId must name an unexhausted strategy`);
+    }
+  }
+  const unexhaustedFailed = strategies.filter(
+    entry => !entry.exhausted && entry.failures.length > 0,
+  );
+  if (
+    lockedSkillId === null
+      ? unexhaustedFailed.length > 0
+      : unexhaustedFailed.length !== 1 ||
+        unexhaustedFailed[0]?.skillId !== lockedSkillId
+  ) {
+    throw new TypeError(`${label}.lockedSkillId disagrees with failure history`);
+  }
+  return {
+    frameId: nonEmptyString(value.frameId, `${label}.frameId`),
+    lockedSkillId,
+    strategies,
+    lastAccountedDispatchId: nullableString(
+      value.lastAccountedDispatchId,
+      `${label}.lastAccountedDispatchId`,
+    ),
+  };
+}
+
+export function readRecursiveGoalRetryControl(
+  value: unknown,
+  label = "retryControl",
+): RecursiveGoalRetryControl {
+  if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
+  assertExactKeys(value, ["policy", "atomicAttemptsUsed", "frames"], [], label);
+  if (!Array.isArray(value.frames)) {
+    throw new TypeError(`${label}.frames must be an array`);
+  }
+  const policy = readBoundedRetryPolicy(value.policy, `${label}.policy`);
+  const atomicAttemptsUsed = nonnegativeInteger(
+    value.atomicAttemptsUsed,
+    `${label}.atomicAttemptsUsed`,
+  );
+  if (atomicAttemptsUsed > policy.maxAtomicAttempts) {
+    throw new TypeError(`${label}.atomicAttemptsUsed exceeds maxAtomicAttempts`);
+  }
+  const frames = value.frames.map((entry, index) =>
+    readFrameStrategyRetryState(entry, policy, `${label}.frames[${index}]`),
+  );
+  assertUniqueIds(frames, entry => entry.frameId, `${label}.frames`);
+  return { policy, atomicAttemptsUsed, frames };
 }
 
 export function readRecursiveGoalLimits(value: unknown): RecursiveGoalLimits {
@@ -824,7 +1116,7 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
       "rootSelectorId",
       "limits",
     ],
-    ["initialObservation", "continuation"],
+    ["initialObservation", "continuation", "retryPolicy", "invocation"],
     "request",
   );
   if (value.schema !== RECURSIVE_GOAL_REQUEST_SCHEMA) {
@@ -839,6 +1131,12 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
     : undefined;
   const continuation = Object.hasOwn(value, "continuation")
     ? value.continuation
+    : undefined;
+  const retryPolicy = Object.hasOwn(value, "retryPolicy")
+    ? readBoundedRetryPolicy(value.retryPolicy, "request.retryPolicy")
+    : undefined;
+  const invocation = Object.hasOwn(value, "invocation")
+    ? readRecursiveGoalInvocationControl(value.invocation)
     : undefined;
   assertRecursiveGoalInitialObservationContinuationBoundary(
     initialObservation,
@@ -859,6 +1157,8 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
     limits: readRecursiveGoalLimits(value.limits),
     ...(initialObservation === undefined ? {} : { initialObservation }),
     ...(continuation === undefined ? {} : { continuation }),
+    ...(retryPolicy === undefined ? {} : { retryPolicy }),
+    ...(invocation === undefined ? {} : { invocation }),
   };
 }
 
@@ -1086,6 +1386,13 @@ export function readSelection(
     }
     return { kind: "no_capability", searchedSkillIds: searched };
   }
+  if (value.kind === "defer") {
+    assertExactKeys(value, ["kind", "reason"], [], "selection");
+    return {
+      kind: "defer",
+      reason: nonEmptyString(value.reason, "selection.reason"),
+    };
+  }
   throw new TypeError("selection.kind is invalid");
 }
 
@@ -1094,6 +1401,7 @@ function readErrorCode(value: unknown): RecursiveGoalErrorCode {
     case "invalid_request":
     case "invalid_binding":
     case "capability_missing":
+    case "policy_deferred":
     case "precondition_unsatisfied":
     case "evidence_unavailable":
     case "evidence_conflict":
@@ -1634,7 +1942,8 @@ function readControl(value: unknown): RecursiveGoalControl {
     value.outcome !== "error" &&
     value.outcome !== "stalled" &&
     value.outcome !== "exceeded" &&
-    value.outcome !== "cancelled"
+    value.outcome !== "cancelled" &&
+    value.outcome !== "yielded"
   ) {
     throw new TypeError("control.outcome is invalid");
   }
@@ -1644,9 +1953,16 @@ function readControl(value: unknown): RecursiveGoalControl {
     value.stopReason !== "no_progress" &&
     value.stopReason !== "budget" &&
     value.stopReason !== "cancel" &&
-    value.stopReason !== "no_remaining_work"
+    value.stopReason !== "no_remaining_work" &&
+    value.stopReason !== "step_boundary"
   ) {
     throw new TypeError("control.stopReason is invalid");
+  }
+  if (
+    (value.outcome === "yielded" && value.stopReason !== "step_boundary") ||
+    (value.outcome !== "yielded" && value.stopReason === "step_boundary")
+  ) {
+    throw new TypeError("control yielded outcome must match step_boundary");
   }
   return {
     outcome: value.outcome,
@@ -2407,7 +2723,7 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
       "remainingRequirements",
       "contractRefs",
     ],
-    [],
+    ["retryControl"],
     "continuation",
   );
   if (value.schema !== RECURSIVE_GOAL_CONTINUATION_SCHEMA) {
@@ -2452,6 +2768,12 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
   const atomicResults = value.atomicResults.map(entry =>
     readAtomicExecutionResult(entry, guards),
   );
+  const retryControl = Object.hasOwn(value, "retryControl")
+    ? readRecursiveGoalRetryControl(
+        value.retryControl,
+        "continuation.retryControl",
+      )
+    : undefined;
   const errors = value.errors.map(readErrorDiagnostic);
   const relatedIssues = value.relatedIssues.map(readRelatedIssue);
   assertUniqueIds(frames, entry => entry.frameId, "continuation frame");
@@ -2465,6 +2787,14 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
     "continuation atomic result",
   );
   assertUniqueIds(errors, entry => entry.errorId, "continuation error");
+  if (
+    retryControl !== undefined &&
+    retryControl.atomicAttemptsUsed !== ledger.length
+  ) {
+    throw new TypeError(
+      "continuation.retryControl.atomicAttemptsUsed must equal committed atomic dispatches",
+    );
+  }
   if (!isRecord(value.contractRefs)) {
     throw new TypeError("continuation.contractRefs must be an object");
   }
@@ -2979,6 +3309,96 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
   );
   const atomicIds = new Set(atomicById.keys());
   const ledgerById = new Map(ledger.map(effect => [effect.dispatchId, effect]));
+  if (retryControl !== undefined) {
+    for (const frameRetry of retryControl.frames) {
+      const frame = frameById.get(frameRetry.frameId);
+      const frameControl = controlById.get(frameRetry.frameId);
+      if (frame === undefined || frameControl === undefined) {
+        throw new TypeError(
+          `continuation retry frame ${frameRetry.frameId} is unknown`,
+        );
+      }
+      if (frameControl.selectorId !== retryControl.policy.selectorId) {
+        throw new TypeError(
+          `continuation retry frame ${frameRetry.frameId} selector disagrees with policy`,
+        );
+      }
+      const lastAccountedIndex =
+        frameRetry.lastAccountedDispatchId === null
+          ? -1
+          : frame.atomicResultRefs.indexOf(
+              frameRetry.lastAccountedDispatchId,
+            );
+      if (
+        frameRetry.lastAccountedDispatchId !== null &&
+        lastAccountedIndex < 0
+      ) {
+        throw new TypeError(
+          `continuation retry frame ${frameRetry.frameId} lastAccountedDispatchId is not a strategy attempt`,
+        );
+      }
+      const accountedBySkill = new Map<string, string[]>();
+      for (const dispatchId of frame.atomicResultRefs.slice(
+        0,
+        lastAccountedIndex + 1,
+      )) {
+        const result = atomicById.get(dispatchId);
+        if (
+          result === undefined ||
+          result.frameId !== frameRetry.frameId ||
+          !frameRetry.strategies.some(
+            strategy => strategy.skillId === result.skillId,
+          ) ||
+          result.outcome !== "succeeded" ||
+          result.executionErrorIds.length > 0 ||
+          result.verificationErrorIds.length > 0 ||
+          result.effect.knowledge !== "none" ||
+          result.observedStateRef === null
+        ) {
+          throw new TypeError(
+            `continuation retry frame ${frameRetry.frameId} contains an unsafe accounted dispatch`,
+          );
+        }
+        const refs = accountedBySkill.get(result.skillId) ?? [];
+        refs.push(result.dispatchId);
+        accountedBySkill.set(result.skillId, refs);
+      }
+      for (const strategy of frameRetry.strategies) {
+        const accountedRefs =
+          accountedBySkill.get(strategy.skillId) ?? [];
+        const countedFailures = strategy.failures.reduce(
+          (total, failure) => total + failure.count,
+          0,
+        );
+        if (countedFailures !== accountedRefs.length) {
+          throw new TypeError(
+            `continuation retry strategy ${strategy.skillId} counting history disagrees with accounted dispatches`,
+          );
+        }
+        const latestAccountedRef = accountedRefs.at(-1) ?? null;
+        if (strategy.latestAttemptRef !== latestAccountedRef) {
+          throw new TypeError(
+            `continuation retry strategy ${strategy.skillId} latest attempt disagrees with accounted dispatches`,
+          );
+        }
+      }
+    }
+  }
+  if (runControl.outcome === "yielded") {
+    if (runControl.frameId === null || retryControl === undefined) {
+      throw new TypeError(
+        "yielded continuation requires retry control and a frame id",
+      );
+    }
+    const yieldedFrame = retryControl.frames.find(
+      frame => frame.frameId === runControl.frameId,
+    );
+    if (yieldedFrame === undefined || yieldedFrame.lastAccountedDispatchId === null) {
+      throw new TypeError(
+        "yielded continuation requires an accounted retry dispatch",
+      );
+    }
+  }
   for (const frame of frames) {
     const pending = controlById.get(frame.frameId)?.pendingVerification;
     if (pending === null || pending === undefined) continue;
@@ -3265,5 +3685,6 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
     budgetUsed,
     remainingRequirements,
     contractRefs,
+    ...(retryControl === undefined ? {} : { retryControl }),
   };
 }
