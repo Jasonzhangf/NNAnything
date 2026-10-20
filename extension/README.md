@@ -93,6 +93,8 @@ An invalid path, JSON document, or contract fails with a nonzero exit and does n
 6. The extension "NNAnything DOM Inspector" will appear in the toolbar.
 7. Click the extension icon on any standard web page (`https://...` or `http://localhost:...`) to toggle the inspector overlay.
 
+Warning: do not select `<project-root>/extension`. That folder holds the TypeScript sources and has no built `.js` file, so Chrome reports "Could not load manifest." and "Could not load background script". If `artifacts/chrome-extension` is missing or older than the sources, run `npm run build:extension` first; the directory only exists after that build.
+
 ---
 
 ## Running the Evaluation Test Harness
