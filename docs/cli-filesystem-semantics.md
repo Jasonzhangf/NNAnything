@@ -95,7 +95,7 @@ type Request = {
 | 内容/用途判断 | content.format/role 的指定关系observed；100 | 真实文件证据 → parser或独立模型 → 对照复核真值，保留未知 | 同后缀不同内容、配置示例与生效配置、生成源码角色重叠 |
 | 操作条件 | operation.applicability 对指定操作observed；100 | 类型/状态及声明能力 → 判断 → 独立合同/执行证据核对 | mode当实际权限、设备按普通文件处理、缺测当允许 |
 
-训练复用[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。两张图的合同已升级为`cli.command.*@0.3.0`与`cli.file-property@0.3.0`；当前源码绑定仍是0.2.0，待I3–I5按合同同步。[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见[命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
+训练复用[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。两张图与源码绑定均为`0.3.0.0000`，10 head × 30 wire 已运行并有训练与独立验证证据。[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见[命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
 
 每单元按 [project-design](../workflows/project-design.graph.json) 完成四元素、SESE和最小必要性准入，按 [model-evolution](../workflows/model-evolution.graph.json) 自动采样、复核、训练及采用，回归/冲突交大模型裁决。采用条件只引用 [model-evolution.md](model-evolution.md)，不建平行门槛。真实OS效果、动作选择、参数绑定和知识判断分别计分。
 
@@ -105,7 +105,7 @@ type Request = {
 
 现有 `observe_cwd/set_cwd/list_directory` 旧 Goal 已由本轮迁移显式退役；运行入口拒绝旧 Goal 对象。PWD/CD/LS 只接受本节第6条的 `file.property` typed 请求，不新增同义 Goal。
 
-设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前已实现：0.2.0 的六个属性算子与 `cli-file-property` 运行绑定、PWD/CD/LS 的 typed 请求/统一结果、单 profile 显式迁移与真实拟合/回载。当前仅有合同、尚无运行实现：批次1的四个新 head、typed E/D/F/P 引用和完整 inspect 属性。当前未实现：B对象查找与训练、目录/文件变更等其余操作、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
+设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前已实现：0.2.0 的六个属性算子与 `cli-file-property` 运行绑定、PWD/CD/LS 的 typed 请求/统一结果、单 profile 显式迁移与真实拟合/回载。批次1的四个新 head、typed E/D/F/P 引用和完整 inspect 属性同样已接入运行入口。当前未实现：B对象查找与训练、目录/文件变更等其余操作、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
 
 ## 6. 0.2.0 已实施切片：PWD/CD/LS typed 请求与统一结果（2026-10-19）
 
@@ -195,7 +195,7 @@ satisfaction, status, reason, evidence, collection_result
 
 ## 7. 0.3.0 批次1合同：路径原语与条目检查
 
-本节是 I1 落盘的合同正文，不等于已实现。0.2.0 的运行入口和测试保持不变；I2–I7 分别负责 gate/红测、typed 语义、adapter、工作流封装、训练与独立验收。图文件已升级到 0.3.0，但 `lib/nodes/*` 的实现版本仍由 I5 同步。
+本节合同正文已由 I2–I7 实现：gate/红测、typed 语义、adapter、工作流封装、训练与独立验收均已完成。图文件与 `lib/nodes/*` 的实现版本均为 `0.3.0.0000`。
 
 ### 7.1 注册切片与共享矩阵
 

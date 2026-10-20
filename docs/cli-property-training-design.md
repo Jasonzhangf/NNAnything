@@ -257,7 +257,7 @@ P3选择类型配对固定用于train、dev、verification三个分区。每分�
 
 ## 7. DAG、验收与升级闭合
 
-外层推理图为 [cli-file-property](../workflows/cli-file-property.graph.json)，训练图复用 [cli-filesystem-training](../workflows/cli-filesystem-training.graph.json)；合同/反推/分区→训练开发准备与独立验证准备分支→真实拟合→保存候选→回载独立执行→汇总→保存/清理。两张图的0.3.0合同均为8N8E/6N5E，节点ID、边、ARC ID与端口不变，仅operator_version和载荷联合类型升级；当前源码绑定仍为0.2.0，由I5同步。P1路径词法、P2 inspect与P3已进入0.3.0注册合同，其余P组、B/R及`path.realpath`仍是设计，不写入本批head/wire，也不新增第二套执行图。B与R是独立概念模型；P与C共用同一`cli.command-policy.v1`共享profile、同一head词表、同一softmax/CE。内部数值连线按共享矩阵注册表构建，外层跨节点不反传。
+外层推理图为 [cli-file-property](../workflows/cli-file-property.graph.json)，训练图复用 [cli-filesystem-training](../workflows/cli-filesystem-training.graph.json)；合同/反推/分区→训练开发准备与独立验证准备分支→真实拟合→保存候选→回载独立执行→汇总→保存/清理。两张图的0.3.0合同均为8N8E/6N5E，节点ID、边、ARC ID与端口不变，仅operator_version和载荷联合类型升级；源码绑定与节点实现均为`0.3.0.0000`。P1路径词法、P2 inspect与P3已进入0.3.0注册合同，其余P组、B/R及`path.realpath`仍是设计，不写入本批head/wire，也不新增第二套执行图。B与R是独立概念模型；P与C共用同一`cli.command-policy.v1`共享profile、同一head词表、同一softmax/CE。内部数值连线按共享矩阵注册表构建，外层跨节点不反传。
 
 验收分别统计：按head、按属性、按P1-P6样本分组的允许集合正确、参数绑定、真实属性效果及满足度、错误/unknown保持、副作用、保存回载、旧路径/PWD黄金回归。P1-P6统计分开报告，但selector只有一个profile；不得用分组统计掩盖某组退化。精确属性验证与必要错误/副作用用例全部满足，旧黄金零回归；角色验证必须保留未知/冲突，不以覆盖增加替代准确率；候选作用于新场景有明确修复才可沿既有升级条件采用。不能用loss下降、命令退出0或平均指标掩盖一项必要失败。
 

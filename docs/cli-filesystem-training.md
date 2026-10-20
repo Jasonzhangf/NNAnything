@@ -11,7 +11,7 @@
 
 ### 0.1 0.2.0运行切片与0.3.0合同注册（2026-10-19）
 
-0.2.0 运行入口只接 sessionCwd 的 `observed(this_run)`/`equals` 与 directory.entries 的 `observed(this_run)`，其6×14证据继续有效。0.3.0 合同新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，以下注册表现为 I2–I5 的唯一目标；当前源码校验器尚未切换，不得把合同标成已运行。
+0.2.0 运行入口只接 sessionCwd 的 `observed(this_run)`/`equals` 与 directory.entries 的 `observed(this_run)`，其6×14证据继续有效。0.3.0 合同新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，以下注册表已由 I2–I7 实现，运行校验器已接受 10 个 head 与 30 条 wire；0.3.0 的运行证据见第 295 行与 `note.md`。
 
 | 项 | 当前注册值 |
 | --- | --- |
@@ -185,7 +185,7 @@ K = 1(unsupported) + 2(DEFER,NOOP) + 3(pwd,cd,ls) + N_newExecutable
 
 `N_*`是注册后的实际数量，`selectorBlock/requiredTypeBlock/observedTypeBlock`为0/1。只有实际阶段需要的wire才注册，不为未来块预留恒定空列。示例：若某阶段注册16个property、25个predicate、3维selectorTargetType、4维requiredTargetType、9维observedType、8个state位、1个交互项、无combination，则`F=4+16+25+3+4+9+8+1=70`；`K=1+2+3+22=28`；矩阵28×70=1960参数。该示例只说明计数方法，不是部署声明。
 
-0.2.0运行schema实现于`lib/filters/cli-command-policy.ts`的`validateCliCommandProfile`，当前只接受6个head与14条wire；0.3.0由I3升级为§0.1登记的10个head与30条wire，并保存精确`properties`/`predicates`顺序。旧 4×4 与旧6×14 profile由显式离线迁移转换，运行入口拒绝旧形状。`selectorTargetType`/`requiredTargetType`/`observedType`/`combination`块、`path.realpath`及剩余操作head仍为设计，不因0.3.0合同已落盘就冒称已接入。
+运行schema实现于`lib/filters/cli-command-policy.ts`的`validateCliCommandProfile`，现接受§0.1登记的10个head与30条wire，并保存精确`properties`/`predicates`顺序；0.2.0的6×14形状只能由显式离线迁移转换。旧 4×4 与旧6×14 profile由显式离线迁移转换，运行入口拒绝旧形状。`selectorTargetType`/`requiredTargetType`/`observedType`/`combination`块、`path.realpath`及剩余操作head仍为设计，不因0.3.0合同已落盘就冒称已接入。
 
 ### 2.2 新动作进入同一heads词表（25精确操作映射）
 
@@ -247,7 +247,7 @@ guard在softmax之后拒绝不可执行或类型不匹配的调用；它不改�
 保留来源家族隔离：0.2.0共享数据集含4个train家族与2个development家族，同一家族不跨分区。0.3.0新增样本按plan §8执行：4个train家族与2个development家族，每族34行，新增train136、dev68；旧38 train/20 dev行原样保留。正式共享run未提供可选verification资源；独立verification家族由独立作者另建，父级独立报告单独记录。
 共享训练图适用于目录与文件属性单元，入口必须提供具体属性键、对象、Goal条件、satisfactionThreshold、可见State及可学习Action关系。训练期反推达标属性与前置条件；每项补齐自己的输入/wire/参数/损失后才可实施。当前图没有自动获得新属性模型或新harness，具体缺口沿属性合同第5节记录；完成训练与独立回载后再进入既有model-evolution单元升级流程。
 
-普通属性单元现已由 [cli-property-training-design.md](cli-property-training-design.md) 补全B/P/R/C输入、监督和验证配方；批次1的路径与inspect输入、监督、分区和错误监督按§7补充。固定调用方案由 [cli-command-design.md](cli-command-design.md)维护。命令/操作选择只有一个owner：本文§2.1-2.4的同一`cli.command-policy.v1`共享矩阵；B对象关系与R用途是独立概念模型，C组合下一步若选命令复用同一共享矩阵。当前`workflows/cli-filesystem-training.graph.json`已升级为`cli.command.*@0.3.0`合同，8N8E拓扑和分区/拟合/保存/回载/评价/收口不变；运行绑定由I5同步，B、R 及剩余操作仍为设计，不写入当前真实图。
+普通属性单元现已由 [cli-property-training-design.md](cli-property-training-design.md) 补全B/P/R/C输入、监督和验证配方；批次1的路径与inspect输入、监督、分区和错误监督按§7补充。固定调用方案由 [cli-command-design.md](cli-command-design.md)维护。命令/操作选择只有一个owner：本文§2.1-2.4的同一`cli.command-policy.v1`共享矩阵；B对象关系与R用途是独立概念模型，C组合下一步若选命令复用同一共享矩阵。`workflows/cli-filesystem-training.graph.json`与运行绑定均为`cli.command.*@0.3.0.0000`，8N8E拓扑和分区/拟合/保存/回载/评价/收口不变；B、R 及剩余操作仍为设计，不写入当前真实图。
 
 共享过程是单源单汇DAG。分区声明之后分成两条资料链：训练/开发准备与独立验证准备。拟合节点只收到训练资料；独立验证资料在候选形成后才与候选合流。验证不回流修改本轮参数。
 
@@ -292,7 +292,7 @@ guard在softmax之后拒绝不可执行或类型不匹配的调用；它不改�
 
 ## 6. 当前实施状态与验收底线
 
-当前状态：0.2.0源码已迁移为 typed `file.property` 单 profile（`createCliCommandPolicy`与`runCliCommandTraining`），从旧共享候选 `d7c4a3e5-4111-4e09-857f-5f20f4fa18c0` 显式迁移后真实拟合；profile保持`uncalibrated`/`not_applied`。旧六参数 PWD API 与旧 4×4 运行 profile 已物理退役。历史 PWD/CD/LS 实测数据保留为历史基线，不直接抄写为本轮成绩。0.3.0批次1只有合同与图版本，未改产品代码、未训练、未回载、未独立验证。
+当前状态：0.2.0源码已迁移为 typed `file.property` 单 profile（`createCliCommandPolicy`与`runCliCommandTraining`），从旧共享候选 `d7c4a3e5-4111-4e09-857f-5f20f4fa18c0` 显式迁移后真实拟合；profile保持`uncalibrated`/`not_applied`。旧六参数 PWD API 与旧 4×4 运行 profile 已物理退役。历史 PWD/CD/LS 实测数据保留为历史基线，不直接抄写为本轮成绩。0.3.0批次1已实现、已训练并在训练图真实执行262条样本（legacy 58 + 批次1 204），新进程回载 executed=262、UNVERIFIED=0、failed=0；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 保持 `uncalibrated`/`not_applied`，未提供可选verification分区时 `fullyVerified=false`。
 
 历史独立PWD与CD实测数据保留为历史基线，不直接抄写为共享模型结果。`accepted`只表示train/dev与历史回归通过；未提供可选verification资源时`fullyVerified=false`。训练图的冻结/零权重对照只做预测，不执行命令；独立测试由父级独立报告另行记录，不声称在训练图内执行。
 
@@ -301,7 +301,7 @@ guard在softmax之后拒绝不可执行或类型不匹配的调用；它不改�
 2. 历史必需能力零回归：旧 PWD/CD/LS/unsupported 回放零回归。
 3. 真实argv、权限拒绝、受控注入和清理回执完整无遗漏：作者与sandbox用例覆盖。
 4. 全仓基线用 `npm run test:full`。缺 `NN_HANDWIRED_ROOT`、`NN_CLI_COMMAND_PROFILE`、`NN_CWD_RELATION_PROFILE` 任一项时非零退出，不以 skip 冒充通过；迁移后记录数字为 255/255、0 跳过。默认 `npm test` 仍可在无资产环境运行，但其中的跳过项不计作通过。
-5. 当前运行入口只支持 `pwd`/`cd`/`ls` 与 `NOOP`/`DEFER`/`unsupported` 控制结果。0.3.0新增的`path.resolve`/`path.relative`/`path.parts`/`entry.inspect`尚未运行。B对象查找、剩余目录/文件操作、自动采样/采用及LLM冲突裁决仍未实现。自然语言识别、help泛化、文件搜索、多步组合规划、browser与自动升级保持在范围外。
+5. 当前运行入口支持 `pwd`/`cd`/`ls`/`path.resolve`/`path.relative`/`path.parts`/`entry.inspect` 与 `NOOP`/`DEFER`/`unsupported` 控制结果。B对象查找、剩余目录/文件操作、自动采样/采用及LLM冲突裁决仍未实现。自然语言识别、help泛化、文件搜索、多步组合规划、browser与自动升级保持在范围外。
 
 ## 7. 批次1输入、监督与独立验收合同
 
