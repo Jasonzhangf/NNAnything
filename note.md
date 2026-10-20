@@ -22,7 +22,7 @@ F5（advisory，历史遗留）：旧 cwd/entries 属性的结构合法但未注
 
 文档同步范围（F4 收口）：`cli-call-contract`、`cli-filesystem-semantics`、`cli-filesystem-training`、`cli-property-training-design`、`cli-command-design`、`cli-semantic-operations`、`cli-migration`、`cli-list/cd/cwd/goal-training`、`list-api`、`recursive-goal-design`、`docs/reviews/recursive-goal-generalization-20261020`、`workflows/README`、`lib/nodes/README`。旧 6×14/6 head 表述一律限定为 0.2.0 历史形状。
 
-实施证据在本 run 目录 `logs/` 与 `artifacts/batch1/{i2,i2b,i3,i3b,i4,i4b,i5,i6,i7,f1f2,f3}/`。
+实施证据在外置 run 目录 `/Volumes/Intel/playground/nnanything-runs/cli-path-primitives-20261019/` 的 `logs/` 与 `artifacts/{i2,i2b,i3,i3b,i4,i4b,i5,i6,i7,f1f2,f3,lead-probe}/`（worktree 核销前已归档）。
 
 集成与交付：分支 `codex/cli-path-primitives` 已合入 `main`，集成提交 `9213fe4`；合并后 `npm run build`、`npm run typecheck`、`dagpipe graph validate`（两张图均 `0.3.0.0000`）通过，`npm run test:full` 819/819、0失败0跳过（`logs/main-merged2-test-full.log`）。合并时两处测试随合同同步：独立套件先建报告目录再写文件（新树无 `artifacts/`），`recursive-goal-cwd` 消费者断言由 6 head/14 wire 改为 10 head/30 wire。新候选资产归档到 canonical `training/{samples,results,weights}/filesystem/command/35bd5ad9-15dc-409e-9001-bcab24f75398/`。自有 worktree 随后核销。
 ## 2026-10-20 浏览器行为框架v0.1与元素结构
