@@ -18,6 +18,8 @@ Review整改作者验证完成：新增9项公开入口回归后，统一build�
 
 有效独立复核r2关闭3项，仍有2条P1：deep persistent自产continuation的事实/自身receipt不一致，以及pending可被错误evaluate phase绕过。两个新GCM修复worker仅停在Connection failed重连，未读写产品；父按精确PID结束自有进程并接管，未动共享服务或扩大权限。补充真实失败往返和阶段反例后，persistent改为显式postorder刷新自己的回执再传播，停止control始终定位活动栈、诊断保留真实源；待补证在准入和完成路径均受保护，只有实际只读回执及关联证据评价才清除，评价预算停止可复用既有回执。追加5项测试后递归56/56、正式全仓733/733、0skip；cwd4/4、finite和完整性7/7重放通过。证据r2-closure-*.log。等待剩余两条finding独立复核，未main。
 
+有效复核r3关闭前两项，只留下deep persistent取消时的活动control定位P1。新增公开入口取消往返红测确认：先是control出栈，定位修正后还暴露父条件execution未同步。父在stopCancelled保留真实origin，control指向活动栈，按实际frame事实/执行状态同步父条件；不放宽恢复guard、不清理历史动作。修后57/57递归、734/734正式全仓、0skip；cwd4/4、finite-search与完整性7/7通过。证据r3-cancel-red.log、r4-*.log；待独立关闭最后finding，尚未main。
+
 ## 2026-10-20 通用递归框架独立泛化性审查
 
 用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。

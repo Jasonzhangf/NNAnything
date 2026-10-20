@@ -487,3 +487,35 @@ test("a restored local evaluation cannot hide a required descendant behind a sat
   assert.ok(second.frames.some(frame => frame.unresolvedRequirements.includes("inner")));
   assertResponseReferencesClosed(secondResponse);
 });
+
+test("cancellation during deep persistent revalidation preserves a resumable active control", async () => {
+  const api = await loadPublicApi();
+  const { request, deps, fixture } = nestedPersistentFixture({
+    invalidateAfterOuter: true,
+    middleObservations: [],
+  });
+  const controller = new AbortController();
+  const evaluate = deps.adapter.evaluate;
+  deps.adapter.evaluate = async input => {
+    const receipt = await evaluate(input);
+    if (input.goal.kind === "guarded-inner" && input.state.guard === "broken") {
+      controller.abort();
+    }
+    return receipt;
+  };
+  const firstResponse = await api.runRecursiveGoal(request, { ...deps, signal: controller.signal });
+  const first = responseReport(firstResponse);
+  assert.equal(first.control.outcome, "cancelled");
+  assert.ok(first.continuation.stack.some(entry => entry.frameId === first.control.frameId));
+  const secondResponse = await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: 64 },
+    continuation: first.continuation,
+  }, deps);
+  assert.equal(secondResponse.kind, "run_result", JSON.stringify(secondResponse));
+  const second = responseReport(secondResponse);
+  assert.equal(second.control.outcome, "error");
+  assert.equal(fixture.calls.executeAtomic, 2);
+  assert.ok(second.budgetUsed.transitionsUsed > first.budgetUsed.transitionsUsed);
+  assertResponseReferencesClosed(secondResponse);
+});

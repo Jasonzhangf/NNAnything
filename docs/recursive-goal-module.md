@@ -744,8 +744,8 @@ cleanup/collect 输入含 accepted root、可信 State/Evidence/effects/atomic r
 
 本轮证据归档于 `/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/`：
 
-- `r2-closure-all-final.log`：56/56公开递归测试通过，无跳过。在原42项和首次整改51项上补充深层失败/预算续接、错误补证phase、已返回补证回执续评以及未闭合后代保护。父局部条件达标不能绕过未闭合必要链；persistent子帧使用自己的条件集并自底向上重评。`effect-scope-red.log`中两个权限反例在修复前各真实执行一次未授权write；修复后均零执行。
-- `r2-closure-full-final.log`：正常 `npm run test:full` 为733/733通过，无跳过。原`author-full.log`的719/719与`review-fix-full.log`的728/728为前两轮已覆盖范围的原始结果。独立verifier的只读全仓运行曾因扩展测试需要生成artifacts而受限；该限制由具有原始写入授权的owner执行完整命令闭合，未改测试或降低断言。
+- `r4-recursive.log`：57/57公开递归测试通过，无跳过。在原42项和首次整改51项上补充深层失败/预算/取消续接、错误补证phase、已返回补证回执续评以及未闭合后代保护。父局部条件达标不能绕过未闭合必要链；persistent子帧使用自己的条件集并自底向上重评。取消保留真实诊断源，停止control定位活动栈，并同步父条件的实际执行状态。`r3-cancel-red.log`保留取消原样续接失败的红测；`effect-scope-red.log`中两个权限反例在修复前各真实执行一次未授权write，修复后均零执行。
+- `r4-full.log`：正常 `npm run test:full` 为734/734通过，无跳过。原`author-full.log`的719/719、`review-fix-full.log`的728/728及`r2-closure-full-final.log`的733/733为此前已覆盖范围的原始结果。独立verifier的只读全仓运行曾因扩展测试需要生成artifacts而受限；该限制由具有原始写入授权的owner执行完整命令闭合，未改测试或降低断言。
 - `verification-cwd.log`：独立公开cwd consumer为4/4通过，最新`r2-closure-cwd.log`同样4/4。真实same、different、绑定拒绝与真实cd后受控观察故障分别保留原始回执；profile未训练、修改或采用。
 - `verification-finite.log`及最新`r2-closure-finite.log`：同一runtime完成至少三级非CLI嵌套、同层三依赖、分支、persistent失效及60/100覆盖阈值。固定10项范围分别检查6项/10项；找到匹配另作必要条件。
 - `verification-integrity.log`及最新`r2-closure-integrity.log`：独立设计的7项完整性probe均通过，覆盖根与历史隔离、无效证据拒绝、report-node故障后保留ledger。V05是定点fault injection，只证明该故障边界，不冒称真实OS故障。

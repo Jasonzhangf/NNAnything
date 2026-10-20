@@ -2661,11 +2661,16 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frame.execution = "cancelled";
       if (frame.unexecutedReason === null) frame.unexecutedReason = "cancel";
     }
+    this.synchronizeFailedParentCondition(
+      frame,
+      diagnostic,
+      frame.fact === "not_evaluated" ? "unknown" : frame.fact,
+    );
     this.propagateDiagnostic(frame, diagnostic);
     this.control = {
       outcome: "cancelled",
       stopReason: "cancel",
-      frameId: frame.frameId,
+      frameId: this.stack.at(-1)?.frameId ?? null,
     };
     this.finished = true;
   }
