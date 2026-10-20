@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import {
   lstat,
+  mkdir,
   readFile,
   writeFile,
 } from 'node:fs/promises';
-import { join, posix } from 'node:path';
+import { dirname, join, posix } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import {
@@ -1011,6 +1012,7 @@ after(async () => {
     unverified,
     rows: [...rows].sort((left, right) => left.id.localeCompare(right.id)),
   };
+  await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(reportPath, `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx' });
   console.log(`I7_SUITE_REPORT ${JSON.stringify({
     scenarioCount: summary.scenarioCount,
