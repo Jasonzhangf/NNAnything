@@ -95,13 +95,13 @@ flowchart TD
 
 记录节点调用的定义、输入/输出引用、实际配置/profile、排除或错误原因；应用需要的原始页面证据由应用节点保存并引用。训练侧关联这些证据用于回溯，但不把全部原始数据灌入学生输入。
 
-### 4.1 递归目标与原子workflow的接续（设计态）
+### 4.1 递归目标与原子workflow的接续（0.1.0）
 
 [通用递归目标合同](recursive-goal-design.md)在既有workflow执行合同上增加有界目标组合。外层[recursive-goal](../workflows/recursive-goal.graph.json)为3N2E：绑定根目标与执行条件→有界衍生及真实结果核验→统一报告。request/result是端口，不计作额外节点。目标栈、依赖与预算显式传递；领域模型仅选择当前叶动作，控制器不学习层序或是否继续。
 
 根目标不因衍生而替换。每层在已启用技能选项中满足当前节点所需条件；组合技能衍生下层条件，原子技能通过既有编译/运行入口调用领域图，不绕开端口、effect与结果合同。无技能即错误，错误也须逐层返回。每次叶调用有独立run关联及真实New State，返回后先验叶，再重验父，反向满足直至根；所有已生成链有明确回收结果。调用树与依赖图是不同关系，不能把双向调用/返回记录画成同一DAG的回边。单次静态图仍无环，实例展开有全局预算，节点内部调度未作为新引擎实现。重复触发不自动重放未知副作用，continuation只续明确未完成工作。
 
-该通用组合层没有新增运行算子或导出API；当前CLI原子6N5E仍按现合同执行。设计的typed端口与领域能力要求在递归合同中维护，不将Object端口或静态validate当作schema/effect验收。预期领域Outcome（含失败/缺口/预算/取消）经图中report收束，保留原始执行错误、回执及已发生副作用。
+通用组合层通过`nnanything/recursive-goal`的`runRecursiveGoal`公开；三个`goal.recursive.bind/run/report@0.1.0`算子由请求级运行时创建，唯一owner为`lib/workflow/recursive-goal/module.ts`。当前CLI原子6N5E仍按现合同执行。typed端口与领域能力要求在递归模块合同中维护，不将Object端口或静态validate当作schema/effect验收。预期领域Outcome（含失败/缺口/预算/取消）经图中report收束，保留原始执行错误、回执及已发生副作用。42项递归测试及两个公开consumer的实际证据见模块合同第13节。
 
 独立模块的公开边界及错误类型由[递归模块合同](recursive-goal-module.md)维护。现有runner遇基础设施failure会跳过后续节点，模块入口须单独返回结构化fault，不能伪造report已执行。根事实评价、调度停止、原子status及effect知识相互独立，原始执行错误不因上层传播而改写，也不能只存日志而不返回根调用者。现有`WorkflowRunFailure`只保留category/message/nodeId，不承诺尚未采集的errno或cause可恢复；后续适配层必须在真实异常边界显式保留，不能解析message或日志补全。
 
