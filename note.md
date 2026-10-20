@@ -20,6 +20,8 @@ Review整改作者验证完成：新增9项公开入口回归后，统一build�
 
 有效复核r3关闭前两项，只留下deep persistent取消时的活动control定位P1。新增公开入口取消往返红测确认：先是control出栈，定位修正后还暴露父条件execution未同步。父在stopCancelled保留真实origin，control指向活动栈，按实际frame事实/执行状态同步父条件；不放宽恢复guard、不清理历史动作。修后57/57递归、734/734正式全仓、0skip；cwd4/4、finite-search与完整性7/7通过。证据r3-cancel-red.log、r4-*.log；待独立关闭最后finding，尚未main。
 
+有效复核r4确认深层取消修复，另指出首次子评价前取消把not_evaluated转成无evaluator的unknown。新增AbortController边界回归先红，stopCancelled原样同步frame.fact后58/58递归、735/735正式全仓均通过且0skip；cwd4/4、finite与完整性7/7通过，r5-*.log保留证据。新origin/main纯文档f80d8ea已正常合入，无冲突，peer关系设计完整保留。当前等待该最后finding复核，未main。
+
 ## 2026-10-20 通用递归框架独立泛化性审查
 
 用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。

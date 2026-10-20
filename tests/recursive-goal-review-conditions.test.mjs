@@ -519,3 +519,39 @@ test("cancellation during deep persistent revalidation preserves a resumable act
   assert.ok(second.budgetUsed.transitionsUsed > first.budgetUsed.transitionsUsed);
   assertResponseReferencesClosed(secondResponse);
 });
+
+test("cancellation before a child's first evaluation preserves an unevaluated resumable fact", async () => {
+  const api = await loadPublicApi();
+  const { request, deps, fixture } = nestedPersistentFixture({
+    invalidateAfterOuter: false,
+    middleObservations: [],
+  });
+  const controller = new AbortController();
+  let checks = 0;
+  const signal = new Proxy(controller.signal, {
+    get(target, property) {
+      // Admission reads once; cancel at the loop boundary after child creation.
+      if (property === "aborted" && ++checks === 9) controller.abort();
+      return Reflect.get(target, property, target);
+    },
+  });
+  const firstResponse = await api.runRecursiveGoal(request, { ...deps, signal });
+  const first = responseReport(firstResponse);
+  assert.equal(first.control.outcome, "cancelled");
+  const child = first.frames.find(frame => frame.frameId === first.control.frameId);
+  assert.equal(child.depth, 1);
+  assert.equal(child.fact, "not_evaluated");
+  assert.equal(fixture.calls.executeAtomic, 0);
+  const secondResponse = await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: 64 },
+    continuation: first.continuation,
+  }, deps);
+  assert.equal(secondResponse.kind, "run_result", JSON.stringify(secondResponse));
+  const second = responseReport(secondResponse);
+  assert.equal(second.control.outcome, "completed");
+  assert.equal(fixture.calls.executeAtomic, 1);
+  assert.ok(second.budgetUsed.transitionsUsed > first.budgetUsed.transitionsUsed);
+  assertResponseReferencesClosed(firstResponse);
+  assertResponseReferencesClosed(secondResponse);
+});

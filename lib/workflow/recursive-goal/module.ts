@@ -2664,7 +2664,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     this.synchronizeFailedParentCondition(
       frame,
       diagnostic,
-      frame.fact === "not_evaluated" ? "unknown" : frame.fact,
+      frame.fact,
     );
     this.propagateDiagnostic(frame, diagnostic);
     this.control = {

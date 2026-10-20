@@ -744,6 +744,7 @@ cleanup/collect 输入含 accepted root、可信 State/Evidence/effects/atomic r
 
 本轮证据归档于 `/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/`：
 
+- 最新`r5-build.log`、`r5-recursive.log`与`r5-full.log`分别为构建通过、58/58递归测试及735/735正式全仓测试，均无跳过。新增首次子评价前取消往返：保留`not_evaluated`与空评价字段，同步真实取消execution；原样恢复成功，首次零动作、恢复后原子动作一次且预算累计。`r5-cancel-red.log`保留修前无evaluator的unknown被拒绝的真实红测。`r5-cwd.log`4/4、`r5-finite.log`及`r5-integrity.log`7/7通过；下列较早结果保留其当时覆盖范围。
 - `r4-recursive.log`：57/57公开递归测试通过，无跳过。在原42项和首次整改51项上补充深层失败/预算/取消续接、错误补证phase、已返回补证回执续评以及未闭合后代保护。父局部条件达标不能绕过未闭合必要链；persistent子帧使用自己的条件集并自底向上重评。取消保留真实诊断源，停止control定位活动栈，并同步父条件的实际执行状态。`r3-cancel-red.log`保留取消原样续接失败的红测；`effect-scope-red.log`中两个权限反例在修复前各真实执行一次未授权write，修复后均零执行。
 - `r4-full.log`：正常 `npm run test:full` 为734/734通过，无跳过。原`author-full.log`的719/719、`review-fix-full.log`的728/728及`r2-closure-full-final.log`的733/733为此前已覆盖范围的原始结果。独立verifier的只读全仓运行曾因扩展测试需要生成artifacts而受限；该限制由具有原始写入授权的owner执行完整命令闭合，未改测试或降低断言。
 - `verification-cwd.log`：独立公开cwd consumer为4/4通过，最新`r2-closure-cwd.log`同样4/4。真实same、different、绑定拒绝与真实cd后受控观察故障分别保留原始回执；profile未训练、修改或采用。
