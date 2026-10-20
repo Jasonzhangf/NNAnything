@@ -38,6 +38,8 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 
 ## 三个必须在设计阶段回答的问题
 
+可训练基本单元统一按 [docs/design.md 1.1.1](../../../docs/design.md#111-可训练基本单元与组合) 设计：最小神经元与神经元组均包含推理环、训练环、训练样本及显式权重，并使用同一类接口合同。组声明成员及必要的组合学习，不复制成员权重；确定性基础设施不虚设训练。设计时逐项列出已实现与缺口，不能把已有预测函数称为完整单元。
+
 每项可训练语义还须绑定独立的单元升级流程 [model-evolution.graph.json](../../../workflows/model-evolution.graph.json)：自动使用采样、监督复核、隔离真实训练与回载、独立评价和旧能力回归、满足条件自动采用；回归或冲突保留当前版本并移交大模型裁决。阶段判定与冲突处理唯一正文为 [model-evolution.md](../../../docs/model-evolution.md)，不得省掉采集/训练或只存冲突不处理。设计准入与升级准入分别闭合，未实现功能列具体缺口。
 
 1. 去掉NN后剩下什么？手写概念/参数绑定/CLI映射不冒称已学；NN负责的函数与监督单独说明。例如typed `file.property.relation.sessionCwd` observed由模型选择`pwd`，harness固定映射`/bin/pwd -P`，受信OS观测判定Goal。

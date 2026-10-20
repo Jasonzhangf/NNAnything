@@ -34,6 +34,10 @@
       "types": "./dist/recursive-goal.d.ts",
       "import": "./dist/recursive-goal.js"
     },
+    "./browser-single-action": {
+      "types": "./dist/browser-single-action.d.ts",
+      "import": "./dist/browser-single-action.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"

@@ -91,6 +91,8 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 ## 唯一Owner与入口
 
+- 可训练基本单元（最小神经元/神经元组）共同包含推理环、训练环、训练样本与权重，统一合同由 docs/design.md 1.1.1 维护。浏览器单步 SetExpanded 的关系/能力组合切片由 docs/browser-single-action-training.md 维护；当前已拟合独立50参数候选，未采用，不扩大为任意浏览器语义或已迁移全仓统一API。
+
 - 总体架构入口：docs/design.md；D0交付与后续浏览器范围：docs/framework-m1.md。
 - 通用递归目标与节点反向满足：docs/recursive-goal-design.md；独立模块边界及错误返回唯一owner为docs/recursive-goal-module.md；外层workflows/recursive-goal.graph.json与配置为已实现的0.1.0。根Goal保持不变，每层仅选已启用技能，缺技能显式报错；cwd公开模块首例与历史外置probe的证据边界见docs/recursive-goal-cwd-validation.md。
 - 通用节点/事件与workflow合同：docs/node-workflows.md、docs/canvas-events.md；持久基础配置：docs/workflow-config.md。

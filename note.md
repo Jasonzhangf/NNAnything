@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-10-20 浏览器最低单步语义：作者验收完成，待整体独立 Review 与集成
+
+后续用户明确三层拟合顺序：单次操作 → 单次失败/点击无效反馈 → 多次与复杂组合（同错误retry到可配n，放弃首选再选次选）。当前实际完成的是单次策略及实际反馈采集，尚未学习反馈利用；不将无效点击记为语义负例，也不把采集称为失败策略已训练。独立增量计划在外置progressive-plan.md准备；先收口当前基础修复，不混改50参数基线。完整后续工作仍在当前授权范围继续。
+
+首轮整体Reviewer（Gemini实际配额失败后独立OAuth gpt-6.1-sol medium）返回2P1+1P2，review-final.json和宿主review-classification.json=fail保留。三项均有红测并修复：后验当前性/更新、透明拦截顶层命中、原生fieldset禁用及legend例外。修后findings-tests.log48/48，findings-full-regression.log867/867零skip，findings-verification-probe.log零失败；独立probe按准确DEFER错误码更新，原标签/预测/动作/效果断言未放宽，模拟currentControl随后验更新以符合明确资源合同。原生native-finding-transparent和fieldset均DEFER且零输入，native-finding-legend实时episode原生click后100。当前等待三finding局部复核，基线候选未重训。
+
+三finding已由新鲜独立OAuth medium局部复核关闭，finding-recheck-final.json零finding、宿主finding-recheck-classification.json=pass，退出0；独立七项后验反例和配对观测测试通过。完整原Review与此局部修复复核共同构成本切片有效Review，不能扩展为后续反馈/策略已完成。后续progressive-plan.md已由独立Planner完成，建议独立反馈36参数+选择20参数且先基础交付，再分两成员顺序训练；用户随后确认先学习单次失败反馈、后次选，实施时维持这两段验收。
+
+本轮按用户“开始训练”授权实现 `SetExpanded(regionRef,true)`。新增公共入口 `nnanything/browser-single-action`，目标控制关系2×13与当前能力CLICK/NOOP/DEFER 3×8共50参数，独立于L1/CLI。单步复用现有7N6E，训练新图6N6E已DAGpipe validate/inspect；通用operation图保持design，不扩大到其他行为。统一基本单元要求已落docs/design.md 1.1.1及本地设计Skill：最小神经元和组包含推理环、训练环、样本、权重。当前两个成员构成一个单步组，不宣称已迁移全仓API。
+
+证据根 `/Volumes/Intel/playground/nnanything-runs/browser-semantic-single-action-20261020`。GCM承担观测、数值、workflow/consumer与独立资料四个互斥owner；父负责真实拟合、构建、CUA及集成。固定200+200epoch真实Handwired拟合415.69ms，30train/10dev全通过，零权重0/30和0/10。40episode含1真实观测/原生效果与39合成；独立worker20例新进程回载20/20，不用于拟合。候选 `fitted/candidate.json` 未校准、未采用；原始训练报告尚无独立资料故fullyVerified:false，后续证据单独保留。
+
+真实Chrome受控页面11场景，5次原生输入，4次达成100、无效果1次为0，已展开NOOP为100，disabled/歧义/缺测/过期零输入。自定义role无可用声明保留未知，另显式aria-disabled=false案例成功；不改权重，保留原始gap。目标切换后正确选另一控制，邻区不变。native-*-live.jsonl保存公开episode实际运行；native-explicit-role-achieved.png保存实际效果。完整保留首次PTY过长与别名序列化问题，后续采用文件传递及页面内JSON序列化，未裁证据。
+
+作者边界红测发现并修复原生回调异常effects知识丢失、初/后验改绑根document/scope、NOOP引用过期、错误控制目标及DEFER无原因。41/41本轮测试，860/860全仓且零skip；首轮隔离树缺扩展产物，正式构建后全量通过，无断言放宽。模型权重及wire自首轮拟合后未改，不重复训练。独立Review/main回执随后记录。
+
 ## 2026-10-20 批次1「目录与路径原语」实现完成，独立 Review 已通过，待集成（当前状态）
 
 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 四个 head 已注册进唯一共享 `cli.command-policy.v1`：10 heads × 30 wires = 300 参数。两张持久图与对应 `NodeDefinition.version` 均为 `0.3.0.0000`（四位尾段由 `scripts/bump-version.mjs` 统一维护，下一次 bump 为 `0.3.0.0001`）。

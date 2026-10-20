@@ -22,7 +22,8 @@
 | `dom-basic-kinds.graph.json` | `dom-basic-kinds.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0` 已实现 | 第一层 DOM 基础种类判断流：接收保序候选槽位与可选补充观测，经两阶段（大类 -> 细类）区间计算输出基础种类槽位与审计证据 |
 | `dom-recognition.graph.json` | 待按需配置 | 10 节点 10 边 (10N10E SESE) | `0.1.0-design` 设计态 | L2 完整卡片语义识别流：候选展开后经白名单特征提取、单标签语义分类并组装回原槽位 |
 | `node-training.graph.json` | `node-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.2.0` 已实现；算子与绑定 `0.1.0` | 第一层基础种类离线训练流：复核样本、来源分区、Handwired 拟合、新旧比较、评估与安全保存；未校准候选不自动采用 |
-| `operation-episode.graph.json` | 待按需配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design` 设计态 | L3 操作闭环设计示例：观测、目标识别、策略决策、条件执行、新观测验证与统一收束 |
+| `operation-episode.graph.json` | `browser-single-action.workflow.json` 为SetExpanded切片绑定；其他待配置 | 7 节点 6 边 (7N6E SESE) | 通用图仍`0.1.0-design` | L3观测→识别→当前选择→人类操作→重观测→验证→报告；本轮只实现单次展开切片，不扩大其他行为 |
+| `browser-single-action-training.graph.json` | `browser-single-action-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 独立50参数关系/能力profile；准备、family分区、Handwired拟合、比较、评价、保存；候选未采用，沿浏览器单次训练合同 |
 
 > [!NOTE]
 > `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。当前 CLI 推理图 `cli-file-property.graph.json` 与训练图 `cli-filesystem-training.graph.json` 也通过同一静态校验；旧 `cli-command-step` 与旧 cli-goal 图已退役。

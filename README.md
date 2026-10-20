@@ -54,6 +54,12 @@ node playground/recursive-goal/cwd.mjs --profile explicit.json
 
 # 运行递归 Goal 非 CLI 泛化公开 Consumer
 node playground/recursive-goal/finite-search.mjs
+
+# 训练浏览器最低单步语义（显式样本、真实Handwired、独立候选）
+node playground/browser/single-action/train.mjs --handwired-root <path-to-handwired> --samples <cases.json> --output <artifact-directory>
+
+# 新进程回载，不拟合、不自动采用
+node playground/browser/single-action/reload.mjs --profile <candidate.json> --cases <verification.json>
 ```
 
 - 浏览器 Consumer 固定入口为 playground/browser/demo.mjs，负责完整演示保存观测加载、7 节点有限图编译运行及保序候选槽位输出。
@@ -64,6 +70,8 @@ node playground/recursive-goal/finite-search.mjs
 - 公开 API 包含主入口 nnanything（事件模型、配置加载与编译执行基座）、浏览器子入口 nnanything/browser（7 个手写 DOM 算子定义、3 个采样算子、基础种类算子 domBasicKindsNode、纯函数 classifyBasicKind、classifyBasicKindBatch、validateBasicKindProfile、默认配置与手写 profile）、以及训练子入口 nnanything/training（6 个训练算子工厂 createTrainingNodeDefinitions、多分类样本与请求校验器、分区/比较/评估/报告辅助函数及 loadTrainingProfiles）。
 
 ## 架构职责与已实现算子
+
+浏览器单步展开从 `nnanything/browser-single-action` 调用。控制关系与 CLICK/NOOP/DEFER 两个成员组成一个可训练单元，包含推理环、训练环、样本及50参数profile。目标达成由原生输入后的真实观测判定。合同与本轮结果见 [browser-single-action-training.md](docs/browser-single-action-training.md)；任意自然语言、其他浏览器行为和自动权重升级仍未实现。
 
 - DAGpipe：负责项目图拓扑静态检查与 SESE（单入口单出口）校验。公开图唯一真源集中于 `workflows/`（如 [dom-candidates.graph.json](workflows/dom-candidates.graph.json)、[dom-rule-sampling.graph.json](workflows/dom-rule-sampling.graph.json)、[dom-basic-kinds.graph.json](workflows/dom-basic-kinds.graph.json)、[node-training.graph.json](workflows/node-training.graph.json)）。
 - Flowed (v1.15.0)：负责有限事件 DAG 的动态调度与异步扇入执行，保证每个 ARC 单次运行产出确定状态事件，单次运行有穷结束。
