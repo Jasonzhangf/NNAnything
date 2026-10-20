@@ -819,3 +819,15 @@ Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Arg
 补充：`tests/extension-build-weight.test.mjs`会在运行中真正驱动构建，此前其after钩子会调用无参构建，把`artifacts/chrome-extension`与`artifacts/overlay-harness`重写为手写基线，等于用测试覆盖用户正在浏览器里加载的交付产物。现已改为开跑前递归备份这两个产物目录、结束后原样还原，测试不再改变交付内容；构建测试仍只做进程级与文件级断言，不重跑真实浏览器。因该还原动作，跑完全量测试后须按交付权重重新构建产物，本轮已重建并核对content.js内嵌profileId两次、无`weightFile: null`。
 
 清理与集成：独占 worktree 与临时目录已按 SESE 收口。固定任务树 `/Volumes/Intel/playground/nnanything/ext-weight-autoload` 在提取改动后 `git worktree remove --force` 并 `prune`，路径确认不存在；`fix/ext-weight-autoload` 分支已删除；`/tmp/nn-accept`、`/tmp/nn-wtest` 已删除；验收用 HTTP 服务按显式 PID 关闭。`recursive-goal-framework` 与 `cli-path-primitives` 属其他任务域，未触碰。main 已推送，`main...origin/main` 为 0/0，集成提交 d4841be；交付构建按验收权重重建，content.js 内嵌 profileId 两处、无 `weightFile: null`，真实浏览器公开 consumer 复核仍为“构建加载 · three-site-20261019194017792-93975-abe88de9.weight.json · …-candidate”、14框、无失败提示。
+
+2026-10-20 新增「操作目标与元素必要性关系」设计合同，未就绪，未实现、未训练：`docs/operation-goal-necessity.md`。此轮只出设计，回答用户「语义上先分清用户要做什么操作、为啥需要当前的元素、把推理逻辑和训练逻辑做出来」的要求，不改 L1 词表、wire、权重或黄金标签，也不新增 workflow 图或边。
+
+独立 Planner（Codex OAuth gpt-6.1-sol，medium，只读独立 session）产初稿，任务合同与事件流在 `/Volumes/Intel/playground/nnanything-runs/dom-necessity-reasoning/`。作者核对了它的关键引证：AGENTS 第 105–129 行的忽略与输入禁令、`docs/browser-overlay-m1.md` 第 84 行「证据不读取 input.value」、`docs/design.md` 第 27–44 行四元素、`lib/nodes/README.md` 第 119 行的 `dom.basic_kinds` 边界，均与仓库一致；文中行号引用逐一复核通过，链接全部有效。
+
+核心结论把三件事分开，不能互相替代：元素的基础种类（L1，不随操作改变）；它对该操作当前条件承担的语义角色（随 Goal 改变）；操作后真实 New State（只能由观测决定）。因此「本次不需要这个按钮」不能写成 L1 的 `ignore`，`ignore` 的监督目标仍是「是否需要作为 agent 独立交互／读取目标」。最小语义单元定义为判断 `(Goal, 条件 C, 元素 E)` 的关系，输出 `condition_provider / not_provider / null` 加判断状态与证据引用；首轮只取 `SetExpanded` 与 `ObserveExpanded` 两个 typed 目标，用来区分「改变状态」和「读取状态」，不做自然语言请求识别，不扩展成任意网页操作目录。
+
+训练反推链从真实达标结果出发：目标与达标规则 → 经确认的达标 New State → 实际产生该结果的操作及对象 → 操作前置条件 → 操作前真实 State → 元素与条件的监督关系 → 检查学生输入是否足以区分 → 拟合、回载、独立评价。模型输出、LLM 猜测、L1 类别、点击已发出都不能当关系真值；一次操作成功也不证明因果唯一。反例表覆盖同元素换 Goal、同 Goal 换 State、同类元素换控制对象、包装误归属、等效入口、回执成功但目标未达成、harness 失败被误训成语义负例、以及「同许可输入却是两种真实行为」这类不可辨情形。
+
+设计判定为未就绪，列出八项缺口及各自 owner 与恢复条件：typed 目标/条件/结果 schema 未成为正式合同；展开状态已可测但无学生消费路径；控制关联无法观测；条件当前性无承载；新关系 wire、参数与损失未定稿；缺真实操作监督集与来源分区；L3 浏览器固定操作和重观测能力未实现；关系训练 adapter 与演进接线未实现。作者核对了观测能力，把初稿混在一起的「展开状态不可用」拆成两项：`aria-expanded` 已在 `lib/adapters/browser/observation.ts` 的 `SAFE_ATTRIBUTE_NAMES` 采集，但不在 `BasicKindMeasurements` 白名单、`basic-kinds.ts` 只消费 `aria-hidden`/`aria-disabled`，故属缺消费 wire（owner 为 `lib/filters/`）；`aria-controls` 不在采集白名单，才属观测缺口（owner 为 browser adapter）。下一轮应先闭合一个展开／状态观测切片的正式合同与可辨观测；若两个真实用途仍映射为同一许可输入，先停该关系训练。L1 使用不受影响。
+
+依据边界：`docs/operation-goal-necessity.md` 为本文唯一 owner，已在 `AGENTS.md` 唯一 Owner 表登记；L1 词表与 wire 仍由 `docs/basic-kinds-wiring.md` 维护，L2/L3 图纸仍由 `workflows/dom-recognition.graph.json`、`workflows/operation-episode.graph.json` 维护。本轮未改图，故未跑 DAGpipe；SESE 结论来自读取既有拓扑。`node scripts/check-layout.mjs` 通过。
