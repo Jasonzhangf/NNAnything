@@ -1,20 +1,22 @@
 # 当前任务
 
-## 2026-10-20 F2整体Review两P1已关闭，验收通过，待main集成
+## 2026-10-20 F2优选、重试与次选已main交付
 
-两项P1修复后父build及公开回归20/20，全仓943/943零skip；新增真实rawunknown＋合法proof＋错误F1场景只输入1次后effect_outcome_unknown，未记安全重试；AAB修后复测成功。原生累计11轮20输入。独立OAuth gpt-6.1-sol medium定点复核PASS，37/37及apply同步/异步抛错两探针通过，确认两finding均关闭且影响闭包无新问题。完整Review与复核共同满足本milestone审查，未重新训练。run/ review-result.md保留原FAIL，review-recheck-result.md保存关闭依据。进入main集成与资源收口。
+功能提交e72c9ce已fast-forward main并推送origin/main；canonical构建通过，主目录公开reload新进程48/48，main与origin/main同步。原子单次f7b97a7、F1反馈2da1559和本轮F2共同完成单次操作→失败反馈→候选优选/n次后次选的分阶段训练。公共入口为`nnanything/browser-strategy`，合同唯一owner为docs/browser-progressive-strategy.md。每步仍只选当前策略，根Goal/绑定保留，真实New State验收；typed控制计数不训练。
 
-完整独立Review（Gemini4本轮实际quota失败后OAuth gpt-6.1-sol medium只读）结论FAIL：一是F2缓存currentControl绕过apply前实时失效检查，rev2变3仍发点击；二是合法no-effect proof可把rawunknown effects映射none，再由故意错误F1放行retry。原936项及9native未覆盖这两项组合反例。已分别派互斥GCM owner修node/atomic type和recursive adapter，各新增公开接口红测；不重训、不改候选。原oracle裁决经整体Reviewer确认符合合同。必须补受影响验收并独立复核两P1后才main集成。
+F2只新增20参数，原子50/F1 36固定。首次固定CEfit为train30/36、dev8/12，失败候选和轨迹保留。独立分析确认现有输入可辨，否定简单投影等权；只换最大竞争项平方hinge损失，原监督/10wire/20参数/36train12dev/200epoch/.1/零初始化不变。一次修订真实Handwired到36/36、12/12，新进程48/48。训练为33合成+同轨迹3个真实教师当步，开发12合成；教师演示与学生行为分开。候选保持uncalibrated/not_applied，没有自动替换使用权重。
 
-当前F2作者验收：仅改损失的一次固定修订fit已达train36/36、dev12/12，新进程48/48，候选未采用。原独立24例保留FAIL22/24；两项正margin单候选DEFER gold经独立只读裁决为前提缺失，另列零权重2/2和负bias2/2，未改原JSON、答案或候选，未再训练。原生9场景16输入通过：AAB、AABB精确止步、n1、AA成功、unknown/disabled停、初始达成/zero策略零输入、重排且三新进程计数续跑。全仓936/936零skip。完整作者材料为外置run/progressive-strategy/author-acceptance.md；待一次整体Review、main/push与资源关闭，尚不算已交付。
+原独立24例报告保留FAIL22/24。两项single-candidate-defer在固定候选正margin1.8258569413时要求DEFER；独立只读裁决及整体Reviewer确认其非正margin前提缺失，SELECT符合合同。原JSON/答案/报告未改，未据此再训练。另列零权重2/2、负bias2/2；诊断profile不计训练成果。其余22项含2项同分拒绝边界，也不全部称为学习成果。
 
-F1 main 2da1559已推送、canonical build与24例回载通过；独立整体Review零finding/正式裁决pass。旧feedback-strategy树在只读Planner结束后已remove/prune/test不存在，旧分支删除。当前唯一树 `/Volumes/Intel/playground/nnanything/browser-progressive-strategy`，codex/browser-progressive-strategy，base origin/main2da1559。独立strategy-detail-plan.md READY后先落共享contract及F2step5N4E、training6N6E，两图validate/inspect实际通过；原递归3N2E/原子7N6E拓扑不改。
+完整独立Review发现两P1：缓存currentControl使旧引用仍输入；proof把rawunknown effects改为none后错误F1可放行retry。两项均有公开入口红测、唯一owner修复。原子现在每次委托实时control源且支持Promise，effects在proof和Goal投影前优先保留rawunknown。修后全仓943/943零skip，作者组合20/20；独立OAuth medium定点复核PASS，37/37及apply同步/异步抛错两探针通过，两finding均关闭。完整Review和局部复核共同完成审查，不为小修重做整体Review。
 
-本阶段GCM已恢复可用，互斥owner：core typed重试/continuation、atomic显式selected范围、learning20参数+样本、verification独立24例；再补group5N4E/rootadapter与training6N6E/consumer。父sole共享合同/图/package/facade/build/实际fit/CUA/集成；各worker不build/真实训练/浏览器/Git。原子50/F1 36固定。首轮20参数真实Handwired拟合已执行，train30/36、dev8/12，accepted=false；完整candidate/report/trajectory保留于外置run/progressive-strategy/fitted。初始优选误选role，不能称学生已会优选/次选。36train含33合成+3真实教师当步，12dev合成，轨迹家族不跨区。
+真实CUA原生验收累计11轮20输入，覆盖10类场景及AAB复测：AAB成功、AABB无第五次、n1的AB、AA重试成功、unknown/disabled停止、初始已满足和零策略零输入、页面重排且三个新进程计数续跑。新增rawunknown＋合法proof＋故意错误F1只输入1次后effect_outcome_unknown，rawreceipt/proof保留、未记安全重试。原始学生决策/receipt/真实观测均落盘，不是事后回放；范围限当前受控展开语义，不宣称任意网站或全模型自动演进。
 
-拟合前已修正合成history未来revision、foreign document和collapsed/rendered事实矛盾；永久边界13/13绿。单元与组合集成后首轮全仓931项928过/3个训练fixture失败；修F1零权重造成的fixture监督冲突后931/931零skip。独立只读Planner在Gemini4实际quota失败后由OAuth gpt-6.1-sol medium完成：现有20参数可表达36/12，不改标签/wire/预算；静态分析否定简单投影等权，只建议完整决策集最大竞争项平方hinge损失，固定间隔1。修订一次fit未执行；原失败与首次未见verification继续保留。父追加三类F1前向断言及零F1冲突专门反例，测试6/6通过。
+F2step5N4E与training6N6E在实现前实际DAGpipe validate/inspect通过；原递归3N2E/原子7N6E拓扑不改。GCM承担互斥执行/观察，独立Planner/Reviewer与实现分离；父负责共享合同、图、实际fit、CUA和集成。拟合前已修合成history时序/文档/rendered及测试F1资源矛盾，未放宽运行guard或监督。
 
-父已原生采集教师示例A→A→B（两个A真实无效果且fixture trusted/noBusinessEffects证据，B真实打开Goal、邻区不变）。全部pre/post/audit在外置父run/progressive-strategy，observed-teacher-strategy-episodes及transitions明确教师而非学生rollout；当前步输入只含此前history，未来post另存。服务器现PID79223端口50501，前PID37389/65422已关闭；自有Chrome tab854002351仍持有教师完成页，后续用于真实候选验收。学生实际控制轨迹尚未运行。
+证据与候选保留于 `/Volumes/Intel/playground/nnanything-runs/browser-semantic-single-action-20261020/progressive-strategy`：author-acceptance.md、fitted-r1/candidate.json、full-p1.log、native-acceptance.json、review-result.md（原FAIL）、review-recheck-result.md（关闭依据）。自有Chrome tab854002351与测试服务PID79223已关闭；最终临时worktree及审计资源收口以同目录cleanup-receipt.md为准，不以本说明代替实际回执。
+
+一次干净上下文结案审计已完成：既有control/unknown原则足够，不增加全局门禁；仅在本地设计Skill补清“运行边界oracle须满足分支前提、诊断profile不计训练成绩且不得按预测反改gold”，并将架构/F1合同旧的未实现状态限定为历史时点、引用F2唯一owner。未写memory，未增加新台账或再次代码Review。
 
 ## 2026-10-20 单次基础已main交付，继续失败反馈学习
 

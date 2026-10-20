@@ -30,7 +30,7 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 | 语义目标 | 一个最小Goal、对象/关系、已知State、期望效果及失败；概念、动作选择、实际效果分别验收 | 受影响领域合同；总体语义在docs/design.md |
 | 固定调用与执行边界 | 输入输出、参数引用、session、权限、错误与后条件；哪些由NN学习，哪些由harness执行和观测 | 领域合同及对应adapter/node合同；复用现有入口 |
 | 连线与可辨性 | 给出能区分正确/错误的输入反例；内部特征/参数/wire/梯度和外层workflow依赖分别设计 | 算法合同与数值电路；workflows/*.graph.json及已有绑定 |
-| 样本与验证 | 来源家族先分train/dev/verification，再生成；训练监督复核；真实执行场景；预测不能当实际New State | 领域训练合同；数据沿training既有目录，不写进workflows |
+| 样本与验证 | 来源家族先分train/dev/verification，再生成；训练监督复核；真实执行场景；预测不能当实际New State。独立评价区分语义监督与运行边界oracle；后者须构造并核对合同分支前提。前提不成立时保留原报告并单列裁决，诊断权重对照不计训练候选成绩；不得按预测反改语义gold | 领域训练合同；数据沿training既有目录，不写进workflows |
 | 使用与进化 | 使用时采集的证据、当前与候选隔离、旧黄金/新独立评价；升级及冲突按唯一演进合同 | docs/model-evolution.md及领域接入说明，不复制第二套规则 |
 | 实施就绪 | 检查外层DAG闭合/SESE与绑定、内部图和I/O一致；列owner、反例/红测和公开入口验收 | 修改过的图validate/inspect；更新既有实施计划与note，未变证据复用 |
 
