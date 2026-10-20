@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-20 浏览器行为框架v0.1与元素结构
+
+用户要求先做一个案例，再固定浏览器行为框架与分类后元素属性结构。完成原生Chrome本地搜索案例：键盘建独立标签，点击Search catalog并输入Recursive Goal，再点击Search；真实AX/截图返回Query: Recursive Goal; 1 result(s)与Recursive Goal Framework，相邻Notes保持Keep this unchanged。六项现场检查均true。导航及AX重读后引用重新分配，元素必须带观测/文档版本，数字AX索引不能当持久DOM身份。Chrome扩展DOM绑定返回Tab not found in browser 1，本案实时证据只为AX/截图；未把fixture源码当实时DOM测量。
+
+唯一新合同docs/browser-behavior-framework.md固定0.1.0-design，包含八种意图行为、现有7N6E节点I/O、递归接入和ElementSnapshotV01/RetainedElementV01/SemanticRelationV01/BrowserChoiceV01设计结构。保留分类与候选状态、引用/版本、可见几何、交互状态、按需内容、关系及证据；字段不自动成为L1特征，value不扩大既有普通采集范围。无运行源码、图拓扑、训练或权重变更，结构尚非导出API。该真实案例由agent选择，不宣称项目L1/L2/operation或自动变化监听已跑通。具体gap沿新合同第6节。
+
+过程与证据目录/Volumes/Intel/playground/nnanything-runs/browser-behavior-v01-20261020。只读GCM字段核对worker被误派要求写外置报告但沙箱只读，未交有效结果；父结束精确自有PID96395并接管字段核对，不扩大权限绕过。结构体两个类型块按项目strict模式检查通过，相对文档链接及差异格式检查通过。独立OAuth gpt-6.1-sol medium合同复核exit0，必须修复项0，同意固定0.1.0-design；完整报告review-result.md明确仅设计/手工合同实验通过，不算模型/DOM/operation运行验收。结案经验同时覆盖本轮派单偏差，现有规则足够，无需新增规则或memory。唯一自建测试标签已关闭，服务PID96663 TERM且exit143；无新worktree，不触碰其他标签或peer树。文档集成及推送沿本轮Git原始回执。
+
 ## 2026-10-20 通用递归框架实现与行为验收
 
 最终状态：RG-01至RG-09共9项已验收。通用模块、两类公开consumer、独立完整Review及finding闭包、main集成与推送均完成；最终58/58递归、735/735正式全仓且0skip。结案经验审计由新OAuth gpt-6.1-sol medium只读会话完成，报告为外置run的`audit-result.md`。父级接收其两项最小记录建议：更新RG-09状态并登记资源保留；无需新增或修改长期规则/Skill/受管记忆，无需重跑产品测试或再审计。下文保留按时间顺序的原始失败、整改与交付记录。
