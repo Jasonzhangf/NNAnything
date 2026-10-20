@@ -1,5 +1,95 @@
 # D0交付与后续浏览器项目实施计划
 
+## 2026-10-20 基础语义训练覆盖与执行计划
+
+本节是当前覆盖与实施队列入口。领域算法、样本 schema、权重及评价规则仍由各领域合同维护，不在本节复制。独立规划及逐域采证保存在 `/Volumes/Intel/playground/nnanything-runs/basic-semantic-coverage-20261020/`。本轮 `.appsdk/requirements.json` 不存在，不建立需求占位。
+
+“设计、实现、样本、真实拟合、新进程回载、独立验证、采用”分别验收。DAG 拓扑闭合不代表训练或能力完成。既有 `project-design` 7N6E、`operation-episode` 7N6E、DOM/CLI/浏览器领域图的静态回执可复用；本轮只修正文档和证据，不改变拓扑，不重复图校验。`operation-episode` 的运行绑定目前只支持 SetExpanded。
+
+### 覆盖现状
+
+| 能力 | 当前实现与训练证据 | 仍缺什么 | 唯一合同与证据 |
+| --- | --- | --- | --- |
+| DOM 基础分类 | 12 叶类加 other；已有真实 Handwired 拟合、来源组留出与历史回归；本轮新进程显式文件回载 M1/MAP，MAP 标签匹配356/357；默认仍为手写 v2 | audio 等类别缺监督，video/select 缺独立类别留出；既有样本已查看，不是本轮盲测 | [训练合同](training-workflow.md)、[历史实测](training-m1-results.md)、本轮 `c1/result.md`、`c1/evidence.json` |
+| 可观测保留 | viewport/遮挡等确定性观测与候选过滤已存在 | 人类读取/交互保留的正式训练单元未实现；缺测不能当不保留 | [overlay 合同](browser-overlay-m1.md) |
+| owned 与内容读取 | 归属和取值有设计；owned 当前明确返回 unsupported_scope | button.text、card.title、媒体取值的运行 API、归属证据和真实验收；原始取值不强造训练头 | [行为与元素合同](browser-behavior-framework.md)、[查询草案](../research/semantic-query-contract.md) |
+| 浏览器 click | 仅 SetExpanded，50 参数候选，30 train/10 dev，新进程回载与独立受控原生验收 | 不能外推任意按钮用途或站点；训练输入仅 1 个 observed episode，其余为合成投影 | [单次训练](browser-single-action-training.md) |
+| 单次失败反馈 F1 | 36 参数候选，真实拟合与回载；执行失败、无效果及未知分开 | 仅现有行为范围，不能据此说其它行为已学会失败 | [反馈合同](browser-feedback-strategy.md) |
+| 渐进策略 F2 | 20 参数候选，36 train/12 dev，回载与原生重试/次选验收 | 原独立报告保留 22/24；两项 oracle 前提裁决及诊断对照单列，不能改称候选 24/24 | [策略合同](browser-progressive-strategy.md) |
+| 浏览器 read/input/select/scroll/search/download/navigate | 八类行为目录已定义；其中上述七类没有项目原子能力完整训练闭环 | typed Goal、必要 State、行为及真实后条件；手工搜索案例不算项目 runner 验收 | [行为目录](browser-behavior-framework.md)、[必要性](operation-goal-necessity.md) |
+| CLI 已注册切片 | pwd/cd/ls、path.resolve/relative/parts、entry.inspect；共享 10×30、300 参数；174 train/88 dev，262 条真实执行与新进程回载 | 原训练 report 仍 fullyVerified=false；外部独立套件 56/56 有限通过，5 项 UNVERIFIED 保留 | [CLI 训练](cli-filesystem-training.md)、[训练结果](cli-filesystem-training-results.md) |
+| CLI 常见后续操作 | 路径、目录、普通/特殊文件的 file.property 设计目录已存在 | 物理路径、对象绑定、创建/移动/删除、内容读写、元数据设置及组合仍未训练或实现 | [操作目录](cli-semantic-operations.md)、[训练设计](cli-property-training-design.md) |
+| 通用递归与单元接口 | 递归 Goal 生命周期已有运行验收；浏览器三类单元具备薄 infer/train 接口 | 有限规则 selector 不等于已训练任意递归；不因薄接口而全仓重构 | [递归模块](recursive-goal-module.md)、[基本单元](design.md#111-可训练基本单元与组合) |
+| 使用采样与升级 | 分域有可选/注入采集入口；离线候选与使用版本隔离 | 全域默认采样、typed 当前版本、独立评价后的自动采用与冲突移交仍未接通 | [演进合同](model-evolution.md) |
+
+L1 当前 canonical 的逐类覆盖如下。M1 为120 train/38 eval，MAP 为59 train/140 eval；本表 eval 指原 source-group 评价用途，不等于本轮独立盲测，也不与旧/新黄金相加。另批 wrapper/focus 的 ignore 实验不能混入本表。
+
+| 类别 | M1 train/eval | MAP train/eval | 旧黄金/扩展黄金 |
+| --- | --- | --- | --- |
+| button | 12/6 | 8/11 | 18/19 |
+| input | 8/0 | 1/5 | 8/6 |
+| select | 0/0 | 3/0 | 0/3 |
+| link | 12/6 | 6/15 | 18/21 |
+| text | 25/12 | 15/42 | 37/57 |
+| image | 12/6 | 6/14 | 18/20 |
+| video | 1/0 | 0/0 | 1/0 |
+| audio | 0/0 | 0/0 | 0/0 |
+| container | 12/1 | 9/20 | 13/29 |
+| list | 2/0 | 1/8 | 2/9 |
+| listitem | 12/1 | 4/13 | 13/17 |
+| ignore | 0/0 | 0/0 | 0/0 |
+| other | 24/6 | 6/12 | 30/18 |
+
+本轮通过公开 prepare/partition 重建上述分区，并在新进程用公开分类入口显式读取两份已拟合文件。M1 标签匹配342/357，MAP为356/357；MAP旧黄金158/158、新黄金198/199，唯一剩余错例为`weibo-search:306`的container/unknown。357条已评价项中MAP为308 judged、49 unknown、0 conflict；49 unknown含48个标签匹配的other，不得说成已明确识别。另2条ambiguous无gold、保持unassessed；prepare因未确认排除2条，分类器excluded为0。全部359条原始记录的候选资格未评价，本次仅`properties_offline`，不代表现场遮挡/iframe/shadow或完整候选链验收。两候选各评价359行，合计718条逐例输出保存在`c1/per-example.json`。
+
+上述候选保持 `uncalibrated/not_applied`。本轮`fitted=false`、未调用fit；MAP的140条eval早已查看，旧黄金又含M1训练材料，仍需新鲜独立来源组。覆盖计数不表示网站总体准确率。样本来源、已有查看记录和用途必须保留；unknown、conflict、ambiguous、excluded不能并入负例或黄金other。
+
+### 本轮执行单元
+
+本轮完成覆盖审计、证据补齐和设计就绪收口。新行为实现、全目录拟合和自动采用不属于本轮交付。已有拟合有效且输入/连线/权重未变，不为补报告重训。
+
+| ID | 任务及 owner | 依赖 | 验收 |
+| --- | --- | --- | --- |
+| C0 | 父 owner：本节及 note.md | 独立计划、C1–C4 | 全域覆盖、具名任务、先后依赖及证据入口完整；状态区分缺能力、缺证据和旧说明 |
+| C1 | GCM L1：只读产品，写本地逐类矩阵及必要回载证据 | 既有候选/样本/公开入口 | 13 类分 train/dev/verification/旧黄金，来源及真实/合成分别计数；仅补缺失新进程回载，不改 gold 或权重 |
+| C2 | GCM CLI：AGENTS.md、design.md 及确有漂移的入口状态句 | 当前 CLI 领域合同 | 当前 10×30、0.3.0 与历史 6×14 区分；不改原训练报告或未验证边界 |
+| C3 | GCM browser：行为框架、必要性及单次训练合同 | 既有原子观测、当前 API 缺口 | read 只确定性取值；input保留INPUT/NOOP/DEFER当前选择训练，独立39参数设计；值复制/原生键盘/评价不训练；给出就绪结论 |
+| C4 | GCM core：model-evolution.md | 当前采集、loader 与训练入口 | 首域接入任务及验收明确；无冲突透传与冲突移交区分；不放宽候选校验或实现第二引擎 |
+
+C1–C4 使用独立 GCM worker 并发执行，文件 owner 不重合。父 owner 负责 C0、集成与清理。文档与补证任务采用针对性检查；不重复全仓测试、已有原生验收或真实拟合。若补证发现真实运行缺陷，保留原错并单独走图/gate/红测/实现/公开入口验收；本轮不能以文档改写掩盖缺陷。
+
+### 后续实施队列
+
+本表给出明确下一动作。列为后续不表示已授权执行真实用户文件变更。进入各增量时仍须满足四元素、SESE、最小必要性及真实训练验收。
+
+| ID / 优先级 | 缺口与下一动作 | 必要依赖 | owner / 最小验收 |
+| --- | --- | --- | --- |
+| Q1 / P0 | 按 C1 矩阵补缺失类别监督和独立评价；audio/select/ignore 等按实际缺口处理 | 当前来源与分区事实 | training 领域；黄金真值有来源，类级留出独立，proposal 不替代 gold |
+| Q2 / P1 | 定义并训练人类可观测的保留单元 | overlay 观测与缺测合同 | adapter/filter/training；读取、焦点、加载入口应保留，无独立价值包装作对照 |
+| Q3 / P1 | 建立 owned、caption 归属与用途关系的可辨正反例 | 显式 scope/owner 边界 | browser 关系；相邻/嵌套不串归属，不足证据不绑定 |
+| Q4 / P1 | 实现最小 text/media 属性取值 API | 原始读取与语义归属分开 | browser adapter；值与真实观测一致，失效/缺测明确；无需学习的取值用确定性机制 |
+| Q5 / P1 | 由 C3 选择最小 read 状态读取切片 | 明确对象与实际状态证据 | browser operation；读 false 也完成，unknown/stale 不伪造结果，零网页输入 |
+| Q6 / P1 | 实现一个明确编辑宿主的精确 input，再拟合INPUT/NOOP/DEFER当前策略 | 当前值、可编辑性、引用、原生执行器及训练领域绑定 | browser operation/training；独立39参数候选的真实拟合/回载、原生同对象值符合，邻输入不变，失败有反馈；不训练对象查找或键盘层序 |
+| Q7 / P2 | 拆最小 select 状态设置 | 对象绑定/状态/失效合同 | browser operation；真实 selected/checked、禁用和错误对象反例 |
+| Q8 / P2 | 训练单滚动宿主的当前行为选择 | 宿主、方向、边界及覆盖观测 | browser adapter；原生滚轮后可见范围或边界有证据 |
+| Q9 / P2 | 组合固定范围单查询 search | input、提交行为、结果归属均验收 | 既有递归 runner；查询生效、结果关联、覆盖分别验证 |
+| Q10 / P2 | 定义导航后的文档迁移与重绑，再实现 navigate | documentRef 失效规则 | browser adapter；实际位置/页面成立，旧引用零输入 |
+| Q11 / P2 | 定义 download 的入口归属与产物回执，再实现 | 下载状态和本地结果观测 | browser adapter；原生触发、完成、产物分开验证，不直接请求 URL 替代 |
+| Q12 / P1 | 接入 physical/realpath 及硬链接关系 | typed 引用、跟随链接和身份观测合同 | CLI 共享模型/adapter；词法/物理、断链、同对象关系可区分 |
+| Q13 / P1 | 实现显式候选内 directory.select/file.select | 名称/类型/父级及覆盖证据 | CLI B 关系；同名异父、歧义、未知类型与覆盖不足；不隐式扫描 |
+| Q14 / P2 | P4 创建/移动/删除/符号或硬链接逐个接入 | 精确参数、property/predicate、effects 合同；精确操作不强制等 Q13 | CLI adapter/共享训练；专用沙盒非目标不变，冲突/部分副作用真实返回 |
+| Q15 / P2 | P5 先 read，再 replace/write/append/truncate/copy | Bytes、offset/length、覆盖边界 | CLI adapter/共享训练；EOF、区间外字节、前后缀及部分写入验收 |
+| Q16 / P2 | P6 mode/owner/times 逐个接入 | 平台及权限条件 | CLI adapter；独立读回，拒权真实报告，不伪造 ctime/birthtime |
+| Q17 / P2 | format/role/applicability/help 各选精确语义设计 | 可辨输入与真实用途证据 | CLI 语义/训练；同名不同用途、未知/冲突保留 |
+| Q18 / P3 | 名称/符号搜索、遍历、树操作及保存/归档组合 | 所需原语独立验收 | 既有递归 runner；范围不完整、拒权、预算和部分副作用可收回 |
+| Q19 / P2 | 仅在 host 前提成立时补 CLI 5 项未验证边界 | 各项实际 fixture 条件 | 既有独立套件；设备、other、大整数身份、内核零 I/O 分别报告，不重跑有效 56 例 |
+| Q20 / P1 | 按 C4 选一个域接默认本地使用采集 | 显式 sink、版本与样本回执 | 既有 adapter/consumer；失败/未知保留，采集失败不改变业务结果 |
+| Q21 / P2 | 选一域实现自动升级与冲突处理 | Q20、当前版本资源、独立配对评价 | 现有 loader/workflow；提升且无回归才采用，新请求生效，在途保留旧版本 |
+| Q22 / P3 | 有具体组合选择任务后训练递归 selector | 有限技能集合、可辨选择反例 | 领域 selector/training；只学当前候选或 DEFER，不训练层序/是否继续 |
+| Q23 / 暂缓 | Computer use、第二层业务语义、WebUI、Rust | 后续对应目标进入实施计划 | 既有 owner；本轮无操作或训练声明 |
+
+实施顺序为基础观测/取值与单步行为，随后失败反馈，再接候选策略和递归组合。F1/F2 的结构可复用，不能把既有权重直接宣称适用于新行为。升级接入与能力扩展分开验收；条件不满足时继续显式报错，不自动扩大技能范围。
+
 当前通用设计入口：新增或修改CLI、浏览器及其他模型能力时，先沿[本地设计Skill](../.agents/skills/nnanything-design/SKILL.md)形成语义/I/O/harness/图纸/样本与采用验收。跨模型演进架构唯一owner为[model-evolution.md](model-evolution.md)。本页继续维护阶段与文件导航，不另复制设计流程；下方D0/D1历史状态不覆盖后续已交付能力。
 
 状态：2026-10-17，L1 候选 7 节点与采样 3 节点保持已交付。当前用户明确要求实现第一层 DOM 基础种类判断算法（dom-basic-kinds）、dom.basic_kinds@0.1.0 节点封装及公开 workflow 验收。区分历史 L2 复合卡片（post.card）计划与当前已确认的基础种类判断前置需求：第一层输出基础结构与类型（control、media、navigation、text、structure），第二层再组合帖子、作者、评论、广告等业务语义。历史 L2-L4 设计保持完整并明确为后续规划。远端为 Jasonzhangf/NNAnything。

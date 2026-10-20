@@ -1,6 +1,6 @@
 # 语义调用与所有模型的自进化
 
-状态：2026-10-19用户明确的目标架构；自动采集、统一版本管理、自动升级与冲突设计修订尚未实现。本合同覆盖CLI、浏览器基础分类器及后续可训练节点。已有离线训练仍输出`not_applied`候选，不因本文更新而自动启用。总体推理合同见[design.md 1.1](design.md#11-结构化语义的目标与状态推理)。本文是跨模型演进与升级规则唯一owner；领域算法、特征与训练I/O仍由原合同维护。
+状态：2026-10-19用户明确的目标架构；2026-10-20补齐首域接入顺序与验收，但自动采集、typed当前版本、自动升级与冲突设计修订仍未实现。本合同覆盖CLI、浏览器基础分类器及后续可训练节点。已有离线训练仍输出`not_applied`候选，不因本文更新而自动启用。总体推理合同见[design.md 1.1](design.md#11-结构化语义的目标与状态推理)。本文是跨模型演进与升级规则唯一owner；领域算法、特征与训练I/O仍由原合同维护。
 
 ## 1. 语义目标、固定调用、实际执行
 
@@ -76,7 +76,54 @@ Goal {kind: observe_cwd, session: S}
 
 跨模型演进图：[model-evolution.graph.json](../workflows/model-evolution.graph.json)。冲突设计修复图：[model-conflict-design.graph.json](../workflows/model-conflict-design.graph.json)。两者均为`design`版本，不声称有运行算子或自动升级服务。CLI目录沙盒仍按[前三项训练设计](cli-filesystem-training.md)推进，浏览器训练复用已有六节点workflow；不因统一演进合同重新实现领域训练。
 
-## 7. 当前实现边界
+## 7. 首域接入顺序与验收
+
+首域选CLI共享命令模型。它的使用入口已经有typed Goal/State、实际执行结果、显式profile和候选训练/新进程回载入口，现有缺口比浏览器动作或DOM分类更小。这里只接一个域的既有入口；不要求其他单元同步迁移，也不新增统一模型注册表、第二调度器或跨域样本schema。
+
+### 7.1 现有入口映射
+
+| 域 | 使用采集入口与实际行为 | 候选、评价与资源入口 | 首域判断 |
+| --- | --- | --- | --- |
+| CLI共享命令 | `lib/nodes/cli-command.ts`的`CliCommandBinding.onSample`可接收Goal、阈值、State、策略、调用、执行、实际后状态、满足度、状态和证据。回调抛错只写`collection_result.status=failed`，原业务transition继续；未配置时为`not_configured`，回调完成时为`saved`。当前`saved`只证明回调完成，不证明持久落盘或可恢复回执。 | `createCliCommandPolicy`显式接收profile；`runCliCommandTraining`产生候选；`playground/cli/command-learning/reload.mjs`在新进程显式读取候选与报告；独立评价仍由外部套件记录。profile校验器只接受`uncalibrated/not_applied`。 | 选作首域。现有回调、真实训练、保存和回载可复用；先补持久采集回执、typed当前版本和独立采用边界。 |
+| 浏览器单动作/反馈/策略 | `SingleActionResources.collect`、`StrategyStepResources.collectAtomic/collectStep`和`BrowserStrategyGoalResources.collectRoot`均为调用者注入资源。原子/策略采集异常写`collectionError`；递归终态采集异常记related issue，不覆盖原根Goal、执行或effects结果。当前没有默认本地sink，也不从缺失采集推断成功。 | 各域显式profile、候选文件和新进程`reload.mjs`已存在；profile校验器只接受`uncalibrated/not_applied`。动作层只选当前一步，重试层序与递归顺序仍由确定性控制持有。 | 作为CLI后的第二候选。`collectRoot`是证据收集入口，不是训练递归层序。 |
+| DOM基础分类 | `classifyBrowserBasicKinds`每次从显式`weightFile`重新加载并分类；`parseBrowserWeightAsset`校验目标、合同、拓扑、profileId和未校准状态。当前没有模型使用回调。`capture-bundle`是显式人工标注/未知项采集，不是默认使用样本。 | 现有六节点离线训练、候选报告、文件权重分类和新进程回载入口可复用。 | 暂不作首域。必须先在实际分类公开consumer增加版本绑定与使用采集；人工采集包不能替代使用样本。 |
+
+`lib/workflow/compiler.ts`中的`profiles`映射只是本次编译的显式资源，不是持久当前版本记录。`lib/nodes/cli-command.ts`的`onSample`也不是自动训练器。上述入口都不能从日志、候选文件名或样本metadata反推“当前版本”。
+
+### 7.2 实施任务顺序
+
+全部任务保持设计态，只有在对应代码、红测和真实入口证据完成后才能改为已实现。顺序如下。
+
+| ID | 任务 | 唯一责任与动作 | 验收与停止条件 |
+| --- | --- | --- | --- |
+| EV1 | 定义CLI typed当前版本资源 | CLI owner在`lib/cli-goal.ts`及其显式领域资源中区分候选工件、当前版本引用和一次请求的绑定；模型演进图只负责决策语义，不新建注册服务。训练产出的候选文件仍保持`uncalibrated/not_applied`，当前版本不能由日志、路径或文件名推断。 | 候选文件与当前引用可分别加载；非法合同、缺profile或未完成采用决策显式拒绝；现有profile校验器仍拒绝非`not_applied`候选。未完成此任务时不得进入EV4。 |
+| EV2 | 接通CLI本地使用采集 | `lib/nodes/cli-command.ts`保留`onSample`领域外壳，调用者注入显式本地sink；sink返回可恢复ReceiptRef。样本包含Goal、阈值、State、预测/策略、实际调用、执行结果、实际后状态、满足度、状态、证据和请求绑定版本。 | 成功、失败、unknown、rejected及采集失败均有可重复用例；采集失败只产生显式采集回执，不改变原业务status、satisfaction、effects或错误；样本不自动成为黄金监督。未配置或写入失败时升级链明确`collection_incomplete`并停止受影响训练/采用。 |
+| EV3 | 隔离训练、保存和回载候选 | 复用`runCliCommandTraining`及现有CLI训练consumer；从显式基础版本训练到新候选目录，使用`wx`或等价拒绝覆盖。候选保持未校准、`not_applied`，不原地修改当前资源。 | 新进程显式读取候选并运行相同公开推理；候选来源、训练样本分区、回载结果与当前版本引用分别可读。没有独立评价也不得宣称可采用。 |
+| EV4 | 独立配对评价并产生采用决策 | 评价owner使用独立作者准备的verification和旧能力回归，在同一输入上配对当前与候选；`model.evolution.compare/assess`唯一形成评价与`adoption_decision`，再由`model.evolution.adopt-or-hold`产生`adopted / held_no_improvement / insufficient_evidence / retained_conflict`回执。 | 至少一处预先声明提升、全部必需旧能力无回归、证据完整、合同兼容且无待决冲突才返回`adopted`。未知、缺测、不可比、整体分掩盖单项退化或同输入相反真值均不得通过。 |
+| EV5 | 单一采用owner切换新请求 | 只有已实现的`model.evolution.adopt-or-hold`可修改显式当前版本引用；CLI公开入口在每次新请求admission时绑定一个完整版本，在途请求保留已绑定版本完成。 | 采用后新请求使用新版本；采用前已开始的请求继续使用旧版本；两请求不混权重新旧特征；候选文件、日志或样本写入都不能直接改当前引用。基准已被替换时保留本候选待重新比较，不覆盖新当前版本。 |
+| EV6 | 冲突保留与LLM裁决移交 | 回归、冲突或未归因退化由`retain-conflicts`形成受限冲突记录并交给`model-conflict-design.graph.json`。只有冲突子图的`model.conflict.diagnose`可给出保留、拒绝、补证或设计修复建议。 | 冲突保存当前与候选输出、原始输入、监督依据、实际效果、首次偏离及涉及合同；未决或裁决失败时当前版本不变。LLM只输出诊断或设计候选，不直接改当前引用、权重、黄金标签或权限。 |
+
+`retain-conflicts`位于唯一汇流路径，但这不等于所有采用结果都上报冲突。其typed结果必须区分：
+
+| 采纳结果 | `retain-conflicts`输出 | 是否调用LLM |
+| --- | --- | --- |
+| 无冲突，已采用或无需采用 | 返回`model_conflict_receipt`并携带`adoption_receipt`，记录`conflict_transfer=none`；不生成冲突条目 | 否 |
+| 无改进而保留当前版本 | 返回`model_conflict_receipt`并透传保留原因，记录`conflict_transfer=none` | 否 |
+| 证据不足 | 返回`model_conflict_receipt`，状态为`insufficient_evidence`并保留待补证状态 | 否 |
+| 明确回归、冲突或未归因退化 | 保留当前版本，形成冲突记录，记录`conflict_transfer=required` | 是，交既有冲突子图 |
+
+采集失败在比较与`retain-conflicts`之前收束为`collection_incomplete`，不训练、不采用，也不发送给LLM。它不能被转换成空冲突记录或成功样本。
+
+因此，无条件图边只表达单入口单出口的汇流责任；分支是否移交由`retain-conflicts`的typed结果决定。实现无冲突透传不需要改现有拓扑，也不得把空冲突记录写成LLM已裁决。
+
+### 7.3 非目标与完成边界
+
+- 不新增共同大接口。`lib/core/trainable-unit.ts`的薄`infer/train`合同可继续供领域复用，但首域接入不要求CLI、DOM、单动作、反馈和策略同时重构。
+- 不训练递归层序、是否继续、重试次数或技能排序。CLI首域只学习命令/控制head及既有参数角色；浏览器`collectRoot`只采集完整运行证据。
+- 不放宽现有各profile校验器。当前CLI命令/路径/CWD关系、DOM、单动作、反馈和策略候选继续`uncalibrated/not_applied`；EV1完成前，自动采用没有合法的当前版本资源。
+- 不改动`workflows/model-evolution.graph.json`或`workflows/model-conflict-design.graph.json`。本节只明确现有节点的分支语义和验收；若实现typed结果需要改变对象端口或边，先按受影响图重新设计并校验，不能由worker直接越owner改图。
+
+## 8. 当前实现边界
 
 单元升级与语义设计是两个独立 SESE 对象流，均由 DAGpipe 管理。升级复用 model-evolution 图，不另建同义图。升级自身四元素为：Goal 是改善该单元且保持必需旧能力；satisfactionThreshold 是预先声明的改善验收阈值（无回归是必要条件，不能用总分抵消）；State 是当前版本、样本、候选及实际评价证据；Action 是采集、复核、训练、比较、采用或保留并移交裁决。各阶段输出包含完成或具体缺口，失败/证据不足不继续受影响训练或采用，统一收束到本轮回执。跨轮补证和修复重新进入，不加回边。大模型裁决由既有冲突子图消费保留记录，主图回执明确裁决移交状态，不能把移交当作裁决已完成。
 

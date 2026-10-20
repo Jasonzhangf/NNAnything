@@ -1,5 +1,19 @@
 # 当前任务
 
+## 2026-10-20 基础语义覆盖审计与并发补齐
+
+用户要求检查基础语义训练覆盖、列任务、制定计划并由GCM并发执行。本轮采用“全域审计、当前就绪证据/设计补齐、后续能力按依赖分批”的边界，不把所有浏览器行为与文件操作冒称完成。正式覆盖矩阵、C0-C4验收和Q1-Q23后续队列已落在docs/implementation-plan.md顶部。过程证据根为`/Volumes/Intel/playground/nnanything-runs/basic-semantic-coverage-20261020`，不另建治理台账。
+
+四域GCM独立观察后，Gemini4 Planner本次实际返回配额耗尽，按路由使用独立OAuth gpt-6.1-sol medium，完整计划为`plan.md`。C1证据、C2说明、C3浏览器设计、C4演进接入使用四个独立GCM并发，文件owner分离。C3将显式宿主输入一并消融为0训练的问题，经独立Planner定向澄清：read原始值确定性读取；input仍学习Goal/State→INPUT/NOOP/DEFER，独立39参数设计，不学习字符串复制或原生键盘层序。修订依据为`c3-plan-clarification.md`；原始C3回执保留，不能当作最终合同。
+
+L1补证通过公开prepare/partition重建M1 120train/38eval和MAP 59train/140eval的逐类分区。新进程显式文件回载真实M1/MAP候选，未拟合：M1标签匹配342/357、MAP356/357；MAP旧黄金158/158、新黄金198/199，剩余`weibo-search:306`为container/unknown。357已评价项中MAP 308judged、49unknown，其中48为标签匹配other，不是已明确识别。2条ambiguous无gold，保持unassessed；全部359原始行均未验候选资格，当前是properties_offline。140eval早已查看，旧黄金含M1训练材料，不称本轮独立盲测。canonical audio/ignore为0，video仅1、select仅3且无类级留出；wrapper/focus实验另列。完整矩阵和718条两候选逐例输出在`c1/evidence.json`、`c1/per-example.json`；新进程PID71632，`fitted=false/fitCalled=false`。候选仍uncalibrated/not_applied，默认手写v2不变。
+
+C2将AGENTS、design、README与workflows入口的CLI状态修正为10heads×30wire=300参数、7执行语义+3控制、0.3.0.0000，F1/F2状态也对齐已交付事实。父补正lib/filters/README.md同一漂移。CLI既有262真实回载和独立56/56直接复用；原report fullyVerified=false、5项UNVERIFIED不改，不重复验收。
+
+C3最小ObserveExpanded为设计READY但未实现；InputTextValue保留typed设计和39参数学习责任，但因当前值、有效类型、editable/readOnly、原生文字执行器及训练绑定缺失而BLOCKED。它们复用现有7N6E，未新增运行API或训练样本。C4在model-evolution.md固定首域CLI接入EV1-EV6，映射现有采集回调，区分回调完成与持久落盘、无冲突透传与LLM移交；typed当前版本、持久默认采集、自动采用仍未实现。
+
+本轮C0-C4验收5/5；后续Q1-Q23是依赖队列，不计作已实施训练。仅文档与公开入口补证，没有运行代码/wire/权重改动，也未开始新训练。C1在自有树npm ci与build成功；首次临时consumer因包解析失败的原错保留，只修本轮临时包链接后取得公开入口结果。C3最终修订为`c3-correction-result.md`。定向diff、根布局和全部11份变更Markdown的相对文件引用检查通过，无断链；图未改，不重复静态校验或全仓测试。Gemini4 Review本次实际quota失败后，独立OAuth gpt-6.1-sol medium覆盖完整文档diff、原始证据与相关归属，`review.json`为零finding，父裁决通过；无需新增Skill或memory规则。main推送及工作树清理完成后，Git原始回执与资源终态记录于本证据根`delivery.md`。
+
 ## 2026-10-20 F2优选、重试与次选已main交付
 
 功能提交e72c9ce已fast-forward main并推送origin/main；canonical构建通过，主目录公开reload新进程48/48，main与origin/main同步。原子单次f7b97a7、F1反馈2da1559和本轮F2共同完成单次操作→失败反馈→候选优选/n次后次选的分阶段训练。公共入口为`nnanything/browser-strategy`，合同唯一owner为docs/browser-progressive-strategy.md。每步仍只选当前策略，根Goal/绑定保留，真实New State验收；typed控制计数不训练。

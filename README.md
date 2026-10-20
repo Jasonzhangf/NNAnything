@@ -10,7 +10,7 @@
 
 首个函数表达训练现由独立 `nnanything/cli-training` 提供：`cwd+input→词法绝对路径`。公开合成样本64train/16development/32holdout，真实Handwired动作拟合和新进程回载；运行 `npm run demo:path-training -- --handwired-root /absolute/handwired`。见 [路径训练合同与实测](docs/cli-path-training.md)。该模型不自动采用，也不替换CLI基础入口。
 
-文件系统语义训练由 `nnanything/cli-goal` 提供 `createCliCommandPolicy`、`runCliCommandTraining` 与单一共享 `CliCommandProfile` 合同 `cli.command-policy.v1`。运行入口只接受 typed `file.property` Goal，当前实现 sessionCwd 的 `observed(this_run)`/`equals` 和 directory.entries 的 `observed(this_run)`；模型在同一 6×14、84 参数矩阵内选择 `unsupported`、`DEFER`、`NOOP`、`pwd`、`cd`、`ls`。显式 session、typed directory 引用和真实执行由 harness 绑定；`NOOP`/`DEFER` 零执行，模型不生成 shell 语法，也不解析输出正文。旧六参数 PWD API、旧 Goal kind、旧 4×4 运行对象和旧命令图已物理退役；旧 4×4 权重只能经显式离线迁移工具按名称扩展。运行 `npm run demo:command-training -- --handwired-root /absolute/handwired` 完成真实拟合、保存和新进程回载。本轮单候选 train 38/38、development 20/20，新进程回载 58 题、34 次真实执行；候选保持 uncalibrated/not_applied，独立验证由父级另派。合同与结果见[文件系统训练](docs/cli-filesystem-training.md)和[共享训练实测](docs/cli-filesystem-training-results.md)。
+文件系统语义训练由 `nnanything/cli-goal` 提供 `createCliCommandPolicy`、`runCliCommandTraining` 与单一共享 `CliCommandProfile` 合同 `cli.command-policy.v1`。运行入口只接受 typed `file.property` Goal，当前已接 sessionCwd 的 `observed(this_run)`/`equals`、directory.entries 的 `observed(this_run)`、路径词法属性与 `entry.inspect` 属性观测；模型在同一 10×30、300 参数矩阵内选择7个语义执行操作（head）`pwd`、`cd`、`ls`、`path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，以及3个控制 head `unsupported`、`DEFER`、`NOOP`。推理图6N5E与训练图8N8E均为`0.3.0.0000`；显式 session、typed引用和真实执行由 harness 绑定，`NOOP`/`DEFER` 零执行，模型不生成 shell 语法，也不解析输出正文。旧六参数 PWD API、旧 Goal kind、旧 4×4 运行对象和旧命令图已物理退役；旧 4×4 权重只能经显式离线迁移工具按名称扩展。运行 `npm run demo:command-training -- --handwired-root /absolute/handwired` 完成真实拟合、保存和新进程回载；当前候选`35bd5ad9-15dc-409e-9001-bcab24f75398`完成262条训练图真实执行，新进程回载`executed=262`、`failed=0`，保持uncalibrated/not_applied。训练报告保持`fullyVerified=false`，外部独立套件有限通过56/56并保留5项`UNVERIFIED`。合同与结果见[文件系统训练](docs/cli-filesystem-training.md)和[共享训练实测](docs/cli-filesystem-training-results.md)。
 
 独立递归 Goal 模块已实现并完成行为验收。公开入口 `nnanything/recursive-goal` 导出 `runRecursiveGoal` 与合同类型；调用者必须按请求显式提供 adapter、启用技能与评价器、selector、comparators、effects 授权及可选取消信号，没有默认 adapter/profile。外层为 `0.1.0` 3N2E SESE；三个 `NodeDefinition` 的唯一 owner 是 `lib/workflow/recursive-goal/module.ts`，不在 `lib/nodes/` 复制实现。`initialObservation` 只用于新请求并与 continuation 互斥，根 Goal、阈值和绑定不变；子条件必须用真实 State、证据和 effects 反向满足。错误、根事实、control、effects 和 atomic ledger 分别记录。组合选择当前是固定有限规则，不宣称神经模型学会任意高级 Goal；browser/computer operation 尚未接入。完整边界和验收见[独立递归模块合同](docs/recursive-goal-module.md)，Review 与 main 交付回执统一记于 [note.md](note.md)。
 
@@ -46,7 +46,7 @@ npm run demo:basic-kinds
 # 运行基础种类离线训练公开 Consumer（6 节点工作流、Handwired 拟合与回载复核）
 npm run demo:training -- --handwired-root <path-to-handwired>
 
-# 运行共享 CLI 命令训练公开 Consumer（PWD→CD→LS 增量拟合、保存与新进程回载）
+# 运行共享 CLI 命令训练公开 Consumer（10×30 profile真实拟合、保存与新进程回载）
 npm run demo:command-training -- --handwired-root <path-to-handwired>
 
 # 运行递归 Goal cwd 公开 Consumer（显式回载已有候选，不训练、不自动采用）

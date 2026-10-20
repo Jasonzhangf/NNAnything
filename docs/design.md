@@ -59,7 +59,7 @@
 
 训练/反馈样本统一保存显式Goal、State、策略选择、实际invocation、执行结果、New State、证据、满足度和采集回执。NN预测调用序列，真正的New State由harness执行与OS观测提供；预测不能充当事实。目标检查器按typed Goal验证，失败/未知均保留，不由模型自报成功。
 
-实施状态：当前共享命令策略（`createCliCommandPolicy`）与单候选训练（`runCliCommandTraining`）已在`nnanything/cli-goal`实现，运行图`cli-file-property`为6N5E `0.2.0`，训练图为8N8E `0.2.0`。旧六参数PWD API、旧三个Goal kind、旧4×4运行对象及旧命令图已退役；旧4×4仅可经显式离线迁移。本轮真实拟合、保存后新进程回载及作者回归已有证据；父级独立验证另做，候选保持`uncalibrated`与`not_applied`。
+实施状态：当前共享命令策略（`createCliCommandPolicy`）与单候选训练（`runCliCommandTraining`）已在`nnanything/cli-goal`实现。推理图`cli-file-property`为6N5E `0.3.0.0000`，训练图为8N8E `0.3.0.0000`，图、算子和`NodeDefinition`版本一致。当前`cli.command-policy.v1`为10个head×30条wire，共300参数：7个语义执行操作（head）为`pwd`、`cd`、`ls`、`path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，3个控制head为`unsupported`、`DEFER`、`NOOP`。旧六参数PWD API、旧三个Goal kind、旧4×4运行对象及旧命令图已退役；旧4×4仅可经显式离线迁移。当前候选完成真实训练、保存后新进程回载及训练图262条真实执行，候选`35bd5ad9-15dc-409e-9001-bcab24f75398`保持`uncalibrated`与`not_applied`；训练报告保持`fullyVerified=false`，外部独立套件有限通过56/56并保留5项`UNVERIFIED`。
 
 ### 1.1.1 可训练基本单元与组合
 
@@ -78,11 +78,11 @@
 
 本轮浏览器 `SetExpanded` 作为首个落实切片：对象控制关系与 CLICK/NOOP/DEFER 选择是两个可训练成员，共同组成单步语义组；两套参数显式放在一个 profile。组的真实执行、采集、训练及回载沿 [browser-single-action-training.md](browser-single-action-training.md) 验收。
 
-后续拟合按用户明确顺序推进：先最简单单次操作，再学习单次执行失败与点击无效的反馈，最后在有合法替代候选时学习重试后的次选及复杂组合。失败处理同样是可训练反馈单元，须具备四项组成，不能把已记录日志或手写停止条件称为已学。真实失败反馈进入下一步 State，根 Goal 不丢失。默认策略是在可重试且同类错误重复时累计到显式可配置 n 次才放弃首选，再由当前策略能力选择次选；同类错误判断的依据、计数与预算显式持有，不从日志重建。重试控制与次数不训练，反馈语义和当前策略选择分别监督。没有替代能力时返回准确错误，不发明技能；对象关系不明与多个已确认等效策略分开处理。原子阶段仅采集无效果回执；后续F1/F2的实现与训练状态分别由[browser-feedback-strategy.md](browser-feedback-strategy.md)和[browser-progressive-strategy.md](browser-progressive-strategy.md)维护，不从原子阶段历史推断当前能力。
+拟合已按用户明确顺序推进限定切片：先最简单单次操作，再学习单次执行失败与点击无效的反馈，最后在有合法替代候选时学习重试后的次选。失败处理同样是可训练反馈单元，须具备四项组成，不能把已记录日志或手写停止条件称为已学。真实失败反馈进入下一步 State，根 Goal 不丢失。默认策略是在可重试且同类错误重复时累计到显式可配置 n 次才放弃首选，再由当前策略能力选择次选；同类错误判断的依据、计数与预算显式持有，不从日志重建。重试控制与次数不训练，反馈语义和当前策略选择分别监督。没有替代能力时返回准确错误，不发明技能；对象关系不明与多个已确认等效策略分开处理。原子50参数、F1反馈36参数与F2策略20参数均已真实拟合并回载，候选均未采用。F2原独立oracle保留22/24失败及两项前提不成立的裁决，诊断负控制不计作训练候选24/24。范围仍限`SetExpanded`与已测投影；任意错误重试、任意页面和复杂组合未完成。各阶段当前状态分别由[browser-feedback-strategy.md](browser-feedback-strategy.md)和[browser-progressive-strategy.md](browser-progressive-strategy.md)维护。
 
 ### 1.2 固定语义调用与全模型自进化
 
-用户进一步明确：推理选择获取目标所需的语义命令头与位置参数；调用序列固定，由harness转换为实际固定CLI调用与语义操作（`cwd.get`、`cwd.set`、`directory.list`）。语义目标、调用选择、参数绑定、真实执行与效果验证分工明确。
+用户进一步明确：推理选择获取目标所需的语义命令头与位置参数；调用序列固定，由harness转换为实际固定CLI调用与语义操作。当前运行head为`pwd`、`cd`、`ls`、`path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，控制head为`unsupported`、`DEFER`、`NOOP`。语义目标、调用选择、参数绑定、真实执行与效果验证分工明确。
 
 所有接入CLI命令统一按[CLI调用参数简化](cli-call-contract.md)约定：输出`["command", ...params]`，S置于信封，不训练原生flags、shell脚本编写或输出正文解析。命令/argv/默认行为和机器回执由harness负责。
 
@@ -90,7 +90,7 @@
 
 ### 1.3 本地基础设计入口
 
-Shell 的领域目标进一步统一为 `file.property.xxx`，涵盖路径、目录及普通/特殊文件的属性观测与变化；不零散新增场景Goal。内容、用途及操作适用性归入同一属性体系。领域合同唯一源为 [cli-filesystem-semantics.md](cli-filesystem-semantics.md)，共享属性状态转换图为 `workflows/cli-file-property.graph.json`。当前已迁移PWD/CD/LS及其NOOP/DEFER控制结果；其余属性单元仍是设计，不将设计目录标为运行能力。
+Shell 的领域目标进一步统一为 `file.property.xxx`，涵盖路径、目录及普通/特殊文件的属性观测与变化；不零散新增场景Goal。内容、用途及操作适用性归入同一属性体系。领域合同唯一源为 [cli-filesystem-semantics.md](cli-filesystem-semantics.md)，共享属性状态转换图为 `workflows/cli-file-property.graph.json`。当前已接入PWD/CD/LS、`path.resolve`、`path.relative`、`path.parts`、`entry.inspect`及`NOOP`/`DEFER`/`unsupported`控制结果；其余属性单元仍是设计，不将设计目录标为运行能力。
 
 新增能力或修改I/O、状态、harness、数值连线、workflow及采用规则，统一使用[本地设计Skill](../.agents/skills/nnanything-design/SKILL.md)。基础流程是现状/缺口→语义目标与效果→固定调用与执行责任→内部数值图及外层DAG→样本隔离与进化验收→图纸合同校验→可实施设计或具体缺口。持久过程图见[project-design.graph.json](../workflows/project-design.graph.json)。这是本项目设计方法，不代替独立Plan和已有开发交付流程，也不把设计图当已实现算子。
 
@@ -104,7 +104,7 @@ Shell 的领域目标进一步统一为 `file.property.xxx`，涵盖路径、目
 
 需求自上而下衍生，真实达成证据自下而上反向满足。叶调用返回真实New State后先验节点，再检查父目标的必要依赖、当前实际条件和不变量；每条衍生链都收束为达成、错误、未知或明确未选/取消，根汇总全部回执。子目标历史成功不等于父目标当前达成。未选分支不进入必需集合，已满足的根可直接结束。“反向满足”是证据合流，训练期目标反推仍按1.1节分别定义。
 
-每个原子workflow保持原有SESE与运行合同；CLI复用已实现的6N5E，浏览器/桌面operation仍按各自当前边界。递归runner在节点内部有界调度独立子run，图内不加回边，不建立第二套执行引擎。外层图及cwd/纯计算领域规则已实现，组合规则固定且不训练控制层序；静态校验本身不证明运行。共享预算控制全树终止，未支持语义、证据不足、无进展、超预算及副作用未知均显式返回，不承诺仅凭“客观上可行”就能推导未声明的语义。Shell叶目标继续为`file.property.xxx`，不新增`file.property.plan`或把通用进度伪装为文件属性。
+每个原子workflow保持原有SESE与运行合同；CLI复用已实现的6N5E `0.3.0.0000`，浏览器/桌面operation仍按各自当前边界。递归runner在节点内部有界调度独立子run，图内不加回边，不建立第二套执行引擎。外层图及cwd/纯计算领域规则已实现，组合规则固定且不训练控制层序；静态校验本身不证明运行。共享预算控制全树终止，未支持语义、证据不足、无进展、超预算及副作用未知均显式返回，不承诺仅凭“客观上可行”就能推导未声明的语义。Shell叶目标继续为`file.property.xxx`，不新增`file.property.plan`或把通用进度伪装为文件属性。
 
 ### 1.5 操作目标与元素必要性关系（设计态，未就绪）
 

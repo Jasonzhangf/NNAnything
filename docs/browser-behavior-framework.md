@@ -1,8 +1,8 @@
 # 浏览器行为框架与元素保留合同 v0.1
 
-版本：`0.1.0-design`。本版固定行为边界、单步流程和分类后元素的逻辑结构；后续修订同一正文，不建立冻结快照。它不是已导出的 TypeScript API，不表示二次语义模型、浏览器行为 adapter 或自动采样已经实现。
+版本：`0.1.0-design`。本版固定行为边界、单步流程和分类后元素的逻辑结构；后续修订同一正文，不建立冻结快照。它不是已导出的 TypeScript API，不表示二次语义模型、浏览器行为 adapter 或自动采样已经实现。最小 `ObserveExpanded` read 合同已 READY，可进入实现；它是确定性读取，不训练也不引入网络。最小 `InputTextValue` 合同因宿主值/输入类型字段、训练域绑定及原生文字执行器缺失而 BLOCKED；InputTextValue 仍有 INPUT／NOOP／DEFER 单步学习责任。当前没有 input profile、typed 运行入口、样本或权重。
 
-四元素沿 [design.md 1.1](design.md#11-结构化语义的目标与状态推理)。元素对操作条件的必要性沿 [operation-goal-necessity.md](operation-goal-necessity.md)，递归、错误、预算及恢复沿 [recursive-goal-module.md](recursive-goal-module.md)。本页是浏览器行为目录和分类后元素交接结构的唯一 owner；不改 L1 词表、数值输入、训练权重或已有采集包。
+四元素沿 [design.md 1.1](design.md#11-结构化语义的目标与状态推理)。元素对操作条件的必要性沿 [operation-goal-necessity.md](operation-goal-necessity.md)，InputTextValue 数值训练合同沿 [browser-single-action-training.md](browser-single-action-training.md)，递归、错误、预算及恢复沿 [recursive-goal-module.md](recursive-goal-module.md)。本页是浏览器行为目录和分类后元素交接结构的唯一 owner；不改 L1 词表、数值输入、训练权重或已有采集包。
 
 ## 1. 四元素与学习边界
 
@@ -23,8 +23,8 @@ LLM 用于定义、监督复核和训练纠错；当前设计不训练任意自�
 
 | 行为 | 局部意图 | 必需识别/关系 | 验收 |
 |---|---|---|---|
-| read | 获取对象的内容/状态 | 对象、属性、内容归属、观测时效 | 实际取得目标要求的内容；观测到false也能完成“读取状态” |
-| input | 使编辑对象内容符合要求 | 真正编辑宿主、所属范围、当前值、可编辑/只读状态 | 同一逻辑对象重观测值符合要求 |
+| read | 获取对象的内容/状态 | 对象、属性、内容归属、观测时效；首轮只取 `ObserveExpanded` 状态读取 | 实际取得目标要求的内容；观测到false也能完成“读取状态” |
+| input | 使编辑对象内容符合要求 | 真正编辑宿主、所属范围、当前值、可编辑/只读状态；首轮只取显式绑定的普通 text input | 同一逻辑对象重观测值精确符合目标 |
 | select | 使选项/开关处于要求状态 | 选项、所属控件、当前值/选中状态 | 实际选中/勾选状态符合要求 |
 | click | 激活指定对象承载的作用 | 可操作区域、用途、作用对象、当前条件 | 点击回执与意图后条件分别记录；无后验证据不报目标成功 |
 | scroll | 暴露目标或推进明确检查范围 | 实际滚动宿主、方向、边界、目标范围 | 真实可见区域/滚动位置变化或边界证据 |
@@ -55,6 +55,23 @@ Observe由首次请求、网页相关变化、目标scope变化与必要后验�
 可见与完全遮挡过滤只影响本次候选资格。部分露出保留已观测区域。缺测为unknown，不按不可见删除。保留原槽位、节点、排除原因和关系证据；不可见不自动作为L1负例，离屏对象不自动失去通过滚动被发现的可能性。
 
 操作仅为原生鼠标、键盘、文字输入、滚轮和必要拖拽。DOM只读可用于观测及绑定；禁止用`.click()`、写`.value`、脚本设滚动位置、调用站点函数/API、直接下载请求代替人类输入。原生或浏览器输入接口是否符合该合同须以实际后端验收，不因API名字是click/fill就自动符合。
+
+### 3.1 最小 read/input typed 交接
+
+两个 `0.1.0-design` 目标及完整 typed 请求/结果由 [operation-goal-necessity.md](operation-goal-necessity.md) 第5.6节维护。本页只固定浏览器侧交接：
+
+| Goal | 显式目标 | 执行 | 真实后验 | 状态 |
+|---|---|---|---|---|
+| `ObserveExpanded` | `region: ElementRef`，`freshness: this_run` | 读取当前 `aria-controls`/`aria-expanded`，不修改网页 | 本次新观测为 `true` 或 `false` 都达到；unknown/conflict/stale 不报成功 | READY，未实现 |
+| `InputTextValue` | `host: ElementRef`，`desiredValue: string` | 值相等时 NOOP；否则固定 `native_input_text` 原生键盘替换 | 新观测重绑同一宿主且值精确相等；邻输入不变 | BLOCKED，未实现 |
+
+请求状态是 `ElementSnapshotV01` 的最小逐行投影，并显式给 `scopeRef`、`observationId` 与 `revision`。read 只要求 control/expanded/证据行，input 才要求值、effective input type 与可编辑事实。引用只在对应 document/scope 当前观测内有效。派发前必须检查 current-control；输入后必须取得新的 observation/revision，并显式证明同一逻辑宿主。跨快照不能按 AX 序号、DOM 顺序、文案或值相同继承对象。
+
+`InputTextValue` 首轮只接受 effective type 为 `text` 的 `input`。`textarea`、`contenteditable`、rich text、`password`、`search`、文件输入和 `select` 均不在本轮。动作不得写 `.value`、调用站点 API 或经网络提交；select-all 仅作为原生文字替换的键盘基础，不是 select 行为。
+
+`ObserveExpanded` 是 read 的可选最小切片，不读取正文、名称或媒体内容，不新增网络或事件采集。它是确定性读取，不设训练头、参数或 epoch。`InputTextValue` 的宿主已经显式绑定，因此不训练对象 selector、字符串生成或键盘层序；但学生仍须按 Goal/State 选择 INPUT、NOOP 或 DEFER。该独立 input-policy 成员的数值、分区、固定预算与回载合同唯一维护在 [browser-single-action-training.md](browser-single-action-training.md)，本页不复制数值。
+
+当前 InputTextValue 仅为设计且 BLOCKED。没有 input profile、typed 运行入口、样本或权重；既有 SetExpanded 训练绑定不支持 input。模型 raw head 与 guard 结果分别保留，guard 可以阻止非法调用，不能替模型选择正确 head。独立验收必须在新进程提交 typed 请求，检查 invocation、原始 receipt、New State、effects、错误和 satisfaction；未满足字段、执行器与训练域绑定条件前不得启动拟合。
 
 ## 4. 分类后保留结构
 
@@ -118,6 +135,7 @@ interface RetainedElementV01 {
     pointerTarget: Observed<{ x: number; y: number }>;
   };
   interaction: {
+    effectiveInputType: Observed<string | null>; // 仅表单宿主；普通 input 缺省 type 由 adapter 解析
     enabled: Observed<boolean>;
     editable: Observed<boolean>;
     readOnly: Observed<boolean>;
@@ -192,7 +210,7 @@ BrowserChoice只描述成功选出的当前步骤。NOOP、缺技能、歧义、
 | candidate与L1 judgment/结果引用 | 无法区分被过滤、unknown、other和具体类别，误当可操作候选 |
 | parent及独立语义关系 | 无法区分相邻输入、嵌套scope及其提交/结果对象 |
 | 可见区域、命中点及坐标约定 | 完全遮挡或点击位置错误；缺几何却发动作 |
-| 交互状态 | 对disabled、只读或错误选中状态执行 |
+| 交互状态与有效输入类型 | 对disabled、只读、错误输入类型或错误选中状态执行 |
 | 文字/名称/目标必要值/媒体引用 | 无法区分用途、读取caption或核实写入；内容不得自动进入L1 |
 | scroll及覆盖缺口 | 无法区分范围已检查、仅离屏和观测不到 |
 | 证据/来源及profile引用 | 无法区分真实测量、模型判断、缺测和过期结果 |
@@ -224,9 +242,13 @@ BrowserChoice只描述成功选出的当前步骤。NOOP、缺技能、歧义、
 |---|---|---|
 | 页面/文档/观测版本与失效绑定 | browser adapter；现有ObservationNode只有nodeRef与局部观测 | 页面变化、导航、重绑定真实入口用例，不复用过期对象 |
 | 新结构投影与完整关系结果引用 | browser adapter/节点交接；已有ObservationNode、CandidateSlot、BasicKindSlot | 从真实观测和L1结果组装，unknown/排除槽位保留，JSON/typed合同一致 |
+| `ObserveExpanded` typed runtime | browser adapter/operation节点；窄观测已解析 `aria-controls`/`aria-expanded` | READY；增加 typed Goal 与 read-only结果消费，R1-R6 新进程验收，不新增网络或NN |
 | caption、owner、用途与输入/提交/结果关系 | L2 relation/model；owned当前仍unsupported_scope | 同scope正确、相邻/嵌套反例、观测不足及独立真实页面评价 |
 | 当前意图的行为/对象/参数选择 | L2 policy与training；本案由agent选择 | 相同对象不同Goal、相同Goal不同State等区分样本，真实拟合回载及独立回归 |
-| 人类操作与目标必要值/结果重读 | 浏览器领域adapter/operation节点 | 真实键鼠成功/失败/副作用分别验收，不由本次外部CUA能力冒称产品实现 |
+| `InputTextValue` 当前值与输入宿主事实 | browser adapter及专用元素快照 | BLOCKED；补 current value、effective input type、editable/readOnly、露出与缺测，不能由普通L1类别推断 |
+| `InputTextValue` 原生文字执行与后验 | browser adapter/operation节点 | BLOCKED；补 `native_input_text` receipt、current-control、同宿主重绑和邻输入不变验收，DOM写值不算实现 |
+| `InputTextValue` INPUT／NOOP／DEFER 训练成员 | browser-single-action training及lib/training；既有模型演进owner | 学习责任保留且数值设计另立；当前无 profile、样本、权重或领域绑定。字段和执行器闭合后先设计/校验 input 训练绑定，不能复用 SetExpanded 绑定冒充已支持 |
+| 真实键鼠成功/失败/副作用 | 浏览器领域adapter/operation节点 | 输入实现后用独立新进程验证 dispatch、effects、New State及错误；本次外部CUA案例不冒称产品实现 |
 | 自动采集与单元升级 | 沿model-evolution既有owner | 真实使用采样、监督、训练回载、独立评价及无回归采用；本次未实现 |
 
 本版不新增L1类别。现有input/button/text/container等足以表达该案例候选；真实L1分类未运行，不能由此证明分类准确率。后续发现不可表达的基础种类或缺测后，按最小必要性补其owner，不以L2补丁掩盖基础能力缺失。

@@ -2,6 +2,8 @@
 
 本轮最小目标是`SetExpanded(regionRef,true)`，阈值固定100。基础行为是一次原生点击；已展开为NOOP，必要观测不足为DEFER，多控制保持歧义。一次点击回执和实际目标达成分别返回。框架背景沿[browser-behavior-framework.md](browser-behavior-framework.md)，目标必要性沿[operation-goal-necessity.md](operation-goal-necessity.md)，本页唯一维护本切片的数值、训练与使用合同。2026-10-20 已实现、真实拟合及回载，候选未采用；独立 Review 与 main 交付状态沿 note.md。
 
+本页同时唯一维护 `InputTextValue` 的独立 input-policy 数值设计。该成员当前仅为设计且 BLOCKED，没有 profile、typed 运行入口、样本或权重，也不改变 SetExpanded 的 50 参数或既有证据。
+
 本切片按[统一基本单元](design.md#111-可训练基本单元与组合)组织：逐元素控制关系与当前能力选择是两个成员，单次行为是组合单元。成员使用明确数值 I/O、样本监督和各自参数矩阵；组统一持有 profile、推理 episode、训练 workflow 及使用采集。成员可独立预测与拟合，组合验收还须验证关系预测确实成为能力输入。当前没有跨成员反传，不声称是端到端网络；统一接口约束不表示全仓旧入口已完成迁移。
 
 ## 四元素与逐元素职责
@@ -21,6 +23,42 @@ profile为`browser.single-action-policy.v1`，独立于L1和CLI。关系矩阵2�
 能力heads：CLICK、NOOP、DEFER。8wire为bias、regionExpanded known/value、学生明确provider数量零/一/多、关系覆盖完整、可操作事实覆盖完整。先拟合关系矩阵，冻结其实际预测再生成能力训练输入；禁止teacher provider数直接进入能力头。
 
 Student直接输出当前能力和对象。只有明确单一provider才能构造click调用；多provider报歧义，不按最高分/首项/距离强选。模型raw预测及guard拒绝分别保留。native调用只通过注入的人类输入执行器，不用DOM.click/value/脚本设状态或fetch操作站点。
+
+## InputTextValue 独立成员设计
+
+状态为 BLOCKED，仅为设计，未拟合。Goal为显式绑定的普通单行 text input 当前值精确等于目标字符串，阈值固定100；State为当前值相等事实、有效输入类型、enabled、editable、readOnly、可执行露出与命中事实及各自缺测；Action为学生选择 INPUT、NOOP 或 DEFER，INPUT 的对象与值引用由 harness 机械绑定；New State为执行后重新观测同一逻辑宿主，精确相等为100，不等为0，缺测或无法重绑为null。训练反推从目标相等状态反推当前是否需要输入及前提是否可用，不把对象查找、字符串生成或键盘层序混入当前 head。
+
+建议 profile 身份为 `browser.input-text-policy.v1`，但当前尚未创建或注册。该成员独立于 `browser.single-action-policy.v1`、F1和F2：3个 heads 为 INPUT、NOOP、DEFER，13条有序 wire，单矩阵3×13共39参数。SetExpanded 原子50参数、F1 36参数和F2 20参数均不改变；不增加对象查找、字符串生成、焦点／全选／按键层序或递归调度网络。
+
+| 序号 | wire | 语义 |
+| --- | --- | --- |
+| 0 | bias | 常量 |
+| 1 | valueEqual known | 当前值与目标值的确定性精确比较是否有有效观测 |
+| 2 | valueEqual value | known=1 时，比较结果是否为相等 |
+| 3 | textType known | effective input type 是否已观测 |
+| 4 | textType value | known=1 时，是否为首轮支持的普通 text input |
+| 5 | enabled known | enabled 是否有有效观测 |
+| 6 | enabled value | known=1 时，宿主是否 enabled |
+| 7 | editable known | editable 是否有有效观测 |
+| 8 | editable value | known=1 时，宿主是否 editable |
+| 9 | readOnly known | readOnly 是否有有效观测 |
+| 10 | readOnly value | known=1 时，宿主是否 readOnly |
+| 11 | executableHit known | 可执行露出区域与命中事实是否完整 |
+| 12 | executableHit value | known=1 时，露出与命中是否允许执行 |
+
+每个 known/value 是配对位。负责状态未知时 known=0；配对 value 位只作为该未知状态的占位，不能解释为观测到 false，也不能把缺测写成未禁用、非只读、可编辑或已命中。相等事实由确定性字符串比较产生，目标字符串、Goal kind、阈值和对象引用不作为学生数值输入。
+
+head 语义如下：已观测相等对应 NOOP；已观测不等且类型、enabled、editable、readOnly、露出和命中均支持执行对应 INPUT；已观测不等但任一必要事实缺测或不可用时对应 DEFER。边界 guard 仍须复核 current-control、类型、授权和可执行前提。guard 可以拒绝非法 INPUT，但不得替模型改选 NOOP/DEFER；raw head、scores、features 与 guard 错误分别记录，不用规则 fallback 掩盖错选。
+
+能抓错的最小反例为：同一状态只把 `valueEqual` 从 false 改为 true，正确 head 从 INPUT 变为 NOOP；只把 `valueEqual known` 改为未知，正确 head 从 INPUT 变为 DEFER；只把 enabled、readOnly、可执行命中或 effective text type 之一改为不可用，正确 head 从 INPUT 变为 DEFER；同一页面状态只把目标值从当前值改为另一字符串，正确 head 在 NOOP 与 INPUT 间变化。若不同正确 head 仍得到相同许可输入，先修观测或 wire，不增加 epoch。
+
+来源分区复用单次行为合同规模：3个 train family、1个 development family，各10 episode；另2个 verification family，各10 episode。先按页面家族、fixture 实现及关联 episode 分区，再生成投影；同源变体不得跨区，独立集不进入 fitter。覆盖空值、非空替换、目标空串、已相等、各单项缺测或不可用，以及目标变化引起 head 变化的配对例。真实 DOM／原生效果与 synthetic projection 分开记录；teacher 标签来源必须明确，使用记录不自动成为黄金。
+
+解除训练阻塞后，固定全零初始化、200 epoch、学习率0.1，使用真实 Handwired 前向／反传；不搜索超参、不静默延长。记录梯度、参数更新、错例和实际耗时；未达 dev 要求即保留失败并先查可辨性。候选保持 `uncalibrated/not_applied`。当前没有样本、profile 或权重，以上只为固定设计预算。
+
+保存候选后必须由新进程显式加载 profile，并经公开 consumer 重跑；坏 profile 或缺 Handwired 源码根须显式失败。同一入口比较零权重、规则对照与拟合候选；规则只作对照，不作为 head fallback。训练图可复用既有 6N6E 形状及执行基座，但领域绑定尚待设计并校验；既有 SetExpanded 训练绑定不支持 InputTextValue，不能据其历史回载宣称 input 已可训练。
+
+独立原生验收沿用 operation 合同的 I1-I10，并要求两个独立 family 产生真实原生键盘效果。必须核对同宿主值精确相等、邻字段不变、NOOP 零输入、缺测/失效零输入、raw 错选不被 guard 修正成假成功、已派发后验错误不报成功、部分 effects 不丢失。合成 receipt 只能验证映射，不能替代真实原生输入；独立材料若用于修订，转为回归资料。字段、原生文字执行器和训练域绑定未闭合前不启动训练。
 
 ## 观测与真实验收
 

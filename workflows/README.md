@@ -8,8 +8,8 @@
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
 | `recursive-goal.graph.json` | `recursive-goal.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现并通过行为验收 | 通用递归目标3阶段，算法见docs/recursive-goal-design.md；独立模块/error/执行错误返回见docs/recursive-goal-module.md。`goal.recursive.bind/run/report` 的 `NodeDefinition` 唯一 owner 为 `lib/workflow/recursive-goal/module.ts`；预期 Outcome 沿图返回，infra fault 由模块入口收口。公开入口、cwd 与纯计算 consumer、预算/恢复及显式权限交集均有运行证据；Review 与 main 回执见 note.md |
-| `cli-file-property.graph.json` | `cli-file-property.workflow.json` | 6 节点 5 边 (6N5E SESE) | `0.3.0.0000` 已实现 | 0.3.0保持绑定→同一策略选择→条件与固定执行→实际属性/副作用观测→满足度评价→统一结果；10 head、30 wire、10×30矩阵已运行，新增path.resolve/path.relative/path.parts/entry.inspect |
-| `cli-filesystem-training.graph.json` | `cli-filesystem-training.workflow.json` | 8 节点 8 边 (8N8E SESE) | `0.3.0.0000` 已实现 | 0.3.0保持分区→prepare/独立验证支路→fit→save→execute合流→verify→report；10×30已训练并在训练图真实执行262条，旧6×14按名迁移，当前候选35bd5ad9保持uncalibrated/not_applied |
+| `cli-file-property.graph.json` | `cli-file-property.workflow.json` | 6 节点 5 边 (6N5E SESE) | `0.3.0.0000` 已实现 | 图与六个`NodeDefinition`均为0.3.0.0000；保持绑定→同一策略选择→条件与固定执行→实际属性/副作用观测→满足度评价→统一结果。当前7个语义执行操作、3个控制head、30条wire和10×30矩阵已运行；执行操作含path.resolve/path.relative/path.parts/entry.inspect |
+| `cli-filesystem-training.graph.json` | `cli-filesystem-training.workflow.json` | 8 节点 8 边 (8N8E SESE) | `0.3.0.0000` 已实现 | 图与八个`NodeDefinition`均为0.3.0.0000；保持分区→prepare/独立验证支路→fit→save→execute合流→verify→report。10×30已训练并在训练图真实执行262条；历史6×14仅用于显式按名迁移，当前候选35bd5ad9保持uncalibrated/not_applied |
 | `project-design.graph.json` | 当前治理标准，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | 每个语义及训练设计的四元素闭合、训练反推、固定调用、图纸、独立验收与最小必要性准入；操作方法归nnanything-design Skill，不是自动审核器 |
 | `model-evolution.graph.json` | 设计态，无运行配置 | 10 节点 10 边 (10N10E SESE) | `0.2.0-design` | 单元升级：必需自动采样、隔离训练/回载、独立配对评价与回归、条件自动采用，回归/冲突保留并移交裁决；唯一合同docs/model-evolution.md |
 | `model-conflict-design.graph.json` | 设计态，无运行配置 | 5 节点 4 边 (5N4E SESE) | `0.2.0-design` | 大模型对回归/冲突定位owner并裁决保留、拒绝、补证或修复；必要时修图并输出下一轮方案，不直接改在用权重 |
@@ -25,9 +25,9 @@
 | `operation-episode.graph.json` | `browser-single-action.workflow.json` 为SetExpanded切片绑定；其他待配置 | 7 节点 6 边 (7N6E SESE) | 通用图仍`0.1.0-design` | L3观测→识别→当前选择→人类操作→重观测→验证→报告；本轮只实现单次展开切片，不扩大其他行为 |
 | `browser-single-action-training.graph.json` | `browser-single-action-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 独立50参数关系/能力profile；准备、family分区、Handwired拟合、比较、评价、保存；候选未采用，沿浏览器单次训练合同 |
 | `browser-feedback.graph.json` | `browser-feedback.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0.0000`，已实现 | 解释上次真实执行及后验；原事实/错误保留，诊断不替代目标验收 |
-| `browser-feedback-training.graph.json` | `browser-feedback-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 3×12独立反馈参数；候选未采用，先反馈拟合、再后续策略，不改原子50参数 |
-| `browser-strategy-step.graph.json` | `browser-strategy-step.workflow.json` | 5 节点 4 边 (5N4E SESE) | `0.1.0.0000`，实施中 | 当前策略与候选自身反馈→一次原子执行→真实回执；多轮仅由既有递归runner管理 |
-| `browser-strategy-training.graph.json` | `browser-strategy-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，实施中 | 20参数共享候选竞争，原子/F1固定，当前步监督不训练n与继续 |
+| `browser-feedback-training.graph.json` | `browser-feedback-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 3×12独立反馈参数已完成拟合与回载；F1候选未采用，不改原子50参数或独立F2策略20参数 |
+| `browser-strategy-step.graph.json` | `browser-strategy-step.workflow.json` | 5 节点 4 边 (5N4E SESE) | `0.1.0.0000`，已实现并完成限定原生行为验收 | 当前策略与候选自身反馈→一次原子执行→真实回执；多轮仅由既有递归runner管理 |
+| `browser-strategy-training.graph.json` | `browser-strategy-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合；候选未采用 | 20参数共享候选竞争，原子/F1固定，当前步监督不训练n与继续；原oracle失败与前提裁决沿F2合同保留 |
 
 > [!NOTE]
 > `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。当前 CLI 推理图 `cli-file-property.graph.json` 与训练图 `cli-filesystem-training.graph.json` 也通过同一静态校验；旧 `cli-command-step` 与旧 cli-goal 图已退役。

@@ -11,7 +11,7 @@
 3. 经验积累路径：手写过滤经验通过确定性规则与回归用例积累，不将手写规则包装为神经网络权重；过滤排除的候选记录明确排除原因，严禁自动转为模型负标签。
 4. 采样规则支持：`sample.match` 算子的规则匹配纯内核（`evaluateSemanticRules`，AND 条件与类别内 OR 求值、三值逻辑、跨类槽位仲裁与语义冲突检测）归属于本目录（`lib/filters/sample-match.ts`）。Filter 仅输出语义分类与匹配状态，彻底无训练正负极性概念，无 `lib/training` 依赖。
 5. 基础种类判断支持：第一层 DOM 基础种类两阶段求值纯内核（`classifyBasicKind`、`classifyBasicKindBatch`，大类通过后再计算细类、缺测特征区间与冲突处理、稀疏 profile 门限求值）归属于本目录（`lib/filters/basic-kinds.ts`）。详细算法设计由 [docs/basic-kinds-wiring.md](../../docs/basic-kinds-wiring.md) 单一维护。不包含模型训练、Handwired 后端或置信度标定，纯属性诊断调用不替代合格工作流分类。
-6. CLI 共享命令策略支持：`cli-command-policy.ts` 维护 `unsupported/DEFER/NOOP/pwd/cd/ls` head、14条有序 wire、6×14 profile、typed `file.property` 特征计算、纯 softmax 与显式旧4×4按名迁移。它不执行命令、不加载 Handwired、不读取隐藏 session。`cli-file-property.ts` 负责 typed目标/谓词映射，`cli-state.ts` 负责 CwdKnowledge 与受信证据校验。合同唯一入口为 [docs/cli-filesystem-training.md](../../docs/cli-filesystem-training.md)。
+6. CLI 共享命令策略支持：`cli-command-policy.ts` 维护7个语义head（`pwd/cd/ls/path.resolve/path.relative/path.parts/entry.inspect`）和3个控制head（`unsupported/DEFER/NOOP`）、30条有序wire、10×30共300参数profile、typed `file.property` 特征计算、纯softmax及显式按名离线迁移。它不执行命令、不加载Handwired、不读取隐藏session。`cli-file-property.ts`负责typed目标/谓词映射，`cli-state.ts`负责CwdKnowledge与受信证据校验。合同唯一入口为 [docs/cli-filesystem-training.md](../../docs/cli-filesystem-training.md)。
 
 ## 2. 迁移与实现状态
 
@@ -19,4 +19,4 @@
 - `candidate-chain.ts`：7 节点手写候选过滤链求值纯逻辑（自原 `src/adapters/browser/candidate-chain.ts` 迁入）；
 - `sample-match.ts`：纯语义规则求值内核 `evaluateSemanticRules`，`0.1.0` 已实现并通过公开接口验收；
 - `basic-kinds.ts`：DOM 基础种类两阶段求值纯内核 `classifyBasicKind` 与批次求值 `classifyBasicKindBatch`，`0.1.0` 已实现并通过公开接口验收。
-- `cli-command-policy.ts`：typed `file.property` 到统一命令/控制 head 的纯选择合同，`0.2.0` 已实现；配套 `cli-file-property.ts` 与 `cli-state.ts` 已通过作者回归和真实公开 consumer。
+- `cli-command-policy.ts`：typed `file.property`到统一命令/控制head的纯选择合同，当前运行与训练节点为`0.3.0.0000`；配套`cli-file-property.ts`与`cli-state.ts`已通过作者回归和真实公开consumer，候选仍未采用。
