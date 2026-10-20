@@ -98,6 +98,7 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 - 项目图拓扑与流程清单：workflows/*.graph.json 与 workflows/README.md；可执行绑定直接读取它，不在代码手抄另一套图。未实现算子保持design版本。
 - 基础采样与训练节点完整合同卡唯一owner：lib/nodes/README.md。
 - DOM focus/单标签与数组规则：docs/focus-and-labeling.md；首个结构实验电路：docs/structure-circuit-m1.md。research中的旧organic或多标签草案不得覆盖当前合同。
+- 操作目标与元素必要性关系（四元素推理链、训练反推链与最小实施切片）：docs/operation-goal-necessity.md；当前为未就绪设计合同，无运行入口、未训练，L1词表/wire、L2与L3图纸分别由各自owner维护。
 - 统一CLI共享命令模型与文件系统训练合同唯一owner：docs/cli-filesystem-training.md；参数简化调用合同：docs/cli-call-contract.md。
 - CLI旧实现到file.property迁移的审计、完成定义、收口步骤与残留退役顺序：docs/cli-migration.md；运行形状仍由上述领域合同维护，本页不复制词表或训练规则。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
