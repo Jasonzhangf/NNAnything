@@ -146,11 +146,67 @@ Handwired内图为 `显式特征与独立参数source → multiply(W,x) → 每h
 
 ## 4. R：用途属性的最小关系设计
 
-每次请求一个role，输出matches/nonmatch及judged/unknown/conflict；词表初始为source、test、config、dependency_manifest、documentation、generated、log、media、attachment、backup。角色重叠使用分别BCE任务，不做单标签互斥type。关系来源是当前明确scope内的实际文件及引用，不能把目标角色是否正确作为输入。
+每次请求一个role，输出matches/nonmatch及judged/unknown/conflict；词表初始为source、test、config、dependency_manifest、documentation、generated、log、media、attachment、backup。Goal必须为`property:"file.property.role",requirement:{kind:"observed",freshness:"this_run",query:{kind:"role",role,scopeRef}}`，target为ObjectRef；不在Goal外另传可分歧的role。角色重叠使用分别BCE任务，不做单标签互斥type。关系来源是当前明确scope内的实际文件及引用，不能把目标角色是否正确作为输入。固定18位的typed来源、coverage与consumer I/O沿[用途证据合同](cli-role-evidence-design.md)。
 
-每role独立18参数logit，固定特征为 `[1,textDecodable,structuredParseValid,codeSyntaxRecognized,mediaSignature,producerRecorded,consumerRecorded,buildInputEdge,testInputEdge,runtimeLoadEdge,userAttachmentEdge,historyCopyEdge,buildOutputEdge,dependencySectionEdge,documentationStructure,appendTraceEdge,declaredMediaUseEdge,declaredBackupUseEdge]`。所有edge是采集到的具体声明/调用/记录关系及证据，不是teacher给出的isSource/isConfig。producer/consumer不等于用途角色真值；buildOutput、appendTrace和dependencySection分别保留生成物、日志与依赖声明的可辨依据。先读取必要证据再形成完整向量；缺必需关系保留unknown，不填0为“无关系”。已确认不存在关系才是0。R是用途概念模型，不输出命令head，不参与`cli.command-policy.v1`的head选择。
+每role独立18参数logit，固定特征为 `[1,textDecodable,structuredParseValid,codeSyntaxRecognized,mediaSignature,producerRecorded,consumerRecorded,buildInputEdge,testInputEdge,runtimeLoadEdge,userAttachmentEdge,historyCopyEdge,buildOutputEdge,dependencySectionEdge,documentationStructure,appendTraceEdge,declaredMediaUseEdge,declaredBackupUseEdge]`。所有edge是采集到的具体声明/调用/记录关系及证据，不是teacher给出的isSource/isConfig。producer/consumer不等于用途角色真值；buildOutput、appendTrace和dependencySection分别保留生成物、日志与依赖声明的可辨依据。先读取必要证据及availability；缺必需关系保留unknown，不填0为“无关系”。已确认不存在关系才是0。R是用途概念模型，不输出命令head，不参与`cli.command-policy.v1`的head选择。
 
-训练仍用BCE、Handwired线性乘加与SGD，数值梯度同B模块。label来自独立复核的实际用途：例如构建实际输入与generated可同时成立，运行时加载的JSON与测试JSON要有独立作用证据。负例必须是已复核的相反角色，不从未命中或unknown自动补负。无足够证据区分某role时返回unknown，不降低阈值或假装全部文件均可分类。
+### 必要证据与范围
+
+下表是本轮有限用途识别的证据准入，不是角色真值规则。所列位须有无冲突的实际0/1观测；取0同样满足“已观测”，不自动成为nonmatch。所有角色另要求当前ObjectRef有效、target为Goal scope的已证member、声明/family版本及观测范围适用；缺少这些公共条件返回unknown，非法Goal或引用则显式rejected，不伪造模型关系。
+
+| role | 必须可用的关系位 | 本轮有限证据范围 |
+| --- | --- | --- |
+| source | codeSyntaxRecognized、buildInputEdge | 已声明语言与构建输入；未声明解释器/语言或无构建资料的源码保留unknown |
+| test | testInputEdge | 显式测试输入记录，不从名称推导测试用途 |
+| config | structuredParseValid、runtimeLoadEdge | 已声明结构化格式与加载记录；非结构化配置在本轮范围外 |
+| dependency_manifest | dependencySectionEdge | target本身是依赖声明的manifest，不把被引用dependency当清单 |
+| documentation | documentationStructure | 已声明文档结构范围；仅有结构不足以区分的实际用途保留可辨性缺口 |
+| generated | buildOutputEdge | 显式构建输出；一般producer记录不代表生成物 |
+| log | appendTraceEdge | 声明范围内的追加轨迹；覆盖式日志不在本轮可判范围 |
+| media | mediaSignature、declaredMediaUseEdge | 已声明媒体族及使用范围，不将所有二进制归为media |
+| attachment | userAttachmentEdge | 显式附件集合中的使用关系 |
+| backup | declaredBackupUseEdge | 显式备份用途记录；单次复制不自动是备份 |
+
+“完整否定”只说明上表所需关系在其声明范围完整执行后确认为0，不代表任意项目或任意时间均无该用途。family集合为空、枚举partial、非成员及过期证据都不是0。不得以本轮有限定义宣称普遍用途识别覆盖。其余位不是统一required；它们是否影响本次结果取决于下述数值区间，不因无关位缺失直接拒绝。
+
+### 缺失区间与结果收束
+
+设已观测无冲突的位集合为O，缺失集合为M；bias恒为1。对每个role的同一18参数向量，缺失布尔值只作为可能域[0,1]计算上下界，不填进实际观测向量：
+
+```text
+z_min = w0 + Σ(j∈O) wj*xj + Σ(j∈M) min(0,wj)
+z_max = w0 + Σ(j∈O) wj*xj + Σ(j∈M) max(0,wj)
+p_min = sigmoid(z_min); p_max = sigmoid(z_max)
+```
+
+阈值tau由dev预定且0<tau<1，保存于该role profile；未配置则unknown。先查公共条件与必要证据，再计算区间：`p_min >= tau`为judged/matches；`p_max < tau`为judged/nonmatch；跨阈值则unknown。缺必要证据即使bias很大仍unknown。无关缺失位系数0不扩大区间；非零系数也只有在足以跨阈值时才使结果unknown。禁止用区间中点、默认0或teacher猜值。完整观测时区间退化为原18参数logit，不增参数或额外分类头。
+
+同scope版本、target对象、relation、声明family集合、完整内容/枚举范围及同一观测批次中，0与1证据互斥才是原子冲突。不同family接受/拒绝先按已声明集合的any-match规则归并；不同时间、范围或对象的值不能直接互判冲突，也不能合并成一次完整观测。consumer在State中显式选择本次批次及范围，不按“最后一条记录”推断。仅当冲突位属于该role必要集合或系数非0时，输出conflict；冲突位无关且系数0则保留证据并继续判定。冲突优先于本role缺测unknown，不多数投票、不当作两条训练标签；多角色同时matches不是conflict。
+
+judged必须保留实际来源、区间及版本，observed关系Goal的matches/nonmatch均为satisfaction=100；unknown/conflict的relation和satisfaction为null。模型分数不是独立真值；独立使用/验证证据发现预测错误则记错误与unmet/0，不让模型自报100代替验收。证据准入、数值判定、独立语义正确性分别计分。
+
+计算反例（仅设计）：tau=0.5、已观测项含bias合计2；一个非必要缺失位权重-1时z∈[1,2]可判matches，权重-3时z∈[-1,2]须unknown，权重0时区间不变。必要位缺失时上述三种均unknown。同范围相反必要记录输出conflict；generated与config同时有独立事实支持则分别判断，不互相否决。记录范围从complete变partial时必须撤销该范围无边的0，不能沿用旧判定。
+
+训练仍用BCE、Handwired线性乘加与SGD，维数保持每role18参数。用途经独立复核、该role必要关系可用且无相关冲突的行可参与拟合；非必要位缺失不排除该行。完整行使用普通BCE；部分缺测行使用与推理相同域的最坏情况BCE，不补写观测值：
+
+```text
+y ∈ {0,1}                    // 仅训练期独立复核标签
+z_star = z_min if y=1 else z_max
+L = softplus(-z_min) if y=1 else softplus(z_max)
+g = sigmoid(z_star) - y
+∂L/∂w0 = g
+∂L/∂wj = g*xj               (j∈O)
+∂L/∂wj = g*cj               (j∈M)
+y=1: cj=0 if wj>0; cj=1 if wj<0
+y=0: cj=1 if wj>0; cj=0 if wj<0
+wj=0时取cj=1/2，作为max/min在折点的确定次梯度
+```
+
+这等于`max(x_M∈[0,1]) BCE(y,sigmoid(w·x))`。`cj`只是损失极值端点/次梯度，不是新观测、监督输入或推理时补值；原records/gaps与availability保持不变。宿主按已有BCE梯度边界给出上述logit/参数源梯度，Handwired承担已观测乘加及上下界所用系数连线，SGD更新同一18参数；min/max在0的次梯度按上式固定，不另训练缺失头。必要证据缺失、未知标签或相关冲突行只进入状态/区间独立验收，不生成强监督标签。
+
+PNG配方因此可训练：textDecodable=0，structuredParseValid/codeSyntaxRecognized/documentationStructure缺失；mediaSignature与declaredMediaUseEdge均已观测且用途经复核为media，该role必要位满足，按z_min做正例损失。缺失文本列仍是[0,1]，不把不可解码说成不含代码/结构；负例按z_max训练。无缺失时公式退化为普通BCE。计算反例：正例的已观测项合计1，一个缺失位系数-0.4，则z_min=0.6，梯度为`g=sigmoid(0.6)-1`且该缺失系数梯度为g；系数+0.4时z_min=1，该缺失系数梯度0。独立验收必须覆盖二进制媒体正/负及这些端点，不能只检查完整文本行。
+
+label来自独立复核的实际用途：例如构建实际输入与generated可同时成立，运行时加载的JSON与测试JSON要有独立作用证据。负例必须是已复核的相反角色，不从未命中或unknown自动补负。若同role、同声明范围与完全相同学生向量/availability对应经复核的相反用途，记录该profile不支持的向量/范围为可辨性缺口，运行时该组合返回unknown；不能训练平均标签冒充解决。缺口记录不含名称或用途真值，不替代重新设计必要输入。无足够证据区分某role时返回unknown，不降低阈值或假装全部文件均可分类。
 
 角色判定分数阈值仅用开发集预定，保持uncalibrated；它不是satisfactionThreshold。独立回归按完整已复核样本的matches/nonmatch及unknown状态评价。格式JSON/UTF8由parser直接产生，无单独格式分类NN；更广自然语言用途理解不是这18参数模型的能力。
 

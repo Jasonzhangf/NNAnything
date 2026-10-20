@@ -10,7 +10,7 @@ type FilePropertyGoal = {
   target: ObjectRef | PathRef | ScopedFileQuery;
   property: FilePropertyKey; // 完整标识统一为 file.property.xxx
   requirement:
-    | { kind: "observed"; freshness: "this_run" }
+    | { kind: "observed"; freshness: "this_run"; query?: DeclaredTypedQuery }
     | { kind: "equals"; expected: TypedValue; requiredTargetType?: "regular" | "directory" | "symlink" }
     | { kind: "matches"; predicate: DeclaredTypedPredicate };
 };
@@ -22,6 +22,8 @@ type Request = {
 ```
 
 以上为设计形状，不是现有可导入类型。`property` 使用下面表中的完整属性键；不再为新能力新增 observe_config、find_source 等同义 Goal kind。ObjectRef/PathRef 是明确 typed 绑定，不是任意路径字符串或自由文本执行。ScopedFileQuery 在显式范围内按已声明关系定位未知对象，例如 `{relation:"sessionCwd", session:S}` 获取S的当前目录；它不是隐式磁盘搜索，也不能预填待观测的正确路径。目标不存在时使用 PathRef 及父目录/名称证据，不能伪造已存在的文件对象。predicate 按该属性的固定 schema 声明，不接收脚本或任意表达式。
+
+`DeclaredTypedQuery`按property限定，不接受任意表达式。`file.property.role`的observed请求必须提供`query:{kind:"role",role:RoleKey,scopeRef:RoleScopeRef}`，RoleKey词表与判定合同见[属性训练设计第4节](cli-property-training-design.md#4-r用途属性的最小关系设计)，scope类型见[用途证据合同](cli-role-evidence-design.md)。其他当前属性不因此接受role查询。role和scope属于Goal，不由隐藏上下文或输出猜测；State中的scope必须与Goal引用一致。观测出matches或nonmatch都表示已取得指定关系知识；仅要求observed时两者都可达标100，unknown/conflict保留null。若目标要求某角色为真，须另用该属性已声明的matches条件验收，不能把observed偷换为要求正例。
 
 四元素为：Goal 指定目标属性及条件；satisfactionThreshold 指定最低满足度；State 保存实际属性、关系及观测来源；Action 选择固定 CLI/计算操作及必要参数。`observed` 增加属性知识；`equals/matches` 可要求属性的实际值改变，也可能当前已满足。观测到属性不符合时不得当作目标完成。运行前评价已有状态；已满足且证据符合要求时不执行多余修改，要求本次观测则必须获取本次证据。
 

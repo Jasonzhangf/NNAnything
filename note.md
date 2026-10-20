@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-19 R用途证据合同接收与缺测设计收口
+
+peer按无冲突派发交付独立docs提交6cdcbc6，已正常cherry-pick为79c24a8，只新增cli-role-evidence-design.md，未合并其DOM分支。原支持合同的共享owner缺口由本owner接管：两次独立GCM执行均只返回准备文字、没有实际编辑，不记成功；父级逐文件补齐role/scope进入Goal、10角色有限必要证据、18参数缺失logit区间、同范围冲突和observed负关系满足度。依赖清单与备份记录端点同步明确，dev阈值说法统一。
+
+本轮四项工作为接收peer文档、补齐R共享合同、独立领域复核、main交付；前三项已完成，最终Git交付回执见外置run。不训练、不改业务代码/样本/权重；属性6N5E、共享训练8N8E拓扑未改，复用有效证据。独立OAuth领域复核覆盖R支持文档及两个直接owner合同，不重审未变P/C设计；外置过程与证据为`/Volumes/Intel/playground/nnanything-runs/file-property-review-fixes-20261019/r-closure/`。有限证据范围外或相同向量不可辨的用途保留unknown，不宣称普遍用途识别或已运行。
+
+R首轮独立复核发现P1：全18位可观测训练行要求会排除严格UTF-8不可解码的PNG媒体正例。已修为必要关系准入、非必要缺失位按同一[0,1]域计算最坏情况BCE，明确正例用z_min、负例用z_max及折点次梯度；保留原始missing，不伪造文本位0。PNG正/负与缺失端点加入独立验收配方；仍仅设计，未执行拟合。该finding与直接数值闭包经独立OAuth gpt-6.1-sol medium复核退出0、findings为空、controller PASS，复用首轮未变领域证据。`git diff --check`通过，未重跑未受影响的训练/测试或图校验。
+
 ## 2026-10-19 file.property设计独立Review P1/P2修复
 
 本轮只修设计与状态记录，不改业务代码、不生成样本、不训练或升级权重。四项工作为：派发无冲突B/R设计、修共享命令P1、修状态P2、独立finding复核及main交付。B/R已分别派给现有peer，仍待各自设计收口与验收，不将消息接受或候选交来记为完成。

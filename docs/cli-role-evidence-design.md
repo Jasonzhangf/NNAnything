@@ -8,7 +8,7 @@
 - 非目标：不新增角色词表、不改变特征数、不定义新 Goal、不新增图、不新增执行引擎、不授权任何 CLI 命令或文件操作。
 - 角色词表沿用 R 合同初始词表 `source / test / config / dependency_manifest / documentation / generated / log / media / attachment / backup`；本文不复制、不替换、不扩充。
 - 图复用：外层推理图 [cli-file-property.graph.json](../workflows/cli-file-property.graph.json) 的 6N5E 结构不变；训练复用 [cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)；升级与冲突沿 [model-evolution.graph.json](../workflows/model-evolution.graph.json) 与 [model-evolution.md](model-evolution.md)。
-- 模型输出边界：输出只是属性关系 `matches / nonmatch` 及识别状态 `judged / unknown / conflict`；只有 `judged` 携带 `matches` 或 `nonmatch`，`unknown/conflict` 的 relation 为 `null`。它不是 CLI 命令头、参数选择、操作适用性判断或执行授权。命令选择与操作授权归 B/P/C 单元与 adapter，不因本文改变。
+- 模型输出边界：输出只是属性关系 `matches / nonmatch` 及识别状态 `judged / unknown / conflict`；只有 `judged` 携带 `matches` 或 `nonmatch`，`unknown/conflict` 的 relation 为 `null`。它不是 CLI 命令头、参数选择、操作适用性判断或执行授权。B只绑定概念对象，P/C共享命令选择，操作授权归adapter，不因本文改变。
 
 ## 2. 四元素与责任分工
 
@@ -16,7 +16,7 @@
 
 | 元素 | 本单元内容 | 声明 owner |
 | --- | --- | --- |
-| Goal | `{kind:"file.property", property:"file.property.role", target:ObjectRef, requirement:{kind:"observed"}}`；target 是明确 scope 内由 owner 绑定的条目引用，一次请求判定一个指定角色关系 | cli-filesystem-semantics.md |
+| Goal | `{kind:"file.property", property:"file.property.role", target:ObjectRef, requirement:{kind:"observed",freshness:"this_run",query:{kind:"role",role,scopeRef}}}`；target 是明确 scope 内由 owner 绑定的条目引用，一次请求判定一个指定角色关系 | cli-filesystem-semantics.md |
 | satisfactionThreshold | 关系判断要求本次观测证据；单次精确关系 0/100，默认 100；不因证据少而放宽或降低 | cli-filesystem-semantics.md |
 | State | 版本化 `RoleEvidenceDeclaration`、明确 `RoleEvidenceScope`、target membership、`RoleEvidenceRecord`/`RoleEvidenceGap` 集合及各 `EnumeratorCoverage` | adapter 收集，filters 消费 |
 | Action | 固定读取、解码、签名识别、parser、声明引用枚举；不产生 OS 对象修改；得到的关系知识即 New State | adapter / consumer |
@@ -301,7 +301,7 @@ type BackupUseEdgeRecord = RecordEnvelope & {
 
 - `producerRecorded` 只消费 `producer.record@1` 中 `output=target` 的直接写入/创建/生成记录；`consumerRecorded` 只消费 `consumer.record@1` 中 `input=target` 的直接读取/加载/执行记录。它们是弱来源关系，不能从 role 分数、内容格式或某个具体构建边反推。
 - `buildInputEdge`、`testInputEdge`、`runtimeLoadEdge` 分别消费 `build.input.edge@1`、`test.input.edge@1`、`runtime.load.edge@1`。构建输入声明不自动等于 broad consumer 记录；只有记录同时给出 consumer、input 与 read/load/execute 字段并满足 `consumer.record@1` 时，才可另生成 broad consumer 证据。反向亦然。
-- `historyCopyEdge` 在 target 是该复制事件的 source 或 destination 时为真；`appendTraceEdge` 只在 target 是 `writeMode=append` 的输出时为真，普通日志存在或一次覆盖写不算。
+- `historyCopyEdge` 在 target 是该复制事件的 source 或 destination 时为真；`appendTraceEdge` 只在 target 是 `writeMode=append` 的输出时为真，普通日志存在或一次覆盖写不算。`declaredBackupUseEdge`只在`entry=target`且`endpoint`标记其备份来源或目的身份时成立，不从该记录并不存在的source/destination字段取参。`dependencySectionEdge`表示target本身为有已解析依赖段的manifest（`manifest=target`），不将`dependency=target`误作清单；无依赖条目时，完整解析的空依赖段可产生0，不能仅因没有逐项记录就宣称枚举完整。
 - `declaredMediaUseEdge` 只来自显式 media-use 声明，media signature 是内容位，不能替代声明；`declaredBackupUseEdge` 只来自显式 backup 记录，history copy 也不能替代 backup 用途。
 - `buildOutputEdge`、`dependencySectionEdge` 与 broad producer/consumer 各自保留独立字段。一个原始记录可以因字段完整同时支撑多个位，但每个位必须由对应签名单独验证，不能因“同一来源”自动复制。
 
@@ -395,11 +395,11 @@ scope、coverage、record 与 gap 中出现的每个 `RoleScopeRef`、`Enumerato
 - `value=true` 只在记录满足该关系的有限输入、完整性要求和已声明 family 时映射为 1。
 - `value=false` 只在该关系的完整范围或完整枚举已实际执行并确认无匹配时映射为 0。
 - `RoleEvidenceGap.availability="unavailable"`、`partial` coverage、未执行、unsupported family、非完整内容区间或 scope 外记录对应 missing；不得把缺失解释为“无关系”。
-- 同类关系出现 `value=true` 与 `value=false` 的相反记录时，保留全部原始记录，不取多数、不按记录数量投票。filters 可暴露 `conflictPresent=true`，但 R 输出状态与最终 `matches/nonmatch` 由 R owner 合同决定。
+- 同类关系出现 `value=true` 与 `value=false` 的相反记录时，保留全部原始记录，不取多数、不按记录数量投票。只有同对象、scope版本、family集合、完整范围与本次批次的互斥值才是原子冲突；不同范围或时序不直接冲突，不自动合并。filters暴露冲突位，R按owner第4节的必要集合/非零系数规则收束。
 
 完整性证据属于收集 owner：内容类关系要求目标 `ContentInterval` 已到 EOF，并覆盖该记录声明的完整区间；记录类关系要求对应 `EnumeratorCoverage.availability="complete"`。`partial`、`unavailable` 或缺失枚举器都不是 0。
 
-输入 missing 不等于输出 `unknown`。本文不增加“任意位缺失即 unknown”的前置守卫，也不要求全部 17 位可用；R owner 尚未列出每 role 的必要关系集合，因此该集合是第10节列明的未决 owner 决定，不能从本文位值自行发明。`unknown` 与 `conflict` 的 Response 关系都为 `null`。
+输入 missing 不等于输出 `unknown`。本文不增加“任意位缺失即 unknown”的前置守卫，也不要求全部 17 位可用；每role必要集合、availability组合及数值上下界唯一沿[属性训练设计第4节](cli-property-training-design.md#4-r用途属性的最小关系设计)，抽取端不自行推导角色真值。`unknown` 与 `conflict` 的 Response 关系都为 `null`。
 
 ## 5. 固定18维逐位抽取定义
 
@@ -420,11 +420,11 @@ scope、coverage、record 与 gap 中出现的每个 `RoleScopeRef`、`Enumerato
 | 10 | `userAttachmentEdge` | `{enumerator, user.attachment.edge@1}` | 存在用户附件声明且 `attachment=target` | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
 | 11 | `historyCopyEdge` | `{enumerator, history.copy.edge@1}` | 存在复制事件且 target 是 source 或 destination | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
 | 12 | `buildOutputEdge` | `{enumerator, build.output.edge@1}` | 存在构建输出记录且 `output=target` | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
-| 13 | `dependencySectionEdge` | `{enumerator, dependency.section.edge@1}` | 依赖声明段落显式命名 target | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
+| 13 | `dependencySectionEdge` | `{enumerator, dependency.section.edge@1}` | target本身是含已解析依赖段的manifest | 完整声明范围没有target的依赖段关系 | enumerator 未声明、未收集或 coverage 非 complete |
 | 14 | `documentationStructure` | `{interval, parsers[]}` | 已解码全文被任一已声明文档 parser 接受 | 非空已声明集合已执行且全部拒绝 | 文本不可解码、集合为空、family 不支持或未执行 |
 | 15 | `appendTraceEdge` | `{enumerator, append.trace.edge@1}` | 存在 `writeMode=append` 且 `output=target` 的写者记录 | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
 | 16 | `declaredMediaUseEdge` | `{enumerator, media.use.edge@1}` | 存在显式媒体用途声明且 `media=target` | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
-| 17 | `declaredBackupUseEdge` | `{enumerator, backup.use.edge@1}` | 存在显式备份用途记录且 target 为 source 或 destination | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
+| 17 | `declaredBackupUseEdge` | `{enumerator, backup.use.edge@1}` | 显式备份用途记录的entry=target，endpoint说明来源/目的身份 | 完整记录枚举无此边 | enumerator 未声明、未收集或 coverage 非 complete |
 
 已核对：本表特征行共18行（序 0–17），17个非恒定特征加 1 个常量项；与 R 合同列出的 `[1,textDecodable,structuredParseValid,codeSyntaxRecognized,mediaSignature,producerRecorded,consumerRecorded,buildInputEdge,testInputEdge,runtimeLoadEdge,userAttachmentEdge,historyCopyEdge,buildOutputEdge,dependencySectionEdge,documentationStructure,appendTraceEdge,declaredMediaUseEdge,declaredBackupUseEdge]` 同名同序同数。`producerRecorded/consumerRecorded` 是「存在生产者/消费者记录」的弱关系，不与 `buildInputEdge/buildOutputEdge/runtimeLoadEdge` 等具体边互相替换；`buildOutputEdge`、`appendTraceEdge`、`dependencySectionEdge` 分别保留生成物、日志与依赖声明的可辨依据。所有位都不接受 teacher 的 `isSource/isConfig` 顶点结论。
 
@@ -443,10 +443,10 @@ scope、coverage、record 与 gap 中出现的每个 `RoleScopeRef`、`Enumerato
 | --- | --- | --- |
 | target、scope、成员与 `ObjectRef` 有效性 | [cli-filesystem-semantics.md](cli-filesystem-semantics.md) | 已引用，本文不重定义 |
 | 每个关系位的有限输入、完整性、value/gap 与冲突暴露 | 本文 | READY |
-| 每个 role 的必要关系集合、availability 组合及 unknown/conflict 判定 | [cli-property-training-design.md](cli-property-training-design.md) R 合同 | 未列明，见第10节唯一 owner 缺口 |
+| 每个 role 的必要关系集合、availability 组合及 unknown/conflict 判定 | [cli-property-training-design.md](cli-property-training-design.md) R 合同 | 已定义有限范围、缺失区间与结果终点，未实现 |
 | 使用采样、复核、训练、评价与采用 | [model-evolution.md](model-evolution.md) | 已引用，本文不复制算法或门槛 |
 
-因此，任何 role 都不能从本文 17 位自行推导“独立真值”。在 R owner 补齐必要关系集合前，adapter/consumer 可以按本支持合同采集证据，但不能宣称该 role 的完整决策合同已可实施或已训练。
+因此，任何 role 都不能从本文17位自行推导“独立真值”。R owner已补齐必要集合与缺测数值合同；adapter/consumer仍须真实实现、训练、回载和独立验收，不能把设计收口写成已训练。
 
 ## 7. consumer I/O 与采样接口
 
@@ -454,8 +454,9 @@ scope、coverage、record 与 gap 中出现的每个 `RoleScopeRef`、`Enumerato
 
 ```text
 Request  { goal: {kind:"file.property", property:"file.property.role",
-                  target: ObjectRef, requirement:{kind:"observed"}},
-           role: RoleKey, scope: RoleEvidenceScope,
+                  target: ObjectRef, requirement:{kind:"observed",freshness:"this_run",
+                    query:{kind:"role",role:RoleKey,scopeRef:RoleScopeRef}}},
+           scope: RoleEvidenceScope,
            declaration: RoleEvidenceDeclaration,
            satisfactionThreshold: 100, state: ExplicitFileState }
 Response { role, relation: "matches" | "nonmatch" | null,
@@ -466,7 +467,7 @@ Response { role, relation: "matches" | "nonmatch" | null,
            calibration: "uncalibrated" }
 ```
 
-一次请求判定一个 `role`；多角色使用多次独立请求，不做互斥单标签。`judged` 才携带确定关系；`unknown/conflict` 的 `relation=null`，`satisfaction=null`，并保留候选证据。`availability` 与值分离，缺失位不得补 0。响应只携带属性关系与证据，不带命令、argv、操作或授权字段。采样记录复用 [design.md](design.md) 第5节的 `OperationSample`，追加角色请求、声明身份、当时的 `RoleEvidenceScope` 与枚举器完整性、`RoleEvidenceRecord`/`RoleEvidenceGap` 集合、双作者复核状态与实际使用证据；不允许 filter 自己写文件或 core 解释领域数据。采样失败显式记录，不因采样失败改写未受影响的业务结果。
+一次请求判定Goal.query中的一个`role`，State.scope与Goal.scopeRef必须一致；多角色使用多次独立请求，不做互斥单标签。`judged`才携带确定关系；observed Goal中matches/nonmatch均是成功观测关系，独立语义评价通过时satisfaction=100，已证错误为0；`unknown/conflict`的`relation=null`、`satisfaction=null`。响应的role仅回显Goal，不另作决策输入。`availability`与值分离，缺失位不得补0。非法Goal/引用返回领域统一rejected回执，不制造R分类结果。响应只携带属性关系与证据，不带命令、argv、操作或授权字段。采样记录复用[design.md](design.md)第5节的`OperationSample`，追加角色请求、声明身份、当时的scope、枚举器完整性、records/gaps、双作者复核状态与实际使用证据；filter不自己写文件，core不解释领域数据。采样失败单独记录，不改写未受影响的业务结果。
 
 ## 8. 同名不同用途与多角色反例
 
@@ -486,7 +487,7 @@ Response { role, relation: "matches" | "nonmatch" | null,
 
 ## 9. 数值、分区与采用（引用）
 
-- 数值连线：逐 role 线性乘加与 BCE、Handwired 内图、SGD 与梯度路径沿 [cli-property-training-design.md](cli-property-training-design.md) 第4节，本文不重复。
+- 数值连线：逐role线性乘加、完整行BCE、非必要位缺失行的最坏情况BCE与次梯度、Handwired内图及SGD路径沿[cli-property-training-design.md](cli-property-training-design.md)第4节。PNG等合法二进制样本可保留文本位缺失参与media拟合，不要求所有位可用；本文不复制公式。
 - 分区：`train / dev / verification` 的来源家族先划用途再生成、同模板换名不跨分区、独立作者配方，沿同文件第6节与第7节。
 - 采用：候选与当前隔离、独立配对比较、旧能力无回归才升级、冲突保留并交大模型裁决，沿 [model-evolution.md](model-evolution.md) 与 [model-evolution.graph.json](../workflows/model-evolution.graph.json)。角色阈值只用开发集预定并保持 `uncalibrated`，它不是 `satisfactionThreshold`。
 
@@ -498,13 +499,11 @@ Response { role, relation: "matches" | "nonmatch" | null,
 
 1. adapter/consumer 按现有 request/profile/state 绑定提供 `RoleEvidenceDeclaration`、`RoleEvidenceScope`、membership、coverage、records 与 gaps；未声明 family 或未收集枚举器显式输出 unavailable。
 2. filters 实现 `RoleEvidenceRecord`/`RoleEvidenceGap`/`EnumeratorCoverage` → 18维向量 + availability 的纯函数抽取，顺序锁定为第5节表序，常量项固定 1。
-3. 用第8节反例构造开发集配方，验证边位可分、missing 保持 availability=false、相反证据保留 conflict，无名称泄漏；开发集不选阈值，阈值只按 R 合同预定。
-4. 在 R owner 补齐必要关系集合后，才按 R 与训练合同实现拟合、保存候选、回载与独立验证；候选保持 `not_applied`，采用与冲突沿 model-evolution。
+3. 用第8节反例构造开发集配方，验证边位可分、missing保持availability=false、同范围相反证据保留conflict，无名称泄漏；阈值只用开发集按R合同预定，verification不选阈值。
+4. 按R owner已定义的必要集合、区间与训练合同实现拟合、保存候选、回载与独立验证；候选保持`not_applied`，采用与冲突沿model-evolution。
 
-剩余 owner 缺口只有一项：
-
-- [cli-property-training-design.md](cli-property-training-design.md) 第4节尚未列出每个 role 对应的必要关系集合、availability 组合规则以及 unknown/conflict 的最终判定规则。它目前只声明“缺必需关系保留 unknown”，未说明哪些关系必需，也未定义不可用位置如何影响该 role。该决定属于 R owner；本文不能从 17 位自行发明，也不能用全输入 required 或相反证据多数替代。
+原owner缺口已由[cli-property-training-design.md](cli-property-training-design.md)第4节补齐：每role有限证据域、必要关系集合、availability区间计算及unknown/conflict终点均有定义。本文只引用规则；本轮没有修改18参数规模，不把所有输入设为required，也不以多数投票消除矛盾。超出有限格式/使用记录范围及相同输入无法区分的用途继续返回unknown。
 
 ObjectRef 的具体形状、有效性、寿命与相等判断继续由 [cli-filesystem-semantics.md](cli-filesystem-semantics.md) owner 维护。声明存储不另定目录：它作为现有 request/profile/state 绑定中的版本化值传递。复核者身份、样本存储与双作者分区沿 [model-evolution.md](model-evolution.md) 与既有 `OperationSample`，本文不建立第二套流程。
 
-以上唯一 owner 缺口不阻断本文作为支持性证据合同使用；它阻断任何 role 的训练、独立验证和采用声明，未补齐前不得宣称某 role 已可判断或已训练。
+剩余为实施与实证：证据收集、抽取、R数值计算、真实拟合、回载、独立用途评价及自动演进链均未实现。设计收口不表示某role已能判断、已训练或已采用。
