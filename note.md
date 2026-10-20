@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-19 typed file.property迁移、单候选训练与作者回载（待父级独立验证）
+
+本次在同一独占树继续原任务。`migration-contract.md`与公共`c7c20ef`共同作为实施准入；typed请求、受信证据authority、NOOP/DEFER、显式0..100阈值和统一status已写入既有领域合同。旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`及旧cli-goal图已物理退役；旧4×4只保留按名离线迁移。
+
+当前运行入口只接受typed`file.property`：sessionCwd observed/equals与directory.entries observed，控制结果unsupported/DEFER/NOOP。单一`cli.command-policy.v1`保存`unsupported,DEFER,NOOP,pwd,cd,ls`六个head、14条有序wire和6×14共84参数。合法未绑定DirectoryQuery进入DEFER且零执行；非法schema、旧Goal、旧profile抛TypeError且无OS副作用；未注册property返回unsupported。
+
+运行图为`cli-file-property` 6N5E `0.2.0`，训练图为`cli-filesystem-training` 8N8E `0.2.0`。DAGpipe validate/inspect均通过，日志在run的`logs/dagpipe-file-property-{validate,inspect}.log`与`logs/dagpipe-training-{validate,inspect}.log`。作者定向回归105/105通过，日志为`logs/cli-author-regression.log`；训练前旧实现阻断与红绿定义保留在`implementation-blocked.md`、`w2-prep.md`和对应logs。
+
+真实训练run为`ba002b23-b650-4869-87ec-2d36f4fe7485`，200epochs/lr0.1，从旧候选按名迁移后一次拟合84参数。train38/38、development20/20；零对照4/38、迁移后冻结26/38；PWD/CD/LS旧能力回归无regressed。同目标CD在适用fresh equals证据下改为NOOP，单列公开语义变化。新进程回载58题、0失败、34次真实执行、`fitted=false`；consumer总计5338.783ms。详见`docs/cli-filesystem-training-results.md`、run报告与`logs/final-train-200epoch.log`。
+
+候选绝对路径为`/Volumes/Intel/playground/nnanything/cli-property-migration/training/accepted-20261019/weights/filesystem/command/ba002b23-b650-4869-87ec-2d36f4fe7485/candidate.json`，保持uncalibrated/not_applied。父级独立验证、整体Review、merge与push仍待完成；B对象查找、其余22操作、自动采集和自动采用未实现。本轮未读或修改外置verification及父级独立tests fixture。
+
 ## 2026-10-19 file.property设计独立Review P1/P2修复
 
 本轮只修设计与状态记录，不改业务代码、不生成样本、不训练或升级权重。四项工作为：派发无冲突B/R设计、修共享命令P1、修状态P2、独立finding复核及main交付。B/R已分别派给现有peer，仍待各自设计收口与验收，不将消息接受或候选交来记为完成。
