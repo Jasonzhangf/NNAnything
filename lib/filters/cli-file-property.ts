@@ -66,6 +66,11 @@ export type PropertyRequest = Readonly<{
   state: ExplicitFileState;
 }>;
 
+export type ValidatedPropertyRequest = PropertyRequest & Readonly<{
+  registered: boolean;
+  unboundDirectory: boolean;
+}>;
+
 export type PropertyFacts = Readonly<{
   hasFreshEvidence: 0 | 1;
   knownValue: 0 | 1;
@@ -227,7 +232,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
   });
 }
 
-export function validatePropertyRequest(value: unknown, session: SessionRef): PropertyRequest {
+export function validatePropertyRequest(value: unknown, session: SessionRef): ValidatedPropertyRequest {
   const input = expectRecord(value, "file.property request");
   exactKeys(input, ["goal", "satisfactionThreshold", "state"], "file.property request");
   const threshold = input.satisfactionThreshold;
@@ -259,7 +264,13 @@ export function validatePropertyRequest(value: unknown, session: SessionRef): Pr
       }
     }
   }
-  return Object.freeze({ goal, satisfactionThreshold: threshold, state });
+  return Object.freeze({
+    goal,
+    satisfactionThreshold: threshold,
+    state,
+    registered: validated.registered,
+    unboundDirectory: validated.unboundDirectory,
+  });
 }
 
 export function predicateOf(goal: FilePropertyGoal): RegisteredPredicate | null {
@@ -314,18 +325,18 @@ export function computePropertyFacts(input: Readonly<{
   const cwdKnowledge = state.cwdObservation;
   const directoryKnowledge = state.directoryListing;
   const cwdOrigin = cwdKnowledge !== null && authority.known({
+    kind: "pwd",
     session: session.sessionId,
     revision: cwdKnowledge.revision,
     runId: cwdKnowledge.sourceRun,
-    physicalCwd: cwdKnowledge.physicalCwd,
-    physicalDirectory: null,
+    observation: cwdKnowledge.evidence,
   });
   const directoryOrigin = directoryKnowledge !== null && authority.known({
+    kind: "directory.list",
     session: session.sessionId,
     revision: directoryKnowledge.revision,
     runId: directoryKnowledge.sourceRun,
-    physicalCwd: null,
-    physicalDirectory: directoryKnowledge.physicalDirectory,
+    observation: directoryKnowledge.evidence,
   });
 
   if (goal.property === CWD_PROPERTY && (goal as CwdGoal).requirement.kind === "equals") {
@@ -333,11 +344,11 @@ export function computePropertyFacts(input: Readonly<{
     const condition = known === 1 && expectedPhysical !== null && cwdKnowledge!.physicalCwd === expectedPhysical ? 1 : 0;
     const fresh = cwdOrigin && cwdKnowledge!.revision === revision
       && authority.trusted({
+        kind: "pwd",
         session: session.sessionId,
         revision: cwdKnowledge!.revision,
         runId: cwdKnowledge!.sourceRun,
-        physicalCwd: cwdKnowledge!.physicalCwd,
-        physicalDirectory: null,
+        observation: cwdKnowledge!.evidence,
       }) ? 1 : 0;
     return Object.freeze({ hasFreshEvidence: fresh as 0 | 1, knownValue: known as 0 | 1,
       requiredConditionHolds: condition as 0 | 1, hasDestinationRef: hasDestinationRef as 0 | 1 });

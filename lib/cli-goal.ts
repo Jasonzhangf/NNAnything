@@ -7,6 +7,7 @@ import { loadWorkflow } from "./workflow/loader.js";
 import { runWorkflow } from "./workflow/runner.js";
 import { validateCliCommandProfile, type CliCommandProfile } from "./filters/cli-command-policy.js";
 import { createEvidenceAuthority, type EvidenceAuthority } from "./filters/cli-state.js";
+import { validatePropertyRequest } from "./filters/cli-file-property.js";
 import {
   createCliFilePropertyNodes,
   type CliCommandBinding,
@@ -65,6 +66,7 @@ export function createCliCommandPolicy(binding: CliCommandBinding): CliCommandPo
     .then(graph => compileWorkflow(graph, { nodeDefinitions: definitions, profiles: { "cli-command-policy": profile } }));
   return Object.freeze({
     async step(request: CliCommandRequest): Promise<CliCommandTransition> {
+      validatePropertyRequest(request, binding.session);
       const runId = randomUUID();
       const result = await runWorkflow(await compiled, createWorkflowInputEvent({
         runId,

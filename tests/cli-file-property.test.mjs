@@ -115,7 +115,7 @@ test("legacy Goal kinds and old 4x4 runtime profiles are rejected before OS effe
       satisfactionThreshold: 100,
       state: { session: "s", cwdObservation: null, directoryListing: null },
     }),
-    /Legacy|file\.property|goal/i,
+    error => error instanceof TypeError && /Legacy|file\.property|goal/i.test(error.message),
   );
   const oldProfile = {
     contract: "cli.command-policy.v1",
@@ -242,6 +242,49 @@ test("stale authentic equality stays known and condition-true while freshness re
   assert.equal(transition.invocation[0], "cd");
 });
 
+test("receipt-backed authority rejects embedded evidence changes that preserve the outer summary", async t => {
+  const { createCliCommandPolicy, zeroCliCommandProfile } = await api();
+  const { sandbox, session } = await fixture(t);
+  const profile = mutableProfile(zeroCliCommandProfile());
+  profile.weights[3][1] = 1;
+  profile.weights[2][9] = 10;
+  profile.weights[2][13] = 10;
+  const policy = createCliCommandPolicy({ profile, sandbox, session });
+  const state = { session: "s", cwdObservation: null, directoryListing: null };
+  const cwdGoal = {
+    kind: "file.property",
+    property: "file.property.relation.sessionCwd",
+    target: cwdQuery(session),
+    requirement: { kind: "observed", freshness: "this_run" },
+  };
+  const observed = await policy.step({ goal: cwdGoal, satisfactionThreshold: 100, state });
+  const start = await sandbox.bindDirectory(session, ".");
+  const equalsGoal = { ...cwdGoal, requirement: { kind: "equals", expected: start } };
+  const targetPhysical = await realpath(join(sandbox.scenarioRoot, "target"));
+
+  const changedPhysical = structuredClone(observed.observed_state_after);
+  changedPhysical.cwdObservation.evidence.physicalCwd = targetPhysical;
+  changedPhysical.cwdObservation.evidence.stdout = `${targetPhysical}\n`;
+  await assert.rejects(
+    policy.step({ goal: equalsGoal, satisfactionThreshold: 100, state: changedPhysical }),
+    error => error instanceof TypeError && /evidence|physicalCwd/i.test(error.message),
+  );
+
+  const changedConfigured = structuredClone(observed.observed_state_after);
+  changedConfigured.cwdObservation.evidence.configuredCwd = targetPhysical;
+  const configuredResult = await policy.step({
+    goal: equalsGoal,
+    satisfactionThreshold: 100,
+    state: changedConfigured,
+  });
+  assert.notEqual(configuredResult.status, "achieved");
+  assert.notEqual(configuredResult.satisfaction, 100);
+  assert.equal(configuredResult.invocation, null);
+  assert.equal(configuredResult.execution_result.executorInvoked, false);
+  assert.equal(configuredResult.evidence.facts.knownValue, 0);
+  assert.equal(configuredResult.evidence.facts.hasFreshEvidence, 0);
+});
+
 test("valid unbound DirectoryQuery returns typed DEFER with zero executor", async t => {
   const { createCliCommandPolicy, zeroCliCommandProfile } = await api();
   const { sandbox, session } = await fixture(t);
@@ -305,11 +348,59 @@ test("structurally valid unregistered property returns unsupported and null sati
   assert.equal(result.execution_result.executorInvoked, false);
 });
 
-test("schema, extra answer fields and threshold boundaries fail explicitly before execution", async t => {
+test("unregistered property with a legal DirectoryQuery remains unsupported rather than DEFER", async t => {
   const { createCliCommandPolicy, zeroCliCommandProfile } = await api();
   const { sandbox, session } = await fixture(t);
-  const policy = createCliCommandPolicy({ profile: forceHead(zeroCliCommandProfile(), "pwd"), sandbox, session });
+  const before = sandbox.getSession(session);
+  const result = await createCliCommandPolicy({ profile: forceHead(zeroCliCommandProfile(), "unsupported"), sandbox, session }).step({
+    goal: {
+      kind: "file.property",
+      property: "file.property.exists",
+      target: directoryQuery(),
+      requirement: { kind: "equals", expected: true },
+    },
+    satisfactionThreshold: 100,
+    state: { session: "s", cwdObservation: null, directoryListing: null },
+  });
+  assert.equal(result.status, "unknown");
+  assert.equal(result.reason, "unsupported_property");
+  assert.equal(result.satisfaction, null);
+  assert.equal(result.policy.selectedHead, "unsupported");
+  assert.equal(result.policy_error, null);
+  assert.equal(result.execution_result.status, "unsupported");
+  assert.equal(result.execution_result.executorInvoked, false);
+  assert.equal(result.invocation, null);
+  assert.equal(result.defer, null);
+  assert.deepEqual(sandbox.getSession(session), before);
+});
+
+test("schema, extra answer fields, old goals and cross-session requests reject with TypeError before execution", async t => {
+  const { createCliCommandPolicy, zeroCliCommandProfile } = await api();
+  const { sandbox, session } = await fixture(t);
+  let samples = 0;
+  const policy = createCliCommandPolicy({
+    profile: forceHead(zeroCliCommandProfile(), "pwd"),
+    sandbox,
+    session,
+    onSample: () => { samples += 1; },
+  });
   const state = { session: "s", cwdObservation: null, directoryListing: null };
+  const before = sandbox.getSession(session);
+  const goal = {
+    kind: "file.property",
+    property: "file.property.relation.sessionCwd",
+    target: cwdQuery(session),
+    requirement: { kind: "observed", freshness: "this_run" },
+  };
+  await assert.rejects(policy.step({
+    goal,
+    state,
+  }), TypeError);
+  await assert.rejects(policy.step({
+    goal: { kind: "observe_cwd", session: "s" },
+    satisfactionThreshold: 100,
+    state,
+  }), TypeError);
   await assert.rejects(policy.step({
     goal: {
       kind: "file.property",
@@ -319,30 +410,33 @@ test("schema, extra answer fields and threshold boundaries fail explicitly befor
     },
     satisfactionThreshold: 100,
     state,
-  }), /path|query|field/i);
+  }), TypeError);
   await assert.rejects(policy.step({
-    goal: {
-      kind: "file.property",
-      property: "file.property.relation.sessionCwd",
-      target: cwdQuery(session),
-      requirement: { kind: "observed", freshness: "this_run" },
-    },
+    goal,
     satisfactionThreshold: 100,
     state,
     directory: {},
-  }), /field|request/i);
+  }), TypeError);
+  await assert.rejects(policy.step({
+    goal: {
+      ...goal,
+      target: {
+        ...cwdQuery(session),
+        session: { ...session, sessionId: "other" },
+      },
+    },
+    satisfactionThreshold: 100,
+    state,
+  }), TypeError);
   for (const threshold of [-1, 101, Number.NaN, Number.POSITIVE_INFINITY]) {
     await assert.rejects(policy.step({
-      goal: {
-        kind: "file.property",
-        property: "file.property.relation.sessionCwd",
-        target: cwdQuery(session),
-        requirement: { kind: "observed", freshness: "this_run" },
-      },
+      goal,
       satisfactionThreshold: threshold,
       state,
-    }), /threshold/i);
+    }), TypeError);
   }
+  assert.equal(samples, 0);
+  assert.deepEqual(sandbox.getSession(session), before);
 });
 
 test("observed entries with old complete listing must still execute ls and never NOOP", async t => {
@@ -362,6 +456,23 @@ test("observed entries with old complete listing must still execute ls and never
     goal, satisfactionThreshold: 100, state: { session: "s", cwdObservation: null, directoryListing: null },
   });
   assert.equal(first.status, "achieved");
+  const changedEntries = structuredClone(first.observed_state_after);
+  changedEntries.directoryListing.entries = [];
+  await assert.rejects(policy.step({
+    goal,
+    satisfactionThreshold: 100,
+    state: changedEntries,
+  }), TypeError);
+  const forgedListing = structuredClone(first.observed_state_after);
+  forgedListing.directoryListing.entries = [];
+  forgedListing.directoryListing.evidence.entries = [];
+  const refreshed = await policy.step({
+    goal,
+    satisfactionThreshold: 100,
+    state: forgedListing,
+  });
+  assert.equal(refreshed.evidence.facts.knownValue, 0);
+  assert.equal(refreshed.status, "achieved");
   const ls = await policy.step({
     goal, satisfactionThreshold: 100, state: first.observed_state_after,
   });

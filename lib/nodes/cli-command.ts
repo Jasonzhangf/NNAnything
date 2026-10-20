@@ -15,10 +15,10 @@ import {
   requiredHead,
   validatePropertyRequest,
   type CwdGoal,
-  type EntriesGoal,
   type FilePropertyGoal,
   type PropertyFacts,
   type PropertyRequest,
+  type ValidatedPropertyRequest,
 } from "../filters/cli-file-property.js";
 import {
   predictCliCommand,
@@ -116,7 +116,7 @@ export type CliCommandBinding = Readonly<{
 }>;
 
 type BoundContext = Readonly<{
-  request: PropertyRequest;
+  request: ValidatedPropertyRequest;
   session: SessionRef;
   session_before: SessionSnapshot;
   expectedPhysical: string | null;
@@ -229,6 +229,9 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
   if (input.policy_error !== null) {
     return { satisfaction: 0, status: "rejected", reason: "unexpected_head", evidence: Object.freeze({ ...common }), defer: null };
   }
+  if (!input.registered) {
+    return { satisfaction: null, status: "unknown", reason: "unsupported_property", evidence: Object.freeze({ ...common }), defer: null };
+  }
   if (input.unboundDirectory) {
     return {
       satisfaction: null,
@@ -237,9 +240,6 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
       evidence: Object.freeze({ ...common }),
       defer: Object.freeze({ code: "binding_unresolved", detail: "DirectoryQuery requires a later explicit binding" }),
     };
-  }
-  if (!input.registered) {
-    return { satisfaction: null, status: "unknown", reason: "unsupported_property", evidence: Object.freeze({ ...common }), defer: null };
   }
   if (input.policy.selectedHead === "NOOP") {
     return {
@@ -317,10 +317,8 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
           session_before: before,
           expectedPhysical,
           bindingError,
-          registered: request.goal.property === "file.property.relation.sessionCwd" || request.goal.property === "file.property.directory.entries",
-          unboundDirectory: request.goal.property === "file.property.relation.sessionCwd"
-            ? ((request.goal as CwdGoal).requirement.kind === "equals" && !isDirectoryRef(((request.goal as CwdGoal).requirement as Readonly<{ expected: unknown }>).expected))
-            : !isDirectoryRef((request.goal as EntriesGoal).target),
+          registered: request.registered,
+          unboundDirectory: request.unboundDirectory,
         });
       },
     },
@@ -407,21 +405,21 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
           if (observation.kind === "pwd" && unchanged(executed.session_before, executed.session_after)) {
             observed = Object.freeze({ ...observed, cwdObservation: cwdKnowledge(observation, executed.session_before.revision, executed.receipt.execution.runId) });
             authority.record({
+              kind: "pwd",
               session: session.sessionId,
               revision: executed.session_before.revision,
               runId: executed.receipt.execution.runId,
-              physicalCwd: observation.physicalCwd,
-              physicalDirectory: null,
+              observation,
             });
           } else if (observation.kind === "directory.list" && unchanged(executed.session_before, executed.session_after)
             && observation.coverage === "complete" && observation.errors.length === 0 && observation.entries.every(entry => entry.type !== "unknown")) {
             observed = Object.freeze({ ...observed, directoryListing: directoryKnowledge(observation, executed.session_before.revision, executed.receipt.execution.runId) });
             authority.record({
+              kind: "directory.list",
               session: session.sessionId,
               revision: executed.session_before.revision,
               runId: executed.receipt.execution.runId,
-              physicalCwd: null,
-              physicalDirectory: observation.physicalDirectory,
+              observation,
             });
           } else if (observation.kind === "cwd.set") {
             const post = await sandbox.execute({ operation: "cwd.get", parameters: { session } });
@@ -436,11 +434,11 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
                 cwdObservation: cwdKnowledge(post.execution.observation, sandbox.getSession(session).revision, post.execution.runId),
               });
               authority.record({
+                kind: "pwd",
                 session: session.sessionId,
                 revision: sandbox.getSession(session).revision,
                 runId: post.execution.runId,
-                physicalCwd: post.execution.observation.physicalCwd,
-                physicalDirectory: null,
+                observation: post.execution.observation,
               });
             }
           }
@@ -518,8 +516,4 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
       },
     },
   ];
-}
-
-function isDirectoryRef(value: unknown): value is DirectoryRef {
-  return typeof value === "object" && value !== null && !Array.isArray(value) && (value as Record<string, unknown>).kind === "cli.directory";
 }
