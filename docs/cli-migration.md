@@ -1,0 +1,146 @@
+# CLI 旧实现到 file.property 架构迁移审计与收口计划
+
+状态：2026-10-19 审计与收口记录。迁移已合入 `main`（`37913c5`），本文回答两件事：主干旧实现与新可扩展架构差在哪；迁移按什么标准收口、收口后残留如何处置。
+
+审计基线：`main` 提交 `3336c72`（迁移前，旧实现）；迁移分支 `codex/cli-property-migration` 从 `2dbd7bd` 起修复 3 条 P1 后合入。
+
+## 1. 现状结论
+
+1. 迁移前 `main` 是旧实现：六参数二分类 Goal、共享命令 4×4、`cli-command-step` 3N2E 推理图、legacy 三个 Goal kind。
+2. 迁移把整条命令层迁到 typed `file.property`：6 head、14 wire、84 参数、属性图 `0.2.0` 6N5E、训练图 `0.2.0` 8N8E；旧六参数 Goal、旧 4×4 运行对象、旧 `cli-command-step` 与旧 `cli-goal` 图在 `main` 上已物理退役。
+3. 迁移证据：一次真实拟合（train 38/38、development 20/20）、保存后新进程回载、作者定向回归 105/105、独立验证 34/34 场景与 16/16 失败探针。
+4. 首次整体 Review 判 FAIL，3 条 P1 已修复：内嵌证据与 authority 完整核对、公开 `step` 保留 `TypeError`、未注册属性先按 `unsupported` 收束。修复后局部复核零 finding、controller PASS。修复后 `main` 基线 255/255、0 跳过，公开基线 4/4，独立验证 34/34 与 16/16，新进程回载 58 题零失败。
+5. 迁移范围只到 PWD/CD/LS 三类语义。M0 观测入口、路径控制器、其余 22 个操作、B 对象绑定、R 用途关系、自动采集与自动采用都还在迁移范围之外。
+
+因此本轮把候选收口并合入，没有重做设计或另起第二候选。
+
+## 2. 旧实现真源清单
+
+| 面 | 主干真源 | 公开面 | 候选内状态 |
+| --- | --- | --- | --- |
+| M0 观测 | `lib/cli.ts`、`lib/adapters/cli/observation.ts`、`lib/filters/cli-path.ts` | `createCliSession`、`interpretCliPath`（`nnanything/cli`） | 未改动，保留 |
+| 六参数 Goal 策略 | `lib/filters/cli-goal-policy.ts`（266 行）、`lib/nodes/cli-goal.ts`（660 行） | `createCliGoalPolicy`、`runCliGoalTraining`、`cli.goal-policy.v1` | 物理删除 |
+| 共享命令策略 | `lib/filters/cli-command-policy.ts`（4×4） | `createCliCommandPolicy`、`runCliCommandTraining` | 升级为 6×14 |
+| 推理图 | `workflows/cli-command-step.graph.json` 3N2E `0.1.0` | 三算子 `cli.command.select/execute/verify` | 图与绑定删除 |
+| 训练图 | `workflows/cli-filesystem-training.graph.json` 8N8E `0.1.0` | 8 算子 `cli.command.training.*` | 升级 `0.2.0` |
+| legacy Goal 图 | `cli-goal-step` 3N2E、`cli-goal-training` 4N3E | 兼容基线 | 物理删除 |
+| 路径控制器 | `lib/filters/cli-path-controller.ts`、`lib/cli-training.ts` | `cli.path-controller.v1`、`createPathResolver`、`runPathTraining` | 未改动，保留 |
+| CWD 关系模型 | `lib/filters/cwd-relation.ts` | `cli.cwd-relation.v1` | 保留为独立概念测量，不选命令 head |
+| 旧候选 | `training/weights/filesystem/command/d7c4a3e5-…/candidate.json` 4×4 | 本地资产 | 只作按名迁移起点 |
+
+## 3. 新架构目标形状
+
+依据为迁移桥接合同（外置 run `cli-property-migration-20261019/migration-contract.md`）与公共设计 `c7c20ef`。要点：
+
+1. 唯一 Goal 形式为 `{kind:"file.property",property,target,requirement}`；当前注册 `file.property.relation.sessionCwd`（observed/equals）与 `file.property.directory.entries`（observed）。
+2. 请求为 `{goal,satisfactionThreshold,state}`；阈值必填且为有限 0..100，实际满足度仍为 100/0/null。
+3. head 表固定 `unsupported,DEFER,NOOP,pwd,cd,ls`；wire 为 legacy 四条原名原序加 property、predicate、State 与交互项，共 14 条。
+4. 结果为单一顶层形状，status 为 `achieved/unmet/unknown/rejected/failed`，取消旧公开 `unverified`。
+5. 受信来源由 factory 绑定的局部 authority 承载；调用者自填的路径、run、revision 不能取得受信地位。
+6. 已注册能力的合法未绑定 `DirectoryQuery` 进入 `DEFER` 且零执行；未注册 property/predicate 返回 `unsupported`；schema 错误、旧 Goal、额外答案字段以 `TypeError` 拒绝且无 OS 副作用。
+7. 运行图为 `cli-file-property` 6N5E（bind→select→execute→observe→evaluate→report），训练复用 8N8E；NOOP/DEFER 也走同一出口。
+
+## 4. 旧到新逐项对照
+
+| 旧语义 | 新语义 | 迁移方式 | 当前状态 |
+| --- | --- | --- | --- |
+| `observe_cwd` | `sessionCwd` observed，head `pwd` | typed 转换 + 新证据要求 | 已迁移 |
+| `set_cwd` | `sessionCwd` equals，head `cd` | typed 转换；已适用真观测证明相等时改判 `NOOP` | 已迁移，公开语义变化单列 |
+| `list_directory` | `directory.entries` observed，head `ls` | typed 转换 | 已迁移 |
+| 二分类 `REJECT` | 控制 head `unsupported` | 由未注册语义收束 | 已迁移 |
+| 旧 `unverified` | 拆为 `unknown`、`rejected`、`failed` | 统一结果状态机 | 已迁移 |
+| 4×4 权重 | 6×14，legacy 四行四列按名保留 | 离线按名迁移后一次真实拟合 | 已迁移，旧对象不可直接运行 |
+| 旧 profile 直接加载 | 必须带完整 heads/properties/predicates/wires | 显式拒绝 + 离线迁移器 | 已迁移 |
+| `cli-command-step` 推理图 | `cli-file-property` 属性图 | 物理替换 | 已迁移 |
+| legacy 三个 Goal kind | 不再接受 | 物理删除 | 已迁移 |
+| 六参数 PWD API | 无迁移目标 | 彻底退役 | 已迁移 |
+| M0 `observe({kind})` | 无替换，继续作为固定观测 API | 不迁移 | 未迁移，属保留范围 |
+| 路径控制器 | 设计中 `path.resolve` 是 head，执行仍是既有词法解释器 | 未决策 | 未迁移 |
+| 其余 22 个精确操作 | 新建 head + property/predicate + helper | 未实现 | 未迁移 |
+| B 对象绑定 | `DirectoryQuery` 只产生 `DEFER` | 未实现查找 | 未迁移 |
+| R 用途关系 | 证据合同已就位（`docs/cli-role-evidence-design.md`） | 未实现 | 未迁移 |
+| 使用采集 | `onSample` 显式回调 | 已接入入口 | 已接入，自动采用未实现 |
+
+## 5. 迁移完整度判定
+
+已闭合：typed 请求与结果、单共享权重与 head/wire 注册、旧链物理退役、旧权重按名迁移、真实拟合与回载、独立行为验证、两张图静态校验。
+
+未闭合，按阻塞程度排列：
+
+1. 整体 Review 3 条 P1 未关闭：
+   - `lib/filters/cli-state.ts:71`：State 外层 `physicalCwd` 与内嵌 `evidence` 未交叉核对，保留真实来源摘要、只篡改内嵌证据仍可取得 `NOOP`。
+   - `lib/cli-goal.ts:77`：请求校验在 bind 节点内执行，runner 包装后公开边界抛 `Error` 而非合同要求的 `TypeError`。
+   - `lib/nodes/cli-command.ts:232`：未注册语义配合法 `DirectoryQuery` 被报成 `DEFER/binding_unresolved`，应先按 `unsupported` 收束。
+2. 迁移后的基线数字未重定：旧 253/253 含已退役的 `cli-goal` 两个测试文件，不能继续作为门禁。
+3. 文档状态未同步到新形状：`docs/cli-call-contract.md`、`docs/cli-call-contract.md` §1.1 引用、`docs/cli-semantic-operations.md`、`docs/cli-foundation.md`、`AGENTS.md` 交付边界段、`workflows/README.md` 图清单仍是旧描述。
+4. 迁移资产与孤儿合同：`cli.cd-policy.v1` 无代码与文档 owner；`ba002b23` 之前的原型产物与 `d7c4a3e5` 的地位需在结果文档里明确为历史证据。
+5. 无 CI：所有基线依赖显式环境变量与手工日志，交付后无法一条命令复现。
+
+## 6. 迁移完成定义
+
+同时满足下列八条才算迁移完成。任一条不满足即为未完成，不以分支提交、Review PASS 或测试通过替代。
+
+| # | 条件 | 本轮结果 |
+| --- | --- | --- |
+| 1 | 3 条 P1 关闭，受影响复核通过 | 已关闭；局部复核零 finding、controller PASS |
+| 2 | 新契约下 PWD/CD/LS 正常、失败、副作用零回归；`NOOP` 语义变化单列 | 已满足；`NOOP` 变化单列，不计为准确率提升 |
+| 3 | 公开入口在新进程加载保存候选，`fitted=false`，执行次数可核对 | 已满足；58 题、0 失败、34 次真实执行、`fitted=false` |
+| 4 | 显式环境下全仓回归通过并记录新基线 | 已满足；`npm run test:full` 255/255、0 跳过 |
+| 5 | 两张图 dagpipe validate/inspect 通过，配置与算子版本一致 | 已满足；`main` 上 6N5E 与 8N8E 复跑通过 |
+| 6 | 受影响文档与 AGENTS 边界同步；旧 4×4 只以迁移器与历史证据存在 | 已满足；节点卡、命令设计、训练合同与 AGENTS 边界同步 |
+| 7 | 合入 `origin/main`、推送、远端核对 | 合入与推送见 git 记录；推送回执以远端分支为准 |
+| 8 | 自有 worktree 与分支核销，保留他人 `three-site-zero`；训练资产归档 canonical | 已核销本任务 worktree 与分支；档案在 canonical `training/` |
+
+## 7. 收口步骤
+
+| 步 | 动作 | 出口与验收 | 停止条件 |
+| --- | --- | --- | --- |
+| R1 | 修复 3 条 P1：State 与内嵌证据交叉核对；公开边界恢复 `TypeError`；未注册语义先按 `unsupported` 收束 | 每条 finding 有对应红测后转绿；补公开入口反例 | 任一条需要改契约才能修，先补合同再动代码 |
+| R2 | 候选内 build 与全仓测试，记录新基线数字 | 新基线日志 + 逐命令统计 | 测试需放宽断言才能过，停止并查归因 |
+| R3 | 受影响复核 Review | 只审 finding 与受影响模块，输出 PASS/FAIL | 新 finding 触及未变模块时先判断是否本次引入 |
+| R4 | 合入最新 `origin/main`（含 B/R 文档），canonical build | 冲突按两侧保留；公共设计不被运行绑定覆盖 | 公共合同与迁移合同冲突时先定 owner |
+| R5 | 保存候选新进程回载 + 独立验证结果复核 | `fitted=false`、执行计数、独立报告一致 | 回载结果与独立报告不一致 |
+| R6 | `main` merge、push、远端核对 | 推送回执 | 推送拒绝或 CI 失败，不停无关工作 |
+| R7 | 资源核销与资产归档 | worktree/branch 物理删除，证据保留 | dirty 或仍有活动进程，不强删 |
+
+R1 与 R2 由迁移接管方在该独占树完成，未派重叠 worker。R3 的复核使用独立只读 OAuth gpt-6.1-sol medium 会话，只审 3 条 finding 与受影响闭包。R4–R7 在 `main` 上完成。
+
+## 8. 残留处置结果
+
+1. 基线已重定：`npm run test:full`（`scripts/test-full.mjs`）。缺 `NN_HANDWIRED_ROOT`、`NN_CLI_COMMAND_PROFILE`、`NN_CWD_RELATION_PROFILE` 任一项即 exit 2，不以 skip 冒充通过；`main` 记录 255/255、0 跳过。默认 `npm test` 仍可无资产运行，其跳过项不计作通过。dagpipe validate 在 `main` 复跑通过：`cli-file-property@0.2.0` 6N5E、`cli-filesystem-training@0.2.0` 8N8E。
+2. M0 观测入口保留，effect 词表不合并：M0 只做 pwd/path/attributes 观测，`CliEffect` 只有 `filesystem.read`、`process.exec` 是它的真实授权范围；沙盒词表经 `observationEffects` 显式映射后才交给 M0，`session.write` 不进入观测 API。扩大 M0 词表等于给出它没有的写能力，因此本轮不动；接入第一个写操作时重新评估。
+3. `path.resolve` 不再有双身份：作为未来 head 时，执行者是既有词法解释器；独立 `cli.path-controller.v1` 保留为独立的函数表达训练能力，不参与命令选择。本轮不退役它，因为它是当前唯一可运行的路径函数实现，且迁移合同明确把该概念列为保留项。退役的停止条件尚未满足：head 表还没有注册 `path.resolve`，"覆盖全部既有回放用例"无法证明。后续注册该 head 时再按此项退役。
+4. `cwd-relation` 保留为独立概念测量，不产生命令候选。`cli.cd-policy.v1` 只存在于本机历史的 weights 目录，没有代码与文档入口，标记为历史产物，不迁移、不加载。
+5. 旧权重与旧报告保持 `uncalibrated/not_applied`，采用仍需满足 model-evolution 条件；`d7c4a3e5` 只作离线迁移起点。
+
+## 9. 下一阶段（迁移完成之后）
+
+顺序沿用用户口径：先目录，再文件，最后组合。每一项都走同一流程：先补 head 注册与可辨配对，再红测，再 helper 与训练，再独立验证。
+
+1. 目录与路径原语：`path.relative`、`path.parts`、`path.realpath`、`entry.inspect` 扩展（E/D/F/P、完整类型、`dev/ino/nlink/rdev`）。
+2. 目录变更：`directory.create`、`entry.move`（native no-replace rename，缺 binding 报 UNSUPPORTED）、`entry.remove`。
+3. 文件字节：`file.create/read/replace/write/append/truncate/copy/link`。
+4. 元数据与链接：`entry.mode.set`、`entry.owner.set`、`entry.times.set`、`link.create`、`file.property.links`。
+5. B 对象绑定：把当前只产 `DEFER` 的 `DirectoryQuery` 变成可执行 `DirectoryRef`；这是"模糊目标"唯一入口。
+6. R 用途关系：按 `docs/cli-role-evidence-design.md` 的 18 维证据抽取实现，未知与冲突保留。
+7. 组合与树操作：多级建目录、遍历、树复制、树删除、统计比较、文本匹配；结束只用 `NOOP`，未成立返回 `DEFER`。
+8. 自进化：`onSample` 已就位，接自动采集落盘；再补当前版本引用、配对比较自动采用、冲突移交裁决。
+
+## 10. 风险与已知冲突
+
+状态标记：`已处置` 表示本轮已消除；`持续限制` 表示接受并保留的边界；`历史状态` 表示已结束的过程记录，不作为当前任务。
+
+1. `已处置` head 顺序措辞冲突：`docs/cli-filesystem-training.md` §2.1 已改为“四 head 是迁移前历史阶段，当前切片为六 head 固定顺序，按名迁移、索引不作为依据”。
+2. `已处置` 授权词表不一致：M0 观测入口保留窄 effect 词表，沙盒词表经 `observationEffects` 显式映射后才进入观测 API，`session.write` 不进入观测 API（见 §8 与交付回执）。
+3. `已处置` 旧基线数字不可续用：本轮已给出新基线 `npm run test:full` 255/255、0 跳过；测试集合变化单列，不计为通过率提升。
+4. `持续限制` 训练资产树未进 Git：迁移证据依赖本地 `training/**`，仓库内只保存文档摘要；复现需要显式 `NN_HANDWIRED_ROOT`、`NN_CLI_COMMAND_PROFILE`、`NN_CWD_RELATION_PROFILE`。
+5. `历史状态` `note.md` 已由迁移 owner 在本轮更新为交付状态，不再存在并发冲突。
+6. `历史状态` 并发修复与候选树：3 条 P1 已关闭、局部复核 PASS，迁移 worktree 与分支已核销；不再有活动 writer 或该树写入限制。
+
+## 11. 已决定与仍开放项
+
+已决定并执行：迁移直接收口，不拆成"先文档后代码"；全仓基线命令化；M0 词表不合并；`path.resolve` head 保留、独立控制器暂不退役；`cli.cd-policy.v1` 标记历史。
+
+仍开放，属于迁移后能力批次，不需要在本轮决策：`path.resolve` head 注册、其余 22 个操作、B 对象查找、R 用途关系、自动采集与自动采用。
+
+三个数字的口径：6 是 `cli-file-property` 图的节点数；22 是尚未注册的新动作 head 数；25 是 `docs/cli-semantic-operations.md` 的精确操作总数，其中 `cwd.get/set/list` 复用现有 `pwd/cd/ls` 三个 head。三者是不同集合，引用时写清口径，不互相替代。

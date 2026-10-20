@@ -1,22 +1,27 @@
 # CLI调用参数简化合同
 
-状态：2026-10-19设计合同，共享命令模型源码已实现；正式三阶段train/dev与独立验证已通过，作者全量回归、整体Review与集成待完成。实测计数见[共享模型实测](cli-filesystem-training-results.md)。适用于所有接入的CLI能力，不表示已支持系统中的所有命令。当前模型唯一权威合同见[文件系统训练合同](cli-filesystem-training.md)；Goal推理及训练沿[总体架构](design.md)1.1节。
+状态：2026-10-19实施合同；PWD/CD/LS 已迁移到 `file.property` typed 请求与统一单 profile，旧 `observe_cwd/set_cwd/list_directory` Goal 与旧 `cli.command-policy.v1` 4×4 运行对象已退役。本文是当前调用边界的唯一入口；Goal/证据/结果语义见[file.property合同](cli-filesystem-semantics.md)第6节，训练与迁移见[文件系统训练合同](cli-filesystem-training.md)§0.1。共享候选保持`uncalibrated/not_applied`；B对象查找、其余22个操作、自动采集/自动采用仍未实现。
 
 ## 1. 模型输出调用序列与显式资源信封
 
-统一共享模型（`cli.command-policy.v1`）接收结构化Goal与State，输出标准调用序列。序列首项取自命令头，是小写实际Shell命令名；后续项是机械绑定的typed位置参数引用，模型不生成自由参数文本。
+统一共享模型（`cli.command-policy.v1`）接收 typed `file.property` Goal 与 State，输出标准调用序列。序列首项取自命令头，是小写实际Shell命令名；后续项是机械绑定的typed位置参数引用，模型不生成自由参数文本。
 
-profile、sandbox与会话在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`；每次调用传`step({ goal, state, directory? })`。请求没有`resources`或`directories`字段。模型不生成完整命令文本，不生成Shell标志位，不解释Shell语法，也不解析命令stdout/stderr正文。
+profile、sandbox、会话与可选采样回调在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S, onSample? })`；每次调用只传`step({ goal, satisfactionThreshold, state })`。请求没有`resources`、`directories` 或独立 `directory` 字段；目标目录引用在 `goal.target`/`goal.requirement.expected` 中显式给出。模型不生成完整命令文本，不生成Shell标志位，不解释Shell语法，也不解析命令stdout/stderr正文。
 
 ```ts
 const policy = createCliCommandPolicy({ profile, sandbox, session: S });
 await policy.step({
-  goal: { kind: "set_cwd", session: S.sessionId, target: absoluteTarget },
+  goal: {
+    kind: "file.property",
+    property: "file.property.relation.sessionCwd",
+    target: { kind: "cli.file-query", relation: "sessionCwd", session: S },
+    requirement: { kind: "equals", expected: D },
+  },
+  satisfactionThreshold: 100,
   state: { session: S.sessionId, cwdObservation: null, directoryListing: null },
-  directory: D,
 });
 ```
-Shell 的统一 Goal 为 [file.property.xxx](cli-filesystem-semantics.md)，指定对象、属性及要求；本页 `operation` 仍是 Action，不将属性键当可执行程序名，也不为每个属性增加一个原生命令。已有 observe_cwd 等接口尚未迁移；后续须显式接入并保留旧入口回归，不以设计正文替代运行变更。
+Shell 的统一 Goal 为 [file.property.xxx](cli-filesystem-semantics.md)，指定对象、属性及要求；本页 `operation` 仍是 Action，不将属性键当可执行程序名，也不为每个属性增加一个原生命令。旧 Goal kind 不再被运行入口接受；旧对象只能经显式离线迁移工具转换，不能静默 fallback。
 
 | 语义调用 | NN需要选择/携带的参数 | harness固定的内容 |
 | --- | --- | --- |
@@ -24,22 +29,32 @@ Shell 的统一 Goal 为 [file.property.xxx](cli-filesystem-semantics.md)，指�
 | `{operation:"cwd.set",parameters:{session:S,directory:D}}` | session和目录引用 | CD映射、固定执行模板、目标路径绑定、成功后提交S、后续观测验证 |
 | `{operation:"directory.list",parameters:{session:S,directory:D}}` | session和目录引用 | LIST映射、固定结构化CLI helper、只列直接条目、隐藏项保留、不跟随链接、不递归 |
 
-`DirectoryRef.path`在调用时相对S当前cwd解析；CD提交后调用者重新绑定。`Goal.target`是配置后的绝对路径，必须与本次绑定引用解析出的目标一致；harness不做隐藏重定向。
+`DirectoryRef.path`在调用时相对S当前cwd解析；CD提交后调用者重新绑定。`DirectoryQuery` 是合法但本轮未完成的目录绑定：`scopes` 显式、`selector.type="directory"`、`cardinality="one"`；它进入 `DEFER`，不扫描磁盘。harness不做隐藏重定向。
 
 | 结构化语义 | 模型输出调用序列 | harness固定映射与语义操作 | harness固定执行与验证内容 |
 | --- | --- | --- | --- |
-| `observe_cwd(S)` | `["pwd"]` | `cwd.get(session:S)` | 读取S当前cwd，执行`/bin/pwd -P`，回执解码与证据记录 |
-| `set_cwd(S,D)` | `["cd", D]` | `cwd.set(session:S, directory:D)` | 绑定D，执行固定CD脚本，提交S，并在同一S执行真实PWD验证后条件 |
-| `list_directory(S,D)` | `["ls", D]` | `directory.list(session:S, directory:D)` | 绑定D，通过固定结构化helper列举直接子条目；不调用未编译自由命令，不解析`/bin/ls`文本 |
-| 未支持的语义Goal | 无调用（`unsupported`） | 不分流，不执行 | 策略`selectedHead:"unsupported"`，`invocation: null`，`executorInvoked:false`；不执行任何Shell命令 |
+| `sessionCwd observed` | `["pwd"]` | `cwd.get(session:S)` | 读取S当前cwd，执行`/bin/pwd -P`，回执解码与证据记录 |
+| `sessionCwd equals D` | `["cd", D]` 或 `NOOP` | `cwd.set(session:S, directory:D)` | 绑定D，执行固定CD脚本，提交S并以同一回执验证后条件；已满足且证据适用时不执行 |
+| `directory.entries observed` | `["ls", D]` | `directory.list(session:S, directory:D)` | 绑定D，通过固定结构化helper列举直接子条目；不调用未编译自由命令，不解析`/bin/ls`文本 |
+| 合法未绑定 `DirectoryQuery` | `DEFER`，无调用 | 不执行 | `invocation:null`，`executorInvoked:false`，返回typed `binding_unresolved` |
+| 结构合法但未注册 property/predicate | `unsupported`，无调用 | 不分流，不执行 | `selectedHead:"unsupported"`，`invocation:null`，`executorInvoked:false`，`satisfaction:null` |
 
 合同要求：
 - `["cd", D]`是单次调用的参数序列，不是多步规划。
 - 未支持语义输出内部`unsupported`分类，不输出可执行Shell命令，也不输出`["REJECT"]`。
-- 共享路径不建立逐命令binary profile；旧六参数PWD API（`cli.goal-policy.v1`）只保留兼容，不被共享入口调用。
+- 共享路径只有一份 `cli.command-policy.v1` profile；旧六参数 PWD API（`cli.goal-policy.v1`）与旧 4×4 共享 profile 已物理退役，不在运行入口保留兼容分支。
 - `ls`的native实现继续使用固定编译结构化helper，harness与模型均不解析`/bin/ls`面向人类的文本输出。
 - 命令头预测错误时，guard拒绝执行但仍记录`policy_error`，不能把错误伪装成`unsupported`或OS失败。
 - 模型预测的新状态或机械调用完成不能等同于目标达成，实际状态由harness观测提供。
+- `NOOP`与`DEFER`是控制 head，`invocation:null`且零 executor；不输出伪造 shell 命令。
+- 非法 schema、额外答案字段、坏 ref、跨 session 矛盾或旧 Goal/旧 profile 直接抛 `TypeError`，零 OS 副作用。结构合法但未注册的 property/predicate 返回 `unsupported` 控制结果。
+- 顶层 `status` 统一为 `achieved | unmet | unknown | rejected | failed`；旧 `unverified` 分支退役。
+
+### 1.1 当前实现切片与训练入口
+
+当前 profile 保存精确的 `properties`、`predicates`、`heads`、`wires`、`weights` 顺序。head 为 `unsupported,DEFER,NOOP,pwd,cd,ls`；wire 前四条固定为 `bias,goalObserveCwd,goalSetCwd,goalListDirectory`，随后是 `property.directory.entries,property.relation.sessionCwd`、`predicate.observe.sessionCwd,predicate.equals.sessionCwd,predicate.observe.entries`、`state.hasFreshEvidence,state.knownValue,state.requiredConditionHolds,state.hasDestinationRef` 与交互 `state.requiredConditionHolds*state.hasFreshEvidence`。`hasSessionRef` 恒为 1，记录为常量，不注册。当前矩阵为 6×14=84 参数。
+
+离线迁移只接受旧 `[unsupported,pwd,cd,ls]×[bias,goalObserveCwd,goalSetCwd,goalListDirectory]` 对象，按 name 复制旧交叉块，新行列补零并补阶段注册；运行入口拒绝未显式迁移的旧对象。legacy 四 wire 从 typed property/predicate 相等关系计算，不调用期望 head 或 teacher。
 
 补全的目录/文件操作按语义目录2.1/2.2的必要参数接入：引用 source/destination/parent/file/session 与 typed Bytes、offset、length、mode、uid/gid、时间或link文本，字段按具体operation固定。创建目标用已知父目录与明确目标路径，不要求伪造已有引用。固定harness在 `lib/adapters/cli/`，仅接已声明操作，不开放通用shell；OS/固定helper映射及部分副作用验收须在各操作实现前补齐。递归创建、树复制/删除等由有限单操作组合，不给命令加隐含递归/覆盖fallback。
 

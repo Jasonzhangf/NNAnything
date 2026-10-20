@@ -198,6 +198,68 @@ T3原生浏览器句柄验收未完成：IAB本地页具备showOpenFilePicker/ge
 三站未知闭环仍在候选验证，未提交／合入／推送本轮改动，未采用新权重。直接IAB采集r6与原公开workflow回放：微博848合格、分类unknown/conflict均0、观测未知4；小红书485／0／0、观测未知1、另有2个未读iframe；知乎599／0／0、观测未知0。当前页面结果不是未见页面准确率。候选focus/three-site-20261019021043807-5730-7dfad959.weight.json保持not_applied、uncalibrated。过程唯一入口为外置three-site-zero/note.md；真实输入和报告留在training/{samples,results}/three-site-zero/direct-*-r6.*。
 
 键盘焦点按用户要求保留。9个直接检查的知乎tabindex0容器加入415行受限训练，仅训练7个neutral_focusable_control系数，500轮实际19.920283416秒；9修复、406旧开发行保留、0新增回退。原357黄金274正确保留、0新增回退、83仍未达原标签，不声称全量通过。r6合格输入中明确非负tabindex：微博6、知乎10，全部judged且无ignore；小红书0项显式标记，此计数不含未声明tabindex的原生控件。真实activeElement仍为知乎首个结果容器。负tabindex程序焦点和动态焦点机制尚未证明覆盖，不能扩大已验收范围。
+## 2026-10-19 迁移已合入main，残留处置完成（当前状态）
+
+typed `file.property`单权重迁移已合入`main`（merge `37913c5`）。`main`上旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`与旧cli-goal图均已物理退役；运行形状为`cli-file-property`6N5E `0.2.0`，训练图为8N8E `0.2.0`。
+
+收口证据（`main`树，固定候选`ba002b23-b650-4869-87ec-2d36f4fe7485`，未重训、未改权重）：`npm run build`exit 0；`npm run test:full`（`scripts/test-full.mjs`，显式资产缺失即exit 2）255/255、0失败0跳过；`dagpipe graph validate`两张图通过（6N5E、8N8E）；新进程回载58题0失败34次真实执行`fitted=false`。修复前3条P1的红绿反例与独立局部复核结果见外置run的`review-fix-result.md`、`post-fix-verification.md`、`review-verdict.json`。
+
+残留处置：全仓基线改为`npm run test:full`，缺`NN_HANDWIRED_ROOT`/`NN_CLI_COMMAND_PROFILE`/`NN_CWD_RELATION_PROFILE`即非零退出，不再以skip冒充通过；M0观测入口保留窄effect词表（沙盒经`observationEffects`显式映射，`session.write`不进入观测API）；`path.resolve`head与独立`cli.path-controller.v1`并存，控制器暂不退役（head尚未注册，退役停止条件未满足）；`cli.cd-policy.v1`只在本机历史weights，标历史不加载；节点合同卡、命令设计与训练合同已同步到实际算子名。处置依据与开放项见`docs/cli-migration.md`。
+
+候选仍`uncalibrated/not_applied`，采用须满足`docs/model-evolution.md`条件。下一步属迁移后能力批次：`path.resolve`head、其余22个操作、B对象查找、R用途关系、自动采集与采用。
+
+结案独立规则审计（外置run的`closeout-task.md`，独立只读OAuth gpt-6.1-sol medium）已完成，结论为交付证据具备；其报出的3处记录/指导修订已落实：训练合同§2.1把四head标为迁移前历史、迁移文档§10逐项标为已处置/持续限制/历史状态、run进度更新为最终状态。审计正文见外置run的`closeout-audit.md`。
+
+## 2026-10-19 3条P1关闭，局部复核通过，待集成（历史）
+
+接手后未重训、未改权重、未改标签或预算。3条P1已修：State知识值与内嵌观测交叉核对并让authority记录完整真实receipt；公开`step`在进入workflow前调用唯一校验入口，保留`TypeError`与零副作用；注册/未绑定事实只从`validateGoal`/`validatePropertyRequest`取一次，未注册属性搭配合法`DirectoryQuery`收束为`unsupported`且`defer=null`。
+
+证据：修复前后同文件公开反例，`review-fix-red-file-property.log`（14测试9通过5失败）到14/14；修复后`npm run typecheck`、`npm run build` exit 0；显式环境下全仓255/255、0失败0跳过（`logs/post-fix-full-suite-r1.log`，迁移树测试集合已变化，旧253不再作门禁）；公开基线4/4；独立验证34/34场景与16/16探针（`verification/verification-execution-1792464439194.json`）；新进程回载58题0失败34次真实执行`fitted=false`；父级3P1探针通过。作者报告`review-fix-result.md`，验证记录`post-fix-verification.md`。
+
+局部复核用独立只读OAuth gpt-6.1-sol medium会话，只审3条finding与受影响闭包，`review-final.json`零finding，controller `review-verdict.json` 判pass（首次失败结果保留在`review-final-first.json`、`review-verdict-first.json`）。候选仍`uncalibrated/not_applied`，main未集成、未推送。下一步：提交修复、组合最新`origin/main`、canonical构建、main集成与推送、资源核销。
+
+## 2026-10-19 用户要求Skill核查与任务交接（历史）
+
+固定流程与架构owner已核对，核查正文为`/Volumes/Intel/playground/nnanything-runs/cli-property-migration-20261019/skills-agents-audit.md`。两本本地Skill补CLI迁移/训练专属路由，并将当前词表/维度改读唯一领域合同；尚未提交，主树未同步。本项目AGENTS已有目录职责、设计/训练入口与架构合同导航，本次不重复添加规则。
+
+首次整体Review实际已返回3个P1并由controller裁决fail：内嵌观测与authority未完整对应、step丢失TypeError、未注册属性query结果混为DEFER。GCM已留下5个文件dirty修复；局部受影响回归37pass/4skip、概念回归34pass/1skip、build/typecheck通过，尚未修复后全仓/独立验证及finding复核。为用户交接，owner已SIGINT停止自有PID40251，exec session51172退出1；停止不代表产品失败，不再有本worker后台写入。候选不采用，main未集成/推送。
+
+原8项计划W1–W6已验收，W7仍开放、W8未做；修复前253/253及34case/16probe证据不可冒称修复后结果。完整交接及可复制提示词分别为本run的`handoff.md`、`handoff-prompt.md`。接手必须复用当前唯一worktree和dirty改动，先关闭3个finding，再按正常main/push/资源收口交付；保留他人three-site-zero与B/R设计。
+
+## 2026-10-19 属性迁移独立验收完成，整体Review进行中
+
+计划W1–W6已验收，W7独立行为部分通过，整体Review与W8交付尚待完成。独立GCM固定读取ba002b23-b650-4869-87ec-2d36f4fe7485候选，33预先配方场景及1失效引用反例34/34、16失败探针16/16（native10/grant4/injected2），基线公开consumer4/4，全仓253/253、0fail/skip。未重新拟合、未改模型/标签/预算。原始证据为外置run verification/verification-execution-1792461348175.json、baseline-contract-r2.log、npm-test-r2-2.log；验证器适配首轮错误保留，未算产品训练失败。正式资产已归档canonical training/{samples,results,weights}/filesystem/command/ba002b23-b650-4869-87ec-2d36f4fe7485/，候选仍not_applied。
+
+最新origin/main的R设计3336c72已正常合入候选，note冲突保留两侧记录后正常完成merge1179078；B设计066688d保留，B/R学习和执行仍未实现。独立milestone Review首选Gemini4 medium在本轮agy models目录缺失，按合同启动OAuth gpt-6.1-sol medium只读后备，审查整个迁移及B/R边界。结果尚未回传，不以候选提交或测试通过代替main推送。
+
+## 2026-10-19 typed file.property迁移、单候选训练与作者回载（待父级独立验证）
+
+本次在同一独占树继续原任务。`migration-contract.md`与公共`c7c20ef`共同作为实施准入；typed请求、受信证据authority、NOOP/DEFER、显式0..100阈值和统一status已写入既有领域合同。旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`及旧cli-goal图已物理退役；旧4×4只保留按名离线迁移。
+
+当前运行入口只接受typed`file.property`：sessionCwd observed/equals与directory.entries observed，控制结果unsupported/DEFER/NOOP。单一`cli.command-policy.v1`保存`unsupported,DEFER,NOOP,pwd,cd,ls`六个head、14条有序wire和6×14共84参数。合法未绑定DirectoryQuery进入DEFER且零执行；非法schema、旧Goal、旧profile抛TypeError且无OS副作用；未注册property返回unsupported。
+
+运行图为`cli-file-property` 6N5E `0.2.0`，训练图为`cli-filesystem-training` 8N8E `0.2.0`。DAGpipe validate/inspect均通过，日志在run的`logs/dagpipe-file-property-{validate,inspect}.log`与`logs/dagpipe-training-{validate,inspect}.log`。作者定向回归105/105通过，日志为`logs/cli-author-regression.log`；训练前旧实现阻断与红绿定义保留在`implementation-blocked.md`、`w2-prep.md`和对应logs。
+
+真实训练run为`ba002b23-b650-4869-87ec-2d36f4fe7485`，200epochs/lr0.1，从旧候选按名迁移后一次拟合84参数。train38/38、development20/20；零对照4/38、迁移后冻结26/38；PWD/CD/LS旧能力回归无regressed。同目标CD在适用fresh equals证据下改为NOOP，单列公开语义变化。新进程回载58题、0失败、34次真实执行、`fitted=false`；consumer总计5338.783ms。详见`docs/cli-filesystem-training-results.md`、run报告与`logs/final-train-200epoch.log`。
+
+候选绝对路径为`/Volumes/Intel/playground/nnanything/cli-property-migration/training/accepted-20261019/weights/filesystem/command/ba002b23-b650-4869-87ec-2d36f4fe7485/candidate.json`，保持uncalibrated/not_applied。父级独立验证、整体Review、merge与push仍待完成；B对象查找、其余22操作、自动采集和自动采用未实现。本轮未读或修改外置verification及父级独立tests fixture。
+
+## 2026-10-19 R用途证据合同接收与缺测设计收口
+
+peer按无冲突派发交付独立docs提交6cdcbc6，已正常cherry-pick为79c24a8，只新增cli-role-evidence-design.md，未合并其DOM分支。原支持合同的共享owner缺口由本owner接管：两次独立GCM执行均只返回准备文字、没有实际编辑，不记成功；父级逐文件补齐role/scope进入Goal、10角色有限必要证据、18参数缺失logit区间、同范围冲突和observed负关系满足度。依赖清单与备份记录端点同步明确，dev阈值说法统一。
+
+本轮四项工作为接收peer文档、补齐R共享合同、独立领域复核、main交付；前三项已完成，最终Git交付回执见外置run。不训练、不改业务代码/样本/权重；属性6N5E、共享训练8N8E拓扑未改，复用有效证据。独立OAuth领域复核覆盖R支持文档及两个直接owner合同，不重审未变P/C设计；外置过程与证据为`/Volumes/Intel/playground/nnanything-runs/file-property-review-fixes-20261019/r-closure/`。有限证据范围外或相同向量不可辨的用途保留unknown，不宣称普遍用途识别或已运行。
+
+R首轮独立复核发现P1：全18位可观测训练行要求会排除严格UTF-8不可解码的PNG媒体正例。已修为必要关系准入、非必要缺失位按同一[0,1]域计算最坏情况BCE，明确正例用z_min、负例用z_max及折点次梯度；保留原始missing，不伪造文本位0。PNG正/负与缺失端点加入独立验收配方；仍仅设计，未执行拟合。该finding与直接数值闭包经独立OAuth gpt-6.1-sol medium复核退出0、findings为空、controller PASS，复用首轮未变领域证据。`git diff --check`通过，未重跑未受影响的训练/测试或图校验。
+
+## 2026-10-19 file.property设计独立Review P1/P2修复
+
+本轮只修设计与状态记录，不改业务代码、不生成样本、不训练或升级权重。四项工作为：派发无冲突B/R设计、修共享命令P1、修状态P2、独立finding复核及main交付。B/R已分别派给现有peer，仍待各自设计收口与验收，不将消息接受或候选交来记为完成。
+
+GCM已修P1/P2正文，owner亲读实际diff后接收。P1-P6只作样本/统计/效果分组；P与C的命令选择共用cli.command-policy.v1，B/R只输出概念关系。共享合同补齐全局head/wire、typed参数、按名称迁移、旧命令回放与逐head/属性回归，保留P3/P4目标类型与P5范围反例。owner另澄清legacy列、已注册列及完整类型块不因恒定值消融，并补齐输入公式中的legacy位。当前实际schema仍为PWD/CD/LS的4×4，新增能力未实现。
+
+P2按已有共享CLI交付证据同步training、call及list文档；未重跑253/253回归。CWD/CD无相同旧状态，保持未改。受影响图拓扑不变，复用属性6N5E、共享训练8N8E及课程/升级有效证据。独立OAuth gpt-6.1-sol medium复核退出0，JSON findings为空，controller裁决PASS。实际schema及未实现边界经核对；`git diff --check`通过。结果及最终Git交付回执沿外置`/Volumes/Intel/playground/nnanything-runs/file-property-review-fixes-20261019/`记录，不以Review通过代替push回执。
+
 ## 2026-10-19 CLI共享前三项最终集成验收
 
 本轮共享CLI计划7/7项均已验收：CLI候选全仓回归253/253通过、0失败、0skip；真实训练、独立验收、满足度与来源隔离修复均沿用已有有效证据。独立复核`review-final.json`无finding，`review-verdict.json`为PASS，未发现新增实质变化，不重复整体Review。

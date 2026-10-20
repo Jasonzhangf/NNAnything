@@ -11,89 +11,92 @@ function scenario(id, partition, sourceGroup = id) {
     id,
     sourceGroup,
     partition,
-    targetPath: "start",
+    startPath: "start",
+    targetPath: "target",
     expectedEntries: [],
     recipe: {
       scenarioId: id,
-      entries: [{ path: "start", kind: "directory" }],
-      sessions: [{
-        id: "s",
-        cwd: "start",
-        grantedEffects: ["filesystem.read", "process.exec", "session.write"],
-      }],
+      entries: [{ path: "start", kind: "directory" }, { path: "target", kind: "directory" }],
+      sessions: [{ id: "s", cwd: "start", grantedEffects: ["filesystem.read", "process.exec", "session.write"] }],
     },
   };
 }
 
 function verificationFromPrimary(dataset, originPartition) {
-  const scenarios = dataset.scenarios.filter(scene => scene.partition === originPartition);
-  const scenarioIds = new Map(scenarios.map(scene => [scene.id, `verification-${scene.id}`]));
+  const selected = dataset.scenarios.filter(scene => scene.partition === originPartition);
+  const ids = new Map(selected.map(scene => [scene.id, `verification-${scene.id}`]));
   return {
-    version: 1,
-    scenarios: scenarios.map(scene => ({
+    version: 2,
+    scenarios: selected.map(scene => ({
       ...structuredClone(scene),
-      id: scenarioIds.get(scene.id),
+      id: ids.get(scene.id),
       partition: "verification",
-      recipe: { ...structuredClone(scene.recipe), scenarioId: scenarioIds.get(scene.id) },
+      recipe: { ...structuredClone(scene.recipe), scenarioId: ids.get(scene.id) },
     })),
     samples: dataset.samples.filter(sample => sample.partition === originPartition).map(sample => ({
       ...structuredClone(sample),
       id: `verification-${sample.id}`,
-      scenarioId: scenarioIds.get(sample.scenarioId),
+      scenarioId: ids.get(sample.scenarioId),
       partition: "verification",
     })),
   };
 }
 
-function disjointVerificationDataset() {
-  const scenarioId = "verification-independent-directory";
-  const sourceGroup = "verification-independent-family";
-  const goals = [
-    ["observe_cwd", "pwd"],
-    ["set_cwd", "cd"],
-    ["list_directory", "ls"],
-    ["unsupported_operation", "unsupported"],
-  ];
+function disjointVerificationDataset(dataset) {
+  const scene = dataset.scenarios.find(candidate => candidate.startPath !== candidate.targetPath);
+  assert.ok(scene);
+  const id = "verification-independent-directory";
   return {
-    version: 1,
+    version: 2,
     scenarios: [{
-      id: scenarioId,
-      sourceGroup,
+      ...structuredClone(scene),
+      id,
+      sourceGroup: "verification-independent-family",
       partition: "verification",
-      targetPath: "target",
-      expectedEntries: [
-        { name: "record.txt", type: "file" },
-        { name: "nested", type: "directory" },
-      ],
-      recipe: {
-        scenarioId,
-        entries: [
-          { path: "start", kind: "directory" },
-          { path: "target", kind: "directory" },
-          { path: "target/record.txt", kind: "file", contents: "independent verification bytes" },
-          { path: "target/nested", kind: "directory" },
-        ],
-        sessions: [
-          { id: "s", cwd: "start", grantedEffects: ["filesystem.read", "process.exec", "session.write"] },
-          { id: "other", cwd: "start", grantedEffects: ["filesystem.read", "process.exec", "session.write"] },
-        ],
-      },
+      recipe: { ...structuredClone(scene.recipe), scenarioId: id },
     }],
-    samples: goals.map(([goalKind, expectedHead], index) => ({
-      id: `verification-independent-${index}`,
-      scenarioId,
-      sourceGroup,
+    samples: dataset.samples.filter(sample => sample.scenarioId === scene.id).map(sample => ({
+      ...structuredClone(sample),
+      id: `verification-${sample.id}`,
+      scenarioId: id,
+      sourceGroup: "verification-independent-family",
       partition: "verification",
-      goalKind,
-      expectedHead,
     })),
   };
+}
+
+function typedRows(apiModule) {
+  const session = { kind: "cli.session", scenarioId: "fit", sessionId: "s" };
+  const observed = {
+    goal: {
+      kind: "file.property",
+      property: "file.property.relation.sessionCwd",
+      target: { kind: "cli.file-query", relation: "sessionCwd", session },
+      requirement: { kind: "observed", freshness: "this_run" },
+    },
+    facts: { hasFreshEvidence: 0, knownValue: 0, requiredConditionHolds: 0, hasDestinationRef: 0 },
+    expectedHead: "pwd",
+  };
+  const unsupported = {
+    goal: {
+      kind: "file.property",
+      property: "file.property.exists",
+      target: { kind: "cli.directory", scenarioId: "fit", sessionId: "s", path: "." },
+      requirement: { kind: "equals", expected: true },
+    },
+    facts: { hasFreshEvidence: 0, knownValue: 0, requiredConditionHolds: 0, hasDestinationRef: 0 },
+    expectedHead: "unsupported",
+  };
+  return [observed, observed, unsupported, unsupported].map(row => ({
+    ...row,
+    features: apiModule.cliCommandFeatures(row.goal, row.facts),
+  }));
 }
 
 test("shared prepare rejects scenario source groups that cross partitions", async () => {
   const { prepareCliCommandDataset } = await api();
   const dataset = {
-    version: 1,
+    version: 2,
     scenarios: [
       scenario("train-scene", "train", "shared-source"),
       scenario("development-scene", "development", "shared-source"),
@@ -101,28 +104,30 @@ test("shared prepare rejects scenario source groups that cross partitions", asyn
     samples: [],
   };
   assert.throws(
-    () => prepareCliCommandDataset(dataset, ["pwd", "cd", "ls"]),
+    () => prepareCliCommandDataset(dataset, ["train", "development"]),
     /Source group crosses partitions/,
   );
 });
 
-test("shared prepare rejects retired binary labels that conflict with semantic goals", async () => {
+test("shared prepare rejects sample expectations outside the registered case contract", async () => {
   const { prepareCliCommandDataset } = await api();
   const dataset = {
-    version: 1,
+    version: 2,
     scenarios: [scenario("train-scene", "train")],
     samples: [{
-      id: "legacy-cd-reject",
+      id: "conflicting-teacher",
       scenarioId: "train-scene",
       sourceGroup: "train-scene",
       partition: "train",
-      goalKind: "observe_cwd",
+      case: "cwd-observed",
       expectedHead: "cd",
+      expectedStatus: "achieved",
+      expectedSatisfaction: 100,
     }],
   };
   assert.throws(
-    () => prepareCliCommandDataset(dataset, ["pwd", "cd", "ls"]),
-    /Legacy binary labels conflict with shared semantic teacher/,
+    () => prepareCliCommandDataset(dataset, ["train", "development"]),
+    /expectation conflicts/,
   );
 });
 
@@ -138,10 +143,9 @@ test("optional verification rejects primary train or development source groups b
       await mkdir(outputRoot);
       const verification = verificationFromPrimary(dataset, originPartition);
       assert.ok(verification.samples.length > 0);
-      const outcome = await library.runCliCommandTraining({
+      await assert.rejects(library.runCliCommandTraining({
         dataset,
-        commands: ["pwd", "cd", "ls"],
-        initial: library.zeroCliCommandProfile([]),
+        initial: library.zeroCliCommandProfile(),
         initialSource: null,
         epochs: 200,
         learningRate: 0.1,
@@ -150,12 +154,8 @@ test("optional verification rejects primary train or development source groups b
         outputRoot,
         grantedEffects: ["filesystem.read", "filesystem.write"],
         verification,
-      }).then(receipt => ({ receipt }), error => ({ error }));
-      if (!("error" in outcome)) {
-        assert.fail(`overlapping ${originPartition} sources were certified: fullyVerified=${outcome.receipt.fullyVerified}`);
-      }
-      assert.match(outcome.error.message, /Verification source group overlaps primary train\/development sources/);
-      assert.deepEqual(outcome.error.partialPaths, {});
+      }), error => /Verification source group overlaps primary train\/development sources/.test(error.message)
+        && Object.keys(error.partialPaths ?? {}).length === 0);
       assert.deepEqual(await readdir(outputRoot), []);
     }
   } finally {
@@ -170,12 +170,12 @@ test("optional verification with disjoint source groups evaluates and fully veri
   const root = await mkdtemp(join(tmpdir(), "nn-verification-independent-"));
   try {
     const { dataset } = await library.makeCliCommandFixture({ root });
+    const verification = disjointVerificationDataset(dataset);
     const outputRoot = join(root, "results");
     await mkdir(outputRoot);
     const receipt = await library.runCliCommandTraining({
       dataset,
-      commands: ["pwd", "cd", "ls"],
-      initial: library.zeroCliCommandProfile([]),
+      initial: library.zeroCliCommandProfile(),
       initialSource: null,
       epochs: 200,
       learningRate: 0.1,
@@ -183,13 +183,13 @@ test("optional verification with disjoint source groups evaluates and fully veri
       handwiredRoot: process.env.NN_HANDWIRED_ROOT,
       outputRoot,
       grantedEffects: ["filesystem.read", "filesystem.write"],
-      verification: disjointVerificationDataset(),
+      verification,
     });
     assert.equal(receipt.accepted, true);
     assert.equal(receipt.verification.status, "evaluated");
-    assert.equal(receipt.verification.evaluation.count, 4);
+    assert.equal(receipt.verification.evaluation.count, verification.samples.length);
     assert.deepEqual(receipt.verification.evaluation.rows.map(row => row.sourceGroup),
-      Array(4).fill("verification-independent-family"));
+      Array(verification.samples.length).fill("verification-independent-family"));
     assert.equal(receipt.verification.evaluation.passed, true);
     assert.equal(receipt.fullyVerified, true);
   } finally {
@@ -197,47 +197,39 @@ test("optional verification with disjoint source groups evaluates and fully veri
   }
 });
 
-test("frozen named expansion preserves prior weights and does not reset the profile", async () => {
-  const { fitCliCommandProfile, zeroCliCommandProfile } = await api();
-  const initial = {
-    ...zeroCliCommandProfile(["pwd"]),
-    weights: [[1, 2], [3, 4]],
-  };
+test("zero-epoch fit preserves the explicit named migration", async () => {
+  const { fitCliCommandProfile, migrateLegacyCliCommandProfile } = await api();
+  const initial = migrateLegacyCliCommandProfile({
+    contract: "cli.command-policy.v1",
+    heads: ["unsupported", "pwd", "cd", "ls"],
+    wires: ["bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory"],
+    weights: [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]],
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  });
   const frozen = await fitCliCommandProfile({
     initial,
-    commands: ["pwd", "cd", "ls"],
-    rows: [{ goal: { kind: "observe_cwd", session: "s" }, expectedHead: "pwd" }],
+    rows: [{ features: Array(14).fill(0), expectedHead: "pwd" }],
     handwiredRoot: "/backend/is/not/loaded/for/frozen/epochs",
     epochs: 0,
     learningRate: 0.1,
   });
-  assert.deepEqual(frozen.profile.heads, ["unsupported", "pwd", "cd", "ls"]);
-  assert.deepEqual(frozen.profile.weights, [
-    [1, 2, 0, 0],
-    [3, 4, 0, 0],
-    [0, 0, 0, 0],
-    [0, 0, 0, 0],
-  ]);
-  assert.deepEqual(frozen.profile, frozen.initialProfile);
+  assert.deepEqual(frozen.profile, initial);
   assert.equal(frozen.timing.completedEpochs, 0);
   assert.equal(frozen.timing.gradientRowEpochs, 0);
   assert.equal(frozen.timing.backendLoadMs, 0);
+  assert.equal(frozen.timing.trainableParamCount, 84);
 });
 
 test("real Handwired fit changes shared parameters and reports training work", {
   skip: !process.env.NN_HANDWIRED_ROOT && "provide explicit real Handwired source root",
 }, async () => {
-  const { fitCliCommandProfile, predictCliCommand, zeroCliCommandProfile } = await api();
-  const rows = [
-    { goal: { kind: "observe_cwd", session: "s" }, expectedHead: "pwd" },
-    { goal: { kind: "observe_cwd", session: "s" }, expectedHead: "pwd" },
-    { goal: { kind: "unsupported_operation", session: "s" }, expectedHead: "unsupported" },
-    { goal: { kind: "unsupported_operation", session: "s" }, expectedHead: "unsupported" },
-  ];
-  const initial = zeroCliCommandProfile(["pwd"]);
+  const library = await api();
+  const { fitCliCommandProfile, predictCliCommand, zeroCliCommandProfile } = library;
+  const rows = typedRows(library);
+  const initial = zeroCliCommandProfile();
   const fit = await fitCliCommandProfile({
     initial,
-    commands: ["pwd"],
     rows,
     handwiredRoot: process.env.NN_HANDWIRED_ROOT,
     epochs: 20,
@@ -248,20 +240,21 @@ test("real Handwired fit changes shared parameters and reports training work", {
   assert.equal(fit.timing.processedRowCount, rows.length);
   assert.equal(fit.timing.gradientRowEpochs, 20 * rows.length);
   assert.equal(fit.timing.totalRowPasses, 20 * rows.length);
-  assert.equal(fit.timing.trainableParamCount, 4);
+  assert.equal(fit.timing.trainableParamCount, 84);
   assert.ok(fit.timing.fitTotalMs >= 0);
   for (const row of rows) {
-    assert.equal(predictCliCommand(row.goal, fit.profile).selectedHead, row.expectedHead);
+    assert.equal(predictCliCommand(row.goal, row.facts, fit.profile).selectedHead, row.expectedHead);
   }
 });
 
 test("missing Handwired backend fails explicitly and retains zero completed epochs", async () => {
-  const { fitCliCommandProfile, zeroCliCommandProfile } = await api();
+  const library = await api();
+  const { fitCliCommandProfile, zeroCliCommandProfile } = library;
+  const rows = typedRows(library);
   await assert.rejects(
     fitCliCommandProfile({
-      initial: zeroCliCommandProfile(["pwd"]),
-      commands: ["pwd"],
-      rows: [{ goal: { kind: "observe_cwd", session: "s" }, expectedHead: "pwd" }],
+      initial: zeroCliCommandProfile(),
+      rows,
       handwiredRoot: join(tmpdir(), `nn-missing-handwired-${process.pid}-${Date.now()}`),
       epochs: 1,
       learningRate: 0.1,

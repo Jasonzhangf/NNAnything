@@ -1,6 +1,6 @@
 import { expectRecord } from "../core/schema.js";
 import { selectSecondOnlyWhenGreater, scoreTwoClassLinear } from "./two-class-linear.js";
-import { validateCwdKnowledge, type CwdKnowledge } from "./cli-goal-policy.js";
+import { validateCwdKnowledge, type CwdKnowledge } from "./cli-state.js";
 
 export const CWD_RELATION_ACTIONS = Object.freeze(["NO_MATCH", "MATCH"] as const);
 export const CWD_RELATION_WIRES = Object.freeze(["bias", "sameSession", "hasObservation"] as const);

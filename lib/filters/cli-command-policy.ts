@@ -1,74 +1,188 @@
 import { expectRecord } from "../core/schema.js";
-import type { StructuredCliGoal } from "./cli-goal-policy.js";
+import {
+  CWD_PROPERTY,
+  ENTRIES_PROPERTY,
+  legacyWires,
+  predicateOf,
+  type FilePropertyGoal,
+  type PropertyFacts,
+} from "./cli-file-property.js";
 
-export const CLI_COMMANDS = ["pwd", "cd", "ls"] as const;
+export const CLI_COMMANDS = Object.freeze(["pwd", "cd", "ls"] as const);
 export type CliCommandName = typeof CLI_COMMANDS[number];
-export type CliCommandHead = "unsupported" | CliCommandName;
-export const CLI_COMMAND_WIRE = { pwd: "goalObserveCwd", cd: "goalSetCwd", ls: "goalListDirectory" } as const;
+export const CLI_COMMAND_HEADS = Object.freeze(["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"] as const);
+export type CliCommandHead = typeof CLI_COMMAND_HEADS[number];
+
+export const CLI_COMMAND_PROPERTIES = Object.freeze(["property.directory.entries", "property.relation.sessionCwd"] as const);
+export const CLI_COMMAND_PREDICATES = Object.freeze([
+  "predicate.observe.sessionCwd",
+  "predicate.equals.sessionCwd",
+  "predicate.observe.entries",
+] as const);
+export const CLI_COMMAND_WIRES = Object.freeze([
+  "bias",
+  "goalObserveCwd",
+  "goalSetCwd",
+  "goalListDirectory",
+  "property.directory.entries",
+  "property.relation.sessionCwd",
+  "predicate.observe.sessionCwd",
+  "predicate.equals.sessionCwd",
+  "predicate.observe.entries",
+  "state.hasFreshEvidence",
+  "state.knownValue",
+  "state.requiredConditionHolds",
+  "state.hasDestinationRef",
+  "state.requiredConditionHolds*state.hasFreshEvidence",
+] as const);
+export type CliCommandWire = typeof CLI_COMMAND_WIRES[number];
+
 export type CliCommandProfile = Readonly<{
   contract: "cli.command-policy.v1";
   heads: readonly CliCommandHead[];
-  wires: readonly string[];
+  properties: readonly typeof CLI_COMMAND_PROPERTIES[number][];
+  predicates: readonly typeof CLI_COMMAND_PREDICATES[number][];
+  wires: readonly CliCommandWire[];
   weights: readonly (readonly number[])[];
   calibration: "uncalibrated";
   adoption: "not_applied";
 }>;
 
-function commands(value: readonly CliCommandName[]): readonly CliCommandName[] {
-  if (!Array.isArray(value) || new Set(value).size !== value.length || value.some(name => !CLI_COMMANDS.includes(name))) {
-    throw new TypeError("commands must be distinct registered shell names");
+export type CliCommandPrediction = Readonly<{
+  features: readonly number[];
+  scores: readonly number[];
+  probabilities: readonly number[];
+  selectedHead: CliCommandHead;
+}>;
+
+const PROFILE_KEYS = ["adoption", "calibration", "contract", "heads", "predicates", "properties", "weights", "wires"] as const;
+const LEGACY_HEADS = ["unsupported", "pwd", "cd", "ls"] as const;
+const LEGACY_WIRES = ["bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory"] as const;
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
+  if (Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
+    throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`);
   }
-  return value;
 }
 
-export function zeroCliCommandProfile(names: readonly CliCommandName[]): CliCommandProfile {
-  commands(names);
-  return validateCliCommandProfile({ contract: "cli.command-policy.v1", heads: ["unsupported", ...names],
-    wires: ["bias", ...names.map(name => CLI_COMMAND_WIRE[name])],
-    weights: Array.from({ length: names.length + 1 }, () => Array(names.length + 1).fill(0)),
-    calibration: "uncalibrated", adoption: "not_applied" });
+function sameSequence(value: unknown, expected: readonly string[], label: string): void {
+  if (!Array.isArray(value) || value.length !== expected.length || value.some((item, index) => item !== expected[index])) {
+    throw new TypeError(`${label} must be exactly ${expected.join(", ")}`);
+  }
+}
+
+function finiteMatrix(value: unknown, rows: number, columns: number): readonly (readonly number[])[] {
+  if (!Array.isArray(value) || value.length !== rows) throw new TypeError(`command weights must have ${rows} rows`);
+  return Object.freeze(value.map((raw, rowIndex) => {
+    if (!Array.isArray(raw) || raw.length !== columns || raw.some(weight => typeof weight !== "number" || !Number.isFinite(weight))) {
+      throw new TypeError(`command weight row ${rowIndex} must contain ${columns} finite values`);
+    }
+    return Object.freeze([...raw] as number[]);
+  }));
+}
+
+export function zeroCliCommandProfile(): CliCommandProfile {
+  return validateCliCommandProfile({
+    contract: "cli.command-policy.v1",
+    heads: [...CLI_COMMAND_HEADS],
+    properties: [...CLI_COMMAND_PROPERTIES],
+    predicates: [...CLI_COMMAND_PREDICATES],
+    wires: [...CLI_COMMAND_WIRES],
+    weights: Array.from({ length: CLI_COMMAND_HEADS.length }, () => Array(CLI_COMMAND_WIRES.length).fill(0)),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  });
 }
 
 export function validateCliCommandProfile(value: unknown): CliCommandProfile {
   const input = expectRecord(value, "shared command profile");
-  if (Object.keys(input).sort().join() !== ["adoption", "calibration", "contract", "heads", "weights", "wires"].join()) throw new TypeError("Invalid command profile fields");
-  if (input.contract !== "cli.command-policy.v1" || input.calibration !== "uncalibrated" || input.adoption !== "not_applied") throw new TypeError("Invalid command profile contract/status");
-  if (!Array.isArray(input.heads) || input.heads[0] !== "unsupported") throw new TypeError("unsupported must be the first head");
-  const names = commands(input.heads.slice(1) as CliCommandName[]);
-  const wires = ["bias", ...names.map(name => CLI_COMMAND_WIRE[name])];
-  if (JSON.stringify(input.wires) !== JSON.stringify(wires)) throw new TypeError("Command wire names do not match registered heads");
-  if (!Array.isArray(input.weights) || input.weights.length !== input.heads.length) throw new TypeError("Invalid command weight rows");
-  const weights = input.weights.map(row => {
-    if (!Array.isArray(row) || row.length !== wires.length || row.some(weight => typeof weight !== "number" || !Number.isFinite(weight))) throw new TypeError("Invalid command weight width/value");
-    return Object.freeze([...row] as number[]);
+  exactKeys(input, PROFILE_KEYS, "shared command profile");
+  if (input.contract !== "cli.command-policy.v1") throw new TypeError("Invalid command profile contract");
+  if (input.calibration !== "uncalibrated" || input.adoption !== "not_applied") throw new TypeError("Invalid command profile status");
+  sameSequence(input.heads, CLI_COMMAND_HEADS, "command heads");
+  sameSequence(input.properties, CLI_COMMAND_PROPERTIES, "command properties");
+  sameSequence(input.predicates, CLI_COMMAND_PREDICATES, "command predicates");
+  sameSequence(input.wires, CLI_COMMAND_WIRES, "command wires");
+  return Object.freeze({
+    contract: "cli.command-policy.v1",
+    heads: Object.freeze([...CLI_COMMAND_HEADS]),
+    properties: Object.freeze([...CLI_COMMAND_PROPERTIES]),
+    predicates: Object.freeze([...CLI_COMMAND_PREDICATES]),
+    wires: Object.freeze([...CLI_COMMAND_WIRES]),
+    weights: finiteMatrix(input.weights, CLI_COMMAND_HEADS.length, CLI_COMMAND_WIRES.length),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
   });
-  return Object.freeze({ contract: "cli.command-policy.v1", heads: Object.freeze(["unsupported", ...names] as CliCommandHead[]),
-    wires: Object.freeze(wires), weights: Object.freeze(weights), calibration: "uncalibrated", adoption: "not_applied" });
 }
 
-/** Add named rows/columns. Never reset or reinterpret existing coefficients. */
-export function expandCliCommandProfile(value: CliCommandProfile, names: readonly CliCommandName[]): CliCommandProfile {
-  const before = validateCliCommandProfile(value), after = zeroCliCommandProfile(names);
-  if (before.heads.some(head => !after.heads.includes(head))) throw new TypeError("Incremental expansion cannot remove a command");
-  return validateCliCommandProfile({ ...after, weights: after.heads.map(head => after.wires.map(wire => {
-    const row = before.heads.indexOf(head), column = before.wires.indexOf(wire);
-    return row < 0 || column < 0 ? 0 : before.weights[row]![column]!;
-  })) });
+/** Explicit offline migration from the retired 4x4 shared command object. */
+export function migrateLegacyCliCommandProfile(value: unknown): CliCommandProfile {
+  const legacy = expectRecord(value, "legacy command profile");
+  exactKeys(legacy, ["adoption", "calibration", "contract", "heads", "weights", "wires"], "legacy command profile");
+  if (legacy.contract !== "cli.command-policy.v1" || legacy.calibration !== "uncalibrated" || legacy.adoption !== "not_applied") {
+    throw new TypeError("legacy command profile contract/status is invalid");
+  }
+  if (!Array.isArray(legacy.heads) || legacy.heads.length !== LEGACY_HEADS.length
+    || LEGACY_HEADS.some(name => !(legacy.heads as unknown[]).includes(name))) {
+    throw new TypeError("legacy command heads must contain unsupported, pwd, cd, ls");
+  }
+  if (!Array.isArray(legacy.wires) || legacy.wires.length !== LEGACY_WIRES.length
+    || LEGACY_WIRES.some(name => !(legacy.wires as unknown[]).includes(name))) {
+    throw new TypeError("legacy command wires must contain the four named legacy wires");
+  }
+  const legacyWeights = finiteMatrix(legacy.weights, LEGACY_HEADS.length, LEGACY_WIRES.length);
+  return validateCliCommandProfile({
+    contract: "cli.command-policy.v1",
+    heads: [...CLI_COMMAND_HEADS],
+    properties: [...CLI_COMMAND_PROPERTIES],
+    predicates: [...CLI_COMMAND_PREDICATES],
+    wires: [...CLI_COMMAND_WIRES],
+    weights: CLI_COMMAND_HEADS.map(head => CLI_COMMAND_WIRES.map(wire => {
+      const row = (legacy.heads as readonly string[]).indexOf(head);
+      const column = (legacy.wires as readonly string[]).indexOf(wire);
+      return row < 0 || column < 0 ? 0 : legacyWeights[row]![column]!;
+    })),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  });
 }
 
-export function expectedCliCommand(goal: StructuredCliGoal): CliCommandHead {
-  return goal.kind === "observe_cwd" ? "pwd" : goal.kind === "set_cwd" ? "cd" : goal.kind === "list_directory" ? "ls" : "unsupported";
+export function cliCommandFeatures(goal: FilePropertyGoal, facts: PropertyFacts): readonly number[] {
+  const legacy = legacyWires(goal);
+  const predicate = predicateOf(goal);
+  return Object.freeze(CLI_COMMAND_WIRES.map(wire => {
+    if (wire === "bias") return 1;
+    if (wire === "goalObserveCwd") return legacy.goalObserveCwd;
+    if (wire === "goalSetCwd") return legacy.goalSetCwd;
+    if (wire === "goalListDirectory") return legacy.goalListDirectory;
+    if (wire === "property.directory.entries") return goal.property === ENTRIES_PROPERTY ? 1 : 0;
+    if (wire === "property.relation.sessionCwd") return goal.property === CWD_PROPERTY ? 1 : 0;
+    if (wire === "predicate.observe.sessionCwd") return predicate === "predicate.observe.sessionCwd" ? 1 : 0;
+    if (wire === "predicate.equals.sessionCwd") return predicate === "predicate.equals.sessionCwd" ? 1 : 0;
+    if (wire === "predicate.observe.entries") return predicate === "predicate.observe.entries" ? 1 : 0;
+    if (wire === "state.hasFreshEvidence") return facts.hasFreshEvidence;
+    if (wire === "state.knownValue") return facts.knownValue;
+    if (wire === "state.requiredConditionHolds") return facts.requiredConditionHolds;
+    if (wire === "state.hasDestinationRef") return facts.hasDestinationRef;
+    return facts.requiredConditionHolds * facts.hasFreshEvidence;
+  }));
 }
 
-export function cliCommandFeatures(goal: StructuredCliGoal, profile: CliCommandProfile): readonly number[] {
-  const name = expectedCliCommand(goal);
-  return Object.freeze(profile.wires.map(wire => wire === "bias" ? 1 : name !== "unsupported" && wire === CLI_COMMAND_WIRE[name] ? 1 : 0));
-}
-
-export function predictCliCommand(goal: StructuredCliGoal, value: CliCommandProfile) {
-  const profile = validateCliCommandProfile(value), features = cliCommandFeatures(goal, profile);
+export function predictCliCommand(goal: FilePropertyGoal, facts: PropertyFacts, value: CliCommandProfile): CliCommandPrediction {
+  const profile = validateCliCommandProfile(value), features = cliCommandFeatures(goal, facts);
   const scores = profile.weights.map(row => row.reduce((sum, weight, index) => sum + weight * features[index]!, 0));
+  if (!scores.every(Number.isFinite)) throw new Error("Non-finite shared command logits");
+  const maximum = Math.max(...scores), exps = scores.map(score => Math.exp(score - maximum));
+  const denominator = exps.reduce((sum, value) => sum + value, 0);
+  if (!Number.isFinite(denominator) || denominator <= 0) throw new Error("Non-finite shared command softmax");
   let selectedIndex = 0;
-  for (let index = 1; index < scores.length; index++) if (scores[index]! > scores[selectedIndex]!) selectedIndex = index;
-  return Object.freeze({ features, scores: Object.freeze(scores), selectedHead: profile.heads[selectedIndex]! });
+  for (let index = 1; index < scores.length; index += 1) {
+    if (scores[index]! > scores[selectedIndex]!) selectedIndex = index;
+  }
+  return Object.freeze({
+    features,
+    scores: Object.freeze(scores),
+    probabilities: Object.freeze(exps.map(value => value / denominator)),
+    selectedHead: profile.heads[selectedIndex]!,
+  });
 }

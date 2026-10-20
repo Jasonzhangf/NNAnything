@@ -10,7 +10,7 @@
 
 首个函数表达训练现由独立 `nnanything/cli-training` 提供：`cwd+input→词法绝对路径`。公开合成样本64train/16development/32holdout，真实Handwired动作拟合和新进程回载；运行 `npm run demo:path-training -- --handwired-root /absolute/handwired`。见 [路径训练合同与实测](docs/cli-path-training.md)。该模型不自动采用，也不替换CLI基础入口。
 
-文件系统语义训练由 `nnanything/cli-goal` 提供 `createCliCommandPolicy`、`runCliCommandTraining` 与单一共享 `CliCommandProfile` 合同 `cli.command-policy.v1`。模型只选择命令头，输出 `["pwd"]`、`["cd", D]`、`["ls", D]`；显式 session 与 typed directory 引用由 harness 绑定并执行固定语义调用，模型不生成 shell 语法，也不解析输出正文。训练按 PWD→CD→LS 名称扩展，参数为 4→9→16，上一阶段已保存候选读回后继续拟合并回放历史训练题。运行 `npm run demo:command-training -- --handwired-root /absolute/handwired` 完成真实拟合、保存和每阶段新进程回载。最终共享候选 train 16/16、development 8/8；pwd、cd、ls 各 4/4 与 2/2 真实效果，最终新进程回载 24 题、18 次真实执行。候选保持 uncalibrated/not_applied，历史六参数 PWD API 与 CWD 关系测量只作兼容基线。合同与结果见[文件系统训练](docs/cli-filesystem-training.md)和[共享训练实测](docs/cli-filesystem-training-results.md)。
+文件系统语义训练由 `nnanything/cli-goal` 提供 `createCliCommandPolicy`、`runCliCommandTraining` 与单一共享 `CliCommandProfile` 合同 `cli.command-policy.v1`。运行入口只接受 typed `file.property` Goal，当前实现 sessionCwd 的 `observed(this_run)`/`equals` 和 directory.entries 的 `observed(this_run)`；模型在同一 6×14、84 参数矩阵内选择 `unsupported`、`DEFER`、`NOOP`、`pwd`、`cd`、`ls`。显式 session、typed directory 引用和真实执行由 harness 绑定；`NOOP`/`DEFER` 零执行，模型不生成 shell 语法，也不解析输出正文。旧六参数 PWD API、旧 Goal kind、旧 4×4 运行对象和旧命令图已物理退役；旧 4×4 权重只能经显式离线迁移工具按名称扩展。运行 `npm run demo:command-training -- --handwired-root /absolute/handwired` 完成真实拟合、保存和新进程回载。本轮单候选 train 38/38、development 20/20，新进程回载 58 题、34 次真实执行；候选保持 uncalibrated/not_applied，独立验证由父级另派。合同与结果见[文件系统训练](docs/cli-filesystem-training.md)和[共享训练实测](docs/cli-filesystem-training-results.md)。
 
 ## 快速开始（L1 能动切片与离线训练）
 

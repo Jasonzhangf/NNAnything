@@ -4,16 +4,36 @@ import { mkdtemp, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+function forceHead(profile, head) {
+  const index = profile.heads.indexOf(head);
+  assert.notEqual(index, -1);
+  return { ...profile, weights: profile.weights.map((row, rowIndex) => row.map((weight, columnIndex) =>
+    rowIndex === index && columnIndex === 0 ? 1 : weight)) };
+}
+
+function symbolicWireIndex(api, wire) {
+  const index = api.CLI_COMMAND_WIRES.indexOf(wire);
+  assert.notEqual(index, -1);
+  return index;
+}
+
 test('shared command profile expands named weights without reinterpreting old rows', async () => {
   const api = await import('nnanything/cli-goal');
-  const pwd = api.zeroCliCommandProfile(['pwd']);
-  const initial = api.validateCliCommandProfile({ ...pwd, weights: [[1, 2], [3, 4]] });
-  const extended = api.expandCliCommandProfile(initial, ['pwd', 'cd', 'ls']);
-  assert.deepEqual(extended.heads, ['unsupported', 'pwd', 'cd', 'ls']);
-  assert.deepEqual(extended.weights, [[1, 2, 0, 0], [3, 4, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]);
-  assert.equal(api.predictCliCommand({ kind: 'observe_cwd', session: 's' }, extended).selectedHead, 'pwd');
-  assert.equal(api.predictCliCommand({ kind: 'observe_cwd', session: 's' }, api.zeroCliCommandProfile(['pwd'])).selectedHead, 'unsupported');
-  assert.throws(() => api.expandCliCommandProfile(extended, ['pwd']));
+  const extended = api.migrateLegacyCliCommandProfile({
+    contract: 'cli.command-policy.v1',
+    heads: ['ls', 'cd', 'pwd', 'unsupported'],
+    wires: ['goalListDirectory', 'goalSetCwd', 'goalObserveCwd', 'bias'],
+    weights: [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]],
+    calibration: 'uncalibrated',
+    adoption: 'not_applied',
+  });
+  assert.deepEqual(extended.heads, ['unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls']);
+  assert.equal(extended.weights.length, 6);
+  assert.equal(extended.weights[0].length, 14);
+  assert.deepEqual(extended.weights[0].slice(0, 4), [16, 15, 14, 13]);
+  assert.deepEqual(extended.weights[3].slice(0, 4), [12, 11, 10, 9]);
+  assert.deepEqual(extended.weights[1].slice(0, 4), [0, 0, 0, 0]);
+  assert.throws(() => api.validateCliCommandProfile({ ...extended, weights: [[1, 2], [3, 4]] }));
 });
 
 test('one profile emits shell heads with typed positional parameters and real effects', async () => {
@@ -28,50 +48,64 @@ test('one profile emits shell heads with typed positional parameters and real ef
       ], sessions: [{ id: 's', cwd: 'start', grantedEffects: ['filesystem.read', 'process.exec', 'session.write'] }],
     } });
     const session = sandbox.bindSession('s');
-    const profile = api.validateCliCommandProfile({ ...api.zeroCliCommandProfile(['pwd', 'cd', 'ls']),
-      weights: [[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0], [0, 0, 0, 2]] });
-    const policy = api.createCliCommandPolicy({ profile, sandbox, session });
+    const profile = api.zeroCliCommandProfile();
+    const policy = api.createCliCommandPolicy({ profile: forceHead(profile, 'pwd'), sandbox, session });
     const state = { session: 's', cwdObservation: null, directoryListing: null };
-    const pwd = await policy.step({ goal: { kind: 'observe_cwd', session: 's' }, state });
+    const pwd = await policy.step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+      target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+      requirement: { kind: 'observed', freshness: 'this_run' } },
+      satisfactionThreshold: 100, state });
     assert.deepEqual(pwd.invocation, ['pwd']);
-    assert.equal(pwd.goal_result.status, 'achieved');
-    assert.equal(pwd.goal_result.satisfaction, 100);
+    assert.equal(pwd.status, 'achieved');
+    assert.equal(pwd.satisfaction, 100);
     const directory = await sandbox.bindDirectory(session, '../target with space');
     const target = join(sandbox.scenarioRoot, 'target with space');
-    const cd = await policy.step({ goal: { kind: 'set_cwd', session: 's', target }, state, directory });
+    const equalProfile = { ...profile, weights: profile.weights.map(row => [...row]) };
+    equalProfile.weights[profile.heads.indexOf('cd')][symbolicWireIndex(api, 'goalSetCwd')] = 10;
+    equalProfile.weights[profile.heads.indexOf('NOOP')][symbolicWireIndex(api, 'state.requiredConditionHolds*state.hasFreshEvidence')] = 20;
+    const equalPolicy = api.createCliCommandPolicy({ profile: equalProfile, sandbox, session });
+    const cd = await equalPolicy
+      .step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+      target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+      requirement: { kind: 'equals', expected: directory } }, satisfactionThreshold: 100, state });
     assert.deepEqual(cd.invocation, ['cd', directory]);
-    assert.equal(cd.goal_result.status, 'achieved');
-    assert.equal(cd.goal_result.satisfaction, 100);
+    assert.equal(cd.status, 'achieved');
+    assert.equal(cd.satisfaction, 100);
     assert.equal(cd.postcondition.receipt.execution.observation.physicalCwd, target);
     const rebound = await sandbox.bindDirectory(session, '.');
-    const ls = await policy.step({ goal: { kind: 'list_directory', session: 's', target }, state, directory: rebound });
+    const ls = await api.createCliCommandPolicy({ profile: forceHead(profile, 'ls'), sandbox, session })
+      .step({ goal: { kind: 'file.property', property: 'file.property.directory.entries',
+      target: rebound, requirement: { kind: 'observed', freshness: 'this_run' } },
+      satisfactionThreshold: 100, state });
     assert.deepEqual(ls.invocation, ['ls', rebound]);
-    assert.equal(ls.goal_result.status, 'achieved');
-    assert.equal(ls.goal_result.satisfaction, 100);
+    assert.equal(ls.status, 'achieved');
+    assert.equal(ls.satisfaction, 100);
     assert.deepEqual(ls.observed_state_after.directoryListing.entries.map(({ name, type }) => ({ name, type })), [{ name: '.hidden', type: 'file' }]);
-    const unsupported = await policy.step({ goal: { kind: 'unknown_goal', session: 's' }, state });
+    const unsupported = await api.createCliCommandPolicy({ profile: forceHead(profile, 'unsupported'), sandbox, session })
+      .step({ goal: { kind: 'file.property', property: 'file.property.exists',
+      target: directory, requirement: { kind: 'observed', freshness: 'this_run' } },
+      satisfactionThreshold: 100, state });
     assert.equal(unsupported.invocation, null);
     assert.equal(unsupported.execution_result.status, 'unsupported');
     assert.equal(unsupported.execution_result.executorInvoked, false);
     assert.equal(unsupported.policy_error, null);
-    assert.equal(unsupported.goal_result.status, 'unverified');
-    assert.equal(unsupported.goal_result.satisfaction, null);
-    const wrong = api.createCliCommandPolicy({ profile: { ...profile, weights: [[0, 0, 0, 0], [0, 0, 0, 0], [2, 0, 0, 0], [0, 0, 0, 0]] }, sandbox, session });
-    const blocked = await wrong.step({ goal: { kind: 'observe_cwd', session: 's' }, state });
+    assert.equal(unsupported.status, 'unknown');
+    assert.equal(unsupported.satisfaction, null);
+    const wrong = api.createCliCommandPolicy({ profile: forceHead(profile, 'cd'), sandbox, session });
+    const blocked = await wrong.step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+      target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+      requirement: { kind: 'observed', freshness: 'this_run' } }, satisfactionThreshold: 100, state });
     assert.equal(blocked.policy.selectedHead, 'cd');
     assert.ok(blocked.policy_error);
     assert.equal(blocked.execution_result.executorInvoked, false);
-    assert.equal(blocked.goal_result.status, 'unmet');
-    assert.equal(blocked.goal_result.satisfaction, 0);
+    assert.equal(blocked.status, 'rejected');
+    assert.equal(blocked.satisfaction, 0);
   } finally { if (sandbox) await sandbox.cleanup(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('fixed command goal uses fresh execution and 100/0/null evidence boundaries', async () => {
   const api = await import('nnanything/cli-goal');
-  assert.deepEqual(api.CLI_COMMAND_GOAL_CONFIG, { satisfactionThreshold: 100 });
-  assert.ok(Object.isFrozen(api.CLI_COMMAND_GOAL_CONFIG));
-  const profile = api.validateCliCommandProfile({ ...api.zeroCliCommandProfile(['pwd', 'cd', 'ls']),
-    weights: [[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0], [0, 0, 0, 2]] });
+  const profile = api.zeroCliCommandProfile();
   const state = { session: 's', cwdObservation: null, directoryListing: null };
 
   const root = await realpath(await mkdtemp(join(tmpdir(), 'nn-command-success-')));
@@ -86,21 +120,40 @@ test('fixed command goal uses fresh execution and 100/0/null evidence boundaries
     } });
     const session = sandbox.bindSession('s'), target = join(sandbox.scenarioRoot, 'target');
     let directory = await sandbox.bindDirectory(session, '../target');
-    const policy = api.createCliCommandPolicy({ profile, sandbox, session });
-    const pwd = await policy.step({ goal: { kind: 'observe_cwd', session: 's' }, state });
-    assert.deepEqual([pwd.goal_result.status, pwd.goal_result.satisfaction], ['achieved', 100]);
-    const cd = await policy.step({ goal: { kind: 'set_cwd', session: 's', target }, state, directory });
-    assert.deepEqual([cd.goal_result.status, cd.goal_result.satisfaction], ['achieved', 100]);
+    const policy = api.createCliCommandPolicy({ profile: forceHead(profile, 'pwd'), sandbox, session });
+    const pwd = await policy.step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+      target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+      requirement: { kind: 'observed', freshness: 'this_run' } }, satisfactionThreshold: 100, state });
+    assert.deepEqual([pwd.status, pwd.satisfaction], ['achieved', 100]);
+    const equalProfile = { ...profile, weights: profile.weights.map(row => [...row]) };
+    equalProfile.weights[profile.heads.indexOf('cd')][symbolicWireIndex(api, 'goalSetCwd')] = 10;
+    equalProfile.weights[profile.heads.indexOf('NOOP')][symbolicWireIndex(api, 'state.requiredConditionHolds*state.hasFreshEvidence')] = 20;
+    const equalPolicy = api.createCliCommandPolicy({ profile: equalProfile, sandbox, session });
+    const cd = await equalPolicy
+      .step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+      target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+      requirement: { kind: 'equals', expected: directory } }, satisfactionThreshold: 100, state });
+    assert.deepEqual([cd.status, cd.satisfaction], ['achieved', 100]);
     const beforeSame = sandbox.getSession(session);
     directory = await sandbox.bindDirectory(session, '.');
-    const sameTarget = await policy.step({ goal: { kind: 'set_cwd', session: 's', target }, state: cd.observed_state_after, directory });
-    assert.deepEqual(sameTarget.invocation, ['cd', directory]);
-    assert.equal(sameTarget.session_after.revision, beforeSame.revision + 1);
-    assert.deepEqual([sameTarget.goal_result.status, sameTarget.goal_result.satisfaction], ['achieved', 100]);
-    const ls = await policy.step({ goal: { kind: 'list_directory', session: 's', target }, state: sameTarget.observed_state_after, directory });
-    assert.deepEqual([ls.goal_result.status, ls.goal_result.satisfaction], ['achieved', 100]);
-    const unsupported = await policy.step({ goal: { kind: 'unknown_goal', session: 's' }, state });
-    assert.deepEqual([unsupported.goal_result.status, unsupported.goal_result.satisfaction], ['unverified', null]);
+    const sameTarget = await equalPolicy
+      .step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+      target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+      requirement: { kind: 'equals', expected: directory } }, satisfactionThreshold: 100, state: cd.observed_state_after });
+    assert.equal(sameTarget.invocation, null);
+    assert.equal(sameTarget.session_after.revision, beforeSame.revision);
+    assert.equal(sameTarget.execution_result.executorInvoked, false);
+    assert.deepEqual([sameTarget.status, sameTarget.satisfaction], ['achieved', 100]);
+    const ls = await api.createCliCommandPolicy({ profile: forceHead(profile, 'ls'), sandbox, session })
+      .step({ goal: { kind: 'file.property', property: 'file.property.directory.entries',
+      target: directory, requirement: { kind: 'observed', freshness: 'this_run' } },
+      satisfactionThreshold: 100, state: sameTarget.observed_state_after });
+    assert.deepEqual([ls.status, ls.satisfaction], ['achieved', 100]);
+    const unsupported = await api.createCliCommandPolicy({ profile: forceHead(profile, 'unsupported'), sandbox, session })
+      .step({ goal: { kind: 'file.property', property: 'file.property.exists',
+      target: directory, requirement: { kind: 'observed', freshness: 'this_run' } },
+      satisfactionThreshold: 100, state });
+    assert.deepEqual([unsupported.status, unsupported.satisfaction], ['unknown', null]);
     assert.equal(unsupported.execution_result.executorInvoked, false);
   } finally { if (sandbox) await sandbox.cleanup(); await rm(root, { recursive: true, force: true }); }
 
@@ -112,18 +165,25 @@ test('fixed command goal uses fresh execution and 100/0/null evidence boundaries
       sessions: [{ id: 's', cwd: 'start', grantedEffects: ['filesystem.read'] }],
     } });
     const session = failedSandbox.bindSession('s');
-    const transition = await api.createCliCommandPolicy({ profile, sandbox: failedSandbox, session })
-      .step({ goal: { kind: 'observe_cwd', session: 's' }, state: { session: 's', cwdObservation: null, directoryListing: null } });
+    const transition = await api.createCliCommandPolicy({ profile: forceHead(profile, 'pwd'), sandbox: failedSandbox, session })
+      .step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+        target: { kind: 'cli.file-query', relation: 'sessionCwd', session: failedSandbox.bindSession('s') },
+        requirement: { kind: 'observed', freshness: 'this_run' } },
+        satisfactionThreshold: 100, state: { session: 's', cwdObservation: null, directoryListing: null } });
     assert.equal(transition.execution_result.receipt.status, 'failed');
-    assert.deepEqual([transition.goal_result.status, transition.goal_result.satisfaction], ['unmet', 0]);
+    assert.deepEqual([transition.status, transition.satisfaction], ['failed', 0]);
   } finally { if (failedSandbox) await failedSandbox.cleanup(); await rm(failedRoot, { recursive: true, force: true }); }
 });
 
 test('CD unknown postcondition and LS partial evidence stay null while proven mismatch is zero', async () => {
   const api = await import('nnanything/cli-goal');
-  const profile = api.validateCliCommandProfile({ ...api.zeroCliCommandProfile(['pwd', 'cd', 'ls']),
-    weights: [[1, 0, 0, 0], [0, 2, 0, 0], [0, 0, 2, 0], [0, 0, 0, 2]] });
+  const profile = api.zeroCliCommandProfile();
   const state = { session: 's', cwdObservation: null, directoryListing: null };
+  const cwdQuery = session => ({ kind: 'cli.file-query', relation: 'sessionCwd', session });
+  const equalsGoal = (session, expected) => ({ kind: 'file.property', property: 'file.property.relation.sessionCwd',
+    target: cwdQuery(session), requirement: { kind: 'equals', expected } });
+  const entriesGoal = target => ({ kind: 'file.property', property: 'file.property.directory.entries',
+    target, requirement: { kind: 'observed', freshness: 'this_run' } });
   const recipe = entries => ({ scenarioId: `command-${entries.length}`, entries, sessions: [
     { id: 's', cwd: 'start', grantedEffects: ['filesystem.read', 'process.exec', 'session.write'] },
   ] });
@@ -137,11 +197,11 @@ test('CD unknown postcondition and LS partial evidence stay null while proven mi
     });
     const session = unknownSandbox.bindSession('s'), before = unknownSandbox.getSession(session);
     const target = join(unknownSandbox.scenarioRoot, 'target'), directory = await unknownSandbox.bindDirectory(session, '../target');
-    const transition = await api.createCliCommandPolicy({ profile, sandbox: unknownSandbox, session })
-      .step({ goal: { kind: 'set_cwd', session: 's', target }, state, directory });
-    assert.deepEqual([transition.goal_result.status, transition.goal_result.satisfaction], ['unverified', null]);
-    assert.equal(transition.goal_result.reason, 'postcommit_observation_failed');
-    assert.equal(transition.goal_result.changed, true);
+    const transition = await api.createCliCommandPolicy({ profile: forceHead(profile, 'cd'), sandbox: unknownSandbox, session })
+      .step({ goal: equalsGoal(session, directory), satisfactionThreshold: 100, state });
+    assert.deepEqual([transition.status, transition.satisfaction], ['unknown', null]);
+    assert.equal(transition.reason, 'postcommit_observation_failed');
+    assert.equal(transition.changed, true);
     assert.equal(transition.session_after.revision, before.revision + 1);
     assert.equal(transition.postcondition.receipt.execution.status, 'failed');
   } finally { if (unknownSandbox) await unknownSandbox.cleanup(); await rm(unknownRoot, { recursive: true, force: true }); }
@@ -159,11 +219,11 @@ test('CD unknown postcondition and LS partial evidence stay null while proven mi
     });
     const session = mismatchSandbox.bindSession('s'), before = mismatchSandbox.getSession(session);
     const target = join(mismatchSandbox.scenarioRoot, 'target'), directory = await mismatchSandbox.bindDirectory(session, '../target');
-    const transition = await api.createCliCommandPolicy({ profile, sandbox: mismatchSandbox, session })
-      .step({ goal: { kind: 'set_cwd', session: 's', target }, state, directory });
-    assert.deepEqual([transition.goal_result.status, transition.goal_result.satisfaction], ['unmet', 0]);
-    assert.equal(transition.goal_result.reason, 'postcommit_target_mismatch');
-    assert.equal(transition.goal_result.changed, true);
+    const transition = await api.createCliCommandPolicy({ profile: forceHead(profile, 'cd'), sandbox: mismatchSandbox, session })
+      .step({ goal: equalsGoal(session, directory), satisfactionThreshold: 100, state });
+    assert.deepEqual([transition.status, transition.satisfaction], ['unmet', 0]);
+    assert.equal(transition.reason, 'postcommit_target_mismatch');
+    assert.equal(transition.changed, true);
     assert.equal(transition.postcondition.matchedTarget, false);
     assert.equal(transition.session_after.revision, before.revision + 1);
   } finally { if (mismatchSandbox) await mismatchSandbox.cleanup(); await rm(mismatchRoot, { recursive: true, force: true }); }
@@ -185,10 +245,10 @@ test('CD unknown postcondition and LS partial evidence stay null while proven mi
     });
     const session = partialSandbox.bindSession('s'), target = join(partialSandbox.scenarioRoot, 'target');
     const directory = await partialSandbox.bindDirectory(session, '../target');
-    const transition = await api.createCliCommandPolicy({ profile, sandbox: partialSandbox, session })
-      .step({ goal: { kind: 'list_directory', session: 's', target }, state, directory });
-    assert.deepEqual([transition.goal_result.status, transition.goal_result.satisfaction], ['unverified', null]);
-    assert.equal(transition.goal_result.reason, 'partial_coverage');
+    const transition = await api.createCliCommandPolicy({ profile: forceHead(profile, 'ls'), sandbox: partialSandbox, session })
+      .step({ goal: entriesGoal(directory), satisfactionThreshold: 100, state });
+    assert.deepEqual([transition.status, transition.satisfaction], ['unknown', null]);
+    assert.equal(transition.reason, 'partial_coverage');
     assert.equal(transition.execution_result.receipt.execution.observation.coverage, 'partial');
     assert.equal(transition.execution_result.receipt.execution.observation.entries[0].type, 'unknown');
     assert.deepEqual(transition.observed_state_after, state);
