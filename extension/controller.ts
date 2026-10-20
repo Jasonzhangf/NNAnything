@@ -28,6 +28,7 @@ import {
   type BrowserCaptureAnnotation,
   type BrowserCaptureBundleV1,
   type BrowserWeightFileSource,
+  type BrowserWeightAsset,
   DEFAULT_EXCLUDED_TOOL_ROOT_IDS,
 } from "nnanything/browser-classify";
 
@@ -37,6 +38,7 @@ export interface DOMInspectorOptions {
   document?: Document;
   window?: Window;
   weightFile?: BrowserWeightFileSource | null;
+  initialWeight?: BrowserWeightAsset;
 }
 
 interface WeightFilePickerOptions {
@@ -164,6 +166,10 @@ export class DOMInspectorController {
       this.profileSourceLabel = this.weightFile
         ? `权重文件 · ${this.weightFile.sourceLabel}`
         : "未选择权重文件";
+    } else if (options.initialWeight) {
+      this.currentProfile = structuredClone(options.initialWeight.profile);
+      this.currentConfig = structuredClone(options.initialWeight.config);
+      this.profileSourceLabel = `构建加载 · ${options.initialWeight.sourceLabel} · ${options.initialWeight.profile.id}`;
     } else {
       this.profileSourceLabel = "手写基础权重";
     }

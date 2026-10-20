@@ -38,10 +38,12 @@ Local Chrome/Chromium browser extension and evaluation test harness for NNAnythi
    - `收集当前候选 (N)`: Captures every qualified candidate (`candidateStatus === 'ok'`), including known, unknown, conflict, and judged `ignore` slots. Rows stay unreviewed with their original proposal; filtered and candidate-unknown slots are excluded.
    - `导出 JSON 样本包`: Calls capture workflow export and triggers a client-side Blob JSON download anchor (`nnanything-capture-<sessionId>.json`).
 
-6. **Native File Weight Source**:
-   - Starts unconfigured. The extension has no embedded, default, or build-selected weight asset.
-   - The visible "选择权重文件" button calls `showOpenFilePicker` directly from the user click.
-   - The controller keeps only the `FileSystemFileHandle`. Each classification calls `getFile()` and reads the file text again.
+6. **Weight Source**:
+   - A build can embed one validated weight asset. The panel then starts with that asset and classifies immediately; the source tag reads `构建加载 · <file> · <profileId>`.
+   - A build without `--weight-file` uses the handwritten baseline profile. The panel shows `手写基础权重` and classifies immediately.
+   - The extension never starts in file mode with no source.
+   - The visible "选择权重文件" button calls `showOpenFilePicker` directly from the user click and switches the session to the selected file.
+   - In file mode the controller keeps only the `FileSystemFileHandle`. Each classification calls `getFile()` and reads the file text again.
    - A read, JSON, or weight-contract failure clears the old frame and collection eligibility through the normal error path.
    - Cancelling the picker preserves the current source. The handle remains available when the controller is closed and reopened in the same document. It is not restored after navigation or browser restart.
 
@@ -73,7 +75,15 @@ npm run typecheck:ui
 npm run build:extension
 ```
 
-The command builds the library first, then bundles the extension and harness into `artifacts/chrome-extension` and `artifacts/overlay-harness`. A missing dependency fails the build. The build does not accept `--weight-file`; obsolete use is reported as a normal argument error.
+The command builds the library first, then bundles the extension and harness into `artifacts/chrome-extension` and `artifacts/overlay-harness`. A missing dependency fails the build.
+
+To embed a validated weight asset at build time, pass `--weight-file`:
+
+```bash
+npm run build:extension -- --weight-file training/weights/<file>.weight.json
+```
+
+The build reads the file and validates it with `parseBrowserWeightAsset` before bundling. The panel then shows `构建加载 · <file> · <profileId>` and classifies on open without a manual pick. A missing file, invalid JSON, or a contract mismatch exits non-zero and leaves the existing bundle untouched. The build without `--weight-file` keeps the handwritten baseline (`手写基础权重`). Absolute input paths appear only in the local build output, never in the panel UI.
 
 Here, reloading means refreshing the website document. Reloading the extension in the extension manager does not refresh an existing website or remove its old inspector context. Export the current samples, reload the extension, refresh each target website, then open the inspector once. Opening the inspector before that website refresh can leave old and new panels together, with different weights and counts.
 
