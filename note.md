@@ -10,7 +10,12 @@
 - 机制：objective-ray 条件方向替换已按方案实现（触发条件、替换分母、`uG/dG/sG`、`cG/aG`、scalar 1 身份、moments 不写回、下降守卫、七次评估上限），契约写入 `docs/training-workflow.md`。真实公开训练：G4 第 2 轮报错消失，运行至 834 轮后以显式 `objective_ray_v1 found no strictly improving candidate` 结束，126920.05 ms，无候选权重导出、未采用、未重试；替换路径实际触发 7 轮，显式计数 `rejectedOrdinaryEvaluationCount=7` 与 `objectiveEvaluationCount=5011`（按完整评估调用计，恒等于 (totalRowPasses−gradientRowEpochs)/processedRowCount）。
 - 整体独立 Review 结论 FAIL，四项阻断。已修：数值可行点不再被 ray 几何拒绝也不再补 trial（见测试 `objective ray accepts a numerically feasible point that does not strictly improve`）；被拒普通评估与全部梯度后评估分别计数（`rejectedOrdinaryEvaluationCount`、`objectiveEvaluationCount`）并纳入 schema；`note.md` Case B 区分两次运行事实，目标闭环保持 `UNVERIFIED`。全量 665 通过、0 失败。Case B 目标经实际两遍采集与 consumer 咨询的原生证据仍缺，独立 Review 待重跑。
 - Case B 图片资源：producer 与公开 consumer 已接，测试 14 项通过。三次 WB 首页原生运行逐次记事实，都只作边界证据：run1 目标未被 producer 请求，`read-failed`（16453 字节、JPEG、解码 360x467）；run2 另一目标取到 proven（42015 字节、505x270、解码等于 natural），但该目标未经两遍采集请求；run3 第三个目标经真实 producer 取到 proven（75675 字节、360x1200、解码等于 natural、documentRef/nodeRef/currentSrc 绑定匹配），两遍采集请求的是另一节点 `...-572`。三次运行的 surface 都逐字段不变，目标对都保持 unknown。合计结论 `CASE_B_NATIVE_PARTIAL` / 目标闭环 `UNVERIFIED`：资源事实可测量，surface 消费该目标事实未被证明。PNG 六项仍为已接受覆盖边界。
-- 未完成：XHS 第二条笔记复检、整体独立 Review、main 集成与推送、正式产物、资源清理。
+- XHS 第二条笔记复检完成：`explore/6902f0af…`，2248 slots，顶部 331 judged／滚动后 539 judged，语义未知 0、观测未知 7、cvnr 5；上一条的 `span.note-text` 未知未复现（新笔记正文判 `container`），证明它是弱证据个案。
+- 整体独立 Review 收口：共五轮限定复核，1–4 轮 FAIL 逐条收口，第 5 轮 PASS、无新 finding、剩余阻断清单为空。前三轮阻断项为：可行点被 ray 几何拒绝且被要求严格改进；`objectiveEvaluationCount` 按行计却被当作完整评估次数、被拒普通评估可能漏计；Case B 判定不读记录字段即断言"未请求、未咨询"，报告与 JSON 标签不一致。修复后新增反例测试，且临时把计数挪回行循环时该测试确实失败。
+- main 集成与推送：分支收口提交 `1ca24ad`，与 `main`（`8c653de`）合并提交 `7a68417`，canonical `main` 以 `--no-ff` 合并为 `084a332`，与 `7a68417` 树逐文件一致；推送 `8c653de..084a332 main -> main`，`main` 与 `origin/main` 同点、差集 `0 0`。三处合并冲突按 owner 收口：训练 Skill 保留本轮新增节并采用 main 的小节名；`note.md` 保留双方条目、重复段落 0；`docs/cli-role-evidence-design.md` 取 main 版本（本分支旧路径已被 main 取代）。
+- 正式产物：`npm run build` 与 `npm run build:extension` exit 0，输出 `artifacts/chrome-extension` 与 `artifacts/overlay-harness`；未重载用户插件。canonical main 全量 `npm test` 670 通过 / 0 失败 / 6 跳过（合并带入 CLI 侧测试）。
+- 资源清理：唯一开发 worktree `/Volumes/Intel/playground/nnanything/three-site-zero` 已在确认完全合入 main 后 `git worktree remove` 并 prune，路径已不存在；端口 8766/8799 无监听；未关闭用户浏览器标签。清理时误删了 run 目录的 `R-coverage-{build,green,paint-surface-green,red}.log` 四个日志：其中 build 与 green 已按当前 main 重新生成（`R-coverage-build-regen.log`、`R-coverage-green-regen.log`，53 通过 / 0 失败），red 日志无法重建，其结论仍由 `R-coverage-result.md` 保存，此处如实记录该证据缺失。
+- 仍未完成/保留：训练候选未达可行（不是训练效果通过）；2 项语义未知与 99 项观测未知保留；Case B 目标闭环 `UNVERIFIED`；PNG 六项目标、扩展 content-script 字节读取、WB-home 角落命中栈、未读 iframe/shadow 均为覆盖边界。
 
 ## 2026-10-19 规则审计与交接材料
 
