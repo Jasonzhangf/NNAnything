@@ -47,6 +47,15 @@ test('build rejects unregistered root entries before compilation without deletin
   }
 });
 
+test('build ignores macOS metadata at the root and keeps the file', async t => {
+  const root = await fixture(t);
+  await writeFile(join(root, '.DS_Store'), 'finder metadata');
+  const result = build(root);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(await readFile(join(root, '.DS_Store'), 'utf8'), 'finder metadata');
+  assert.equal(await readFile(join(root, 'dist/compiler-ran'), 'utf8'), 'yes');
+});
+
 test('build rejects missing or empty registration instead of compiling', async t => {
   for (const text of ['# No registration', '<!-- root-layout:start -->\n```text\n```\n<!-- root-layout:end -->']) {
     const root = await fixture(t);
