@@ -1,5 +1,6 @@
 import { expectArray, expectFiniteNumber, expectNonEmptyString, expectRecord } from "../core/schema.js";
 import { validateCandidateBatch, type CandidateSlot } from "./candidate-chain.js";
+import type { ObservationNode } from "../adapters/browser/observation.js";
 
 export const BASIC_KIND_FAMILIES = {
   control: ["button", "input", "select"],
@@ -139,7 +140,7 @@ const typeSets = {
   input_type_hidden: ["hidden"],
 } as const;
 const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_repeated_child_extent", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden",
-  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_multi_child_shape", "neutral_single_child", "neutral_focusable_control", "neutral_actual_focus", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "search_region_group", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_named_graphic_owner", "anchor_pointer_boundary", "neutral_child_multiplicity"] as const;
+  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_multi_child_shape", "neutral_single_child", "neutral_focusable_control", "neutral_actual_focus", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "search_region_group", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_named_graphic_owner", "anchor_pointer_boundary", "neutral_child_multiplicity", "own_focus_target", "independent_graphic_content"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
 export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
   ...Object.keys(tagSets) as (keyof typeof tagSets)[],
@@ -161,13 +162,13 @@ const leafSupportWires = {
   button: ["nat_control_button", "role_button", "input_type_button", "own_pointer_boundary", "neutral_focusable_control", "neutral_actual_focus", "empty_pointer_extent", "anchor_pointer_boundary"],
   link: ["nat_anchor", "anchor_href", "role_link"],
   text: ["nat_text", "role_text", "span_direct_text", "div_direct_text", "direct_non_format_text", "nat_inline_format_text", "css_before_content", "css_after_content"],
-  image: ["nat_image", "role_image", "nat_svg", "svg_graphic_children", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "neutral_named_graphic_owner"],
+  image: ["nat_image", "role_image", "nat_svg", "svg_graphic_children", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "neutral_named_graphic_owner", "independent_graphic_content"],
   video: ["nat_video"],
   audio: ["nat_audio"],
   list: ["nat_list", "role_list", "div_repeated_children", "div_repeated_child_extent", "neutral_structural_peers", "neutral_structural_heterogeneity"],
   listitem: ["nat_listitem", "role_listitem", "div_in_list"],
   container: ["nat_container", "role_container", "div_multi_child", "neutral_multi_child", "composite_descendant_text", "search_region_group", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_actual_focus"],
-  ignore: ["neutral_same_rect_wrapper", "single_child_div", "neutral_single_child", "div_single_child", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "svg_internal_part", "empty_border_extent", "nat_document_root", "role_presentational", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper"],
+  ignore: ["neutral_same_rect_wrapper", "single_child_div", "neutral_single_child", "div_single_child", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "svg_internal_part", "empty_border_extent", "nat_document_root", "role_presentational", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "independent_graphic_content", "own_focus_target"],
 } as const satisfies Readonly<Record<SpecificBasicKindLabel, readonly BasicKindWireName[]>>;
 for (const wires of Object.values(leafSupportWires)) Object.freeze(wires);
 export const LEAF_SUPPORT_WIRES: Readonly<Record<SpecificBasicKindLabel, readonly BasicKindWireName[]>> = Object.freeze(leafSupportWires);
@@ -356,6 +357,10 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "list", "neutral_child_multiplicity"],
   ["leafWeights", "list", "neutral_multi_child_shape"],
   ["leafWeights", "container", "neutral_child_multiplicity"],
+  ["familyWeights", "media", "independent_graphic_content"],
+  ["leafWeights", "image", "independent_graphic_content"],
+  ["leafWeights", "ignore", "independent_graphic_content"],
+  ["leafWeights", "ignore", "own_focus_target"],
 ] as const;
 
 function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
@@ -609,6 +614,8 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
   wires.state_hidden = bool(input.hidden);
   const and = (...values: BasicKindWireValue[]): BasicKindWireValue =>
     values.includes(0) ? 0 : values.includes(null) ? null : values.includes(1) ? 1 : null;
+  const or = (...values: BasicKindWireValue[]): BasicKindWireValue =>
+    values.includes(1) ? 1 : values.includes(null) ? null : values.includes(0) ? 0 : null;
   const andContinuous = (...values: BasicKindWireValue[]): BasicKindWireValue => {
     if (values.includes(0)) return 0;
     if (values.includes(null)) return null;
@@ -772,6 +779,25 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     bool(input.graphicDescendantPresent),
     input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
     input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0,
+  );
+  const svgSelfGraphicTags = ["use", "path", "image", "circle", "rect", "line", "polyline", "polygon", "ellipse"] as const;
+  const svgSelfGraphicEvidence = svgSelfGraphicTags.some(tag => tag === input.tag)
+    ? input.inSvgAncestor === true ? 1 : input.inSvgAncestor === false ? 0 : null
+    : 0;
+  const selfGraphicEvidence = input.tag === "img" || input.tag === "canvas"
+    ? 1
+    : input.tag === "svg"
+      ? wires.svg_graphic_children
+      : input.tag === "g"
+        ? and(
+          input.inSvgAncestor === true ? 1 : input.inSvgAncestor === false ? 0 : null,
+          bool(input.graphicDescendantPresent),
+        )
+        : svgSelfGraphicEvidence;
+  wires.own_focus_target = or(bool(input.activeElementFocus), bool(input.tabIndexFocus));
+  wires.independent_graphic_content = and(
+    selfGraphicEvidence,
+    or(wires.own_focus_target, bool(input.ownLabelPresent)),
   );
   const explicitControlRole = [...roleSets.role_button, ...roleSets.role_input, ...roleSets.role_select, ...roleSets.role_link].some(role => role === input.role);
   wires.noninteractive_hidden_leaf = and(
@@ -1079,7 +1105,7 @@ export function validateBasicKindRequest(value: unknown) {
   }
   return { candidateBatch, observations };
 }
-export interface BasicKindSlot extends BasicKindJudgment { readonly index: number; readonly nodeRef: string; readonly candidateStatus: CandidateSlot["status"]; readonly candidateReasons: readonly string[] }
+export interface BasicKindSlot extends BasicKindJudgment { readonly index: number; readonly nodeRef: string; readonly candidateStatus: CandidateSlot["status"]; readonly candidateReasons: readonly string[]; readonly semanticDiagnostic?: BasicKindJudgment }
 export interface BasicKindBatch { readonly taskId: string; readonly profileId: string; readonly slots: readonly BasicKindSlot[] }
 function stateFlag(value: unknown): boolean | null {
   if (value === true || value === "true" || value === "") return true;
@@ -1094,19 +1120,32 @@ function htmlBoolean(value: unknown): boolean | null {
 function combineState(left: boolean | null, right: boolean | null): boolean | null {
   return left === true || right === true ? true : left === false || right === false ? false : null;
 }
+function basicKindProperties(node: ObservationNode, local: BasicKindMeasurements) {
+  // Kept unannotated so the object stays contextually free, matching the qualified path exactly.
+  return {
+    ...local,
+    tag: node.tag,
+    role: node.role,
+    contentEditable: local.contentEditable,
+    hidden: combineState(htmlBoolean(node.attributes.hidden), stateFlag(node.attributes["aria-hidden"])),
+    disabled: combineState(htmlBoolean(node.attributes.disabled), stateFlag(node.attributes["aria-disabled"])),
+  };
+}
 export function classifyBasicKindBatch(value: unknown, config: BasicKindConfig = DEFAULT_BASIC_KIND_CONFIG, profile: BasicKindProfile = DEFAULT_BASIC_KIND_PROFILE): BasicKindBatch {
   const { candidateBatch, observations } = validateBasicKindRequest(value), spec = validateBasicKindConfig(config), weights = validateBasicKindProfile(profile);
   const nodes = new Map(candidateBatch.observation.nodes.map(node => [node.nodeRef, node]));
   const slots = candidateBatch.slots.map(slot => {
-    const node = nodes.get(slot.nodeRef);
+    const node = nodes.get(slot.nodeRef), local = observations.get(slot.nodeRef);
     let judgment: BasicKindJudgment;
     if (slot.status !== "ok") judgment = emptyJudgment(slot.status === "unknown" ? "unknown" : "excluded", [slot.status === "unknown" ? "candidate_unknown" : "candidate_excluded"]);
     else if (!node) judgment = emptyJudgment("unknown", ["missing_node_ref"]);
-    else {
-      const local = observations.get(slot.nodeRef) ?? {};
-      judgment = classify(validateBasicKindProperties({ ...local, tag: node.tag, role: node.role, contentEditable: local.contentEditable, hidden: combineState(htmlBoolean(node.attributes.hidden), stateFlag(node.attributes["aria-hidden"])), disabled: combineState(htmlBoolean(node.attributes.disabled), stateFlag(node.attributes["aria-disabled"])) }), spec, weights);
-    }
-    return { index: slot.index, nodeRef: slot.nodeRef, candidateStatus: slot.status, candidateReasons: [...slot.reasons], ...judgment };
+    else judgment = classify(validateBasicKindProperties(basicKindProperties(node, local ?? {})), spec, weights);
+    // Qualification and semantics stay separate: only an observation-unknown slot with a real node
+    // and an explicit local measurement row may carry the additive semantic diagnostic.
+    const semanticDiagnostic = slot.status === "unknown" && slot.reasons.includes("insufficient_observation") && node !== undefined && local !== undefined
+      ? classify(validateBasicKindProperties(basicKindProperties(node, local)), spec, weights)
+      : undefined;
+    return { index: slot.index, nodeRef: slot.nodeRef, candidateStatus: slot.status, candidateReasons: [...slot.reasons], ...judgment, ...(semanticDiagnostic === undefined ? {} : { semanticDiagnostic }) };
   });
   return { taskId: spec.taskId, profileId: weights.id, slots };
 }

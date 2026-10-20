@@ -83,10 +83,22 @@ function intersection(a: Rect, b: Rect): Rect {
   return { x, y, width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - x), height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y) };
 }
 
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+function declaredKeyboardFocus(node: ObservationNode): boolean {
+  const raw = node.attributes.tabindex;
+  if (typeof raw === "number") return Number.isInteger(raw) && raw >= 0;
+  if (typeof raw !== "string") return false;
+  const text = raw.trim();
+  if (!/^[+-]?\d+$/.test(text)) return false;
+  const value = Number(text);
+  return Number.isFinite(value) && value >= 0;
+}
+
 function currentViewNonrendered(node: ObservationNode): boolean {
   const tag = node.tag?.toLowerCase();
   const view = node.currentView;
-  return (tag === "div" || tag === "object")
+  const htmlBranch = (tag === "div" || tag === "object")
     && view !== undefined
     && view.zeroOpacityInCurrentPaintPath === true
     && view.pointerEventsNone === true
@@ -98,6 +110,23 @@ function currentViewNonrendered(node: ObservationNode): boolean {
     && node.role === null
     && view.ownLabelPresent === false
     && view.directTextPresent === false;
+  const svgBranch = (tag === "svg" || tag === "use")
+    && view !== undefined
+    && view.namespaceURI === SVG_NAMESPACE
+    && view.zeroOpacityInCurrentPaintPath === true
+    && view.pointerEventsNone === true
+    && view.activeElementFocus === false
+    && view.focusWithin === false
+    && typeof view.nativeTabIndex === "number"
+    && Number.isInteger(view.nativeTabIndex)
+    && view.nativeTabIndex < 0
+    && !declaredKeyboardFocus(node)
+    && view.editingContextActive === false
+    && node.role === null
+    && view.ownLabelPresent === false
+    && view.directTextPresent === false
+    && view.topLayer === false;
+  return htmlBranch || svgBranch;
 }
 
 function geometry(slot: CandidateSlot, node: ObservationNode, area: Rect, outside: string): CandidateSlot {

@@ -298,6 +298,28 @@ test("objective_feasible stops at the first feasible post-epoch result", async (
   assert.equal(browser.classifyBasicKind(input, inference, result.profile).judgmentStatus, "judged");
 });
 
+test("objective evaluation count counts full evaluations, not row passes", async () => {
+  const result = await fitBasicKinds({
+    handwiredRoot,
+    rows: [
+      { properties: props("button"), expectedLabel: "button" },
+      { properties: props("span", { backgroundImagePresent: true }), expectedLabel: "image" },
+    ],
+    baseProfile: priorityProfile(),
+    config: { ...decisionConfig, fit: { epochs: 3, learningRate: 0.2, anchorLambda: 0, stopWhen: "objective_feasible" } },
+    candidateId: "decision-evaluation-count",
+  });
+  assert.equal(result.timing.processedRowCount, 2);
+  // Every full objective pass visits both rows, so the exact invariant is
+  // objectiveEvaluationCount * rowCount === non-gradient row passes. Counting the counter inside
+  // the row loop makes the left side rowCount times too large and fails here.
+  assert.equal(
+    result.timing.objectiveEvaluationCount * 2,
+    result.timing.totalRowPasses - result.timing.gradientRowEpochs,
+  );
+  assert.ok(result.timing.objectiveEvaluationCount < result.timing.totalRowPasses);
+});
+
 test("decision objective validation preserves legacy fields and limits new options", () => {
   const validated = validateBasicKindTrainingConfig(decisionConfig);
   assert.equal(validated.objective.mode, "priority_decision_v1");

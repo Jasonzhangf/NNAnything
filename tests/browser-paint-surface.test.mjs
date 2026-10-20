@@ -83,6 +83,62 @@ test("normalized oversized radii expose strictly clear corner patches", () => {
   assert.equal(roundedOuterClearCorners(box, box, style, { x: 0, y: 1 }), null);
 });
 
+const outlineOnlyStyle = {
+  ...baseStyle,
+  display: "flex",
+  outlineStyle: "solid",
+  outlineWidth: "1px",
+  outlineOffset: "-1px",
+  outlineColor: "rgba(255, 255, 255, 0.08)",
+  borderTopLeftRadius: "16px",
+  borderTopRightRadius: "16px",
+  borderBottomLeftRadius: "16px",
+  borderBottomRightRadius: "16px",
+};
+
+test("outline-only clear interior uses the complete box, signed offset and real axis scales", () => {
+  const borderBox = { x: 500, y: 200, width: 160, height: 230 };
+  assert.deepEqual(paintSurface.outlineOnlyClearInterior(
+    borderBox, borderBox, outlineOnlyStyle, { x: 1, y: 1 },
+  ), { x: 518, y: 218, width: 124, height: 194 });
+
+  const visibleBox = { x: 510, y: 210, width: 100, height: 100 };
+  assert.deepEqual(paintSurface.outlineOnlyClearInterior(
+    borderBox, visibleBox, outlineOnlyStyle, { x: 1, y: 1 },
+  ), { x: 518, y: 218, width: 92, height: 92 });
+
+  const scaled = { x: 500, y: 200, width: 320, height: 460 };
+  assert.deepEqual(paintSurface.outlineOnlyClearInterior(
+    scaled, scaled, outlineOnlyStyle, { x: 2, y: 2 },
+  ), { x: 536, y: 236, width: 248, height: 388 });
+});
+
+test("outline-only clear interior refuses unknown, noncircular and nonuniform radii", () => {
+  const borderBox = { x: 500, y: 200, width: 160, height: 230 };
+  const clear = (style = outlineOnlyStyle, nextBorder = borderBox, nextVisible = borderBox,
+    nextScale = { x: 1, y: 1 }) => paintSurface.outlineOnlyClearInterior(
+    nextBorder, nextVisible, style, nextScale,
+  );
+  for (const style of [
+    { ...outlineOnlyStyle, outlineWidth: "0px" },
+    { ...outlineOnlyStyle, outlineWidth: undefined },
+    { ...outlineOnlyStyle, outlineOffset: undefined },
+    { ...outlineOnlyStyle, outlineOffset: "1%" },
+    { ...outlineOnlyStyle, borderTopLeftRadius: "16px 8px" },
+    { ...outlineOnlyStyle, borderTopRightRadius: "8px" },
+    { ...outlineOnlyStyle, borderTopLeftRadius: undefined },
+  ]) assert.equal(clear(style), null, JSON.stringify(style));
+  for (const scale of [{ x: 0, y: 1 }, { x: 1, y: -1 }, { x: Number.NaN, y: 1 }]) {
+    assert.equal(clear(outlineOnlyStyle, borderBox, borderBox, scale), null, JSON.stringify(scale));
+  }
+  for (const box of [
+    { ...borderBox, x: Number.NaN },
+    { ...borderBox, height: 0 },
+    { ...borderBox, width: 34 },
+  ]) assert.equal(clear(outlineOnlyStyle, box), null, JSON.stringify(box));
+  assert.equal(clear(outlineOnlyStyle, borderBox, { x: 0, y: 0, width: 10, height: 10 }), null);
+});
+
 const containIntrinsic = {
   complete: true,
   naturalWidth: 480,

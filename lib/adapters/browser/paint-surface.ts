@@ -55,6 +55,14 @@ function length(value: string | undefined, basis: number): number | null {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function signedPixels(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))px$/.exec(value.trim());
+  if (match === null) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function radius(value: string | undefined, width: number, height: number): RadiusPair | null {
   if (value === undefined) return null;
   const parts = value.trim().split(/\s+/).filter(Boolean);
@@ -161,6 +169,46 @@ export function borderOnlyClearInterior(
     y: borderBox.y + top * scale.y,
     width: width * scale.x,
     height: height * scale.y,
+  };
+  const clipped = intersect(clear, visibleBox);
+  return clipped.width > 0 && clipped.height > 0 ? clipped : null;
+}
+
+/** Conservative unpainted interior for a single solid outline-only box. */
+export function outlineOnlyClearInterior(
+  borderBox: Rect,
+  visibleBox: Rect,
+  style: CSSStyleDeclaration,
+  scale: AxisScale,
+): Rect | null {
+  if (![scale.x, scale.y].every(value => Number.isFinite(value) && value > 0)) return null;
+  if (![borderBox.x, borderBox.y, borderBox.width, borderBox.height,
+    visibleBox.x, visibleBox.y, visibleBox.width, visibleBox.height].every(Number.isFinite)) return null;
+  if (!(borderBox.width > 0) || !(borderBox.height > 0)) return null;
+  if (String(style.outlineStyle ?? "").trim().toLowerCase() !== "solid") return null;
+  const outlineWidth = signedPixels(style.outlineWidth);
+  const outlineOffset = signedPixels(style.outlineOffset);
+  if (outlineWidth === null || outlineWidth <= 0 || outlineOffset === null) return null;
+
+  const cssWidth = borderBox.width / scale.x, cssHeight = borderBox.height / scale.y;
+  if (!(cssWidth > 0) || !(cssHeight > 0)) return null;
+  const corners = normalizedRadii(style, cssWidth, cssHeight);
+  if (corners === null || corners.length !== 4) return null;
+  const [topLeft, topRight, bottomRight, bottomLeft] = corners;
+  if (!topLeft || !topRight || !bottomRight || !bottomLeft) return null;
+  const radius = topLeft.x;
+  if (topLeft.y !== radius || topRight.x !== radius || topRight.y !== radius
+    || bottomRight.x !== radius || bottomRight.y !== radius
+    || bottomLeft.x !== radius || bottomLeft.y !== radius) return null;
+
+  const inset = radius + outlineWidth + Math.max(0, -outlineOffset);
+  const clearWidth = cssWidth - 2 * inset, clearHeight = cssHeight - 2 * inset;
+  if (!(clearWidth > 0) || !(clearHeight > 0)) return null;
+  const clear = {
+    x: borderBox.x + inset * scale.x,
+    y: borderBox.y + inset * scale.y,
+    width: clearWidth * scale.x,
+    height: clearHeight * scale.y,
   };
   const clipped = intersect(clear, visibleBox);
   return clipped.width > 0 && clipped.height > 0 ? clipped : null;

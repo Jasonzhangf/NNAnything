@@ -397,6 +397,222 @@ test("saved currentView facts exclude only qualified neutral surfaces through th
   assert.deepEqual(loaded.nodes.find(node => node.nodeRef === "transparent-div").currentView, currentView);
 });
 
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+function svgCurrentView(overrides = {}) {
+  return {
+    namespaceURI: SVG_NAMESPACE,
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: null,
+    editingContextActive: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+    ...overrides,
+  };
+}
+
+function svgObservation({
+  tag = "svg",
+  currentView = svgCurrentView(),
+  role = null,
+  attributes = {},
+  omitCurrentView = false,
+} = {}) {
+  const box = { x: 10, y: 10, width: 100, height: 40 };
+  return {
+    viewport: { x: 0, y: 0, width: 320, height: 200 },
+    nodes: [
+      {
+        nodeRef: "root",
+        parentRef: null,
+        tag: "div",
+        role: "main",
+        rect: { x: 0, y: 0, width: 320, height: 200 },
+        fragments: [{ x: 0, y: 0, width: 320, height: 200 }],
+        clippedRect: { x: 0, y: 0, width: 320, height: 200 },
+      },
+      {
+        nodeRef: "target",
+        parentRef: "root",
+        tag,
+        role,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        ...(omitCurrentView ? {} : { currentView }),
+        ...(Object.keys(attributes).length === 0 ? {} : { attributes }),
+      },
+    ],
+  };
+}
+
+function withoutField(value, field) {
+  const copy = { ...value };
+  delete copy[field];
+  return copy;
+}
+
+test("saved SVG svg/use under a strict zero-opacity ancestry filter without merging slots", async () => {
+  const box = { x: 10, y: 10, width: 100, height: 40 };
+  const observationValue = {
+    viewport: { x: 0, y: 0, width: 320, height: 200 },
+    nodes: [
+      {
+        nodeRef: "root",
+        parentRef: null,
+        tag: "div",
+        role: "main",
+        rect: { x: 0, y: 0, width: 320, height: 200 },
+        fragments: [{ x: 0, y: 0, width: 320, height: 200 }],
+        clippedRect: { x: 0, y: 0, width: 320, height: 200 },
+      },
+      {
+        nodeRef: "transparent",
+        parentRef: "root",
+        tag: "div",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+      },
+      {
+        nodeRef: "svg",
+        parentRef: "transparent",
+        tag: "svg",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView: svgCurrentView(),
+      },
+      {
+        nodeRef: "use",
+        parentRef: "svg",
+        tag: "use",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView: svgCurrentView(),
+      },
+      {
+        nodeRef: "focused",
+        parentRef: "transparent",
+        tag: "input",
+        role: null,
+        rect: { x: 20, y: 20, width: 40, height: 20 },
+        fragments: [{ x: 20, y: 20, width: 40, height: 20 }],
+        clippedRect: { x: 20, y: 20, width: 40, height: 20 },
+      },
+      {
+        nodeRef: "readable-sibling",
+        parentRef: "root",
+        tag: "svg",
+        role: null,
+        rect: { x: 150, y: 10, width: 60, height: 40 },
+        fragments: [{ x: 150, y: 10, width: 60, height: 40 }],
+        clippedRect: { x: 150, y: 10, width: 60, height: 40 },
+        currentView: svgCurrentView({
+          zeroOpacityInCurrentPaintPath: false,
+          directTextPresent: true,
+        }),
+      },
+    ],
+  };
+
+  const result = await runCandidates({ observationValue });
+  assert.equal(result.status, "completed");
+  const batch = result.outputEvent.payload;
+  const slots = byRef(batch);
+  for (const ref of ["svg", "use"]) {
+    assert.equal(slots.get(ref).status, "filtered_out", ref);
+    assert.deepEqual(slots.get(ref).reasons, ["current_view_nonrendered"], ref);
+  }
+  assert.equal(slots.get("focused").status, "ok");
+  assert.equal(slots.get("readable-sibling").status, "ok");
+  assert.deepEqual(
+    batch.slots.map(slot => slot.nodeRef),
+    ["root", "transparent", "svg", "use", "focused", "readable-sibling"],
+  );
+  assert.equal(batch.observation.nodes.length, observationValue.nodes.length);
+});
+
+test("SVG current-view exclusion requires every joint fact and never applies to a tag alone", () => {
+  const cases = [
+    ["missing namespace", { currentView: withoutField(svgCurrentView(), "namespaceURI") }],
+    ["null namespace", { currentView: svgCurrentView({ namespaceURI: null }) }],
+    ["HTML namespace", { currentView: svgCurrentView({ namespaceURI: "http://www.w3.org/1999/xhtml" }) }],
+    ["unsupported SVG tag", { tag: "path" }],
+    ["missing record", { omitCurrentView: true }],
+    ["editable context", { currentView: svgCurrentView({ editingContextActive: true }) }],
+    ["unknown editing context", { currentView: svgCurrentView({ editingContextActive: null }) }],
+    ["missing editing context", { currentView: withoutField(svgCurrentView(), "editingContextActive") }],
+    ["actual focus", { currentView: svgCurrentView({ activeElementFocus: true }) }],
+    ["focus within", { currentView: svgCurrentView({ focusWithin: true }) }],
+    ["native keyboard focus", { currentView: svgCurrentView({ nativeTabIndex: 0 }) }],
+    ["declared keyboard focus", { attributes: { tabindex: "0" } }],
+    ["known role", { role: "img" }],
+    ["own label", { currentView: svgCurrentView({ ownLabelPresent: true }) }],
+    ["direct text", { currentView: svgCurrentView({ directTextPresent: true }) }],
+    ["top layer", { currentView: svgCurrentView({ topLayer: true }) }],
+    ["unknown top layer", { currentView: svgCurrentView({ topLayer: null }) }],
+    ["positive opacity", { currentView: svgCurrentView({ zeroOpacityInCurrentPaintPath: false }) }],
+    ["unknown opacity", { currentView: svgCurrentView({ zeroOpacityInCurrentPaintPath: null }) }],
+    ["unknown pointer events", { currentView: svgCurrentView({ pointerEventsNone: null }) }],
+    ["unknown native tab index", { currentView: svgCurrentView({ nativeTabIndex: null }) }],
+  ];
+
+  for (const [label, overrides] of cases) {
+    const batch = checkForeground(svgObservation(overrides));
+    const target = batch.slots.find(slot => slot.nodeRef === "target");
+    assert.equal(target.status, "ok", label);
+    assert.equal(
+      target.reasons.includes("current_view_nonrendered"),
+      false,
+      label,
+    );
+  }
+
+  const complete = checkForeground(svgObservation());
+  const target = complete.slots.find(slot => slot.nodeRef === "target");
+  assert.deepEqual(target.reasons, ["current_view_nonrendered"]);
+  assert.equal(target.status, "filtered_out");
+});
+
+test("saved reader keeps optional SVG namespace and editing context facts without filling defaults", () => {
+  const observationValue = svgObservation({
+    currentView: svgCurrentView({ editingContextActive: null }),
+  });
+  const loaded = loadSavedObservation(observationValue);
+  const view = loaded.nodes.find(node => node.nodeRef === "target").currentView;
+  assert.equal(view.namespaceURI, SVG_NAMESPACE);
+  assert.equal(view.editingContextActive, null);
+  assert.equal(view.contentEditable, null);
+
+  const legacyValue = svgObservation({
+    currentView: {
+      zeroOpacityInCurrentPaintPath: true,
+      pointerEventsNone: true,
+      activeElementFocus: false,
+      focusWithin: false,
+      nativeTabIndex: -1,
+      contentEditable: null,
+      directTextPresent: false,
+      ownLabelPresent: false,
+      topLayer: false,
+    },
+  });
+  const legacy = loadSavedObservation(legacyValue).nodes
+    .find(node => node.nodeRef === "target").currentView;
+  assert.equal(Object.hasOwn(legacy, "namespaceURI"), false);
+  assert.equal(Object.hasOwn(legacy, "editingContextActive"), false);
+});
+
 function currentViewObservation(overrides = {}, omitCurrentView = false) {
   const currentView = {
     zeroOpacityInCurrentPaintPath: true,

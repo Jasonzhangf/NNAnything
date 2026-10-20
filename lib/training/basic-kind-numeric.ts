@@ -38,6 +38,7 @@ export type BasicKindTrainingConfig = {
     anchorLambda: number;
     trainableWires?: readonly BasicKindWireName[];
     stopWhen?: "objective_feasible";
+    stepLength?: "objective_ray_v1";
   };
 };
 export type BasicKindFitRow = { properties: BasicKindProperties; expectedLabel: BasicKindLabel };
@@ -66,6 +67,8 @@ export interface BasicKindFitTiming {
   totalRowPasses: number;
   trainableParamCount: number;
   totalSparseCells?: number;
+  objectiveEvaluationCount?: number;
+  rejectedOrdinaryEvaluationCount?: number;
 }
 
 type WeightAddress = { family: BasicKindFamily; wire: BasicKindWireName } | { leaf: SpecificBasicKindLabel; wire: BasicKindWireName };
@@ -130,6 +133,170 @@ function decisionObjective(config: BasicKindTrainingConfig): boolean {
   return config.objective.mode === "priority_decision_v1";
 }
 
+const OBJECTIVE_RAY_STEP_CEILING = 2048;
+
+function objectiveRayGeometry(
+  weights: readonly number[],
+  displacement: Float64Array,
+  gradient: Float64Array,
+  selected: readonly number[],
+  currentLoss: number,
+  ordinaryLoss: number,
+): { slope: number; curvature: number; boxLimit: number; proposed: number } {
+  let slope = 0;
+  let boxLimit = Number.POSITIVE_INFINITY;
+  let moving = 0;
+  for (const index of selected) {
+    const step = displacement[index]!;
+    if (step === 0) continue;
+    moving++;
+    slope += gradient[index]! * step;
+    const weight = weights[index]!;
+    const distance = step > 0 ? (1 - weight) / step : (-1 - weight) / step;
+    if (!Number.isFinite(distance) || distance < 0) throw new Error("objective_ray_v1 has no nonnegative box limit");
+    if (distance < boxLimit) boxLimit = distance;
+  }
+  if (moving === 0) throw new Error("objective_ray_v1 produced a zero displacement");
+  if (!Number.isFinite(slope)) throw new Error("objective_ray_v1 produced a non-finite slope");
+  const curvature = ordinaryLoss - currentLoss - slope;
+  if (!Number.isFinite(curvature)) throw new Error("objective_ray_v1 produced non-finite curvature");
+  const ceiling = Math.min(boxLimit, OBJECTIVE_RAY_STEP_CEILING);
+  if (!(ceiling > 0)) throw new Error("objective_ray_v1 produced no positive box limit");
+  const proposed = curvature > 0 ? Math.min(ceiling, -slope / (2 * curvature)) : ceiling;
+  if (!Number.isFinite(proposed) || proposed <= 0) {
+    throw new Error("objective_ray_v1 produced no positive scalar proposal");
+  }
+  return { slope, curvature, boxLimit, proposed };
+}
+
+function objectiveRayProposal(
+  weights: readonly number[],
+  displacement: Float64Array,
+  gradient: Float64Array,
+  selected: readonly number[],
+  currentLoss: number,
+  ordinaryLoss: number,
+): { slope: number; curvature: number; boxLimit: number; proposed: number } {
+  const geometry = objectiveRayGeometry(weights, displacement, gradient, selected, currentLoss, ordinaryLoss);
+  if (geometry.slope >= 0) throw new Error("objective_ray_v1 produced a non-descent ray");
+  return geometry;
+}
+
+type ObjectiveRayEvaluation = {
+  knownLoss: number;
+  otherLoss: number;
+  anchorLoss: number;
+  feasible: boolean;
+};
+
+// One conditional replacement direction. The trigger is a non-feasible ordinary Adam candidate
+// whose directional slope is not negative; only the numerator changes, to the current gradient
+// preconditioned by the already updated second moment. The moments stay untouched.
+function objectiveRayCorrectedProposal<Evaluation extends ObjectiveRayEvaluation>(
+  weights: readonly number[],
+  gradient: Float64Array,
+  denominators: Float64Array,
+  selected: readonly number[],
+  learningRate: number,
+  currentLoss: number,
+  evaluate: (point: Float64Array) => Evaluation,
+): { point: Float64Array<ArrayBuffer>; evaluation: Evaluation; displacement: Float64Array<ArrayBuffer>; proposed: number } {
+  const point = Float64Array.from(weights);
+  const displacement = new Float64Array(weights.length);
+  let moving = 0;
+  for (const index of selected) {
+    const raw = -learningRate * gradient[index]! / denominators[index]!;
+    if (!Number.isFinite(raw)) throw new Error("objective_ray_v1 produced a non-finite corrected displacement");
+    const next = Math.fround(Math.max(-1, Math.min(1, weights[index]! + raw)));
+    point[index] = next;
+    displacement[index] = next - weights[index]!;
+    if (displacement[index] !== 0) moving++;
+  }
+  if (moving === 0) throw new Error("objective_ray_v1 produced a zero corrected displacement");
+  let slope = 0;
+  for (const index of selected) slope += gradient[index]! * displacement[index]!;
+  if (!Number.isFinite(slope)) throw new Error("objective_ray_v1 produced a non-finite corrected slope");
+  if (!(slope < 0)) throw new Error("objective_ray_v1 produced a non-descent corrected ray");
+  const evaluation = evaluate(point);
+  const loss = evaluation.knownLoss + evaluation.otherLoss + evaluation.anchorLoss;
+  if (!Number.isFinite(loss)) throw new Error("objective_ray_v1 produced a non-finite corrected objective");
+  const curvature = loss - currentLoss - slope;
+  if (!Number.isFinite(curvature)) throw new Error("objective_ray_v1 produced non-finite corrected curvature");
+  let boxLimit = Number.POSITIVE_INFINITY;
+  for (const index of selected) {
+    const stepValue = displacement[index]!;
+    if (stepValue === 0) continue;
+    const weight = weights[index]!;
+    const distance = stepValue > 0 ? (1 - weight) / stepValue : (-1 - weight) / stepValue;
+    if (!Number.isFinite(distance) || distance < 0) throw new Error("objective_ray_v1 has no nonnegative corrected box limit");
+    if (distance < boxLimit) boxLimit = distance;
+  }
+  const ceiling = Math.min(boxLimit, OBJECTIVE_RAY_STEP_CEILING);
+  if (!(ceiling > 0)) throw new Error("objective_ray_v1 produced no positive corrected box limit");
+  const proposed = curvature > 0 ? Math.min(ceiling, -slope / (2 * curvature)) : ceiling;
+  if (!Number.isFinite(proposed) || proposed <= 0) {
+    throw new Error("objective_ray_v1 produced no positive corrected scalar proposal");
+  }
+  return { point, evaluation, displacement, proposed };
+}
+
+export type ObjectiveRaySelectionCandidate = {
+  scalar: number;
+  loss: number;
+  feasible: boolean;
+};
+
+export type ObjectiveRaySelection<Candidate> = {
+  accepted: Candidate | null;
+  best: Candidate | null;
+};
+
+/**
+ * One objective-ray selection step. Every evaluated candidate that strictly improves the current
+ * loss participates. The smallest actual improving objective wins, an equal loss keeps the
+ * smaller scalar, and a feasible candidate stops the search when the fit stops on feasibility.
+ */
+export function selectObjectiveRayCandidate<Candidate extends ObjectiveRaySelectionCandidate>(
+  selection: ObjectiveRaySelection<Candidate>,
+  candidate: Candidate,
+  currentLoss: number,
+  stopOnFeasible: boolean,
+): { selection: ObjectiveRaySelection<Candidate>; accepted: boolean } {
+  let best = selection.best;
+  if (
+    candidate.loss < currentLoss
+    && (best === null
+      || candidate.loss < best.loss
+      || (candidate.loss === best.loss && candidate.scalar < best.scalar))
+  ) {
+    best = candidate;
+  }
+  if (stopOnFeasible && candidate.feasible) {
+    return { selection: { accepted: candidate, best }, accepted: true };
+  }
+  return { selection: { accepted: selection.accepted, best }, accepted: false };
+}
+
+function objectiveRayScalars(proposed: number): readonly number[] {
+  const unique: number[] = [];
+  for (const scalar of [1, proposed, proposed / 2, proposed / 4, proposed / 8, proposed / 16]) {
+    if (!Number.isFinite(scalar) || scalar < 0) throw new Error("objective_ray_v1 produced an invalid scalar candidate");
+    if (!unique.some(existing => Object.is(existing, scalar))) unique.push(scalar);
+  }
+  return unique;
+}
+
+function objectiveRayTrial(weights: readonly number[], displacement: Float64Array, selected: readonly number[], scalar: number): Float64Array {
+  const trial = Float64Array.from(weights);
+  for (const index of selected) {
+    const value = Math.fround(weights[index]! + scalar * displacement[index]!);
+    if (!Number.isFinite(value)) throw new Error("objective_ray_v1 produced a non-finite trial weight");
+    if (value < -1 || value > 1) throw new Error("objective_ray_v1 produced a trial outside the stored bounds");
+    trial[index] = value;
+  }
+  return trial;
+}
+
 function optionalTrainableWires(value: unknown): readonly BasicKindWireName[] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) throw new TypeError("fit.trainableWires must be an array of registered wire names");
@@ -178,7 +345,7 @@ export function validateBasicKindTrainingConfig(value: unknown): BasicKindTraini
     throw new TypeError("boundarySlack must be in (0,minScore)");
   }
   const fit = expectRecord(input.fit, "fit");
-  onlyKeys(fit, ["epochs", "learningRate", "anchorLambda", "trainableWires", "stopWhen"], "fit");
+  onlyKeys(fit, ["epochs", "learningRate", "anchorLambda", "trainableWires", "stopWhen", "stepLength"], "fit");
   const epochs = nonnegativeInteger(fit.epochs, "epochs");
   const learningRate = expectFiniteNumber(fit.learningRate, "learningRate");
   if (learningRate <= 0) throw new TypeError("learningRate must be positive");
@@ -188,6 +355,10 @@ export function validateBasicKindTrainingConfig(value: unknown): BasicKindTraini
   }
   if (stopWhen === "objective_feasible" && mode !== "priority_decision_v1") {
     throw new TypeError("fit.stopWhen objective_feasible requires objective.mode priority_decision_v1");
+  }
+  const stepLength = fit.stepLength;
+  if (stepLength !== undefined && stepLength !== "objective_ray_v1") {
+    throw new TypeError("fit.stepLength must be objective_ray_v1");
   }
   const trainableWires = optionalTrainableWires(fit.trainableWires);
   return {
@@ -207,6 +378,7 @@ export function validateBasicKindTrainingConfig(value: unknown): BasicKindTraini
       anchorLambda: nonnegativeNumber(fit.anchorLambda, "anchorLambda"),
       ...(trainableWires === undefined ? {} : { trainableWires }),
       ...(stopWhen === undefined ? {} : { stopWhen }),
+      ...(stepLength === undefined ? {} : { stepLength }),
     },
   };
 }
@@ -301,7 +473,7 @@ function buildCircuit(module: HandwiredModule, profile: BasicKindProfile): Circu
   };
 }
 
-function sourceFor(graph: CircuitGraph, weights: readonly number[], wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>): Float32Array {
+function sourceFor(graph: CircuitGraph, weights: ArrayLike<number>, wires: Readonly<Record<BasicKindWireName, BasicKindWireValue>>): Float32Array {
   const sparseCount = graph.weights.length;
   const source = new Float32Array(graph.circuit.sourceSize);
   for (let index = 0; index < sparseCount; index++) source[index] = Math.fround(weights[index]!);
@@ -652,6 +824,8 @@ export async function fitBasicKinds(value: {
     processedRowCount: 0,
     gradientRowEpochs: 0,
     totalRowPasses: 0,
+    objectiveEvaluationCount: 0,
+    rejectedOrdinaryEvaluationCount: 0,
     trainableParamCount: 0,
     totalSparseCells: 0,
   };
@@ -686,12 +860,18 @@ export async function fitBasicKinds(value: {
     const weights = graph.weights.map(item => item.base);
     const firstMoment = new Float64Array(weights.length);
     const secondMoment = new Float64Array(weights.length);
+    const denominators = new Float64Array(weights.length);
     let step = 0;
-    const evaluateAll = (current: readonly number[], gradientPass: boolean) => {
+    const evaluateAll = (current: ArrayLike<number>, gradientPass: boolean) => {
+      // One increment per full candidate evaluation, not per row: a gradient pass is accounted in
+      // gradientRowEpochs instead, so objectiveEvaluationCount * rows.length is exactly the
+      // non-gradient share of totalRowPasses.
+      if (!gradientPass) timing.objectiveEvaluationCount = (timing.objectiveEvaluationCount ?? 0) + 1;
       const gradient = new Float64Array(weights.length);
       let known = 0, other = 0, anchor = 0;
       let feasible = true;
-      for (const row of rows) {
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        const row = rows[rowIndex]!;
         const wires = extractBasicKindWires(row.properties);
         const source = sourceFor(graph, current, wires);
         const evaluated = evaluateGraph(graph, source, wires, row.expectedLabel, config);
@@ -699,7 +879,8 @@ export async function fitBasicKinds(value: {
         if (gradientPass) timing.gradientRowEpochs++;
         known += evaluated.knownLoss;
         other += evaluated.otherLoss;
-        if (evaluated.knownLoss + evaluated.otherLoss > 0) feasible = false;
+        const rowLoss = evaluated.knownLoss + evaluated.otherLoss;
+        if (rowLoss > 0) feasible = false;
         for (let index = 0; index < weights.length; index++) gradient[index] = gradient[index]! + evaluated.gradients[graph.weights[index]!.wire]! / rows.length;
       }
       for (let index = 0; index < weights.length; index++) {
@@ -736,6 +917,7 @@ export async function fitBasicKinds(value: {
     for (let epoch = 0; epoch < config.fit.epochs && stoppingReason === "epoch_limit"; epoch++) {
       const trainStarted = performance.now();
       let state;
+      let ordinary;
       let projectedWeightCount = 0;
       try {
         state = evaluateAll(weights, true);
@@ -743,24 +925,112 @@ export async function fitBasicKinds(value: {
         step++;
         const firstCorrection = 1 - firstDecay ** step;
         const secondCorrection = 1 - secondDecay ** step;
+        ordinary = Float64Array.from(weights);
         for (let index = 0; index < weights.length; index++) {
           const address = graph.weights[index]!.address;
           const wire = address.wire;
           if (!hasTrainableWire(config, wire)) continue;
           firstMoment[index] = firstDecay * firstMoment[index]! + (1 - firstDecay) * state.gradient[index]!;
           secondMoment[index] = secondDecay * secondMoment[index]! + (1 - secondDecay) * state.gradient[index]! ** 2;
-          const next = weights[index]! - config.fit.learningRate * (firstMoment[index]! / firstCorrection) / (Math.sqrt(secondMoment[index]! / secondCorrection) + epsilon);
+          const denominator = Math.sqrt(secondMoment[index]! / secondCorrection) + epsilon;
+          denominators[index] = denominator;
+          const next = weights[index]! - config.fit.learningRate * (firstMoment[index]! / firstCorrection) / denominator;
           if (![firstMoment[index]!, secondMoment[index]!, next].every(Number.isFinite)) throw new Error("Non-finite training optimizer state");
           if (next < -1 || next > 1) projectedWeightCount++;
-          weights[index] = Math.fround(Math.max(-1, Math.min(1, next)));
+          ordinary[index] = Math.fround(Math.max(-1, Math.min(1, next)));
         }
       } finally {
         timing.trainEpochGradMs += performance.now() - trainStarted;
       }
+      if (state === undefined || ordinary === undefined) throw new Error("Training epoch produced no optimizer state");
       const postEpochStarted = performance.now();
       let next;
       try {
-        next = evaluateAll(weights, false);
+        if (config.fit.stepLength === undefined) {
+          for (let index = 0; index < weights.length; index++) weights[index] = ordinary[index]!;
+          next = evaluateAll(weights, false);
+        } else {
+          const selected = graph.weights
+            .map((item, index) => hasTrainableWire(config, item.address.wire) ? index : -1)
+            .filter(index => index >= 0);
+          const displacement = Float64Array.from(ordinary, (value, index) => value - weights[index]!);
+          const currentLoss = state.knownLoss + state.otherLoss + state.anchorLoss;
+          const ordinaryEvaluation = evaluateAll(ordinary, false);
+          const ordinaryLoss = ordinaryEvaluation.knownLoss + ordinaryEvaluation.otherLoss + ordinaryEvaluation.anchorLoss;
+          let trialCount = 1;
+          const seen: Float64Array[] = [Float64Array.from(weights), ordinary];
+          const selection: ObjectiveRaySelection<{
+            scalar: number;
+            weights: Float64Array;
+            evaluation: typeof ordinaryEvaluation;
+            loss: number;
+            feasible: boolean;
+          }> = { accepted: null, best: null };
+          const consider = (scalar: number, candidateWeights: Float64Array, evaluation: typeof ordinaryEvaluation) => {
+            const loss = evaluation.knownLoss + evaluation.otherLoss + evaluation.anchorLoss;
+            if (!Number.isFinite(loss)) throw new Error("objective_ray_v1 produced a non-finite objective");
+            const outcome = selectObjectiveRayCandidate(
+              selection,
+              { scalar, weights: candidateWeights, evaluation, loss, feasible: evaluation.feasible },
+              currentLoss,
+              config.fit.stopWhen === "objective_feasible",
+            );
+            selection.accepted = outcome.selection.accepted;
+            selection.best = outcome.selection.best;
+            return outcome.accepted;
+          };
+          if (config.fit.stopWhen === "objective_feasible" && ordinaryEvaluation.feasible) {
+            // A numerically feasible ordinary candidate stops the fit through the public
+            // classification check. It is a candidate-set member that needs no ray, no
+            // geometry and no strict improvement, so no trial is generated or evaluated.
+            consider(1, ordinary, ordinaryEvaluation);
+          } else {
+            let geometry: { proposed: number };
+            let rayDisplacement = displacement;
+            let adamSlope = 0;
+            let adamMoving = 0;
+            for (const index of selected) {
+              const stepValue = displacement[index]!;
+              if (stepValue !== 0) adamMoving++;
+              adamSlope += state.gradient[index]! * stepValue;
+            }
+            const corrected = adamMoving > 0 && Number.isFinite(adamSlope) && adamSlope >= 0;
+            if (corrected) {
+              // The ordinary Adam point was already evaluated above; the trigger rejects it as a
+              // candidate, so it is counted before the replacement can throw.
+              timing.rejectedOrdinaryEvaluationCount = (timing.rejectedOrdinaryEvaluationCount ?? 0) + 1;
+              const replacement = objectiveRayCorrectedProposal(
+                weights,
+                state.gradient,
+                denominators,
+                selected,
+                config.fit.learningRate,
+                currentLoss,
+                point => evaluateAll(point, false),
+              );
+              rayDisplacement = replacement.displacement;
+              geometry = { proposed: replacement.proposed };
+              seen.push(replacement.point);
+              consider(1, replacement.point, replacement.evaluation);
+            } else {
+              geometry = objectiveRayProposal(weights, displacement, state.gradient, selected, currentLoss, ordinaryLoss);
+              consider(1, ordinary, ordinaryEvaluation);
+            }
+            for (const scalar of objectiveRayScalars(geometry.proposed)) {
+              if (Object.is(scalar, 1)) continue;
+              const candidateWeights = objectiveRayTrial(weights, rayDisplacement, selected, scalar);
+              if (seen.some(point => point.every((value, index) => Object.is(value, candidateWeights[index])))) continue;
+              seen.push(candidateWeights);
+              const evaluation = evaluateAll(candidateWeights, false);
+              trialCount++;
+              if (consider(scalar, candidateWeights, evaluation)) break;
+            }
+          }
+          const chosen = selection.accepted ?? selection.best;
+          if (chosen === null) throw new Error("objective_ray_v1 found no strictly improving candidate");
+          for (let index = 0; index < weights.length; index++) weights[index] = chosen.weights[index]!;
+          next = chosen.evaluation;
+        }
       } finally {
         timing.postEpochEvalMs += performance.now() - postEpochStarted;
       }
@@ -807,7 +1077,7 @@ export async function fitBasicKinds(value: {
   }
 }
 
-function profileFromWeights(base: BasicKindProfile, graph: CircuitGraph, weights: readonly number[], id = base.id): BasicKindProfile {
+function profileFromWeights(base: BasicKindProfile, graph: CircuitGraph, weights: ArrayLike<number>, id = base.id): BasicKindProfile {
   const familyWeights = structuredClone(base.familyWeights) as Record<BasicKindFamily, BasicKindWeights>;
   const leafWeights = structuredClone(base.leafWeights) as Record<SpecificBasicKindLabel, BasicKindWeights>;
   for (let index = 0; index < graph.weights.length; index++) {

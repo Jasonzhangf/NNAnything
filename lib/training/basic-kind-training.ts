@@ -548,6 +548,8 @@ function readFitTiming(value: unknown): BasicKindFitTiming {
     "totalRowPasses",
     "trainableParamCount",
     "totalSparseCells",
+    "objectiveEvaluationCount",
+    "rejectedOrdinaryEvaluationCount",
   ], "fit timing");
   return {
     backendLoadMs: nonNegativeFinite(input.backendLoadMs, "fit timing.backendLoadMs"),
@@ -564,6 +566,12 @@ function readFitTiming(value: unknown): BasicKindFitTiming {
     trainableParamCount: integer(input.trainableParamCount, "fit timing.trainableParamCount"),
     ...(input.totalSparseCells === undefined ? {} : {
       totalSparseCells: integer(input.totalSparseCells, "fit timing.totalSparseCells"),
+    }),
+    ...(input.objectiveEvaluationCount === undefined ? {} : {
+      objectiveEvaluationCount: integer(input.objectiveEvaluationCount, "fit timing.objectiveEvaluationCount"),
+    }),
+    ...(input.rejectedOrdinaryEvaluationCount === undefined ? {} : {
+      rejectedOrdinaryEvaluationCount: integer(input.rejectedOrdinaryEvaluationCount, "fit timing.rejectedOrdinaryEvaluationCount"),
     }),
   };
 }

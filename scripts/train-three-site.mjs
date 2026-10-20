@@ -7,7 +7,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const VALUE_FLAGS = new Set([
   "--input", "--base-weight", "--gold-reference", "--handwired-root", "--out-dir",
   "--weights-dir", "--trainable-wires", "--epochs", "--learning-rate", "--anchor-lambda",
-  "--objective", "--stop-when",
+  "--objective", "--stop-when", "--step-length",
 ]);
 const REQUIRED = ["--input", "--base-weight", "--handwired-root", "--out-dir", "--weights-dir"];
 const INFERENCE = Object.freeze({ taskId: "dom.basic-kinds.v1", minScore: 0.6, minMargin: 0.15 });
@@ -24,6 +24,7 @@ Usage:
     [--trainable-wires <wire[,wire...]>] \\
     [--epochs 500] [--learning-rate 0.01] [--anchor-lambda 0.02]
     [--objective priority_decision_v1] [--stop-when objective_feasible]
+    [--step-length objective_ray_v1]
 
 Training is development-only. Gold is evaluated after fitting, never trained on.
 The candidate is uncalibrated and not applied. No browser work or build is run.
@@ -163,6 +164,7 @@ function fitConfig(training, flags) {
       anchorLambda: numberFlag(flags, "--anchor-lambda", 0.02, value => value >= 0, "--anchor-lambda"),
       ...(trainableWires ? { trainableWires } : {}),
       ...(flags.has("--stop-when") ? { stopWhen: flags.get("--stop-when") } : {}),
+      ...(flags.has("--step-length") ? { stepLength: flags.get("--step-length") } : {}),
     },
   };
   return training.validateBasicKindTrainingConfig(target);

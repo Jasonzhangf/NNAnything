@@ -10,6 +10,16 @@
 
 自身提示信息也是独立内容证据：微博图形包装的 title 状态不能因无正文而丢失。新增 nullable 的标签存在性与有界图形后代存在性，以组合 wire 支持具名图形所有者；原始提示字符串只留 teacher 证据。只在实际看见图形标签、图形角色或 CSS 图像／mask 时确认图形，不把一般伪元素文字或 figure 分组直接当图片。显式按钮和输入仍在先前交互阶段评分；新地址迁移为零，历史未测保留 null。
 
+本轮现场复检补充独立焦点图形的证据路线。焦点事实与自身图形内容分两条 wire 提取，仍在上图 `own_content` 阶段参与评分：
+
+```text
+own_focus_target = nullableOR(activeElementFocus, tabIndexFocus)
+independent_graphic_content = nullableAND(selfGraphicEvidence, nullableOR(own_focus_target, ownLabelPresent))
+```
+
+`own_focus_target` 是通用独立焦点证据，登记 ignore 的反向贡献 support 路径。焦点不打开 direct_interaction 的 button/input/select/link，也不打开 meaningful_structure 的 container/list/listitem。`independent_graphic_content` 加入 image 的正向 support，并和 `own_focus_target` 一起登记 ignore 的反向贡献地址；该节点自身呈现图形且有独立目标价值时不落入 redundant_ignore。资源定义、SVG `text`、非图形 tag 和缺测操作数不取得正证据。阶段顺序、门限、margin、标签和 profile 结构不变；具体有限适用集合与零迁移地址沿 [基础种类连线](basic-kinds-wiring.md)。
+
+
 ```mermaid
 flowchart TD
   S([合格单节点属性与缺测状态]):::boundary --> W[提取自身与继承证据以及静态支撑门控]:::action

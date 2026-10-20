@@ -42,7 +42,10 @@
 ```mermaid
 flowchart TD
   S([输入单节点属性与缺测状态]):::boundary --> G{候选资格通过}:::decision
-  G -->|否| X[保留排除或未知原因]:::action
+  G -->|否| Q{未知且仅因物理观测不足}
+  Q -->|否| X[保留排除或未知原因]:::action
+  Q -->|是且存在本地测量行| G2[以同配置同 profile 对本地测量做语义诊断]:::action
+  G2 --> X
   G -->|是| W[抽取明确命名的属性条件 wire]:::action
   W --> F[计算五个大类的分数区间]:::action
   F --> D{大类证据与间隔足够}:::decision
@@ -63,6 +66,26 @@ flowchart TD
 这是真正的先粗后细计算。大类未通过时没有 leafScores。大类通过时，leafScores 只含该大类的细类。数组只是多次单节点计算，保留顺序、长度和重复引用。
 
 进入分类器且观测可用的节点，语义标签始终是 12 个具体类别之一或 `other`。`ignore` 属于 `structure` 大类，是与其他细类同一两阶段电路的叶子目标；它不是 tag 硬过滤、独立类别头或预处理删除。`unknown/conflict` 是判断状态，不是额外语义类别。当前未识别或证据冲突的节点输出残余 `other`，同时保留评分路径；`other` 不等于已判为 other，也不伪造 judged 状态。上游排除、跳过或不可用项不属于已分类输入，标签仍为 null，不能用 other 掩盖采集失败。
+
+## 观测未知的语义诊断（可选字段）
+
+候选资格与语义计算是两个独立事实。资格阶段因物理观测不足而停在 unknown 时，本地可能已经采到可分类的测量行；上图的诊断支路允许对这份已知测量做一次语义计算，但不改变资格结论。该支路不绕过资格、不复活排除项、不修改原始槽位。
+
+`BasicKindSlot` 增加一个可选字段 `semanticDiagnostic?: BasicKindJudgment`。它只在一个很窄的输入状态下出现：
+
+| 输入状态 | 顶层判断 | semanticDiagnostic |
+| --- | --- | --- |
+| 候选 ok | 既有分类，原样保留 | 不出现，不复制结果 |
+| 候选 unknown、原因 `insufficient_observation`、存在原始节点且有显式本地测量行 | 既有 unknown，class/score/margin 仍为 null，reasons 为 `candidate_unknown` | 使用本次请求同一 config 与 profile，对同一属性构造做的既有分类结果 |
+| 缺节点引用 | 既有 unknown | 不出现 |
+| 因规则观测（`insufficient_rule_observation`）或其他原因未知 | 既有 unknown | 本轮不出现 |
+| filtered_out 或 skipped | 既有 excluded | 不出现 |
+
+准入只看资格状态与证据可用性。它不使用 tag 名、期望标签、槽位号、站点名、父节点预测或任何固定数量。候选 `unknown` 的原因字符串由候选链在首次偏离阶段给定；资格一旦离开 ok 就不再被后续阶段改写。只有本地测量行存在才允许诊断，缺行没有诊断；但不要求每个可选测量都出现，缺测仍按既有区间语义处理，不能把缺测补成反例。
+
+诊断与合格分类共用同一属性构造：测量来自已验证的 `itemObservations` 行，tag/role 来自显式观测节点，hidden/disabled 解释不变，null 测量保持 null，不引入新的原始字段。分类器仍是唯一数值 owner；共享的是属性构造，不是第二套算法。
+
+诊断自身的状态可以仍是 judged、unknown 或 conflict，因为它只是同一分类器在当前输入上的结果。它不产生框、Focus、命中目标或交互能力，也不改变资格、顺序、原因或原始观测。诊断不得写成标签、监督或负例，尤其不能把预测的 `ignore` 或 `image` 转成资格、黄金 other 或训练极性。合格候选的数值行为与既有 profile/资产完全不变。
 
 ## 输入与观测边界
 
@@ -168,7 +191,23 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 
 `neutral_named_graphic_owner` 联合中性节点、自身标签、已观测图形后代、无直接非格式文字及单正面积子元素，为 media/image 提供评分路径，并允许 structure/ignore 的反向系数。该路径保留有独立提示或状态的图形包装；它不是 title 存在就直接判 image 的规则。独立按钮、链接与输入仍沿原交互阶段判断。
 
-每项保留 index、nodeRef、candidateStatus、candidateReasons、familyStatus、family、familyScores、judgmentStatus、basicKind、leafScores、score、margin、reasons、evidence。evidence 含 wire、缺测、实际权重项和两层决策路径。filtered_out/skipped 转为 excluded，上游 unknown 保持不可用，不能因补充属性而复活。输出只保留受限诊断，不透传原始观测。
+独立焦点图形表示（源码合同；拟合与候选采用待验收）增加两条 wire。`own_focus_target` 是 `activeElementFocus` 与 `tabIndexFocus` 的 nullable OR：任一已测 true 为 1，全部已测 false 为 0，其余为 null。它表示当前节点自身具有焦点目标价值，不表示 button、input、select、link 或 container。`independent_graphic_content` 是自身图形证据与 `own_focus_target OR ownLabelPresent` 的 nullable AND：已测 false 操作数使其为 0，全部已测 true 才为 1，其余为 null。
+
+自身图形证据只使用有限 tag 集合和既有观测，不新增 class、id、URL、原始文字或 `isSvg` 字段。
+
+| 适用范围 | 自身图形证据 |
+| --- | --- |
+| HTML 直接图形载体 `img`、`canvas` | 已测为 1 |
+| 根 `svg` | 复用 `svg_graphic_children`：已测 true 为 1，已测 false 为 0，缺测为 null |
+| `inSvgAncestor=true` 的 `use`、`path`、`image`、`circle`、`rect`、`line`、`polyline`、`polygon`、`ellipse` | 1 |
+| `inSvgAncestor=true` 的 `g` | 与 `graphicDescendantPresent` 做 nullable AND；没有图形后代证据时为 0，缺测时为 null |
+| 其他 tag，包括资源定义 `defs`、`symbol`、`filter`、`mask`、`clipPath`、gradient、pattern、stop，以及 SVG `text` | 0 |
+
+`inSvgAncestor=false` 时，SVG 专属 tag 不取得自身图形正证据；`inSvgAncestor=null` 时保留 null。SVG `text` 继续沿 text 语义处理。中性 HTML 图形包装继续使用既有 `neutral_named_graphic_owner`，不由新 wire 改写。`independent_graphic_content` 只加入 image 的正向 leaf support，media family support 按现有叶子并集派生；两条新 wire 也加入 ignore 的反向贡献 support 路径，但 support 只打开目标，不裁决类别。它们不加入 button、input、select、link 或 container 的正向 support。既有 `neutral_actual_focus`、`neutral_named_graphic_owner` 与 `svg_internal_part` 的定义保持原样。
+
+四条新地址为 `familyWeights.media.independent_graphic_content`、`leafWeights.image.independent_graphic_content`、`leafWeights.ignore.independent_graphic_content`、`leafWeights.ignore.own_focus_target`。它们通过目标与 wire 名称迁移补 0，不手填已训练系数。新增 image support 会改变 support gate；旧系数不变不代表任意旧输入输出恒定。若零迁移改变旧行为，须报告具体支持路径与输入，不用 missing=0、门限或旧路径 fallback 掩盖。
+
+每项保留 index、nodeRef、candidateStatus、candidateReasons、familyStatus、family、familyScores、judgmentStatus、basicKind、leafScores、score、margin、reasons、evidence。evidence 含 wire、缺测、实际权重项和两层决策路径。filtered_out/skipped 转为 excluded，上游 unknown 保持不可用，不能因补充属性而复活。仅当候选 unknown 的原因是 `insufficient_observation`、原始节点存在且显式本地测量行存在时，另附可选 `semanticDiagnostic`；它保留同一分类器的判断与证据，但顶层 unknown、候选状态、原因、顺序和原始观测全部不变。输出只保留受限诊断，不透传原始观测。
 
 `confidenceState=uncalibrated`，`calibratedConfidence=null`。数字分数不称为准确概率。离线训练框架已通过 Handwired Circuit 实现参数拟合（保持相同的 I/O、缺测 mask 与 wire 语义，通过 Adam 优化器更新 familyWeights/leafWeights，见 [训练 workflow 设计](training-workflow.md)）。初始手写分数与新拟合的候选 profile 均保持未校准（uncalibrated）；重新拟合使旧校准自动失效；保存的候选 profile 绝不自动采用。
 

@@ -9,12 +9,14 @@ export type RuleAttributeValue = string | number | boolean | null;
 export type ForegroundState = "visible" | "occluded" | "unassessed";
 
 export interface ObservationCurrentView {
+  readonly namespaceURI?: string | null;
   readonly zeroOpacityInCurrentPaintPath?: boolean | null;
   readonly pointerEventsNone?: boolean | null;
   readonly activeElementFocus?: boolean | null;
   readonly focusWithin?: boolean | null;
   readonly nativeTabIndex?: number | null;
   readonly contentEditable?: boolean | null;
+  readonly editingContextActive?: boolean | null;
   readonly directTextPresent?: boolean | null;
   readonly ownLabelPresent?: boolean | null;
   readonly topLayer?: boolean | null;
@@ -194,6 +196,7 @@ function readCurrentView(value: unknown, field: string): ObservationCurrentView 
     "activeElementFocus",
     "focusWithin",
     "contentEditable",
+    "editingContextActive",
     "directTextPresent",
     "ownLabelPresent",
     "topLayer",
@@ -211,7 +214,18 @@ function readCurrentView(value: unknown, field: string): ObservationCurrentView 
   ) {
     throw new ObservationContractError(`${field}.nativeTabIndex must be an integer or null`);
   }
-  return { ...booleans, ...(Object.hasOwn(value, "nativeTabIndex") ? { nativeTabIndex: nativeTabIndex as number | null } : {}) };
+  let namespaceURI: string | null | undefined;
+  if (Object.hasOwn(value, "namespaceURI")) {
+    if (value.namespaceURI !== null && typeof value.namespaceURI !== "string") {
+      throw new ObservationContractError(`${field}.namespaceURI must be a string or null`);
+    }
+    namespaceURI = value.namespaceURI;
+  }
+  return {
+    ...(namespaceURI === undefined ? {} : { namespaceURI }),
+    ...booleans,
+    ...(Object.hasOwn(value, "nativeTabIndex") ? { nativeTabIndex: nativeTabIndex as number | null } : {}),
+  };
 }
 
 function readForeground(value: unknown, field: string): ForegroundState | undefined {

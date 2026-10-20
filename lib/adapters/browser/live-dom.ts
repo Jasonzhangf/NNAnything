@@ -8,6 +8,7 @@ import {
   axisLinearGradientPaintsAt,
   backgroundImageOutsideBox,
   borderOnlyClearInterior,
+  outlineOnlyClearInterior,
   containedReplacedPaintRect,
   fullReplacedImageCoverageRect,
   roundedOuterClearCorners,
@@ -153,6 +154,7 @@ function elementInDocument(element: Element, document: Document): boolean {
   return false;
 }
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 function contentEditableDeclaration(element: Element): boolean | "inherit" | null {
   if (typeof element.getAttribute !== "function") return null;
   let value: string | null;
@@ -443,6 +445,9 @@ function intersection(a: Rect, b: Rect): Rect {
 }
 function positive(rect: Rect): boolean {
   return rect.width > 0 && rect.height > 0;
+}
+function finitePositive(rect: Rect | null): rect is Rect {
+  return rect !== null && [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) && positive(rect);
 }
 function subtractRect(source: Rect, blocker: Rect): Rect[] {
   if (!positive(intersection(source, blocker))) return [source];
@@ -1345,6 +1350,103 @@ function cumulativeScaleOf(element: Element, window: Window): LocalScale | null 
   return { x, y };
 }
 
+function zeroPixels(value: string | undefined): boolean {
+  if (value === undefined) return false;
+  return /^[+-]?(?:0+(?:\.0*)?|\.0+)(?:px)?$/.test(value.trim());
+}
+
+function absentPrefixedAlias(value: string | undefined): boolean {
+  return value === undefined || value === "" || value === "none";
+}
+
+function outlineOnlyPseudoAbsent(style: CSSStyleDeclaration): boolean {
+  const prefixed = style as CSSStyleDeclaration & {
+    webkitMaskImage?: string;
+    webkitBackdropFilter?: string;
+  };
+  const content = style.content;
+  if (content === undefined || !["none", "normal", "", '""', "''"].includes(content)) return false;
+  if (style.backgroundColor === undefined || parseCssAlpha(style.backgroundColor) !== 0
+    || style.backgroundImage !== "none") return false;
+  if (![style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth]
+    .every(zeroPixels)) return false;
+  if (style.borderImageSource !== "none" || style.boxShadow !== "none" || style.textShadow !== "none") return false;
+  if (!["none", "hidden"].includes(String(style.outlineStyle ?? "").trim().toLowerCase())
+    || !zeroPixels(style.outlineWidth)) return false;
+  if (style.maskImage !== "none" || !absentPrefixedAlias(prefixed.webkitMaskImage)) return false;
+  if (style.filter !== "none" || style.backdropFilter !== "none"
+    || !absentPrefixedAlias(prefixed.webkitBackdropFilter) || style.clipPath !== "none") return false;
+  return true;
+}
+
+function outlineOnlyPositiveAxisScale(element: Element, window: Window): LocalScale | null {
+  let x = 1, y = 1;
+  for (let current: Element | null = element; current; current = current.parentElement) {
+    const style = window.getComputedStyle(current);
+    const prefixed = style as CSSStyleDeclaration & {
+      webkitMaskImage?: string;
+      webkitBackdropFilter?: string;
+    };
+    if (style.zoom !== "1"
+      || [style.translate, style.rotate, style.scale, style.perspective].some(value => value !== "none")
+      || style.filter !== "none" || style.backdropFilter !== "none"
+      || !absentPrefixedAlias(prefixed.webkitBackdropFilter)
+      || style.maskImage !== "none" || !absentPrefixedAlias(prefixed.webkitMaskImage)
+      || style.contain !== "none" || style.mixBlendMode !== "normal" || style.isolation !== "auto"
+      || style.contentVisibility !== "visible" || style.transformStyle !== "flat" || style.willChange !== "auto") {
+      return null;
+    }
+    const scale = localScaleOf(style.transform);
+    if (scale === null) return null;
+    x *= scale.x;
+    y *= scale.y;
+  }
+  return { x, y };
+}
+
+function outlineOnlySurfaceClearInterior(
+  node: ObservationNode,
+  element: Element,
+  style: CSSStyleDeclaration,
+  window: Window,
+): Rect | null {
+  const prefixed = style as CSSStyleDeclaration & {
+    webkitMaskImage?: string;
+    webkitBackdropFilter?: string;
+  };
+  const tag = element.tagName.toLowerCase();
+  if (element.namespaceURI !== XHTML_NAMESPACE
+    || !["block", "flex"].includes(style.display)
+    || ["img", "svg", "canvas", "video", "object", "iframe", "embed", "input", "textarea", "select", "button", "picture"].includes(tag)
+    || node.fragments?.length !== 1 || !finitePositive(node.rect) || !finitePositive(node.clippedRect)
+    || String(style.outlineStyle ?? "").trim().toLowerCase() !== "solid"
+    || visibleOutline(style) !== true
+    || style.backgroundColor === undefined || parseCssAlpha(style.backgroundColor) !== 0
+    || style.backgroundImage !== "none"
+    || ![style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth]
+      .every(zeroPixels)
+    || style.borderImageSource !== "none"
+    || style.boxShadow !== "none" || style.textShadow !== "none"
+    || style.maskImage !== "none" || !absentPrefixedAlias(prefixed.webkitMaskImage)
+    || style.filter !== "none" || style.backdropFilter !== "none"
+    || !absentPrefixedAlias(prefixed.webkitBackdropFilter)
+    || style.clipPath !== "none"
+    || style.mixBlendMode !== "normal" || style.isolation !== "auto"
+    || style.contain !== "none" || style.contentVisibility !== "visible"
+    || style.transformStyle !== "flat" || style.willChange !== "auto"
+    || (style.pointerEvents !== "auto" && style.pointerEvents !== "none")) return null;
+  const directText = Array.from(element.childNodes)
+    .filter(child => child.nodeType === 3).map(child => child.textContent ?? "").join("");
+  if (directText !== "") return null;
+  for (const pseudo of ["::before", "::after"] as const) {
+    if (!outlineOnlyPseudoAbsent(window.getComputedStyle(element, pseudo))) return null;
+  }
+  const scale = outlineOnlyPositiveAxisScale(element, window);
+  return scale === null
+    ? null
+    : outlineOnlyClearInterior(node.rect!, node.clippedRect!, style, scale);
+}
+
 function surfaceFor(
   node: ObservationNode,
   element: Element,
@@ -1388,7 +1490,7 @@ function surfaceFor(
   if (borders === null || outline === null) {
     return { kind: "uncertain", passThrough: style.pointerEvents === "none", proven: false, relevant: true, clearInterior: null };
   }
-  const gradientCandidate = element.namespaceURI === XHTML_NAMESPACE
+  const gradientCandidate = elementNamespace(element) === XHTML_NAMESPACE
     && image && (style.pointerEvents === "auto" || style.pointerEvents === "none")
     && !mask && !filter && !media && !ownText && !pseudo && !shadow && !outline && borders === false
     && style.clipPath === "none"
@@ -1471,6 +1573,14 @@ function surfaceFor(
       return { kind: "blocker", passThrough: style.pointerEvents === "none", proven: true, relevant: true, clearInterior };
     }
     return { kind: "uncertain", passThrough: style.pointerEvents === "none", proven: false, relevant: true, clearInterior };
+  }
+  const outlineOnlyCandidate = bgAlpha === 0 && outline === true && borders === false
+    && !image && !mask && !backdrop && !filter && !media && !ownText && !shadow;
+  if (outlineOnlyCandidate) {
+    const clearInterior = outlineOnlySurfaceClearInterior(node, element, style, window);
+    if (clearInterior !== null) {
+      return { kind: "uncertain", passThrough: style.pointerEvents === "none", proven: false, relevant: true, clearInterior };
+    }
   }
   const rect = node.rect, clippedRect = node.clippedRect;
   const clippedReplaced = (tag === "img" || tag === "video")
@@ -1739,23 +1849,155 @@ function zeroOpacityInCurrentPaintPath(
   return result;
 }
 
+function elementNamespace(element: Element): string | null {
+  try {
+    const namespace = element.namespaceURI;
+    return typeof namespace === "string" ? namespace : null;
+  } catch {
+    return null;
+  }
+}
+
+function elementLocalTag(element: Element): string | null {
+  try {
+    const tag = element.tagName;
+    return typeof tag === "string" ? tag.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+function supportedSvgTarget(element: Element, tag: string): boolean {
+  return (tag === "svg" || tag === "use") && elementNamespace(element) === SVG_NAMESPACE;
+}
+
+// An SVG proof only crosses an unbroken svg/use chain into HTML, and every
+// node in that chain must be explicitly outside the top layer. The zero comes
+// from one node's own computed opacity; products of small positives never count.
+function svgZeroOpacityInCurrentPaintPath(
+  element: Element,
+  style: CSSStyleDeclaration,
+  styleByElement: Map<Element, CSSStyleDeclaration>,
+  cache: Map<Element, boolean | null>,
+): boolean | null {
+  const path: Element[] = [];
+  let result: boolean | null = null;
+  let current: Element | null = element;
+  let currentStyle: CSSStyleDeclaration | undefined = style;
+  let inSvgSegment = true;
+  while (current) {
+    if (cache.has(current)) { result = cache.get(current)!; break; }
+    path.push(current);
+    if (currentStyle === undefined) break;
+    const namespace = elementNamespace(current);
+    if (inSvgSegment) {
+      if (namespace === XHTML_NAMESPACE) {
+        inSvgSegment = false;
+      } else if (namespace === SVG_NAMESPACE) {
+        const tag = elementLocalTag(current);
+        if (tag !== "svg" && tag !== "use") break;
+      } else {
+        break;
+      }
+    } else if (namespace !== XHTML_NAMESPACE) {
+      break;
+    }
+    if (isTopLayer(current) !== false) break;
+    const currentOpacity = strictZeroOpacity(currentStyle);
+    if (currentOpacity === true) { result = true; break; }
+    if (currentOpacity === null) break;
+    const parent: Element | null = current.parentElement;
+    if (parent === null) { result = false; break; }
+    current = parent;
+    currentStyle = styleByElement.get(parent);
+  }
+  for (const entry of path) cache.set(entry, result);
+  return result;
+}
+
+function svgOwnLabelPresent(element: Element): boolean {
+  for (const name of ["title", "aria-label", "aria-labelledby"]) {
+    if (hasNonFormatDirectText(element.getAttribute(name)) === true) return true;
+  }
+  for (const child of Array.from(element.children ?? [])) {
+    const tag = elementLocalTag(child);
+    if (tag !== "title" && tag !== "desc") continue;
+    if (hasNonFormatDirectText(child.textContent ?? "") === true) return true;
+  }
+  return false;
+}
+
+// Native SVG editability protects directly. Otherwise the complete svg/use
+// chain must reach an HTML host whose existing measurement is authoritative;
+// no separate designMode gate overrides a trusted HTML false.
+function editingContextActiveFor(element: Element, document: Document): boolean | null {
+  let native: unknown;
+  try {
+    native = (element as { isContentEditable?: unknown }).isContentEditable;
+  } catch {
+    return null;
+  }
+  if (native === true) return true;
+  const visited = new Set<Element>();
+  let current: Element | null = element;
+  let nearestHtml: Element | null = null;
+  while (current) {
+    if (visited.has(current)) return null;
+    visited.add(current);
+    const namespace = elementNamespace(current);
+    if (namespace === XHTML_NAMESPACE) {
+      nearestHtml = current;
+      break;
+    }
+    if (namespace !== SVG_NAMESPACE) return null;
+    const tag = elementLocalTag(current);
+    if (tag !== "svg" && tag !== "use") return null;
+    try {
+      current = current.parentElement;
+    } catch {
+      return null;
+    }
+  }
+  if (nearestHtml === null) return null;
+  return measureContentEditable(nearestHtml, document);
+}
+
 function currentViewRecordFor(
   element: Element,
   tag: string,
   style: CSSStyleDeclaration,
   styleByElement: Map<Element, CSSStyleDeclaration>,
   opacityPathCache: Map<Element, boolean | null>,
+  svgOpacityPathCache: Map<Element, boolean | null>,
+  document: Document,
   directText: boolean | null,
   ownLabelPresent: boolean | null,
   contentEditable: boolean | null,
 ): ObservationCurrentView | undefined {
-  if (!htmlElement(element) || (tag !== "div" && tag !== "object")) return undefined;
+  const htmlBranch = htmlElement(element) && (tag === "div" || tag === "object");
+  const svgBranch = supportedSvgTarget(element, tag);
+  if (!htmlBranch && !svgBranch) return undefined;
   let focusWithin: boolean | null = null;
   try {
     const matched = typeof element.matches === "function" ? element.matches(":focus-within") : null;
     focusWithin = typeof matched === "boolean" ? matched : null;
   } catch {
     focusWithin = null;
+  }
+  if (svgBranch) {
+    return {
+      namespaceURI: elementNamespace(element),
+      zeroOpacityInCurrentPaintPath: svgZeroOpacityInCurrentPaintPath(element, style, styleByElement, svgOpacityPathCache),
+      pointerEventsNone: pointerEventsNone(style),
+      activeElementFocus: null,
+      focusWithin,
+      nativeTabIndex: nativeTabIndexOf(element),
+      contentEditable: null,
+      editingContextActive: editingContextActiveFor(element, document),
+      directTextPresent: directText,
+      ownLabelPresent,
+      topLayer: isTopLayer(element),
+    };
   }
   return {
     zeroOpacityInCurrentPaintPath: zeroOpacityInCurrentPaintPath(element, style, styleByElement, opacityPathCache),
@@ -1990,7 +2232,10 @@ function certifyImageCoverage(
       continue;
     }
     const currDomain = extractRoundedClipDomain(curr.getBoundingClientRect(), currStyle, currScale, "hidden_or_clip");
-    if (!currDomain || !sameRect(currDomain.bounds, blockerNode.rect)) return null;
+    // The image's raw border box may be taller or wider than the rounded
+    // ancestor clip. The effective image domain is the clipped rect, while
+    // intrinsic cover is still proven against the raw rect above.
+    if (!currDomain || !sameRect(currDomain.bounds, blockerNode.clippedRect)) return null;
     const rounded = currDomain.radii.some(radius => radius.x > 0 || radius.y > 0);
     if (rounded && imageDomain === null) imageDomain = currDomain;
     else if (rounded && !equalRoundedDomains(imageDomain!, currDomain)) return null;
@@ -2069,6 +2314,7 @@ export function observeLiveDom(input: {
   const ancestryByElement = new Map<Element, Element | null>();
   const effectiveOpacity = new Map<Element, number>();
   const opacityPathCache = new Map<Element, boolean | null>();
+  const svgOpacityPathCache = new Map<Element, boolean | null>();
   const hiddenByElement = new Map<Element, boolean>();
   const clippedBoxCss = new Map<Element, Map<ClipCssKey, string | null | undefined>>();
   const readClippedBoxCss: ClipCssReader = (element, style, key) => {
@@ -2165,15 +2411,20 @@ export function observeLiveDom(input: {
         && Math.abs(rect.height - soleChildRect!.height) <= 2;
     const parentCursor = element.parentElement ? window.getComputedStyle(element.parentElement).cursor : "";
     const area = rect.width * rect.height;
-    const ownLabelPresent = [element.getAttribute("title"), element.getAttribute("aria-label")]
-      .some(value => hasNonFormatDirectText(value) === true);
-    const contentEditable = measureContentEditable(element, document);
+    const svgTarget = supportedSvgTarget(element, tag);
+    const ownLabelPresent = svgTarget
+      ? svgOwnLabelPresent(element)
+      : [element.getAttribute("title"), element.getAttribute("aria-label")]
+        .some(value => hasNonFormatDirectText(value) === true);
+    const contentEditable = svgTarget ? null : measureContentEditable(element, document);
     const currentView = currentViewRecordFor(
       element,
       tag,
       style,
       styleByElement,
       opacityPathCache,
+      svgOpacityPathCache,
+      document,
       appearance.directTextPresent,
       ownLabelPresent,
       contentEditable,
@@ -2615,7 +2866,12 @@ export function observeLiveDom(input: {
       { x: node.rect.x + node.rect.width * 0.1, y: node.rect.y + node.rect.height * 0.5 },
     ];
     const queriedPoints: { readonly x: number; readonly y: number }[] = [];
-    const evaluatePoint = (rect: Rect, point: { readonly x: number; readonly y: number }): boolean | null => {
+    const legacyUnavailableRects = new Set<Rect>();
+    const evaluatePoint = (
+      rect: Rect,
+      point: { readonly x: number; readonly y: number },
+      strictSvgUseWitness = false,
+    ): boolean | null => {
       const nativeQuery = queryNativeHitPoint(
         document,
         point,
@@ -2692,9 +2948,10 @@ export function observeLiveDom(input: {
       // A complete SVG paint domain only bounds and orders paint; an ancestor
       // owner proves containment, not that the target paints here.
       const hasCompleteSvgPaintDomain = boundDomain !== null;
+      const hasStrictSvgPaintDomain = strictSvgUseWitness || hasCompleteSvgPaintDomain;
       const exposedHere = nativeQuery.supplemented
         ? knownBoundaryWitness !== null
-        : hasCompleteSvgPaintDomain
+        : hasStrictSvgPaintDomain
           ? targetBeforeOpaque || Boolean(owner && (owner === element || isWithin(owner, element)))
           : targetBeforeOpaque || clearRoundedImageCorner
             || Boolean(owner && (owner === element || isWithin(owner, element) || isWithin(element, owner)
@@ -2713,6 +2970,28 @@ export function observeLiveDom(input: {
       });
       return exposedHere;
     };
+    const svgUsePerimeter = element.tagName.toLowerCase() === "use"
+      && element.namespaceURI === "http://www.w3.org/2000/svg"
+      && node.fragments?.length === 1
+      && finitePositive(node.rect)
+      && finitePositive(node.clippedRect)
+      && remaining !== null && remaining.length > 0
+      && styleByElement.get(element)?.pointerEvents !== undefined
+      && styleByElement.get(element)?.pointerEvents !== "none"
+      ? (() => {
+        const points: { readonly x: number; readonly y: number }[] = [];
+        for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+          const fys = fx === 0.1 || fx === 0.9 ? [0.1, 0.3, 0.5, 0.7, 0.9] : [0.1, 0.9];
+          for (const fy of fys) {
+            points.push({
+              x: node.rect.x + node.rect.width * fx,
+              y: node.rect.y + node.rect.height * fy,
+            });
+          }
+        }
+        return points;
+      })()
+      : [];
     for (const rect of remaining ?? []) {
       const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
       queriedPoints.push(center);
@@ -2721,7 +3000,10 @@ export function observeLiveDom(input: {
         exposed.push(rect);
         continue;
       }
-      if (centerResult === null) continue;
+      if (centerResult === null) {
+        legacyUnavailableRects.add(rect);
+        continue;
+      }
       for (const point of crossPoints) {
         if (queriedPoints.some(previous => previous.x === point.x && previous.y === point.y)) continue;
         if (!(point.x >= rect.x && point.x < rect.x + rect.width
@@ -2732,7 +3014,27 @@ export function observeLiveDom(input: {
           exposed.push(rect);
           break;
         }
-        if (result === null) break;
+        if (result === null) {
+          legacyUnavailableRects.add(rect);
+          break;
+        }
+      }
+    }
+    if (svgUsePerimeter.length > 0 && remaining !== null) {
+      let perimeterUnavailable = false;
+      for (const point of svgUsePerimeter) {
+        if (perimeterUnavailable) break;
+        if (queriedPoints.some(previous => previous.x === point.x && previous.y === point.y)) continue;
+        const rect = remaining.find(candidate => point.x >= candidate.x && point.x < candidate.x + candidate.width
+          && point.y >= candidate.y && point.y < candidate.y + candidate.height);
+        if (rect === undefined || exposed.includes(rect) || legacyUnavailableRects.has(rect)) continue;
+        queriedPoints.push(point);
+        const result = evaluatePoint(rect, point, true);
+        if (result === true) {
+          exposed.push(rect);
+        } else if (result === null) {
+          perimeterUnavailable = true;
+        }
       }
     }
     const result: { readonly foreground: ForegroundState; readonly exposedRects: readonly Rect[] | null } = exposed.length > 0

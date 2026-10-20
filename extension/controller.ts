@@ -1016,10 +1016,11 @@ export class DOMInspectorController {
     addMetric("DOM 总数", counts.totalNodes);
     addMetric("视口候选", counts.candidates);
     addMetric("已判断", counts.judged);
-    addMetric("未知", counts.unknown);
+    addMetric("语义未知(合格内)", counts.unknown);
     addMetric("冲突", counts.conflict);
     addMetric("忽略", counts.ignored);
-    addMetric("已排除", counts.excluded);
+    addMetric("非合格(含资格未知)", counts.excluded);
+    addMetric("资格未知", counts.candidateUnknown);
 
     body.appendChild(metricsGrid);
 
@@ -1277,6 +1278,38 @@ export class DOMInspectorController {
     summary.textContent = `候选状态: ${candidate?.status ?? "unknown"}${candidate?.reasons.length ? ` (${candidate.reasons.join(", ")})` : ""}\n提议种类: ${kindZh} (${kind}) [提议]\n判断状态: ${slot?.judgmentStatus ?? "unknown"}\n分数: ${scoreStr} | 余量: ${marginStr}\n文本摘要: ${evidence?.textSummary?.slice(0, 80) ?? "无"}\nID: ${evidence?.id ?? "无"}`;
     summary.style.whiteSpace = "pre-wrap";
     section.appendChild(summary);
+
+    const diagnostic = slot?.candidateStatus === "unknown" ? slot.semanticDiagnostic : undefined;
+    if (diagnostic) {
+      const diagnosticTitle = this.doc.createElement("div");
+      diagnosticTitle.className = "section-title";
+      diagnosticTitle.style.marginTop = "6px";
+      diagnosticTitle.textContent = "语义预测（候选资格未确认）";
+      section.appendChild(diagnosticTitle);
+
+      const diagnosticKind = diagnostic.judgmentStatus === "judged" ? diagnostic.basicKind : null;
+      const diagnosticKindZh = diagnosticKind === null ? "无" : CATEGORY_COLORS[diagnosticKind]?.zh ?? diagnosticKind;
+      const diagnosticStatusZh = diagnostic.judgmentStatus === "judged"
+        ? "已判断"
+        : diagnostic.judgmentStatus === "unknown"
+          ? "未知"
+          : diagnostic.judgmentStatus === "conflict"
+            ? "冲突"
+            : "已排除";
+      const diagnosticScore = diagnostic.score === null ? "无" : `${diagnostic.score.toFixed(3)} (未校准)`;
+      const diagnosticMargin = diagnostic.margin === null ? "无" : diagnostic.margin.toFixed(3);
+      const diagnosticRow = this.doc.createElement("div");
+      diagnosticRow.className = "details-row";
+      diagnosticRow.style.whiteSpace = "pre-wrap";
+      diagnosticRow.textContent = [
+        `预测状态: ${diagnosticStatusZh} (${diagnostic.judgmentStatus})`,
+        `预测种类: ${diagnosticKindZh}${diagnosticKind === null ? "" : ` (${diagnosticKind})`} [模型预测，非人工确认]`,
+        `预测分数: ${diagnosticScore} | 预测余量: ${diagnosticMargin}`,
+        `预测依据: ${diagnostic.reasons.length > 0 ? diagnostic.reasons.join(", ") : "无"}`,
+        "候选资格仍为未知：此预测不证明可见、可交互或可采集。当前无标注框，也不满足样本保存条件。",
+      ].join("\n");
+      section.appendChild(diagnosticRow);
+    }
 
     // Collapsed Raw Evidence & Wires
     const rawDetails = this.doc.createElement("details");

@@ -666,6 +666,7 @@ function currentViewElement(document, {
   role = null,
   title = null,
   ariaLabel = null,
+  ariaLabelledby = null,
   directText = "",
 } = {}) {
   const element = {
@@ -685,7 +686,7 @@ function currentViewElement(document, {
     getBoundingClientRect: () => ({ ...rectValue }),
     getClientRects: () => [{ ...rectValue }],
     querySelectorAll: () => [],
-    getAttribute: name => name === "role" ? role : name === "title" ? title : name === "aria-label" ? ariaLabel : null,
+    getAttribute: name => name === "role" ? role : name === "title" ? title : name === "aria-label" ? ariaLabel : name === "aria-labelledby" ? ariaLabelledby : null,
     hasAttribute: () => false,
     matches: selector => {
       if (selector === ":focus-within") return focusWithin;
@@ -1962,6 +1963,380 @@ test("currentView opacity proof requires a non-top-layer path and never infers z
     assert.equal(invalid.observation.nodes.find(node => node.nodeRef === stableNodeRefFor(registry, inherited))
       .currentView.zeroOpacityInCurrentPaintPath, null, value);
   }
+});
+
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+test("live currentView records supported SVG svg/use under a strict zero-opacity ancestry with null edit facts", () => {
+  const dom = currentViewDom();
+  const transparent = currentViewElement(dom.document, { parent: dom.html, rectValue: rect(10, 10, 120, 40) });
+  const svg = currentViewElement(dom.document, {
+    tag: "svg",
+    namespaceURI: SVG_NAMESPACE,
+    parent: transparent,
+    rectValue: rect(10, 10, 120, 40),
+  });
+  const use = currentViewElement(dom.document, {
+    tag: "use",
+    namespaceURI: SVG_NAMESPACE,
+    parent: svg,
+    rectValue: rect(10, 10, 120, 40),
+  });
+  appendCurrentViewChild(dom.html, transparent);
+  appendCurrentViewChild(transparent, svg);
+  appendCurrentViewChild(svg, use);
+  transparent.currentViewStyle = { ...dom.baseStyle, opacity: "0", pointerEvents: "none" };
+  svg.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+  use.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+
+  const registry = createStableNodeRefRegistry("svg-current-view");
+  const snapshot = observeLiveDom({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "svg-current-view",
+    documentRef: "fixture",
+  });
+  const svgRef = stableNodeRefFor(registry, svg);
+  const useRef = stableNodeRefFor(registry, use);
+  const record = ref => snapshot.observation.nodes.find(node => node.nodeRef === ref);
+  const expected = {
+    namespaceURI: SVG_NAMESPACE,
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: null,
+    editingContextActive: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+  };
+  assert.deepEqual(record(svgRef).currentView, expected);
+  assert.deepEqual(record(useRef).currentView, expected);
+  assert.equal(snapshot.itemObservations.find(item => item.nodeRef === svgRef).contentEditable, null);
+  assert.equal(snapshot.itemObservations.find(item => item.nodeRef === useRef).contentEditable, null);
+
+  const batch = checkCandidates(
+    observeCandidates({ observation: snapshot.observation }),
+    createFocusSpec(),
+  );
+  const slot = ref => batch.slots.find(candidate => candidate.nodeRef === ref);
+  assert.deepEqual(slot(svgRef).reasons, ["current_view_nonrendered"]);
+  assert.deepEqual(slot(useRef).reasons, ["current_view_nonrendered"]);
+  assert.equal(snapshot.observation.nodes.length, 4);
+});
+
+test("SVG editing context trusts native SVG and complete HTML edit measurements without a designMode gate", () => {
+  const editingContextFor = prepare => {
+    const dom = currentViewDom();
+    const host = currentViewElement(dom.document, { parent: dom.html });
+    const svg = currentViewElement(dom.document, {
+      tag: "svg",
+      namespaceURI: SVG_NAMESPACE,
+      parent: host,
+    });
+    appendCurrentViewChild(dom.html, host);
+    appendCurrentViewChild(host, svg);
+    host.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+    svg.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+    prepare(dom, host, svg);
+    const registry = createStableNodeRefRegistry("svg-editing-context");
+    const snapshot = observeLiveDom({
+      document: dom.document,
+      window: dom.window,
+      registry,
+      excludeRoot: null,
+      snapshotRef: "svg-editing-context",
+      documentRef: "fixture",
+    });
+    return snapshot.observation.nodes
+      .find(node => node.nodeRef === stableNodeRefFor(registry, svg))
+      ?.currentView?.editingContextActive;
+  };
+
+  assert.equal(editingContextFor((dom, host, svg) => {
+    svg.isContentEditable = true;
+  }), true);
+
+  assert.equal(editingContextFor((dom, host, svg) => {
+    delete svg.isContentEditable;
+    host.isContentEditable = true;
+  }), true);
+
+  assert.equal(editingContextFor((dom, host, svg) => {
+    delete svg.isContentEditable;
+    delete host.isContentEditable;
+  }), false);
+
+  assert.equal(editingContextFor((dom, host, svg) => {
+    delete svg.isContentEditable;
+    delete host.isContentEditable;
+    delete host.matches;
+  }), null);
+
+  assert.equal(editingContextFor((dom, host, svg) => {
+    delete svg.isContentEditable;
+    delete host.isContentEditable;
+    delete host.matches;
+    dom.document.designMode = "on";
+  }), true);
+
+  assert.equal(editingContextFor((dom, host, svg) => {
+    delete svg.isContentEditable;
+    delete host.isContentEditable;
+    delete host.matches;
+    dom.document.designMode = "off";
+  }), false);
+
+  const boundaryContextFor = boundaryNamespace => {
+    const dom = currentViewDom();
+    const host = currentViewElement(dom.document, { parent: dom.html });
+    const boundary = currentViewElement(dom.document, {
+      tag: boundaryNamespace === SVG_NAMESPACE ? "foreignObject" : "g",
+      namespaceURI: boundaryNamespace,
+      parent: host,
+    });
+    const svg = currentViewElement(dom.document, {
+      tag: "svg",
+      namespaceURI: SVG_NAMESPACE,
+      parent: boundary,
+    });
+    appendCurrentViewChild(dom.html, host);
+    appendCurrentViewChild(host, boundary);
+    appendCurrentViewChild(boundary, svg);
+    for (const element of [host, boundary, svg]) {
+      element.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+    }
+    const registry = createStableNodeRefRegistry("svg-editing-boundary");
+    const snapshot = observeLiveDom({
+      document: dom.document,
+      window: dom.window,
+      registry,
+      excludeRoot: null,
+      snapshotRef: "svg-editing-boundary",
+      documentRef: "fixture",
+    });
+    return snapshot.observation.nodes
+      .find(node => node.nodeRef === stableNodeRefFor(registry, svg))
+      ?.currentView?.editingContextActive;
+  };
+  assert.equal(boundaryContextFor(SVG_NAMESPACE), null);
+  assert.equal(boundaryContextFor("urn:fixture:unknown"), null);
+});
+
+test("SVG current-view opacity proof uses only an actual zero on a fully non-top-layer chain", () => {
+  const opacityFor = ({ outer, inner, target, outerTopLayer = false, outerThrows = false }) => {
+    const dom = currentViewDom();
+    const outerElement = currentViewElement(dom.document, {
+      parent: dom.html,
+      topLayer: outerTopLayer,
+      topLayerThrows: outerThrows,
+    });
+    const svg = currentViewElement(dom.document, {
+      tag: "svg",
+      namespaceURI: SVG_NAMESPACE,
+      parent: outerElement,
+    });
+    const use = currentViewElement(dom.document, {
+      tag: "use",
+      namespaceURI: SVG_NAMESPACE,
+      parent: svg,
+    });
+    appendCurrentViewChild(dom.html, outerElement);
+    appendCurrentViewChild(outerElement, svg);
+    appendCurrentViewChild(svg, use);
+    outerElement.currentViewStyle = { ...dom.baseStyle, opacity: outer, pointerEvents: "none" };
+    svg.currentViewStyle = { ...dom.baseStyle, opacity: inner, pointerEvents: "none" };
+    use.currentViewStyle = { ...dom.baseStyle, opacity: target, pointerEvents: "none" };
+    const registry = createStableNodeRefRegistry("svg-opacity");
+    const snapshot = observeLiveDom({
+      document: dom.document,
+      window: dom.window,
+      registry,
+      excludeRoot: null,
+      snapshotRef: "svg-opacity",
+      documentRef: "fixture",
+    });
+    const zero = element => snapshot.observation.nodes
+      .find(node => node.nodeRef === stableNodeRefFor(registry, element))
+      ?.currentView?.zeroOpacityInCurrentPaintPath;
+    return { svg: zero(svg), use: zero(use) };
+  };
+
+  assert.deepEqual(opacityFor({ outer: "0", inner: "1", target: "1" }), { svg: true, use: true });
+  assert.deepEqual(opacityFor({ outer: "0", inner: "1", target: "1", outerTopLayer: true }), { svg: null, use: null });
+  assert.deepEqual(opacityFor({ outer: "0", inner: "1", target: "1", outerThrows: true }), { svg: null, use: null });
+  assert.deepEqual(opacityFor({ outer: "1e-200", inner: "1e-200", target: "1" }), { svg: false, use: false });
+  assert.deepEqual(opacityFor({ outer: "1", inner: "0", target: "1" }), { svg: true, use: true });
+});
+
+test("SVG current-view focus protection covers actual focus with negative tabindex and focus-within", () => {
+  const dom = currentViewDom();
+  const transparent = currentViewElement(dom.document, { parent: dom.html, rectValue: rect(10, 10, 120, 40) });
+  const svg = currentViewElement(dom.document, {
+    tag: "svg",
+    namespaceURI: SVG_NAMESPACE,
+    parent: transparent,
+    rectValue: rect(10, 10, 120, 40),
+  });
+  const use = currentViewElement(dom.document, {
+    tag: "use",
+    namespaceURI: SVG_NAMESPACE,
+    parent: svg,
+    tabIndex: -1,
+    rectValue: rect(10, 10, 120, 40),
+  });
+  appendCurrentViewChild(dom.html, transparent);
+  appendCurrentViewChild(transparent, svg);
+  appendCurrentViewChild(svg, use);
+  transparent.currentViewStyle = { ...dom.baseStyle, opacity: "0", pointerEvents: "none" };
+  svg.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+  use.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+  let useFocused = true;
+  const baseSvgMatches = svg.matches;
+  svg.matches = selector => selector === ":focus-within" ? useFocused : baseSvgMatches(selector);
+  dom.document.activeElement = use;
+
+  const registry = createStableNodeRefRegistry("svg-focus");
+  const snapshot = observeLiveDom({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "svg-focus",
+    documentRef: "fixture",
+  });
+  const svgRef = stableNodeRefFor(registry, svg);
+  const useRef = stableNodeRefFor(registry, use);
+  const record = ref => snapshot.observation.nodes.find(node => node.nodeRef === ref).currentView;
+  assert.equal(record(useRef).activeElementFocus, true);
+  assert.equal(record(useRef).nativeTabIndex, -1);
+  assert.equal(record(svgRef).focusWithin, true);
+  let batch = checkCandidates(
+    observeCandidates({ observation: snapshot.observation }),
+    createFocusSpec(),
+  );
+  assert.equal(batch.slots.find(slot => slot.nodeRef === useRef).reasons.includes("current_view_nonrendered"), false);
+  assert.equal(batch.slots.find(slot => slot.nodeRef === svgRef).reasons.includes("current_view_nonrendered"), false);
+
+  dom.document.activeElement = dom.html;
+  useFocused = false;
+  use.tabIndex = 0;
+  const sequential = observeLiveDom({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "svg-sequential-focus",
+    documentRef: "fixture",
+  });
+  batch = checkCandidates(
+    observeCandidates({ observation: sequential.observation }),
+    createFocusSpec(),
+  );
+  assert.equal(sequential.observation.nodes.find(node => node.nodeRef === useRef).currentView.nativeTabIndex, 0);
+  assert.equal(batch.slots.find(slot => slot.nodeRef === useRef).reasons.includes("current_view_nonrendered"), false);
+
+  use.tabIndex = -1;
+  const restored = observeLiveDom({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "svg-focus-restored",
+    documentRef: "fixture",
+  });
+  batch = checkCandidates(
+    observeCandidates({ observation: restored.observation }),
+    createFocusSpec(),
+  );
+  assert.deepEqual(batch.slots.find(slot => slot.nodeRef === useRef).reasons, ["current_view_nonrendered"]);
+});
+
+test("SVG current-view exclusion preserves label, text, role and positive-opacity protection", () => {
+  const protectedSvg = prepare => {
+    const dom = currentViewDom();
+    const transparent = currentViewElement(dom.document, { parent: dom.html });
+    const svg = currentViewElement(dom.document, {
+      tag: "svg",
+      namespaceURI: SVG_NAMESPACE,
+      parent: transparent,
+    });
+    appendCurrentViewChild(dom.html, transparent);
+    appendCurrentViewChild(transparent, svg);
+    transparent.currentViewStyle = { ...dom.baseStyle, opacity: "0", pointerEvents: "none" };
+    svg.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+    prepare(dom, svg);
+    const registry = createStableNodeRefRegistry("svg-protection");
+    const snapshot = observeLiveDom({
+      document: dom.document,
+      window: dom.window,
+      registry,
+      excludeRoot: null,
+      snapshotRef: "svg-protection",
+      documentRef: "fixture",
+    });
+    const svgRef = stableNodeRefFor(registry, svg);
+    const node = snapshot.observation.nodes.find(candidate => candidate.nodeRef === svgRef);
+    const batch = checkCandidates(
+      observeCandidates({ observation: snapshot.observation }),
+      createFocusSpec(),
+    );
+    return {
+      currentView: node.currentView,
+      role: node.role,
+      filtered: batch.slots.find(slot => slot.nodeRef === svgRef).reasons.includes("current_view_nonrendered"),
+    };
+  };
+
+  const titleAttribute = protectedSvg((dom, svg) => {
+    svg.getAttribute = name => name === "title" ? "named icon" : null;
+  });
+  assert.equal(titleAttribute.currentView.ownLabelPresent, true);
+  assert.equal(titleAttribute.filtered, false);
+
+  const labelledBy = protectedSvg((dom, svg) => {
+    svg.getAttribute = name => name === "aria-labelledby" ? "label-id" : null;
+  });
+  assert.equal(labelledBy.currentView.ownLabelPresent, true);
+  assert.equal(labelledBy.filtered, false);
+
+  const titleChild = protectedSvg((dom, svg) => {
+    const title = currentViewElement(dom.document, {
+      tag: "title",
+      namespaceURI: SVG_NAMESPACE,
+      parent: svg,
+      directText: "named icon",
+    });
+    title.textContent = "named icon";
+    title.currentViewStyle = { ...dom.baseStyle };
+    appendCurrentViewChild(svg, title);
+  });
+  assert.equal(titleChild.currentView.ownLabelPresent, true);
+  assert.equal(titleChild.filtered, false);
+
+  const directText = protectedSvg((dom, svg) => {
+    svg.childNodes = [{ nodeType: 3, textContent: "readable text" }];
+  });
+  assert.equal(directText.currentView.directTextPresent, true);
+  assert.equal(directText.filtered, false);
+
+  const knownRole = protectedSvg((dom, svg) => {
+    svg.getAttribute = name => name === "role" ? "img" : null;
+  });
+  assert.equal(knownRole.role, "img");
+  assert.equal(knownRole.filtered, false);
+
+  const positiveOpacity = protectedSvg((dom, svg) => {
+    svg.parentElement.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+    svg.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+    svg.getAttribute = name => name === "title" ? "readable icon" : null;
+  });
+  assert.equal(positiveOpacity.currentView.zeroOpacityInCurrentPaintPath, false);
+  assert.equal(positiveOpacity.filtered, false);
 });
 
 test("current-view paint-path facts are measured once per snapshot rather than once per descendant", () => {

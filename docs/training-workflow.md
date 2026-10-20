@@ -31,9 +31,23 @@ b_k = min(F_k.max, L_k.max)
 
 `fit.stopWhen: "objective_feasible"` 时，基线或每轮更新后的评估检查每一行的全部约束。基线已经可行时允许 `completedEpochs=0`。数值约束全部满足后，使用当前实际权重构造候选 profile，并以公开 `classifyBasicKind` 检查所有训练行的类别等于期望值且状态为 `judged`；数值可行但公共分类不一致时直接抛错，不继续增加轮数。候选始终来自实际拟合得到的权重，不使用 witness、gold 或地址 mask。
 
+`fit.stepLength: "objective_ray_v1"` 是唯一可选步长机制；省略该字段时保持原固定 Adam 更新、投影、评估和停止顺序不变。启用后每轮只推进一次 Adam moments 与 step，普通投影 Float32 候选为 `u`，当前权重为 `w`。仅对 `fit.trainableWires` 选中的地址计算 `d=u-w`；冻结地址的 `d=0`。令 `F0` 为 `w` 的实际完整均值目标，`F1` 为 `u` 的实际完整目标，`s=Σg_j d_j`，`c=F1-F0-s`。实际完整目标包含现有 anchor 项。普通候选已达到数值可行时先执行公开分类核验并停止；否则要求位移非零、`s<0` 且候选 scalar 有限。
+
+连续箱体上限使用 `d_j≠0` 的选中地址：`d_j>0` 时为 `(1-w_j)/d_j`，`d_j<0` 时为 `(-1-w_j)/d_j`；`A=min(Abox,2048)`。提案为 `a*=min(A,-s/(2c))`（`c>0`）或 `A`（`c≤0`）。固定候选 scalar 为 `{1,a*,a*/2,a*/4,a*/8,a*/16}`；`1` 复用实际 `F1`，其余 trial 均为 `Math.fround(w+a*d)`，冻结值原样复制。相同实际点只评估一次；每轮最多六次梯度后评估，包括 `F1`。`Math.fround` 后越界立即失败，不做二次静默裁剪。非有限状态、非下降 ray、零位移或无严格改进 trial 均显式失败，不回退、不重置 moments、不改门限。
+
+条件方向替换只作用于普通候选不可行且 `s≥0` 的一处：先按同一 Adam 递推更新 `m_t`、`v_t` 与 `t`，再从当前权重与当前梯度构造唯一替换方向。分母复用同一 `v_t` 与同一 step 偏置修正 `D_t[j]=sqrt(vhat_t[j])+1e-8`；替换位移为 `q_j=-learningRate*g_t[j]/D_t[j]`，`uG_j=fround(clamp(w_j+q_j,-1,1))`，`dG_j=uG_j-w_j`（选中地址），冻结地址 `dG_j=0` 且坐标原样复制，`sG=Σ_selected g_t[j]dG_j`。要求 `uG` 有限、`dG` 非零、`sG` 有限且 `<0`，否则抛显式错误。`m_t`、`v_t` 与 `t` 不被替换方向或任何 trial 写回；被拒绝的 Adam 普通候选只作诊断，不是替换 ray 的 scalar `1`，也不进入候选集合。替换 ray 的 `1` 是 `uG` 本身，且只以实际 `FG` 参与一次。
+
+触发条件必须是 `stepLength="objective_ray_v1"`、普通候选不可行、普通位移至少一个选中地址非零、全部参与值与 `s` 有限、且 `s≥0`。省略 `stepLength`、普通候选可行、位移为零、`s` 有限为负、状态或斜率非有限时一律走原有路径，不触发替换；替换只发生一次，不做二次替换、不重置 moments、不改学习率、不重试。
+
+替换 ray 的箱体上限只用 `dG_j≠0` 的选中地址：`dG_j>0` 时为 `(1-w_j)/dG_j`，`dG_j<0` 时为 `(-1-w_j)/dG_j`，`AboxG=min` 这些值，`AG=min(AboxG,2048)`；`cG=FG-F0-sG`，`aG=min(AG,-sG/(2cG))`（`cG>0`）或 `AG`（`cG≤0`）。要求曲率有限、各移动地址距离有限非负、`AG>0`、`aG` 有限且 `>0`。最终 ray 必须先通过下降校验，任何非下降 ray 不得进入模型最小化或候选选择，包括替换后退化或普通候选仅自身改进的情形。替换 ray 的固定候选 scalar 同为 `{1,aG,aG/2,aG/4,aG/8,aG/16}`，`1` 复用实际 `FG`，其余 trial 为 `fround(w+a*dG)`，冻结值原样复制，相同实际点只评估一次。
+
+替换路径的每轮梯度后评估上限为七次：被拒绝的普通候选一次、`uG` 一次、其余五个 scalar 各一次；普通未降路径仍为六次。替换带来的额外评估不得并入原有六次计数，实际评估总数与被拒绝的普通评估必须分别报告。失败按已完成工作记录。
+
+实际完整目标决定接受。非可行 ray 的候选必须以更小目标严格低于 `F0`；目标精确相同时选更小 scalar。普通候选已达到数值可行时走既有停止分支：先按现有规则进入公开分类核验并停在首个通过点，不要求它相对 `F0` 严格下降，也不得用 ray 几何拒绝它（几何只在可行性停止未接受该点时准备）。trial 已达到数值可行时，立即调用公开分类核验并停在首个通过点，不继续搜索。普通候选也是候选集合成员，不构成另一条更新轨迹。trial 不推进 Adam moments 或 step，未选点与梯度丢弃。启用该机制时，`gradientRowEpochs` 仍按每轮一次全批梯度遍历记录；`totalRowPasses` 记录 `F1`、去重 trial 与实际 core 评估的全部行遍历。`postEpochEvalMs` 包含该轮梯度后的这些实际评估耗时；它们内部仍执行 Handwired 反向传播，不称为 gradient-free。
+
 `fitBasicKinds` 返回 `stoppingReason`：`objective_feasible` 表示首次满足上述数值与公共分类条件，`epoch_limit` 表示使用完配置轮数。`trajectory` 与 `timing.completedEpochs` 记录实际完成轮数，配置的 `epochs` 只是上限。
 
-`fitBasicKinds` 返回 `timing`：backendLoadMs、circuitBuildMs、baselineEvalMs、trainEpochGradMs、postEpochEvalMs、finalEvalMs、fitTotalMs，以及 completedEpochs、processedRowCount、gradientRowEpochs、totalRowPasses、trainableParamCount、totalSparseCells。单调时钟 `performance.now()` 记录实际耗时；每轮包含一次梯度遍历和一次更新后评估，另有基线及最终评估。正常完成 E 个实际轮、R 行时，梯度行数 E×R，总行遍历 (2E+2)×R。`fitTotalMs` 包含行为可行检查中的公开分类耗时；公开分类不增加电路行遍历计数。失败按已完成工作记录，不套正常公式。
+`fitBasicKinds` 返回 `timing`：backendLoadMs、circuitBuildMs、baselineEvalMs、trainEpochGradMs、postEpochEvalMs、finalEvalMs、fitTotalMs，以及 completedEpochs、processedRowCount、gradientRowEpochs、totalRowPasses、trainableParamCount、totalSparseCells、objectiveEvaluationCount、rejectedOrdinaryEvaluationCount。单调时钟 `performance.now()` 记录实际耗时；每轮包含一次梯度遍历和一次更新后评估，另有基线及最终评估。正常完成 E 个实际轮、R 行时，梯度行数 E×R，总行遍历 (2E+2)×R。`fitTotalMs` 包含行为可行检查中的公开分类耗时；公开分类不增加电路行遍历计数。失败按已完成工作记录，不套正常公式。`objectiveEvaluationCount` 按“完整目标评估调用”计数，不按行计数：一次调用把全部已处理行评估一遍才加一，梯度遍历不计入（它记在 `gradientRowEpochs`）。因此恒有 `objectiveEvaluationCount × processedRowCount = totalRowPasses − gradientRowEpochs`，正常完成时等于 2E+2 加试算次数；基线、每轮更新后、试算与最终评估都算一次，`rejectedOrdinaryEvaluationCount` 只记录因替换触发而成为诊断的被拒普通候选评估次数（在替换计算之前加一，替换后续抛错也不漏计）。两者与 `totalRowPasses` 一起完整暴露替换路径的额外代价，不新增评估。
 
 错误保留原消息/cause，附带 completedEpochs 与 timing。进度回调在该轮完成后调用，回调失败仍计入已完成轮数。未实现取消协议，不宣称 cancelled。训练报告可保存 timing；旧报告缺省该字段仍可读取。重新拟合保持 uncalibrated、not_applied。
 
@@ -223,9 +237,17 @@ L/O 按复核标签选择损失，不表示同一个输入接受两个标签。�
 | --- | --- |
 | 属性白名单、wire 条件与缺测适用性、五大类和类内标签、两层顺序、门限、稀疏连线键、损失与参数区间 | profile.familyWeights、profile.leafWeights 已声明键的系数，含显式声明的零系数 |
 
-旧 profile 迁移由 `migrateBasicKindProfile(raw)` 唯一维护。它在验证后克隆 id 与全部旧权重，只补齐已登记新目标与 wire 条目的缺失 0：media/image 的 `nat_svg` 与 `svg_graphic_children`，structure/container 的 `div_single_child`，text/text 的 `div_leaf` 与 `div_direct_text` 在两个阶段各一项；其余呈现、关系、连续几何和 ignore 地址同样按名补 0。已存在的新系数保留。训练 profile 加载显式调用迁移，sparse cells 因此为这些显式 0 键建立 `Circuit.source` 参数，可从零开始学习。迁移补 0 不等于已有训练新权重或输入已测量。迁移不增加 profile 版本、校准或门限字段，不修改旧对象，也不自动采用候选。
+旧 profile 迁移由 `migrateBasicKindProfile(raw)` 唯一维护。它在验证后克隆 id 与全部旧权重，只补齐已登记新目标与 wire 条目的缺失 0：media/image 的 `nat_svg` 与 `svg_graphic_children`，structure/container 的 `div_single_child`，text/text 的 `div_leaf` 与 `div_direct_text` 在两个阶段各一项；其余呈现、关系、连续几何和 ignore 地址同样按名补 0；本轮 focus/independent graphic 的四个地址也按名补 0。已存在的新系数保留。训练 profile 加载显式调用迁移，sparse cells 因此为这些显式 0 键建立 `Circuit.source` 参数，可从零开始学习。迁移补 0 不等于已有训练新权重或输入已测量。迁移不增加 profile 版本、校准或门限字段，不修改旧对象，也不自动采用候选。
 
-本轮`fit.trainableWires`沿现有按wire名称选择机制使用`neutral_structural_peers,neutral_multi_child,div_repeated_children,neutral_child_multiplicity,neutral_multi_child_shape,nat_div`，实际选中20个cell；完整稀疏布局为79条wire、304个cell。旧423行warm profile按目标与wire名称保留全部既有系数，仅将现有q两地址及新增shape一地址补0，不新增其他系数。算法公式、null语义和单地址注册见[基础种类连线](basic-kinds-wiring.md)。
+本轮新增四个可训练地址：`familyWeights.media.independent_graphic_content`、`leafWeights.image.independent_graphic_content`、`leafWeights.ignore.independent_graphic_content`、`leafWeights.ignore.own_focus_target`。wire 定义、有限适用集合、三值语义与 support gate 唯一维护在 [基础种类连线](basic-kinds-wiring.md)。两条 wire 的数值来源按现有目标与 wire 名称登记路径自动建 cell；本轮不修改 `basic-kind-numeric.ts`。
+
+新增 image support 是 support 行为变化。零系数只表示旧权重不变，不等于任意旧输入分类不变：以前被 `ignore`/`unknown` 覆盖的独立焦点图形，其 image 目标区间可能因 family gate 改变而首次参与评分。此变化必须在零迁移检查中逐例报告类别、状态、阶段路径、区间和受影响输入字段，不得用 missing=0、门限调整或旧路径 fallback 恢复表面一致。
+
+实际焦点与自身标签缺测的历史样本保持 null，不补 false。用 `fit.trainableWires` 限定时，未入名单的旧 wire 仍保持基础 profile 原值，也不计入锚定惩罚；首轮焦点增量是否只训练本两线由显式训练配置决定。候选保存后仍 `uncalibrated` 且 `not_applied`，必须在新进程从文件回载并复核。
+
+本轮`fit.trainableWires`沿现有按wire名称选择机制使用`neutral_structural_peers,neutral_multi_child,div_repeated_children,neutral_child_multiplicity,neutral_multi_child_shape,nat_div`，实际选中20个cell；该次实际构建的完整稀疏布局为79条wire、304个cell。旧423行warm profile按目标与wire名称保留全部既有系数，仅将现有q两地址及新增shape一地址补0，不新增其他系数。算法公式、null语义和单地址注册见[基础种类连线](basic-kinds-wiring.md)。
+
+焦点图形表示增量加入两条 wire 和四个显式零地址后，源码预期完整布局为81条wire、308个cell；该预期必须由父 Agent 在 GCM1847 释放构建边界后以实际 profile 与数值布局回执确认，不能把预期计数当作已构建证据。当前稳定 dist 的79/304回执继续有效，不能覆盖。成功423base、pending424拒绝shape、旧校准状态和既有权重保持不动。
 
 初版不新增 bias、不自动加边、不训练门限。disabled/hidden 等初值为零的系数没有未经证据支持的否决权。没有激活或只有缺测的特征不能凭训练补出事实。
 

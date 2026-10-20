@@ -48,6 +48,7 @@ const BASE_STYLE = {
   markerEnd: "none",
   mixBlendMode: "normal",
   isolation: "auto",
+  contentVisibility: "visible",
   pointerEvents: "auto",
   borderTopWidth: "0px",
   borderRightWidth: "0px",
@@ -80,10 +81,12 @@ function buildAtomicSvgPublicFixture({
   targetPseudoContent = "none",
   rootRect = { x: 100, y: 100, width: 32, height: 32 },
   coverRect = null,
+  extraCoverRects = [],
   viewBox = "0 0 32 32",
   wrapForeignObject = false,
   includeSibling = true,
   rootParentStyle = null,
+  rootParentPseudoStyle = {},
   rootClientRects = null,
   clipPathRect = null,
   duplicateClipPathRect = null,
@@ -183,6 +186,11 @@ function buildAtomicSvgPublicFixture({
     rect: coverRect ?? rootRect,
     client: { width: (coverRect ?? rootRect).width, height: (coverRect ?? rootRect).height },
   });
+  const extraCovers = extraCoverRects.map(rect => make("div", {
+    parent: html,
+    rect,
+    client: { width: rect.width, height: rect.height },
+  }));
   const rootParent = rootParentStyle === null
     ? html
     : make("div", {
@@ -295,10 +303,10 @@ function buildAtomicSvgPublicFixture({
     ]);
   }
   if (rootParentStyle === null) {
-    attach(html, [cover, root]);
+    attach(html, [cover, root, ...extraCovers]);
   } else {
     attach(rootParent, [root]);
-    attach(html, [cover, rootParent]);
+    attach(html, [cover, rootParent, ...extraCovers]);
   }
 
   document.documentElement = html;
@@ -327,6 +335,13 @@ function buildAtomicSvgPublicFixture({
     position: "relative",
     zIndex: "2",
   });
+  for (const extraCover of extraCovers) {
+    styleOverrides.set(extraCover, {
+      backgroundColor: "rgb(20, 20, 24)",
+      position: "relative",
+      zIndex: "2",
+    });
+  }
   styleOverrides.set(root, {
     width: `${rootRect.width}px`,
     height: `${rootRect.height}px`,
@@ -344,6 +359,9 @@ function buildAtomicSvgPublicFixture({
     ...targetStyle,
   });
   pseudoOverrides.set(target, { content: targetPseudoContent });
+  if (rootParentStyle !== null) {
+    pseudoOverrides.set(rootParent, { content: "none", ...rootParentPseudoStyle });
+  }
   if (targetChild !== null) {
     styleOverrides.set(targetChild, { backgroundColor: "rgba(0, 0, 0, 0)", fill: "rgb(20, 20, 24)" });
   }
@@ -355,7 +373,7 @@ function buildAtomicSvgPublicFixture({
   }
 
   return {
-    document, window, html, cover, rootParent, root, foreignObject, target, targetChild, sibling,
+    document, window, html, cover, extraCovers, rootParent, root, foreignObject, target, targetChild, sibling,
     clipPath, duplicateClipPath, defs, symbol, duplicateSymbol,
   };
 }
@@ -366,6 +384,63 @@ function buildLocalUsePublicFixture(options = {}) {
     targetRect: { x: 108, y: 108, width: 16, height: 16 },
     includeSibling: false,
     ...options,
+  });
+}
+
+const OUTLINE_ONLY_PARENT_STYLE = {
+  display: "flex",
+  backgroundColor: "rgba(0, 0, 0, 0)",
+  backgroundImage: "none",
+  borderTopWidth: "0px",
+  borderRightWidth: "0px",
+  borderBottomWidth: "0px",
+  borderLeftWidth: "0px",
+  borderImageSource: "none",
+  boxShadow: "none",
+  textShadow: "none",
+  outlineStyle: "solid",
+  outlineWidth: "1px",
+  outlineOffset: "-1px",
+  outlineColor: "rgba(255, 255, 255, 0.08)",
+  borderTopLeftRadius: "16px",
+  borderTopRightRadius: "16px",
+  borderBottomLeftRadius: "16px",
+  borderBottomRightRadius: "16px",
+  transform: "matrix(1, 0, 0, 1, 24, -8)",
+};
+
+const ABSENT_PSEUDO_PAINT = {
+  content: "none",
+  backgroundColor: "rgba(0, 0, 0, 0)",
+  backgroundImage: "none",
+  borderTopWidth: "0px",
+  borderRightWidth: "0px",
+  borderBottomWidth: "0px",
+  borderLeftWidth: "0px",
+  borderImageSource: "none",
+  boxShadow: "none",
+  textShadow: "none",
+  outlineStyle: "none",
+  outlineWidth: "0px",
+  outlineOffset: "0px",
+  outlineColor: "rgba(0, 0, 0, 0)",
+  maskImage: "none",
+  webkitMaskImage: "none",
+  backdropFilter: "none",
+  webkitBackdropFilter: "none",
+  filter: "none",
+};
+
+function buildOutlineOnlyUsePublicFixture({ parentStyle = {}, parentPseudoStyle = {} } = {}) {
+  const rootRect = { x: 500, y: 200, width: 160, height: 230 };
+  const targetRect = { x: 640, y: 240, width: 16, height: 16 };
+  return buildLocalUsePublicFixture({
+    rootRect,
+    targetRect,
+    includeSibling: false,
+    rootStyle: { overflowX: "hidden", overflowY: "hidden", transform: "none" },
+    rootParentStyle: { ...OUTLINE_ONLY_PARENT_STYLE, ...parentStyle },
+    rootParentPseudoStyle: { ...ABSENT_PSEUDO_PAINT, ...parentPseudoStyle },
   });
 }
 
@@ -526,12 +601,56 @@ function observeTargetWithProbes(fixture) {
   return { registry, targetRef, targetNode, snapshot, probes };
 }
 
+function observeOutlineSurface(fixture, { includeTarget = true } = {}) {
+  const registry = createStableNodeRefRegistry("svg-atomic-outline");
+  const targetRef = stableNodeRefFor(registry, fixture.target);
+  const outlineRef = stableNodeRefFor(registry, fixture.rootParent);
+  const events = [];
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x === 0 && y === 0) return [fixture.html];
+    const target = fixture.target.getBoundingClientRect();
+    const inTarget = inPublicRect({ x, y }, target);
+    return includeTarget && inTarget
+      ? [fixture.rootParent, fixture.rootParent, fixture.target, fixture.root, fixture.html]
+      : [fixture.rootParent, fixture.rootParent, fixture.root, fixture.html];
+  };
+  const snapshot = observeLiveDom({
+    document: fixture.document,
+    window: fixture.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "svg-atomic-outline",
+    documentRef: "fixture",
+    diagnostic: {
+      selectedRefs: new Set([targetRef, outlineRef]),
+      callback(event) {
+        events.push(event);
+      },
+    },
+  });
+  const targetNode = snapshot.observation.nodes.find(node => node.nodeRef === targetRef);
+  const outlineInitial = events.find(event => event.phase === "initial" && event.targetRef === outlineRef);
+  return { registry, targetRef, outlineRef, targetNode, snapshot, events, outlineInitial };
+}
+
 const fixedPointCross = rect => [
   { x: rect.x + rect.width * 0.5, y: rect.y + rect.height * 0.1 },
   { x: rect.x + rect.width * 0.9, y: rect.y + rect.height * 0.5 },
   { x: rect.x + rect.width * 0.5, y: rect.y + rect.height * 0.9 },
   { x: rect.x + rect.width * 0.1, y: rect.y + rect.height * 0.5 },
 ];
+
+const fixedPointPerimeter = rect => {
+  const points = [];
+  for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+    for (const fy of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      if (fx === 0.1 || fx === 0.9 || fy === 0.1 || fy === 0.9) {
+        points.push({ x: rect.x + rect.width * fx, y: rect.y + rect.height * fy });
+      }
+    }
+  }
+  return points;
+};
 
 const samePoint = (a, b) => a.x === b.x && a.y === b.y;
 
@@ -1016,7 +1135,8 @@ test("local USE center hole does not revive root-only additional points", () => 
 
   assert.equal(targetNode?.foreground, "unassessed");
   assert.equal(targetNode?.exposedRects, null);
-  assert.deepEqual(probes.map(probe => probe.point), [center, ...cross]);
+  assert.deepEqual(probes.slice(0, 5).map(probe => probe.point), [center, ...cross]);
+  assert.equal(probes.length, 17);
   assert.ok(probes.every(probe => probe.exposed === false));
 });
 
@@ -1037,7 +1157,7 @@ test("local USE center hole rejects a target behind a lawful opaque owner", () =
 
   assert.equal(targetNode?.foreground, "unassessed");
   assert.equal(targetNode?.exposedRects, null);
-  assert.equal(probes.length, 5);
+  assert.equal(probes.length, 17);
   assert.ok(probes.every(probe => probe.exposed === false));
 });
 
@@ -1054,7 +1174,268 @@ test("local USE successful center probe adds no geometric points", () => {
   assert.deepEqual(probes.map(probe => probe.point), [{ x: 116, y: 116 }]);
 });
 
-test("local USE uncertified paint domain adds no geometric points", () => {
+test("outline-only interior preserves duplicate native hits and admits strict USE self witness", () => {
+  const fixture = buildOutlineOnlyUsePublicFixture();
+  const { targetNode, outlineInitial } = observeOutlineSurface(fixture);
+
+  assert.ok(outlineInitial?.surface, "outline initial diagnostic missing");
+  assert.deepEqual(outlineInitial.surface, {
+    kind: "uncertain",
+    proven: false,
+    passThrough: false,
+    relevant: true,
+    clearInterior: { x: 518, y: 218, width: 124, height: 194 },
+  });
+  assert.equal(targetNode?.foreground, "visible");
+  assert.deepEqual(targetNode?.exposedRects, [{ x: 640, y: 240, width: 16, height: 16 }]);
+});
+
+test("outline-only clear interior never substitutes ancestor or SVG-root hits", () => {
+  const fixture = buildOutlineOnlyUsePublicFixture();
+  const { targetNode, outlineInitial } = observeOutlineSurface(fixture, { includeTarget: false });
+
+  assert.ok(outlineInitial?.surface?.clearInterior, "outline proof unexpectedly unavailable");
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+});
+
+test("outline-only interior refuses painted or missing pseudo facts", () => {
+  const cases = [
+    ["content", { content: "counter(item)" }],
+    ["background", { backgroundColor: "rgba(20, 20, 24, 0.5)" }],
+    ["border", { borderTopWidth: "1px", borderTopStyle: "solid" }],
+    ["outline", { outlineStyle: "solid", outlineWidth: "1px" }],
+    ["shadow", { boxShadow: "rgba(0, 0, 0, 0.2) 0px 0px 2px" }],
+    ["missing", { backgroundColor: undefined }],
+  ];
+  for (const [name, pseudo] of cases) {
+    const fixture = buildOutlineOnlyUsePublicFixture({ parentPseudoStyle: pseudo });
+    const { outlineInitial } = observeOutlineSurface(fixture);
+    assert.equal(outlineInitial?.surface?.clearInterior, null, name);
+  }
+});
+
+test("outline-only interior refuses unsupported mapping and offset", () => {
+  const cases = [
+    ["zoom", { zoom: "2" }],
+    ["offset", { outlineOffset: undefined }],
+    ["offset-percent", { outlineOffset: "1%" }],
+    ["transform", { transform: "matrix(1, 0.2, 0, 1, 0, 0)" }],
+    ["radius", { borderTopRightRadius: "8px" }],
+    ["radius-ellipse", { borderTopLeftRadius: "16px 8px" }],
+  ];
+  for (const [name, parentStyle] of cases) {
+    const fixture = buildOutlineOnlyUsePublicFixture({ parentStyle });
+    const { outlineInitial } = observeOutlineSurface(fixture);
+    assert.equal(outlineInitial?.surface?.clearInterior, null, name);
+  }
+});
+
+test("outline-only rounded guard excludes corner and inset boundaries", () => {
+  const fixture = buildOutlineOnlyUsePublicFixture();
+  const { outlineInitial } = observeOutlineSurface(fixture);
+  const clear = outlineInitial?.surface?.clearInterior;
+  assert.deepEqual(clear, { x: 518, y: 218, width: 124, height: 194 });
+  const strictlyInside = point => point.x > clear.x && point.x < clear.x + clear.width
+    && point.y > clear.y && point.y < clear.y + clear.height;
+  assert.equal(strictlyInside({ x: 508, y: 208 }), false, "rounded corner");
+  assert.equal(strictlyInside({ x: 518, y: 250 }), false, "inset boundary");
+  assert.equal(strictlyInside({ x: 530, y: 250 }), true, "strict interior");
+});
+
+test("outline-only proof cannot create negative occlusion", () => {
+  const fixture = buildOutlineOnlyUsePublicFixture();
+  const { targetNode } = observeOutlineSurface(fixture, { includeTarget: false });
+
+  assert.notEqual(targetNode?.foreground, "occluded");
+  assert.equal(targetNode?.exposedRects, null);
+});
+
+test("local USE sparse perimeter recovers a target after legacy probes miss", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const coverRect = { x: 100, y: 100, width: 8, height: 32 };
+  const fixture = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect, includeSibling: true });
+  const witness = {
+    x: targetRect.x + targetRect.width * 0.1,
+    y: targetRect.y + targetRect.height * 0.3,
+  };
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (inPublicRect({ x, y }, coverRect)) return [fixture.cover, fixture.root, fixture.html];
+    if (samePoint({ x, y }, witness)) return [fixture.target, fixture.root, fixture.html];
+    return [fixture.root, fixture.html];
+  };
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "visible");
+  assert.deepEqual(targetNode?.exposedRects, [targetRect]);
+  assert.ok(probes.slice(0, 5).every(probe => !probe.exposed));
+  assert.ok(probes.some(probe => samePoint(probe.point, witness) && probe.exposed));
+});
+
+test("local USE sparse perimeter also applies when the atomic certificate is unavailable", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const coverRect = { ...targetRect };
+  const fixture = buildLocalUsePublicFixture({
+    rootRect,
+    targetRect,
+    coverRect,
+    includeSibling: true,
+    rootStyle: { overflowX: "visible", overflowY: "visible" },
+  });
+  const witness = {
+    x: targetRect.x + targetRect.width * 0.1,
+    y: targetRect.y + targetRect.height * 0.3,
+  };
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (samePoint({ x, y }, witness)) return [fixture.target, fixture.root, fixture.html];
+    // The opaque HTML underlay owns empty points. At the painted perimeter
+    // the target itself is before that underlay in the native stack.
+    if (inPublicRect({ x, y }, coverRect)) return [fixture.cover, fixture.root, fixture.html];
+    return [fixture.root, fixture.html];
+  };
+
+  assert.equal(certifySvgAtomicViewport(fixture.target, fixture.window), null);
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "visible");
+  assert.deepEqual(targetNode?.exposedRects, [targetRect]);
+  assert.ok(probes.some(probe => samePoint(probe.point, witness) && probe.exposed));
+});
+
+test("local USE perimeter stays unassessed for root-only hits and queries each point once", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const coverRect = { x: 100, y: 100, width: 8, height: 32 };
+  const fixture = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect, includeSibling: true });
+  const perimeter = fixedPointPerimeter(targetRect);
+  const rawPerimeterQueries = [];
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (perimeter.some(point => samePoint({ x, y }, point))) rawPerimeterQueries.push({ x, y });
+    if (inPublicRect({ x, y }, coverRect)) return [fixture.cover, fixture.root, fixture.html];
+    return [fixture.root, fixture.html];
+  };
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+  assert.equal(probes.length, 17);
+  assert.ok(perimeter.every(point => probes.some(probe => samePoint(probe.point, point))));
+  assert.ok(rawPerimeterQueries.length <= 32);
+  assert.ok(perimeter.every(point => rawPerimeterQueries.filter(query => samePoint(query, point)).length === 1));
+});
+
+test("local USE perimeter rejects an opaque owner before the target", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const coverRect = { x: 100, y: 100, width: 8, height: 32 };
+  const behind = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect, includeSibling: true });
+  const behindPerimeter = fixedPointPerimeter(targetRect);
+  behind.document.elementsFromPoint = (x, y) => {
+    if (behindPerimeter.some(point => samePoint({ x, y }, point))) {
+      return [behind.cover, behind.target, behind.root, behind.html];
+    }
+    if (inPublicRect({ x, y }, coverRect)) return [behind.cover, behind.root, behind.html];
+    return [behind.root, behind.html];
+  };
+  const behindNode = observeTargetWithProbes(behind).targetNode;
+  assert.equal(behindNode?.foreground, "unassessed");
+  assert.equal(behindNode?.exposedRects, null);
+
+  const front = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect, includeSibling: true });
+  const witness = {
+    x: targetRect.x + targetRect.width * 0.1,
+    y: targetRect.y + targetRect.height * 0.1,
+  };
+  front.document.elementsFromPoint = (x, y) => {
+    if (samePoint({ x, y }, witness)) return [front.target, front.cover, front.root, front.html];
+    if (inPublicRect({ x, y }, coverRect)) return [front.cover, front.target, front.root, front.html];
+    return [front.root, front.html];
+  };
+  const frontNode = observeTargetWithProbes(front).targetNode;
+  assert.equal(frontNode?.foreground, "visible");
+  assert.deepEqual(frontNode?.exposedRects, [targetRect]);
+});
+
+test("local USE perimeter stops after an unavailable native point", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const coverRect = { x: 100, y: 100, width: 8, height: 32 };
+  const fixture = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect, includeSibling: true });
+  const firstPerimeter = fixedPointPerimeter(targetRect)[0];
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x === 0 && y === 0) return [fixture.root, fixture.html];
+    if (samePoint({ x, y }, firstPerimeter)) return null;
+    if (inPublicRect({ x, y }, coverRect)) return [fixture.cover, fixture.root, fixture.html];
+    return [fixture.root, fixture.html];
+  };
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+  assert.equal(probes.length, 6);
+  assert.deepEqual(probes.at(-1).point, firstPerimeter);
+});
+
+test("local USE perimeter skips unknown clipped geometry", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const coverRect = { x: 100, y: 100, width: 8, height: 32 };
+  const fixture = buildLocalUsePublicFixture({
+    rootRect,
+    targetRect,
+    coverRect,
+    includeSibling: true,
+    targetStyle: { transform: "rotate(20deg)" },
+  });
+  fixture.document.elementsFromPoint = () => [fixture.root, fixture.html];
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+  assert.equal(probes.length, 0);
+});
+
+test("local USE preserves every legacy center and cross query before perimeter probes", () => {
+  const rootRect = { x: 100, y: 100, width: 60, height: 32 };
+  const targetRect = rootRect;
+  const coverRect = { x: 200, y: 200, width: 1, height: 1 };
+  const extraCoverRects = Array.from({ length: 25 }, (_, index) => ({
+    x: 101 + index * 2,
+    y: 100,
+    width: 1,
+    height: 32,
+  }));
+  const fixture = buildLocalUsePublicFixture({
+    rootRect,
+    targetRect,
+    coverRect,
+    includeSibling: false,
+    extraCoverRects,
+  });
+  const lastRegionWitness = { x: 155, y: 116 };
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (extraCoverRects.some(rect => inPublicRect({ x, y }, rect))) {
+      return [fixture.extraCovers.find(cover => inPublicRect({ x, y }, cover.getBoundingClientRect())), fixture.target, fixture.root, fixture.html];
+    }
+    if (samePoint({ x, y }, lastRegionWitness)) return [fixture.target, fixture.root, fixture.html];
+    return [fixture.root, fixture.html];
+  };
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "visible");
+  assert.deepEqual(targetNode?.exposedRects, [{ x: 150, y: 100, width: 10, height: 32 }]);
+  assert.ok(probes.length > 25);
+  assert.ok(probes.some(probe => samePoint(probe.point, lastRegionWitness) && probe.exposed));
+});
+
+test("local USE uncertified paint domain still uses the fixed perimeter", () => {
   const rootRect = { x: 100, y: 100, width: 32, height: 32 };
   const targetRect = { x: 108, y: 108, width: 16, height: 16 };
   const fixture = buildLocalUsePublicFixture({
@@ -1070,7 +1451,9 @@ test("local USE uncertified paint domain adds no geometric points", () => {
   fixture.document.elementsFromPoint = (x, y) => {
     if (samePoint({ x, y }, center)) return [fixture.cover, fixture.root, fixture.html];
     if (cross.some(point => samePoint({ x, y }, point))) {
-      return [fixture.sibling, fixture.target, fixture.root, fixture.html];
+      // The sibling does not cover every cross point. Use the actual full
+      // opaque cover so this stack represents the claimed occlusion.
+      return [fixture.cover, fixture.target, fixture.root, fixture.html];
     }
     return [fixture.root, fixture.html];
   };
@@ -1080,7 +1463,8 @@ test("local USE uncertified paint domain adds no geometric points", () => {
 
   assert.equal(targetNode?.foreground, "unassessed");
   assert.equal(targetNode?.exposedRects, null);
-  assert.deepEqual(probes.map(probe => probe.point), [center]);
+  assert.equal(probes.length, 17);
+  assert.deepEqual(probes[0].point, center);
 });
 
 test("local USE outer-ancestor shadow does not widen the child paint domain", () => {
