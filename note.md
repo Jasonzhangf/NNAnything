@@ -799,3 +799,15 @@ Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Arg
 
 当前真实重采WB2147／XHS1201／ZH1310节点：合格候选814／482／593均0语义未知0冲突；观测未知仍39／4／3，不能称整页清零。微博全部为前景观测，SVG裁剪缺测已归零；小红书含2旋转SVG裁剪与2前景，知乎3前景。小红书2个iframe内部未读。可唯一配对的旧已知733／439／535项无新增误ignore；知乎9项ignore→container属已复核焦点修复，其他配对类别未变。未配对或歧义项不冒称回归覆盖。完整原始证据与训练报告在本地training和外置three-site-zero run，主入口外置run/note.md。整体Review、main集成和推送尚未进行。
 
+
+2026-10-20 浏览器插件验收回退已定位并修复：`c9a4009`删除构建期权重注入、把`extension/content.ts`硬编码为`weightFile: null`，插件因而永久处于“文件模式但无文件源”，面板显示“未选择权重文件”并以“分类失败，已清空旧结果”清零，`docs/browser-overlay-m1.md`关于构建可带`--weight-file`的记载自该提交起与代码不一致。修复按既有合同恢复构建期自动加载：`scripts/build-extension.mjs`重新接受`--weight-file`并在打包前用`parseBrowserWeightAsset`校验，缺文件、非法JSON或合同不符非零退出且不覆盖已有产物；`extension/controller.ts`恢复`initialWeight`选项并以“构建加载 · <文件> · <profileId>”标注来源；`extension/content.ts`在有嵌入资产时不再进入文件模式。默认无参数构建仍为手写基线“手写基础权重”；两种启动都不再以“文件模式无源”运行。
+
+回归测试`tests/extension-build-weight.test.mjs`先红后绿：对`c9a4009`版`content.ts`断言失败，修复后通过；同一测试覆盖带参构建嵌入profileId、无参构建为手写基线、坏文件与缺文件均非零退出且不覆盖既有产物。全仓`npm test`677项、671通过、0失败、6跳过；`npm run typecheck:ui`通过。
+
+原生验收在用户已登录的Chrome 9333真实页面完成：以上一轮验收同款`three-site-20261019194017792-93975-abe88de9.weight.json`构建`artifacts/chrome-extension`并重载扩展后，面板直接显示“构建加载 · three-site-20261019194017792-93975-abe88de9.weight.json · three-site-20261019194017792-93975-abe88de9-candidate”，真实页面画出14个标注框，DOM总数24／视口候选18／已判断16／语义未知2／冲突0／忽略4，全程无手动选文件。扩展权限仍严格为activeTab+scripting，脚本注入被Chrome拒绝属预期，故该次由用户点击工具栏图标完成，真实用户路径已走通。
+
+此前“插件已加载权重并显示352框”的表述不成立：那批框来自Agent在页面world手工注入的第二个控制器，不是扩展面板；修复前面板一直0框。修复后面板自身为唯一真实来源。候选权重仍保持未采用、未校准。
+
+补充：`tests/extension-build-weight.test.mjs`会在运行中真正驱动构建，此前其after钩子会调用无参构建，把`artifacts/chrome-extension`与`artifacts/overlay-harness`重写为手写基线，等于用测试覆盖用户正在浏览器里加载的交付产物。现已改为开跑前递归备份这两个产物目录、结束后原样还原，测试不再改变交付内容；构建测试仍只做进程级与文件级断言，不重跑真实浏览器。因该还原动作，跑完全量测试后须按交付权重重新构建产物，本轮已重建并核对content.js内嵌profileId两次、无`weightFile: null`。
+
+清理与集成：独占 worktree 与临时目录已按 SESE 收口。固定任务树 `/Volumes/Intel/playground/nnanything/ext-weight-autoload` 在提取改动后 `git worktree remove --force` 并 `prune`，路径确认不存在；`fix/ext-weight-autoload` 分支已删除；`/tmp/nn-accept`、`/tmp/nn-wtest` 已删除；验收用 HTTP 服务按显式 PID 关闭。`recursive-goal-framework` 与 `cli-path-primitives` 属其他任务域，未触碰。main 已推送，`main...origin/main` 为 0/0，集成提交 d4841be；交付构建按验收权重重建，content.js 内嵌 profileId 两处、无 `weightFile: null`，真实浏览器公开 consumer 复核仍为“构建加载 · three-site-20261019194017792-93975-abe88de9.weight.json · …-candidate”、14框、无失败提示。

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,10 @@ const run = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const buildScript = join(repositoryRoot, "scripts/build-extension.mjs");
 const contentBundle = join(repositoryRoot, "artifacts/chrome-extension/content.js");
+const artifactDirs = [
+  join(repositoryRoot, "artifacts/chrome-extension"),
+  join(repositoryRoot, "artifacts/overlay-harness"),
+];
 
 function fixtureWeight(profileId) {
   const profile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
@@ -36,8 +40,20 @@ async function build(args) {
 
 test("extension build embeds a selected weight and otherwise keeps the handwritten baseline", async (t) => {
   const tempDir = await mkdtemp(join(tmpdir(), "nnanything-extension-build-"));
+  const backupDir = join(tempDir, "artifacts-backup");
+  await cp(artifactDirs[0], join(backupDir, "chrome-extension"), { recursive: true });
+  await cp(artifactDirs[1], join(backupDir, "overlay-harness"), { recursive: true });
   t.after(async () => {
-    await build([]).catch(() => undefined);
+    // This test drives the real build, which rewrites the installed extension
+    // directory. Restore the delivered artifacts so a test run never changes
+    // what the user has loaded in the browser.
+    for (const [dir, name] of [
+      [artifactDirs[0], "chrome-extension"],
+      [artifactDirs[1], "overlay-harness"],
+    ]) {
+      await rm(dir, { recursive: true, force: true });
+      await cp(join(backupDir, name), dir, { recursive: true });
+    }
     await rm(tempDir, { recursive: true, force: true });
   });
 
