@@ -18,6 +18,10 @@
 
 F5（advisory，历史遗留）：旧 cwd/entries 属性的结构合法但未注册 predicate 仍抛 `TypeError` 而非 `unsupported`；行为在 `6e4e8fd` 已存在，本轮未扩大到新 head 路径。留作后续统一 Goal 校验时处理。
 
+复核结果（`logs/review-recheck.jsonl`、`logs/review-f4e.jsonl`）：F1、F2、F3 均判 CLOSED，附独立复现输出（`bindPath` 保留 `..`、`/var/..` 身份与 OS 一致、只授 `filesystem.read` 时 `EFFECT_DENIED`/零子进程、四类 typed Goal 各自成 head）；F4 在文档状态一致性收尾轮判 PASS，另有 3 条 advisory（历史章节标题可再标时点），不阻断。旧候选历史不变性只有“当前内容与保存依据一致”的证据，缺修复前 mtime 对照，按此强度记录。
+
+文档同步范围（F4 收口）：`cli-call-contract`、`cli-filesystem-semantics`、`cli-filesystem-training`、`cli-property-training-design`、`cli-command-design`、`cli-semantic-operations`、`cli-migration`、`cli-list/cd/cwd/goal-training`、`list-api`、`recursive-goal-design`、`docs/reviews/recursive-goal-generalization-20261020`、`workflows/README`、`lib/nodes/README`。旧 6×14/6 head 表述一律限定为 0.2.0 历史形状。
+
 实施证据在本 run 目录 `logs/` 与 `artifacts/batch1/{i2,i2b,i3,i3b,i4,i4b,i5,i6,i7,f1f2,f3}/`。待办：Review 复核 F1–F4、合入 main、推送、核销 worktree。
 
 ## 2026-10-20 通用递归框架独立泛化性审查
