@@ -128,12 +128,14 @@ R1 与 R2 由迁移接管方在该独占树完成，未派重叠 worker。R3 的
 
 ## 10. 风险与已知冲突
 
-1. head 顺序文档冲突：主干 `docs/cli-filesystem-training.md` §2.1 同时要求固定顺序 `unsupported,DEFER,NOOP,…` 与 legacy 行原样保留；候选以"始终完整 6 head"实现，文档需同步一次措辞。
-2. 授权词表不一致：沙盒接受 `session.write`，`createCliSession` 与旧 Goal 校验只接受 read/exec；迁移未统一。
-3. 旧基线数字不可续用：测试文件集合已变化，交付时必须给出新的基线，且不能把口径变化写成通过率提升。
-4. 训练资产树未进 Git：迁移证据依赖本地 `training/**`，仓库内只能保存文档摘要；复现需要显式环境变量。
-5. `note.md` 由迁移 owner 持有：本轮不修改 `note.md`，避免与其在跑的修复冲突；迁移事实以本文与外置 run 记录为出口。
-6. 并发 owner：迁移 owner 正在候选树修复 P1，不得二次派单、不得在该树写文件。
+状态标记：`已处置` 表示本轮已消除；`持续限制` 表示接受并保留的边界；`历史状态` 表示已结束的过程记录，不作为当前任务。
+
+1. `已处置` head 顺序措辞冲突：`docs/cli-filesystem-training.md` §2.1 已改为“四 head 是迁移前历史阶段，当前切片为六 head 固定顺序，按名迁移、索引不作为依据”。
+2. `已处置` 授权词表不一致：M0 观测入口保留窄 effect 词表，沙盒词表经 `observationEffects` 显式映射后才进入观测 API，`session.write` 不进入观测 API（见 §8 与交付回执）。
+3. `已处置` 旧基线数字不可续用：本轮已给出新基线 `npm run test:full` 255/255、0 跳过；测试集合变化单列，不计为通过率提升。
+4. `持续限制` 训练资产树未进 Git：迁移证据依赖本地 `training/**`，仓库内只保存文档摘要；复现需要显式 `NN_HANDWIRED_ROOT`、`NN_CLI_COMMAND_PROFILE`、`NN_CWD_RELATION_PROFILE`。
+5. `历史状态` `note.md` 已由迁移 owner 在本轮更新为交付状态，不再存在并发冲突。
+6. `历史状态` 并发修复与候选树：3 条 P1 已关闭、局部复核 PASS，迁移 worktree 与分支已核销；不再有活动 writer 或该树写入限制。
 
 ## 11. 已决定与仍开放项
 

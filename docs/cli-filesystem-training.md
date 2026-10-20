@@ -144,9 +144,9 @@ const transition = await policy.step({
 
 所有命令/操作选择只有同一`cli.command-policy.v1`共享profile。P1-P6是样本、统计和效果分组，不是部署单元；不得为P1-P6分别保存profile、路由selector或候选。B对象关系与R用途是独立概念模型，不输出命令head；C组合下一步若选命令，复用本节同一共享矩阵。
 
-保留旧骨架：`unsupported`、`pwd`、`cd`、`ls`四个head行原样保留；`bias`、`goalObserveCwd`、`goalSetCwd`、`goalListDirectory`四条legacy wire原样保留并排在wire表最前。扩展只按唯一name增量加入，不重排、不改写既有name。
+保留规则：保留旧 head/wire 的名称、语义和按名对应系数。`bias`、`goalObserveCwd`、`goalSetCwd`、`goalListDirectory`四条legacy wire按名保留并排在wire表最前。当前属性切片采用六 head 固定顺序；旧行索引不作为迁移依据，迁移一律按name查找，不得按位置复用旧权重。旧四 head 对象仅作显式离线迁移输入。
 
-head表固定顺序为：`unsupported`、`DEFER`、`NOOP`、`pwd`、`cd`、`ls`，随后是本文件§2.2的22个新动作head。`DEFER`与`NOOP`是控制head，不执行shell；它们从第一个注册file.property动作或属性的阶段起进入head表，当前PWD→CD→LS阶段没有它们，仍是`unsupported,pwd,cd,ls`四head。索引在扩展后不保持稳定，迁移一律按name查找；不得按位置复用旧权重。
+head表固定顺序为：`unsupported`、`DEFER`、`NOOP`、`pwd`、`cd`、`ls`，随后是本文件§2.2的22个新动作head。`DEFER`与`NOOP`是控制head，不执行shell；它们从第一个注册file.property动作或属性的阶段起进入head表。四 head（`unsupported,pwd,cd,ls`）是迁移前历史阶段，已随迁移退役，不是当前运行阶段。
 
 wire表按固定块顺序拼接，块间不交错：
 

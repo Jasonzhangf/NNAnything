@@ -10,6 +10,8 @@ typed `file.property`单权重迁移已合入`main`（merge `37913c5`）。`main
 
 候选仍`uncalibrated/not_applied`，采用须满足`docs/model-evolution.md`条件。下一步属迁移后能力批次：`path.resolve`head、其余22个操作、B对象查找、R用途关系、自动采集与采用。
 
+结案独立规则审计（外置run的`closeout-task.md`，独立只读OAuth gpt-6.1-sol medium）已完成，结论为交付证据具备；其报出的3处记录/指导修订已落实：训练合同§2.1把四head标为迁移前历史、迁移文档§10逐项标为已处置/持续限制/历史状态、run进度更新为最终状态。审计正文见外置run的`closeout-audit.md`。
+
 ## 2026-10-19 3条P1关闭，局部复核通过，待集成（历史）
 
 接手后未重训、未改权重、未改标签或预算。3条P1已修：State知识值与内嵌观测交叉核对并让authority记录完整真实receipt；公开`step`在进入workflow前调用唯一校验入口，保留`TypeError`与零副作用；注册/未绑定事实只从`validateGoal`/`validatePropertyRequest`取一次，未注册属性搭配合法`DirectoryQuery`收束为`unsupported`且`defer=null`。
