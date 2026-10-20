@@ -22,6 +22,8 @@ Review整改作者验证完成：新增9项公开入口回归后，统一build�
 
 有效复核r4确认深层取消修复，另指出首次子评价前取消把not_evaluated转成无evaluator的unknown。新增AbortController边界回归先红，stopCancelled原样同步frame.fact后58/58递归、735/735正式全仓均通过且0skip；cwd4/4、finite与完整性7/7通过，r5-*.log保留证据。新origin/main纯文档f80d8ea已正常合入，无冲突，peer关系设计完整保留。当前等待该最后finding复核，未main。
 
+独立finding闭包复核r5（新OAuth gpt-6.1-sol medium只读会话）exit0，输出schema合法、findings空，controller分类PASS。首轮完整Review与历次FAIL原件均保留；原5项及后续直接影响的取消恢复缺陷已关闭，未换模型绕过finding。作者最终验收58/58递归、735/735正式全仓、0skip及公开consumer证据见模块合同第13节。当前RG-01至RG-08已验收，RG-09进入main集成/推送、清理及一次结案经验审计。
+
 ## 2026-10-20 通用递归框架独立泛化性审查
 
 用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。
