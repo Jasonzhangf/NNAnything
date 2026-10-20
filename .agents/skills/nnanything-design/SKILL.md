@@ -40,7 +40,7 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 
 每项可训练语义还须绑定独立的单元升级流程 [model-evolution.graph.json](../../../workflows/model-evolution.graph.json)：自动使用采样、监督复核、隔离真实训练与回载、独立评价和旧能力回归、满足条件自动采用；回归或冲突保留当前版本并移交大模型裁决。阶段判定与冲突处理唯一正文为 [model-evolution.md](../../../docs/model-evolution.md)，不得省掉采集/训练或只存冲突不处理。设计准入与升级准入分别闭合，未实现功能列具体缺口。
 
-1. 去掉NN后剩下什么？手写概念/参数绑定/CLI映射不冒称已学；NN负责的函数与监督单独说明。例如`observe_cwd→PWD`由模型选择，harness固定映射`/bin/pwd -P`，OS观测判定Goal。
+1. 去掉NN后剩下什么？手写概念/参数绑定/CLI映射不冒称已学；NN负责的函数与监督单独说明。例如typed `file.property.relation.sessionCwd` observed由模型选择`pwd`，harness固定映射`/bin/pwd -P`，受信OS观测判定Goal。
 2. 什么证据能抓错？例如`pwd`不改变cwd；`cd`在同一会话中后续仍有效；目录列举不拆错特殊文件名。分类正确、调用正确和实际效果不可互相替代。
 3. 候选凭什么替换当前版本？没有独立证据、旧能力退化或冲突时保留当前版本；使用样本不是自动黄金；大模型改图仍是候选，后续走既有实现与验证流程。
 
@@ -48,9 +48,13 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 
 - CLI统一目标为 [file.property.xxx](../../../docs/cli-filesystem-semantics.md)，路径、目录、普通/特殊文件的属性观测与变化共用 `cli-file-property.graph.json`；不新增零散Goal或平行核心语义。目录/文件操作完整设计目录沿 [CLI语义目录](../../../docs/cli-semantic-operations.md)。训练顺序与真实目录沙盒沿 [文件系统训练设计](../../../docs/cli-filesystem-training.md)，先CWD/pwd→cd→列举，再目录操作、文件操作；设计补全不等于已实现或授权操作真实用户文件。
 - 所有CLI命令接入先沿[参数简化合同](../../../docs/cli-call-contract.md)定义固定操作和最小typed引用，再设计harness映射。NN不生成shell/原生flags，不解析输出内容；固定机器协议解码与独立OS状态观测由harness负责，不算学生能力。
-- 当前兼容切片使用单一共享命令模型 `cli.command-policy.v1`，PWD→CD→LS增量扩展4→9→16参数，输出 `["pwd"]`、`["cd",D]`、`["ls",D]`；S在显式绑定中，参数由harness机械绑定。实测沿文件系统训练合同，统一属性Goal尚未迁移。
+- CLI命令选择统一使用同一`cli.command-policy.v1`共享矩阵；当前接入切片、head/wire词表、维度及迁移状态只读[文件系统训练合同](../../../docs/cli-filesystem-training.md)。B对象关系与R用途是概念职责，不得变成另一命令selector；参数引用由harness机械绑定，不计作模型已学的参数生成。
 - DOM特征/wire、增量拟合和跨页回归：沿[本地训练Skill](../nnanything-training/SKILL.md)。本Skill不重写其算法和命令，也不把静态DOM判断当浏览器operation验收。
 - 冲突先定位到观测、语义/特征、数值连线、参数、harness或评价owner。若需改连线，先更新唯一图纸与合同，再交独立计划/实现/验证；不改黄金语义或删退化例以取得升级。
 - 纯合同或图纸更新交付设计和校验结果；没有真实执行不宣称训练、全模型采集或自动升级完成。实际代码开发的独立Plan、gate/红测、Review、Git交付与资源收口沿已有项目/全局规则。
 
 最小交接说明：目标及当前设计/实现状态、I/O与owner、图纸位置、训练/独立验证分区、能抓错的反例、公开入口验收、剩余具体缺口。不要为交接新建注册表、模板目录或第二套执行框架。
+
+## 已有能力迁移
+
+迁移前在领域合同闭合旧入口/权重到目标合同的映射、旧输入拒绝边界、保留的独立概念职责和物理退役清单；新运行不能偷偷回退到旧模型。按名迁移只是离线起点，不证明新softmax或新语义无回归。先完成设计准入，再沿既有开发流程取得公开行为红测、迁移唯一实现、退役旧依赖和回归。训练与独立验收沿[训练Skill](../nnanything-training/SKILL.md)，Git交付沿全局流程；不为迁移新建平行运行链或治理台账。

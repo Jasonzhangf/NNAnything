@@ -63,7 +63,7 @@ node_modules
 
 ## 当前交付边界
 
-Shell统一目标为 `file.property.xxx`，领域合同为 docs/cli-filesystem-semantics.md，共享状态转换图为 workflows/cli-file-property.graph.json。路径、目录、普通文件与Linux设备/FIFO/socket等共享属性目标框架，类型保留各自操作与验收语义。目录/文件完整常见操作设计沿 docs/cli-semantic-operations.md；内容、用途、条件和目标关联纳入属性/状态转换，不建零散Goal。新增属性算子、特殊文件操作及旧Goal接口迁移均未实现，不把设计目录当运行API。
+Shell统一目标为 `file.property.xxx`，领域合同为 docs/cli-filesystem-semantics.md，共享状态转换图为 workflows/cli-file-property.graph.json。当前运行切片是 `cli-file-property` 6N5E `0.2.0`，只接 sessionCwd observed/equals 与 directory.entries observed。路径、目录、普通文件与Linux设备/FIFO/socket等共享属性目标框架，类型保留各自操作与验收语义。目录/文件完整常见操作设计沿 docs/cli-semantic-operations.md；内容、用途、条件和目标关联纳入属性/状态转换，不建零散Goal。新增属性算子、特殊文件操作、B对象查找及旧Goal兼容入口未实现，不把设计目录当运行API。
 
 2026-10-19 新增独立 CLI 方向，用户将起点收敛为 pwd、文件路径与文件属性。当前 M0 只实现三项基础观测和独立测试，合同见 docs/cli-foundation.md；通用核心不内置 CLI 分支。help/说明泛化及其能力/参数角色学习、目录下文件/符号名称搜索仍为后续目标。路径动作训练见下方独立增量，不能据此冒称help或搜索已完成。Computer use 暂缓，仅 lib/adapters/computer-use/README.md 占位，不启动桌面观测或操作。CLI 任务的词语输入合同独立定义，不直接套用 DOM 学生身份字段禁令。
 
@@ -71,7 +71,7 @@ Shell统一目标为 `file.property.xxx`，领域合同为 docs/cli-filesystem-s
 
 逐能力实施先完成精确 `path.resolve(cwd,input)` 的函数表达训练，合同与结果唯一入口为 docs/cli-path-training.md。学生只学习符号动作，名称复制、栈原语和分词是手写基础；teacher与POSIX oracle不得进入学生rollout，不以teacher修正替代模型错误。独立cli-training入口显式加载候选，M0和浏览器权重不变；目录绑定、help与组合操作继续后置。
 
-后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。所有已注册CLI命令统一使用单一共享模型和权重profile（`cli.command-policy.v1`），依序增量拟合PWD（4参数）、CD（9参数）、LS（16参数）。历史二分类CD/LIST独立模型合同已退役，唯一训练合同为docs/cli-filesystem-training.md。`nnanything/cli-goal`已实现`createCliCommandPolicy`与`runCliCommandTraining`；三阶段真实训练、保存后新进程回载及最终候选独立验证已有实测证据，见docs/cli-filesystem-training-results.md。候选保持uncalibrated/not_applied；审查与Git交付记录沿note.md，不把代码集成等同于自动采用权重。历史独立PWD/CD结果只作基线。不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。
+后续推理按结构化Goal/State/Action/实际New State闭环训练，目标合同唯一入口为docs/design.md的1.1节。所有已注册CLI命令统一使用单一共享模型和权重profile（`cli.command-policy.v1`）：heads为`unsupported,DEFER,NOOP,pwd,cd,ls`，当前14条有序wire，单矩阵6×14共84参数。typed请求、合法未绑定DirectoryQuery、受信证据、NOOP/DEFER、阈值和统一status由docs/cli-filesystem-semantics.md、docs/cli-call-contract.md与docs/cli-filesystem-training.md共同定义；唯一训练图是8N8E `0.2.0`。`nnanything/cli-goal`已实现`createCliCommandPolicy`与`runCliCommandTraining`，本轮单候选真实训练、保存后新进程回载及作者回归已有证据。旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`及旧cli-goal图已退役；旧4×4只做按名离线迁移。候选保持uncalibrated/not_applied，父级独立验证与最终Review另做。不引入自然语言识别，不把模型预测的新状态或机械执行完成当作目标已达成。
 
 当前页面审计按用户可观测前景限定：已确认完全遮挡项在DOM候选预处理排除，部分露出按区域保留，工具自身不遮挡站点目标。原DOM与排除证据仍保留，不转训练负例、ignore或other。后续已明确要求训练人类可观测／可交互的保留filter，输入覆盖viewport、最上层／露出区域及交互承载；阅读／显示也有价值，不等于只保留可点击元素。该训练是后续增量，不把本轮确定性遮挡修复冒称已训练。算法与限制唯一入口为docs/browser-overlay-m1.md。
 

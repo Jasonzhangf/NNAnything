@@ -4,6 +4,13 @@ import { mkdtemp, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+function forceHead(profile, head) {
+  const index = profile.heads.indexOf(head);
+  assert.notEqual(index, -1);
+  return { ...profile, weights: profile.weights.map((row, rowIndex) => row.map((weight, columnIndex) =>
+    rowIndex === index && columnIndex === 0 ? 1 : weight)) };
+}
+
 test('CD rejects a directory reference owned by a different session before process execution', async () => {
   const { createCliFilesystemSandbox } = await import('nnanything/cli-goal');
   const root = await realpath(await mkdtemp(join(tmpdir(), 'nn-directory-binding-')));
@@ -30,14 +37,17 @@ test('CD rejects a directory reference owned by a different session before proce
   } finally { if (sandbox) await sandbox.cleanup(); await rm(root, { recursive: true, force: true }); }
 });
 
-test('LIST receipt records the complete native argv and refuses a mismatched Goal target', async () => {
+test('LIST receipt records the complete native argv and refuses a cross-session Goal target', async () => {
   const api = await import('nnanything/cli-goal');
   const root = await realpath(await mkdtemp(join(tmpdir(), 'nn-list-call-boundary-')));
   let sandbox;
   try {
     sandbox = await api.createCliFilesystemSandbox({ root, ownerGrantedEffects: ['filesystem.write'], recipe: {
       scenarioId: 'native-list-call', entries: [{ path: 'one', kind: 'directory' }, { path: 'two', kind: 'directory' }],
-      sessions: [{ id: 's', cwd: 'one', grantedEffects: ['filesystem.read', 'process.exec'] }],
+      sessions: [
+        { id: 's', cwd: 'one', grantedEffects: ['filesystem.read', 'process.exec'] },
+        { id: 'other', cwd: 'two', grantedEffects: ['filesystem.read', 'process.exec'] },
+      ],
     } });
     const session = sandbox.bindSession('s'), directory = await sandbox.bindDirectory(session, '.');
     const before = sandbox.getSession(session);
@@ -48,26 +58,27 @@ test('LIST receipt records the complete native argv and refuses a mismatched Goa
     assert.deepEqual(observation.argv, [api.directoryListHelperPath(), before.cwd]);
     assert.deepEqual(observation.entries, []);
     assert.equal(observation.coverage, 'complete');
-    const profile = api.validateCliCommandProfile({ ...api.zeroCliCommandProfile(['pwd', 'cd', 'ls']), weights: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0]] });
+    const profile = forceHead(api.zeroCliCommandProfile(), 'ls');
     const policy = api.createCliCommandPolicy({ profile, sandbox, session });
-    const mismatch = await policy.step({
-      goal: { kind: 'list_directory', session: 's', target: join(sandbox.scenarioRoot, 'two') },
+    const foreign = sandbox.bindSession('other'), foreignDirectory = await sandbox.bindDirectory(foreign, '.');
+    await assert.rejects(policy.step({
+      goal: { kind: 'file.property', property: 'file.property.directory.entries', target: foreignDirectory,
+        requirement: { kind: 'observed', freshness: 'this_run' } },
       state: { session: 's', cwdObservation: null, directoryListing: null },
-      directory,
-    });
-    assert.equal(mismatch.policy.selectedHead, 'ls');
-    assert.equal(mismatch.goal_result.status, 'unmet');
-    assert.equal(mismatch.goal_result.reason, 'target_mismatch');
-    assert.equal(mismatch.execution_result.executorInvoked, false);
+      satisfactionThreshold: 100,
+    }), /bound session|Directory reference|target/i);
     assert.deepEqual(sandbox.getSession(session), before);
-    const wrongUnsupported = await api.createCliCommandPolicy({ profile: api.zeroCliCommandProfile(['pwd', 'cd', 'ls']), sandbox, session }).step({
-      goal: { kind: 'observe_cwd', session: 's' },
+    const wrongUnsupported = await api.createCliCommandPolicy({ profile: api.zeroCliCommandProfile(), sandbox, session }).step({
+      goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+        target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+        requirement: { kind: 'observed', freshness: 'this_run' } },
       state: { session: 's', cwdObservation: null, directoryListing: null },
+      satisfactionThreshold: 100,
     });
     assert.deepEqual(wrongUnsupported.policy_error, { expectedHead: 'pwd', selectedHead: 'unsupported' });
     assert.equal(wrongUnsupported.execution_result.status, 'rejected');
     assert.equal(wrongUnsupported.execution_result.executorInvoked, false);
-    assert.deepEqual(wrongUnsupported.goal_result, { status: 'unmet', satisfaction: 0, reason: 'unexpected_command', changed: false });
+    assert.deepEqual([wrongUnsupported.status, wrongUnsupported.satisfaction, wrongUnsupported.changed], ['rejected', 0, false]);
     assert.deepEqual(sandbox.getSession(session), before);
   } finally { if (sandbox) await sandbox.cleanup(); await rm(root, { recursive: true, force: true }); }
 });

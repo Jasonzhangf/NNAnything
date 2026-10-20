@@ -1,5 +1,39 @@
 # 当前任务
 
+## 2026-10-19 3条P1关闭，局部复核通过，待集成（当前状态）
+
+接手后未重训、未改权重、未改标签或预算。3条P1已修：State知识值与内嵌观测交叉核对并让authority记录完整真实receipt；公开`step`在进入workflow前调用唯一校验入口，保留`TypeError`与零副作用；注册/未绑定事实只从`validateGoal`/`validatePropertyRequest`取一次，未注册属性搭配合法`DirectoryQuery`收束为`unsupported`且`defer=null`。
+
+证据：修复前后同文件公开反例，`review-fix-red-file-property.log`（14测试9通过5失败）到14/14；修复后`npm run typecheck`、`npm run build` exit 0；显式环境下全仓255/255、0失败0跳过（`logs/post-fix-full-suite-r1.log`，迁移树测试集合已变化，旧253不再作门禁）；公开基线4/4；独立验证34/34场景与16/16探针（`verification/verification-execution-1792464439194.json`）；新进程回载58题0失败34次真实执行`fitted=false`；父级3P1探针通过。作者报告`review-fix-result.md`，验证记录`post-fix-verification.md`。
+
+局部复核用独立只读OAuth gpt-6.1-sol medium会话，只审3条finding与受影响闭包，`review-final.json`零finding，controller `review-verdict.json` 判pass（首次失败结果保留在`review-final-first.json`、`review-verdict-first.json`）。候选仍`uncalibrated/not_applied`，main未集成、未推送。下一步：提交修复、组合最新`origin/main`、canonical构建、main集成与推送、资源核销。
+
+## 2026-10-19 用户要求Skill核查与任务交接（历史）
+
+固定流程与架构owner已核对，核查正文为`/Volumes/Intel/playground/nnanything-runs/cli-property-migration-20261019/skills-agents-audit.md`。两本本地Skill补CLI迁移/训练专属路由，并将当前词表/维度改读唯一领域合同；尚未提交，主树未同步。本项目AGENTS已有目录职责、设计/训练入口与架构合同导航，本次不重复添加规则。
+
+首次整体Review实际已返回3个P1并由controller裁决fail：内嵌观测与authority未完整对应、step丢失TypeError、未注册属性query结果混为DEFER。GCM已留下5个文件dirty修复；局部受影响回归37pass/4skip、概念回归34pass/1skip、build/typecheck通过，尚未修复后全仓/独立验证及finding复核。为用户交接，owner已SIGINT停止自有PID40251，exec session51172退出1；停止不代表产品失败，不再有本worker后台写入。候选不采用，main未集成/推送。
+
+原8项计划W1–W6已验收，W7仍开放、W8未做；修复前253/253及34case/16probe证据不可冒称修复后结果。完整交接及可复制提示词分别为本run的`handoff.md`、`handoff-prompt.md`。接手必须复用当前唯一worktree和dirty改动，先关闭3个finding，再按正常main/push/资源收口交付；保留他人three-site-zero与B/R设计。
+
+## 2026-10-19 属性迁移独立验收完成，整体Review进行中
+
+计划W1–W6已验收，W7独立行为部分通过，整体Review与W8交付尚待完成。独立GCM固定读取ba002b23-b650-4869-87ec-2d36f4fe7485候选，33预先配方场景及1失效引用反例34/34、16失败探针16/16（native10/grant4/injected2），基线公开consumer4/4，全仓253/253、0fail/skip。未重新拟合、未改模型/标签/预算。原始证据为外置run verification/verification-execution-1792461348175.json、baseline-contract-r2.log、npm-test-r2-2.log；验证器适配首轮错误保留，未算产品训练失败。正式资产已归档canonical training/{samples,results,weights}/filesystem/command/ba002b23-b650-4869-87ec-2d36f4fe7485/，候选仍not_applied。
+
+最新origin/main的R设计3336c72已正常合入候选，note冲突保留两侧记录后正常完成merge1179078；B设计066688d保留，B/R学习和执行仍未实现。独立milestone Review首选Gemini4 medium在本轮agy models目录缺失，按合同启动OAuth gpt-6.1-sol medium只读后备，审查整个迁移及B/R边界。结果尚未回传，不以候选提交或测试通过代替main推送。
+
+## 2026-10-19 typed file.property迁移、单候选训练与作者回载（待父级独立验证）
+
+本次在同一独占树继续原任务。`migration-contract.md`与公共`c7c20ef`共同作为实施准入；typed请求、受信证据authority、NOOP/DEFER、显式0..100阈值和统一status已写入既有领域合同。旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`及旧cli-goal图已物理退役；旧4×4只保留按名离线迁移。
+
+当前运行入口只接受typed`file.property`：sessionCwd observed/equals与directory.entries observed，控制结果unsupported/DEFER/NOOP。单一`cli.command-policy.v1`保存`unsupported,DEFER,NOOP,pwd,cd,ls`六个head、14条有序wire和6×14共84参数。合法未绑定DirectoryQuery进入DEFER且零执行；非法schema、旧Goal、旧profile抛TypeError且无OS副作用；未注册property返回unsupported。
+
+运行图为`cli-file-property` 6N5E `0.2.0`，训练图为`cli-filesystem-training` 8N8E `0.2.0`。DAGpipe validate/inspect均通过，日志在run的`logs/dagpipe-file-property-{validate,inspect}.log`与`logs/dagpipe-training-{validate,inspect}.log`。作者定向回归105/105通过，日志为`logs/cli-author-regression.log`；训练前旧实现阻断与红绿定义保留在`implementation-blocked.md`、`w2-prep.md`和对应logs。
+
+真实训练run为`ba002b23-b650-4869-87ec-2d36f4fe7485`，200epochs/lr0.1，从旧候选按名迁移后一次拟合84参数。train38/38、development20/20；零对照4/38、迁移后冻结26/38；PWD/CD/LS旧能力回归无regressed。同目标CD在适用fresh equals证据下改为NOOP，单列公开语义变化。新进程回载58题、0失败、34次真实执行、`fitted=false`；consumer总计5338.783ms。详见`docs/cli-filesystem-training-results.md`、run报告与`logs/final-train-200epoch.log`。
+
+候选绝对路径为`/Volumes/Intel/playground/nnanything/cli-property-migration/training/accepted-20261019/weights/filesystem/command/ba002b23-b650-4869-87ec-2d36f4fe7485/candidate.json`，保持uncalibrated/not_applied。父级独立验证、整体Review、merge与push仍待完成；B对象查找、其余22操作、自动采集和自动采用未实现。本轮未读或修改外置verification及父级独立tests fixture。
+
 ## 2026-10-19 R用途证据合同接收与缺测设计收口
 
 peer按无冲突派发交付独立docs提交6cdcbc6，已正常cherry-pick为79c24a8，只新增cli-role-evidence-design.md，未合并其DOM分支。原支持合同的共享owner缺口由本owner接管：两次独立GCM执行均只返回准备文字、没有实际编辑，不记成功；父级逐文件补齐role/scope进入Goal、10角色有限必要证据、18参数缺失logit区间、同范围冲突和observed负关系满足度。依赖清单与备份记录端点同步明确，dev阈值说法统一。

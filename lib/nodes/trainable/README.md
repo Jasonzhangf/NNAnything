@@ -10,4 +10,4 @@
 
 ## 2. 当前状态
 
-本目录已包含 `cli-path-controller.ts` 与 `cli-goal-policy.ts` 两个有限可训练电路结构；两者只定义固定 wire、动态参数 source 与计算形状，不保存真实权重。路径合同见 [docs/cli-path-training.md](../../../docs/cli-path-training.md)，结构化 Goal 合同见 [docs/cli-goal-training.md](../../../docs/cli-goal-training.md)。
+本目录已包含 `cli-path-controller.ts` 与 `cli-command-policy.ts` 两个有限可训练电路结构；两者只定义固定 wire、动态参数 source 与计算形状，不保存真实权重。路径合同见 [docs/cli-path-training.md](../../../docs/cli-path-training.md)，统一CLI命令合同见 [docs/cli-filesystem-training.md](../../../docs/cli-filesystem-training.md)。旧六参数 `cli-goal-policy.ts` 已退役。
