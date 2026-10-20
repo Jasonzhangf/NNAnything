@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-20 递归独立模块与执行错误返回设计
+
+用户要求在准确错误语义下完成独立模块设计，并明确“执行错误也要返回”。新唯一owner为docs/recursive-goal-module.md，原recursive-goal-design.md继续维护算法。拟定lib/workflow/recursive-goal/与lib/recursive-goal.ts门面，只依赖通用core/workflow并由应用注入领域adapter；未创建源码、package导出或第二执行器。
+
+结果区分request_rejected/run_result/module_fault，根未评价与unknown分开；执行错误通过atomicResults与errors完整返回根调用者，引用在响应内解析，不只存日志。primary不覆盖源执行/后验错误，逐层只追加条件路径。dispatch/not_dispatched与OS executor调用分开，effect知识为none/known/unknown/mixed，已提交效果与未知后验同时保留。额外明确缺授权不能变缺技能、错选不能被mask修正、超预算不派新补证、子帧不扩大根权限。
+
+现有runner的upstreamFailure会跳过report、WorkflowRunFailure只保留category/message/nodeId，已据此设计门面fault与受信run state的有限返回，不假造report执行或从日志恢复errno。图仍3N2E、原子CLI6N5E，未变不重校验；复用旧cwd4场景87/87，不重复测试或宣称新模块运行。
+
+3项验收中，独立模块合同、相邻衔接/针对性检查及独立设计复核已完成，最终main交付回执见外置run。GCM实际完成新doc并退出0，父级接收实际diff后补强错误完整返回及字段一致性。首轮独立报告无finding但缺退出回执，判环境失败且未当PASS；同候选stateless r2由OAuth gpt-6.1-sol medium复核退出0、合法JSON无finding、controller PASS。外置证据`/Volumes/Intel/playground/nnanything-runs/recursive-goal-module-20261020/`保留两次原件，不重跑无关检查。本轮只文档，无代码/训练/权重变更。
+
 ## 2026-10-20 通用递归目标与节点反向满足设计
 
 用户要求review并落盘通用递归框架，并明确根目标不丢失、衍生节点条件、每层只选已启用技能、无技能直接报错、真实证据沿依赖反向满足并收回全部链条。详细唯一owner为docs/recursive-goal-design.md，首例及实测为docs/recursive-goal-cwd-validation.md；总体1.4、workflow4.1及AGENTS只作入口衔接。没有新增file.property.plan、模型/权重或执行引擎。

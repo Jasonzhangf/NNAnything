@@ -1,6 +1,6 @@
 # 通用递归目标：技能选择、节点衍生与反向满足
 
-状态：2026-10-20，设计合同。尚未实现通用递归runner、组合技能选择器或其训练；本轮不修改代码、权重或训练数据。四元素唯一基础为[design.md 1.1](design.md#11-结构化语义的目标与状态推理)，外层拓扑唯一源为[recursive-goal.graph.json](../workflows/recursive-goal.graph.json)。本合同适用于CLI、浏览器及后续computer use，不将通用机制定义为`file.property.plan`。
+状态：2026-10-20，设计合同。尚未实现通用递归runner、组合技能选择器或其训练；本轮不修改代码、权重或训练数据。四元素唯一基础为[design.md 1.1](design.md#11-结构化语义的目标与状态推理)，外层拓扑唯一源为[recursive-goal.graph.json](../workflows/recursive-goal.graph.json)。本合同适用于CLI、浏览器及后续computer use，不将通用机制定义为`file.property.plan`。独立模块的导入边界、公开结果类型与准确错误传播唯一源为[递归模块合同](recursive-goal-module.md)，本页维护目标/技能/反向满足算法，不复制第二套错误类型。
 
 ## 1. 用户需求与草案Review
 
@@ -73,7 +73,7 @@ RecursiveResult {
 
 `goal`由领域合同验证；通用核心不解释cwd、DOM或文件格式。领域提供`evaluate(goal,threshold,state,evidence)`、`derive(selectedSkill,goal,state,cursor)`、`executeAtomic(...)`与`measureProgress(...)`。这些是节点适配合同，不绕过既有compile/run、schema或effects。State更新由实际观测/执行回执承载，不能把模型预期、日志条数或success字符串写成事实。
 
-原子`rootEvaluation/status`复用领域的achieved/unmet/unknown/rejected/failed及实际满足度；通用`disposition`表示为什么停止，不冒充领域Goal事实。能力缺失以`disposition:error,error:capability_missing`收口；若根事实尚无法验证，rootEvaluation保持unknown/null，不能声称已证“世界中目标不可能”。超预算为exceeded，不能伪装blocked或achieved。每个错误包含节点、未满足条件、选项范围和原始原因，不需要hash/冻结清单。
+该形状是概念导航，公开discriminated union以[模块合同](recursive-goal-module.md)为准。根事实评价、控制停止原因和领域原子结果分别承载：领域的failed/rejected不直接复制成根事实，领域status与原始原因保留在原子回执。根尚未评价与已评价但证据未知也须区分；没有根评价器的有效证据不得生成achieved。能力缺失返回明确错误，但根事实未知时保持未知，不能声称已证“世界中目标不可能”。超预算为exceeded，不伪装成已证不可满足。错误保留唯一origin及父链传播关系，不按层覆盖根因；详细code与source/effect语义只沿模块合同，不需要hash/冻结清单。
 
 ## 5. DAG、递归与所有链条的回收
 
@@ -91,7 +91,9 @@ flowchart TD
 
 执行有三种关系，不混画：父→子为义务衍生，子条件→依赖消费者为数据/就绪边，子→父为结果关联。若把调用和返回画成一张普通DAG就会造环；返回记录属于节点执行合同。每次展开的依赖图仍无环，入口是该帧输入，必要链结果合流到该帧唯一完成出口。首轮只用单父子目标实例及顺序调度，复用同一能力可新建实例；共享可变子帧、多父汇合与并发执行不是当前必要机制。
 
-所有已生成节点都必须有回收结果：achieved、明确错误、unknown、cancelled或not_applicable。未选条件分支为not_applicable，不进入当前必要AND集合；失败不会被改成not_applicable。错误后尚未执行的依赖节点以`cancelled/dependency_failed`收口，报告显式列出剩余义务。单父实例保证每条链有唯一接收者，最终由root report汇总；不把“未运行”当满足。
+所有已生成节点都必须有回收结果：achieved、明确错误、unknown、cancelled或not_applicable。未选条件分支为not_applicable，不进入当前必要AND集合；失败不会被改成not_applicable。错误后尚未执行的依赖节点记为`not_executed/dependency_failed`并引用原错误，不伪造用户取消；报告显式列出剩余义务。单父实例保证每条链有唯一接收者，最终由根结果汇总；不把“未运行”当满足。
+
+预期领域错误通过明确Outcome传到图中report。底层`runWorkflow`出现基础设施failure时可能跳过report节点；独立模块入口必须按[模块合同](recursive-goal-module.md)捕获可处理异常并返回fault、已知effects及证据边界，不依赖report必执行，不从events/log重建运行决策。不承诺进程被终止后仍能同步返回，也不以伪造成功事件来维持表面SESE。
 
 ## 6. 确定性调度与反向满足
 
@@ -148,7 +150,7 @@ flowchart TD
 
 ## 10. Owner、实施与未就绪边界
 
-通用目标帧及调用组合属于`lib/workflow/`的后续设计实现责任；只通过既有runner调用领域图。领域Goal/证据/effects由领域filter、adapter和node维护；技能本地绑定由应用配置维护，不建远程服务。项目图仍唯一放workflows，内部数值wire与外层DAG分别治理。
+通用目标帧及调用组合属于独立的`lib/workflow/recursive-goal/`后续模块；拟定`lib/recursive-goal.ts`公开门面，尚不存在可导入API，具体职责与错误边界见[模块合同](recursive-goal-module.md)。只通过既有runner调用领域图，不内置CLI/browser/training依赖。领域Goal/证据/effects由领域filter、adapter和node维护；技能本地绑定由应用配置维护，不建远程服务。项目图仍唯一放workflows，内部数值wire与外层DAG分别治理。
 
 本轮交付通用合同、3N2E图、架构衔接、cwd实例与已有原子组合的实测证据。尚未实现：通用三个operator、typed schema编译绑定、帧调度/continuation、组合技能selector与训练、跨域operation接入。设计不等于这些能力已运行。
 

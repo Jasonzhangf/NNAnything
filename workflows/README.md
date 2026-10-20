@@ -7,7 +7,7 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
-| `recursive-goal.graph.json` | 设计态，无运行配置 | 3 节点 2 边 (3N2E SESE) | `0.1.0-design` | 通用递归目标：绑定根Goal与预算→有界衍生、领域原子workflow及真实父子评价→逐层结果与证据；详细合同docs/recursive-goal-design.md，未实现，不新增CLI plan属性或第二执行引擎 |
+| `recursive-goal.graph.json` | 设计态，无运行配置 | 3 节点 2 边 (3N2E SESE) | `0.1.0-design` | 通用递归目标3阶段，算法见docs/recursive-goal-design.md；独立模块/error/执行错误返回见docs/recursive-goal-module.md。预期Outcome沿图返回，infra fault由模块入口收口；未实现，无第二执行引擎 |
 | `cli-file-property.graph.json` | `cli-file-property.workflow.json` | 6 节点 5 边 (6N5E SESE) | `0.2.0` 已实现 | 当前 typed `file.property` 运行入口：绑定→同一策略选择→条件与固定执行→实际属性/副作用观测→满足度评价→统一结果与显式采样；仅PWD/CD/NOOP/DEFER/LS切片可运行 |
 | `cli-filesystem-training.graph.json` | `cli-filesystem-training.workflow.json` | 8 节点 8 边 (8N8E SESE) | `0.2.0` 已实现 | 当前单候选训练图：旧4×4按名迁移→typed样本准备与历史回放→真实拟合并保存→同一候选执行→train/dev、回归与清理报告；可选独立验证未提供时`fullyVerified=false` |
 | `project-design.graph.json` | 当前治理标准，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | 每个语义及训练设计的四元素闭合、训练反推、固定调用、图纸、独立验收与最小必要性准入；操作方法归nnanything-design Skill，不是自动审核器 |
