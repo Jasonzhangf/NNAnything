@@ -1,6 +1,6 @@
 # 训练设计3：获取目录内文件与子目录（ls）
 
-状态：共享命令模型第3阶段源码已实现，正式共享train/dev训练与独立验证已通过；作者全量回归、整体Review与集成待完成。前两阶段见[CWD/pwd](cli-cwd-training-design.md)、[cd](cli-cd-training-design.md)。旧独立二分类`LIST / REJECT` 8参数模型合同已退役。目录列举现作为统一共享命令模型（`cli.command-policy.v1`）的第3增量阶段（16参数），唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。实测计数见[共享模型实测](cli-filesystem-training-results.md)。
+状态：共享命令模型第3阶段源码已实现，正式共享train/dev训练与独立验证已通过；共享PWD/CD/LS前三阶段已完成作者全仓回归、独立复核与canonical main集成，进度入口见仓库`note.md`顶部「2026-10-19 CLI共享前三项最终集成验收」。前两阶段见[CWD/pwd](cli-cwd-training-design.md)、[cd](cli-cd-training-design.md)。旧独立二分类`LIST / REJECT` 8参数模型合同已退役。目录列举现作为统一共享命令模型（`cli.command-policy.v1`）的第3增量阶段（16参数），唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。实测计数见[共享模型实测](cli-filesystem-training-results.md)。
 
 调用边界统一沿[参数简化合同](cli-call-contract.md)：模型输出调用序列 `["ls", D]`。profile、sandbox与session在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`；每次调用传`step({ goal, state, directory: D })`，请求没有`resources`或`directories`字段。NN不解析`/bin/ls`面向人类的文本输出或文件正文；固定编译helper返回结构化JSON条目，由harness处理机器协议。
 

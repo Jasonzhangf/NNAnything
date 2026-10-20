@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-19 file.property设计独立Review P1/P2修复
+
+本轮只修设计与状态记录，不改业务代码、不生成样本、不训练或升级权重。四项工作为：派发无冲突B/R设计、修共享命令P1、修状态P2、独立finding复核及main交付。B/R已分别派给现有peer，仍待各自设计收口与验收，不将消息接受或候选交来记为完成。
+
+GCM已修P1/P2正文，owner亲读实际diff后接收。P1-P6只作样本/统计/效果分组；P与C的命令选择共用cli.command-policy.v1，B/R只输出概念关系。共享合同补齐全局head/wire、typed参数、按名称迁移、旧命令回放与逐head/属性回归，保留P3/P4目标类型与P5范围反例。owner另澄清legacy列、已注册列及完整类型块不因恒定值消融，并补齐输入公式中的legacy位。当前实际schema仍为PWD/CD/LS的4×4，新增能力未实现。
+
+P2按已有共享CLI交付证据同步training、call及list文档；未重跑253/253回归。CWD/CD无相同旧状态，保持未改。受影响图拓扑不变，复用属性6N5E、共享训练8N8E及课程/升级有效证据。独立OAuth gpt-6.1-sol medium复核退出0，JSON findings为空，controller裁决PASS。实际schema及未实现边界经核对；`git diff --check`通过。结果及最终Git交付回执沿外置`/Volumes/Intel/playground/nnanything-runs/file-property-review-fixes-20261019/`记录，不以Review通过代替push回执。
+
 ## 2026-10-19 CLI共享前三项最终集成验收
 
 本轮共享CLI计划7/7项均已验收：CLI候选全仓回归253/253通过、0失败、0skip；真实训练、独立验收、满足度与来源隔离修复均沿用已有有效证据。独立复核`review-final.json`无finding，`review-verdict.json`为PASS，未发现新增实质变化，不重复整体Review。

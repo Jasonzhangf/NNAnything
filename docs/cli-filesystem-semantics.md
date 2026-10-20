@@ -92,7 +92,7 @@ type Request = {
 | 内容/用途判断 | content.format/role 的指定关系observed；100 | 真实文件证据 → parser或独立模型 → 对照复核真值，保留未知 | 同后缀不同内容、配置示例与生效配置、生成源码角色重叠 |
 | 操作条件 | operation.applicability 对指定操作observed；100 | 类型/状态及声明能力 → 判断 → 独立合同/执行证据核对 | mode当实际权限、设备按普通文件处理、缺测当允许 |
 
-训练复用 [cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。当前图文件及绑定仍是`cli.command.*@0.1.0`共享命令运行版；[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步和`0.2.0-design`拓扑属于未来扩展。固定确定函数不强训。具体固定harness及操作回执见 [命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
+训练复用 [cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。当前图文件及绑定仍是`cli.command.*@0.1.0`共享命令运行版；[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见 [命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
 
 每单元按 [project-design](../workflows/project-design.graph.json) 完成四元素、SESE和最小必要性准入，按 [model-evolution](../workflows/model-evolution.graph.json) 自动采样、复核、训练及采用，回归/冲突交大模型裁决。采用条件只引用 [model-evolution.md](model-evolution.md)，不建平行门槛。真实OS效果、动作选择、参数绑定和知识判断分别计分。
 

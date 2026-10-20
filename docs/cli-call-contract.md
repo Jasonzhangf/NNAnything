@@ -1,6 +1,6 @@
 # CLI调用参数简化合同
 
-状态：2026-10-19设计合同，共享命令模型源码已实现；正式三阶段train/dev与独立验证已通过，作者全量回归、整体Review与集成待完成。实测计数见[共享模型实测](cli-filesystem-training-results.md)。适用于所有接入的CLI能力，不表示已支持系统中的所有命令。当前模型唯一权威合同见[文件系统训练合同](cli-filesystem-training.md)；Goal推理及训练沿[总体架构](design.md)1.1节。
+状态：2026-10-19设计合同，共享命令模型源码已实现；共享PWD/CD/LS三阶段train/dev、作者全仓回归、独立验证、独立复核与canonical main集成均已完成，进度入口见仓库`note.md`顶部「2026-10-19 CLI共享前三项最终集成验收」。实测计数见[共享模型实测](cli-filesystem-training-results.md)。适用于所有接入的CLI能力，不表示已支持系统中的所有命令。当前模型唯一权威合同见[文件系统训练合同](cli-filesystem-training.md)；Goal推理及训练沿[总体架构](design.md)1.1节。共享候选保持`uncalibrated/not_applied`；`file.property`新算子、typed请求/结果、新harness、B/P/R/C实际训练及自动采集/自动采用仍未实现。
 
 ## 1. 模型输出调用序列与显式资源信封
 
