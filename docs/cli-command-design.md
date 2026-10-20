@@ -10,7 +10,7 @@ Action 为 `{operation, parameters}`。资源引用从 typed control resource �
 
 声明effects：本批三个词法head无业务effect；`entry.inspect`需`filesystem.read`，不得打开FIFO/socket/设备字节流。其余创建、删除、写、改属性需`filesystem.write`，CLI子进程需`process.exec`，改变S另需`session.write`。固定helper路径与子进程执行由adapter工厂显式配置，不是模型参数或`followSymlinks` wire。目录范围来自调用者授权和训练场景根，不从文件业务metadata推断。模型判断适用不授予权限。
 
-固定CLI helper设计位于 `lib/adapters/cli/`：以 `{executable:process.execPath,argv:[configuredHelperPath,operation],stdin:typedJson,shell:false}` 调用，控制通道与原始Bytes分别编码（Bytes使用base64且注明原始长度），stdout为单个固定协议JSON，stderr只作证据。helper路径来自配置，不接收可执行脚本或任意argv。所有表中标为helper者均使用此模板，模型不学习原生命令flags。目录列举helper已实现（`lib/adapters/cli/directory-list-helper.ts`，argv为`[helperPath, physicalDirectory]`）；其余操作helper尚未实现，调用方不因缺失而改用任意shell。PWD及CD保持已定原生命令例外。
+固定CLI helper设计位于 `lib/adapters/cli/`：以 `{executable:process.execPath,argv:[configuredHelperPath,operation],stdin:typedJson,shell:false}` 调用，控制通道与原始Bytes分别编码（Bytes使用base64且注明原始长度），stdout为单个固定协议JSON，stderr只作证据。helper路径来自配置，不接收可执行脚本或任意argv。所有表中标为helper者均使用此模板，模型不学习原生命令flags。目录列举helper（`lib/adapters/cli/directory-list-helper.ts`，argv为`[helperPath, physicalDirectory]`）与批次1的entry inspect helper（`lib/adapters/cli/entry-inspect-helper.ts`）已实现；其余操作helper尚未实现，调用方不因缺失而改用任意shell。PWD及CD保持已定原生命令例外。
 
 共同回执：`{operation,status:complete|partial|rejected|failed,value,errors,effectsObserved}`。value按下表固定，不能含自由options；write类另有实际写入/创建/删除清单。harness执行成功不等于Goal满足；[属性图](../workflows/cli-file-property.graph.json)独立读回实际属性。读取可改变atime，部分动作可能改变ctime/mode；明确记录相关效果，不承诺所有元数据不变。必要观测失败返回unknown，不能补造旧State。失败不自动回滚、删部分产物、降级或复活旧执行路径。
 

@@ -1,6 +1,6 @@
 # 训练设计1：CWD概念与pwd获取
 
-状态：本文保留CWD/pwd独立训练的历史设计与实测基线。旧6参数PWD profile及旧`cli.goal-policy.v1`已在当前候选物理退役，无运行兼容入口。当前PWD是统一`cli.command-policy.v1` typed `file.property`切片的一部分，使用`unsupported,DEFER,NOOP,pwd,cd,ls`全head与14条有序wire的单矩阵，不再有4参数阶段候选。CWD关系是独立的`MATCH/NO_MATCH`概念测量，`x=[1, sameSession, hasObservation]`，不选择命令。当前合同见[文件系统训练合同](cli-filesystem-training.md)，本轮结果见[共享模型实测](cli-filesystem-training-results.md)。
+状态：本文保留CWD/pwd独立训练的历史设计与实测基线。旧6参数PWD profile及旧`cli.goal-policy.v1`已在当前候选物理退役，无运行兼容入口。当前PWD是统一`cli.command-policy.v1` typed `file.property`切片的一部分；0.2.0 时使用6 head与14条有序wire，0.3.0 已扩到10 head与30条wire，不再有4参数阶段候选。CWD关系是独立的`MATCH/NO_MATCH`概念测量，`x=[1, sameSession, hasObservation]`，不选择命令。当前合同见[文件系统训练合同](cli-filesystem-training.md)，本轮结果见[共享模型实测](cli-filesystem-training-results.md)。
 
 调用边界统一沿[参数简化合同](cli-call-contract.md)：模型输出调用序列 `["pwd"]`。profile、sandbox与session在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`；每次调用传`step({ goal, satisfactionThreshold, state })`，请求没有`resources`字段。harness固定映射到 `cwd.get(session:S)`。NN不解析命令输出内容。
 
@@ -74,8 +74,8 @@ train家族：普通双session、含空格目录、同目录不同session、已�
 
 ## 外层DAG、验收与实施owner
 
-当前推理图是`workflows/cli-file-property.graph.json`（6节点/5边，0.2.0）及`cli-file-property.workflow.json`。训练图是`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.2.0）及同名workflow配置，接收调用者准备并分区的typed dataset，不生成fixture或自行启动新进程回载；这些由公开consumer完成。独立验证由单独consumer载入已保存候选，不进入fitter。未提供workflow可选verification资源时，receipt的fullyVerified为false；train/dev accepted不冒充独立验收。旧`cli-command-step`和旧cli-goal图已删除。
+当前推理图是`workflows/cli-file-property.graph.json`（6节点/5边，`0.3.0.0000`）及`cli-file-property.workflow.json`。训练图是`workflows/cli-filesystem-training.graph.json`（8节点/8边，`0.3.0.0000`）及同名workflow配置，接收调用者准备并分区的typed dataset，不生成fixture或自行启动新进程回载；这些由公开consumer完成。独立验证由单独consumer载入已保存候选，不进入fitter。未提供workflow可选verification资源时，receipt的fullyVerified为false；train/dev accepted不冒充独立验收。旧`cli-command-step`和旧cli-goal图已删除。
 
 历史独立基线验收为：关系16/16和动作12/12验证题均正确；4个正常真实pwd均满足后条件；所有失败探针都未错误达成Goal；已有pwd/路径回归零退化；新进程回载分数/动作一致；所有必需指标完整，否则不采用。这里是历史有限样本精确门槛，不是概率校准声明。当前共享模型的验收结果与计数见[共享模型实测](cli-filesystem-training-results.md)，本文不重复。动作guard与错误策略分别计数。
 
-owner：`lib/adapters/cli/`负责场景与真实观测；`lib/filters/`负责typed属性特征、CWD关系与统一评分；`lib/nodes/trainable/`负责电路结构；`lib/training/`负责分区、拟合与比较。历史独立PWD与CWD关系结果作为基线；当前正式命令交付统一收敛为6×14共享模型，单项命令不维持独立active profile。唯一训练合同见[文件系统训练合同](cli-filesystem-training.md)。
+owner：`lib/adapters/cli/`负责场景与真实观测；`lib/filters/`负责typed属性特征、CWD关系与统一评分；`lib/nodes/trainable/`负责电路结构；`lib/training/`负责分区、拟合与比较。历史独立PWD与CWD关系结果作为基线；当前正式命令交付统一收敛为10×30共享模型，单项命令不维持独立active profile。唯一训练合同见[文件系统训练合同](cli-filesystem-training.md)。

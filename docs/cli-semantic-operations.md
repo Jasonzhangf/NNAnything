@@ -1,6 +1,6 @@
 # 文件语义语言：精确单操作与首个模糊训练设计
 
-状态：语义目录设计，2026-10-19。起点为 macOS/POSIX。本文定义完整操作与组合语言；当前运行API只实现typed `file.property`的PWD/CD/LS及控制结果，其余条目仍是设计，不扩大运行授权。基础cwd/path/attributes观测以[CLI M0合同](cli-foundation.md)为准。
+状态：语义目录设计，2026-10-19。起点为 macOS/POSIX。本文定义完整操作与组合语言；当前运行API实现typed `file.property`的PWD/CD/LS/`path.resolve`/`path.relative`/`path.parts`/`entry.inspect`及控制结果；其余条目仍是设计，不扩大运行授权。基础cwd/path/attributes观测以[CLI M0合同](cli-foundation.md)为准。
 
 用户顺序：先总结精确单操作，再设计一个最低层次的模糊任务。自然语言识别、help 文档学习、组合规划与“进入目录”的完整执行均不属于本轮。
 
@@ -8,7 +8,7 @@
 
 动作学习沿[总体设计1.1](design.md#11-结构化语义的目标与状态推理)：全命令收敛为单一共享命令模型（`cli.command-policy.v1`），当前typed `file.property`切片输出`["pwd"]`、`["cd", D]`、`["ls", D]`，或以`NOOP`、`DEFER`、`unsupported`零执行收束。历史独立`observe_cwd→pwd`见[Goal动作训练](cli-goal-training.md)，只作历史证据。当前各命令唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。
 
-当前训练已是统一共享模型的单候选增量拟合：旧4×4按名称迁移到6×14、84参数矩阵，一次拟合PWD/CD/NOOP/DEFER/LS及证据配对，不保存4/9/16参数阶段候选。旧独立CD/LIST模型及旧运行图已退役，其执行harness、效果与失败模式保留并迁入共享模型。真实专用目录沙盒、训练/开发/独立验证分区及训练DAG见[文件系统训练合同](cli-filesystem-training.md)。
+当前训练是统一共享模型的单候选拟合：旧4×4先按名称迁移到6×14，再迁移到10×30、300参数矩阵，一次拟合10个head及证据配对，不保存4/9/16参数阶段候选。旧独立CD/LIST模型及旧运行图已退役，其执行harness、效果与失败模式保留并迁入共享模型。真实专用目录沙盒、训练/开发/独立验证分区及训练DAG见[文件系统训练合同](cli-filesystem-training.md)。
 
 2026-10-19 用户要求补齐目录操作，再补文件操作，并明确不零散编辑Goal，统一为 `file.property.xxx`：路径、目录及各文件类型的属性观测或变化是目标，CLI是Action，实际属性是State。本页扩充精确操作与组合目录；四元素、属性键、持久图绑定、训练和缺口见 [file.property核心合同](cli-filesystem-semantics.md)。内容、用途和条件归入属性体系，不各立核心Goal。扩充是设计范围，不扩大当前运行 API，也不授权对真实用户文件执行修改或删除。
 
@@ -42,7 +42,7 @@
 | --- | --- | --- | --- | --- |
 | `cwd.get` | `session: SessionRef` | 该 session 的 cwd 观测与证据 | 目录失效、观察失败；不改变状态 | 当前共享模型输出 `["pwd"]`，固定 `pwd -P` 观测；M0 `observe({kind:'pwd'})` 保持兼容 |
 | `path.resolve` | `base: AbsolutePath, input: PathText` | 词法绝对路径及父路径 | 非法路径；不检查存在性；绝对 input 不依赖 base | 独立函数 `kind:'path'`／`interpretCliPath`；沿用 M0 合同 |
-| `entry.inspect` | `path: E/D/F/P, follow_symlinks: boolean` | 类型、大小、mode/uid/gid、OS 时间；不跟随时可返回链接文本；保留来源引用证据 | ENOENT、EACCES、stale；stat/lstat 明确区分 | M0 `kind:'attributes'`仅P观测；引用绑定为设计 |
+| `entry.inspect` | `path: E/D/F/P, follow_symlinks: boolean` | 类型、大小、mode/uid/gid、OS 时间；不跟随时可返回链接文本；保留来源引用证据 | ENOENT、EACCES、stale；stat/lstat 明确区分 | 0.3.0 已实现：typed E/D/F/P 绑定与完整 inspect 属性接入统一运行入口 |
 | `directory.list` | `session: SessionRef, directory: DirectoryRef` | 直接子条目及覆盖状态；包括点开头名称，不含 `.`/`..` | 不是目录、拒权、读取未完成；不递归 | typed `directory.list` 映射为未来设计；当前共享模型仍输出 `["ls", D]`，由固定编译结构化helper执行 |
 | `file.read` | `file: AbsolutePath, offset: uint, length: uint` | 从指定字节位置读取，返回 Bytes、实际长度和 EOF | 不是普通文件、拒权、IO 失败；不隐式文本解码 | 设计态 |
 | `cwd.set` | `session: SessionRef, directory: AbsolutePath` | 设置该 session 后续操作的 cwd，并返回成功后的 cwd | 不是目录、目录不可进入；失败不得报告已进入 | 模型输出 `["cd", D]`，固定CD脚本+提交S+PWD验证 |
@@ -62,7 +62,7 @@
 
 ### 2.1 目录、路径和共享条目操作补全
 
-以下与上表共同构成当前常见 POSIX 文件系统操作设计目录。S 是 session 引用，D/F/E 是目录/文件/条目引用；P 是明确的目标绝对路径。引用必须绑定观测、路径及对象类型，不能因名称或扩展名猜类型。除已有 M0 和路径/PWD 训练外，均未实现。`mode` 是 POSIX 权限位，`owner` 是明确 uid/gid；不提供任意 flags 或 shell 文本。
+以下与上表共同构成当前常见 POSIX 文件系统操作设计目录。S 是 session 引用，D/F/E 是目录/文件/条目引用；P 是明确的目标绝对路径。引用必须绑定观测、路径及对象类型，不能因名称或扩展名猜类型。M0、PWD/CD/LS 与 `path.resolve`/`path.relative`/`path.parts`/`entry.inspect` 已实现；其余操作均未实现。`mode` 是 POSIX 权限位，`owner` 是明确 uid/gid；不提供任意 flags 或 shell 文本。
 
 | 需求/操作 | 必要输入 | 实际结果与验收 | 边界/反例 |
 | --- | --- | --- | --- |

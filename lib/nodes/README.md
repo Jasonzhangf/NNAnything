@@ -51,7 +51,7 @@
 
 `report` 输出保留 `goal`、`state_before`、`action`、`invocation`、`policy`、`policy_error`、`execution_result`、`postcondition`、`observed_state_after.pathKnowledge/entryKnowledge`、`evidence`、`collection_result`与`defer`。错误head的action只按实际Goal投影参数，不借用不匹配Goal伪造调用；失败保持非achieved。
 
-`accepted`只覆盖实际提供的评价分区；无verification资源时`fullyVerified=false`。候选保持`uncalibrated/not_applied`。固定调用、边界和后条件见[文件系统训练合同](../../docs/cli-filesystem-training.md)。训练节点最终回执包含 `runId`、`paths`、`profile`、`initialProfile`/`sourceProfile`、`comparison`、`controls`、`regression`、`semanticChanges`、`verification` 与 `timing`；`comparison` 按case、head和错误来源汇总真实执行行。I6负责的version 3样本、真实拟合和新进程回载尚未进入本报告。
+`accepted`只覆盖实际提供的评价分区；无verification资源时`fullyVerified=false`。候选保持`uncalibrated/not_applied`。固定调用、边界和后条件见[文件系统训练合同](../../docs/cli-filesystem-training.md)。训练节点最终回执包含 `runId`、`paths`、`profile`、`initialProfile`/`sourceProfile`、`comparison`、`controls`、`regression`、`semanticChanges`、`verification` 与 `timing`；`comparison` 按case、head和错误来源汇总真实执行行。I6 的 version 3 样本、真实拟合与新进程回载已由批次1完成：训练图真实执行 262 条，回载 executed=262、UNVERIFIED=0、failed=0；当前候选保持 `uncalibrated/not_applied`。
 
 ## CLI 基础观测节点（0.1.0）
 
