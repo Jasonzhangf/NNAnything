@@ -1,6 +1,6 @@
 # 文件属性操作的固定调用设计
 
-状态：设计完成候选，2026-10-19；未新增代码、命令执行或训练。0.3.0 批次1已落盘 `path.resolve`、`path.relative`、`path.parts` 与 `entry.inspect` 的固定调用合同，仍未实现。范围为 [精确目录](cli-semantic-operations.md)2.1/2.2中的全部操作、列出的有限组合，以及特殊文件类型观测。程序执行、挂载/卷管理、ACL/xattr、任意设备协议不属于普通文件操作；不能从统一文件抽象推导其已支持。目标统一沿 [file.property](cli-filesystem-semantics.md)，本页仅维护各操作固定harness、参数、回执及验收，参数简化原则沿 [cli-call-contract.md](cli-call-contract.md)。
+状态：设计合同，2026-10-20。0.3.0 批次1 的 `path.resolve`、`path.relative`、`path.parts` 与 `entry.inspect` 已实现并接入统一运行入口（10 head × 30 wire），并有全仓 761/761、新独立套件 56/56、旧独立套件 34/34 的证据；本页其余操作仍为设计，未实现。范围为 [精确目录](cli-semantic-operations.md)2.1/2.2中的全部操作、列出的有限组合，以及特殊文件类型观测。程序执行、挂载/卷管理、ACL/xattr、任意设备协议不属于普通文件操作；不能从统一文件抽象推导其已支持。目标统一沿 [file.property](cli-filesystem-semantics.md)，本页仅维护各操作固定harness、参数、回执及验收，参数简化原则沿 [cli-call-contract.md](cli-call-contract.md)。
 
 ## 1. 共同输入、权限与结果
 

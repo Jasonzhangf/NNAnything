@@ -23,10 +23,21 @@ assert.equal(profile.weights.length, 10);
 assert.equal(profile.weights.every(row => row.length === 30), true);
 assert.equal(profile.weights.flat().length, 300);
 assert.deepEqual(report.profile, profile);
+
 const evidenceRoot = await mkdtemp(join(tmpdir(), "nn-shared-reload-evidence-"));
 const evidencePath = join(evidenceRoot, "executions.jsonl");
-let checked = 0, failed = 0, executions = 0, predictionChecks = 0, executedLegacy = 0, skippedExecution = 0, skippedBatch1 = 0;
-const executeSamples = process.env.NN_RELOAD_EXECUTE === "1";
+let checked = 0, failed = 0, unverified = 0, executorInvocations = 0, predictionChecks = 0;
+let executedLegacy = 0, executedBatch1 = 0;
+const failures = [], unverifiedRows = [];
+
+function errorCode(error) {
+  return error && typeof error === "object" && "code" in error && typeof error.code === "string" ? error.code : null;
+}
+
+function isEnvironmentUnavailable(error) {
+  return ["ENOSYS", "ENOTSUP", "EOPNOTSUPP"].includes(errorCode(error));
+}
+
 try {
   for (const sample of dataset.samples) {
     const scene = dataset.scenes.get(sample.scenarioId);
@@ -34,30 +45,63 @@ try {
     const prediction = predictCliCommand(sampleGoal(sample, scene), sampleFacts(sample), profile);
     predictionChecks += 1;
     if (prediction.selectedHead !== sample.expectedHead) failed += 1;
-    if (!executeSamples || isBatch1CommandCase(sample.case)) {
-      skippedExecution += 1;
-      if (isBatch1CommandCase(sample.case)) skippedBatch1 += 1;
-      checked += 1;
-      continue;
-    }
-    const row = await executeCliCommandTrainingSample(sample, scene, profile, binding => createCliCommandPolicy(binding), evidencePath,
-      { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction });
+    if (isBatch1CommandCase(sample.case)) executedBatch1 += 1;
+    else executedLegacy += 1;
 
-    checked += 1;
-    if (!row.correct || !row.effectsOk || !row.sideEffectsOk) failed += 1;
-    if (row.invocation !== null) executions += 1;
-    executedLegacy += 1;
+    try {
+      const row = await executeCliCommandTrainingSample(
+        sample,
+        scene,
+        profile,
+        binding => createCliCommandPolicy(binding),
+        evidencePath,
+        { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction },
+      );
+      checked += 1;
+      if (row.invocation !== null) executorInvocations += 1;
+      if (!row.correct || !row.effectsOk || !row.sideEffectsOk) {
+        failed += 1;
+        failures.push({
+          id: sample.id,
+          case: sample.case,
+          expectedHead: sample.expectedHead,
+          selectedHead: row.selectedHead,
+          status: row.status,
+          satisfaction: row.satisfaction,
+          effectsOk: row.effectsOk,
+          sideEffectsOk: row.sideEffectsOk,
+        });
+      }
+    } catch (error) {
+      checked += 1;
+      const detail = {
+        id: sample.id,
+        case: sample.case,
+        code: errorCode(error),
+        message: error instanceof Error ? error.message : String(error),
+      };
+      if (isEnvironmentUnavailable(error)) {
+        unverified += 1;
+        unverifiedRows.push(detail);
+      } else {
+        failed += 1;
+        failures.push(detail);
+      }
+    }
   }
+
   console.log(JSON.stringify({
     profilePath,
     checked,
-    failed,
-    executions,
-    predictionChecks,
+    executed: checked,
     executedLegacy,
-    skippedExecution,
-    skippedBatch1,
-    executeSamples,
+    executedBatch1,
+    executorInvocations,
+    predictionChecks,
+    unverified,
+    unverifiedRows,
+    failed,
+    failures,
     fitted: false,
     processId: process.pid,
     schema: { heads: profile.heads.length, wires: profile.wires.length, parameters: profile.weights.flat().length },

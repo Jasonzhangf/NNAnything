@@ -362,8 +362,74 @@ test("R24 public consumer reloads a 10x30 candidate in a new process and reports
     const receipt = JSON.parse(stdout);
     assert.equal(receipt.fitted, false);
     assert.equal(receipt.checked, dataset.samples.length);
+    assert.equal(receipt.executed, dataset.samples.length);
+    assert.equal(receipt.executedLegacy, dataset.samples.filter(sample => !module.isBatch1CommandCase(sample.case)).length);
+    assert.equal(receipt.executedBatch1, dataset.samples.filter(sample => module.isBatch1CommandCase(sample.case)).length);
+    assert.equal(receipt.unverified, 0);
+    assert.equal(receipt.skippedExecution, undefined);
+    assert.equal(receipt.skippedBatch1, undefined);
     assert.equal(typeof receipt.processId, "number");
     assert.notEqual(receipt.processId, process.pid);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("F3 training execution constructs the four batch1 typed goals and evaluates their real effects", async () => {
+  const module = await api();
+  const root = await mkdtemp(join(tmpdir(), "nn-batch1-training-execution-"));
+  try {
+    const fixtureRoot = join(root, "fixture");
+    await mkdir(fixtureRoot);
+    const { dataset } = await module.makeCliCommandFixture({ root: fixtureRoot, extended: true });
+    const sceneById = new Map(dataset.scenarios.map(scene => [scene.id, scene]));
+    const evidencePath = join(root, "executions.jsonl");
+    await writeFile(evidencePath, "");
+    const cases = [
+      ["path-resolve", "file.property.path.absolute", "path.resolve"],
+      ["path-relative", "file.property.path.relative", "path.relative"],
+      ["path-parts-name", "file.property.path.name", "path.parts"],
+      ["inspect-size", "file.property.size", "entry.inspect"],
+    ];
+    for (const [sampleCase, property, head] of cases) {
+      const sample = dataset.samples.find(candidate => candidate.case === sampleCase);
+      assert.ok(sample, `missing ${sampleCase} sample`);
+      const scene = sceneById.get(sample.scenarioId);
+      assert.ok(scene);
+      const profile = module.zeroCliCommandProfile();
+      const row = profile.heads.indexOf(head);
+      assert.notEqual(row, -1);
+      const witness = {
+        ...profile,
+        weights: profile.weights.map((weights, index) =>
+          index === row ? weights.map((weight, column) => column === 0 ? 10 : weight) : [...weights]),
+      };
+      const result = await module.executeCliCommandTrainingSample(
+        sample,
+        scene,
+        witness,
+        binding => module.createCliCommandPolicy(binding),
+        evidencePath,
+        { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction },
+      );
+      assert.equal(result.transition.goal.kind, "file.property");
+      assert.equal(result.transition.goal.property, property, `${sampleCase} must use its typed property`);
+      assert.equal(result.transition.goal.requirement.kind, "observed");
+      assert.equal(result.transition.goal.requirement.freshness, "this_run");
+      if (head === "path.resolve" || head === "path.relative") {
+        assert.equal(result.transition.goal.target.kind, "cli.path-query");
+      } else if (head === "path.parts") {
+        assert.equal(result.transition.goal.target.kind, "cli.path");
+      } else {
+        assert.equal(result.transition.goal.target.kind, "cli.entry-query");
+        assert.equal(typeof result.transition.goal.target.followSymlinks, "boolean");
+      }
+      assert.equal(result.selectedHead, head);
+      assert.equal(result.status, "achieved");
+      assert.equal(result.satisfaction, 100);
+      assert.equal(result.effectsOk, true, `${sampleCase} must pass its batch1 effect contract`);
+      assert.equal(result.sideEffectsOk, true);
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

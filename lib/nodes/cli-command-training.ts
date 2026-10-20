@@ -1,9 +1,15 @@
-import { appendFile, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, lstat, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import type { NodeDefinition } from "../core/contracts.js";
 import { expectRecord } from "../core/schema.js";
-import { createCliFilesystemSandbox, type DirectoryRef, type SessionRef } from "../adapters/cli/filesystem-sandbox.js";
+import {
+  createCliFilesystemSandbox,
+  type CliFilesystemSandbox,
+  type DirectoryRef,
+  type SessionRef,
+  type SessionSnapshot,
+} from "../adapters/cli/filesystem-sandbox.js";
 import { cleanupCliFilesystemSandboxes } from "../adapters/cli/sandbox-cleanup.js";
 import {
   CLI_COMMAND_HEADS,
@@ -11,11 +17,22 @@ import {
   validateCliCommandProfile,
   type CliCommandProfile,
 } from "../filters/cli-command-policy.js";
-import { CWD_PROPERTY, ENTRIES_PROPERTY, type CwdGoal, type FilePropertyGoal } from "../filters/cli-file-property.js";
+import {
+  CWD_PROPERTY,
+  ENTRIES_PROPERTY,
+  PATH_ABSOLUTE_PROPERTY,
+  PATH_RELATIVE_PROPERTY,
+  type EntryRef,
+  type FilePropertyGoal,
+  type FileRef,
+  type InspectRef,
+  type ObservedDirectoryRef,
+} from "../filters/cli-file-property.js";
 import type { ExplicitFileState } from "../filters/cli-state.js";
 import { fitCliCommandProfile } from "../training/cli-command-numeric.js";
 import {
   prepareCliCommandDataset,
+  isBatch1CommandCase,
   sampleFacts,
   sampleFeatures,
   sampleGoal,
@@ -116,8 +133,80 @@ function cwdQuery(session: SessionRef) {
   return Object.freeze({ kind: "cli.file-query" as const, relation: "sessionCwd" as const, session });
 }
 
-function goalFor(sample: CommandSample, scene: CommandScenario, session: SessionRef, startRef: DirectoryRef, targetRef: DirectoryRef): FilePropertyGoal {
+function sceneAbsolute(sceneRoot: string, path: string) {
+  return isAbsolute(path) ? path : join(sceneRoot, path);
+}
+
+async function batch1GoalFor(
+  sample: CommandSample,
+  scene: CommandScenario,
+  session: SessionRef,
+  sandbox: CliFilesystemSandbox,
+): Promise<FilePropertyGoal> {
+  const query = sample.query, fixtures = scene.pathFixtures;
+  if (query === undefined || fixtures === undefined) throw new TypeError(`Batch1 training sample ${sample.id} needs a typed query and fixtures`);
   const observed = Object.freeze({ kind: "observed" as const, freshness: "this_run" as const });
+  if (query.kind === "path.resolve") {
+    const fixture = fixtures.resolve.find(item => item.id === sample.variant);
+    if (fixture === undefined) throw new TypeError(`Missing resolve fixture for ${sample.id}`);
+    const base = sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, fixture.base));
+    return Object.freeze({
+      kind: "file.property",
+      property: PATH_ABSOLUTE_PROPERTY,
+      target: Object.freeze({ kind: "cli.path-query", base, input: query.input }),
+      requirement: observed,
+    });
+  }
+  if (query.kind === "path.relative") {
+    const fixture = fixtures.relative.find(item => item.id === sample.variant);
+    if (fixture === undefined) throw new TypeError(`Missing relative fixture for ${sample.id}`);
+    return Object.freeze({
+      kind: "file.property",
+      property: PATH_RELATIVE_PROPERTY,
+      target: Object.freeze({
+        kind: "cli.path-query",
+        from: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, fixture.from)),
+        to: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, fixture.to)),
+      }),
+      requirement: observed,
+    });
+  }
+  if (query.kind === "path.parts") {
+    const fixture = fixtures.parts.find(item => item.id === sample.variant);
+    if (fixture === undefined) throw new TypeError(`Missing parts fixture for ${sample.id}`);
+    return Object.freeze({
+      kind: "file.property",
+      property: query.property,
+      target: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, fixture.path)),
+      requirement: observed,
+    });
+  }
+  const fixture = fixtures.inspect.find(item => item.id === sample.variant);
+  if (fixture === undefined) throw new TypeError(`Missing inspect fixture for ${sample.id}`);
+  const absolutePath = sceneAbsolute(sandbox.scenarioRoot, fixture.path);
+  let ref: InspectRef;
+  if (fixture.refKind === "cli.path") ref = sandbox.bindPath(session, absolutePath);
+  else if (fixture.refKind === "cli.entry") ref = await sandbox.bindEntry(session, absolutePath) as EntryRef;
+  else if (fixture.refKind === "cli.file") ref = await sandbox.bindFile(session, absolutePath) as FileRef;
+  else ref = await sandbox.bindDirectoryObject(session, absolutePath) as ObservedDirectoryRef;
+  return Object.freeze({
+    kind: "file.property",
+    property: query.property,
+    target: Object.freeze({ kind: "cli.entry-query", ref, followSymlinks: query.followSymlinks }),
+    requirement: observed,
+  });
+}
+
+async function goalFor(
+  sample: CommandSample,
+  scene: CommandScenario,
+  session: SessionRef,
+  startRef: DirectoryRef,
+  targetRef: DirectoryRef,
+  sandbox: CliFilesystemSandbox,
+): Promise<FilePropertyGoal> {
+  const observed = Object.freeze({ kind: "observed" as const, freshness: "this_run" as const });
+  if (isBatch1CommandCase(sample.case)) return batch1GoalFor(sample, scene, session, sandbox);
   if (sample.case === "unregistered-property") {
     return Object.freeze({ kind: "file.property", property: "file.property.exists", target: targetRef, requirement: Object.freeze({ kind: "equals", expected: true }) });
   }
@@ -144,46 +233,84 @@ function emptyState(session: SessionRef): ExplicitFileState {
   return Object.freeze({ session: session.sessionId, cwdObservation: null, directoryListing: null });
 }
 
-function effectsOk(sample: CommandSample, scene: CommandScenario, transition: CliCommandTransition, before: { cwd: string; revision: number }, targetPhysical: string, startPhysical: string): boolean {
+function effectsOk(
+  sample: CommandSample,
+  scene: CommandScenario,
+  transition: CliCommandTransition,
+  before: SessionSnapshot,
+  targetPhysical: string,
+  startPhysical: string,
+  expected: { status: string; satisfaction: 0 | 100 | null },
+): boolean {
   const after = transition.session_after;
   const invocation = transition.invocation;
+  const sessionUnchanged = after.cwd === before.cwd && after.revision === before.revision;
+  const observation = transition.execution_result.receipt?.execution.status === "succeeded"
+    ? transition.execution_result.receipt.execution.observation
+    : null;
+  const expectedOutcome = transition.status === expected.status && transition.satisfaction === expected.satisfaction;
   switch (sample.case) {
+    case "path-resolve":
+      return expectedOutcome && transition.policy.selectedHead === sample.expectedHead
+        && invocation?.[0] === "path.resolve" && transition.execution_result.executorInvoked && sessionUnchanged
+        && observation?.kind === "path.resolve";
+    case "path-relative":
+      return expectedOutcome && transition.policy.selectedHead === sample.expectedHead
+        && invocation?.[0] === "path.relative" && transition.execution_result.executorInvoked && sessionUnchanged
+        && observation?.kind === "path.relative";
+    case "path-parts-parent":
+    case "path-parts-name":
+      return expectedOutcome && transition.policy.selectedHead === sample.expectedHead
+        && invocation?.[0] === "path.parts" && transition.execution_result.executorInvoked && sessionUnchanged
+        && observation?.kind === "path.parts";
+    case "inspect-exists":
+    case "inspect-type":
+    case "inspect-size":
+    case "inspect-mode":
+    case "inspect-owner":
+    case "inspect-times":
+    case "inspect-link-target":
+    case "inspect-entry-identity":
+      return expectedOutcome && transition.policy.selectedHead === sample.expectedHead
+        && before.grantedEffects.includes("filesystem.read") && before.grantedEffects.includes("process.exec")
+        && invocation?.[0] === "entry.inspect" && transition.execution_result.executorInvoked && sessionUnchanged
+        && observation?.kind === "entry.inspect";
     case "cwd-observed":
-      return transition.status === "achieved" && transition.satisfaction === 100
+      return expectedOutcome
         && invocation?.[0] === "pwd" && transition.execution_result.executorInvoked
         && after.cwd === before.cwd && after.revision === before.revision
         && transition.observed_state_after.cwdObservation?.physicalCwd === startPhysical;
     case "entries-observed":
     case "entries-observed-old-listing": {
       const listing = transition.observed_state_after.directoryListing;
-      return transition.status === "achieved" && transition.satisfaction === 100
+      return expectedOutcome
         && invocation?.[0] === "ls" && transition.execution_result.executorInvoked
         && after.cwd === before.cwd && after.revision === before.revision
         && listing !== null && listing !== undefined && listing.physicalDirectory === targetPhysical
         && sameEntries(listing.entries, scene.expectedEntries);
     }
     case "cwd-equals-fresh-equal": {
-      return transition.status === "achieved" && transition.satisfaction === 100
+      return expectedOutcome
         && transition.policy.selectedHead === "NOOP"
         && invocation === null && !transition.execution_result.executorInvoked
         && after.cwd === startPhysical && after.revision === before.revision;
     }
     case "cwd-equals-stale-equal": {
-      return transition.status === "achieved" && transition.satisfaction === 100
+      return expectedOutcome
         && invocation?.[0] === "cd" && transition.execution_result.executorInvoked
         && after.cwd === startPhysical && transition.postcondition?.matchedTarget === true;
     }
     case "cwd-equals-fresh-unequal":
     case "cwd-equals-unknown":
-      return transition.status === "achieved" && transition.satisfaction === 100
+      return expectedOutcome
         && invocation?.[0] === "cd" && transition.execution_result.executorInvoked
         && after.cwd === targetPhysical && transition.postcondition?.matchedTarget === true;
     case "cwd-equals-unbound":
     case "entries-observed-unbound":
-      return transition.status === "unknown" && transition.satisfaction === null
+      return expectedOutcome
         && invocation === null && !transition.execution_result.executorInvoked && transition.defer?.code === "binding_unresolved";
     case "unregistered-property":
-      return transition.status === "unknown" && transition.satisfaction === null
+      return expectedOutcome
         && invocation === null && !transition.execution_result.executorInvoked && transition.execution_result.status === "unsupported";
     default:
       return false;
@@ -196,6 +323,9 @@ export async function executeCliCommandTrainingSample(sample: CommandSample, sce
   let cause: unknown;
   try {
     sandbox = await createCliFilesystemSandbox({ root, recipe: scene.recipe, ownerGrantedEffects: ["filesystem.write"] });
+    for (const item of scene.pathFixtures?.symlinks ?? []) {
+      await symlink(item.target, sceneAbsolute(sandbox.scenarioRoot, item.path));
+    }
     const session = sandbox.bindSession("s"), foreign = sandbox.bindSession("other");
     const before = sandbox.getSession(session), foreignBefore = sandbox.getSession(foreign), parentCwd = process.cwd();
     const startPhysical = await realpath(sandbox.getSession(session).cwd);
@@ -205,7 +335,7 @@ export async function executeCliCommandTrainingSample(sample: CommandSample, sce
     const policy = factory({ profile, sandbox, session });
     let state = emptyState(session), transition: CliCommandTransition;
     if (sample.case === "entries-observed-old-listing") {
-      const first = await policy.step({ goal: goalFor(sample, scene, session, startRef, targetRef), satisfactionThreshold: 100, state });
+      const first = await policy.step({ goal: await goalFor(sample, scene, session, startRef, targetRef, sandbox), satisfactionThreshold: 100, state });
       if (first.status !== "achieved") throw new Error(`old listing setup failed for ${sample.id}`);
       state = first.observed_state_after;
     }
@@ -222,12 +352,12 @@ export async function executeCliCommandTrainingSample(sample: CommandSample, sce
       const moved = await sandbox.execute({ operation: "cwd.set", parameters: { session, directory: targetRef } });
       if (moved.execution.status !== "succeeded") throw new Error(`stale setup move failed for ${sample.id}`);
       const backToStart = await sandbox.bindDirectory(session, relative(targetAbsolute, startPhysical) || ".");
-      transition = await policy.step({ goal: goalFor(sample, scene, session, backToStart, targetRef), satisfactionThreshold: 100, state });
+      transition = await policy.step({ goal: await goalFor(sample, scene, session, backToStart, targetRef, sandbox), satisfactionThreshold: 100, state });
     } else {
-      transition = await policy.step({ goal: goalFor(sample, scene, session, startRef, targetRef), satisfactionThreshold: 100, state });
+      transition = await policy.step({ goal: await goalFor(sample, scene, session, startRef, targetRef, sandbox), satisfactionThreshold: 100, state });
     }
     const foreignAfter = sandbox.getSession(foreign);
-    const effects = effectsOk(sample, scene, transition, before, targetPhysical, startPhysical);
+    const effects = effectsOk(sample, scene, transition, before, targetPhysical, startPhysical, expected);
     const row: CommandEvaluationRow = {
       id: sample.id,
       sourceGroup: sample.sourceGroup,
@@ -248,7 +378,6 @@ export async function executeCliCommandTrainingSample(sample: CommandSample, sce
       transition,
       cleanup: "removed" as const,
     };
-    void expected;
     await appendFile(evidencePath, JSON.stringify({ kind: "execution", id: row.id, selectedHead: row.selectedHead, correct: row.correct, effectsOk: row.effectsOk, sideEffectsOk: row.sideEffectsOk, status: row.status, satisfaction: row.satisfaction, cleanup: "pending" }) + "\n");
     return row;
   } catch (error) {

@@ -1,6 +1,6 @@
 # 文件系统沙盒与共享命令模型增量训练
 
-状态：实施合同。0.2.0 的 typed `file.property` PWD/CD/LS 切片、统一控制结果、旧六参数链退役和单一6×14候选真实拟合已经实现；作者定向回归与回载证据保留，但本页不把它们扩展为0.3.0成绩。I1 已落盘 0.3.0 的 10 head、30 wire、10×30 矩阵和两张图合同；I2–I7 尚未执行，未改产品代码或测试。实测计数、计时和run记录见[共享模型实测](cli-filesystem-training-results.md)，本文不重复历史表。本文是全命令统一共享模型与增量训练的唯一权威合同。总体Goal/State定义见[总体设计1.1](design.md#11-结构化语义的目标与状态推理)；调用与资源信封见[参数简化合同](cli-call-contract.md)；精确操作与固定映射见[语义目录](cli-semantic-operations.md)。
+状态：实施合同。0.2.0 的 typed `file.property` PWD/CD/LS 切片、统一控制结果、旧六参数链退役和单一6×14候选真实拟合已经实现；作者定向回归与回载证据保留，但本页不把它们扩展为0.3.0成绩。0.3.0 的 10 head、30 wire、10×30 矩阵与两张图合同已由 I2–I7 实现并接入运行入口，训练图对 262 条样本真实执行（legacy 58 + 批次1 204，`effectsOk` 262/262），新进程回载 `executed=262`、`UNVERIFIED=0`、`failed=0`；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 保持 `uncalibrated/not_applied`。实测计数、计时和run记录见[共享模型实测](cli-filesystem-training-results.md)，本文不重复历史表。本文是全命令统一共享模型与增量训练的唯一权威合同。总体Goal/State定义见[总体设计1.1](design.md#11-结构化语义的目标与状态推理)；调用与资源信封见[参数简化合同](cli-call-contract.md)；精确操作与固定映射见[语义目录](cli-semantic-operations.md)。
 2026-10-19 设计扩展：PWD/CD/LS迁移已完成；批次1新增路径词法原语与`entry.inspect`合同，后续再补目录/文件变更。所有新语义统一为[file.property.xxx](cli-filesystem-semantics.md)，内容、用途、条件与能力关联均归为属性判断和属性状态变化，复用`cli-file-property.graph.json`，不零散增加Goal。B对象查找、其余目录/文件操作、特殊文件扩展及自动采用仍为设计，不靠文档冒称已运行。
 
 用户已选择真实文件系统中的专用沙盒目录，不声称硬件、虚拟机或操作系统权限隔离。PWD/CD/LS 的 `file.property` 切片已接入运行入口；B对象查找、未来22个操作与特殊文件扩展仍为设计，不将静态图校验称为这些未来执行器已实现。

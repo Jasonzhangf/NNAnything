@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, realpath, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { createCliSession } from "../../cli.js";
 import { expectRecord } from "../../core/schema.js";
@@ -539,12 +539,23 @@ function identityMatches(value: number | string | null, observed: bigint | null)
 }
 
 async function physicalEntryCandidate(state: SandboxState, configuredPath: string): Promise<string> {
-  if (!within(state.scenarioRoot, configuredPath)) {
-    throw Object.assign(new TypeError("Entry path escapes the scenario root"), { code: "SANDBOX_ESCAPE" });
-  }
   if (configuredPath === state.scenarioRoot) return configuredPath;
+  const finalComponent = basename(configuredPath);
+  if (configuredPath.endsWith("/") || finalComponent === "." || finalComponent === "..") {
+    try {
+      const physical = await realpath(configuredPath);
+      if (!within(state.scenarioRoot, physical)) {
+        throw Object.assign(new TypeError("Entry path resolves outside the scenario root"), { code: "SANDBOX_ESCAPE" });
+      }
+      return configuredPath;
+    } catch (error) {
+      const code = failureCode(error);
+      if (code === "SANDBOX_ESCAPE") throw error;
+      if (code !== "ENOENT" && code !== "ENOTDIR") return configuredPath;
+    }
+  }
   let ancestor = dirname(configuredPath);
-  while (within(state.scenarioRoot, ancestor) && ancestor !== state.scenarioRoot) {
+  while (true) {
     try {
       const physical = await realpath(ancestor);
       if (!within(state.scenarioRoot, physical)) {
@@ -555,18 +566,21 @@ async function physicalEntryCandidate(state: SandboxState, configuredPath: strin
       const code = failureCode(error);
       if (code === "SANDBOX_ESCAPE") throw error;
       if (code !== "ENOENT") return configuredPath;
-      ancestor = dirname(ancestor);
     }
+    const parent = dirname(ancestor);
+    if (parent === ancestor) {
+      throw Object.assign(new TypeError("Entry path has no resolvable ancestor inside the scenario root"), { code: "SANDBOX_ESCAPE" });
+    }
+    ancestor = parent;
   }
-  return configuredPath;
 }
 
 async function followTargetWithin(state: SandboxState, configuredPath: string, snapshot: Awaited<ReturnType<typeof readEntrySnapshot>>): Promise<void> {
   if (snapshot.kind !== "symlink" || snapshot.linkTarget === null) return;
-  const target = resolve(dirname(configuredPath), snapshot.linkTarget);
-  if (!within(state.scenarioRoot, target)) {
-    throw Object.assign(new TypeError("Followed entry resolves outside the scenario root"), { code: "SANDBOX_ESCAPE" });
-  }
+  const target = isAbsolute(snapshot.linkTarget)
+    ? snapshot.linkTarget
+    : `${dirname(configuredPath)}/${snapshot.linkTarget}`;
+  await physicalEntryCandidate(state, target);
   try {
     const physical = await realpath(target);
     if (!within(state.scenarioRoot, physical)) {
@@ -578,6 +592,26 @@ async function followTargetWithin(state: SandboxState, configuredPath: string, s
     if (code === "ENOENT" || code === "ELOOP" || code === "EACCES" || code === "EPERM" || code === "ENOTDIR") return;
     throw error;
   }
+}
+
+async function observedObjectPath(
+  state: SandboxState,
+  configuredPath: string,
+  observed: Awaited<ReturnType<typeof readEntrySnapshot>>,
+): Promise<string> {
+  if (observed.kind === "symlink") {
+    const parent = await realpath(dirname(configuredPath));
+    const physical = join(parent, basename(configuredPath));
+    if (!within(state.scenarioRoot, parent) || !within(state.scenarioRoot, physical)) {
+      throw Object.assign(new TypeError("Entry path escapes the scenario root"), { code: "SANDBOX_ESCAPE" });
+    }
+    return physical;
+  }
+  const physical = await realpath(configuredPath);
+  if (!within(state.scenarioRoot, physical)) {
+    throw Object.assign(new TypeError("Entry path escapes the scenario root"), { code: "SANDBOX_ESCAPE" });
+  }
+  return physical;
 }
 
 function assertObservedRefType(ref: ObservedObjectRef, kind: EntryKind): void {
@@ -838,8 +872,10 @@ async function executeEntryInspect(state: SandboxState, call: SemanticEntryInspe
   if (!sameSession(state, before, ref)) {
     return failedReceipt(call, before, state, runId, "EINVAL", "Inspect reference must belong to the selected session and scenario", "validate", false);
   }
-  if (!before.grantedEffects.includes("filesystem.read")) {
-    return failedReceipt(call, before, state, runId, "EFFECT_DENIED", "Missing CLI effect grant: filesystem.read", "authorize", false);
+  const missing = (["filesystem.read", "process.exec"] as const)
+    .filter(effect => !before.grantedEffects.includes(effect));
+  if (missing.length) {
+    return failedReceipt(call, before, state, runId, "EFFECT_DENIED", `Missing CLI effect grant: ${missing.join(", ")}`, "authorize", false);
   }
   if (ref.kind === "cli.directory" && !("absolutePath" in ref)) {
     return failedReceipt(call, before, state, runId, "binding_identity_missing", "Legacy directory references need observed identity for entry.inspect", "authorize", false);
@@ -849,7 +885,7 @@ async function executeEntryInspect(state: SandboxState, call: SemanticEntryInspe
   let configuredPath: string;
   let preflight: Awaited<ReturnType<typeof readEntrySnapshot>>;
   try {
-    configuredPath = await physicalEntryCandidate(state, resolve(referencedPath));
+    configuredPath = await physicalEntryCandidate(state, referencedPath);
     preflight = await readEntrySnapshot(configuredPath, false);
     if (ref.kind !== "cli.path") {
       validateObservedRef(state, before, ref, preflight);
@@ -915,10 +951,9 @@ async function bindObservedObject(
   if (!session.grantedEffects.includes("filesystem.read")) {
     throw Object.assign(new TypeError("Binding an observed object needs filesystem.read"), { code: "EFFECT_DENIED" });
   }
-  const configuredPath = isAbsolute(path) ? resolve(path) : resolve(session.cwd, relativePath(path, "entry path", true));
-  if (!within(state.scenarioRoot, configuredPath)) {
-    throw Object.assign(new TypeError("Entry path escapes the scenario root"), { code: "SANDBOX_ESCAPE" });
-  }
+  const configuredPath = isAbsolute(path)
+    ? nonEmpty(path, "entry path")
+    : `${session.cwd}/${relativePath(path, "entry path", true)}`;
   const candidate = await physicalEntryCandidate(state, configuredPath);
   const observed = await readEntrySnapshot(candidate, false);
   if (observed.errno !== null) throw Object.assign(new TypeError(`Entry binding failed with ${observed.errno}`), { code: observed.errno });
@@ -927,6 +962,7 @@ async function bindObservedObject(
   }
   if (expected === "file" && observed.kind !== "regular") throw Object.assign(new TypeError("File reference must name a regular file"), { code: "NOT_REGULAR_FILE" });
   if (expected === "directory" && observed.kind !== "directory") throw Object.assign(new TypeError("Directory reference must name a directory"), { code: "NOT_DIRECTORY" });
+  const absolutePath = await observedObjectPath(state, candidate, observed);
   const sourceRun = randomUUID();
   const ref: ObservedObjectRef = Object.freeze({
     kind: expected === "file" ? "cli.file" : expected === "directory" ? "cli.directory" : "cli.entry",
@@ -939,7 +975,7 @@ async function bindObservedObject(
     }),
     sourceRun,
     sessionRevision: session.revision,
-    absolutePath: candidate,
+    absolutePath,
   });
   state.boundRefs.set(sourceRun, ref);
   return ref;
@@ -1029,7 +1065,7 @@ export async function createCliFilesystemSandbox(options: {
         kind: "cli.path",
         scenarioId: state.scenarioId,
         sessionId: session.id,
-        path: resolve(value),
+        path: value,
       });
     },
     bindEntry(sessionRef: SessionRef, path: string): Promise<ObservedObjectRef> {

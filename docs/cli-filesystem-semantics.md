@@ -1,6 +1,6 @@
 # file.property：Shell 文件属性目标与状态转换
 
-状态：2026-10-19 设计合同。0.2.0 的 PWD/CD/LS 三个 `file.property` 切片已接入统一运行入口；本批 0.3.0 新增 `path.resolve`、`path.relative`、`path.parts` 与 `entry.inspect` 的合同、30 列共享矩阵和两张持久图的节点载荷升级。0.3.0 已由 I2–I7 实施完成并有运行证据：全仓 335/335、独立套件 56/56（40 场景+16 探针）、旧独立套件回归 34/34；新候选 `836b58b9-3d18-4aaa-9008-41d18b2c7226` 保持 `uncalibrated/not_applied`。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
+状态：2026-10-19 设计合同。0.2.0 的 PWD/CD/LS 三个 `file.property` 切片已接入统一运行入口；本批 0.3.0 新增 `path.resolve`、`path.relative`、`path.parts` 与 `entry.inspect` 的合同、30 列共享矩阵和两张持久图的节点载荷升级。0.3.0 已由 I2–I7 实施完成并有运行证据：合并最新 origin/main 后全仓 761/761、独立套件 56/56（40 场景+16 探针）、旧独立套件回归 34/34；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 保持 `uncalibrated/not_applied`。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
 
 ## 1. 唯一目标形式
 

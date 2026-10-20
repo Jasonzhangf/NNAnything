@@ -799,6 +799,34 @@ test("R06 path.parts applies only slash cleanup and keeps dot segments lexical",
   assert.equal(observedPathValue(resolved, "absolute"), "/a");
 });
 
+test("F1 bound path keeps dot segments and lexical parts through the public binder", async t => {
+  const module = await api();
+  const { sandbox, session } = await fixture(t);
+  const bound = sandbox.bindPath(session, "/review/a/..");
+  assert.equal(bound.path, "/review/a/..", "bindPath must preserve the typed path text");
+
+  const policy = module.createCliCommandPolicy({
+    profile: witnessProfile(module, "path.parts"),
+    sandbox,
+    session,
+  });
+  const result = await policy.step({
+    goal: {
+      kind: "file.property",
+      property: "file.property.path.parent",
+      target: bound,
+      requirement: { kind: "observed", freshness: "this_run" },
+    },
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.equal(result.status, "achieved");
+  const observation = result.execution_result.receipt?.execution?.observation;
+  assert.equal(observation?.absolute, "/review/a/..");
+  assert.equal(observation?.parent, "/review/a");
+  assert.equal(observation?.name, "..");
+});
+
 test("R07 invalid path arguments reject as TypeError with zero samples and zero session effects", async t => {
   const module = await api();
   const { sandbox, session } = await fixture(t);

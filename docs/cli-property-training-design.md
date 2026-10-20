@@ -1,6 +1,6 @@
 # file.property 最小单元训练设计
 
-状态：2026-10-19 设计合同；0.2.0 的 P3 sessionCwd observed/equals 与 directory.entries observed 已接入运行入口并真实拟合。0.3.0 合同登记 P1 的四个路径词法属性与 P2 的 `entry.inspect` 八项属性，但尚未训练或接入运行入口。本页其余 P4/P5/P6、B 与 R 仍为设计，单元不能因本页存在就标为已训练。所有命令/操作选择只使用[文件系统训练合同](cli-filesystem-training.md)§2的同一`cli.command-policy.v1`共享矩阵；P1-P6只是样本/统计/效果分组。B对象关系与R用途关系是独立概念模型；C组合下一步若选命令，复用同一共享矩阵。特殊文件只训练观测/拒绝关系，不学习未定义设备协议。语义和命令方案分别沿 [属性合同](cli-filesystem-semantics.md) 与 [固定调用设计](cli-command-design.md)。
+状态：2026-10-20 设计合同；0.2.0 的 P3 sessionCwd observed/equals 与 directory.entries observed 已接入运行入口并真实拟合。0.3.0 的 P1 四个路径词法属性与 P2 `entry.inspect` 八项属性已接入运行入口并真实拟合（当前候选 35bd5ad9，统一训练图真实执行 train 174/174、development 88/88、effects 262/262，保持 uncalibrated/not_applied）。本页其余 P4/P5/P6、B 与 R 仍为设计，单元不能因本页存在就标为已训练。所有命令/操作选择只使用[文件系统训练合同](cli-filesystem-training.md)§2的同一`cli.command-policy.v1`共享矩阵；P1-P6只是样本/统计/效果分组。B对象关系与R用途关系是独立概念模型；C组合下一步若选命令，复用同一共享矩阵。特殊文件只训练观测/拒绝关系，不学习未定义设备协议。语义和命令方案分别沿 [属性合同](cli-filesystem-semantics.md) 与 [固定调用设计](cli-command-design.md)。
 
 ## 1. 四元素与分工
 

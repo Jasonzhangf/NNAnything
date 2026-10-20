@@ -1,21 +1,24 @@
 # 当前任务
 
-## 2026-10-20 批次1「目录与路径原语」四个head实现完成，待整体Review与集成（当前状态）
+## 2026-10-20 批次1「目录与路径原语」实现完成，独立 Review 3 条 P1 已修，待复核与集成（当前状态）
 
 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 四个 head 已注册进唯一共享 `cli.command-policy.v1`：10 heads × 30 wires = 300 参数。两张持久图与对应 `NodeDefinition.version` 均为 `0.3.0.0000`（四位尾段由 `scripts/bump-version.mjs` 统一维护，下一次 bump 为 `0.3.0.0001`）。
 
-`npm run build` exit 0；`npm run typecheck` exit 0；`dagpipe graph validate` 两张图通过（6N5E、8N8E）；`npm run test:full` 335/335、0失败0跳过（`logs/gate-final2-test-full.log`）。
+合并最新 `origin/main` 后：`npm run build` exit 0；`npm run typecheck` exit 0；`dagpipe graph validate` 两张图通过（6N5E、8N8E）；`npm run test:full` 761/761、0失败0跳过（`logs/gate-postfix2-test-full.log`）。
 
-新候选 `836b58b9-3d18-4aaa-9008-41d18b2c7226`（10×30，`uncalibrated/not_applied`）：真实拟合 train 174/174、dev 88/88，新进程回载 262 项 0 失败、`fitted=false`；旧 58 行回归 retained 58、regressed 0。旧候选 `ba002b23-b650-4869-87ec-2d36f4fe7485` 未重训、未改权重/标签/预算。
+当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398`（10×30，`uncalibrated/not_applied`）：统一训练图真实执行 train 174/174、development 88/88，`effectsOk` 262/262；新进程 reload 执行 262 条（legacy 58 + 批次1 204），`executorInvocations=238`，`UNVERIFIED=0`，`failed=0`，`fitted=false`，`fullyVerified=false`（未提供独立 verification 分区）。旧候选 `ba002b23-b650-4869-87ec-2d36f4fe7485` 与历史候选 `836b58b9-…` 均未重训、未改权重/标签/预算。
 
-独立验证：新套件 40 场景 + 16 探针全部通过（`logs/i7e-independent-run2.log`，56/56）；旧独立套件在新候选上重跑 34/34（`logs/i7f-old-independent.log`），与旧候选归一化比对为语义变化 0、回归 0，10 处差异均为临时路径或 `sourceRun`。Block device 在 macOS 无法真实构造，标 `UNVERIFIED`，未用 mknod/sudo 伪造。
+独立验证：新套件 40 场景 + 16 探针 56/56；旧独立套件在新候选上 34/34，与旧候选归一化比对语义变化 0、回归 0。Block device 在 macOS 无法真实构造，标 `UNVERIFIED`，未用 mknod/sudo 伪造。
 
-实施中修正的两个实质缺陷：
-- 未注册 property/predicate 原先靠 bias 竞速选头，新 4 head 训练后 `entry.inspect` 的 bias 超过 `unsupported`，导致本该 `unsupported` 的请求被判 `rejected`。现改为 harness 结构化判定，不参与 softmax。
-- `path.parts` 原先复用 `posix.normalize`，把 `/a/b/..` 解析为 `/a`，吞掉了 `..` 组件。现只合并重复斜杠、去尾斜线，不解析 `.`/`..`；解析 `..` 仍是 `path.resolve` 的职责。
+整体 Review（只读 OAuth gpt-6.1-sol medium，`logs/review-batch1-report.log`）判 FAIL，报 3 条 P1 与 1 条 P2。已修：
+- F1 路径绑定提前解析 `.`/`..`：`bindPath` 现保留原始组件；inspect 与对象绑定改按 OS 路径语义定位，祖先 symlink 加 `..` 的 identity 与 OS 一致；越界仍返回 `SANDBOX_ESCAPE`。
+- F2 `entry.inspect` 只查 `filesystem.read` 就启动 helper 子进程：现在启动前同时要求 `filesystem.read` 与 `process.exec`，缺一返回 `EFFECT_DENIED`、`executorInvoked=false`。
+- F3 统一训练图把批次1样本构造成 CWD equals 请求：`goalFor()` 现按 typed query 构造四类请求，`effectsOk()` 覆盖新 case，`reload` 不再静默跳过 204 条行为执行。
+- F4 文档状态行（P2）已改为已实现/已拟合，并明确 262 条回载中 204 条只做预测检查的历史事实已消除。
 
-实施证据在本 run 目录 `logs/` 与 `artifacts/batch1/{i2,i2b,i3,i3b,i4,i4b,i5,i6,i7}/`。待办：一次整体 Review、合入 main、推送、核销 worktree。
+F5（advisory，历史遗留）：旧 cwd/entries 属性的结构合法但未注册 predicate 仍抛 `TypeError` 而非 `unsupported`；行为在 `6e4e8fd` 已存在，本轮未扩大到新 head 路径。留作后续统一 Goal 校验时处理。
 
+实施证据在本 run 目录 `logs/` 与 `artifacts/batch1/{i2,i2b,i3,i3b,i4,i4b,i5,i6,i7,f1f2,f3}/`。待办：Review 复核 F1–F4、合入 main、推送、核销 worktree。
 
 ## 2026-10-20 通用递归框架独立泛化性审查
 

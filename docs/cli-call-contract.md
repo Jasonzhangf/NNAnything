@@ -1,6 +1,6 @@
 # CLI调用参数简化合同
 
-状态：2026-10-19实施合同。0.2.0 的 PWD/CD/LS 已迁移到 `file.property` typed 请求与统一单 profile；0.3.0 已实现并接入 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 与 10×30 共享矩阵；运行证据为全仓 335/335 通过、独立套件 40 场景+16 探针 56/56、旧独立套件回归 34/34。旧 `observe_cwd/set_cwd/list_directory` Goal 与旧 `cli.command-policy.v1` 4×4 运行对象已退役。本文是当前调用边界的唯一入口；Goal/证据/结果语义见[file.property合同](cli-filesystem-semantics.md)第7节，训练与迁移见[文件系统训练合同](cli-filesystem-training.md)§0.1。共享候选保持`uncalibrated/not_applied`；B对象查找、其余目录/文件操作、自动采集/自动采用仍未实现。
+状态：2026-10-19实施合同。0.2.0 的 PWD/CD/LS 已迁移到 `file.property` typed 请求与统一单 profile；0.3.0 已实现并接入 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 与 10×30 共享矩阵；运行证据为合并最新 origin/main 后全仓 761/761 通过、独立套件 40 场景+16 探针 56/56、旧独立套件回归 34/34；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398`，统一训练图真实执行 262 条。旧 `observe_cwd/set_cwd/list_directory` Goal 与旧 `cli.command-policy.v1` 4×4 运行对象已退役。本文是当前调用边界的唯一入口；Goal/证据/结果语义见[file.property合同](cli-filesystem-semantics.md)第7节，训练与迁移见[文件系统训练合同](cli-filesystem-training.md)§0.1。共享候选保持`uncalibrated/not_applied`；B对象查找、其余目录/文件操作、自动采集/自动采用仍未实现。
 
 ## 1. 模型输出调用序列与显式资源信封
 

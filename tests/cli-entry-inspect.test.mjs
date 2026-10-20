@@ -383,6 +383,60 @@ test("R17 missing filesystem.read grant rejects before any property read", async
   assert.equal(observedValue(result, "type") ?? null, null);
 });
 
+test("F2 entry.inspect requires process.exec before starting the helper", async t => {
+  const { module, sandbox, session, startAbs } = await fixture(t, { grants: ["filesystem.read"] });
+  const ref = pathRef(sandbox, session, join(startAbs, "file.txt"));
+  const result = await inspect(module, sandbox, session, { property: "type", ref, followSymlinks: false });
+  assertEntryInspectSignature(result, ref, false);
+  assert.equal(result.status, "rejected");
+  assert.equal(result.satisfaction, 0);
+  assert.equal(errorCode(result), "EFFECT_DENIED");
+  const execution = result.execution_result?.receipt?.execution;
+  assert.equal(execution?.executorInvoked, false);
+  assert.equal(execution?.error?.stage, "authorize");
+});
+
+test("F1 ancestor symlink followed by .. binds the OS object and identity", async t => {
+  const { module, sandbox, session, startAbs } = await fixture(t, {
+    entries: [{ path: "start/dir/child", kind: "directory" }],
+  });
+  const link = join(startAbs, "anchor");
+  const rawPath = `${link}/..`;
+  await symlink("dir/child", link);
+
+  const osIdentity = await lstat(rawPath, { bigint: true });
+  const osPhysicalPath = await realpath(rawPath);
+  const ref = await bindObserved(sandbox, session, rawPath, "cli.directory");
+  assert.equal(ref.absolutePath, osPhysicalPath, "binding must keep the OS-resolved object path");
+  assert.equal(BigInt(ref.identity.dev), osIdentity.dev);
+  assert.equal(BigInt(ref.identity.ino), osIdentity.ino);
+
+  const result = await inspect(module, sandbox, session, {
+    property: "entry.identity",
+    ref: pathRef(sandbox, session, rawPath),
+    followSymlinks: false,
+  });
+  assert.equal(result.status, "achieved");
+  const observed = requireObserved(result, "identity");
+  assert.equal(BigInt(observed.dev), osIdentity.dev);
+  assert.equal(BigInt(observed.ino), osIdentity.ino);
+
+  const escapingLink = join(startAbs, "escape-anchor");
+  const escapingPath = `${escapingLink}/..`;
+  await symlink("..", escapingLink);
+  await assert.rejects(
+    bindObserved(sandbox, session, escapingPath, "cli.directory"),
+    error => error?.code === "SANDBOX_ESCAPE",
+  );
+  const escaped = await inspect(module, sandbox, session, {
+    property: "type",
+    ref: pathRef(sandbox, session, escapingPath),
+    followSymlinks: false,
+  });
+  assert.notEqual(escaped.status, "achieved");
+  assert.equal(errorCode(escaped), "SANDBOX_ESCAPE");
+});
+
 test("R18 real regular, directory, symlink, FIFO and socket types keep mode and identity evidence", { timeout: 15000 }, async t => {
   const { module, sandbox, session, startAbs } = await fixture(t);
   const regular = join(startAbs, "file.txt");
