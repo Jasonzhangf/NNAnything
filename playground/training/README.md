@@ -1,5 +1,37 @@
 # 基础种类离线训练公开 Consumer
 
+三站 warm-start 公开 Consumer：
+
+```sh
+node scripts/train-three-site.mjs \
+  --input <prepared-training-request.json> \
+  --base-weight <current-weight-asset.json> \
+  --gold-reference <legacy-reference.json> \
+  --handwired-root <source-root> \
+  --out-dir <reports-dir> --weights-dir <weights-dir> \
+  --trainable-wires <wire,wire> \
+  --epochs 500 --learning-rate 0.01 --anchor-lambda 0.02
+```
+
+该 Consumer 只读取已备好的 `BasicKindTrainingRequest`，先按
+`PRIORITY_BASIC_KIND_INITIAL_PROFILE` 的稀疏布局建立 warm base，再按目标与 wire
+名称覆盖旧资产的非零系数。它通过现有 6N6E 训练 workflow 执行一次真实拟合。
+训练集声明为 `development_only`，不主张独立准确率。
+
+`--gold-reference` 可选。存在时只会在拟合完成并回载候选后执行评估；其中
+`gold` 组固定要求 357 行，另可包含 25 行补充评估。黄金标签保持原值，不进入
+训练请求或轮次选择。`unknown`、`conflict` 和 `other` 都不算正确。
+
+固定推理阈值为 `minScore=0.6`、`minMargin=0.15`；目标为
+`targetScore=0.8`、`rivalCeiling=0.4`、`otherGap=0.05`。报告保留训练与黄金
+逐行旧/新判断、状态、正确性及
+`fixed/regressed/retained/unresolved/unassessed`，并写出实际计时和计数。
+
+候选权重保持 `contractVersion: 2`、`calibrated: false`、
+`candidateAdoption: "not_applied"`，保存后立即用公开解析器回载。脚本不构建、
+不加载、不采用候选，也不执行浏览器动作。后端失败时脚本输出原错误和已观测的
+部分计时，再以非零状态退出。
+
 优先级分类器对照与规模计时：
 
 ```sh

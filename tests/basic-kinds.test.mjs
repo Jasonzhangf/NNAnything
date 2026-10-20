@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { compileWorkflow, createWorkflowInputEvent, loadWorkflow, runWorkflow } from "nnanything";
 import { readBasicKindTrainingRequest } from "nnanything/training";
-import { BASIC_KIND_FAMILIES, BASIC_KIND_WIRE_NAMES, classifyBasicKind, classifyBasicKindBatch, computeBasicKindStageRawIntervals, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
+import { BASIC_KIND_FAMILIES, BASIC_KIND_WIRE_NAMES, LEAF_SUPPORT_WIRES, PRIORITY_BASIC_KIND_INITIAL_PROFILE, classifyBasicKind, classifyBasicKindBatch, computeBasicKindStageRawIntervals, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
 
 const complete = { contentEditable: false, directTextPresent: false, childElementCount: 0, positiveAreaChildCount: 0, repeatedChildGeometry: false, inVerifiedListParent: false, svgGraphicChildren: false };
 const classify = (tag, fields = {}, profile) => classifyBasicKind({ tag, role: null, ...complete, ...fields }, DEFAULT_BASIC_KIND_CONFIG, profile);
@@ -196,6 +196,134 @@ test("batch preserves duplicates, upstream exclusions and unknown without evalua
   assert.deepEqual(result.slots[1].candidateReasons, ["deny_match"]);
   assert.equal(result.slots[2].basicKind, null);
   assert.equal(result.slots[2].evidence.path.length, 0);
+});
+
+const diagRect = { x: 10, y: 10, width: 40, height: 40 };
+const observedVector = {
+  inSvgAncestor: false, svgGraphicChildren: true, childElementCount: 1, positiveAreaChildCount: 1,
+  singleChildTag: "use", aspectRatio: 1, directTextPresent: false, nonFormatDirectTextPresent: false,
+  descendantTextPresent: false, beforeContentPresent: false, afterContentPresent: false,
+  backgroundImagePresent: false, maskImagePresent: false, tabIndexFocus: false, activeElementFocus: false,
+  ownLabelPresent: false,
+};
+function diagNode(nodeRef, overrides = {}) {
+  return {
+    nodeRef, parentRef: null, tag: "svg", role: null,
+    rect: diagRect, fragments: [diagRect], clippedRect: diagRect,
+    foreground: "unassessed", exposedRects: null, attributes: {},
+    ...overrides,
+  };
+}
+function unknownObsSlot(index, nodeRef, reason = "insufficient_observation") {
+  return {
+    index, nodeRef, status: "unknown", reasons: [reason],
+    evidence: { boundingBoxIntersection: "positive", fragments: "unassessed", clipping: "assessed", foreground: "unassessed" },
+  };
+}
+function diagBatch({ nodes, slots, itemObservations = [] }) {
+  return {
+    mode: "explicit", ruleVersion: "0.1.0",
+    observation: { viewport: { x: 0, y: 0, width: 800, height: 600 }, nodes },
+    slots,
+    candidateRefs: slots.filter(slot => slot.status === "ok").map(slot => slot.nodeRef),
+    itemObservations,
+  };
+}
+
+test("observation-unknown diagnostic reuses qualified property construction and keeps the unknown top level", () => {
+  const node = diagNode("svg", { attributes: { hidden: true, "aria-hidden": "true", disabled: false, "aria-disabled": true } });
+  const input = diagBatch({ nodes: [node], slots: [unknownObsSlot(0, "svg")], itemObservations: [{ nodeRef: "svg", ...observedVector }] });
+  const [slot] = classifyBasicKindBatch(input).slots;
+  // Top-level qualification and judgment stay exactly the existing unknown result.
+  assert.equal(slot.candidateStatus, "unknown");
+  assert.deepEqual(slot.candidateReasons, ["insufficient_observation"]);
+  assert.equal(slot.judgmentStatus, "unknown");
+  assert.equal(slot.family, null);
+  assert.equal(slot.familyScores, null);
+  assert.equal(slot.basicKind, null);
+  assert.equal(slot.leafScores, null);
+  assert.equal(slot.score, null);
+  assert.equal(slot.margin, null);
+  assert.deepEqual(slot.reasons, ["candidate_unknown"]);
+  assert.equal(slot.confidenceState, "not_applicable");
+  assert.equal(slot.calibratedConfidence, null);
+  assert.equal(slot.evidence.path.length, 0);
+  // The additive diagnostic equals the pure classifier on the same construction.
+  const expected = classifyBasicKind({ ...observedVector, tag: "svg", role: null, hidden: true, disabled: true }, DEFAULT_BASIC_KIND_CONFIG, DEFAULT_BASIC_KIND_PROFILE);
+  assert.deepEqual(slot.semanticDiagnostic, expected);
+  assert.equal(slot.semanticDiagnostic.judgmentStatus, "judged");
+  assert.equal(slot.semanticDiagnostic.basicKind, "image");
+  assert.equal(slot.semanticDiagnostic.evidence.wires.state_hidden, 1);
+  assert.equal(slot.semanticDiagnostic.evidence.wires.state_disabled, 1);
+  // Raw readiness in the caller's input is not mutated.
+  assert.equal(input.observation.nodes[0].foreground, "unassessed");
+  assert.equal(input.observation.nodes[0].exposedRects, null);
+});
+
+test("semantic diagnostic appears only for observation-unknown with a node and local row", () => {
+  const nodes = [
+    diagNode("excluded", { tag: "img", foreground: "occluded" }),
+    diagNode("skipped", { tag: "img", rect: null, fragments: null, clippedRect: null, foreground: undefined }),
+    diagNode("unmeasured", { tag: "svg" }),
+    diagNode("ruled", { tag: "svg" }),
+    diagNode("qualified", { tag: "img", foreground: "visible", exposedRects: [diagRect] }),
+  ];
+  const slots = [
+    { index: 0, nodeRef: "excluded", status: "filtered_out", reasons: ["occluded"], evidence: { boundingBoxIntersection: "positive", fragments: "assessed", clipping: "assessed", foreground: "occluded" } },
+    { index: 1, nodeRef: "skipped", status: "skipped", reasons: ["zero_geometry"], evidence: { boundingBoxIntersection: "none", fragments: "unassessed", clipping: "unassessed" } },
+    unknownObsSlot(2, "unmeasured"),
+    unknownObsSlot(3, "ruled", "insufficient_rule_observation"),
+    unknownObsSlot(4, "ghost"),
+    { index: 5, nodeRef: "qualified", status: "ok", reasons: [], evidence: { boundingBoxIntersection: "positive", fragments: "assessed", clipping: "assessed", foreground: "visible" } },
+  ];
+  const itemObservations = [
+    { nodeRef: "excluded", ...observedVector },
+    { nodeRef: "skipped", ...observedVector },
+    { nodeRef: "ruled", ...observedVector },
+    { nodeRef: "qualified", ...observedVector },
+  ];
+  const result = classifyBasicKindBatch(diagBatch({ nodes, slots, itemObservations }));
+  for (const index of [0, 1, 2, 3, 4, 5]) assert.equal("semanticDiagnostic" in result.slots[index], false, `slot ${index}`);
+  assert.deepEqual(result.slots.map(slot => slot.judgmentStatus), ["excluded", "excluded", "unknown", "unknown", "unknown", "judged"]);
+});
+
+test("diagnostics keep unknown and conflict states and never coerce to ignore", () => {
+  const nodes = [diagNode("input", { tag: "input" }), diagNode("conflict", { tag: "img", role: "button" })];
+  const slots = [unknownObsSlot(0, "input"), unknownObsSlot(1, "conflict")];
+  const itemObservations = [{ nodeRef: "input" }, { nodeRef: "conflict" }];
+  const [inputSlot, conflictSlot] = classifyBasicKindBatch(diagBatch({ nodes, slots, itemObservations })).slots;
+  assert.equal(inputSlot.semanticDiagnostic.judgmentStatus, "unknown");
+  assert.equal(inputSlot.semanticDiagnostic.basicKind, "other");
+  assert.ok(inputSlot.semanticDiagnostic.reasons.includes("missing_input_type"));
+  assert.equal(conflictSlot.semanticDiagnostic.judgmentStatus, "conflict");
+  assert.equal(conflictSlot.semanticDiagnostic.basicKind, "other");
+  for (const slot of [inputSlot, conflictSlot]) {
+    assert.equal(slot.judgmentStatus, "unknown");
+    assert.equal(slot.basicKind, null);
+    assert.deepEqual(slot.reasons, ["candidate_unknown"]);
+    assert.notEqual(slot.semanticDiagnostic.basicKind, "ignore");
+  }
+});
+
+test("diagnostic preserves duplicates, order and qualified numerical behavior", () => {
+  const nodes = [diagNode("observed", { tag: "svg" }), diagNode("qualified", { tag: "img", foreground: "visible", exposedRects: [diagRect] })];
+  const slots = [
+    unknownObsSlot(0, "observed"),
+    { index: 1, nodeRef: "qualified", status: "ok", reasons: [], evidence: { boundingBoxIntersection: "positive", fragments: "assessed", clipping: "assessed", foreground: "visible" } },
+    unknownObsSlot(2, "observed"),
+  ];
+  const result = classifyBasicKindBatch(diagBatch({ nodes, slots, itemObservations: [{ nodeRef: "observed", ...observedVector }] }));
+  assert.deepEqual(result.slots.map(slot => slot.nodeRef), ["observed", "qualified", "observed"]);
+  assert.deepEqual(result.slots.map(slot => slot.index), [0, 1, 2]);
+  assert.equal(result.slots.length, 3);
+  assert.ok(result.slots[0].semanticDiagnostic);
+  assert.equal(result.slots[0].semanticDiagnostic.judgmentStatus, "judged");
+  assert.deepEqual(result.slots[0].semanticDiagnostic, result.slots[2].semanticDiagnostic);
+  assert.equal("semanticDiagnostic" in result.slots[1], false);
+  const expectedQualified = classifyBasicKind({ tag: "img", role: null }, DEFAULT_BASIC_KIND_CONFIG, DEFAULT_BASIC_KIND_PROFILE);
+  for (const key of ["familyStatus", "family", "familyScores", "judgmentStatus", "basicKind", "leafScores", "score", "margin", "confidenceState", "calibratedConfidence", "reasons", "evidence"]) {
+    assert.deepEqual(result.slots[1][key], expectedQualified[key], key);
+  }
 });
 
 test("public saved workflow loads, compiles and runs with explicit profile", async () => {
@@ -1070,4 +1198,250 @@ test("combobox family migration adds zero without changing original coefficients
   assert.equal(migrated.familyWeights.control.nat_input_tag, 0.37);
   assert.equal(migrated.familyWeights.control.role_select, 0.29);
   assert.equal(migrated.leafWeights.input.input_type_text, 0.61);
+});
+
+const neutralMultiChildShapeWire = "neutral_multi_child_shape";
+const warmBaseOnlyCells = [
+  ["familyWeights", "structure", "div_repeated_children"],
+  ["leafWeights", "ignore", "div_repeated_children"],
+  ["leafWeights", "ignore", "neutral_structural_heterogeneity"],
+  ["leafWeights", "ignore", "neutral_structural_peers"],
+  ["leafWeights", "list", "neutral_inherited_pointer_wrapper"],
+  ["leafWeights", "list", "neutral_multi_child"],
+];
+
+function fullWarmLayout() {
+  const profile = structuredClone(PRIORITY_BASIC_KIND_INITIAL_PROFILE);
+  for (const [group, target, wire] of warmBaseOnlyCells) profile[group][target][wire] = 0;
+  return validateBasicKindProfile(profile);
+}
+
+function profileCellMap(profile) {
+  const cells = new Map();
+  for (const [group, rows] of [["familyWeights", profile.familyWeights], ["leafWeights", profile.leafWeights]]) {
+    for (const [target, weights] of Object.entries(rows)) {
+      for (const [wire, value] of Object.entries(weights)) cells.set(`${group}.${target}.${wire}`, value);
+    }
+  }
+  return cells;
+}
+
+test("neutral_multi_child_shape follows the bounded neutral-multi-child formula", () => {
+  const shape = (positiveAreaChildCount, aspectRatio) => extractBasicKindWires(validateBasicKindProperties({
+    tag: "div",
+    role: null,
+    ...complete,
+    childElementCount: positiveAreaChildCount,
+    positiveAreaChildCount,
+    aspectRatio,
+  })).neutral_multi_child_shape;
+
+  assert.equal(shape(2, 0.25), 0.25);
+  assert.equal(shape(2, 0), 0);
+  assert.equal(shape(1, 0.25), 0);
+  assert.equal(shape(null, 0), 0);
+  assert.equal(shape(0, null), 0);
+  assert.equal(shape(null, 0.25), null);
+  assert.equal(shape(2, null), null);
+});
+
+test("neutral_multi_child_shape completes the public schema without a support gate", () => {
+  assert.equal(BASIC_KIND_WIRE_NAMES.length, 81);
+  assert.equal(new Set(BASIC_KIND_WIRE_NAMES).size, 81);
+  assert.equal(LEAF_SUPPORT_WIRES.list.includes(neutralMultiChildShapeWire), false);
+  assert.equal(profileCellMap(fullWarmLayout()).size, 308);
+});
+
+test("neutral_multi_child_shape migration adds exactly one list zero and preserves old coefficients", () => {
+  const source = fullWarmLayout();
+  delete source.leafWeights.list[neutralMultiChildShapeWire];
+  source.familyWeights.structure.nat_div = 0.29;
+  source.leafWeights.list.nat_list = 0.83;
+  source.leafWeights.container.div_multi_child = -0.37;
+  const before = profileCellMap(source);
+  const snapshot = structuredClone(source);
+
+  const migrated = migrateBasicKindProfile(source);
+  assert.deepEqual(source, snapshot);
+  assert.equal(migrated.leafWeights.list[neutralMultiChildShapeWire], 0);
+
+  const after = profileCellMap(migrated);
+  assert.deepEqual([...after.keys()].filter(address => !before.has(address)), [`leafWeights.list.${neutralMultiChildShapeWire}`]);
+  for (const [address, value] of before) assert.equal(after.get(address), value, address);
+});
+
+test("neutral_multi_child_shape changes public list scores without hard classification", () => {
+  const input = validateBasicKindProperties({
+    tag: "div",
+    role: null,
+    ...complete,
+    childElementCount: 2,
+    positiveAreaChildCount: 2,
+    repeatedChildGeometry: true,
+    aspectRatio: 0.25,
+  });
+  const zero = structuredClone(migrateBasicKindProfile(DEFAULT_BASIC_KIND_PROFILE));
+  zero.id = "shape-zero";
+  zero.leafWeights.list[neutralMultiChildShapeWire] = 0;
+  const weighted = structuredClone(zero);
+  weighted.id = "shape-weighted";
+  weighted.leafWeights.list[neutralMultiChildShapeWire] = 0.5;
+
+  const before = classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, zero);
+  const after = classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, weighted);
+  const term = after.evidence.activeTerms.find(item =>
+    item.stage === "leaf"
+    && item.target === "list"
+    && item.wire === neutralMultiChildShapeWire);
+
+  assert.equal(extractBasicKindWires(input).neutral_multi_child_shape, 0.25);
+  assert.equal(after.family, before.family);
+  assert.equal(after.basicKind, before.basicKind);
+  assert.ok(after.leafScores.list.max > before.leafScores.list.max);
+  assert.equal(term?.value, 0.25);
+  assert.equal(term?.weight, 0.5);
+  assert.deepEqual(term?.contribution, { min: 0.125, max: 0.125 });
+});
+
+const focusComplete = {
+  ...complete,
+  contentEditable: false,
+  directTextPresent: false,
+  nonFormatDirectTextPresent: false,
+  beforeContentPresent: false,
+  afterContentPresent: false,
+  backgroundImagePresent: false,
+  maskImagePresent: false,
+  descendantTextPresent: false,
+  pointerCursor: false,
+  parentPointerCursor: false,
+  tabIndexFocus: false,
+  activeElementFocus: false,
+  inSvgAncestor: false,
+  ownLabelPresent: false,
+  graphicDescendantPresent: false,
+};
+const focusWires = (tag, fields = {}) => extractBasicKindWires(validateBasicKindProperties({
+  tag,
+  role: null,
+  ...focusComplete,
+  ...fields,
+}));
+
+test("svg focus representation uses nullable OR/AND and finite self-graphic scope", () => {
+  assert.equal(focusWires("span", { activeElementFocus: true }).own_focus_target, 1);
+  assert.equal(focusWires("span", { tabIndexFocus: true }).own_focus_target, 1);
+  assert.equal(focusWires("span").own_focus_target, 0);
+  assert.equal(focusWires("span", { activeElementFocus: true, tabIndexFocus: null }).own_focus_target, 1);
+  assert.equal(focusWires("span", { activeElementFocus: false, tabIndexFocus: null }).own_focus_target, null);
+  assert.equal(focusWires("span", { activeElementFocus: null, tabIndexFocus: null }).own_focus_target, null);
+
+  const use = fields => focusWires("use", { inSvgAncestor: true, ...fields });
+  assert.equal(use({ activeElementFocus: true, tabIndexFocus: false }).independent_graphic_content, 1);
+  assert.equal(use({ activeElementFocus: false, tabIndexFocus: true }).independent_graphic_content, 1);
+  assert.equal(use({ activeElementFocus: false, tabIndexFocus: false }).independent_graphic_content, 0);
+  assert.equal(use({ activeElementFocus: true, tabIndexFocus: false }).svg_internal_part, 1);
+  assert.equal(use({ activeElementFocus: true, tabIndexFocus: false }).neutral_actual_focus, 0);
+  assert.equal(use({ activeElementFocus: true, tabIndexFocus: false, ownLabelPresent: true }).independent_graphic_content, 1);
+  assert.equal(use({ activeElementFocus: null, tabIndexFocus: false }).independent_graphic_content, null);
+  assert.equal(focusWires("use", { inSvgAncestor: false, activeElementFocus: true }).independent_graphic_content, 0);
+  assert.equal(focusWires("use", { inSvgAncestor: null, activeElementFocus: true }).independent_graphic_content, null);
+
+  for (const tag of ["path", "image", "circle", "rect", "line", "polyline", "polygon", "ellipse"]) {
+    assert.equal(focusWires(tag, { inSvgAncestor: true, activeElementFocus: true }).independent_graphic_content, 1, tag);
+  }
+  assert.equal(focusWires("g", { inSvgAncestor: true, graphicDescendantPresent: true, activeElementFocus: true }).independent_graphic_content, 1);
+  assert.equal(focusWires("g", { inSvgAncestor: true, graphicDescendantPresent: false, activeElementFocus: true }).independent_graphic_content, 0);
+  assert.equal(focusWires("g", { inSvgAncestor: true, graphicDescendantPresent: null, activeElementFocus: true }).independent_graphic_content, null);
+
+  assert.equal(focusWires("svg", { childElementCount: 1, svgGraphicChildren: true, activeElementFocus: true }).independent_graphic_content, 1);
+  assert.equal(focusWires("svg", { childElementCount: 0, svgGraphicChildren: true, activeElementFocus: true }).independent_graphic_content, 0);
+  assert.equal(focusWires("svg", { childElementCount: null, svgGraphicChildren: true, activeElementFocus: true }).independent_graphic_content, null);
+  assert.equal(focusWires("img", { activeElementFocus: true }).independent_graphic_content, 1);
+  assert.equal(focusWires("canvas", { activeElementFocus: true }).independent_graphic_content, 1);
+
+  for (const tag of ["defs", "symbol", "filter", "mask", "clippath", "pattern", "lineargradient", "radialgradient", "stop", "text"]) {
+    assert.equal(focusWires(tag, {
+      inSvgAncestor: true,
+      activeElementFocus: true,
+      ownLabelPresent: true,
+    }).independent_graphic_content, 0, tag);
+  }
+
+  const wrapper = focusWires("div", {
+    childElementCount: 1,
+    positiveAreaChildCount: 1,
+    ownLabelPresent: true,
+    graphicDescendantPresent: true,
+    activeElementFocus: true,
+  });
+  assert.equal(wrapper.independent_graphic_content, 0);
+  assert.equal(wrapper.neutral_named_graphic_owner, 1);
+  assert.equal(focusWires("button", { activeElementFocus: true }).independent_graphic_content, 0);
+});
+
+test("svg focus representation adds image support and ignore counter addresses only", () => {
+  assert.ok(LEAF_SUPPORT_WIRES.image.includes("independent_graphic_content"));
+  assert.ok(LEAF_SUPPORT_WIRES.ignore.includes("independent_graphic_content"));
+  assert.ok(LEAF_SUPPORT_WIRES.ignore.includes("own_focus_target"));
+  assert.equal(LEAF_SUPPORT_WIRES.image.includes("own_focus_target"), false);
+  for (const label of ["button", "input", "select", "link", "container", "list", "listitem"]) {
+    assert.equal(LEAF_SUPPORT_WIRES[label].includes("independent_graphic_content"), false, label);
+    assert.equal(LEAF_SUPPORT_WIRES[label].includes("own_focus_target"), false, label);
+  }
+});
+
+test("svg focus representation migration adds exactly four zero addresses and preserves old params", () => {
+  const addresses = [
+    ["familyWeights", "media", "independent_graphic_content"],
+    ["leafWeights", "image", "independent_graphic_content"],
+    ["leafWeights", "ignore", "independent_graphic_content"],
+    ["leafWeights", "ignore", "own_focus_target"],
+  ];
+  const source = structuredClone(PRIORITY_BASIC_KIND_INITIAL_PROFILE);
+  source.id = "svg-focus-migration";
+  source.familyWeights.media.nat_svg = 0.41;
+  source.leafWeights.image.nat_svg = 0.37;
+  source.leafWeights.ignore.svg_internal_part = -0.12;
+  for (const [group, target, wire] of addresses) delete source[group][target][wire];
+  const before = profileCellMap(source), snapshot = structuredClone(source);
+
+  const migrated = migrateBasicKindProfile(source);
+  assert.deepEqual(source, snapshot);
+  assert.equal(migrated.familyWeights.media.nat_svg, 0.41);
+  assert.equal(migrated.leafWeights.image.nat_svg, 0.37);
+  assert.equal(migrated.leafWeights.ignore.svg_internal_part, -0.12);
+
+  const after = profileCellMap(migrated);
+  const added = [...after.keys()].filter(address => !before.has(address)).sort();
+  assert.deepEqual(added, addresses.map(([group, target, wire]) => `${group}.${target}.${wire}`).sort());
+  for (const [group, target, wire] of addresses) assert.equal(migrated[group][target][wire], 0, `${group}.${target}.${wire}`);
+});
+
+test("svg focus representation keeps zero migration output equal for recorded shapes", () => {
+  const addresses = [
+    ["familyWeights", "media", "independent_graphic_content"],
+    ["leafWeights", "image", "independent_graphic_content"],
+    ["leafWeights", "ignore", "independent_graphic_content"],
+    ["leafWeights", "ignore", "own_focus_target"],
+  ];
+  const before = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+  for (const [group, target, wire] of addresses) delete before[group][target][wire];
+  const migrated = migrateBasicKindProfile(before);
+  const cases = [
+    ["negative USE", { tag: "use", role: null, ...focusComplete, inSvgAncestor: true, activeElementFocus: true, tabIndexFocus: false }],
+    ["zero USE", { tag: "use", role: null, ...focusComplete, inSvgAncestor: true, activeElementFocus: true, tabIndexFocus: true }],
+    ["resource", { tag: "symbol", role: null, ...focusComplete, inSvgAncestor: true, activeElementFocus: true }],
+    ["wrapper", { tag: "div", role: null, ...focusComplete, childElementCount: 1, positiveAreaChildCount: 1, ownLabelPresent: true, graphicDescendantPresent: true, activeElementFocus: true }],
+  ];
+  for (const [name, properties] of cases) {
+    assert.deepEqual(
+      classifyBasicKind(properties, DEFAULT_BASIC_KIND_CONFIG, migrated),
+      classifyBasicKind(properties, DEFAULT_BASIC_KIND_CONFIG, before),
+      name,
+    );
+  }
+  const negative = classifyBasicKind(cases[0][1], DEFAULT_BASIC_KIND_CONFIG, migrated);
+  assert.equal(negative.evidence.wires.independent_graphic_content, 1);
+  assert.notEqual(negative.basicKind, "image");
 });

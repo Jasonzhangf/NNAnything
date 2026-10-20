@@ -245,6 +245,7 @@ test("training rows roundtrip nullable appearance fields without reconstructing 
     pointerCursor: null,
     parentPointerCursor: null,
     tabIndexFocus: null,
+    activeElementFocus: null,
     borderPresent: null,
     aspectRatio: null,
     descendantTextPresent: null,
@@ -253,6 +254,10 @@ test("training rows roundtrip nullable appearance fields without reconstructing 
     singleChildSameRect: null,
     withinControlAncestor: null,
     inSvgAncestor: null,
+    shallowStructuralPeerRatio: null,
+    coincidentChildPairRatio: null,
+    ownLabelPresent: null,
+    graphicDescendantPresent: null,
   };
   assert.deepEqual(parsed.properties, projectedFreshProperties);
   const prepared = prepareBasicKindSamples(readBasicKindTrainingRequest(request([fresh])), prepareConfig);

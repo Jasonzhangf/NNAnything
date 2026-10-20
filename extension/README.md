@@ -35,13 +35,17 @@ Local Chrome/Chromium browser extension and evaluation test harness for NNAnythi
      - `标错` (Mark wrong): Prompts for corrected class from dropdown. If `other` is chosen, a reason is required. If marked wrong without a corrected class, status remains `rejected`.
      - `待复核` (Unsure): Marked as ambiguous.
    - `一键收集当前未知 (N)`: Captures all qualified unknown slots (`candidateStatus === 'ok' && judgmentStatus === 'unknown'`) without overwriting previously reviewed items.
+   - `收集当前候选 (N)`: Captures every qualified candidate (`candidateStatus === 'ok'`), including known, unknown, conflict, and judged `ignore` slots. Rows stay unreviewed with their original proposal; filtered and candidate-unknown slots are excluded.
    - `导出 JSON 样本包`: Calls capture workflow export and triggers a client-side Blob JSON download anchor (`nnanything-capture-<sessionId>.json`).
 
-6. **Custom Weight Asset Loader**:
-   - Allows loading custom `.json` weight assets via file input for the current session.
-   - Validated through `parseBrowserWeightAsset(rawJson, sourceLabel)`.
-   - On parse/validation failure, displays error details and retains current profile and configuration without corruption.
-   - File upload is not persistent. Reloading the page restores the profile selected by the build command.
+6. **Weight Source**:
+   - A build can embed one validated weight asset. The panel then starts with that asset and classifies immediately; the source tag reads `构建加载 · <file> · <profileId>`.
+   - A build without `--weight-file` uses the handwritten baseline profile. The panel shows `手写基础权重` and classifies immediately.
+   - The extension never starts in file mode with no source.
+   - The visible "选择权重文件" button calls `showOpenFilePicker` directly from the user click and switches the session to the selected file.
+   - In file mode the controller keeps only the `FileSystemFileHandle`. Each classification calls `getFile()` and reads the file text again.
+   - A read, JSON, or weight-contract failure clears the old frame and collection eligibility through the normal error path.
+   - Cancelling the picker preserves the current source. The handle remains available when the controller is closed and reopened in the same document. It is not restored after navigation or browser restart.
 
 7. **Lifecycle & Coalescing**:
    - Coalesced `requestAnimationFrame` refresh pending flag prevents concurrent workflow executions and self-observer loops.
@@ -69,16 +73,19 @@ npm run typecheck:ui
 
 # 2. Build the extension and harness bundles (via esbuild)
 npm run build:extension
-
-# Optional: embed one validated weight asset in the local content bundle
-npm run build:extension -- --weight-file training/weights/layout-ignore-svg-pair-v1.weight.json
 ```
 
 The command builds the library first, then bundles the extension and harness into `artifacts/chrome-extension` and `artifacts/overlay-harness`. A missing dependency fails the build.
 
-Use the optional command above to embed one selected local weight asset in the content bundle. The build validates the file and weight contract before it writes artifacts. The panel shows the file name and profile ID. Without `--weight-file`, the build uses the handwritten baseline.
+To embed a validated weight asset at build time, pass `--weight-file`:
 
-An invalid path, JSON document, or contract fails with a nonzero exit and does not fall back to the baseline. The selected file stays local and is not committed. The choice is embedded in the built extension, not stored by Chrome. A file chosen through the panel replaces it for the current session only; reloading restores the build-time choice. This packaging step does not adopt a candidate profile as a project default.
+```bash
+npm run build:extension -- --weight-file training/weights/<file>.weight.json
+```
+
+The build reads the file and validates it with `parseBrowserWeightAsset` before bundling. The panel then shows `构建加载 · <file> · <profileId>` and classifies on open without a manual pick. A missing file, invalid JSON, or a contract mismatch exits non-zero and leaves the existing bundle untouched. The build without `--weight-file` keeps the handwritten baseline (`手写基础权重`). Absolute input paths appear only in the local build output, never in the panel UI.
+
+Here, reloading means refreshing the website document. Reloading the extension in the extension manager does not refresh an existing website or remove its old inspector context. Export the current samples, reload the extension, refresh each target website, then open the inspector once. Opening the inspector before that website refresh can leave old and new panels together, with different weights and counts.
 
 ---
 
@@ -92,6 +99,8 @@ An invalid path, JSON document, or contract fails with a nonzero exit and does n
    `<project-root>/artifacts/chrome-extension`
 6. The extension "NNAnything DOM Inspector" will appear in the toolbar.
 7. Click the extension icon on any standard web page (`https://...` or `http://localhost:...`) to toggle the inspector overlay.
+
+Warning: do not select `<project-root>/extension`. That folder holds the TypeScript sources and has no built `.js` file, so Chrome reports "Could not load manifest." and "Could not load background script". If `artifacts/chrome-extension` is missing or older than the sources, run `npm run build:extension` first; the directory only exists after that build.
 
 ---
 
@@ -123,6 +132,7 @@ Open `http://localhost:8080` in your browser.
    - Click "保存此元素样本": verify session stats counter updates.
 5. **Bulk Unknown Collection**:
    - Click "一键收集当前未知": verify eligible unknown candidates (`candidateStatus === 'ok' && judgmentStatus === 'unknown'`) are added to the session.
+   - Click "收集当前候选": verify all qualified slots are added as unreviewed rows and the button count matches the view's candidate count.
 6. **Export & Extraction**:
    - Click "导出 JSON 样本包": verify the browser downloads `nnanything-capture-<sessionId>.json`.
    - Run the extraction CLI:
@@ -130,5 +140,8 @@ Open `http://localhost:8080` in your browser.
      node playground/overlay/extract-training.mjs --input nnanything-capture-xxx.json --out extracted-request.json
      ```
    - Verify the extracted file is a valid `BasicKindTrainingRequest`.
-7. **Custom Weight Asset Upload**:
-   - In the panel, expand "⚙️ 加载自定义权重文件" and upload a custom weight JSON. Verify successful parsing updates the active profile, or invalid JSON displays an error alert while preserving existing configuration.
+7. **Native File Weight Source**:
+   - In the inspector panel, click "选择权重文件" and select a compatible weight JSON through the native file picker.
+   - Verify the profile tag changes to the selected file name and the classification frame updates.
+   - Replace the selected file contents and click "刷新". Verify the next classification reads the new contents without another file selection or extension reload.
+   - Make the file malformed or unavailable, then click "刷新". Verify the boxes and collection eligibility clear with an inline error. Restore the file and refresh to recover without selecting it again.

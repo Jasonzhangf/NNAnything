@@ -16,6 +16,236 @@
 
 实施证据在本 run 目录 `logs/` 与 `artifacts/batch1/{i2,i2b,i3,i3b,i4,i4b,i5,i6,i7}/`。待办：一次整体 Review、合入 main、推送、核销 worktree。
 
+
+## 2026-10-20 通用递归框架独立泛化性审查
+
+用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。
+
+结论有条件：接口与有界控制合同可跨域实例化，未发现六类场景必须改通用核心的合同障碍；新领域仍须提供合法typed语义、技能/selector、证据有效性、evaluator与effect/error映射。数值权重不因此跨域通用，通用runner及运行泛化未验证。报告唯一入口docs/reviews/recursive-goal-generalization-20261020.md，包含具体Goal/State/技能/head/父条件及错误推演、前提与范围。原件在外置`/Volumes/Intel/playground/nnanything-runs/recursive-goal-generalization-20261020/`，本轮不改算法/代码/图/训练，不重复已有cwd/静态图验证。
+
+## 2026-10-20 递归独立模块与执行错误返回设计
+
+用户要求在准确错误语义下完成独立模块设计，并明确“执行错误也要返回”。新唯一owner为docs/recursive-goal-module.md，原recursive-goal-design.md继续维护算法。拟定lib/workflow/recursive-goal/与lib/recursive-goal.ts门面，只依赖通用core/workflow并由应用注入领域adapter；未创建源码、package导出或第二执行器。
+
+结果区分request_rejected/run_result/module_fault，根未评价与unknown分开；执行错误通过atomicResults与errors完整返回根调用者，引用在响应内解析，不只存日志。primary不覆盖源执行/后验错误，逐层只追加条件路径。dispatch/not_dispatched与OS executor调用分开，effect知识为none/known/unknown/mixed，已提交效果与未知后验同时保留。额外明确缺授权不能变缺技能、错选不能被mask修正、超预算不派新补证、子帧不扩大根权限。
+
+现有runner的upstreamFailure会跳过report、WorkflowRunFailure只保留category/message/nodeId，已据此设计门面fault与受信run state的有限返回，不假造report执行或从日志恢复errno。图仍3N2E、原子CLI6N5E，未变不重校验；复用旧cwd4场景87/87，不重复测试或宣称新模块运行。
+
+3项验收中，独立模块合同、相邻衔接/针对性检查及独立设计复核已完成，最终main交付回执见外置run。GCM实际完成新doc并退出0，父级接收实际diff后补强错误完整返回及字段一致性。首轮独立报告无finding但缺退出回执，判环境失败且未当PASS；同候选stateless r2由OAuth gpt-6.1-sol medium复核退出0、合法JSON无finding、controller PASS。外置证据`/Volumes/Intel/playground/nnanything-runs/recursive-goal-module-20261020/`保留两次原件，不重跑无关检查。本轮只文档，无代码/训练/权重变更。
+
+## 2026-10-20 通用递归目标与节点反向满足设计
+
+用户要求review并落盘通用递归框架，并明确根目标不丢失、衍生节点条件、每层只选已启用技能、无技能直接报错、真实证据沿依赖反向满足并收回全部链条。详细唯一owner为docs/recursive-goal-design.md，首例及实测为docs/recursive-goal-cwd-validation.md；总体1.4、workflow4.1及AGENTS只作入口衔接。没有新增file.property.plan、模型/权重或执行引擎。
+
+新增recursive-goal.graph.json，初次0.1.0-design、3N2E SESE，DAGpipe validate/inspect通过，三个算子仅设计，无可运行配置；现有CLI6N5E与14wire/84参数模型未变。根/父引用与fulfills条件映射显式，固定衍生/比较/预算不训练；原子或组合技能每次只选一个head，未知effect不重放。草案中的失败后直接next、all children成功替代父后验、强制至少一子Goal及30维说法已在review表修正。
+
+cwd外置consumer由GCM执行，4场景87/87断言：same一项必要pwd、无cd；different为pwd→cd且现有后验验证后根成功；cd实际失败不报根成功；提交后受控观察故障为unknown且不重复cd。补充NOOP单列，foreign/Agent cwd不变，fixture清理、profile不变。它证明当前公开原子workflow的组合，不冒称通用runner已实现。证据在`/Volumes/Intel/playground/nnanything-runs/recursive-goal-design-20261020/cwd-probe/`。
+
+本轮4项工作中前三项完成；独立设计复核亦已完成，最终Git交付回执沿外置run记录。GCM设计writer在用户纠正后以自有PID停止（143，未改产品），父级接管合同；GCM验证已实际完成并退出0。独立OAuth gpt-6.1-sol medium复核退出0、findings为空、controller PASS。复核按原始记录明确cd-failure是目标移除后绑定复核拒绝、executor未调用，不冒称shell cd原生失败；文档已据实细化。不重跑未变图或无关build/训练/测试。通用runner及组合技能学习仍未实现，实测不覆盖任意深度递归或跨域operation。
+
+## 2026-10-20 三站第一层闭环收口（父 Agent 接任轮）
+
+- 观测源码：唯一 owner `lib/adapters/browser/live-dom.ts` 的 namespace 读取回归已修（`elementNamespace` 守卫），全量 664 通过、0 失败、7 跳过。
+- 原生验收：五场景真实登录页复用真实 readonly 入口重采，小红书搜索 1084/361、滚动后 1085/424、微博视频 1488/518、知乎文章 1102/315、小红书详情 2049/319、微博首页 2118/932；语义未知 2（弱证据回退 other，未改标签），观测未知 99（96 覆盖边界 + 3 缺裁剪测量），`current_view_nonrendered` 84 项经独立审计全部满足联合谓词、保护事实 0 违规、误排除 0。滚动对比证明同一 `div.back-top` 子树在 scroll 0 被排除、滚动 900px 后保留。
+- 原生等值 fixture：5 个用例全通过，`FIXTURE_VERIFICATION_PASS`。其中 namespace 守卫用正反对照证明：有 namespace 证明时排除成立，缺 namespace 时不得排除；临时移除该守卫即红（4 项精确失败），恢复后绿。
+- 保存捕获回放：9 个已存捕获全部等值复现，权重每次运行重读 1 次。
+- 旧黄金回归：候选 274/357 严格正确，等于历史基线，0 退化；旧新逐例 354 项一致、3 项变化（zhihu-search 240/243/246 由 other/conflict 变 listitem/judged），全部保留。
+- 机制：objective-ray 条件方向替换已按方案实现（触发条件、替换分母、`uG/dG/sG`、`cG/aG`、scalar 1 身份、moments 不写回、下降守卫、七次评估上限），契约写入 `docs/training-workflow.md`。真实公开训练：G4 第 2 轮报错消失，运行至 834 轮后以显式 `objective_ray_v1 found no strictly improving candidate` 结束，126920.05 ms，无候选权重导出、未采用、未重试；替换路径实际触发 7 轮，显式计数 `rejectedOrdinaryEvaluationCount=7` 与 `objectiveEvaluationCount=5011`（按完整评估调用计，恒等于 (totalRowPasses−gradientRowEpochs)/processedRowCount）。
+- 整体独立 Review 结论 FAIL，四项阻断。已修：数值可行点不再被 ray 几何拒绝也不再补 trial（见测试 `objective ray accepts a numerically feasible point that does not strictly improve`）；被拒普通评估与全部梯度后评估分别计数（`rejectedOrdinaryEvaluationCount`、`objectiveEvaluationCount`）并纳入 schema；`note.md` Case B 区分两次运行事实，目标闭环保持 `UNVERIFIED`。全量 665 通过、0 失败。Case B 目标经实际两遍采集与 consumer 咨询的原生证据仍缺，独立 Review 待重跑。
+- Case B 图片资源：producer 与公开 consumer 已接，测试 14 项通过。三次 WB 首页原生运行逐次记事实，都只作边界证据：run1 目标未被 producer 请求，`read-failed`（16453 字节、JPEG、解码 360x467）；run2 另一目标取到 proven（42015 字节、505x270、解码等于 natural），但该目标未经两遍采集请求；run3 第三个目标经真实 producer 取到 proven（75675 字节、360x1200、解码等于 natural、documentRef/nodeRef/currentSrc 绑定匹配），两遍采集请求的是另一节点 `...-572`。三次运行的 surface 都逐字段不变，目标对都保持 unknown。合计结论 `CASE_B_NATIVE_PARTIAL` / 目标闭环 `UNVERIFIED`：资源事实可测量，surface 消费该目标事实未被证明。PNG 六项仍为已接受覆盖边界。
+- XHS 第二条笔记复检完成：`explore/6902f0af…`，2248 slots，顶部 331 judged／滚动后 539 judged，语义未知 0、观测未知 7、cvnr 5；上一条的 `span.note-text` 未知未复现（新笔记正文判 `container`），证明它是弱证据个案。
+- 整体独立 Review 收口：共五轮限定复核，1–4 轮 FAIL 逐条收口，第 5 轮 PASS、无新 finding、剩余阻断清单为空。前三轮阻断项为：可行点被 ray 几何拒绝且被要求严格改进；`objectiveEvaluationCount` 按行计却被当作完整评估次数、被拒普通评估可能漏计；Case B 判定不读记录字段即断言"未请求、未咨询"，报告与 JSON 标签不一致。修复后新增反例测试，且临时把计数挪回行循环时该测试确实失败。
+- main 集成与推送：分支收口提交 `1ca24ad`，与 `main`（`8c653de`）合并提交 `7a68417`，canonical `main` 以 `--no-ff` 合并为 `084a332`，与 `7a68417` 树逐文件一致；推送 `8c653de..084a332 main -> main`，`main` 与 `origin/main` 同点、差集 `0 0`。三处合并冲突按 owner 收口：训练 Skill 保留本轮新增节并采用 main 的小节名；`note.md` 保留双方条目、重复段落 0；`docs/cli-role-evidence-design.md` 取 main 版本（本分支旧路径已被 main 取代）。
+- 正式产物：`npm run build` 与 `npm run build:extension` exit 0，输出 `artifacts/chrome-extension` 与 `artifacts/overlay-harness`；未重载用户插件。canonical main 全量 `npm test` 670 通过 / 0 失败 / 6 跳过（合并带入 CLI 侧测试）。
+- 资源清理：唯一开发 worktree `/Volumes/Intel/playground/nnanything/three-site-zero` 已在确认完全合入 main 后 `git worktree remove` 并 prune，路径已不存在；端口 8766/8799 无监听；未关闭用户浏览器标签。清理时误删了 run 目录的 `R-coverage-{build,green,paint-surface-green,red}.log` 四个日志：其中 build 与 green 已按当前 main 重新生成（`R-coverage-build-regen.log`、`R-coverage-green-regen.log`，53 通过 / 0 失败），red 日志无法重建，其结论仍由 `R-coverage-result.md` 保存，此处如实记录该证据缺失。
+- 仍未完成/保留：训练候选未达可行（不是训练效果通过）；2 项语义未知与 99 项观测未知保留；Case B 目标闭环 `UNVERIFIED`；PNG 六项目标、扩展 content-script 字节读取、WB-home 角落命中栈、未读 iframe/shadow 均为覆盖边界。
+
+## 2026-10-19 规则审计与交接材料
+
+已按用户要求审计本地AGENTS、设计与训练Skill，补齐直接DOM闭环、文件权重验收、未知分层及失败实验处理；设计方法与架构保留原唯一owner。交接入口为docs/three-site-zero-handoff.md，提示词为外部run/handoff-prompt.md。两项Skill格式检查、21个本地链接及目录/改动格式针对性检查通过；补充仍在本地工作树，未合入main。整理期间接收outline worker终态：构建与99/99测试通过，原生复检待做。数值诊断脚本已准备未执行，SVG source worker仍在运行。当前goal未完成也未暂停，详情以交接文档及外部run/note.md为准。
+
+## 2026-10-19 训练微实验失败与观测修复验收中
+
+独立分析还确认了新实验算法中的另一处局部缺陷：已计算的普通步长1在未达标时没有进入候选最优比较。该缺陷不能单独解释已记录的第2轮失败。先准备一次最多52行调用、30秒、零拟合的状态重建脚本，再依据实际数值修根因；不自动开启另一轮训练。SVG编辑态窄补充方案已接受：复用既有可信HTML原生选择器结果，不重复要求缺失的designMode值。GCM源代码实现与轮廓线修复按不同hunk并行，正常构建保持单一owner。
+
+固定G4失败，不能进入全量训练或采用权重：旧算法13行256轮为10项正确、3项严格残差；新步长算法完成1轮后在第2轮明确报错，按停止规则未运行恢复组。实验计算总时长1.170445417秒、3354梯度行轮、6812数值行处理，失败计时保留。17项数值测试及实际schema/旧输出兼容检查通过，只证明实现与兼容，不代表训练效果通过。完整结果在外部run的objective-ray-g4-result.json和details.md，新的独立分析仍在进行；未自动重试、未修改阈值或黄金标签。
+
+轮廓线源码已由GCM完成；父Agent复用最新编译产物运行99项相关测试，95通过4失败。其中一个测试将合同18px内缩误算为17px，其他三个需核对公开fixture与实际守卫输入。GCM继续修正根因，尚无原生绿色验收。SVG隐藏后代预处理方案已完成，编辑保护证据需按现有可信HTML选择器合同收口；缺失designMode不能直接补off。主目标、整体Review、main集成与正式文件权重验收仍未完成。
+
+## 2026-10-19 直接DOM五场景复检（仍未交付）
+
+父Agent用原始document入口重新采集五场景并运行公开workflow，避免缓存facade漏字段造成的大批资格未知。当前7214原始行、1390合格候选全部分类已判断且无冲突；另有10个资格观测未知：微博视频6、小红书搜索3、微博首页1，小红书详情与知乎文章为0。每场景都重新读取同一个旧423文件权重，未采用实验权重；这些是开发复检，不是独立准确率。完整证据位于外部run的perimeter-standard-xhs-detail-wb-video-xhs-search-zh-article-wb-home-parent-preflight.json。缓存入口异常保留，GCM独立查漏字段；不将其冒称产品回归或删除未知。
+
+剩余项由父Agent直接采集native命中和绘制样式，GCM分析，独立Planner处理透明伪元素与pointer-events:none图标的可见性证明；微博PNG与图片覆盖仍保留未知。数值GCM独占训练实现与正常build，先做实际schema一致性，再做固定红绿恢复微实验；尚无新训练成功或新权重采用。完整milestone Review、main集成推送、文件权重真实浏览器验收仍未完成。
+
+## 2026-10-19 语义诊断与资格状态分离（目标仍未完成）
+
+已接收独立方案并实现可选 semanticDiagnostic。仅对观测不足、仍为候选 unknown 且已有本地属性行的元素计算；原候选状态、顶层判断、排序、过滤、标注框及采集资格保留。红测3项失败后，分类38项与数值13项通过，正常构建通过。父 Agent 公开 workflow 复放五场景7211行，所有原顶层字段逐项不变；1378合格候选、19资格未知仍分别保留，新增16个ignore与3个image预测，不作为真值或已可见的依据。UI类型检查及权重文件、采集、overlay相关42项测试通过；实际新controller浏览器验收、完整milestone Review与main交付仍待完成。
+
+统计复核纠正了旧报告将194个非judged USE统称候选未知的问题：229个USE实际为35合格、15未知、162已过滤、17已跳过。19项原始未知的属性和父节点关系复核通过。完整证据见仓库外 three-site-zero/semantic-audit-correction-result.md 与 semantic-diagnostic-public-replay.json。当前资格未知按小红书详情4、微博视频7、小红书搜索3、知乎文章0、微博首页5计，不沿用历史4项作为当前总数。
+
+父 Agent 在真实IAB本地fixture中确认两个可见USE实际持有焦点：负tabindex被旧权重判ignore，零tabindex被判unknown；观测已到达分类器，neutral_actual_focus却因中性容器范围而为0。原始捕获、公开回放及截图在 svg-*-focus-native-capture.json、svg-focus-public-replay.json、svg-focus-native.png。父监督确认这两个实际焦点图形为image开发样本。独立方案svg-focus-plan.md采用两条新评分wire和四个补零地址，不按焦点硬判button/input，不改旧wire含义；GCM准备表示与样本，尚未拟合、采用或宣称修复。
+
+收敛G1/G2已获实际复核：存在Float32严格可行424/424见证，但未证明原Adam能从既定base在预算内到达。G3额外测量已用273.8秒完全复现原5000轮、304参数与424行决策，原失败候选411/424、12旧退化保持拒绝；临时观测接口已移除，正常构建通过。独立Planner未接受“共享坐标梯度抵消即优化器缺陷”的强结论，随后一次848行前向对照按曲率推导联合位移：423正确、12修复、0新增退化，但仍10项微小数值约束未满足，不是G4通过或可采用候选。该对照不继续优化、不保存权重，不读取gold。下一步由独立方案选择微型反例与单一必要修正；修正后的真实拟合及黄金回归仍未开放。
+
+## 2026-10-19 SVG正向见证与424行拟合（整体目标未完成）
+
+本次正向见证修正已通过正常构建及123项受影响测试。直接IAB复采仍保留1984行，六个已确认遮挡目标继续正确排除。中心采样还暴露两个空心点赞SVG，故当前152合格、0分类未知／冲突、8观测未知。真实5×5命中及诊断确认两图标中心没有目标命中，周边有；不是恢复祖先可见性即可修复。独立方案已批准仅对完整SVG域追加最多四个有限正向探点，GCM正在做红绿回归，尚未现场验收。
+
+有限正向探点现已完成现场验收：新增红测4项确实失败，正常构建通过，受影响129项全绿。新直接采集保留1984行，154合格、0分类未知／冲突、6观测未知。仅两个点赞SVG从未知恢复可见；六个完整遮挡项保持排除，其他前景／露出结果不变。真实诊断记录每个点赞图标只多用一个顶部探点，取得目标自身命中。负向顺序采样正由GCM接续实现，整体目标仍未完成。
+
+负向顺序采样也已完成真实验收。小红书仍保留1984行，154合格、0分类未知／冲突，观测未知降为4项：941／947外部图标与1018／1022箭头。实际诊断记录359／369通过目标自身位于蒙层后的顺序见证完成遮挡扣除。11项新增负向测试通过；浏览器组合148项的5项失败属于已明确排队的SVG镜像几何红测，未掩盖。
+
+训练新增一条neutral_multi_child_shape，仅leaf.list新增零系数，已有aspectRatio作为加权线索，缺测保留。独立红测5项均因旧wire／cell缺失失败，实施后5项及完整分类器／数值47项通过。正常构建后公开接口验证79条wire／304个cell、423行零迁移结果不变、20参数可行见证424／424，284个未选系数保持原值。该见证未写资产、未作种子，也不是拟合。一次真实20参数拟合已交给GCM，候选仍不自动采用。具体实际结果待该次拟合及原黄金评估后记录。
+
+该次真实拟合已拒绝：5000轮达到epoch_limit，215593.081875ms。424行中411正确，412已判断包含1项错误类别，另9未知／3冲突；旧423出现12项退化，新增379仍冲突，黄金因开发拒绝未运行。20个选中参数中10个实际改变，284个未选保持；新shape系数为-0.9356684，不能归因为零初始化未移动。候选保存在shape-real-fit-20cell目录，未采用、未校准；不重复拟合。GCM正只读核对训练目标、实际梯度与收敛轨迹，区分公开可行性与实际优化偏离。
+
+镜像SVG几何源码已按5项真实红测写好，尚未构建。外部USE准入的规范／源码证明已补齐，54项测试中5项因旧证书缺失失败；GCM正串行实现这条受限准入。数值诊断期间保持编译产物稳定，随后统一构建及现场复检。仍未进行整体Review、main集成、推送或采用新权重。
+
+多行文本369的联合框中心落在行间空隙；父级新原生采样显示两段真实文本均在蒙层后。旋转PATH359的有限原生网格也取得实际目标位于蒙层后的命中。二者的负向顺序采样方案正在独立规划。四个外部USE的静态sprite审计已完成，但当前实例内容／原子顺序合同尚未证明；不能凭下载同URL代替绑定。新的实际证据保留，未知未强制归类。
+
+当前正常构建有78条wire。小红书详情保留1984行，154个合格候选，0分类未知／冲突、6观测未知；六个已确认蒙层下目标已正确排除，原槽位保留。公开遮挡测试仍有两例局部遮挡被误报可见，85／87通过。独立方案确认SVG祖先命中只证明顺序，不能单独证明叶元素绘制可见。GCM按该方案修改唯一观测owner和既有测试，尚未验收新代码。
+
+424行实际拟合耗时210350.147375ms，417正确，6项旧回归，新增容器未解决。候选拒绝且未采用，黄金因开发集拒绝未运行。数值诊断证明原26参数选择不能达到既定间隔；不能靠重复训练解决。独立Planner正在评估放开既有nat_div系数，尚未启动新拟合。
+
+文件权重候选入口每次执行重读已选择文件，不再嵌入默认权重。真实Chrome文件句柄修改／替换／删除／恢复测试通过；真实controller分类随磁盘权重变化仍待验收。刷新consumer33项、选择器生命周期12项已通过。正式包未采用或安装。PNG采样、JPEG当前加载绑定及三站其余观测缺口继续保留。未进行最终Review、main集成、推送或整体交付。
+
+## 2026-10-19 三页完整复测与绝对定位回归恢复（整体目标未完成）
+
+正常构建后的公开 workflow 当前结果：微博视频页1251个原始元素、245个合格候选，0分类未知／0冲突／6观测未知；小红书搜索页1066个原始元素、244个合格候选，三项均0；知乎文章页1106个原始元素、299个合格候选，三项均0。全部原始数组、槽位和排除证据保留。三页均为已暴露回归场景，不是独立准确率。
+
+过程中真实检出了小红书1→12观测未知和六个容器读取丢失。根因是新增absolute逃逸证明在无需中间逃逸时仍检查整条祖先链，拒绝既有正轴缩放／平移。独立方案后缩小证明适用范围，取得公开红测、正常构建、145项受影响测试全绿和现场完整复采；小红书恢复0观测未知，微博六个mask的缺测也消失。原static包装100×60、relative包装100×0、最近包含块100×20及镜像40×40／80×40／0×40原生对照均保持。
+
+知乎profile两项渐变观测未知已在真实入口分开解决：235保留12.9375×1.5露出并有合法祖先见证，347在接收指针的渐变层下确认为occluded。该profile当前288个合格候选，分类未知／冲突／观测未知均0。当前原微博页746个合格候选、0分类未知／0冲突／2个VIDEO观测未知；该页已发生视口／滚动状态变化，不将旧4项到当前2项计为修复效果。
+
+微博视频页剩余六项为三个本地徽章的SVG／USE，前方是内嵌PNG动画背景。实际解码42×714，最后42行全透明；但相邻第671行非零，且显示缩小为12×12并位于亚像素坐标。尚不能把名义透明crop直接当整盒无绘制证明。独立方案已完成，GCM在准备原生采样对照；尚未实施PNG资源接线，不改SVG类别、不强制ignore。
+
+外部JPEG的字节来源与解码已取得，但直接IAB只读作用域不提供现有producer所需的事件、加载代次与解码接口。现有浏览器producer及两遍观测框架已存在；独立方案确认当前不能伪造绑定或用URL／尺寸相等替代真实当前性，资源接线暂不实施。其他主线继续。候选仍未采用，未进行整体Review、main集成或要求用户重载扩展。
+
+## 2026-10-19 423行增量与三个观测缺口（整体目标未完成）
+
+新增工具栏样本的唯一一次实际拟合已完成：423行、24个可训练参数、5000轮，拟合213066.359ms，2115000梯度行轮次、4230846总行遍历。开发集423正确、422保持、1修复、0回归；357行旧黄金中原正确274行保持，83项旧未解决保留。候选为training/weights/three-site-zero/toolbar-real-fit-24cell/three-site-20261019194017792-93975-abe88de9.weight.json，未采用、未校准。启动前的脚本导入错误独立保留，不计作训练失败重试。
+
+14份已暴露快照共24604槽位的公开对照，只有文章623从冲突变列表，0分类未知、0冲突，211观测未知未变；无已知非ignore变ignore，无记录到的焦点／阅读／交互损失。回放报告资格断言失败由父Agent用已保存完整公开数组复核，24604项候选状态、nodeRef和index均一致；保留原失败报告，不改模型／标签／阈值、不重跑训练。该批不是独立未见准确率，后续仍需预声明新场景。
+
+根滚动auto／scroll、absolute静态包装和单位轴镜像的源码修复均已取得公开红测并通过类型检查，尚未正常构建与现场绿测。小红书新搜索页镜像目标的完整16层原生链与三处真实命中已取得；非默认transform-origin原生fixture也验证了80×40部分裁剪与完全裁出的区别，旧观测仍为null，待新构建对照。知乎两渐变遮挡按既有指针策略取得独立方案，纯helper由GCM实施中；保留鼠标穿透与接收指针的不同判断，不用训练弥补绘制模型缺口。
+
+微博原页4项剩余已取得同入口60事件诊断：2个video与第一播放器2个字幕包装均被海报IMG的不确定区域扣完；第二播放器字幕包装的两处1×1露出已复现。图片实际complete且640×360，但当前采集未供应真实解码资源证明，不能填虚假loadGeneration或按URL后缀断言不透明。完整目标仍包括这些观测项、其他小红书详情／SVG项、预声明未见页、统一文件权重扩展、整体Review／main集成及清理。
+
+## 2026-10-19 原微博完整采集与观测根因推进（整体目标未完成）
+
+直接IAB两次完整采集原微博页，各3665元素、3663保留、2工具排除；observer耗时2264／2219ms。公开文件权重workflow对照旧22与新24，两次均697合格、0分类未知、0冲突、4观测未知；无类别／状态变化，无已知目标转ignore、焦点／阅读／交互损失。4项视频／播放器相关观测不足仍待处理；1个OBJECT内部未读取，不宣称覆盖。没有旧版未缓存完整微博基线，不把采集成功全部归因于CSS优化。
+
+小红书profile的5个搜索组件在fixed-backdrop修复后的直接采集中恢复已知裁剪和前景，公开分类回放仍在执行。原生fixture经重置消除Tab导致的容器滚动后，7个准入对照几何正确，1个不支持对照保留未知。微博视频页177项共同缺测已定位为根auto／scroll被旧overflow准入拒绝，独立计划已完成；窄合同已更新，源码实施等待同文件absolute修复owner释放。
+
+知乎profile两项原生诊断已取得：235与347属于不同导航副本，均被各自渐变遮罩的不确定绘制覆盖；脚本错误的父子关联及节点引用已在仓库外修正，不能算产品修复。梯度绘制证据与微博剩余4项原因审计派给GCM。新增工具栏423行拟合首次在启动前因脚本使用require解析import-only公开导出而失败，训练子进程未启动、没有候选；保留原错并派GCM修脚本入口后执行唯一一次实际拟合。尚未采用任何新权重，未做整体Review／main集成／正式扩展交付。
+
+## 2026-10-19 24参数增量与观测复检（整体目标未完成）
+
+新场景首次失败已保留：训练与标签预声明后，直接IAB采集微博视频页、小红书新AI搜索页和知乎新文章，共3420槽位、616合格、178观测未知。新权重在知乎底部操作栏新增1冲突；15个预测前人工目标中12个已评估类别相符，3个未评估，不能计全对。文章封面实际可见却被零高静态包装裁空，已定位到absolute包含块关系的几何缺口，不能用训练或改nonrendered标签补偿。该批次现为已暴露诊断集，不再计后续未见验证。候选未采用。
+
+八个既有暴露来源的旧22／新24配对结果为12685槽位、2549合格，原1语义未知与1冲突均修复，25观测未知未变，仅两处预期类别／状态变化。父Agent复核确认小红书4组内容的独立文本、图像和计数按钮保留；回放脚本曾错误要求3个本已ignore的单子包装必须非ignore，原断言失败记录保留，父审计纠正其含义，不改模型或黄金。
+
+微博计时缺陷经独立计划批准只修正一次：分桶实测CSS重复912ms、首读146ms，几何重复39ms、首读6ms，0观测值变化，全部计数／耗时对账。该结果仅批准规划并验证9项clippedBox直接CSS读取的调用内复用，不证明完整采集已解决。受限backdrop修复与CSS候选正在同一唯一owner顺序构建和验收；新增absolute关系修复尚未开始。
+
+第二次预定增量已由独立GCM执行完成，非搜索或重试：422条已暴露开发样本、24个参数、5000轮、learningRate0.001、anchor0，实际拟合214471.313ms。旧420条保留、新增微博统计按钮与小红书资料容器两条修复；422条全部正确且judged，0新增退化／未知／冲突／未评估。旧357条黄金仍274条正确保留、0新增退化、83条原未解决（其中3条原错误判断，不能把277judged写成277正确）。候选`profile-real-fit-24cell/three-site-20261019181017518-830-fb690a1c.weight.json`保存并公开文件回载，未采用、未校准。7个系数改变，均在预定24地址内。原“两个补零参数起步均非零梯度”假设被真实检查否定；独立规划补充确认并列时先更新leaf、下轮再更新family，保留原失败记录，未修改loss或手工播种。五个旧来源加三站作者页的旧22／新24配对回放进行中，不宣称未见准确率。
+
+小红书详情完整重采1985总DOM／1984保留／1工具排除，154合格、0语义未知／冲突、12观测未知。相对较早16项，9项转遮挡排除、5项由BCR误排除恢复观测未知、7项持续未知；净减少4，不等于新识别9项。父Agent按当前纯色半透明指针阻挡合同追踪5个侧栏图标及1个旧点赞图标，确认同一蒙层完整覆盖其有限SVG根域，排除合法；不能仅凭透过蒙层仍可见而称误忽略。外部USE、未界定绘制与反射映射等仍待闭环。
+
+小红书搜索框的4对原生fixed/backdrop控制已完成：外层fixed逃逸global普通裁剪；backdrop hidden保留部分裁剪；60px wrapper自身保留而100px普通输入子项被裁剪；零legacy clip已知空。八项真实Tab均可获得INPUT焦点，离开末项焦点也有实际activeElement证据；焦点与鼠标露出分开。旧公开观测116总节点／115保留／1排除，除已有零clip外仍clip未知。GCM分析曾误报部分裁剪为空，已由父Agent原始点栈审计纠正；不据错误报告改框架。受限源码实现进行中，尚未构建或宣称现场修复。
+
+微博2000ms原始读取诊断只完成2231／3665节点的DFS。CSS总1051ms、769287次重复读取；几何总41ms。但首读／重复耗时被诊断实现合并，不能估算重复读取收益，也不能宣称缓存已获准或完整采集可在接口期限内完成。该执行缺口交独立规划处理；未删节点、改观测预算或切换插件路线。整体Review、main集成、采用权重与正式验收构建仍未完成。
+
+## 2026-10-19 真实拟合与新作者页复检（整体目标未完成）
+
+后续原生SVG验收：无viewBox的物理viewport红测已修复，正常构建及135项受影响测试、UI类型检查通过。父Agent在原生W1场景完整观测241DOM／240保留／1排除，整根覆盖正确occluded；但visible-overflow实例只盖BCR仍误判occluded，已与原有框外笔画像素证据对上。该负例阻止W2验收，现由唯一consumer owner补无绘制域证明时不能退回BCR全遮挡的红测与修复。尚未用新实现重采原小红书详情，不能宣称原16项观测未知已下降。微博完整采集阻塞已按重复攻关规则交独立Astra技术诊断；不是整体Review。
+
+一次真实Handwired拟合已完成：420条开发样本、22个参数、5000轮，实际210072.110792ms。原418条保留、新增2条包装样本修复，开发集无新增退化／未知／冲突。旧357条黄金仅在开发门通过后评估；274条正确项全部保留，0新增退化，83条原未解决项公开保留。候选`wrapper-real-fit-22cell/three-site-20261019163234513-53955-6a36065b.weight.json`已保存并公开回载，未采用、未校准。相对实际补零初始副本有8个数值系数变化；不得将旧稀疏文件缺键计数当训练变化。
+
+五个已暴露来源配对回放：8236原槽位、1655合格；旧新均0语义未知／冲突，17观测未知不变。仅4个已人工确认的微博冗余包装变ignore；信息流列表358及知乎实际焦点输入1876保留。后代检查最初把已明确应ignore的365当旧正确项，外部回放检查已按原监督修正；不改模型、黄金或有意义后代。报告和父复核在外置run的`wrapper-real-fit-22cell-replay-*`及parent-audit中。
+
+训练完成后预先固定三站新作者主页，再直接IAB完整采集1295／1173／1981节点，各加1个工具排除项与现场总数相符。新批次首次运行仍有1语义未知、1冲突、8观测未知，不能宣称三站清零。微博无href统计A实际点击打开统计面板，证明应保留button；小红书资料区的4个不同子组需container监督。该批次现已参与失败诊断，后续不得冒称未见准确率。原16个预测前人工目标中14个类别一致；微博折叠搜索input的隐藏状态纠正了人工可见性假设，其nonrendered排除正确；小红书实际搜索框仍受nested-fixed/backdrop观测缺口影响。原始失败及人工修正分开保留。
+
+微博原滚动页仍3665DOM。祖先拓扑复用通过完整合成输出对比及173项受影响测试，但原入口完整采集仍超时。一次2000ms原生残余诊断实际测得DFS1656ms、surface333ms，排除遍历仅11ms，未到containment阶段；不能据高调用数继续优化排除，也未证明完整观测可交付。SVG本地USE的完整物理域消费已形成源码候选；父复检发现误依赖viewBox会拒绝真实小红书及原生fixture，正按物理viewport合同补红测及修正。此后仍需正式构建、真实页面回归、新场景、整体Review、main集成推送、明确权重加载的验收产物和资源清理。安装态扩展尚未更新为本候选。
+
+
+## 2026-10-19 稳定文件接口与最小单元治理（进行中）
+
+本轮后续实际验收：T4 GCM已交付controller显式文件源及公开consumer，父Agent在IAB执行9项公开检查全部通过。首次样例的外部状态输出触发自身DOM观察，造成1111次读取且采集无效；父Agent将报告移入独立shadow隔离后重测，9项再次通过，最终按钮分类与采集资格均恢复，读取A7/B5/失败1/延迟2次。证据 `file-weight-controller-native-green.json/png`。这只验证controller资源边界；同句柄持续读盘与正式插件T3/T5仍未验收，原安装包不变。
+
+P2精确HTML反转修复后，父Agent发现普通后代client裁剪仍可能套用正轴偏移；新增公开反例先红，再收紧为无独立物理裁剪证明则未知，不改变外层正轴裁剪。最终全量497项：496通过、0失败、1既有CLI条件跳过；UI类型检查与候选构建通过。最终直接IAB原详情1984完整节点／154合格、分类未知0／冲突0／观测未知16（23→19→16）。右控件原60×60矩形保留，真实露出裁剪44×60。未将USE／图片覆盖缺测转ignore；候选仍未采用。原现场复检、固定mask冲突证据、持久文件句柄与整体交付仍需继续。
+
+浏览器分类及离线训练的领域四元素、训练反推、SESE和最小必要性已补入 `docs/basic-kinds-wiring.md` 与 `docs/training-workflow.md`。公共定义和升级条件引用最新main的设计／模型演进合同，不复制第二套规则。分类Goal固定为单槽位基础种类知识判断，satisfactionThreshold固定100，State为同帧许可测量及本次显式参数，Action为数值分类；satisfaction由实际监督／合同验收产生，分数不当满足度。训练Goal为改善且无必需旧能力退化的候选，State含监督与来源分区，Action仍为既有六节点离线流程。1N0E及6N6E图复查闭合，未改拓扑。自动使用采样、公共升级过程执行绑定、独立新能力评价、条件自动切换及冲突裁决仍缺运行接线，不能把文件读取当作升级已闭合。
+
+T4文件源controller接入正由独立GCM执行，T3原生持久句柄仍未验证，正式插件不变。已有路径consumer验证同路径覆盖、原子替换与坏文件拒绝；直接IAB回放也每次读文件一次。嵌套fixed最小修复公开红测1失败后绿测18通过；原XHS详情重新完整采集1984节点，151合格、分类未知0／冲突0、观测未知19（原23），未删节点、候选未采用。HTML180度局部几何修复按既有独立计划继续。
+
+固定16参数原因诊断已分开固定guard误差：295行不依赖当前mask且公开正确；125行guard模型和宽松必要外包络分别一次求解仍无解，实际4280.345／4407.322毫秒。没有据此扩mask、改阈值或启动拟合；有限小冲突证据正在提取。微博当前资源导出可原生解码JPEG，但来源与同一URL不能证明DOM当前load代次，仍不得冒称遮挡已证。三站总目标、整体Review和main集成交付均未完成。
+
+## 2026-10-19 新场景复检与两处观测修复（候选未采用）
+
+本轮直接IAB重采微博1816节点与小红书首页1199节点，原DOM、properties、evidence同数量完整保存。每次通过显式文件源重新读取13cell候选，执行原候选／分类workflow。微博455合格、语义未知0／冲突0、观测未知1；小红书首页485合格、三类未知／冲突均0。不是独立准确率结果。
+
+原知乎新搜索页底边焦点目标经原生对照确认：CSS中点719.914返回空栈，719.49仍命中；实际DPR1与visualViewport无缩放偏移。独立计划和11个原生覆盖／穿透／圆角／区外对照后新增受限双坐标见证，不改原CSS矩形。执行者未完成验证，由父Agent接回；纠正新测试缺少原生namespace、错误全矩形露出预期及祖先命中对照，补红测并收紧边界带。原知乎同一1318节点现在354合格、分类未知0／冲突0／观测未知0；目标原241.1875高矩形与tabindex0保留，仅露出0.171875高区域。完全覆盖及pointer-none覆盖原生仍occluded，部分覆盖只保留未盖347宽区域；未证明圆角仍unassessed。证据subpixel-native-green-scenes.json、direct-zh-boundary-green.json及报告位于外置run。
+
+新打开的小红书详情留出页原1983节点、139合格、199观测未知，查明HTML实际根hidden/hidden被旧auto/auto证明拒绝。独立计划后最小扩展精确overflow模式对，其他根身份／尺寸／偏移守卫不变；公开根红测及原生跨底边按钮验证通过。原详情重采1984节点（动态新增1），clippedRect缺测955降到19，147合格、分类未知0／冲突0／观测未知23。原始DOM与排除原因保留，不训练此页。剩余23含SVG/use/path、部分正文、右侧控制及关闭入口，须继续分组复检。不能因首页清零宣称该站已完成。
+
+四份历史页配对回放2029合格，新增冲突修复1，无已知非ignore变ignore／焦点丢失；父Agent逐例手检仍发现头像包装误container、热搜单链接异质成分行误list。两例已按LLM teacher（非human／非gold）补入新420开发请求，旧418行未改，开发来源显式关联；完整wire向量126种，无不同监督冲突。13cell候选因此保持待修正，不采用。独立wrapper-fit-plan批准5wire16cell一次有界容量检查；GCM返回未执行工具文本，父Agent接回实际检查。唯一一次求解4249.6375毫秒返回INFEASIBLE，未产生witness，未启动真实拟合或黄金评估。一个固定焦点样本略低于诊断额外余量而仍高于实际分类阈值，可能影响建模，尚未证明是唯一原因；保留阈值／标签／mask，已派独立原因规划，不盲目加轮次或参数。当前无训练进程，dist固定窗口已释放。
+
+同一组合修复后的最新交叉复检：微博1810节点／449合格、分类未知0／冲突0／观测未知1；小红书首页1201／486、0／0／0；知乎上述1318／354、0／0／0。节点动态变化按原始同帧全数组保存，不把它视为模型删除或丢失。旧微博滚动页4项观测未知和旧知乎评论弹层仍需原位复检，不以新页面数字代替。新详情23项已采到镜像方向控件、嵌套fixed关闭入口、local symbol/use及前景图片覆盖证据；后续设计规划与容量原因规划并行只读推进，未改代码、未采用候选。
+
+当前组合全量测试494项：493通过、0失败、1项既有CLI条件跳过；UI类型检查通过。49项本轮受影响测试通过。无整体Review、main集成、推送或新扩展交付。原微博图片资源／当前加载证明、当前用户大页采集超时、剩余新详情23项、两个语义反例、正式文件化扩展接入及最终交付仍未闭环。过程唯一入口仍为外置three-site-zero/note.md，总目标活动。
+
+## 2026-10-19 文件化权重验收入口（本地核心已验证，尚未交付扩展）
+
+用户要求稳定浏览器接口，每次调用显式传入文件化权重，不再依赖内存采用版本。独立计划为外置run/file-weight-plan.md，6项中T1合同、T2公共文件读取核心已完成针对性验收。`loadBrowserWeightAsset({weightFile})`每次读取并解析；`classifyBrowserBasicKinds(input,{weightFile})`复用原纯分类器，无跨调用缓存或失败回退。公开consumer `playground/browser/file-weight.mjs`已用真实文件验证同路径覆盖和rename替换：同profileId的A输出button/judged/0.85，B为other/unknown，恢复A后输出一致；损坏、不兼容和删除均拒绝，恢复成功。库构建、1项生命周期黑盒测试和公开consumer通过，未重复无关全量测试。执行者未改controller、构建或采用权重。
+
+T3原生浏览器句柄验收未完成：IAB本地页具备showOpenFilePicker/getFile，但实际点击被Page.setInterceptFileChooserDialog拦截，未取得句柄。原错和截图见run/file-weight-native-picker-result.json/png。未改权限、未换通道绕过；T4扩展接线、T5构建解耦、T6整体验收与交付保持待办。现有扩展仍沿旧内存／构建加载方式，不能宣称已免更新，不要求用户反复重载。源码在原独占worktree，未整体Review、集成或发布。
+
+同轮13cell真实拟合已完成一次：418/418开发样本符合预期，417保留、1修复、0退化，耗时201.684秒／5000轮／13参数。条件旧黄金357项保留274个旧正确项，无新增退化，83个旧未解决保持；不是全黄金清零。新权重three-site-20261019125805166-78067-ecc75352仍uncalibrated/not_applied，不用可行性witness当训练初值。consumer成功后worker外壳误用zsh只读status变量导致shell退出1，已记录，不重跑拟合或伪造退出码。总目标继续进行。
+
+## 2026-10-19 三站闭环继续推进（尚未交付候选）
+
+紧急根滚动hotfix已单独推送main并构建，用户重载后已完成安装态验收：微博滚动2491、根y=-2491时，3693 DOM／630候选／499已判断／131未知／0冲突，不再全部排除。原layout-ignore-svg-pair-v1权重仍采用。截图与直接读取一致，记录在外置run/hotfix-installed-user-wb.json；本工作树完整浏览器milestone尚未集成，不冒称这些实验效果已交付。
+
+当前源码组合473项测试为472通过、0失败、1项既有CLI条件跳过，UI类型检查通过。新增严格当前视图观测与联合过滤：透明度见证、pointer、焦点、focus-within、原生tabIndex、编辑、标签和直接文本；缺字段保持缺测，输入回载不拒绝整个快照。真实新微博采集1816节点，两个透明resize DIV/OBJECT均以current_view_nonrendered排除；OBJECT内部继续明确object_content未读。负tabindex实际焦点真实点击后仍container/judged，失焦后目标与对照为ignore，均未被候选预处理删除。相关红绿、原生输入及截图在run/current-view-*。
+
+图像覆盖扩展经原四节点原生workflow实测2次JPEG读取、1次展示：离屏VIDEO、字幕父子DIV、带padding的cover占位层均保留原节点并以occluded排除；全可见圆角外对照保留unknown，未误删。该证据来自localhost，不冒称微博来源GET或现场load绑定已证明。自身DOMRect getter显式复制与前景矩形先于祖先遍历的旧证据继续有效。
+
+此前已通过原只读入口完整采集微博3687节点与同数量属性／证据约9MB；固定decision-focus候选回载735合格项语义unknown/conflict为0/0，仍4项观测unknown。小红书486和原知乎搜索599项为0/0/0，小红书2个iframe内部未读。用户此次打开旧验收插件后的微博整页直接观测触及浏览器接口3秒限制，原因未确认；只返回计数及无损字段名压缩仍超时，不能声称已修复该现场采集耗时。新微博独占页完整采集成功，当前455合格项语义0未知／1冲突／1观测未知。新知乎“古建筑修复”完整1318节点、353合格项语义0/0，仍1个viewport底部细小边界键盘目标观测unknown。新搜索页未进训练，不声明独立准确率。
+
+真实负tabindex焦点测试：实际activeElement目标从旧ignore变为新container/judged，同尺寸未聚焦对照仍ignore；移除实际焦点后两者均ignore。固定候选对3份历史页面的1877合格项无类别／状态变化、无新增误ignore。既有417项真实拟合220.058秒全部judged正确，旧黄金274 retained、0新增退化、83既有未解决；候选仍uncalibrated/not_applied。
+
+新增list开发样本后的418行9-cell拟合只运行一次，201.310秒／5000轮，413 judged、1 unknown、4 conflict；4旧行退化，新行仍冲突，开发拒绝后跳过gold，候选未采用。公开wire全向量未发现不同监督类别精确碰撞。父Agent用三个核心样本的15条线性约束独立确认9-cell容量无解，并核对公开raw interval。独立计划仅增加已有div_repeated_children这一wire（共13既有cells），先做全418有界可行性与公开前向witness验证，再条件授权一次真实拟合；不增加输入、改标签、降门槛、以witness作训练初值或用gold选参。过程真源仍为外置three-site-zero/note.md；整体Review、采用、集成与总目标交付待完成。
+
+后续证据更新：焦点两参数可行性检查也无解，已给出三个真实开发样本的冲突不等式，未用黄金集选参；未继续拟合失败配置。已按重复技术阻塞规则派独立Astra攻关现有稀疏参数／输入可辨识性。JPEG原生producer已实现并经实际浏览器读取、JPEG解码、缓存、透明PNG拒绝和释放验收；父Agent修复了单测伪造的解码返回形状（complete属于ImageDecodeResult而非VideoFrame）。该验收绑定本地blob，尚未证明微博运行时资源。视频等域覆盖GCM无有效实现后，已由目录确认的AGY Flash Medium接手独占源文件。正式workflow接线、实际站点producer、最终Review和交付仍未完成。
+
+2026-10-19 最新有效验收：祖先圆角与目标自身裁剪修复后，原微博滚动位置3384节点、792候选，语义未知0/冲突0/观测未知2；原8项均唯一匹配，1SVG遮挡排除、4字幕包装和1占位容器保留真实角区，未强制改类。两项封面下VIDEO仍缺资源及等域覆盖证明。小红书486和知乎搜索599候选仍0/0/0，小红书2个iframe内部未覆盖。该批次369测试及UI类型检查通过。用户安装态尚未修复；旧微博审查器已暂停，Agent直接采集，验收临时滚动后恢复原位置。
+
+实际焦点复检发现候选仍把已聚焦的负tabindex中性DIV判ignore。417行真实拟合20.279942459秒未解决，并导致1条旧开发list缺测未知；原357黄金274正确保留、0新增回归。该失败候选不采用。独立诊断已证明冻结7地址的约束冲突，先做现有额外结构参数的全开发集可行性检查，不盲目加epochs或补假false。资源模块11测试及真实JPEG/透明PNG公开入口通过，但当前仅本地blob绑定；真实WB资源producer、VIDEO等域证明仍在实现。过程、独占文件owner及证据统一见外置run note。
+
+主线已有另一任务交付的CLI基础及语义设计4个提交，当前浏览器工作树落后；后续标准Git合流必须保留这些改动，并在最新main组合上完成最终验证。尚未整体Review、集成或推送本轮浏览器milestone。
+
+2026-10-19 实测更新：用户微博验收态仍加载旧 layout-ignore-svg-pair-v1，3065节点/233候选/40未知。独立运行旧观测器复现根滚动容器错误裁剪：y=-1679、高1878仅露出199像素；工作树修复尚未正式交付。当前直接DOM流程同页776候选，候选权重语义未知0、冲突0，但观测未知8；新增ignore须复检，不能声称页面已修好。微博现场截图、直接样本、旧观测器事实及后续派单在外置run note。无权重采用、整体Review、main集成或推送。
+
+四项SVG修复已在真实知乎评论弹层验收，原节点和边界保留，原四项观测未知均由真实遮挡证明排除；212候选语义未知0/冲突0/观测未知0。实际编辑DIV焦点仍保留。小红书首页486候选0/0/0（两个iframe内部未覆盖），知乎搜索599候选0/0/0。完整351项测试通过。上述是覆盖与状态结果，不是分类准确率或总目标完成。图片资源正式运行时证明和微博8项缺口继续；用户验收包版本差异为当前阻断交付项。
+
+最新实测：知乎评论观测未知从10经原子SVG顺序证明降为5，再经普通HTML自身绘制顺序证明降为4；剩余1090/1104/1357/1572仍保留。原始1920节点及后代未删，实际SPAN408由完整覆盖证明排除；焦点编辑框1873继续true/input。相关新公开测试14项及受影响29项通过，实际诊断记录证明654×254.609375区域被已证明遮罩扣完，未继承父元素状态。可编辑性如实保留缺测后仍81分类未知，不能用之前错误false的清零数字验收。
+
+真实浏览器组合19场景71检查通过；原生编辑选择器矩阵40检查通过、21个合格HTML对照一致，表单例外已记录。矩阵还证实旧fallback在designMode开启时错误地让false声明优先，新增公开红测已复现；独立修订方案已接受，GCM源代码和consumer两个owner分开实施，尚未完成回载。负tabindex目标经实际UI点击后可见并获得焦点，证据actual-negative-focus-manual-proof；不冒称当前采用权重已学会该新wire。所有结果及sourceowner见外置three-site-zero/note.md。无整体Review／main集成／推送／候选采用。
+
+本轮新证据覆盖旧清零口径：可编辑性缺测修正后，知乎评论1920节点为1914null／6true，实际焦点编辑框1873保持true/input；候选212中分类未知81、观测未知10，均如实保留。受控原生编辑状态32检查通过。原生编辑伪类9对照一致，后续设计已独立规划，GCM正在补设计模式及原生控件边界的受控证据，尚未采用该扩展。不能恢复错误false来清零。
+
+已修根滚动口与viewport-fixed祖先overflow；22项受影响测试通过。真实微博同一播放按钮按tag/class/文字/矩形唯一匹配，裁剪高度0恢复36，公开workflow为ok/button。新完整微博2355节点／741合格，分类312未知／0冲突、观测1未知；新露出范围纳入审计。原circle亚像素案例尚未因当前项变化而结案。组合真实浏览器19场景71检查有1个fixture失败：侧并排同尺寸控件误按绝对坐标相等比较；其他焦点与前景检查通过，待当前harness owner释放后修正与复测，不声称全绿。独立原子SVG顺序证书和普通SPAN顺序证明仍推进。新产物、进程与保留页面见外置three-site-zero/note.md；无整体Review／集成／推送／权重采用。
+
+最新续轮：通过原IAB观测器直接重采三站，完整分块返回同一帧数据后走既有候选与分类workflow。当前微博2352节点／596合格、小红书1201／486、知乎搜索1310／599，均分类unknown0、conflict0、候选观测unknown0；小红书2个iframe内部仍未覆盖。这些当前页面结果不关闭总目标。新恢复的知乎评论弹层1920节点／212合格，分类unknown0／conflict0，但仍10项观测unknown，逐项保留；评论输入框焦点和contenteditable=true原始属性重新读回。canonical direct-zh-resume-comments与两站resume-geometry、微博r7保存本地。可编辑性缺测被写false的问题正按独立方案修正，不能将上述旧输入结果视为已完成正确性验收。
+
+可编辑性batch边界已先红后绿：原raw contenteditable会把显式null替换成true，公开2项测试先1失败、修复后2通过且构建通过。只删除该批处理重建，保留测量事实；原始属性仍作证据。adapter GCM session54018与既有浏览器consumer GCM session30684继续不同文件owner，未完成真实浏览器与回归验收。新增ignore同帧审计由只读worker65067执行。完整过程在外置three-site-zero/note.md。尚未整体Review、main合入／推送或采用候选权重。
+
+接续r7：小红书头像占位的圆角外露已在原IAB观测入口验收，486合格、分类未知0／冲突0／观测未知0，2个iframe内部仍未读取。微博r6仍4项观测未知，知乎r6为0。全组合267/267测试、UI类型检查和候选扩展构建通过；候选构建使用手写baseline仅验证构建，不替换当前安装或采用权重。圆角归一化去除冗余乘1后，受影响paint测试再次通过。两项GCM执行worker均未产出实现，父Agent已显式停止并接管，exit143已记录，无活动写入者。本轮仍未整体Review／提交／合入／采用，不宣称三站闭环完成。
+
+三站未知闭环仍在候选验证，未提交／合入／推送本轮改动，未采用新权重。直接IAB采集r6与原公开workflow回放：微博848合格、分类unknown/conflict均0、观测未知4；小红书485／0／0、观测未知1、另有2个未读iframe；知乎599／0／0、观测未知0。当前页面结果不是未见页面准确率。候选focus/three-site-20261019021043807-5730-7dfad959.weight.json保持not_applied、uncalibrated。过程唯一入口为外置three-site-zero/note.md；真实输入和报告留在training/{samples,results}/three-site-zero/direct-*-r6.*。
+
+键盘焦点按用户要求保留。9个直接检查的知乎tabindex0容器加入415行受限训练，仅训练7个neutral_focusable_control系数，500轮实际19.920283416秒；9修复、406旧开发行保留、0新增回退。原357黄金274正确保留、0新增回退、83仍未达原标签，不声称全量通过。r6合格输入中明确非负tabindex：微博6、知乎10，全部judged且无ignore；小红书0项显式标记，此计数不含未声明tabindex的原生控件。真实activeElement仍为知乎首个结果容器。负tabindex程序焦点和动态焦点机制尚未证明覆盖，不能扩大已验收范围。
 ## 2026-10-19 迁移已合入main，残留处置完成（当前状态）
 
 typed `file.property`单权重迁移已合入`main`（merge `37913c5`）。`main`上旧六参数PWD API、旧三个Goal kind、旧4×4运行对象、旧`cli-command-step`与旧cli-goal图均已物理退役；运行形状为`cli-file-property`6N5E `0.2.0`，训练图为8N8E `0.2.0`。
@@ -568,3 +798,33 @@ origin已按用户指定配置为https://github.com/Jasonzhangf/NNAnything.git�
 Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Argon medium，独立 conversation a30e71c9-05d0-4af1-a470-20804f27e544 完成初稿和修订。初稿有未经测量的性能宣称及硬门零梯度问题，未采纳；当前用户审计稿已删去这些问题并压缩候选输入。外部进程均已退出。
 
 下一动作：将修订6的框架→基础节点→两条workflow顺序、事件/可选画布、单标签/focus及可选层级拆分统一纳入下一轮整体设计评估；当前不为每次讨论增量单独派review。执行后端和具体端口合同在实现前收敛。本轮不进入D1或恢复实现。旧10输入图只为卡片待审草案，各目标实际数值连线仍需后续审计。项目无remote，不猜测或创建远端。
+2026-10-18直接IAB闭环增量（未集成，未采用候选）：修复透明圆角包装、零透明度hover、边框透明内部、content-box零边距不透明体与局部矩形SVG裁剪。组合242项测试通过；随后SVG资源完整children集合兼容修复有红测及13项受影响绿测。父级发现并修正椭圆角纵边归一公式，独立反例先红后绿。真实IAB公开consumer17场景57项检查通过，含原47项与新增paint/SVG10项；自有测试tab与HTTP服务已关闭。代理直接读取DOM并走原候选／分类workflow，不依赖扩展。
+
+键盘焦点必须保留的要求已写入AGENTS。新增9个父级LLM复核的知乎tabindex0容器监督，旧406开发样本保留；415行500轮只训练既有焦点wire7个参数，实际拟合19.920283秒。9项修复、0开发退化，旧357黄金274正确保留、0新增退化、83仍未解决；候选not_applied/uncalibrated。真实知乎重采9项全部container。原始标签／权重不覆盖。
+
+当前真实重采WB2147／XHS1201／ZH1310节点：合格候选814／482／593均0语义未知0冲突；观测未知仍39／4／3，不能称整页清零。微博全部为前景观测，SVG裁剪缺测已归零；小红书含2旋转SVG裁剪与2前景，知乎3前景。小红书2个iframe内部未读。可唯一配对的旧已知733／439／535项无新增误ignore；知乎9项ignore→container属已复核焦点修复，其他配对类别未变。未配对或歧义项不冒称回归覆盖。完整原始证据与训练报告在本地training和外置three-site-zero run，主入口外置run/note.md。整体Review、main集成和推送尚未进行。
+
+
+2026-10-20 浏览器插件验收回退已定位并修复：`c9a4009`删除构建期权重注入、把`extension/content.ts`硬编码为`weightFile: null`，插件因而永久处于“文件模式但无文件源”，面板显示“未选择权重文件”并以“分类失败，已清空旧结果”清零，`docs/browser-overlay-m1.md`关于构建可带`--weight-file`的记载自该提交起与代码不一致。修复按既有合同恢复构建期自动加载：`scripts/build-extension.mjs`重新接受`--weight-file`并在打包前用`parseBrowserWeightAsset`校验，缺文件、非法JSON或合同不符非零退出且不覆盖已有产物；`extension/controller.ts`恢复`initialWeight`选项并以“构建加载 · <文件> · <profileId>”标注来源；`extension/content.ts`在有嵌入资产时不再进入文件模式。默认无参数构建仍为手写基线“手写基础权重”；两种启动都不再以“文件模式无源”运行。
+
+回归测试`tests/extension-build-weight.test.mjs`先红后绿：对`c9a4009`版`content.ts`断言失败，修复后通过；同一测试覆盖带参构建嵌入profileId、无参构建为手写基线、坏文件与缺文件均非零退出且不覆盖既有产物。全仓`npm test`677项、671通过、0失败、6跳过；`npm run typecheck:ui`通过。
+
+原生验收在用户已登录的Chrome 9333真实页面完成：以上一轮验收同款`three-site-20261019194017792-93975-abe88de9.weight.json`构建`artifacts/chrome-extension`并重载扩展后，面板直接显示“构建加载 · three-site-20261019194017792-93975-abe88de9.weight.json · three-site-20261019194017792-93975-abe88de9-candidate”，真实页面画出14个标注框，DOM总数24／视口候选18／已判断16／语义未知2／冲突0／忽略4，全程无手动选文件。扩展权限仍严格为activeTab+scripting，脚本注入被Chrome拒绝属预期，故该次由用户点击工具栏图标完成，真实用户路径已走通。
+
+此前“插件已加载权重并显示352框”的表述不成立：那批框来自Agent在页面world手工注入的第二个控制器，不是扩展面板；修复前面板一直0框。修复后面板自身为唯一真实来源。候选权重仍保持未采用、未校准。
+
+补充：`tests/extension-build-weight.test.mjs`会在运行中真正驱动构建，此前其after钩子会调用无参构建，把`artifacts/chrome-extension`与`artifacts/overlay-harness`重写为手写基线，等于用测试覆盖用户正在浏览器里加载的交付产物。现已改为开跑前递归备份这两个产物目录、结束后原样还原，测试不再改变交付内容；构建测试仍只做进程级与文件级断言，不重跑真实浏览器。因该还原动作，跑完全量测试后须按交付权重重新构建产物，本轮已重建并核对content.js内嵌profileId两次、无`weightFile: null`。
+
+清理与集成：独占 worktree 与临时目录已按 SESE 收口。固定任务树 `/Volumes/Intel/playground/nnanything/ext-weight-autoload` 在提取改动后 `git worktree remove --force` 并 `prune`，路径确认不存在；`fix/ext-weight-autoload` 分支已删除；`/tmp/nn-accept`、`/tmp/nn-wtest` 已删除；验收用 HTTP 服务按显式 PID 关闭。`recursive-goal-framework` 与 `cli-path-primitives` 属其他任务域，未触碰。main 已推送，`main...origin/main` 为 0/0，集成提交 d4841be；交付构建按验收权重重建，content.js 内嵌 profileId 两处、无 `weightFile: null`，真实浏览器公开 consumer 复核仍为“构建加载 · three-site-20261019194017792-93975-abe88de9.weight.json · …-candidate”、14框、无失败提示。
+
+2026-10-20 新增「操作目标与元素必要性关系」设计合同，未就绪，未实现、未训练：`docs/operation-goal-necessity.md`。此轮只出设计，回答用户「语义上先分清用户要做什么操作、为啥需要当前的元素、把推理逻辑和训练逻辑做出来」的要求，不改 L1 词表、wire、权重或黄金标签，也不新增 workflow 图或边。
+
+独立 Planner（Codex OAuth gpt-6.1-sol，medium，只读独立 session）产初稿，任务合同与事件流在 `/Volumes/Intel/playground/nnanything-runs/dom-necessity-reasoning/`。作者核对了它的关键引证：AGENTS 第 105–129 行的忽略与输入禁令、`docs/browser-overlay-m1.md` 第 84 行「证据不读取 input.value」、`docs/design.md` 第 27–44 行四元素、`lib/nodes/README.md` 第 119 行的 `dom.basic_kinds` 边界，均与仓库一致；文中行号引用逐一复核通过，链接全部有效。
+
+核心结论把三件事分开，不能互相替代：元素的基础种类（L1，不随操作改变）；它对该操作当前条件承担的语义角色（随 Goal 改变）；操作后真实 New State（只能由观测决定）。因此「本次不需要这个按钮」不能写成 L1 的 `ignore`，`ignore` 的监督目标仍是「是否需要作为 agent 独立交互／读取目标」。最小语义单元定义为判断 `(Goal, 条件 C, 元素 E)` 的关系，输出 `condition_provider / not_provider / null` 加判断状态与证据引用；首轮只取 `SetExpanded` 与 `ObserveExpanded` 两个 typed 目标，用来区分「改变状态」和「读取状态」，不做自然语言请求识别，不扩展成任意网页操作目录。
+
+训练反推链从真实达标结果出发：目标与达标规则 → 经确认的达标 New State → 实际产生该结果的操作及对象 → 操作前置条件 → 操作前真实 State → 元素与条件的监督关系 → 检查学生输入是否足以区分 → 拟合、回载、独立评价。模型输出、LLM 猜测、L1 类别、点击已发出都不能当关系真值；一次操作成功也不证明因果唯一。反例表覆盖同元素换 Goal、同 Goal 换 State、同类元素换控制对象、包装误归属、等效入口、回执成功但目标未达成、harness 失败被误训成语义负例、以及「同许可输入却是两种真实行为」这类不可辨情形。
+
+设计判定为未就绪，列出八项缺口及各自 owner 与恢复条件：typed 目标/条件/结果 schema 未成为正式合同；展开状态已可测但无学生消费路径；控制关联无法观测；条件当前性无承载；新关系 wire、参数与损失未定稿；缺真实操作监督集与来源分区；L3 浏览器固定操作和重观测能力未实现；关系训练 adapter 与演进接线未实现。作者核对了观测能力，把初稿混在一起的「展开状态不可用」拆成两项：`aria-expanded` 已在 `lib/adapters/browser/observation.ts` 的 `SAFE_ATTRIBUTE_NAMES` 采集，但不在 `BasicKindMeasurements` 白名单、`basic-kinds.ts` 只消费 `aria-hidden`/`aria-disabled`，故属缺消费 wire（owner 为 `lib/filters/`）；`aria-controls` 不在采集白名单，才属观测缺口（owner 为 browser adapter）。下一轮应先闭合一个展开／状态观测切片的正式合同与可辨观测；若两个真实用途仍映射为同一许可输入，先停该关系训练。L1 使用不受影响。
+
+依据边界：`docs/operation-goal-necessity.md` 为本文唯一 owner，已在 `AGENTS.md` 唯一 Owner 表登记；L1 词表与 wire 仍由 `docs/basic-kinds-wiring.md` 维护，L2/L3 图纸仍由 `workflows/dom-recognition.graph.json`、`workflows/operation-episode.graph.json` 维护。本轮未改图，故未跑 DAGpipe；SESE 结论来自读取既有拓扑。`node scripts/check-layout.mjs` 通过。

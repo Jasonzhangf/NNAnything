@@ -1,5 +1,6 @@
 import { expectArray, expectFiniteNumber, expectNonEmptyString, expectRecord } from "../core/schema.js";
 import { validateCandidateBatch, type CandidateSlot } from "./candidate-chain.js";
+import type { ObservationNode } from "../adapters/browser/observation.js";
 
 export const BASIC_KIND_FAMILIES = {
   control: ["button", "input", "select"],
@@ -42,6 +43,7 @@ export interface BasicKindMeasurements {
   readonly pointerCursor?: boolean | null;
   readonly parentPointerCursor?: boolean | null;
   readonly tabIndexFocus?: boolean | null;
+  readonly activeElementFocus?: boolean | null;
   readonly borderPresent?: boolean | null;
   readonly aspectRatio?: number | null;
   readonly descendantTextPresent?: boolean | null;
@@ -50,6 +52,10 @@ export interface BasicKindMeasurements {
   readonly singleChildSameRect?: boolean | null;
   readonly withinControlAncestor?: boolean | null;
   readonly inSvgAncestor?: boolean | null;
+  readonly shallowStructuralPeerRatio?: number | null;
+  readonly coincidentChildPairRatio?: number | null;
+  readonly ownLabelPresent?: boolean | null;
+  readonly graphicDescendantPresent?: boolean | null;
 }
 export interface BasicKindProperties extends BasicKindMeasurements {
   readonly tag: string | null;
@@ -115,7 +121,7 @@ const tagSets = {
   nat_control_button: ["button", "summary"], nat_control_text: ["textarea"], nat_control_select: ["select", "option", "optgroup"], nat_input_tag: ["input"],
   nat_image: ["img", "picture", "canvas"], nat_video: ["video"], nat_audio: ["audio"], nat_anchor: ["a"],
   nat_text: ["p", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "code", "pre", "time", "label", "em", "strong", "small"], nat_span: ["span"],
-  nat_container: ["article", "section", "nav", "aside", "header", "footer", "main", "form", "fieldset", "dialog", "details"],
+  nat_container: ["article", "section", "nav", "aside", "header", "footer", "main", "form", "fieldset", "dialog", "details", "figure"],
   nat_list: ["ul", "ol", "dl"], nat_listitem: ["li", "dt", "dd"], nat_div: ["div"],
   nat_svg: ["svg"],
   nat_svg_child: ["path", "use", "g", "circle", "rect", "line", "polyline", "polygon", "ellipse", "defs", "symbol", "clippath", "mask", "pattern", "lineargradient", "radialgradient", "stop", "filter"],
@@ -134,7 +140,7 @@ const typeSets = {
   input_type_hidden: ["hidden"],
 } as const;
 const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_repeated_child_extent", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden",
-  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_single_child", "neutral_focusable_control", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root"] as const;
+  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_multi_child_shape", "neutral_single_child", "neutral_focusable_control", "neutral_actual_focus", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "search_region_group", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_named_graphic_owner", "anchor_pointer_boundary", "neutral_child_multiplicity", "own_focus_target", "independent_graphic_content"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
 export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
   ...Object.keys(tagSets) as (keyof typeof tagSets)[],
@@ -151,18 +157,18 @@ export interface BasicKindProfile {
 }
 
 const leafSupportWires = {
-  input: ["nat_control_text", "nat_input_tag", "role_input", "input_type_text", "attr_editable", "editable_non_input", "input_text_combobox", "neutral_focusable_control"],
+  input: ["nat_control_text", "nat_input_tag", "role_input", "input_type_text", "attr_editable", "editable_non_input", "input_text_combobox", "neutral_focusable_control", "neutral_actual_focus"],
   select: ["nat_control_select", "role_select", "input_type_select", "input_text_combobox", "listitem_role_select", "neutral_list_choice"],
-  button: ["nat_control_button", "role_button", "input_type_button", "own_pointer_boundary", "neutral_focusable_control", "empty_pointer_extent"],
+  button: ["nat_control_button", "role_button", "input_type_button", "own_pointer_boundary", "neutral_focusable_control", "neutral_actual_focus", "empty_pointer_extent", "anchor_pointer_boundary"],
   link: ["nat_anchor", "anchor_href", "role_link"],
   text: ["nat_text", "role_text", "span_direct_text", "div_direct_text", "direct_non_format_text", "nat_inline_format_text", "css_before_content", "css_after_content"],
-  image: ["nat_image", "role_image", "nat_svg", "svg_graphic_children", "css_before_content", "css_after_content", "css_background_image", "css_mask_image"],
+  image: ["nat_image", "role_image", "nat_svg", "svg_graphic_children", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "neutral_named_graphic_owner", "independent_graphic_content"],
   video: ["nat_video"],
   audio: ["nat_audio"],
-  list: ["nat_list", "role_list", "div_repeated_children", "div_repeated_child_extent"],
+  list: ["nat_list", "role_list", "div_repeated_children", "div_repeated_child_extent", "neutral_structural_peers", "neutral_structural_heterogeneity"],
   listitem: ["nat_listitem", "role_listitem", "div_in_list"],
-  container: ["nat_container", "role_container", "div_multi_child", "neutral_multi_child", "composite_descendant_text"],
-  ignore: ["neutral_same_rect_wrapper", "single_child_div", "neutral_single_child", "div_single_child", "neutral_presentation_leaf", "svg_internal_part", "empty_border_extent", "nat_document_root", "role_presentational"],
+  container: ["nat_container", "role_container", "div_multi_child", "neutral_multi_child", "composite_descendant_text", "search_region_group", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_actual_focus"],
+  ignore: ["neutral_same_rect_wrapper", "single_child_div", "neutral_single_child", "div_single_child", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "svg_internal_part", "empty_border_extent", "nat_document_root", "role_presentational", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "independent_graphic_content", "own_focus_target"],
 } as const satisfies Readonly<Record<SpecificBasicKindLabel, readonly BasicKindWireName[]>>;
 for (const wires of Object.values(leafSupportWires)) Object.freeze(wires);
 export const LEAF_SUPPORT_WIRES: Readonly<Record<SpecificBasicKindLabel, readonly BasicKindWireName[]>> = Object.freeze(leafSupportWires);
@@ -194,6 +200,8 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "container", "div_single_child"],
   ["familyWeights", "text", "div_leaf"],
   ["leafWeights", "text", "div_leaf"],
+  ["familyWeights", "text", "div_repeated_children"],
+  ["leafWeights", "text", "div_repeated_children"],
   ["familyWeights", "text", "div_direct_text"],
   ["leafWeights", "text", "div_direct_text"],
   ["familyWeights", "text", "direct_non_format_text"],
@@ -267,6 +275,13 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "select", "neutral_focusable_control"],
   ["leafWeights", "container", "neutral_focusable_control"],
   ["leafWeights", "ignore", "neutral_focusable_control"],
+  ["familyWeights", "control", "neutral_actual_focus"],
+  ["familyWeights", "structure", "neutral_actual_focus"],
+  ["leafWeights", "input", "neutral_actual_focus"],
+  ["leafWeights", "button", "neutral_actual_focus"],
+  ["leafWeights", "select", "neutral_actual_focus"],
+  ["leafWeights", "container", "neutral_actual_focus"],
+  ["leafWeights", "ignore", "neutral_actual_focus"],
   ["familyWeights", "control", "neutral_list_choice"],
   ["familyWeights", "structure", "neutral_list_choice"],
   ["leafWeights", "select", "neutral_list_choice"],
@@ -293,6 +308,16 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "container", "neutral_presentation_leaf"],
   ["leafWeights", "text", "neutral_presentation_leaf"],
   ["leafWeights", "button", "neutral_presentation_leaf"],
+  ["familyWeights", "structure", "neutral_inherited_pointer_wrapper"],
+  ["leafWeights", "ignore", "neutral_inherited_pointer_wrapper"],
+  ["leafWeights", "container", "neutral_inherited_pointer_wrapper"],
+  ["familyWeights", "structure", "neutral_single_element_wrapper"],
+  ["leafWeights", "ignore", "neutral_single_element_wrapper"],
+  ["leafWeights", "container", "neutral_single_element_wrapper"],
+  ["familyWeights", "structure", "noninteractive_hidden_leaf"],
+  ["leafWeights", "ignore", "noninteractive_hidden_leaf"],
+  ["familyWeights", "structure", "search_region_group"],
+  ["leafWeights", "container", "search_region_group"],
   ["familyWeights", "structure", "svg_internal_part"],
   ["leafWeights", "ignore", "svg_internal_part"],
   ["familyWeights", "media", "svg_internal_part"],
@@ -311,6 +336,31 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "ignore", "nat_document_root"],
   ["leafWeights", "list", "div_repeated_child_extent"],
   ["leafWeights", "container", "div_repeated_child_extent"],
+  ["familyWeights", "structure", "neutral_structural_peers"],
+  ["familyWeights", "structure", "neutral_structural_heterogeneity"],
+  ["familyWeights", "structure", "neutral_single_positive_wrapper"],
+  ["familyWeights", "structure", "neutral_coincident_layer_wrapper"],
+  ["leafWeights", "list", "neutral_structural_peers"],
+  ["leafWeights", "list", "neutral_structural_heterogeneity"],
+  ["leafWeights", "container", "neutral_structural_peers"],
+  ["leafWeights", "container", "neutral_structural_heterogeneity"],
+  ["leafWeights", "container", "neutral_single_positive_wrapper"],
+  ["leafWeights", "container", "neutral_coincident_layer_wrapper"],
+  ["leafWeights", "ignore", "neutral_single_positive_wrapper"],
+  ["leafWeights", "ignore", "neutral_coincident_layer_wrapper"],
+  ["familyWeights", "media", "neutral_named_graphic_owner"],
+  ["leafWeights", "image", "neutral_named_graphic_owner"],
+  ["familyWeights", "structure", "neutral_named_graphic_owner"],
+  ["leafWeights", "ignore", "neutral_named_graphic_owner"],
+  ["familyWeights", "control", "anchor_pointer_boundary"],
+  ["leafWeights", "button", "anchor_pointer_boundary"],
+  ["leafWeights", "list", "neutral_child_multiplicity"],
+  ["leafWeights", "list", "neutral_multi_child_shape"],
+  ["leafWeights", "container", "neutral_child_multiplicity"],
+  ["familyWeights", "media", "independent_graphic_content"],
+  ["leafWeights", "image", "independent_graphic_content"],
+  ["leafWeights", "ignore", "independent_graphic_content"],
+  ["leafWeights", "ignore", "own_focus_target"],
 ] as const;
 
 function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
@@ -434,8 +484,10 @@ const measurementNames = [
   "inputType", "hrefPresent", "contentEditable", "directTextPresent", "nonFormatDirectTextPresent",
   "beforeContentPresent", "afterContentPresent", "backgroundImagePresent", "maskImagePresent",
   "childElementCount", "positiveAreaChildCount", "repeatedChildGeometry", "inVerifiedListParent",
-  "svgGraphicChildren", "pointerCursor", "parentPointerCursor", "tabIndexFocus", "borderPresent",
+  "svgGraphicChildren", "pointerCursor", "parentPointerCursor", "tabIndexFocus", "activeElementFocus", "borderPresent",
   "aspectRatio", "descendantTextPresent", "directListChildPresent", "singleChildTag", "singleChildSameRect", "withinControlAncestor", "inSvgAncestor",
+  "shallowStructuralPeerRatio", "coincidentChildPairRatio",
+  "ownLabelPresent", "graphicDescendantPresent",
 ] as const;
 function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   const inputType = value.inputType === "" ? "" : optionalText(value.inputType, "inputType");
@@ -450,6 +502,12 @@ function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   if (childElementCount !== null && positiveAreaChildCount !== null && positiveAreaChildCount > childElementCount) throw new TypeError("positiveAreaChildCount exceeds childElementCount");
   const aspectRatio = value.aspectRatio == null ? null : expectFiniteNumber(value.aspectRatio, "aspectRatio");
   if (aspectRatio !== null && (aspectRatio < 0 || aspectRatio > 1)) throw new TypeError("aspectRatio must be in [0,1]");
+  const ratio = (key: string): number | null => {
+    if (value[key] === undefined || value[key] === null) return null;
+    const n = expectFiniteNumber(value[key], key);
+    if (n < 0 || n > 1) throw new TypeError(`${key} must be in [0,1]`);
+    return n;
+  };
   return {
     inputType, hrefPresent: bool("hrefPresent"), contentEditable: bool("contentEditable"),
     directTextPresent: bool("directTextPresent"), nonFormatDirectTextPresent: bool("nonFormatDirectTextPresent"),
@@ -458,11 +516,13 @@ function measurements(value: Record<string, unknown>): BasicKindMeasurements {
     childElementCount, positiveAreaChildCount, repeatedChildGeometry: bool("repeatedChildGeometry"),
     inVerifiedListParent: bool("inVerifiedListParent"), svgGraphicChildren: bool("svgGraphicChildren"),
     pointerCursor: bool("pointerCursor"), parentPointerCursor: bool("parentPointerCursor"),
-    tabIndexFocus: bool("tabIndexFocus"), borderPresent: bool("borderPresent"), aspectRatio,
+    tabIndexFocus: bool("tabIndexFocus"), activeElementFocus: bool("activeElementFocus"), borderPresent: bool("borderPresent"), aspectRatio,
     descendantTextPresent: bool("descendantTextPresent"), directListChildPresent: bool("directListChildPresent"),
     singleChildTag: optionalText(value.singleChildTag, "singleChildTag"),
     singleChildSameRect: bool("singleChildSameRect"),
     withinControlAncestor: bool("withinControlAncestor"), inSvgAncestor: bool("inSvgAncestor"),
+    shallowStructuralPeerRatio: ratio("shallowStructuralPeerRatio"), coincidentChildPairRatio: ratio("coincidentChildPairRatio"),
+    ownLabelPresent: bool("ownLabelPresent"), graphicDescendantPresent: bool("graphicDescendantPresent"),
   };
 }
 export function validateBasicKindProperties(value: unknown): BasicKindProperties {
@@ -554,6 +614,8 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
   wires.state_hidden = bool(input.hidden);
   const and = (...values: BasicKindWireValue[]): BasicKindWireValue =>
     values.includes(0) ? 0 : values.includes(null) ? null : values.includes(1) ? 1 : null;
+  const or = (...values: BasicKindWireValue[]): BasicKindWireValue =>
+    values.includes(1) ? 1 : values.includes(null) ? null : values.includes(0) ? 0 : null;
   const andContinuous = (...values: BasicKindWireValue[]): BasicKindWireValue => {
     if (values.includes(0)) return 0;
     if (values.includes(null)) return null;
@@ -564,6 +626,12 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
   const neutralContainer = and(
     input.role === null ? 1 : 0,
     ["div", "span"].includes(input.tag ?? "") || input.tag?.includes("-") ? 1 : 0,
+    input.contentEditable === false ? 1 : input.contentEditable === true ? 0 : null,
+  );
+  // Only empty presentation wires admit `i`; structural neutral wires stay unchanged.
+  const neutralPresentationTag = and(
+    input.tag === "i" ? 1 : neutralContainer,
+    input.role === null ? 1 : 0,
     input.contentEditable === false ? 1 : input.contentEditable === true ? 0 : null,
   );
   wires.div_repeated_child_extent = andContinuous(
@@ -581,7 +649,7 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     input.maskImagePresent === false ? 1 : input.maskImagePresent === true ? 0 : null,
   );
   const emptyBase = and(
-    neutralContainer,
+    neutralPresentationTag,
     noOwnText ? 1 : input.directTextPresent === true ? 0 : null,
     noVisibleChildren ? 1 : input.childElementCount != null ? 0 : null,
     noAppearance,
@@ -602,8 +670,24 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     bool(input.nonFormatDirectTextPresent),
   );
   wires.neutral_multi_child = and(neutralContainer, input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0);
+  const neutralMultiChild = wires.neutral_multi_child;
+  const aspectRatio = input.aspectRatio ?? null;
+  wires.neutral_multi_child_shape =
+    neutralMultiChild === 0 || aspectRatio === 0
+      ? 0
+      : neutralMultiChild === null || aspectRatio === null
+        ? null
+        : aspectRatio;
+  // Existing measured child counts only: no new collector, property, or schema.
+  const positiveChildSupport = input.positiveAreaChildCount == null
+    ? null
+    : input.positiveAreaChildCount <= 1
+      ? 0
+      : (input.positiveAreaChildCount - 1) / input.positiveAreaChildCount;
+  wires.neutral_child_multiplicity = andContinuous(neutralContainer, positiveChildSupport);
   wires.neutral_single_child = and(neutralContainer, input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0);
   wires.neutral_focusable_control = and(neutralContainer, bool(input.tabIndexFocus));
+  wires.neutral_actual_focus = and(neutralContainer, bool(input.activeElementFocus));
   wires.neutral_list_choice = and(
     neutralContainer,
     bool(input.pointerCursor),
@@ -618,6 +702,15 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     noAppearance,
     bool(input.singleChildSameRect),
   );
+  wires.neutral_inherited_pointer_wrapper = and(
+    neutralContainer,
+    input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
+    noAppearance,
+    input.childElementCount == null ? null : input.childElementCount > 0 ? 1 : 0,
+    bool(input.pointerCursor),
+    bool(input.parentPointerCursor),
+    input.tabIndexFocus == null ? null : input.tabIndexFocus ? 0 : 1,
+  );
   wires.composite_descendant_text = and(
     neutralContainer,
     input.directTextPresent === false ? 1 : input.directTextPresent === true ? 0 : null,
@@ -629,17 +722,113 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     bool(input.pointerCursor),
     input.parentPointerCursor == null ? null : input.parentPointerCursor ? 0 : 1,
   );
-  wires.neutral_presentation_leaf = and(
+  // No-href A with its own pointer boundary: support/scoring evidence only.
+  // role===null is the canonical "no explicit role" contract, not a new fact.
+  wires.anchor_pointer_boundary = and(
+    input.tag === "a" ? 1 : 0,
+    input.role === null ? 1 : 0,
+    input.hrefPresent === false ? 1 : input.hrefPresent === true ? 0 : null,
+    input.contentEditable === false ? 1 : input.contentEditable === true ? 0 : null,
+    input.pointerCursor === true ? 1 : input.pointerCursor === false ? 0 : null,
+    input.parentPointerCursor === false ? 1 : input.parentPointerCursor === true ? 0 : null,
+  );
+  const neutralPresentationOwnPointerBoundary = and(
+    neutralPresentationTag,
+    bool(input.pointerCursor),
+    input.parentPointerCursor == null ? null : input.parentPointerCursor ? 0 : 1,
+  );
+  wires.neutral_single_element_wrapper = and(
     neutralContainer,
+    input.childElementCount == null ? null : input.childElementCount === 1 ? 1 : 0,
+    input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
+    noAppearance,
+    input.tabIndexFocus == null ? null : input.tabIndexFocus ? 0 : 1,
+    wires.own_pointer_boundary == null ? null : wires.own_pointer_boundary === 0 ? 1 : 0,
+  );
+  const noMaterialOwnContent = and(
+    input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
+    noAppearance,
+    input.tabIndexFocus == null ? null : input.tabIndexFocus ? 0 : 1,
+    wires.own_pointer_boundary == null ? null : wires.own_pointer_boundary === 0 ? 1 : 0,
+  );
+  wires.neutral_structural_peers = andContinuous(
+    neutralContainer,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0,
+    input.shallowStructuralPeerRatio ?? null,
+  );
+  wires.neutral_structural_heterogeneity = andContinuous(
+    neutralContainer,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0,
+    input.shallowStructuralPeerRatio == null ? null : 1 - input.shallowStructuralPeerRatio,
+  );
+  wires.neutral_single_positive_wrapper = and(
+    neutralContainer,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0,
+    noMaterialOwnContent,
+  );
+  wires.neutral_coincident_layer_wrapper = andContinuous(
+    neutralContainer,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0,
+    noMaterialOwnContent,
+    input.descendantTextPresent == null ? null : input.descendantTextPresent ? 0 : 1,
+    input.coincidentChildPairRatio ?? null,
+  );
+  wires.neutral_named_graphic_owner = and(
+    neutralContainer,
+    bool(input.ownLabelPresent),
+    bool(input.graphicDescendantPresent),
+    input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0,
+  );
+  const svgSelfGraphicTags = ["use", "path", "image", "circle", "rect", "line", "polyline", "polygon", "ellipse"] as const;
+  const svgSelfGraphicEvidence = svgSelfGraphicTags.some(tag => tag === input.tag)
+    ? input.inSvgAncestor === true ? 1 : input.inSvgAncestor === false ? 0 : null
+    : 0;
+  const selfGraphicEvidence = input.tag === "img" || input.tag === "canvas"
+    ? 1
+    : input.tag === "svg"
+      ? wires.svg_graphic_children
+      : input.tag === "g"
+        ? and(
+          input.inSvgAncestor === true ? 1 : input.inSvgAncestor === false ? 0 : null,
+          bool(input.graphicDescendantPresent),
+        )
+        : svgSelfGraphicEvidence;
+  wires.own_focus_target = or(bool(input.activeElementFocus), bool(input.tabIndexFocus));
+  wires.independent_graphic_content = and(
+    selfGraphicEvidence,
+    or(wires.own_focus_target, bool(input.ownLabelPresent)),
+  );
+  const explicitControlRole = [...roleSets.role_button, ...roleSets.role_input, ...roleSets.role_select, ...roleSets.role_link].some(role => role === input.role);
+  wires.noninteractive_hidden_leaf = and(
+    input.tag == null ? null : ["input", "button", "select", "textarea", "summary", "a"].includes(input.tag) ? 0 : 1,
+    explicitControlRole ? 0 : 1,
+    bool(input.hidden),
+    input.contentEditable == null ? null : input.contentEditable ? 0 : 1,
+    input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
+    noAppearance,
+    input.childElementCount == null ? null : input.childElementCount === 0 ? 1 : 0,
+    input.pointerCursor == null ? null : input.pointerCursor ? 0 : 1,
+    input.tabIndexFocus == null ? null : input.tabIndexFocus ? 0 : 1,
+  );
+  wires.search_region_group = and(
+    input.role === "search" ? 1 : 0,
+    input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0,
+    bool(input.descendantTextPresent),
+    input.contentEditable == null ? null : input.contentEditable ? 0 : 1,
+  );
+  wires.neutral_presentation_leaf = and(
+    neutralPresentationTag,
     noAppearance,
     input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 0 ? 1 : 0,
     input.nonFormatDirectTextPresent == null ? null : input.nonFormatDirectTextPresent ? 0 : 1,
     input.descendantTextPresent == null ? null : input.descendantTextPresent ? 0 : 1,
     input.tabIndexFocus == null ? null : input.tabIndexFocus ? 0 : 1,
-    wires.own_pointer_boundary == null ? null : wires.own_pointer_boundary === 0 ? 1 : 0,
+    neutralPresentationOwnPointerBoundary == null ? null : neutralPresentationOwnPointerBoundary === 0 ? 1 : 0,
   );
   wires.single_child_div = and(
     neutralContainer,
+    input.childElementCount == null ? null : input.childElementCount === 1 ? 1 : 0,
     input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0,
     singleChildTag == null ? null : singleChildTag === "div" ? 1 : 0,
   );
@@ -916,7 +1105,7 @@ export function validateBasicKindRequest(value: unknown) {
   }
   return { candidateBatch, observations };
 }
-export interface BasicKindSlot extends BasicKindJudgment { readonly index: number; readonly nodeRef: string; readonly candidateStatus: CandidateSlot["status"]; readonly candidateReasons: readonly string[] }
+export interface BasicKindSlot extends BasicKindJudgment { readonly index: number; readonly nodeRef: string; readonly candidateStatus: CandidateSlot["status"]; readonly candidateReasons: readonly string[]; readonly semanticDiagnostic?: BasicKindJudgment }
 export interface BasicKindBatch { readonly taskId: string; readonly profileId: string; readonly slots: readonly BasicKindSlot[] }
 function stateFlag(value: unknown): boolean | null {
   if (value === true || value === "true" || value === "") return true;
@@ -931,19 +1120,32 @@ function htmlBoolean(value: unknown): boolean | null {
 function combineState(left: boolean | null, right: boolean | null): boolean | null {
   return left === true || right === true ? true : left === false || right === false ? false : null;
 }
+function basicKindProperties(node: ObservationNode, local: BasicKindMeasurements) {
+  // Kept unannotated so the object stays contextually free, matching the qualified path exactly.
+  return {
+    ...local,
+    tag: node.tag,
+    role: node.role,
+    contentEditable: local.contentEditable,
+    hidden: combineState(htmlBoolean(node.attributes.hidden), stateFlag(node.attributes["aria-hidden"])),
+    disabled: combineState(htmlBoolean(node.attributes.disabled), stateFlag(node.attributes["aria-disabled"])),
+  };
+}
 export function classifyBasicKindBatch(value: unknown, config: BasicKindConfig = DEFAULT_BASIC_KIND_CONFIG, profile: BasicKindProfile = DEFAULT_BASIC_KIND_PROFILE): BasicKindBatch {
   const { candidateBatch, observations } = validateBasicKindRequest(value), spec = validateBasicKindConfig(config), weights = validateBasicKindProfile(profile);
   const nodes = new Map(candidateBatch.observation.nodes.map(node => [node.nodeRef, node]));
   const slots = candidateBatch.slots.map(slot => {
-    const node = nodes.get(slot.nodeRef);
+    const node = nodes.get(slot.nodeRef), local = observations.get(slot.nodeRef);
     let judgment: BasicKindJudgment;
     if (slot.status !== "ok") judgment = emptyJudgment(slot.status === "unknown" ? "unknown" : "excluded", [slot.status === "unknown" ? "candidate_unknown" : "candidate_excluded"]);
     else if (!node) judgment = emptyJudgment("unknown", ["missing_node_ref"]);
-    else {
-      const local = observations.get(slot.nodeRef) ?? {};
-      judgment = classify(validateBasicKindProperties({ ...local, tag: node.tag, role: node.role, contentEditable: local.contentEditable ?? (node.attributes.contenteditable === "plaintext-only" ? true : stateFlag(node.attributes.contenteditable)), hidden: combineState(htmlBoolean(node.attributes.hidden), stateFlag(node.attributes["aria-hidden"])), disabled: combineState(htmlBoolean(node.attributes.disabled), stateFlag(node.attributes["aria-disabled"])) }), spec, weights);
-    }
-    return { index: slot.index, nodeRef: slot.nodeRef, candidateStatus: slot.status, candidateReasons: [...slot.reasons], ...judgment };
+    else judgment = classify(validateBasicKindProperties(basicKindProperties(node, local ?? {})), spec, weights);
+    // Qualification and semantics stay separate: only an observation-unknown slot with a real node
+    // and an explicit local measurement row may carry the additive semantic diagnostic.
+    const semanticDiagnostic = slot.status === "unknown" && slot.reasons.includes("insufficient_observation") && node !== undefined && local !== undefined
+      ? classify(validateBasicKindProperties(basicKindProperties(node, local)), spec, weights)
+      : undefined;
+    return { index: slot.index, nodeRef: slot.nodeRef, candidateStatus: slot.status, candidateReasons: [...slot.reasons], ...judgment, ...(semanticDiagnostic === undefined ? {} : { semanticDiagnostic }) };
   });
   return { taskId: spec.taskId, profileId: weights.id, slots };
 }

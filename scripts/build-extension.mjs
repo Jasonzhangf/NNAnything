@@ -39,6 +39,7 @@ for (const [entry, output] of [
   ["playground/overlay/harness.ts", "artifacts/overlay-harness/harness.js"],
   ["playground/overlay/foreground-harness.ts", "artifacts/overlay-harness/foreground-harness.js"],
   ["playground/overlay/refresh-harness.ts", "artifacts/overlay-harness/refresh-harness.js"],
+  ["playground/overlay/weight-source-harness.ts", "artifacts/overlay-harness/weight-source-harness.js"],
 ]) {
   const options = {
     entryPoints: [path(entry)], outfile: path(output), bundle: true,
@@ -58,6 +59,8 @@ for (const [source, target] of [
   ["playground/overlay/foreground.html", "artifacts/overlay-harness/foreground.html"],
   ["playground/overlay/foreground.css", "artifacts/overlay-harness/foreground.css"],
   ["playground/overlay/refresh.html", "artifacts/overlay-harness/refresh.html"],
+  ["playground/overlay/weight-source.html", "artifacts/overlay-harness/weight-source.html"],
+  ["playground/overlay/configured.html", "artifacts/overlay-harness/configured.html"],
 ]) await copyFile(path(source), path(target));
 console.log(
   initialWeight === undefined

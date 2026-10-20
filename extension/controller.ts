@@ -2,9 +2,10 @@ import {
   DEFAULT_BASIC_KIND_CONFIG,
   DEFAULT_BASIC_KIND_PROFILE,
   createStableNodeRefRegistry,
+  createBrowserJpegImageResourceProducer,
   stableNodeRefFor,
   resolveStableNodeRef,
-  parseBrowserWeightAsset,
+  loadBrowserWeightAsset,
   BrowserCaptureSession,
   createBrowserOverlayNodeDefinitions,
   createBrowserCaptureNodeDefinitions,
@@ -18,12 +19,15 @@ import {
   type BasicKindLabel,
   type BasicKindSlot,
   type StableNodeRefRegistry,
+  type BrowserJpegImageResourceProducer,
+  type BrowserImageDecoderConstructor,
   type BrowserOverlayFrame,
   type OverlayBox,
   type OverlayCounts,
   type LiveCaptureCoverage,
   type BrowserCaptureAnnotation,
   type BrowserCaptureBundleV1,
+  type BrowserWeightFileSource,
   type BrowserWeightAsset,
   DEFAULT_EXCLUDED_TOOL_ROOT_IDS,
 } from "nnanything/browser-classify";
@@ -33,7 +37,27 @@ export interface DOMInspectorOptions {
   captureGraph: unknown;
   document?: Document;
   window?: Window;
+  weightFile?: BrowserWeightFileSource | null;
   initialWeight?: BrowserWeightAsset;
+}
+
+interface WeightFilePickerOptions {
+  multiple: boolean;
+  types: Array<{ description: string; accept: Record<string, string[]> }>;
+}
+
+type FilePickerWindow = Window & {
+  showOpenFilePicker?: (options: WeightFilePickerOptions) => Promise<FileSystemFileHandle[]>;
+};
+
+function createFileHandleWeightSource(handle: FileSystemFileHandle): BrowserWeightFileSource {
+  return {
+    sourceLabel: handle.name,
+    readText: async () => {
+      const file = await handle.getFile();
+      return file.text();
+    },
+  };
 }
 
 export const CATEGORY_COLORS: Record<string, { border: string; bg: string; text: string; zh: string }> = {
@@ -83,6 +107,10 @@ export class DOMInspectorController {
   private currentProfile: BasicKindProfile;
   private currentConfig: BasicKindConfig;
   private profileSourceLabel: string = "手写基础权重";
+  private fileWeightMode: boolean;
+  private weightFile: BrowserWeightFileSource | null;
+  private weightSourceRevision = 0;
+  private weightPickerNotice: string | null = null;
 
   private currentFrame: BrowserOverlayFrame | null = null;
   // Presentation may remain visible while its measurements are invalidated.
@@ -104,6 +132,7 @@ export class DOMInspectorController {
   private originalCursor = "";
 
   private mutationObserver: MutationObserver | null = null;
+  private imageResources: BrowserJpegImageResourceProducer | null = null;
   private boundOnScroll: () => void;
   private boundOnResize: () => void;
   private boundOnPickClick: (e: MouseEvent) => void;
@@ -121,6 +150,8 @@ export class DOMInspectorController {
     this.win = options.window ?? window;
     this.overlayGraph = options.visualOverlayGraph;
     this.captureGraph = options.captureGraph;
+    this.fileWeightMode = options.weightFile !== undefined;
+    this.weightFile = options.weightFile ?? null;
 
     this.registry = createStableNodeRefRegistry("nnanything-inspector");
     this.documentRef = "doc-" + generateUUID();
@@ -129,13 +160,18 @@ export class DOMInspectorController {
       createdAt: new Date().toISOString(),
     });
 
-    if (options.initialWeight) {
+    this.currentProfile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
+    this.currentConfig = structuredClone(DEFAULT_BASIC_KIND_CONFIG);
+    if (this.fileWeightMode) {
+      this.profileSourceLabel = this.weightFile
+        ? `权重文件 · ${this.weightFile.sourceLabel}`
+        : "未选择权重文件";
+    } else if (options.initialWeight) {
       this.currentProfile = structuredClone(options.initialWeight.profile);
       this.currentConfig = structuredClone(options.initialWeight.config);
       this.profileSourceLabel = `构建加载 · ${options.initialWeight.sourceLabel} · ${options.initialWeight.profile.id}`;
     } else {
-      this.currentProfile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
-      this.currentConfig = structuredClone(DEFAULT_BASIC_KIND_CONFIG);
+      this.profileSourceLabel = "手写基础权重";
     }
 
     this.boundOnScroll = () => this.scheduleRefresh();
@@ -149,9 +185,62 @@ export class DOMInspectorController {
     return this.hostElement !== null && this.hostElement.isConnected;
   }
 
+  public setWeightFile(weightFile: BrowserWeightFileSource | null): void {
+    this.weightSourceRevision++;
+    this.fileWeightMode = true;
+    this.weightFile = weightFile;
+    this.currentFrame = null;
+    this.presentedFrame = null;
+    this.selectedNodeRef = null;
+    this.userReviewFeedback = null;
+    this.pipelineError = null;
+    this.weightPickerNotice = null;
+    this.profileSourceLabel = weightFile ? `权重文件 · ${weightFile.sourceLabel}` : "未选择权重文件";
+    this.renderOverlayBoxes([]);
+    if (this.isMounted()) this.renderPanel();
+    this.scheduleRefresh();
+  }
+
+  private async chooseWeightFile(): Promise<void> {
+    const picker = (this.win as FilePickerWindow).showOpenFilePicker;
+    if (typeof picker !== "function") {
+      this.weightPickerNotice = "当前环境不支持原生权重文件选择。请使用最新版 Chrome/Chromium 打开此页面。";
+      this.renderPanel();
+      return;
+    }
+
+    const generation = this.mountGeneration;
+    const revision = this.weightSourceRevision;
+    let handles: FileSystemFileHandle[];
+    try {
+      handles = await picker.call(this.win, {
+        multiple: false,
+        types: [{ description: "JSON 权重文件", accept: { "application/json": [".json"] } }],
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (!this.isMounted() || generation !== this.mountGeneration || revision !== this.weightSourceRevision) return;
+      this.weightPickerNotice = `无法打开权重文件选择器：${err instanceof Error ? err.message : String(err)}`;
+      this.renderPanel();
+      return;
+    }
+
+    if (!this.isMounted() || generation !== this.mountGeneration || revision !== this.weightSourceRevision) return;
+    const handle = handles[0];
+    if (!handle) return;
+    this.setWeightFile(createFileHandleWeightSource(handle));
+  }
+
   public mount(): void {
     if (this.isMounted()) return;
     this.mountGeneration++;
+    const platform = this.win as Window & typeof globalThis & { ImageDecoder?: BrowserImageDecoderConstructor };
+    this.imageResources = createBrowserJpegImageResourceProducer({
+      document: this.doc, documentRef: this.documentRef,
+      nodeRefFor: element => stableNodeRefFor(this.registry, element),
+      platform: { fetch: platform.fetch.bind(platform), MutationObserver: platform.MutationObserver,
+        AbortController: platform.AbortController, ImageDecoder: platform.ImageDecoder ?? null },
+    });
 
     this.hostElement = this.doc.createElement("div");
     this.hostElement.id = "nnanything-dom-inspector-host";
@@ -194,6 +283,8 @@ export class DOMInspectorController {
 
   public destroy(): void {
     this.mountGeneration++;
+    this.imageResources?.dispose();
+    this.imageResources = null;
     this.refreshPending = false;
     if (this.rafId !== null) {
       this.win.cancelAnimationFrame(this.rafId);
@@ -258,6 +349,9 @@ export class DOMInspectorController {
     const revision = this.refreshRevision;
     this.isRefreshing = true;
     this.pipelineError = null;
+    let activeProfile = this.currentProfile;
+    let activeConfig = this.currentConfig;
+    let loadedSourceLabel: string | null = null;
 
     try {
       this.snapshotCounter += 1;
@@ -281,11 +375,37 @@ export class DOMInspectorController {
         return;
       }
 
+      if (this.fileWeightMode) {
+        const weightFile = this.weightFile;
+        if (!weightFile) {
+          this.currentFrame = null;
+          this.presentedFrame = null;
+          this.pipelineError = "未选择权重文件；请先选择文件源。";
+          this.renderOverlayBoxes([]);
+          this.renderPanel();
+          return;
+        }
+        try {
+          const asset = await loadBrowserWeightAsset({ weightFile });
+          if (!this.isMounted() || generation !== this.mountGeneration || revision !== this.refreshRevision) return;
+          activeProfile = asset.profile;
+          activeConfig = asset.config;
+          loadedSourceLabel = asset.sourceLabel;
+        } catch (err) {
+          if (!this.isMounted() || generation !== this.mountGeneration || revision !== this.refreshRevision) return;
+          throw new Error(
+            `权重文件加载失败（${weightFile.sourceLabel}）：${err instanceof Error ? err.message : String(err)}`,
+            { cause: err },
+          );
+        }
+      }
+
       const overlayDefs = createBrowserOverlayNodeDefinitions({
         document: this.doc,
         window: this.win,
         registry: this.registry,
         excludeHost: this.hostElement,
+        ...(this.imageResources ? { imageResources: this.imageResources } : {}),
         present: () => undefined,
       });
 
@@ -301,15 +421,15 @@ export class DOMInspectorController {
               },
             },
             "判断DOM基础种类": {
-              config: { ...this.currentConfig },
+              config: { ...activeConfig },
               profileId: "current",
             },
           },
         },
         {
           nodeDefinitions: overlayDefs,
-          profiles: { current: this.currentProfile },
-          grantedEffects: ["browser.dom.read", "browser.overlay.present"],
+          profiles: { current: activeProfile },
+          grantedEffects: ["browser.dom.read", "browser.resource.read", "browser.overlay.present"],
         }
       );
 
@@ -332,6 +452,9 @@ export class DOMInspectorController {
       if (execution.status === "completed" && execution.outputEvent.status === "ok") {
         this.currentFrame = execution.outputEvent.payload as BrowserOverlayFrame;
         this.presentedFrame = this.currentFrame;
+        if (loadedSourceLabel !== null) {
+          this.profileSourceLabel = `权重文件 · ${loadedSourceLabel}`;
+        }
         this.renderOverlayBoxes(this.currentFrame ? this.currentFrame.boxes : []);
         this.renderPanel();
       } else {
@@ -634,10 +757,6 @@ export class DOMInspectorController {
         border-radius: 4px;
         margin-top: 4px;
       }
-      .file-input {
-        font-size: 11px;
-        margin-top: 4px;
-      }
     `;
 
     this.shadowRoot.appendChild(style);
@@ -820,11 +939,26 @@ export class DOMInspectorController {
     refreshBtn.textContent = "刷新";
     refreshBtn.onclick = () => this.scheduleRefresh();
 
+    const weightBtn = this.doc.createElement("button");
+    weightBtn.className = "btn";
+    weightBtn.textContent = "选择权重文件";
+    weightBtn.onclick = () => {
+      void this.chooseWeightFile();
+    };
+
     toolbar.appendChild(inspectBtn);
     toolbar.appendChild(focusBtn);
     toolbar.appendChild(clearFocusBtn);
+    toolbar.appendChild(weightBtn);
     toolbar.appendChild(refreshBtn);
     body.appendChild(toolbar);
+
+    if (this.weightPickerNotice) {
+      const pickerNotice = this.doc.createElement("div");
+      pickerNotice.className = "notice-banner notice-warning";
+      pickerNotice.textContent = this.weightPickerNotice;
+      body.appendChild(pickerNotice);
+    }
 
     // 2. Focus Status Banner
     if (this.isFocusStale) {
@@ -888,10 +1022,11 @@ export class DOMInspectorController {
     addMetric("DOM 总数", counts.totalNodes);
     addMetric("视口候选", counts.candidates);
     addMetric("已判断", counts.judged);
-    addMetric("未知", counts.unknown);
+    addMetric("语义未知(合格内)", counts.unknown);
     addMetric("冲突", counts.conflict);
     addMetric("忽略", counts.ignored);
-    addMetric("已排除", counts.excluded);
+    addMetric("非合格(含资格未知)", counts.excluded);
+    addMetric("资格未知", counts.candidateUnknown);
 
     body.appendChild(metricsGrid);
 
@@ -900,9 +1035,11 @@ export class DOMInspectorController {
     noticeBlock.className = "notice-banner notice-info";
     const iframeCount = coverage?.unassessedIframeCount ?? 0;
     const shadowCount = coverage?.unassessedOpenShadowRootCount ?? 0;
+    const objectCount = coverage?.unassessedObjectCount;
+    const objectCoverage = objectCount === undefined ? "嵌入资源覆盖未采集" : `${objectCount} 个嵌入资源内部`;
     noticeBlock.innerHTML = `
       <div><strong>覆盖范围:</strong> 顶层文档 (${coverage?.traversedElementCount ?? 0} 个元素)</div>
-      <div><strong>未评估:</strong> ${iframeCount} 个 iframe, ${shadowCount} 个 shadow 内部</div>
+      <div><strong>未评估:</strong> ${iframeCount} 个 iframe, ${shadowCount} 个 shadow 内部，${objectCoverage}</div>
       <div style="margin-top: 2px; color: #64748b;">* 未校准分数，非概率</div>
     `;
     body.appendChild(noticeBlock);
@@ -1039,6 +1176,9 @@ export class DOMInspectorController {
     const eligibleUnresolvedCount = this.currentFrame
       ? Number(this.currentFrame.presentation.view.counts.unresolved ?? 0)
       : 0;
+    const qualifiedCount = this.currentFrame
+      ? Number(this.currentFrame.presentation.view.counts.candidates ?? 0)
+      : 0;
 
     const stats = this.captureSession.stats();
 
@@ -1064,6 +1204,14 @@ export class DOMInspectorController {
       await this.runCaptureAction({ action: "collect_unresolved" });
     };
 
+    const qualifiedBtn = this.doc.createElement("button");
+    qualifiedBtn.className = "btn";
+    qualifiedBtn.textContent = `收集当前候选 (${qualifiedCount})`;
+    qualifiedBtn.disabled = qualifiedCount === 0 || !this.currentFrame;
+    qualifiedBtn.onclick = async () => {
+      await this.runCaptureAction({ action: "collect_qualified" });
+    };
+
     const exportBtn = this.doc.createElement("button");
     exportBtn.className = "btn btn-primary";
     exportBtn.textContent = "导出 JSON 样本包";
@@ -1073,6 +1221,7 @@ export class DOMInspectorController {
     };
 
     actionRow.appendChild(bulkUnknownBtn);
+    actionRow.appendChild(qualifiedBtn);
     actionRow.appendChild(exportBtn);
     sessionSection.appendChild(actionRow);
 
@@ -1085,29 +1234,6 @@ export class DOMInspectorController {
     }
 
     body.appendChild(sessionSection);
-
-    // 7. Custom Weight Asset Loader
-    const weightSection = this.doc.createElement("details");
-    weightSection.style.fontSize = "11px";
-
-    const weightSummary = this.doc.createElement("summary");
-    weightSummary.textContent = "⚙️ 加载自定义权重文件";
-    weightSummary.style.cursor = "pointer";
-    weightSummary.style.color = "#475569";
-    weightSection.appendChild(weightSummary);
-
-    const weightBody = this.doc.createElement("div");
-    weightBody.style.marginTop = "6px";
-
-    const fileInput = this.doc.createElement("input");
-    fileInput.type = "file";
-    fileInput.accept = ".json";
-    fileInput.className = "file-input";
-    fileInput.onchange = (e) => this.handleCustomWeightUpload(e);
-
-    weightBody.appendChild(fileInput);
-    weightSection.appendChild(weightBody);
-    body.appendChild(weightSection);
 
     this.panelContainer.appendChild(body);
   }
@@ -1158,6 +1284,38 @@ export class DOMInspectorController {
     summary.textContent = `候选状态: ${candidate?.status ?? "unknown"}${candidate?.reasons.length ? ` (${candidate.reasons.join(", ")})` : ""}\n提议种类: ${kindZh} (${kind}) [提议]\n判断状态: ${slot?.judgmentStatus ?? "unknown"}\n分数: ${scoreStr} | 余量: ${marginStr}\n文本摘要: ${evidence?.textSummary?.slice(0, 80) ?? "无"}\nID: ${evidence?.id ?? "无"}`;
     summary.style.whiteSpace = "pre-wrap";
     section.appendChild(summary);
+
+    const diagnostic = slot?.candidateStatus === "unknown" ? slot.semanticDiagnostic : undefined;
+    if (diagnostic) {
+      const diagnosticTitle = this.doc.createElement("div");
+      diagnosticTitle.className = "section-title";
+      diagnosticTitle.style.marginTop = "6px";
+      diagnosticTitle.textContent = "语义预测（候选资格未确认）";
+      section.appendChild(diagnosticTitle);
+
+      const diagnosticKind = diagnostic.judgmentStatus === "judged" ? diagnostic.basicKind : null;
+      const diagnosticKindZh = diagnosticKind === null ? "无" : CATEGORY_COLORS[diagnosticKind]?.zh ?? diagnosticKind;
+      const diagnosticStatusZh = diagnostic.judgmentStatus === "judged"
+        ? "已判断"
+        : diagnostic.judgmentStatus === "unknown"
+          ? "未知"
+          : diagnostic.judgmentStatus === "conflict"
+            ? "冲突"
+            : "已排除";
+      const diagnosticScore = diagnostic.score === null ? "无" : `${diagnostic.score.toFixed(3)} (未校准)`;
+      const diagnosticMargin = diagnostic.margin === null ? "无" : diagnostic.margin.toFixed(3);
+      const diagnosticRow = this.doc.createElement("div");
+      diagnosticRow.className = "details-row";
+      diagnosticRow.style.whiteSpace = "pre-wrap";
+      diagnosticRow.textContent = [
+        `预测状态: ${diagnosticStatusZh} (${diagnostic.judgmentStatus})`,
+        `预测种类: ${diagnosticKindZh}${diagnosticKind === null ? "" : ` (${diagnosticKind})`} [模型预测，非人工确认]`,
+        `预测分数: ${diagnosticScore} | 预测余量: ${diagnosticMargin}`,
+        `预测依据: ${diagnostic.reasons.length > 0 ? diagnostic.reasons.join(", ") : "无"}`,
+        "候选资格仍为未知：此预测不证明可见、可交互或可采集。当前无标注框，也不满足样本保存条件。",
+      ].join("\n");
+      section.appendChild(diagnosticRow);
+    }
 
     // Collapsed Raw Evidence & Wires
     const rawDetails = this.doc.createElement("details");
@@ -1328,7 +1486,7 @@ export class DOMInspectorController {
   }
 
   private async runCaptureAction(input: {
-    action: "capture_selected" | "collect_unresolved" | "export";
+    action: "capture_selected" | "collect_qualified" | "collect_unresolved" | "export";
     nodeRef?: string;
     annotation?: BrowserCaptureAnnotation;
   }): Promise<any> {
@@ -1496,28 +1654,4 @@ export class DOMInspectorController {
     this.renderPanel();
   }
 
-  private async handleCustomWeightUpload(e: Event): Promise<void> {
-    const input = e.target as HTMLInputElement;
-    if (!input.files || input.files.length === 0) return;
-
-    const file = input.files[0];
-    if (!file) return;
-
-    try {
-      const text = await file.text();
-      const parsed = parseBrowserWeightAsset(text, file.name);
-
-      this.currentProfile = parsed.profile;
-      this.currentConfig = parsed.config;
-      this.profileSourceLabel = parsed.sourceLabel || file.name;
-
-      alert(`✅ 成功加载权重: ${file.name}`);
-      this.scheduleRefresh();
-    } catch (err) {
-      console.error("[NNAnything DOM Inspector] Weight upload error:", err);
-      alert(`❌ 权重文件无效: ${err instanceof Error ? err.message : String(err)}\n已保留当前已有配置。`);
-    } finally {
-      input.value = "";
-    }
-  }
 }

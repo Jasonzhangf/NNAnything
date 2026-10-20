@@ -116,6 +116,7 @@ const PROPERTY_KEYS = [
   "pointerCursor",
   "parentPointerCursor",
   "tabIndexFocus",
+  "activeElementFocus",
   "borderPresent",
   "aspectRatio",
   "descendantTextPresent",
