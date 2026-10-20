@@ -24,6 +24,8 @@
 | `node-training.graph.json` | `node-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.2.0` 已实现；算子与绑定 `0.1.0` | 第一层基础种类离线训练流：复核样本、来源分区、Handwired 拟合、新旧比较、评估与安全保存；未校准候选不自动采用 |
 | `operation-episode.graph.json` | `browser-single-action.workflow.json` 为SetExpanded切片绑定；其他待配置 | 7 节点 6 边 (7N6E SESE) | 通用图仍`0.1.0-design` | L3观测→识别→当前选择→人类操作→重观测→验证→报告；本轮只实现单次展开切片，不扩大其他行为 |
 | `browser-single-action-training.graph.json` | `browser-single-action-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 独立50参数关系/能力profile；准备、family分区、Handwired拟合、比较、评价、保存；候选未采用，沿浏览器单次训练合同 |
+| `browser-feedback.graph.json` | `browser-feedback.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0.0000`，已实现 | 解释上次真实执行及后验；原事实/错误保留，诊断不替代目标验收 |
+| `browser-feedback-training.graph.json` | `browser-feedback-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 3×12独立反馈参数；候选未采用，先反馈拟合、再后续策略，不改原子50参数 |
 
 > [!NOTE]
 > `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。当前 CLI 推理图 `cli-file-property.graph.json` 与训练图 `cli-filesystem-training.graph.json` 也通过同一静态校验；旧 `cli-command-step` 与旧 cli-goal 图已退役。

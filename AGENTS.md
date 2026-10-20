@@ -91,6 +91,8 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 ## 唯一Owner与入口
 
+- 单次失败反馈及后续策略的分段实施合同：docs/browser-feedback-strategy.md。反馈36参数独立profile browser.action-feedback.v1；先完成反馈真实拟合再进入策略训练，不能把原子执行已记录失败写成学生已经学会失败利用。统一薄接口由lib/core/trainable-unit.ts承载；领域训练与推理复用现有workflow执行基座。
+
 - 可训练基本单元（最小神经元/神经元组）共同包含推理环、训练环、训练样本与权重，统一合同由 docs/design.md 1.1.1 维护。浏览器单步 SetExpanded 的关系/能力组合切片由 docs/browser-single-action-training.md 维护；当前已拟合独立50参数候选，未采用，不扩大为任意浏览器语义或已迁移全仓统一API。
 
 - 总体架构入口：docs/design.md；D0交付与后续浏览器范围：docs/framework-m1.md。

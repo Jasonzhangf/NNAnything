@@ -38,6 +38,10 @@
       "types": "./dist/browser-single-action.d.ts",
       "import": "./dist/browser-single-action.js"
     },
+    "./browser-feedback": {
+      "types": "./dist/browser-feedback.d.ts",
+      "import": "./dist/browser-feedback.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"

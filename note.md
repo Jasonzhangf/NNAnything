@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-10-20 单次基础已main交付，继续失败反馈学习
+
+原子50参数切片f7b97a7已fast-forward main并push origin/main；canonical构建及独立20例新进程回载成功，main与origin/main同步。旧树browser-semantic-single-action已remove/prune且不存在，旧分支删除，自有tab854002349和四服务41811/56463/13613/10094已关闭。证据仍留外置原run，不删历史FAIL/红测。
+
+从最新origin/main建立唯一新树 `/Volumes/Intel/playground/nnanything/browser-feedback-strategy`，分支codex/browser-feedback-strategy。独立progressive-plan.md明确后续反馈与策略学习，现按用户最新确认拆开验收：F1先36参数反馈；F2再策略retry n/次选，F1通过前不派F2代码。新反馈推理1N0E、训练6N6E两图已实际DAGpipe validate/inspect通过，doc与共享typed合同先落。四GCM互斥owner：A数值/特征、B训练样本、Cworkflow/consumer、V独立24例；父solebuild/真实fit/CUA/集成。过程路径为原run下feedback-strategy。当前未拟合F1，不冒称失败利用或策略已运行。
+
+后续实际：四GCM均连接失败且未编辑产品，精确PID31028/31029/31030/31031已结束；Flash后备实际quota错误，原始events/stderr保留。父接管A/B/C及单独保留资料准备，不将资料称为独立worker作者。F1公共nnanything/browser-feedback含infer/train统一薄接口、原始失败事实、3×12数值与1N0E/6N6E实际绑定。首轮7/7针对性测试（含36参数源梯度差分），公开缺入口红证据public-entry-red.log保留。48资料含1真实原生无效果、47合成，train36/dev12；24验证资料已在拟合前单独准备，尚未运行或用于改模型。
+
+F1首次严格200epoch/lr.1实际拟合365.82ms，train33/36、dev11/12，accepted=false，退出1；7200row-epoch、36参数，原failed candidate/report完整保留在fitted-feedback。错型为真实Goal未达成但effects未知被分completed_without_goal，非零有限梯度、余类正确。未延长epoch、未改标签/权重、未看holdout。独立最小修订计划已派（Gemini实际quota失败后OAuth新会话），产物fit-revision-plan.md待返回。先检查语义定义、可辨性和优化/重复覆盖权重，不能凭收敛慢发明wire或删除错例；F2继续未启动。
+
+独立fit-revision-plan.md READY：保留teacher/12wire/36参数/200epoch/.1，只将重复投影覆盖等权（group系数1/(K*组频数)），并明确effects未知类归indeterminate、不代表原satisfaction0丢失；Planner未看保留集，给出现有线性可辨证明，禁止新增wire/延长轮数。先取coverage-red.log旧损失重复不变性失败，再实现数值owner。一次修订真实fit到fitted-feedback-coverage-r1：train36/36、dev12/12，总391.99ms/实际fit48.75ms，7200rowepoch。公开新进程回载48/48，首次24保留集24/24；仅6种已覆盖投影，无新增投影，不外推泛化。真实no-effect公开infer正确且raw事实保留。
+
+F1全仓876/876零skip，9反馈测试包括差分/覆盖不变性/冲突监督拒绝；workflow-binding-replay为已有候选零更新回放，验证实际6N6E比较边输入，不伪称新拟合。F1已到整体独立Review准入；F2未派实现。候选未校准/未采用，基础50参数/L1/CLI不改。尚未F1 main集成，当前唯一树继续保留至交付清理。
+
+F1整体Review完成：本次Gemini实际quota失败，独立OAuth gpt-6.1-sol medium新上下文退出0；review-final.json结构合格且零finding，正式owner宿主review-classification.json=pass。Reviewer本人新进程24/24和48/48，真实no-effect公开infer原事实deepEqual保留、三个Goal成功旁路反例、实际双图compile均通过；明确保留集仅6种既有projection、父作者与合成来源边界。进入F1 main集成，不将此PASS扩展到F2。F2详细控制/候选排序计划strategy-detail-plan.md正由另一独立Planner准备，旧树待该只读进程结束及F1远端确认后关闭，防止清理活动资源。
+
 ## 2026-10-20 浏览器最低单步语义：作者验收完成，待整体独立 Review 与集成
 
 后续用户明确三层拟合顺序：单次操作 → 单次失败/点击无效反馈 → 多次与复杂组合（同错误retry到可配n，放弃首选再选次选）。当前实际完成的是单次策略及实际反馈采集，尚未学习反馈利用；不将无效点击记为语义负例，也不把采集称为失败策略已训练。独立增量计划在外置progressive-plan.md准备；先收口当前基础修复，不混改50参数基线。完整后续工作仍在当前授权范围继续。

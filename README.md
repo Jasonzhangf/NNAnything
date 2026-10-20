@@ -60,6 +60,10 @@ node playground/browser/single-action/train.mjs --handwired-root <path-to-handwi
 
 # 新进程回载，不拟合、不自动采用
 node playground/browser/single-action/reload.mjs --profile <candidate.json> --cases <verification.json>
+
+# 单次失败反馈：独立36参数，统一infer/train接口
+node playground/browser/feedback/train.mjs --handwired-root <path-to-handwired> --samples <train-dev.json> --output <artifact-directory>
+node playground/browser/feedback/infer.mjs --profile <feedback-candidate.json> --input <previous-attempt.json>
 ```
 
 - 浏览器 Consumer 固定入口为 playground/browser/demo.mjs，负责完整演示保存观测加载、7 节点有限图编译运行及保序候选槽位输出。
