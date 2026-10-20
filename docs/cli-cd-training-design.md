@@ -1,6 +1,6 @@
 # 训练设计2：cd改变指定会话CWD
 
-状态：历史独立基线已验证，当前正式模型并入统一共享命令模型。历史独立CD动作题记录为train/dev 12/12、6/6，独立验证12/12、4次正常提交、8个失败探针通过；这些只作历史基线。旧独立二分类`CD / REJECT`与旧9参数阶段模型均已退役。CD现是`cli.command-policy.v1` typed `file.property` 6×14单矩阵中的`cd`/`NOOP`/`DEFER`切片，唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。
+状态：历史独立基线已验证，当前正式模型并入统一共享命令模型。历史独立CD动作题记录为train/dev 12/12、6/6，独立验证12/12、4次正常提交、8个失败探针通过；这些只作历史基线。旧独立二分类`CD / REJECT`与旧9参数阶段模型均已退役。CD 现是`cli.command-policy.v1` typed `file.property` 单矩阵中的`cd`/`NOOP`/`DEFER`切片（0.2.0 为 6×14，0.3.0 起为 10×30），唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。
 
 调用边界统一沿[参数简化合同](cli-call-contract.md)：模型输出调用序列 `["cd", D]`，S置于显式资源信封中。模型只携带typed引用，不生成Shell脚本或解析stdout。固定脚本和真实路径argv绑定由harness维护。
 

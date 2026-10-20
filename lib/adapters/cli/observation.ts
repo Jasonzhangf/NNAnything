@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { lstat, readlink, realpath, stat } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { promisify } from "node:util";
 import { expectRecord } from "../../core/schema.js";
 import { interpretCliPath, readCliPath, readPathRequest, validateCliCwd, type PathObservation, type PathRequest } from "../../filters/cli-path.js";
+import { readEntrySnapshot, type EntrySnapshot } from "./entry-inspection.js";
 
 export type CliEffect = "filesystem.read" | "process.exec";
 export type CliRequest =
@@ -61,6 +62,58 @@ export function readCliRequest(value: unknown): CliRequest {
 const execFileAsync = promisify(execFile);
 const failure = (operation: string, stage: CliFailure["stage"], code: string, message: string): CliResult => ({ ok: false, error: { operation, stage, code, message } });
 
+function safeNumber(value: bigint | null, label: string): number | null {
+  if (value === null) return null;
+  const number = Number(value);
+  if (!Number.isFinite(number)) throw new TypeError(`${label} is outside the supported M0 number range`);
+  return number;
+}
+
+function milliseconds(value: bigint | null, nanoseconds: bigint | null, label: string): number | null {
+  if (value !== null && nanoseconds !== null) {
+    const remainder = nanoseconds - value * 1_000_000n;
+    const number = Number(value) + Number(remainder) / 1_000_000;
+    if (Number.isFinite(number)) return number;
+  }
+  return safeNumber(value, label);
+}
+
+function m0Type(snapshot: EntrySnapshot): FileAttributes["type"] {
+  if (snapshot.kind === "regular") return "file";
+  if (snapshot.kind === "directory") return "directory";
+  if (snapshot.kind === "symlink") return "symlink";
+  return "other";
+}
+
+function m0Attributes(absolutePath: string, snapshot: EntrySnapshot): FileAttributes {
+  if (snapshot.kind === null || snapshot.observedWith === null) throw new TypeError("Successful entry inspection needs a kind and observation method");
+  const sizeBytes = safeNumber(snapshot.size, "size");
+  const mode = safeNumber(snapshot.mode, "mode");
+  const uid = safeNumber(snapshot.uid, "uid");
+  const gid = safeNumber(snapshot.gid, "gid");
+  const atimeMs = milliseconds(snapshot.atimeMs, snapshot.atimeNs, "atimeMs");
+  const mtimeMs = milliseconds(snapshot.mtimeMs, snapshot.mtimeNs, "mtimeMs");
+  const ctimeMs = milliseconds(snapshot.ctimeMs, snapshot.ctimeNs, "ctimeMs");
+  if ([sizeBytes, mode, uid, gid, atimeMs, mtimeMs, ctimeMs].some(value => value === null)) {
+    throw new TypeError("Successful M0 attributes need all required numeric fields");
+  }
+  return {
+    kind: "attributes",
+    absolutePath,
+    observedWith: snapshot.observedWith,
+    type: m0Type(snapshot),
+    sizeBytes: sizeBytes!,
+    mode: mode!,
+    uid: uid!,
+    gid: gid!,
+    atimeMs: atimeMs!,
+    mtimeMs: mtimeMs!,
+    ctimeMs: ctimeMs!,
+    birthtimeMs: milliseconds(snapshot.birthtimeMs, snapshot.birthtimeNs, "birthtimeMs"),
+    ...(snapshot.linkTarget === null ? {} : { linkTarget: snapshot.linkTarget }),
+  };
+}
+
 /** Business IO is authorized per request; a cwd is a base, not a sandbox. */
 export async function observeCliRequest(cwd: string, value: unknown, grantedEffects: ReadonlySet<CliEffect>): Promise<CliResult> {
   let request: CliRequest;
@@ -84,16 +137,9 @@ export async function observeCliRequest(cwd: string, value: unknown, grantedEffe
       return { ok: true, observation: { kind: "pwd", configuredCwd: cwd, physicalCwd, executable: "/bin/pwd", argv: ["-P"], stdout, stderr, exitCode: 0 } };
     }
     const absolutePath = interpretCliPath(cwd, { kind: "path", path: request.path }).absolute;
-    const attributes = await (request.followSymlinks ? stat(absolutePath) : lstat(absolutePath));
-    const type = attributes.isSymbolicLink() ? "symlink" : attributes.isFile() ? "file" : attributes.isDirectory() ? "directory" : "other";
-    const observation: FileAttributes = {
-      kind: "attributes", absolutePath, observedWith: request.followSymlinks ? "stat" : "lstat", type,
-      sizeBytes: attributes.size, mode: attributes.mode, uid: attributes.uid, gid: attributes.gid,
-      atimeMs: attributes.atimeMs, mtimeMs: attributes.mtimeMs, ctimeMs: attributes.ctimeMs,
-      birthtimeMs: attributes.birthtimeMs > 0 ? attributes.birthtimeMs : null,
-      ...(type === "symlink" ? { linkTarget: await readlink(absolutePath) } : {}),
-    };
-    return { ok: true, observation };
+    const snapshot = await readEntrySnapshot(absolutePath, request.followSymlinks);
+    if (snapshot.errno !== null) return failure("attributes", "observe", snapshot.errno, `Entry observation failed with ${snapshot.errno}`);
+    return { ok: true, observation: m0Attributes(absolutePath, snapshot) };
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || (typeof error.code !== "string" && typeof error.code !== "number")) throw error;
     return failure(request.kind, "observe", String(error.code), error.message);

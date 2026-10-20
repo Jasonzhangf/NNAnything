@@ -1,6 +1,6 @@
 # 训练设计1：CWD概念与pwd获取
 
-状态：本文保留CWD/pwd独立训练的历史设计与实测基线。旧6参数PWD profile及旧`cli.goal-policy.v1`已在当前候选物理退役，无运行兼容入口。当前PWD是统一`cli.command-policy.v1` typed `file.property`切片的一部分，使用`unsupported,DEFER,NOOP,pwd,cd,ls`全head与14条有序wire的单矩阵，不再有4参数阶段候选。CWD关系是独立的`MATCH/NO_MATCH`概念测量，`x=[1, sameSession, hasObservation]`，不选择命令。当前合同见[文件系统训练合同](cli-filesystem-training.md)，本轮结果见[共享模型实测](cli-filesystem-training-results.md)。
+状态：本文保留CWD/pwd独立训练的历史设计与实测基线。旧6参数PWD profile及旧`cli.goal-policy.v1`已在当前候选物理退役，无运行兼容入口。当前PWD是统一`cli.command-policy.v1` typed `file.property`切片的一部分；0.2.0 时使用6 head与14条有序wire，0.3.0 已扩到10 head与30条wire，不再有4参数阶段候选。CWD关系是独立的`MATCH/NO_MATCH`概念测量，`x=[1, sameSession, hasObservation]`，不选择命令。当前合同见[文件系统训练合同](cli-filesystem-training.md)，本轮结果见[共享模型实测](cli-filesystem-training-results.md)。
 
 调用边界统一沿[参数简化合同](cli-call-contract.md)：模型输出调用序列 `["pwd"]`。profile、sandbox与session在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`；每次调用传`step({ goal, satisfactionThreshold, state })`，请求没有`resources`字段。harness固定映射到 `cwd.get(session:S)`。NN不解析命令输出内容。
 
@@ -19,7 +19,7 @@ CWD关系概念测量与共享命令模型分工明确：
 | 单元 | 学生输入与监督 | 输出/职责 | 交付形式 |
 | --- | --- | --- | --- |
 | CWD关系 | 查询session引用、候选观测槽位的结构关系；teacher给出是否是该session已有的CWD知识 | `MATCH / NO_MATCH`；在多个候选中确认知识归属，不生成路径字符串 | 独立概念测量，不生成正式命令候选 |
-| 获取动作 | typed `file.property.relation.sessionCwd` observed与State；teacher给出`pwd` | 统一共享命令模型中的`pwd` head（6×14单矩阵） | 统一共享profile候选（`cli.command-policy.v1`） |
+| 获取动作 | typed `file.property.relation.sessionCwd` observed与State；teacher给出`pwd` | 统一共享命令模型中的`pwd` head（0.2.0 为6×14，0.3.0 为10×30单矩阵） | 统一共享profile候选（`cli.command-policy.v1`） |
 
 概念请求为`{kind:"cwd.belongs_to", session:S, candidate:C}`。C为`{session, observation:null|{physicalCwd, evidence, sourceRun}}`槽位；引用合法性手写校验。候选有观测且属于S时MATCH，否则NO_MATCH。模型不接收teacher真值；名称相等计算和字段是否存在是手写特征，不冒称NN学习了字符串相等算法。匹配旧知识只说明归属，不证明本次Goal已完成。
 
@@ -29,7 +29,7 @@ CWD关系概念测量与共享命令模型分工明确：
 
 CWD关系输入固定为`x=[1, sameSession, hasObservation]`。两个logit分别为MATCH/NO_MATCH，`z[a]=Σ W[a,j]x[j]`，共6个参数。两个二值特征的4种组合全部覆盖；只在`sameSession=1 && hasObservation=1`时监督MATCH。标签组合规则是teacher，不在推理时覆写argmax。
 
-CWD关系单元保持上述6参数概念profile，同分NO_MATCH；它只回答知识归属，不选择命令。当前共享命令模型使用6个全head与14条有序wire，同分按`unsupported`优先。旧6参数独立PWD动作profile已退役。若关系模型选错，记录错误，不用teacher修正输出后计为正确；动作仍按真实Goal执行，与关系题准确率分开统计。
+CWD关系单元保持上述6参数概念profile，同分NO_MATCH；它只回答知识归属，不选择命令。共享命令模型在 0.2.0 使用 6 个 head 与 14 条有序 wire，0.3.0 起为 10 个 head 与 30 条 wire，同分按`unsupported`优先。旧6参数独立PWD动作profile已退役。若关系模型选错，记录错误，不用teacher修正输出后计为正确；动作仍按真实Goal执行，与关系题准确率分开统计。
 
 ```mermaid
 flowchart TD
@@ -74,8 +74,8 @@ train家族：普通双session、含空格目录、同目录不同session、已�
 
 ## 外层DAG、验收与实施owner
 
-当前推理图是`workflows/cli-file-property.graph.json`（6节点/5边，0.2.0）及`cli-file-property.workflow.json`。训练图是`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.2.0）及同名workflow配置，接收调用者准备并分区的typed dataset，不生成fixture或自行启动新进程回载；这些由公开consumer完成。独立验证由单独consumer载入已保存候选，不进入fitter。未提供workflow可选verification资源时，receipt的fullyVerified为false；train/dev accepted不冒充独立验收。旧`cli-command-step`和旧cli-goal图已删除。
+当前推理图是`workflows/cli-file-property.graph.json`（6节点/5边，`0.3.0.0000`）及`cli-file-property.workflow.json`。训练图是`workflows/cli-filesystem-training.graph.json`（8节点/8边，`0.3.0.0000`）及同名workflow配置，接收调用者准备并分区的typed dataset，不生成fixture或自行启动新进程回载；这些由公开consumer完成。独立验证由单独consumer载入已保存候选，不进入fitter。未提供workflow可选verification资源时，receipt的fullyVerified为false；train/dev accepted不冒充独立验收。旧`cli-command-step`和旧cli-goal图已删除。
 
 历史独立基线验收为：关系16/16和动作12/12验证题均正确；4个正常真实pwd均满足后条件；所有失败探针都未错误达成Goal；已有pwd/路径回归零退化；新进程回载分数/动作一致；所有必需指标完整，否则不采用。这里是历史有限样本精确门槛，不是概率校准声明。当前共享模型的验收结果与计数见[共享模型实测](cli-filesystem-training-results.md)，本文不重复。动作guard与错误策略分别计数。
 
-owner：`lib/adapters/cli/`负责场景与真实观测；`lib/filters/`负责typed属性特征、CWD关系与统一评分；`lib/nodes/trainable/`负责电路结构；`lib/training/`负责分区、拟合与比较。历史独立PWD与CWD关系结果作为基线；当前正式命令交付统一收敛为6×14共享模型，单项命令不维持独立active profile。唯一训练合同见[文件系统训练合同](cli-filesystem-training.md)。
+owner：`lib/adapters/cli/`负责场景与真实观测；`lib/filters/`负责typed属性特征、CWD关系与统一评分；`lib/nodes/trainable/`负责电路结构；`lib/training/`负责分区、拟合与比较。历史独立PWD与CWD关系结果作为基线；当前正式命令交付统一收敛为10×30共享模型，单项命令不维持独立active profile。唯一训练合同见[文件系统训练合同](cli-filesystem-training.md)。

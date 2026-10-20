@@ -2,7 +2,7 @@
 
 Status: implementation contract, 2026-10-19. Listing is the typed
 `file.property.directory.entries` observed slice of the unified
-`cli.command-policy.v1` model. The current 6x14 matrix, real fit, fresh-process
+`cli.command-policy.v1` model. The current 10x30 matrix (6x14 before batch 1), real fit, fresh-process
 reload, and author regression are implemented; parent independent verification is
 separate. See [cli-filesystem-training-results.md](cli-filesystem-training-results.md).
 This page owns the native listing helper, typed listing result format, and

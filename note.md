@@ -1,5 +1,28 @@
 # 当前任务
 
+## 2026-10-20 批次1「目录与路径原语」实现完成，独立 Review 已通过，待集成（当前状态）
+
+`path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 四个 head 已注册进唯一共享 `cli.command-policy.v1`：10 heads × 30 wires = 300 参数。两张持久图与对应 `NodeDefinition.version` 均为 `0.3.0.0000`（四位尾段由 `scripts/bump-version.mjs` 统一维护，下一次 bump 为 `0.3.0.0001`）。
+
+合并最新 `origin/main` 后：`npm run build` exit 0；`npm run typecheck` exit 0；`dagpipe graph validate` 两张图通过（6N5E、8N8E）；`npm run test:full` 761/761、0失败0跳过（`logs/gate-postfix2-test-full.log`）。
+
+当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398`（10×30，`uncalibrated/not_applied`）：统一训练图真实执行 train 174/174、development 88/88，`effectsOk` 262/262；新进程 reload 执行 262 条（legacy 58 + 批次1 204），`executorInvocations=238`，`UNVERIFIED=0`，`failed=0`，`fitted=false`，`fullyVerified=false`（未提供独立 verification 分区）。旧候选 `ba002b23-b650-4869-87ec-2d36f4fe7485` 与历史候选 `836b58b9-…` 均未重训、未改权重/标签/预算。
+
+独立验证：新套件 40 场景 + 16 探针 56/56；旧独立套件在新候选上 34/34，与旧候选归一化比对语义变化 0、回归 0。Block device 在 macOS 无法真实构造，标 `UNVERIFIED`，未用 mknod/sudo 伪造。
+
+整体 Review（只读 OAuth gpt-6.1-sol medium，`logs/review-batch1-report.log`）判 FAIL，报 3 条 P1 与 1 条 P2。已修：
+- F1 路径绑定提前解析 `.`/`..`：`bindPath` 现保留原始组件；inspect 与对象绑定改按 OS 路径语义定位，祖先 symlink 加 `..` 的 identity 与 OS 一致；越界仍返回 `SANDBOX_ESCAPE`。
+- F2 `entry.inspect` 只查 `filesystem.read` 就启动 helper 子进程：现在启动前同时要求 `filesystem.read` 与 `process.exec`，缺一返回 `EFFECT_DENIED`、`executorInvoked=false`。
+- F3 统一训练图把批次1样本构造成 CWD equals 请求：`goalFor()` 现按 typed query 构造四类请求，`effectsOk()` 覆盖新 case，`reload` 不再静默跳过 204 条行为执行。
+- F4 文档状态行（P2）已改为已实现/已拟合，并明确 262 条回载中 204 条只做预测检查的历史事实已消除。
+
+F5（advisory，历史遗留）：旧 cwd/entries 属性的结构合法但未注册 predicate 仍抛 `TypeError` 而非 `unsupported`；行为在 `6e4e8fd` 已存在，本轮未扩大到新 head 路径。留作后续统一 Goal 校验时处理。
+
+复核结果（`logs/review-recheck.jsonl`、`logs/review-f4e.jsonl`）：F1、F2、F3 均判 CLOSED，附独立复现输出（`bindPath` 保留 `..`、`/var/..` 身份与 OS 一致、只授 `filesystem.read` 时 `EFFECT_DENIED`/零子进程、四类 typed Goal 各自成 head）；F4 在文档状态一致性收尾轮判 PASS，另有 3 条 advisory（历史章节标题可再标时点），不阻断。旧候选历史不变性只有“当前内容与保存依据一致”的证据，缺修复前 mtime 对照，按此强度记录。
+
+文档同步范围（F4 收口）：`cli-call-contract`、`cli-filesystem-semantics`、`cli-filesystem-training`、`cli-property-training-design`、`cli-command-design`、`cli-semantic-operations`、`cli-migration`、`cli-list/cd/cwd/goal-training`、`list-api`、`recursive-goal-design`、`docs/reviews/recursive-goal-generalization-20261020`、`workflows/README`、`lib/nodes/README`。旧 6×14/6 head 表述一律限定为 0.2.0 历史形状。
+
+实施证据在本 run 目录 `logs/` 与 `artifacts/batch1/{i2,i2b,i3,i3b,i4,i4b,i5,i6,i7,f1f2,f3}/`。待办：Review 复核 F1–F4、合入 main、推送、核销 worktree。
 ## 2026-10-20 浏览器行为框架v0.1与元素结构
 
 用户要求先做一个案例，再固定浏览器行为框架与分类后元素属性结构。完成原生Chrome本地搜索案例：键盘建独立标签，点击Search catalog并输入Recursive Goal，再点击Search；真实AX/截图返回Query: Recursive Goal; 1 result(s)与Recursive Goal Framework，相邻Notes保持Keep this unchanged。六项现场检查均true。导航及AX重读后引用重新分配，元素必须带观测/文档版本，数字AX索引不能当持久DOM身份。Chrome扩展DOM绑定返回Tab not found in browser 1，本案实时证据只为AX/截图；未把fixture源码当实时DOM测量。

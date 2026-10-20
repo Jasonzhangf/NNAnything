@@ -1,6 +1,6 @@
 # 训练设计3：获取目录内文件与子目录（ls）
 
-状态：目录列举已接入typed `file.property`运行入口。旧独立`LIST / REJECT` 8参数模型及旧16参数阶段模型已退役。当前LS是`cli.command-policy.v1` 6×14单矩阵中的`ls`/`DEFER`切片，唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。本轮真实训练与作者回载见[共享模型实测](cli-filesystem-training-results.md)；父级独立验证另做。
+状态：目录列举已接入typed `file.property`运行入口。旧独立`LIST / REJECT` 8参数模型及旧16参数阶段模型已退役。0.2.0 时 LS 是`cli.command-policy.v1` 6×14 单矩阵中的`ls`/`DEFER`切片（历史形状）；0.3.0 起为 10×30 单矩阵中的同一切片，唯一权威训练合同见[文件系统训练合同](cli-filesystem-training.md)。本轮真实训练与作者回载见[共享模型实测](cli-filesystem-training-results.md)；父级独立验证另做。
 
 调用边界统一沿[参数简化合同](cli-call-contract.md)：模型输出调用序列 `["ls", D]`。profile、sandbox与session在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S })`；每次调用传`step({ goal, satisfactionThreshold, state })`，请求没有`resources`、`directories`或独立`directory`字段。NN不解析`/bin/ls`面向人类的文本输出或文件正文；固定编译helper返回结构化JSON条目，由harness处理机器协议。
 
@@ -8,7 +8,7 @@
 
 Goal为`{kind:"file.property",property:"file.property.directory.entries",target:DirectoryRef|DirectoryQuery,requirement:{kind:"observed",freshness:"this_run"}}`。`DirectoryRef.path`在调用时相对S当前cwd解析；本轮不实现DirectoryQuery查找，所以合法query返回typed DEFER。模型通过共享profile选择`ls`，输出调用序列`["ls", D]`；首项是实际Shell命令名，后续是机械绑定的typed引用，不生成自由参数文本。harness按固定字段绑定参数；模型不生成Shell选项、文件名或条目列表。文件/目录类型是OS观测事实，本轮不训练通过扩展名猜对象类型的分类器。
 
-[调用设计](cli-command-design.md)中的`directory.list(session:S,directory:D)`是固定harness语义操作。当前共享命令模型保存14条有序wire与6个head，共84参数；旧4×4交叉块按名称迁移，新行新列补零后对PWD/CD/LS、NOOP/DEFER和证据配对做一次真实拟合。
+[调用设计](cli-command-design.md)中的`directory.list(session:S,directory:D)`是固定harness语义操作。共享命令模型在 0.2.0 保存 14 条有序 wire 与 6 个 head、共 84 参数（历史形状），0.3.0 起为 30 条 wire 与 10 个 head、共 300 参数；旧4×4交叉块按名称迁移，新行新列补零后对PWD/CD/LS、NOOP/DEFER和证据配对做一次真实拟合。
 
 初始真实Handwired训练预算为200epochs/lr0.1、全批SGD。冻结对照使用迁移后的初始矩阵且不做参数更新（等价初始状态`epochs:0`），只做预测；零权重对照同样只做预测，不执行命令。目录名、条目数量和目标是否存在不进入动作特征；在合法entries observed Goal上选择`ls`，不把OS错误算成模型动作错误。
 

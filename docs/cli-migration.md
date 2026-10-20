@@ -4,7 +4,7 @@
 
 审计基线：`main` 提交 `3336c72`（迁移前，旧实现）；迁移分支 `codex/cli-property-migration` 从 `2dbd7bd` 起修复 3 条 P1 后合入。
 
-## 1. 现状结论
+## 1. 现状结论（2026-10-19 迁移收口时状态；批次1交付后的当前形状见 cli-filesystem-training.md §0.1）
 
 1. 迁移前 `main` 是旧实现：六参数二分类 Goal、共享命令 4×4、`cli-command-step` 3N2E 推理图、legacy 三个 Goal kind。
 2. 迁移把整条命令层迁到 typed `file.property`：6 head、14 wire、84 参数、属性图 `0.2.0` 6N5E、训练图 `0.2.0` 8N8E；旧六参数 Goal、旧 4×4 运行对象、旧 `cli-command-step` 与旧 `cli-goal` 图在 `main` 上已物理退役。
@@ -109,7 +109,7 @@ R1 与 R2 由迁移接管方在该独占树完成，未派重叠 worker。R3 的
 
 1. 基线已重定：`npm run test:full`（`scripts/test-full.mjs`）。缺 `NN_HANDWIRED_ROOT`、`NN_CLI_COMMAND_PROFILE`、`NN_CWD_RELATION_PROFILE` 任一项即 exit 2，不以 skip 冒充通过；`main` 记录 255/255、0 跳过。默认 `npm test` 仍可无资产运行，其跳过项不计作通过。dagpipe validate 在 `main` 复跑通过：`cli-file-property@0.2.0` 6N5E、`cli-filesystem-training@0.2.0` 8N8E。
 2. M0 观测入口保留，effect 词表不合并：M0 只做 pwd/path/attributes 观测，`CliEffect` 只有 `filesystem.read`、`process.exec` 是它的真实授权范围；沙盒词表经 `observationEffects` 显式映射后才交给 M0，`session.write` 不进入观测 API。扩大 M0 词表等于给出它没有的写能力，因此本轮不动；接入第一个写操作时重新评估。
-3. `path.resolve` 不再有双身份：作为未来 head 时，执行者是既有词法解释器；独立 `cli.path-controller.v1` 保留为独立的函数表达训练能力，不参与命令选择。本轮不退役它，因为它是当前唯一可运行的路径函数实现，且迁移合同明确把该概念列为保留项。退役的停止条件尚未满足：head 表还没有注册 `path.resolve`，"覆盖全部既有回放用例"无法证明。后续注册该 head 时再按此项退役。
+3. `path.resolve` 不再有双身份：作为 head 时，执行者是既有词法解释器；独立 `cli.path-controller.v1` 保留为独立的函数表达训练能力，不参与命令选择。迁移收口时 head 表尚未注册 `path.resolve`，因此不退役它；批次1已注册该 head，退役条件转为按"覆盖全部既有回放用例"复核后再定，本页不代为退役。
 4. `cwd-relation` 保留为独立概念测量，不产生命令候选。`cli.cd-policy.v1` 只存在于本机历史的 weights 目录，没有代码与文档入口，标记为历史产物，不迁移、不加载。
 5. 旧权重与旧报告保持 `uncalibrated/not_applied`，采用仍需满足 model-evolution 条件；`d7c4a3e5` 只作离线迁移起点。
 
@@ -141,6 +141,6 @@ R1 与 R2 由迁移接管方在该独占树完成，未派重叠 worker。R3 的
 
 已决定并执行：迁移直接收口，不拆成"先文档后代码"；全仓基线命令化；M0 词表不合并；`path.resolve` head 保留、独立控制器暂不退役；`cli.cd-policy.v1` 标记历史。
 
-仍开放，属于迁移后能力批次，不需要在本轮决策：`path.resolve` head 注册、其余 22 个操作、B 对象查找、R 用途关系、自动采集与自动采用。
+仍开放，属于迁移后能力批次：其余操作、B 对象查找、R 用途关系、自动采集与自动采用。迁移收口时列为开放的 `path.resolve` head 注册已由批次1完成，`path.relative`、`path.parts`、`entry.inspect` 同批注册。
 
 三个数字的口径：6 是 `cli-file-property` 图的节点数；22 是尚未注册的新动作 head 数；25 是 `docs/cli-semantic-operations.md` 的精确操作总数，其中 `cwd.get/set/list` 复用现有 `pwd/cd/ls` 三个 head。三者是不同集合，引用时写清口径，不互相替代。

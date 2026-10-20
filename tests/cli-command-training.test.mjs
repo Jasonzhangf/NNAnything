@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const api = () => import("../dist/cli-goal.js");
+const execFileAsync = promisify(execFile);
 
 function scenario(id, partition, sourceGroup = id) {
   return {
@@ -209,7 +213,7 @@ test("zero-epoch fit preserves the explicit named migration", async () => {
   });
   const frozen = await fitCliCommandProfile({
     initial,
-    rows: [{ features: Array(14).fill(0), expectedHead: "pwd" }],
+    rows: [{ features: Array(30).fill(0), expectedHead: "pwd" }],
     handwiredRoot: "/backend/is/not/loaded/for/frozen/epochs",
     epochs: 0,
     learningRate: 0.1,
@@ -218,7 +222,7 @@ test("zero-epoch fit preserves the explicit named migration", async () => {
   assert.equal(frozen.timing.completedEpochs, 0);
   assert.equal(frozen.timing.gradientRowEpochs, 0);
   assert.equal(frozen.timing.backendLoadMs, 0);
-  assert.equal(frozen.timing.trainableParamCount, 84);
+  assert.equal(frozen.timing.trainableParamCount, 300);
 });
 
 test("real Handwired fit changes shared parameters and reports training work", {
@@ -240,7 +244,7 @@ test("real Handwired fit changes shared parameters and reports training work", {
   assert.equal(fit.timing.processedRowCount, rows.length);
   assert.equal(fit.timing.gradientRowEpochs, 20 * rows.length);
   assert.equal(fit.timing.totalRowPasses, 20 * rows.length);
-  assert.equal(fit.timing.trainableParamCount, 84);
+  assert.equal(fit.timing.trainableParamCount, 300);
   assert.ok(fit.timing.fitTotalMs >= 0);
   for (const row of rows) {
     assert.equal(predictCliCommand(row.goal, row.facts, fit.profile).selectedHead, row.expectedHead);
@@ -264,4 +268,169 @@ test("missing Handwired backend fails explicitly and retains zero completed epoc
       && error.timing?.gradientRowEpochs === 0
       && error.timing?.fitTotalMs >= 0,
   );
+});
+
+test("R02 explicit 6x14 to 10x30 expansion copies all 84 existing values by name and zero-fills the rest", async () => {
+  const module = await api();
+  const sixHeads = ["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"];
+  const fourteenWires = [
+    "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
+    "property.directory.entries", "property.relation.sessionCwd",
+    "predicate.observe.sessionCwd", "predicate.equals.sessionCwd", "predicate.observe.entries",
+    "state.hasFreshEvidence", "state.knownValue", "state.requiredConditionHolds",
+    "state.hasDestinationRef", "state.requiredConditionHolds*state.hasFreshEvidence",
+  ];
+  const legacy = {
+    contract: "cli.command-policy.v1",
+    heads: sixHeads,
+    properties: ["property.directory.entries", "property.relation.sessionCwd"],
+    predicates: ["predicate.observe.sessionCwd", "predicate.equals.sessionCwd", "predicate.observe.entries"],
+    wires: fourteenWires,
+    weights: sixHeads.map((_, row) => fourteenWires.map((__, column) => row * 100 + column + 1)),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+  assert.equal(
+    typeof module.migrateCliCommandProfileV6,
+    "function",
+    "R02 needs the public explicit 6x14 -> 10x30 expansion tool migrateCliCommandProfileV6(profile6x14)",
+  );
+  const expanded = module.migrateCliCommandProfileV6(legacy);
+  assert.deepEqual(expanded.heads, [
+    "unsupported", "DEFER", "NOOP", "pwd", "cd", "ls",
+    "path.resolve", "path.relative", "path.parts", "entry.inspect",
+  ]);
+  assert.equal(expanded.wires.length, 30);
+  assert.equal(expanded.weights.length, 10);
+  assert.equal(expanded.weights.every(row => row.length === 30), true);
+  assert.equal(expanded.weights.flat().length, 300);
+
+  let copied = 0;
+  for (const [legacyRow, head] of sixHeads.entries()) {
+    const row = expanded.heads.indexOf(head);
+    assert.notEqual(row, -1);
+    for (const [legacyColumn, wire] of fourteenWires.entries()) {
+      const column = expanded.wires.indexOf(wire);
+      assert.notEqual(column, -1);
+      assert.equal(expanded.weights[row][column], legacy.weights[legacyRow][legacyColumn], `${head}/${wire} changed by name`);
+      copied += 1;
+    }
+  }
+  assert.equal(copied, 84);
+
+  for (const head of ["path.resolve", "path.relative", "path.parts", "entry.inspect"]) {
+    const row = expanded.heads.indexOf(head);
+    assert.deepEqual(expanded.weights[row], Array(30).fill(0));
+  }
+  for (const head of sixHeads) {
+    const row = expanded.heads.indexOf(head);
+    for (const wire of expanded.wires) {
+      if (fourteenWires.includes(wire)) continue;
+      assert.equal(expanded.weights[row][expanded.wires.indexOf(wire)], 0, `${head}/${wire} must be zero-filled`);
+    }
+  }
+});
+
+test("R24 public consumer reloads a 10x30 candidate in a new process and reports fitted=false", async () => {
+  const module = await api();
+  const root = await mkdtemp(join(tmpdir(), "nn-command-reload-shape-"));
+  try {
+    const profile = module.zeroCliCommandProfile();
+    assert.equal(profile.heads.length, 10);
+    assert.equal(profile.wires.length, 30);
+    assert.equal(profile.weights.length, 10);
+    assert.equal(profile.weights.every(row => row.length === 30), true);
+
+    const fixtureRoot = join(root, "fixture");
+    await mkdir(fixtureRoot);
+    const { dataset } = await module.makeCliCommandFixture({ root: fixtureRoot });
+    const profilePath = join(root, "candidate.json");
+    const datasetPath = join(root, "samples.json");
+    const reportPath = join(root, "report.json");
+    await writeFile(profilePath, JSON.stringify(profile, null, 2) + "\n");
+    await writeFile(datasetPath, JSON.stringify(dataset, null, 2) + "\n");
+    await writeFile(reportPath, JSON.stringify({ profile }, null, 2) + "\n");
+
+    const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+    const reloadScript = join(repositoryRoot, "playground/cli/command-learning/reload.mjs");
+    const { stdout } = await execFileAsync(process.execPath, [reloadScript, profilePath, datasetPath, reportPath], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: process.env,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const receipt = JSON.parse(stdout);
+    assert.equal(receipt.fitted, false);
+    assert.equal(receipt.checked, dataset.samples.length);
+    assert.equal(receipt.executed, dataset.samples.length);
+    assert.equal(receipt.executedLegacy, dataset.samples.filter(sample => !module.isBatch1CommandCase(sample.case)).length);
+    assert.equal(receipt.executedBatch1, dataset.samples.filter(sample => module.isBatch1CommandCase(sample.case)).length);
+    assert.equal(receipt.unverified, 0);
+    assert.equal(receipt.skippedExecution, undefined);
+    assert.equal(receipt.skippedBatch1, undefined);
+    assert.equal(typeof receipt.processId, "number");
+    assert.notEqual(receipt.processId, process.pid);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("F3 training execution constructs the four batch1 typed goals and evaluates their real effects", async () => {
+  const module = await api();
+  const root = await mkdtemp(join(tmpdir(), "nn-batch1-training-execution-"));
+  try {
+    const fixtureRoot = join(root, "fixture");
+    await mkdir(fixtureRoot);
+    const { dataset } = await module.makeCliCommandFixture({ root: fixtureRoot, extended: true });
+    const sceneById = new Map(dataset.scenarios.map(scene => [scene.id, scene]));
+    const evidencePath = join(root, "executions.jsonl");
+    await writeFile(evidencePath, "");
+    const cases = [
+      ["path-resolve", "file.property.path.absolute", "path.resolve"],
+      ["path-relative", "file.property.path.relative", "path.relative"],
+      ["path-parts-name", "file.property.path.name", "path.parts"],
+      ["inspect-size", "file.property.size", "entry.inspect"],
+    ];
+    for (const [sampleCase, property, head] of cases) {
+      const sample = dataset.samples.find(candidate => candidate.case === sampleCase);
+      assert.ok(sample, `missing ${sampleCase} sample`);
+      const scene = sceneById.get(sample.scenarioId);
+      assert.ok(scene);
+      const profile = module.zeroCliCommandProfile();
+      const row = profile.heads.indexOf(head);
+      assert.notEqual(row, -1);
+      const witness = {
+        ...profile,
+        weights: profile.weights.map((weights, index) =>
+          index === row ? weights.map((weight, column) => column === 0 ? 10 : weight) : [...weights]),
+      };
+      const result = await module.executeCliCommandTrainingSample(
+        sample,
+        scene,
+        witness,
+        binding => module.createCliCommandPolicy(binding),
+        evidencePath,
+        { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction },
+      );
+      assert.equal(result.transition.goal.kind, "file.property");
+      assert.equal(result.transition.goal.property, property, `${sampleCase} must use its typed property`);
+      assert.equal(result.transition.goal.requirement.kind, "observed");
+      assert.equal(result.transition.goal.requirement.freshness, "this_run");
+      if (head === "path.resolve" || head === "path.relative") {
+        assert.equal(result.transition.goal.target.kind, "cli.path-query");
+      } else if (head === "path.parts") {
+        assert.equal(result.transition.goal.target.kind, "cli.path");
+      } else {
+        assert.equal(result.transition.goal.target.kind, "cli.entry-query");
+        assert.equal(typeof result.transition.goal.target.followSymlinks, "boolean");
+      }
+      assert.equal(result.selectedHead, head);
+      assert.equal(result.status, "achieved");
+      assert.equal(result.satisfaction, 100);
+      assert.equal(result.effectsOk, true, `${sampleCase} must pass its batch1 effect contract`);
+      assert.equal(result.sideEffectsOk, true);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

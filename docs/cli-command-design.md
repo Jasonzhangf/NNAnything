@@ -1,16 +1,16 @@
 # 文件属性操作的固定调用设计
 
-状态：设计完成候选，2026-10-19；未新增代码、命令执行或训练。范围为 [精确目录](cli-semantic-operations.md)2.1/2.2中的全部操作、列出的有限组合，以及特殊文件类型观测。程序执行、挂载/卷管理、ACL/xattr、任意设备协议不属于普通文件操作；不能从统一文件抽象推导其已支持。目标统一沿 [file.property](cli-filesystem-semantics.md)，本页仅维护各操作固定harness、参数、回执及验收，参数简化原则沿 [cli-call-contract.md](cli-call-contract.md)。
+状态：设计合同，2026-10-20。0.3.0 批次1 的 `path.resolve`、`path.relative`、`path.parts` 与 `entry.inspect` 已实现并接入统一运行入口（10 head × 30 wire），并有全仓 761/761、新独立套件 56/56、旧独立套件 34/34 的证据；本页其余操作仍为设计，未实现。范围为 [精确目录](cli-semantic-operations.md)2.1/2.2中的全部操作、列出的有限组合，以及特殊文件类型观测。程序执行、挂载/卷管理、ACL/xattr、任意设备协议不属于普通文件操作；不能从统一文件抽象推导其已支持。目标统一沿 [file.property](cli-filesystem-semantics.md)，本页仅维护各操作固定harness、参数、回执及验收，参数简化原则沿 [cli-call-contract.md](cli-call-contract.md)。
 
 ## 1. 共同输入、权限与结果
 
-Action 为 `{operation, parameters}`。资源引用从 typed control resource 解析，P为明确路径，E/D/F为条目/目录/普通文件引用，S为session。创建目标引用为 `{parent:D,name:Name}`，Name是单个非空名称段，拒绝 `/`、NUL、`.`、`..`；需要完整路径时先按path合同解析并绑定父目录。不删改合法空格、换行、Unicode。路径文本只是定位，不证明对象身份；既有引用记录观测的类型及OS身份，用于发现失效，缺失则保留未验证，不许猜。
+Action 为 `{operation, parameters}`。资源引用从 typed control resource 解析：P为新增 `cli.path` 明确路径，E/F为新增 `cli.entry`/`cli.file` 对象引用，D继续复用 `cli.directory`，S为session。P只携带 `{scenarioId,sessionId,path}`，不保证存在、类型或对象身份。E/D/F必须携带或显式关联已观测 `{type,identity:{dev,ino},sourceRun,sessionRevision,absolutePath}`，由sandbox绑定API生成和验证，不从业务metadata、日志或路径字符串重建。创建目标引用为 `{parent:D,name:Name}`，Name是单个非空名称段，拒绝 `/`、NUL、`.`、`..`；需要完整路径时先按path合同解析并绑定父目录。不删改合法空格、换行、Unicode。路径文本只是定位，不证明对象身份；既有引用记录观测的类型及OS身份，用于发现失效，缺失则保留未验证，不许猜。
 
-`entry.inspect`与`path.realpath`的语义入参可为E/D/F/P。表中实现方案里的P是统一typed绑定后的执行参数，不是要求调用者丢弃引用后只交裸路径。绑定器将E/D/F解析为当前P，并在回执中保留原引用种类、已观测类型、OS身份及有效性证据；引用失效、绑定目标与观测身份不一致或身份无法核实时返回stale/unknown/rejected，不得仅凭遗留路径继续。显式P按明确路径处理，不声称已有对象身份。
+`entry.inspect`的语义入参可为E/D/F/P，`path.realpath`的物理路径入参仍属后续设计。绑定器保留原引用种类、已观测类型、OS身份及有效性证据；引用失效、绑定目标与观测身份不一致或身份无法核实时返回stale/unknown/rejected，不得仅凭遗留路径继续。显式P按明确路径处理，不声称已有对象身份。旧四字段D `{kind:"cli.directory",scenarioId,sessionId,path}` 继续服务`cd`/`ls`；旧D用于`inspect`且缺身份时返回unknown/`binding_identity_missing`，不降级为P。
 
-声明effects：纯词法运算无effect；OS读取需 `filesystem.read`；创建/删除/写/改属性需 `filesystem.write`；CLI子进程需 `process.exec`；改变S另需 `session.write`。这些是待接入的新typed授权名，不表示当前M0接受它们。目录范围来自调用者授权和训练场景根，不从文件业务metadata推断。模型判断适用不授予权限。
+声明effects：本批三个词法head无业务effect；`entry.inspect`需`filesystem.read`，不得打开FIFO/socket/设备字节流。其余创建、删除、写、改属性需`filesystem.write`，CLI子进程需`process.exec`，改变S另需`session.write`。固定helper路径与子进程执行由adapter工厂显式配置，不是模型参数或`followSymlinks` wire。目录范围来自调用者授权和训练场景根，不从文件业务metadata推断。模型判断适用不授予权限。
 
-固定CLI helper设计位于 `lib/adapters/cli/`：以 `{executable:process.execPath,argv:[configuredHelperPath,operation],stdin:typedJson,shell:false}` 调用，控制通道与原始Bytes分别编码（Bytes使用base64且注明原始长度），stdout为单个固定协议JSON，stderr只作证据。helper路径来自配置，不接收可执行脚本或任意argv。所有表中标为helper者均使用此模板，模型不学习原生命令flags。目录列举helper已实现（`lib/adapters/cli/directory-list-helper.ts`，argv为`[helperPath, physicalDirectory]`）；其余操作helper尚未实现，调用方不因缺失而改用任意shell。PWD及CD保持已定原生命令例外。
+固定CLI helper设计位于 `lib/adapters/cli/`：以 `{executable:process.execPath,argv:[configuredHelperPath,operation],stdin:typedJson,shell:false}` 调用，控制通道与原始Bytes分别编码（Bytes使用base64且注明原始长度），stdout为单个固定协议JSON，stderr只作证据。helper路径来自配置，不接收可执行脚本或任意argv。所有表中标为helper者均使用此模板，模型不学习原生命令flags。目录列举helper（`lib/adapters/cli/directory-list-helper.ts`，argv为`[helperPath, physicalDirectory]`）与批次1的entry inspect helper（`lib/adapters/cli/entry-inspect-helper.ts`）已实现；其余操作helper尚未实现，调用方不因缺失而改用任意shell。PWD及CD保持已定原生命令例外。
 
 共同回执：`{operation,status:complete|partial|rejected|failed,value,errors,effectsObserved}`。value按下表固定，不能含自由options；write类另有实际写入/创建/删除清单。harness执行成功不等于Goal满足；[属性图](../workflows/cli-file-property.graph.json)独立读回实际属性。读取可改变atime，部分动作可能改变ctime/mode；明确记录相关效果，不承诺所有元数据不变。必要观测失败返回unknown，不能补造旧State。失败不自动回滚、删部分产物、降级或复活旧执行路径。
 
@@ -27,8 +27,8 @@ Action 为 `{operation, parameters}`。资源引用从 typed control resource �
 | `path.resolve {base:P,input:PathText}` | 已有词法解释器，非CLI | absolute/parent；与独立POSIX词法例核对，不读FS、不展开`~`/glob |
 | `path.relative {from:P,to:P}` | 固定path.posix.relative纯函数 | relative；resolve(from,relative)与规范to一致；from/to非绝对拒绝 |
 | `path.parts {path:P}` | 固定path.posix dirname/basename | parent/name；根为parent=`/`、name为空、isRoot=true；不将空名用于创建 |
-| `path.realpath {path:E/D/F/P}` | 统一typed绑定为P后，helper fs.realpath等价真实路径查询 | physicalPath及来源引用证据；断链/环/拒权/stale显式错误，独立实际链接fixture核对 |
-| `entry.inspect {path:E/D/F/P,followSymlinks:boolean}` | 统一typed绑定为P后，现有stat/lstat/readlink；扩展helper同一OS语义 | type、size、mode/uid/gid、times、适用dev/ino/nlink/rdev及来源引用证据；无字段就null，不按0补缺测 |
+| `path.realpath {path:E/D/F/P}` | 后续设计，不在0.3.0注册；统一typed绑定为P后，helper fs.realpath等价真实路径查询 | physicalPath及来源引用证据；断链/环/拒权/stale显式错误，独立实际链接fixture核对 |
+| `entry.inspect {ref:E/D/F/P,followSymlinks:boolean}` | 统一typed绑定后，固定stat/lstat/readlink；follow=true先lstat核对来源身份，再stat目标 | 完整8类type、exists双事实、size、mode、owner、times、link.target、entry.identity及来源证据；无字段就null，不按0补缺测 |
 | `directory.list {session:S,directory:D}` | helper readdir+lstat；语义类似ls，禁止解析人类多列输出 | entries/coverage/errors，沿[LIST合同](cli-list-training-design.md)；隐藏/换行名称、partial、空目录 |
 | `directory.select/file.select {selector,candidates,coverage}` | 纯关系节点，不执行find或扫描；selector固定name/type/parent | selected/not_found/insufficient_evidence/invalid_input；单父同名唯一性沿旧合同，file只改变目标type，不复用未证明兼容的权重 |
 | `directory.create {target:{parent:D,name}}` | helper fs.mkdir，recursive=false | createdRef；父已存在、目标不存在；EEXIST/ENOTDIR/拒权不伪成功 |
@@ -39,7 +39,7 @@ Action 为 `{operation, parameters}`。资源引用从 typed control resource �
 | `entry.times.set {entry:E,atime:Time,mtime:Time}` | touch时间语义；helper futimes | 实际atime/mtime、OS精度；不声明设置ctime/birthtime；无法精确表示时按已声明精度验收 |
 | `link.create {target:{parent:D,name},targetText:PathText}` | ln -s；helper fs.symlink，create-new | lstat类型与readlink原文；targetText可相对或断链，不能误报指向对象存在 |
 
-移动中source与destination是同一条目时显式判为已满足且不调用rename；同对象不同硬链接名不能按路径相等处理。普通文件/目录/链接的身份与更新效果分别核对。跨设备失败不会自动启动另一种组合。
+移动中source与destination是同一条目时显式判为已满足且不调用rename；同对象不同硬链接名不能按路径相等处理。普通文件/目录/链接的身份与更新效果分别核对。跨设备失败不会自动启动另一种组合。OS错误与满足度终点统一沿[file.property §7.4](cli-filesystem-semantics.md#74-os-错误与满足度终点)：明确P且follow=false的ENOENT可形成`exists=false`有效观测，ENOTDIR/EACCES/EPERM/ELOOP不写false，follow=true的ENOENT分开`entryExists`与`resolvedTargetExists`，E/D/F的ENOENT按失效引用处理。
 
 ## 3. 文件读写映射
 
@@ -54,7 +54,7 @@ Action 为 `{operation, parameters}`。资源引用从 typed control resource �
 | `file.copy {source:F,destination:{parent:D,name}}` | 源fd读取，目标O_CREAT\|O_EXCL，分段复制并核对实际写入 | 源不变、目标字节；目标不覆盖，短写/错误保留已创建目标；不自动保留mode/owner/ACL/xattr，不复制设备/socket |
 | `file.link {source:F,destination:{parent:D,name}}` | ln硬链接；固定OS link，前后lstat核对 | source/destination同dev+ino且nlink变化；拒绝最终symlink及跨设备，不能只比较字节宣称同对象 |
 
-Bytes必须有原始长度，base64解码长度不符拒绝。offset/length为非负安全整数，不能越过实现可表示范围；这是typed参数边界，不训练数值溢出猜测。OS值超出现有安全数值范围以明确十进制字符串保真返回，不截断为Number。size用于Goal时采用同一精确数值合同。
+Bytes必须有原始长度，base64解码长度不符拒绝。offset/length为非负安全整数，不能越过实现可表示范围；这是typed参数边界，不训练数值溢出猜测。OS整数使用bigint读取；公开值schema明确`number-safe|string-decimal|null`，超出安全整数时以固定十进制字符串保真返回，不截断为Number，缺测为null。size、dev/ino/nlink/rdev/uid/gid及时间数值采用同一保真边界。
 
 ## 4. 内容、关系与有限组合
 
@@ -78,7 +78,9 @@ Bytes必须有原始长度，base64解码长度不符拒绝。offset/length为�
 
 ## 5. 特殊文件与平台设计终点
 
-inspect的设计类型完整列为regular/directory/symlink/character_device/block_device/fifo/socket/other；当前旧接口仍file/directory/symlink/other，迁移需保留消费者回归。Linux设备类型来自stat mode与rdev，不能按`/dev`路径推断。设备/FIFO/socket允许inspect、exists、路径关系；普通字节读写/复制/截断对这些类型明确TYPE_UNSUPPORTED，不假设seek、EOF或幂等。特殊设备状态控制需设备协议，不在本轮普通FS合同中猜测。
+inspect的设计类型完整列为regular/directory/symlink/character_device/block_device/fifo/socket/other；当前旧M0接口仍file/directory/symlink/other，兼容映射为regular→file、特殊类→other，共用同一底层OS读取。Linux设备类型来自stat mode与rdev，不能按`/dev`路径推断。设备/FIFO/socket允许inspect、exists、路径关系；普通字节读写/复制/截断对这些类型明确TYPE_UNSUPPORTED，不假设seek、EOF或幂等。特殊设备状态控制需设备协议，不在本轮普通FS合同中猜测。
+
+平台证据边界：`block_device`保留在完整联合中，但本机macOS无真实fixture时其native证据标`UNVERIFIED`，禁止用`mknod`、sudo或伪设备伪造。FIFO、socket与symlink必须在沙盒内真实构造并保留证据；mock/注入不计为native覆盖。file.property.entry.identity放在link.target之后登记，file.property.links不在本批注册。
 
 FIFO创建的后续固定映射为mkfifo(path,mode)，设备节点为mknod(path,type,mode,major,minor)，均需要专用typed effect及独立Linux fixture；socket条目由socket/bind生命周期产生，不通过touch伪造。此三类创建/流式I/O属于专用扩展设计，当前Action词表不给出可调用标签，只提供明确不支持终点。统一属性模型已覆盖其观测与拒绝；不声称本轮设计了任意Linux设备协议。
 

@@ -1,16 +1,30 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, realpath, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { createCliSession } from "../../cli.js";
 import { expectRecord } from "../../core/schema.js";
+import { interpretCliPath, pathParts, readCliPath, relativePath as lexicalRelativePath } from "../../filters/cli-path.js";
 import {
   runDirectoryListHelper,
   type DirectoryListObservation,
   type DirectoryListingResult,
 } from "./directory-listing.js";
+import {
+  readEntrySnapshot,
+  readInspectRef,
+  readPathRef,
+  runEntryInspectHelper,
+  type EntryKind,
+  type LegacyDirectoryRef,
+  type ObservedEntrySnapshot,
+  type ObservedObjectRef,
+  type PathRef,
+} from "./entry-inspection.js";
 import type { CliEffect as ObservationEffect, CliFailure, CliResult, PwdObservation } from "./observation.js";
+
+export type { ObservedEntrySnapshot } from "./entry-inspection.js";
 
 export type CliSandboxEffect = ObservationEffect | "session.write";
 type CliEffect = CliSandboxEffect;
@@ -72,7 +86,34 @@ export type SemanticDirectoryListCall = Readonly<{
   parameters: Readonly<{ session: SessionRef; directory: DirectoryRef }>;
 }>;
 
-export type SemanticCliCall = SemanticCwdGetCall | SemanticCwdSetCall | SemanticDirectoryListCall;
+export type SemanticPathResolveCall = Readonly<{
+  operation: "path.resolve";
+  parameters: Readonly<{ base: PathRef; input: string }>;
+}>;
+
+export type SemanticPathRelativeCall = Readonly<{
+  operation: "path.relative";
+  parameters: Readonly<{ from: PathRef; to: PathRef }>;
+}>;
+
+export type SemanticPathPartsCall = Readonly<{
+  operation: "path.parts";
+  parameters: Readonly<{ path: PathRef }>;
+}>;
+
+export type SemanticEntryInspectCall = Readonly<{
+  operation: "entry.inspect";
+  parameters: Readonly<{ ref: PathRef | ObservedObjectRef | LegacyDirectoryRef; followSymlinks: boolean }>;
+}>;
+
+export type SemanticCliCall =
+  | SemanticCwdGetCall
+  | SemanticCwdSetCall
+  | SemanticDirectoryListCall
+  | SemanticPathResolveCall
+  | SemanticPathRelativeCall
+  | SemanticPathPartsCall
+  | SemanticEntryInspectCall;
 
 export type CwdSetObservation = Readonly<{
   kind: "cwd.set";
@@ -87,6 +128,47 @@ export type CwdSetObservation = Readonly<{
   exitCode: 0;
 }>;
 
+export type PathResolveObservation = Readonly<{
+  kind: "path.resolve";
+  base: PathRef;
+  input: string;
+  normalized: string;
+  absolute: string;
+  parent: string;
+  inputForm: "absolute" | "relative";
+}>;
+
+export type PathRelativeObservation = Readonly<{
+  kind: "path.relative";
+  from: PathRef;
+  to: PathRef;
+  relative: string;
+}>;
+
+export type PathPartsCallObservation = Readonly<{
+  kind: "path.parts";
+  path: PathRef;
+  absolute: string;
+  parent: string;
+  name: string;
+  isRoot: boolean;
+}>;
+
+export type EntryInspectObservation = Readonly<{
+  kind: "entry.inspect";
+  ref: PathRef | ObservedObjectRef;
+  followSymlinks: boolean;
+  configuredPath: string;
+  executable: string;
+  helperPath: string;
+  argv: readonly [string, string];
+  stdin: string;
+  stdout: string;
+  stderr: string;
+  exitCode: 0;
+  snapshot: ObservedEntrySnapshot;
+}>;
+
 export type SemanticCallReceipt = Readonly<{
   call: SemanticCliCall;
   status: "succeeded" | "failed";
@@ -97,7 +179,14 @@ export type SemanticCallReceipt = Readonly<{
         status: "succeeded";
         runId: string;
         executorInvoked: true;
-        observation: PwdObservation | CwdSetObservation | DirectoryListObservation;
+        observation:
+          | PwdObservation
+          | CwdSetObservation
+          | DirectoryListObservation
+          | PathResolveObservation
+          | PathRelativeObservation
+          | PathPartsCallObservation
+          | EntryInspectObservation;
       }>
     | Readonly<{
         status: "failed";
@@ -128,6 +217,10 @@ export interface CliFilesystemSandbox {
   readonly scenarioRoot: string;
   bindSession(id: string): SessionRef;
   getSession(ref: SessionRef): SessionSnapshot;
+  bindPath(session: SessionRef, path: string): PathRef;
+  bindEntry(session: SessionRef, path: string): Promise<ObservedObjectRef>;
+  bindFile(session: SessionRef, path: string): Promise<ObservedObjectRef>;
+  bindDirectoryObject(session: SessionRef, path: string): Promise<ObservedObjectRef>;
   bindDirectory(session: SessionRef, path: string): Promise<DirectoryRef>;
   resolveDirectory(ref: DirectoryRef): Promise<Readonly<{
     ref: DirectoryRef;
@@ -146,6 +239,7 @@ type SandboxState = {
   readonly grants: readonly CliEffect[];
   readonly observation?: CliSandboxObservation;
   readonly listingObserver?: DirectoryListingObserver;
+  readonly boundRefs: Map<string, ObservedObjectRef>;
   active: boolean;
 };
 
@@ -319,7 +413,49 @@ export function readSemanticCliCall(value: unknown): SemanticCliCall {
       }),
     });
   }
-  throw new TypeError("Only cwd.get, cwd.set and directory.list are supported");
+  if (call.operation === "path.resolve") {
+    const parameters = expectRecord(call.parameters, "semantic CLI parameters");
+    exactKeys(parameters, ["base", "input"], "semantic CLI parameters");
+    return Object.freeze({
+      operation: "path.resolve",
+      parameters: Object.freeze({
+        base: readPathRef(parameters.base),
+        input: readCliPath(parameters.input, "path text"),
+      }),
+    });
+  }
+  if (call.operation === "path.relative") {
+    const parameters = expectRecord(call.parameters, "semantic CLI parameters");
+    exactKeys(parameters, ["from", "to"], "semantic CLI parameters");
+    return Object.freeze({
+      operation: "path.relative",
+      parameters: Object.freeze({
+        from: readPathRef(parameters.from),
+        to: readPathRef(parameters.to),
+      }),
+    });
+  }
+  if (call.operation === "path.parts") {
+    const parameters = expectRecord(call.parameters, "semantic CLI parameters");
+    exactKeys(parameters, ["path"], "semantic CLI parameters");
+    return Object.freeze({
+      operation: "path.parts",
+      parameters: Object.freeze({ path: readPathRef(parameters.path) }),
+    });
+  }
+  if (call.operation === "entry.inspect") {
+    const parameters = expectRecord(call.parameters, "semantic CLI parameters");
+    exactKeys(parameters, ["ref", "followSymlinks"], "semantic CLI parameters");
+    if (typeof parameters.followSymlinks !== "boolean") throw new TypeError("entry.inspect followSymlinks must be an explicit boolean");
+    return Object.freeze({
+      operation: "entry.inspect",
+      parameters: Object.freeze({
+        ref: readInspectRef(parameters.ref),
+        followSymlinks: parameters.followSymlinks,
+      }),
+    });
+  }
+  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts and entry.inspect are supported");
 }
 
 function snapshot(state: SandboxState, ref: SessionRef): SessionSnapshot {
@@ -364,6 +500,152 @@ function failureCode(error: unknown): string {
   return "EINVAL";
 }
 
+function sessionOfRef(ref: PathRef | ObservedObjectRef | LegacyDirectoryRef): SessionRef {
+  return Object.freeze({ kind: "cli.session", scenarioId: ref.scenarioId, sessionId: ref.sessionId });
+}
+
+function sessionOfCall(call: SemanticCliCall): SessionRef {
+  if (call.operation === "cwd.get" || call.operation === "cwd.set" || call.operation === "directory.list") {
+    return call.parameters.session;
+  }
+  if (call.operation === "path.resolve") return sessionOfRef(call.parameters.base);
+  if (call.operation === "path.relative") return sessionOfRef(call.parameters.from);
+  if (call.operation === "path.parts") return sessionOfRef(call.parameters.path);
+  return sessionOfRef(call.parameters.ref);
+}
+
+function sameSession(state: SandboxState, before: SessionSnapshot, right: PathRef | ObservedObjectRef | LegacyDirectoryRef): boolean {
+  return before.id === right.sessionId && state.scenarioId === right.scenarioId;
+}
+
+function sameIdentity(left: ObservedObjectRef["identity"], right: ObservedObjectRef["identity"]): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameObservedRef(left: ObservedObjectRef, right: ObservedObjectRef): boolean {
+  return left.kind === right.kind
+    && left.scenarioId === right.scenarioId
+    && left.sessionId === right.sessionId
+    && left.type === right.type
+    && sameIdentity(left.identity, right.identity)
+    && left.sourceRun === right.sourceRun
+    && left.sessionRevision === right.sessionRevision
+    && left.absolutePath === right.absolutePath;
+}
+
+function identityMatches(value: number | string | null, observed: bigint | null): boolean {
+  if (value === null || observed === null) return false;
+  return BigInt(value) === observed;
+}
+
+async function physicalEntryCandidate(state: SandboxState, configuredPath: string): Promise<string> {
+  if (configuredPath === state.scenarioRoot) return configuredPath;
+  const finalComponent = basename(configuredPath);
+  if (configuredPath.endsWith("/") || finalComponent === "." || finalComponent === "..") {
+    try {
+      const physical = await realpath(configuredPath);
+      if (!within(state.scenarioRoot, physical)) {
+        throw Object.assign(new TypeError("Entry path resolves outside the scenario root"), { code: "SANDBOX_ESCAPE" });
+      }
+      return configuredPath;
+    } catch (error) {
+      const code = failureCode(error);
+      if (code === "SANDBOX_ESCAPE") throw error;
+      if (code !== "ENOENT" && code !== "ENOTDIR") return configuredPath;
+    }
+  }
+  let ancestor = dirname(configuredPath);
+  while (true) {
+    try {
+      const physical = await realpath(ancestor);
+      if (!within(state.scenarioRoot, physical)) {
+        throw Object.assign(new TypeError("Entry ancestor resolves outside the scenario root"), { code: "SANDBOX_ESCAPE" });
+      }
+      return configuredPath;
+    } catch (error) {
+      const code = failureCode(error);
+      if (code === "SANDBOX_ESCAPE") throw error;
+      if (code !== "ENOENT") return configuredPath;
+    }
+    const parent = dirname(ancestor);
+    if (parent === ancestor) {
+      throw Object.assign(new TypeError("Entry path has no resolvable ancestor inside the scenario root"), { code: "SANDBOX_ESCAPE" });
+    }
+    ancestor = parent;
+  }
+}
+
+async function followTargetWithin(state: SandboxState, configuredPath: string, snapshot: Awaited<ReturnType<typeof readEntrySnapshot>>): Promise<void> {
+  if (snapshot.kind !== "symlink" || snapshot.linkTarget === null) return;
+  const target = isAbsolute(snapshot.linkTarget)
+    ? snapshot.linkTarget
+    : `${dirname(configuredPath)}/${snapshot.linkTarget}`;
+  await physicalEntryCandidate(state, target);
+  try {
+    const physical = await realpath(target);
+    if (!within(state.scenarioRoot, physical)) {
+      throw Object.assign(new TypeError("Followed entry resolves outside the scenario root"), { code: "SANDBOX_ESCAPE" });
+    }
+  } catch (error) {
+    const code = failureCode(error);
+    if (code === "SANDBOX_ESCAPE") throw error;
+    if (code === "ENOENT" || code === "ELOOP" || code === "EACCES" || code === "EPERM" || code === "ENOTDIR") return;
+    throw error;
+  }
+}
+
+async function observedObjectPath(
+  state: SandboxState,
+  configuredPath: string,
+  observed: Awaited<ReturnType<typeof readEntrySnapshot>>,
+): Promise<string> {
+  if (observed.kind === "symlink") {
+    const parent = await realpath(dirname(configuredPath));
+    const physical = join(parent, basename(configuredPath));
+    if (!within(state.scenarioRoot, parent) || !within(state.scenarioRoot, physical)) {
+      throw Object.assign(new TypeError("Entry path escapes the scenario root"), { code: "SANDBOX_ESCAPE" });
+    }
+    return physical;
+  }
+  const physical = await realpath(configuredPath);
+  if (!within(state.scenarioRoot, physical)) {
+    throw Object.assign(new TypeError("Entry path escapes the scenario root"), { code: "SANDBOX_ESCAPE" });
+  }
+  return physical;
+}
+
+function assertObservedRefType(ref: ObservedObjectRef, kind: EntryKind): void {
+  if (ref.kind === "cli.file" && kind !== "regular") throw Object.assign(new TypeError("File reference no longer names a regular file"), { code: "STALE_REFERENCE" });
+  if (ref.kind === "cli.directory" && kind !== "directory") throw Object.assign(new TypeError("Directory reference no longer names a directory"), { code: "STALE_REFERENCE" });
+  if (ref.type !== kind) throw Object.assign(new TypeError("Observed reference type no longer matches"), { code: "STALE_REFERENCE" });
+}
+
+function validateObservedRef(
+  state: SandboxState,
+  before: SessionSnapshot,
+  ref: ObservedObjectRef,
+  current: Awaited<ReturnType<typeof readEntrySnapshot>>,
+): void {
+  const bound = state.boundRefs.get(ref.sourceRun);
+  if (bound === undefined || !sameObservedRef(bound, ref)) {
+    throw Object.assign(new TypeError("Observed reference was not issued by this sandbox"), { code: "binding_identity_missing" });
+  }
+  if (before.revision !== ref.sessionRevision) {
+    throw Object.assign(new TypeError("Observed reference belongs to an older session revision"), { code: "STALE_REFERENCE" });
+  }
+  if (ref.identity.dev === null || ref.identity.ino === null) {
+    throw Object.assign(new TypeError("Observed reference has no identity"), { code: "binding_identity_missing" });
+  }
+  if (current.errno !== null) throw Object.assign(new TypeError(`Observed reference lookup failed with ${current.errno}`), { code: current.errno });
+  if (current.entryExists !== true || current.kind === null) {
+    throw Object.assign(new TypeError("Observed reference no longer exists"), { code: "ENOENT" });
+  }
+  assertObservedRefType(ref, current.kind);
+  if (!identityMatches(ref.identity.dev, current.dev) || !identityMatches(ref.identity.ino, current.ino)) {
+    throw Object.assign(new TypeError("Observed reference identity changed"), { code: "STALE_REFERENCE" });
+  }
+}
+
 function failedReceipt(
   call: SemanticCliCall,
   sessionBefore: SessionSnapshot,
@@ -378,7 +660,7 @@ function failedReceipt(
     call,
     status: "failed",
     session_before: sessionBefore,
-    session_after: snapshot(state, { kind: "cli.session", scenarioId: call.parameters.session.scenarioId, sessionId: call.parameters.session.sessionId }),
+    session_after: snapshot(state, sessionOfCall(call)),
     execution: Object.freeze({
       status: "failed",
       runId,
@@ -517,6 +799,136 @@ async function executeList(state: SandboxState, call: SemanticDirectoryListCall,
   });
 }
 
+function executePathResolve(state: SandboxState, call: SemanticPathResolveCall, before: SessionSnapshot): SemanticCallReceipt {
+  const runId = randomUUID();
+  if (!sameSession(state, before, call.parameters.base)) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "Path reference must belong to the selected session and scenario", "validate", false);
+  }
+  const interpreted = interpretCliPath(call.parameters.base.path, { kind: "path", path: call.parameters.input });
+  const observation: PathResolveObservation = Object.freeze({
+    kind: "path.resolve",
+    base: call.parameters.base,
+    input: call.parameters.input,
+    normalized: interpreted.normalized,
+    absolute: interpreted.absolute,
+    parent: interpreted.parent,
+    inputForm: interpreted.inputForm,
+  });
+  return Object.freeze({
+    call,
+    status: "succeeded",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+  });
+}
+
+function executePathRelative(state: SandboxState, call: SemanticPathRelativeCall, before: SessionSnapshot): SemanticCallReceipt {
+  const runId = randomUUID();
+  if (!sameSession(state, before, call.parameters.from) || !sameSession(state, before, call.parameters.to)) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "Both path references must belong to the selected session and scenario", "validate", false);
+  }
+  const observation: PathRelativeObservation = Object.freeze({
+    kind: "path.relative",
+    from: call.parameters.from,
+    to: call.parameters.to,
+    relative: lexicalRelativePath(call.parameters.from.path, call.parameters.to.path),
+  });
+  return Object.freeze({
+    call,
+    status: "succeeded",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+  });
+}
+
+function executePathParts(state: SandboxState, call: SemanticPathPartsCall, before: SessionSnapshot): SemanticCallReceipt {
+  const runId = randomUUID();
+  if (!sameSession(state, before, call.parameters.path)) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "Path reference must belong to the selected session and scenario", "validate", false);
+  }
+  const parts = pathParts(call.parameters.path.path);
+  const observation: PathPartsCallObservation = Object.freeze({
+    kind: "path.parts",
+    path: call.parameters.path,
+    absolute: parts.absolute,
+    parent: parts.parent,
+    name: parts.name,
+    isRoot: parts.isRoot,
+  });
+  return Object.freeze({
+    call,
+    status: "succeeded",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+  });
+}
+
+async function executeEntryInspect(state: SandboxState, call: SemanticEntryInspectCall, before: SessionSnapshot): Promise<SemanticCallReceipt> {
+  const runId = randomUUID();
+  const ref = call.parameters.ref;
+  if (!sameSession(state, before, ref)) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "Inspect reference must belong to the selected session and scenario", "validate", false);
+  }
+  const missing = (["filesystem.read", "process.exec"] as const)
+    .filter(effect => !before.grantedEffects.includes(effect));
+  if (missing.length) {
+    return failedReceipt(call, before, state, runId, "EFFECT_DENIED", `Missing CLI effect grant: ${missing.join(", ")}`, "authorize", false);
+  }
+  if (ref.kind === "cli.directory" && !("absolutePath" in ref)) {
+    return failedReceipt(call, before, state, runId, "binding_identity_missing", "Legacy directory references need observed identity for entry.inspect", "authorize", false);
+  }
+
+  const referencedPath = ref.kind === "cli.path" ? ref.path : ref.absolutePath;
+  let configuredPath: string;
+  let preflight: Awaited<ReturnType<typeof readEntrySnapshot>>;
+  try {
+    configuredPath = await physicalEntryCandidate(state, referencedPath);
+    preflight = await readEntrySnapshot(configuredPath, false);
+    if (ref.kind !== "cli.path") {
+      validateObservedRef(state, before, ref, preflight);
+    }
+    if (call.parameters.followSymlinks) await followTargetWithin(state, configuredPath, preflight);
+  } catch (error) {
+    return failedReceipt(call, before, state, runId, failureCode(error), error instanceof Error ? error.message : String(error), "authorize", false);
+  }
+
+  const result = await runEntryInspectHelper({
+    absolutePath: configuredPath,
+    followSymlinks: call.parameters.followSymlinks,
+  });
+  if (!result.ok) return failedReceipt(call, before, state, runId, result.error.code, result.error.message, "observe", true);
+  if (result.observation.snapshot.errno !== null && result.observation.snapshot.errno !== "ENOENT") {
+    return failedReceipt(call, before, state, runId, result.observation.snapshot.errno, `Entry inspection failed with ${result.observation.snapshot.errno}`, "observe", true);
+  }
+  if (ref.kind !== "cli.path" && result.observation.snapshot.errno === "ENOENT") {
+    return failedReceipt(call, before, state, runId, "ENOENT", "Observed reference target resolution failed", "observe", true);
+  }
+  const observation: EntryInspectObservation = Object.freeze({
+    kind: "entry.inspect",
+    ref,
+    followSymlinks: call.parameters.followSymlinks,
+    configuredPath,
+    executable: result.observation.executable,
+    helperPath: result.observation.helperPath,
+    argv: result.observation.argv,
+    stdin: result.observation.stdin,
+    stdout: result.observation.stdout,
+    stderr: result.observation.stderr,
+    exitCode: 0,
+    snapshot: result.observation.snapshot,
+  });
+  return Object.freeze({
+    call,
+    status: "succeeded",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+  });
+}
+
 export async function executeSemanticCliCall(
   sandbox: CliFilesystemSandbox,
   value: unknown,
@@ -526,6 +938,47 @@ export async function executeSemanticCliCall(
     throw new TypeError("A filesystem sandbox is required");
   }
   return sandbox.execute(value);
+}
+
+async function bindObservedObject(
+  state: SandboxState,
+  sessionRef: SessionRef,
+  path: string,
+  expected: "entry" | "file" | "directory",
+): Promise<ObservedObjectRef> {
+  if (!state.active) throw new Error("Filesystem sandbox is closed");
+  const session = snapshot(state, sessionRef);
+  if (!session.grantedEffects.includes("filesystem.read")) {
+    throw Object.assign(new TypeError("Binding an observed object needs filesystem.read"), { code: "EFFECT_DENIED" });
+  }
+  const configuredPath = isAbsolute(path)
+    ? nonEmpty(path, "entry path")
+    : `${session.cwd}/${relativePath(path, "entry path", true)}`;
+  const candidate = await physicalEntryCandidate(state, configuredPath);
+  const observed = await readEntrySnapshot(candidate, false);
+  if (observed.errno !== null) throw Object.assign(new TypeError(`Entry binding failed with ${observed.errno}`), { code: observed.errno });
+  if (observed.entryExists !== true || observed.kind === null || observed.dev === null || observed.ino === null) {
+    throw Object.assign(new TypeError("Entry binding needs an existing entry with identity"), { code: "binding_identity_missing" });
+  }
+  if (expected === "file" && observed.kind !== "regular") throw Object.assign(new TypeError("File reference must name a regular file"), { code: "NOT_REGULAR_FILE" });
+  if (expected === "directory" && observed.kind !== "directory") throw Object.assign(new TypeError("Directory reference must name a directory"), { code: "NOT_DIRECTORY" });
+  const absolutePath = await observedObjectPath(state, candidate, observed);
+  const sourceRun = randomUUID();
+  const ref: ObservedObjectRef = Object.freeze({
+    kind: expected === "file" ? "cli.file" : expected === "directory" ? "cli.directory" : "cli.entry",
+    scenarioId: state.scenarioId,
+    sessionId: session.id,
+    type: observed.kind,
+    identity: Object.freeze({
+      dev: observed.dev <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(observed.dev) : observed.dev.toString(),
+      ino: observed.ino <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(observed.ino) : observed.ino.toString(),
+    }),
+    sourceRun,
+    sessionRevision: session.revision,
+    absolutePath,
+  });
+  state.boundRefs.set(sourceRun, ref);
+  return ref;
 }
 
 export async function createCliFilesystemSandbox(options: {
@@ -568,6 +1021,7 @@ export async function createCliFilesystemSandbox(options: {
       grantedEffects: Object.freeze([...session.grantedEffects]),
     })])),
     grants: Object.freeze(recipe.sessions.flatMap(session => session.grantedEffects)),
+    boundRefs: new Map(),
     ...(input.observation === undefined ? {} : { observation: input.observation as CliSandboxObservation }),
     ...(input.listingObserver === undefined ? {} : { listingObserver: input.listingObserver as DirectoryListingObserver }),
     active: true,
@@ -603,6 +1057,26 @@ export async function createCliFilesystemSandbox(options: {
     getSession(ref: SessionRef): SessionSnapshot {
       return snapshot(state, ref);
     },
+    bindPath(sessionRef: SessionRef, path: string): PathRef {
+      const session = snapshot(state, sessionRef);
+      const value = nonEmpty(path, "path");
+      if (!isAbsolute(value) || value.includes("\0")) throw new TypeError("path reference must be an explicit absolute path without NUL");
+      return Object.freeze({
+        kind: "cli.path",
+        scenarioId: state.scenarioId,
+        sessionId: session.id,
+        path: value,
+      });
+    },
+    bindEntry(sessionRef: SessionRef, path: string): Promise<ObservedObjectRef> {
+      return bindObservedObject(state, sessionRef, path, "entry");
+    },
+    bindFile(sessionRef: SessionRef, path: string): Promise<ObservedObjectRef> {
+      return bindObservedObject(state, sessionRef, path, "file");
+    },
+    bindDirectoryObject(sessionRef: SessionRef, path: string): Promise<ObservedObjectRef> {
+      return bindObservedObject(state, sessionRef, path, "directory");
+    },
     async bindDirectory(sessionRef: SessionRef, path: string): Promise<DirectoryRef> {
       const session = snapshot(state, sessionRef);
       const relativeValue = relativePath(path, "directory path", true);
@@ -621,10 +1095,14 @@ export async function createCliFilesystemSandbox(options: {
     async execute(value: unknown): Promise<SemanticCallReceipt> {
       if (!state.active) throw new Error("Filesystem sandbox is closed");
       const call = readSemanticCliCall(value);
-      const before = snapshot(state, call.parameters.session);
+      const before = snapshot(state, sessionOfCall(call));
       if (call.operation === "cwd.get") return executeGet(state, call, before);
       if (call.operation === "cwd.set") return executeSet(state, call, before);
-      return executeList(state, call, before);
+      if (call.operation === "directory.list") return executeList(state, call, before);
+      if (call.operation === "path.resolve") return executePathResolve(state, call, before);
+      if (call.operation === "path.relative") return executePathRelative(state, call, before);
+      if (call.operation === "path.parts") return executePathParts(state, call, before);
+      return executeEntryInspect(state, call, before);
     },
     async cleanup() {
       if (!state.active) return Object.freeze({ removed: false, scenarioRoot: state.scenarioRoot });

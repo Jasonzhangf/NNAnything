@@ -46,7 +46,7 @@
     "build": "node scripts/check-layout.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs",
-  "test:full": "npm run build && node scripts/test-full.mjs",
+    "test:full": "npm run build && node scripts/test-full.mjs",
     "demo": "npm run build && node playground/common/demo.mjs",
     "demo:browser": "npm run build && node playground/browser/demo.mjs",
     "demo:sampling": "npm run build && node playground/sampling/demo.mjs",
@@ -57,7 +57,8 @@
     "demo:path-training": "npm run build && node playground/cli/path-resolve/train.mjs",
     "demo:command-training": "npm run build && node playground/cli/command-learning/train.mjs",
     "build:extension": "npm run build && node scripts/build-extension.mjs",
-    "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit"
+    "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit",
+    "bump-version": "node scripts/bump-version.mjs"
   },
   "dependencies": {
     "flowed": "1.15.0"
