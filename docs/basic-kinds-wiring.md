@@ -1,5 +1,20 @@
 # DOM 基础种类分层连线
 
+## 最小语义单元与验收
+
+四元素定义沿 [总体设计 1.1](design.md#11-结构化语义的目标与状态推理)，设计准入沿项目本地设计 Skill。此处只声明第一层分类单元的领域映射，不增加训练头或环境操作。
+
+| 元素 | 当前单元的显式含义 |
+| --- | --- |
+| Goal | 对给定候选槽位判断一个基础种类，保留判断状态、缺测与路径；不是点击目标或第二层帖子语义 |
+| satisfactionThreshold | 固定为100；单项输出符合确认监督及当前合同才达标。实际satisfaction为100或0，证据不足单列未知；分类分数不等于满足度，页面未知比例也不是准确率 |
+| State | 同帧 CandidateBatch、许可测量及缺测、显式配置和本次 profile；nodeRef关联对象，原class/id/正文不进入学生输入 |
+| Action | 执行既有 wire 提取和数值分类，产生按原槽位保序的类别、判断状态及证据，增加知识，不修改网页 |
+
+训练期从目标标签与达标条件反推所需辨别事实、wire及确认监督；运行仅使用既定输入关系和本次参数。候选通过不证明标签正确，只有独立复核和监督比较能支持正确性。固定 Goal/satisfactionThreshold 不强造学生输入；若后续任务目标或达标条件改变正确输出，须先修改领域I/O及区分样本，不能隐式复用本单元。
+
+当前外层单节点图为 `dom-basic-kinds.graph.json`；overlay沿 `observe → qualify → classify → present` 单入口单出口复用它。排除、未知、冲突和成功都保留明确结果槽位。wire承担可辨性，缺测区间防止把未测事实当否定，评分及间隔区分竞争结果；移除这些会破坏对应合同。独立升级流程统一引用 [模型演进合同](model-evolution.md) 及其图，不复制采用规则。当前使用时自动采样、统一独立评价、条件自动切换及冲突裁决接线尚未实现；文件化权重只解决本次资源读取，不能算作升级链已闭合。
+
 ## 可选优先级拓扑
 
 `profile.topology` 缺省或为 `family_leaf_v1` 时使用下文原两阶段路径；旧 profile 不被自动改写。`priority_staged_v1` 使用四阶段：direct_interaction（input/select/button/link）→ own_content（text/image/video/audio）→ meaningful_structure（list/listitem/container）→ redundant_ignore（ignore）。内部图与实验边界见 [优先级实验](priority-classifier.md)。
@@ -80,6 +95,8 @@ flowchart TD
 
 关系与 ignore 扩展只增加显式组合：`neutral_single_child`、`neutral_multi_child` 与 `neutral_same_rect_wrapper` 要求中性容器；same-rect 组合还要求唯一直接子元素、无自身非格式直接文本、无自身 CSS 外观且 `singleChildSameRect=true`。`composite_descendant_text` 区分自身无文本但后代有文本的中性容器。`own_pointer_boundary`、`svg_internal_part` 只提供支持证据，不证明监听器归属。`empty_pointer_extent` 与 `empty_border_extent` 是布尔条件的连续乘积，`aspectRatio` 作为 [0,1] 因子参与；任一操作数缺测且没有已观测 0 时结果为 null，已观测 0 因子则明确为 0。
 
+`neutral_multi_child_shape`复用已有中性多子判定`g=neutral_multi_child`和已测量的`a=aspectRatio`：`g==0`或`a==0`时为0；`g==null`或`a==null`时为null；否则为`a`。它只登记`leafWeights.list.neutral_multi_child_shape`一个按名称迁移的0地址，不增加测量、支撑门禁、family、container或ignore地址，也不以阈值定类；几何只作为已有list评分的加权线索。
+
 每个目标 c 有稀疏权重 w。初始权重手写，范围 [-1,1]。不加隐式 bias。对每个 wire x：
 
 ```text
@@ -105,7 +122,11 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 
 `div_repeated_child_extent` 把已有正面积子元素计数用于 list/container 的细类评分。它仅适用于无明确 role、非可编辑的中性 div，组合重复几何证据与 `min(positiveAreaChildCount,16)/16`。16 是把计数限定到 [0,1] 的归一化尺度，不是列表长度门限。零计数或明确没有重复时为 0，适用但缺测时保留 null；新地址只注册到 list 和 container，按名称迁移为 0。不新增输入字段，也不改变原生 ul/ol 或 role=list 的路径。小列表仍可得到其他 wire 的支持。
 
+中性子元素计数增量（源码合同；拟合与候选采用待验收）：`neutral_child_multiplicity` 把既有 `positiveAreaChildCount` 转成连续计数支持 `max(0,(n-1)/n)`，再与既有 `neutralContainer` 做三值连续组合。`n` 已测且不大于 1 时为 0，已测且至少为 2 时输出 `(n-1)/n`，适用但计数缺测时保留 null；中性条件明确为 0 时整体为 0。零面积直接子元素不计入 `n`，不使用 `childElementCount` 的特定值定类。该 wire 只登记 `leafWeights.list` 与 `leafWeights.container` 两个按名称迁移的 0 地址，不登记 structure family，不加入 `LEAF_SUPPORT_WIRES`，因此子元素较多不能单独打开 list。它不改变 `div_multi_child`、`neutral_multi_child`、peers、heterogeneity 或其他旧 wire 的含义，不新增采集器、属性或 schema。表示见证使用三条开发向量的新值 1/2、5/6、3/4，打破旧 peers 与 heterogeneity 一维向量的 1/3+2/3 凸组合；该见证只证明当前表示可分辨，不是候选权重。类别的实际阈值、旧 profile 兼容和页面回归仍须由公开 consumer 与真实拟合确认。
+
 `div_repeated_children` 另在 `text` family 与 `text` leaf 登记两个零地址。它们只提供可训练的相反证据：中性 div 的直接文本若仅由重复子组之间的分隔符构成，显式学到的负系数可以降低 text 分数；默认系数仍为 0，不直接排除、不改门限，也不改变普通文本叶或原生段落。普通 div 叶的重复几何已测为 false 时该 wire 为 0；非 div 的段落为 0；适用但缺测时保留 null，不能把缺测补成反例。是否最终判为 list 仍由完整评分与其他显式地址决定。
+
+无href交互锚点增量（待实现与拟合验收）：`anchor_pointer_boundary`组合既有事实：tag=a、规范化role为空、hrefPresent=false、contentEditable=false、pointerCursor=true、parentPointerCursor=false。它只提供button支撑及control/button评分，不扩展neutralContainer，不直接决定button，不把DOM的tabIndex默认值当成真实键盘焦点。适用的nullable测量缺失时保留null；role沿既有CandidateBatch的显式字符串／无role合同，不新增学生字段。新增`familyWeights.control`与`leafWeights.button`的该wire地址按名称迁移为0，保留旧系数和门限；旧420行前向与旧黄金须实际回归，不能仅凭补零就宣称任意输入输出恒定。实际按钮监督来自原生点击打开统计面板，而非class、文字或单一pointer样式。
 
 该区间描述未知 wire 在 [0,1] 变化时的分数边界。它不是统计置信区间，也不是贝叶斯后验。相关 wire 的独立边界可能较宽，初版允许保守弃判。
 

@@ -293,3 +293,87 @@ test("diagnostic callback errors propagate without conversion", () => {
     /diagnostic callback failure/,
   );
 });
+
+test("diagnostic keeps the CSS point and reports the supplemental native witness", () => {
+  const viewport = { x: 0, y: 0, width: 1280, height: 720 };
+  const targetRect = { x: 132.5, y: 719.828125, width: 694, height: 241.1875 };
+  const root = fixtureElement("root", "HTML", viewport);
+  const target = fixtureElement("target", "DIV", targetRect, root, null, {
+    namespaceURI: "http://www.w3.org/1999/xhtml",
+    getAttribute: key => key === "tabindex" ? "0" : null,
+    hasAttribute: key => key === "tabindex",
+  });
+  const descendant = fixtureElement("descendant", "SPAN", {
+    x: 200,
+    y: targetRect.y,
+    width: 400,
+    height: targetRect.height,
+  }, target, "readable");
+  descendant.namespaceURI = "http://www.w3.org/1999/xhtml";
+  target.children = [descendant];
+  target.childNodes = [descendant];
+  target.childElementCount = 1;
+  root.children = [target];
+  root.childNodes = [target];
+  root.childElementCount = 1;
+  const style = {
+    ...baseStyle,
+    boxShadow: "none",
+    textShadow: "none",
+    borderImageSource: "none",
+    outlineStyle: "none",
+    outlineWidth: "0px",
+  };
+  const registry = createStableNodeRefRegistry("diagnostic-boundary");
+  const targetRef = stableNodeRefFor(registry, target);
+  const events = [];
+  const snapshot = observeLiveDom({
+    document: {
+      documentElement: root,
+      body: root,
+      baseURI: "https://fixture.test/boundary",
+      elementsFromPoint: (x, y) => {
+        if (x === 0 && y === 0) return [root];
+        if (y === 719) return [descendant, target, root];
+        return [];
+      },
+    },
+    window: {
+      innerWidth: viewport.width,
+      innerHeight: viewport.height,
+      devicePixelRatio: 1,
+      visualViewport: { scale: 1, offsetLeft: 0, offsetTop: 0 },
+      getComputedStyle: (element, pseudo) => {
+        if (pseudo) return { content: "none" };
+        return element === target
+          ? { ...style, backgroundColor: "rgba(0, 0, 0, 0)" }
+          : style;
+      },
+    },
+    registry,
+    excludeRoot: null,
+    snapshotRef: "diagnostic-boundary",
+    documentRef: "fixture",
+    diagnostic: {
+      selectedRefs: new Set([targetRef]),
+      callback: event => events.push(event),
+    },
+  });
+  const probe = events.find(event => event.phase === "point_probe" && event.targetRef === targetRef);
+  assert.ok(probe, JSON.stringify(events));
+  const visibleMidpoint = {
+    x: targetRect.x + targetRect.width / 2,
+    y: targetRect.y + (viewport.height - targetRect.y) / 2,
+  };
+  assert.deepEqual(probe.point, visibleMidpoint);
+  assert.deepEqual(probe.nativePoint, { x: targetRect.x + targetRect.width / 2, y: viewport.height - 1 });
+  const final = events.find(event => event.phase === "final" && event.targetRef === targetRef);
+  assert.equal(final.foreground, "visible", JSON.stringify(final));
+  assert.deepEqual(final.exposedRects, [{
+    x: targetRect.x,
+    y: targetRect.y,
+    width: targetRect.width,
+    height: viewport.height - targetRect.y,
+  }]);
+  assert.equal(snapshot.observation.nodes.find(node => node.nodeRef === targetRef).foreground, "visible");
+});

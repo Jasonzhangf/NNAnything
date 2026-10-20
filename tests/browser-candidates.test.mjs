@@ -316,3 +316,154 @@ test("exposed rectangles select only proven visible fragments inside Focus", () 
   assert.deepEqual(hiddenFocus.slots[0].reasons, ["outside_focus"]);
   assert.deepEqual(checkForeground(split, { region: { x: 0, y: 0, width: 10, height: 10 } }).candidateRefs, ["n"]);
 });
+
+test("saved currentView facts exclude only qualified neutral surfaces through the public candidate workflow", async () => {
+  const currentView = {
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+  };
+  const box = { x: 10, y: 10, width: 100, height: 40 };
+  const observationValue = {
+    viewport: { x: 0, y: 0, width: 320, height: 200 },
+    nodes: [
+      {
+        nodeRef: "root",
+        parentRef: null,
+        tag: "div",
+        role: "main",
+        rect: { x: 0, y: 0, width: 320, height: 200 },
+        fragments: [{ x: 0, y: 0, width: 320, height: 200 }],
+        clippedRect: { x: 0, y: 0, width: 320, height: 200 },
+      },
+      {
+        nodeRef: "transparent-div",
+        parentRef: "root",
+        tag: "div",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView,
+      },
+      {
+        nodeRef: "transparent-object",
+        parentRef: "transparent-div",
+        tag: "object",
+        role: null,
+        rect: box,
+        fragments: [box],
+        clippedRect: box,
+        currentView,
+      },
+      {
+        nodeRef: "focused-descendant",
+        parentRef: "transparent-div",
+        tag: "input",
+        role: null,
+        rect: { x: 20, y: 20, width: 40, height: 20 },
+        fragments: [{ x: 20, y: 20, width: 40, height: 20 }],
+        clippedRect: { x: 20, y: 20, width: 40, height: 20 },
+      },
+      {
+        nodeRef: "legacy-node",
+        parentRef: "root",
+        tag: "div",
+        role: null,
+        rect: { x: 150, y: 10, width: 60, height: 40 },
+        fragments: [{ x: 150, y: 10, width: 60, height: 40 }],
+        clippedRect: { x: 150, y: 10, width: 60, height: 40 },
+      },
+    ],
+  };
+
+  const result = await runCandidates({ observationValue });
+  assert.equal(result.status, "completed");
+  const slots = byRef(result.outputEvent.payload);
+  for (const ref of ["transparent-div", "transparent-object"]) {
+    assert.equal(slots.get(ref).status, "filtered_out", ref);
+    assert.deepEqual(slots.get(ref).reasons, ["current_view_nonrendered"], ref);
+  }
+  assert.equal(slots.get("focused-descendant").status, "ok");
+  assert.equal(slots.get("legacy-node").status, "ok");
+
+  const loaded = loadSavedObservation(observationValue);
+  assert.deepEqual(loaded.nodes.find(node => node.nodeRef === "transparent-div").currentView, currentView);
+});
+
+function currentViewObservation(overrides = {}, omitCurrentView = false) {
+  const currentView = {
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+    ...overrides.currentView,
+  };
+  const observation = foregroundObservation({
+    tag: "div",
+    role: null,
+    ...overrides,
+    ...(omitCurrentView ? {} : { currentView }),
+  });
+  if (omitCurrentView) delete observation.nodes[0].currentView;
+  return observation;
+}
+
+test("current-view qualification preserves every required human interaction and unknown case", () => {
+  const cases = [
+    ["actual focus", { currentView: { activeElementFocus: true } }],
+    ["focus-within", { currentView: { focusWithin: true } }],
+    ["native keyboard focus", { currentView: { nativeTabIndex: 0 } }],
+    ["editable", { currentView: { contentEditable: true } }],
+    ["known role", { role: "status" }],
+    ["own label", { currentView: { ownLabelPresent: true } }],
+    ["direct text", { currentView: { directTextPresent: true } }],
+    ["positive opacity", { currentView: { zeroOpacityInCurrentPaintPath: false } }],
+    ["pointer-events none alone", { currentView: { zeroOpacityInCurrentPaintPath: false, pointerEventsNone: true } }],
+    ["native input", { tag: "input" }],
+    ["unknown facts", { currentView: {
+      zeroOpacityInCurrentPaintPath: null,
+      pointerEventsNone: null,
+      activeElementFocus: null,
+      focusWithin: null,
+      nativeTabIndex: null,
+      contentEditable: null,
+      directTextPresent: null,
+      ownLabelPresent: null,
+      topLayer: null,
+    } }],
+    ["missing record", {}],
+  ];
+
+  for (const [label, overrides] of cases) {
+    const batch = checkForeground(currentViewObservation(overrides, label === "missing record"));
+    assert.deepEqual(batch.candidateRefs, ["n"], label);
+    assert.equal(
+      batch.slots[0].reasons.includes("current_view_nonrendered"),
+      false,
+      label,
+    );
+  }
+});
+
+test("partial current-view records preserve missing facts without filtering or rejecting the snapshot", () => {
+  const complete = currentViewObservation();
+  for (const field of Object.keys(complete.nodes[0].currentView)) {
+    const partial = currentViewObservation();
+    delete partial.nodes[0].currentView[field];
+    const loaded = loadSavedObservation(partial);
+    assert.equal(Object.hasOwn(loaded.nodes[0].currentView, field), false, field);
+    if (field !== "topLayer") assert.deepEqual(checkForeground(partial).candidateRefs, ["n"], field);
+  }
+});

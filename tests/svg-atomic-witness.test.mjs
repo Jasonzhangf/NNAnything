@@ -73,7 +73,9 @@ function buildAtomicSvgPublicFixture({
   targetRect = { x: 104, y: 104, width: 16, height: 16 },
   targetTag = "path",
   targetNamespace = SVG_NAMESPACE,
-  targetAttrs = { d: "M4 4H20V20H4Z" },
+  targetAttrs = targetTag === "use"
+    ? { href: "#local-symbol" }
+    : { d: "M4 4H20V20H4Z" },
   targetChildren = 0,
   targetPseudoContent = "none",
   rootRect = { x: 100, y: 100, width: 32, height: 32 },
@@ -82,9 +84,17 @@ function buildAtomicSvgPublicFixture({
   wrapForeignObject = false,
   includeSibling = true,
   rootParentStyle = null,
+  rootClientRects = null,
   clipPathRect = null,
   duplicateClipPathRect = null,
   clipPathUnits = null,
+  localUseSymbol = targetTag === "use"
+    ? {
+      id: "local-symbol",
+      children: [{ tag: "path", attrs: { d: "M-20 -20H60V60H-20Z" } }],
+    }
+    : null,
+  duplicateLocalUseSymbol = null,
 } = {}) {
   const document = {
     documentElement: null,
@@ -191,6 +201,9 @@ function buildAtomicSvgPublicFixture({
       height: String(rootRect.height),
     },
   });
+  if (rootClientRects !== null) {
+    root.getClientRects = () => rootClientRects.map(rect => ({ ...rect }));
+  }
   const foreignObject = wrapForeignObject
     ? make("foreignObject", {
       parent: root,
@@ -207,6 +220,42 @@ function buildAtomicSvgPublicFixture({
   const targetChild = targetChildren > 0
     ? make("path", { parent: target, namespace: SVG_NAMESPACE, rect: targetRect, attrs: { d: "M0 0H1V1H0Z" } })
     : null;
+  const makeLocalUseNode = (spec, parent) => {
+    const element = make(spec.tag, {
+      parent,
+      namespace: spec.namespace ?? SVG_NAMESPACE,
+      rect: spec.rect ?? { x: 0, y: 0, width: 0, height: 0 },
+      attrs: spec.attrs ?? {},
+    });
+    styleOverrides.set(element, { ...BASE_STYLE, ...(spec.style ?? {}) });
+    const children = (spec.children ?? []).map(child => makeLocalUseNode(child, element));
+    attach(element, children);
+    return element;
+  };
+  const makeLocalUseSymbol = (spec, id) => {
+    if (spec === null) return null;
+    const symbol = make("symbol", {
+      parent: null,
+      namespace: SVG_NAMESPACE,
+      attrs: { id, ...(spec.attrs ?? {}) },
+    });
+    styleOverrides.set(symbol, { ...BASE_STYLE, ...(spec.style ?? {}) });
+    const children = (spec.children ?? []).map(child => makeLocalUseNode(child, symbol));
+    attach(symbol, children);
+    return symbol;
+  };
+  const symbol = makeLocalUseSymbol(localUseSymbol, localUseSymbol?.id ?? "local-symbol");
+  const duplicateSymbol = makeLocalUseSymbol(
+    duplicateLocalUseSymbol,
+    duplicateLocalUseSymbol?.id ?? localUseSymbol?.id ?? "local-symbol",
+  );
+  const defs = symbol === null ? null : make("defs", {
+    parent: root,
+    namespace: SVG_NAMESPACE,
+  });
+  if (defs !== null && symbol !== null) {
+    attach(defs, [symbol, ...(duplicateSymbol === null ? [] : [duplicateSymbol])]);
+  }
   const sibling = includeSibling
     ? make("path", {
       parent: root,
@@ -242,6 +291,7 @@ function buildAtomicSvgPublicFixture({
       ...(sibling === null ? [] : [sibling]),
       ...(clipPath === null ? [] : [clipPath]),
       ...(duplicateClipPath === null ? [] : [duplicateClipPath]),
+      ...(defs === null ? [] : [defs]),
     ]);
   }
   if (rootParentStyle === null) {
@@ -266,9 +316,10 @@ function buildAtomicSvgPublicFixture({
     for (const child of element.children ?? []) collect(child);
   };
   collect(html);
+  document.getElementById = id => allElements.find(element => (element.getAttribute("id") ?? element.id) === id) ?? null;
   document.querySelectorAll = selector => String(selector).toLowerCase() === "clippath"
     ? allElements.filter(element => element.tagName.toLowerCase() === "clippath")
-    : [];
+    : selector === "*" ? allElements : [];
 
   styleOverrides.set(html, { overflowX: "auto", overflowY: "auto" });
   styleOverrides.set(cover, {
@@ -305,8 +356,30 @@ function buildAtomicSvgPublicFixture({
 
   return {
     document, window, html, cover, rootParent, root, foreignObject, target, targetChild, sibling,
-    clipPath, duplicateClipPath,
+    clipPath, duplicateClipPath, defs, symbol, duplicateSymbol,
   };
+}
+
+function buildLocalUsePublicFixture(options = {}) {
+  return buildAtomicSvgPublicFixture({
+    targetTag: "use",
+    targetRect: { x: 108, y: 108, width: 16, height: 16 },
+    includeSibling: false,
+    ...options,
+  });
+}
+
+function buildStrokedPathPublicFixture({ targetStyle = {}, ...options } = {}) {
+  return buildAtomicSvgPublicFixture({
+    includeSibling: false,
+    ...options,
+    targetStyle: {
+      fill: "none",
+      stroke: "rgba(255, 255, 255, 0.84)",
+      strokeWidth: "2.93333px",
+      ...targetStyle,
+    },
+  });
 }
 
 test("atomic SVG certificate accepts a target with two direct PATH siblings", () => {
@@ -327,6 +400,59 @@ test("atomic SVG certificate rejects unsupported containment facts", () => {
     ["foreignObject", { wrapForeignObject: true, targetTag: "div", targetNamespace: XHTML_NAMESPACE }],
     ["missing root mapping", { viewBox: null }],
     ["visible root permits target escape", { rootStyle: { overflowX: "visible", overflowY: "visible" }, targetRect: { x: 116, y: 104, width: 20, height: 16 } }],
+    ["stroked PATH visible overflow", {
+      includeSibling: false,
+      targetStyle: { fill: "none", stroke: "rgba(255, 255, 255, 0.84)", strokeWidth: "2.93333px" },
+      rootStyle: { overflowX: "visible", overflowY: "visible" },
+    }],
+    ["stroked PATH root filter", {
+      includeSibling: false,
+      targetStyle: { fill: "none", stroke: "rgba(255, 255, 255, 0.84)", strokeWidth: "2.93333px" },
+      rootStyle: { filter: "blur(1px)" },
+    }],
+    ["stroked PATH missing mapping", {
+      includeSibling: false,
+      targetStyle: { fill: "none", stroke: "rgba(255, 255, 255, 0.84)", strokeWidth: "2.93333px" },
+      viewBox: null,
+    }],
+    ["stroked PATH outer filter", {
+      includeSibling: false,
+      targetStyle: { fill: "none", stroke: "rgba(255, 255, 255, 0.84)", strokeWidth: "2.93333px" },
+      rootParentStyle: { filter: "blur(1px)" },
+    }],
+    ["stroked PATH marker", {
+      includeSibling: false,
+      targetStyle: {
+        fill: "none",
+        stroke: "rgba(255, 255, 255, 0.84)",
+        strokeWidth: "2.93333px",
+        markerEnd: 'url("#marker")',
+      },
+    }],
+    ["stroked PATH unresolved clip", {
+      includeSibling: false,
+      targetAttrs: { d: "M4 4H20V20H4Z", "clip-path": "url(#atomic-clip)" },
+      targetStyle: {
+        fill: "none",
+        stroke: "rgba(255, 255, 255, 0.84)",
+        strokeWidth: "2.93333px",
+        clipPath: "url(#atomic-clip)",
+      },
+    }],
+    ["stroked PATH is not a leaf", {
+      includeSibling: false,
+      targetChildren: 1,
+      targetStyle: { fill: "none", stroke: "rgba(255, 255, 255, 0.84)", strokeWidth: "2.93333px" },
+    }],
+    ["stroked PATH fixed positioning", {
+      includeSibling: false,
+      targetStyle: {
+        fill: "none",
+        stroke: "rgba(255, 255, 255, 0.84)",
+        strokeWidth: "2.93333px",
+        position: "fixed",
+      },
+    }],
   ];
   for (const [name, options] of cases) {
     const fixture = buildAtomicSvgPublicFixture(options);
@@ -344,12 +470,20 @@ test("atomic SVG certificate requires known absence of top-layer escape", () => 
   const fullscreen = buildAtomicSvgPublicFixture();
   fullscreen.target.matches = selector => selector === ":fullscreen";
   assert.equal(certifySvgAtomicViewport(fullscreen.target, fullscreen.window), null);
+  const strokedFullscreen = buildStrokedPathPublicFixture();
+  strokedFullscreen.target.matches = selector => selector === ":fullscreen";
+  assert.equal(certifySvgAtomicViewport(strokedFullscreen.target, strokedFullscreen.window), null);
   const throwing = buildAtomicSvgPublicFixture();
   throwing.target.matches = () => {
     throw new Error("unsupported selector");
   };
   assert.equal(certifySvgAtomicViewport(throwing.target, throwing.window), null);
 });
+
+function inPublicRect(point, rect) {
+  return point.x >= rect.x && point.x < rect.x + rect.width
+    && point.y >= rect.y && point.y < rect.y + rect.height;
+}
 
 function observeTarget(fixture) {
   const registry = createStableNodeRefRegistry("svg-atomic-public");
@@ -365,6 +499,49 @@ function observeTarget(fixture) {
   const targetNode = snapshot.observation.nodes.find(node => node.nodeRef === targetRef);
 
   return { registry, targetRef, targetNode, snapshot };
+}
+
+function observeTargetWithProbes(fixture) {
+  const registry = createStableNodeRefRegistry("svg-atomic-public");
+  const targetRef = stableNodeRefFor(registry, fixture.target);
+  const probes = [];
+  const snapshot = observeLiveDom({
+    document: fixture.document,
+    window: fixture.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "svg-atomic-public",
+    documentRef: "fixture",
+    diagnostic: {
+      selectedRefs: new Set([targetRef]),
+      callback(event) {
+        if (event.phase === "point_probe") {
+          probes.push({ point: event.point, remainingRect: event.remainingRect, exposed: event.exposed });
+        }
+      },
+    },
+  });
+  const targetNode = snapshot.observation.nodes.find(node => node.nodeRef === targetRef);
+
+  return { registry, targetRef, targetNode, snapshot, probes };
+}
+
+const fixedPointCross = rect => [
+  { x: rect.x + rect.width * 0.5, y: rect.y + rect.height * 0.1 },
+  { x: rect.x + rect.width * 0.9, y: rect.y + rect.height * 0.5 },
+  { x: rect.x + rect.width * 0.5, y: rect.y + rect.height * 0.9 },
+  { x: rect.x + rect.width * 0.1, y: rect.y + rect.height * 0.5 },
+];
+
+const samePoint = (a, b) => a.x === b.x && a.y === b.y;
+
+function centerHoleHits(fixture, center, cross, crossStack) {
+  return (x, y) => {
+    if (x < 0 || x >= VIEWPORT.width || y < 0 || y >= VIEWPORT.height) return [];
+    if (samePoint({ x, y }, center)) return [fixture.sibling, fixture.root, fixture.html];
+    if (cross.some(point => samePoint({ x, y }, point))) return crossStack;
+    return [fixture.root, fixture.html];
+  };
 }
 
 function assertPublicOcclusion(fixture, elements = [fixture.target]) {
@@ -657,11 +834,700 @@ test("atomic order preserves the uncovered strip rather than propagating full oc
 });
 
 test("SVG stroke paint outside target bounds is not certified as fully covered", () => {
-  const fixture = buildAtomicSvgPublicFixture({ targetStyle: { stroke: "rgb(10, 10, 10)", strokeWidth: "4px" } });
+  const fixture = buildStrokedPathPublicFixture();
   const coverRect = { x: 104, y: 104, width: 16, height: 16 };
   fixture.cover.getBoundingClientRect = () => coverRect;
   fixture.cover.getClientRects = () => [coverRect];
   fixture.document.elementsFromPoint = (x, y) => x >= 104 && x < 120 && y >= 104 && y < 120
     ? [fixture.cover, fixture.root, fixture.html] : [fixture.root, fixture.html];
   assert.equal(observeTarget(fixture).targetNode.foreground, "unassessed");
+});
+
+test("direct stroked PATH uses the complete hidden-root domain with no target hit", () => {
+  const fixture = buildStrokedPathPublicFixture({
+    includeSibling: true,
+    rootParentStyle: { boxShadow: "rgba(255, 255, 255, 0.12) 0px 4px 40px 0px" },
+  });
+  fixture.root.children.reverse();
+  fixture.root.childNodes = fixture.root.children;
+  assert.notEqual(fixture.root.children[0], fixture.target);
+  const certificate = certifySvgAtomicViewport(fixture.target, fixture.window);
+  const { targetNode } = observeTarget(fixture);
+
+  assert.equal(certificate?.rootElement, fixture.root);
+  assert.deepEqual(certificate?.physicalViewport, { x: 100, y: 100, width: 32, height: 32 });
+  assert.deepEqual(certificate?.paintDomain, { x: 100, y: 100, width: 32, height: 32 });
+  assert.equal(targetNode?.foreground, "occluded");
+  assert.deepEqual(targetNode?.exposedRects, []);
+});
+
+test("local USE physical viewport does not require a root viewBox", () => {
+  const rootRect = { x: 100, y: 100, width: 24, height: 24 };
+  const fixture = buildLocalUsePublicFixture({
+    rootRect,
+    coverRect: rootRect,
+    viewBox: null,
+    targetRect: { x: 103, y: 103, width: 18, height: 18 },
+  });
+  const certificate = certifySvgAtomicViewport(fixture.target, fixture.window);
+
+  assert.equal(certificate?.rootElement, fixture.root);
+  assert.deepEqual(certificate?.physicalViewport, rootRect);
+  assert.deepEqual(certificate?.paintDomain, rootRect);
+  assertPublicOcclusion(fixture);
+});
+
+test("local USE whole-root coverage proves occlusion from the conservative bound", () => {
+  const fixture = buildLocalUsePublicFixture();
+  const certificate = certifySvgAtomicViewport(fixture.target, fixture.window);
+
+  assert.ok(certificate, "missing local USE certificate");
+  assert.equal(certificate.rootElement, fixture.root);
+  assert.deepEqual(certificate?.paintDomain, { x: 100, y: 100, width: 32, height: 32 });
+  assertPublicOcclusion(fixture);
+});
+
+const LOCAL_USE_VIEWPORT_STRADDLE_CASES = [
+  {
+    edge: "bottom",
+    rootRect: { x: 100, y: 892, width: 32, height: 16 },
+    targetRect: { x: 108, y: 892, width: 16, height: 8 },
+    fullCoverRect: { x: 100, y: 892, width: 32, height: 8 },
+    partialCoverRect: { x: 100, y: 892, width: 32, height: 4 },
+    partialTargetStrip: { x: 108, y: 896, width: 16, height: 4 },
+  },
+  {
+    edge: "right",
+    rootRect: { x: 1432, y: 100, width: 16, height: 32 },
+    targetRect: { x: 1432, y: 108, width: 8, height: 16 },
+    fullCoverRect: { x: 1432, y: 100, width: 8, height: 32 },
+    partialCoverRect: { x: 1432, y: 100, width: 4, height: 32 },
+    partialTargetStrip: { x: 1436, y: 108, width: 4, height: 16 },
+  },
+];
+
+function setLocalUseBoundaryHits(fixture, coverRect) {
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x < 0 || x >= VIEWPORT.width || y < 0 || y >= VIEWPORT.height) return [];
+    return inPublicRect({ x, y }, coverRect)
+      ? [fixture.cover, fixture.root, fixture.html]
+      : [fixture.root, fixture.html];
+  };
+}
+
+function setLocalUsePartialTargetHits(fixture, coverRect, targetRect) {
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x < 0 || x >= VIEWPORT.width || y < 0 || y >= VIEWPORT.height) return [];
+    if (inPublicRect({ x, y }, coverRect)) return [fixture.cover, fixture.root, fixture.html];
+    return inPublicRect({ x, y }, targetRect)
+      ? [fixture.target, fixture.root, fixture.html]
+      : [fixture.root, fixture.html];
+  };
+}
+
+for (const { edge, rootRect, targetRect, fullCoverRect, partialCoverRect, partialTargetStrip } of LOCAL_USE_VIEWPORT_STRADDLE_CASES) {
+  test(`local USE ${edge} viewport straddle consumes the certified bound inside the observation viewport`, () => {
+    const full = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect: fullCoverRect });
+    const fullCertificate = certifySvgAtomicViewport(full.target, full.window);
+    setLocalUseBoundaryHits(full, fullCoverRect);
+    assert.deepEqual(fullCertificate?.paintDomain, rootRect, `${edge} certificate`);
+    assertPublicOcclusion(full);
+
+    const partial = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect: partialCoverRect });
+    setLocalUseBoundaryHits(partial, partialCoverRect);
+    const partialNode = observeTarget(partial).targetNode;
+    assert.equal(partialNode.foreground, "unassessed", `${edge} partial cover`);
+    assert.equal(partialNode.exposedRects, null, `${edge} partial cover exposure`);
+
+    const external = buildLocalUsePublicFixture({
+      rootRect,
+      targetRect,
+      coverRect: fullCoverRect,
+      targetAttrs: { href: "external.svg#local-symbol" },
+    });
+    const externalCertificate = certifySvgAtomicViewport(external.target, external.window);
+    assert.ok(externalCertificate, `${edge} external certificate missing`);
+    assert.deepEqual(externalCertificate.paintDomain, rootRect, `${edge} external certificate`);
+    setLocalUseBoundaryHits(external, fullCoverRect);
+    assert.equal(observeTarget(external).targetNode.foreground, "occluded", `${edge} external USE`);
+  });
+
+  test(`local USE ${edge} viewport straddle keeps a real target-strip hit visible`, () => {
+    const fixture = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect: partialCoverRect });
+    setLocalUsePartialTargetHits(fixture, partialCoverRect, targetRect);
+    const { targetRef, targetNode, snapshot } = observeTarget(fixture);
+
+    assert.equal(targetNode?.foreground, "visible", `${edge} partial target hit`);
+    assert.deepEqual(targetNode?.exposedRects, [partialTargetStrip], `${edge} partial target strip`);
+    assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === targetRef), `${edge} target node presence`);
+    assert.deepEqual(targetNode?.clippedRect, targetRect, `${edge} target geometry`);
+    const candidates = checkCandidates(observeCandidates({ observation: snapshot.observation }), createFocusSpec());
+    assert.ok(candidates.candidateRefs.includes(targetRef), `${edge} target remains qualified`);
+  });
+}
+
+for (const { width, height } of [
+  { width: 16, height: 16 },
+  { width: 8, height: 12 },
+]) {
+  test(`local USE ${width}x${height} center hole admits a fixed off-center target cross`, () => {
+    const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+    const targetRect = {
+      x: rootRect.x + (rootRect.width - width) / 2,
+      y: rootRect.y + (rootRect.height - height) / 2,
+      width,
+      height,
+    };
+    const fixture = buildLocalUsePublicFixture({
+      rootRect,
+      targetRect,
+      coverRect: rootRect,
+      includeSibling: true,
+    });
+    const center = { x: targetRect.x + width / 2, y: targetRect.y + height / 2 };
+    const cross = fixedPointCross(targetRect);
+    const targetStack = [fixture.sibling, fixture.target, fixture.root, fixture.html];
+    fixture.document.elementsFromPoint = centerHoleHits(fixture, center, cross, targetStack);
+
+    const { registry, targetRef, targetNode, snapshot, probes } = observeTargetWithProbes(fixture);
+    const candidates = checkCandidates(observeCandidates({ observation: snapshot.observation }), createFocusSpec());
+
+    assert.equal(targetNode?.foreground, "visible");
+    assert.deepEqual(targetNode?.exposedRects, [targetRect]);
+    assert.deepEqual(targetNode?.rect, targetRect);
+    assert.deepEqual(targetNode?.clippedRect, targetRect);
+    assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === targetRef));
+    assert.ok(candidates.slots.some(slot => slot.nodeRef === targetRef));
+    assert.deepEqual(probes.map(probe => probe.point), [center, cross[0]]);
+    assert.deepEqual(probes.map(probe => probe.exposed), [false, true]);
+    assert.equal(registry.refByElement.get(fixture.target), targetRef);
+  });
+}
+
+test("local USE center hole does not revive root-only additional points", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const fixture = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect: rootRect, includeSibling: true });
+  const center = { x: 116, y: 116 };
+  const cross = fixedPointCross(targetRect);
+  fixture.document.elementsFromPoint = centerHoleHits(fixture, center, cross, [fixture.root, fixture.html]);
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+  assert.deepEqual(probes.map(probe => probe.point), [center, ...cross]);
+  assert.ok(probes.every(probe => probe.exposed === false));
+});
+
+test("local USE center hole rejects a target behind a lawful opaque owner", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const fixture = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect: rootRect, includeSibling: true });
+  const center = { x: 116, y: 116 };
+  const cross = fixedPointCross(targetRect);
+  fixture.document.elementsFromPoint = centerHoleHits(
+    fixture,
+    center,
+    cross,
+    [fixture.cover, fixture.target, fixture.root, fixture.html],
+  );
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+  assert.equal(probes.length, 5);
+  assert.ok(probes.every(probe => probe.exposed === false));
+});
+
+test("local USE successful center probe adds no geometric points", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const fixture = buildLocalUsePublicFixture({ rootRect, targetRect, coverRect: rootRect, includeSibling: true });
+  fixture.document.elementsFromPoint = () => [fixture.sibling, fixture.target, fixture.root, fixture.html];
+
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "visible");
+  assert.deepEqual(targetNode?.exposedRects, [targetRect]);
+  assert.deepEqual(probes.map(probe => probe.point), [{ x: 116, y: 116 }]);
+});
+
+test("local USE uncertified paint domain adds no geometric points", () => {
+  const rootRect = { x: 100, y: 100, width: 32, height: 32 };
+  const targetRect = { x: 108, y: 108, width: 16, height: 16 };
+  const fixture = buildLocalUsePublicFixture({
+    rootRect,
+    targetRect,
+    coverRect: rootRect,
+    includeSibling: true,
+    rootStyle: { overflowX: "visible", overflowY: "visible" },
+    targetAttrs: { href: "external.svg#local-symbol" },
+  });
+  const center = { x: 116, y: 116 };
+  const cross = fixedPointCross(targetRect);
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (samePoint({ x, y }, center)) return [fixture.cover, fixture.root, fixture.html];
+    if (cross.some(point => samePoint({ x, y }, point))) {
+      return [fixture.sibling, fixture.target, fixture.root, fixture.html];
+    }
+    return [fixture.root, fixture.html];
+  };
+
+  assert.equal(certifySvgAtomicViewport(fixture.target, fixture.window), null);
+  const { targetNode, probes } = observeTargetWithProbes(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+  assert.deepEqual(probes.map(probe => probe.point), [center]);
+});
+
+test("local USE outer-ancestor shadow does not widen the child paint domain", () => {
+  const fixture = buildLocalUsePublicFixture({
+    rootParentStyle: { boxShadow: "rgba(255, 255, 255, 0.12) 0px 4px 40px 0px" },
+  });
+  const certificate = certifySvgAtomicViewport(fixture.target, fixture.window);
+
+  assert.equal(certificate?.rootElement, fixture.root);
+  assert.deepEqual(certificate?.paintDomain, { x: 100, y: 100, width: 32, height: 32 });
+  assertPublicOcclusion(fixture);
+});
+
+test("local USE outer-ancestor outline and positive translation keep the root bound", () => {
+  const fixture = buildLocalUsePublicFixture({
+    rootParentStyle: {
+      outlineStyle: "solid",
+      transform: "matrix(1, 0, 0, 1, 12, 8)",
+    },
+  });
+  const certificate = certifySvgAtomicViewport(fixture.target, fixture.window);
+
+  assert.equal(certificate?.rootElement, fixture.root);
+  assert.deepEqual(certificate?.paintDomain, { x: 100, y: 100, width: 32, height: 32 });
+  assertPublicOcclusion(fixture);
+});
+
+test("local USE BCR-only coverage does not eliminate the full hidden-root bound", () => {
+  const fixture = buildLocalUsePublicFixture({
+    targetStyle: { stroke: "rgb(10, 10, 10)", strokeWidth: "8px" },
+    coverRect: { x: 108, y: 108, width: 16, height: 16 },
+  });
+
+  assert.equal(observeTarget(fixture).targetNode.foreground, "unassessed");
+});
+
+test("local USE visible overflow cannot prove BCR-only full occlusion", () => {
+  const fixture = buildLocalUsePublicFixture({
+    rootStyle: { overflowX: "visible", overflowY: "visible" },
+    targetStyle: { stroke: "rgb(10, 10, 10)", strokeWidth: "8px" },
+    coverRect: { x: 108, y: 108, width: 16, height: 16 },
+  });
+  assert.equal(certifySvgAtomicViewport(fixture.target, fixture.window), null);
+  fixture.document.elementsFromPoint = (x, y) => x >= 108 && x < 124 && y >= 108 && y < 124
+    ? [fixture.cover, fixture.target, fixture.root, fixture.html]
+    : [fixture.root, fixture.html];
+
+  assert.equal(observeTarget(fixture).targetNode.foreground, "unassessed");
+});
+
+test("local USE external resource BCR-only cover stays unassessed under the hidden root bound", () => {
+  const fixture = buildLocalUsePublicFixture({
+    targetAttrs: { href: "external.svg#local-symbol" },
+    coverRect: { x: 108, y: 108, width: 16, height: 16 },
+  });
+  const certificate = certifySvgAtomicViewport(fixture.target, fixture.window);
+  assert.ok(certificate, "missing external USE certificate");
+  assert.deepEqual(certificate.paintDomain, { x: 100, y: 100, width: 32, height: 32 });
+  fixture.document.elementsFromPoint = (x, y) => x >= 108 && x < 124 && y >= 108 && y < 124
+    ? [fixture.cover, fixture.target, fixture.root, fixture.html]
+    : [fixture.root, fixture.html];
+
+  const targetNode = observeTarget(fixture).targetNode;
+  assert.equal(targetNode.foreground, "unassessed");
+  assert.equal(targetNode.exposedRects, null);
+});
+
+test("local USE partial bound is not published as target exposure", () => {
+  const fixture = buildLocalUsePublicFixture({
+    targetRect: { x: 104, y: 108, width: 8, height: 16 },
+    coverRect: { x: 100, y: 100, width: 16, height: 32 },
+  });
+
+  assert.equal(observeTarget(fixture).targetNode.foreground, "unassessed");
+});
+
+test("local USE atomic order preserves a target or root ahead of the blocker", () => {
+  const targetFirst = buildLocalUsePublicFixture();
+  targetFirst.document.elementsFromPoint = () => [
+    targetFirst.target,
+    targetFirst.cover,
+    targetFirst.root,
+    targetFirst.html,
+  ];
+  assert.equal(observeTarget(targetFirst).targetNode.foreground, "visible");
+
+  const rootFirst = buildLocalUsePublicFixture();
+  rootFirst.document.elementsFromPoint = () => [rootFirst.root, rootFirst.cover, rootFirst.html];
+  assert.notEqual(observeTarget(rootFirst).targetNode.foreground, "occluded");
+});
+
+test("local USE pointer-none blocker keeps lawful paint order", () => {
+  const fixture = buildLocalUsePublicFixture();
+  fixture.document.elementsFromPoint = () => [fixture.root, fixture.html];
+  fixture.window.getComputedStyle = ((base) => element => {
+    const style = base(element);
+    return element === fixture.cover ? { ...style, pointerEvents: "none" } : style;
+  })(fixture.window.getComputedStyle);
+
+  assertPublicOcclusion(fixture);
+});
+
+test("local USE pointer-none BCR-only coverage does not eliminate the full bound", () => {
+  const fixture = buildLocalUsePublicFixture({
+    coverRect: { x: 108, y: 108, width: 16, height: 16 },
+  });
+  fixture.document.elementsFromPoint = () => [fixture.root, fixture.html];
+  fixture.window.getComputedStyle = ((base) => element => {
+    const style = base(element);
+    return element === fixture.cover ? { ...style, pointerEvents: "none" } : style;
+  })(fixture.window.getComputedStyle);
+
+  assert.equal(observeTarget(fixture).targetNode.foreground, "unassessed");
+});
+
+test("local USE certificate rejects unsupported content and root facts", () => {
+  const cases = [
+    ["visible root overflow", { rootStyle: { overflowX: "visible" } }],
+    ["mixed root overflow", { rootStyle: { overflowY: "visible" } }],
+    ["root filter", { rootStyle: { filter: "blur(1px)" } }],
+    ["root mask", { rootStyle: { maskImage: 'url("mask")' } }],
+    ["root clip path", { rootStyle: { clipPath: 'url("#atomic-clip")' } }],
+    ["root containment", { rootStyle: { contain: "paint" } }],
+    ["root shadow", { rootStyle: { boxShadow: "0 0 2px black" } }],
+    ["root outline", { rootStyle: { outlineStyle: "solid" } }],
+    ["outer filter", { rootParentStyle: { filter: "blur(1px)" } }],
+    ["outer mask", { rootParentStyle: { maskImage: 'url("mask")' } }],
+    ["outer clip path", { rootParentStyle: { clipPath: 'url("#atomic-clip")' } }],
+    ["outer backdrop filter", { rootParentStyle: { backdropFilter: "blur(1px)" } }],
+    ["missing root bounds", { rootRect: { x: undefined, y: 100, width: 24, height: 24 } }],
+    ["invalid root bounds", { rootRect: { x: 100, y: 100, width: Infinity, height: 24 } }],
+    ["root border", { rootStyle: { borderTopWidth: "1px" } }],
+    ["root padding", { rootStyle: { paddingTop: "1px" } }],
+    ["nonpositive root bounds", { rootRect: { x: 100, y: 100, width: 0, height: 24 } }],
+    ["missing root transform", { rootStyle: { transform: undefined } }],
+    ["unsupported root transform", { rootStyle: { transform: "rotate(20deg)" } }],
+    ["reflected root", { rootStyle: { transform: "matrix(-1, 0, 0, 1, 0, 0)" } }],
+    ["multiple root fragments", {
+      rootClientRects: [
+        { x: 100, y: 100, width: 32, height: 32 },
+        { x: 132, y: 100, width: 32, height: 32 },
+      ],
+    }],
+    ["missing symbol", { localUseSymbol: null, targetAttrs: { href: "#missing" } }],
+    ["duplicate symbol id", {
+      duplicateLocalUseSymbol: {
+        id: "local-symbol",
+        children: [{ tag: "path", attrs: { d: "M0 0H1V1H0Z" } }],
+      },
+    }],
+    ["recursive USE", {
+      localUseSymbol: {
+        id: "local-symbol",
+        children: [{ tag: "use", attrs: { href: "#local-symbol" } }],
+      },
+    }],
+    ["foreignObject content", {
+      localUseSymbol: {
+        id: "local-symbol",
+        children: [{
+          tag: "foreignObject",
+          children: [{ tag: "div", namespace: XHTML_NAMESPACE }],
+        }],
+      },
+    }],
+    ["unknown USE child", { targetChildren: 1 }],
+  ];
+  for (const [name, options] of cases) {
+    const fixture = buildLocalUsePublicFixture(options);
+    assert.equal(certifySvgAtomicViewport(fixture.target, fixture.window), null, name);
+  }
+
+  const topLayer = buildLocalUsePublicFixture();
+  topLayer.target.matches = selector => selector === ":fullscreen";
+  assert.equal(certifySvgAtomicViewport(topLayer.target, topLayer.window), null);
+});
+
+test("external USE occlusion is proven from the hidden outer SVG bound and lawful root order", () => {
+  const fixture = buildLocalUsePublicFixture({
+    targetAttrs: { href: "external.svg#local-symbol" },
+  });
+  const certificate = certifySvgAtomicViewport(fixture.target, fixture.window);
+
+  assert.ok(certificate, "missing external USE certificate");
+  assert.equal(certificate.rootElement, fixture.root);
+  assert.deepEqual(certificate.physicalViewport, { x: 100, y: 100, width: 32, height: 32 });
+  assert.deepEqual(certificate.paintDomain, { x: 100, y: 100, width: 32, height: 32 });
+
+  const { registry, targetRef, targetNode, snapshot } = observeTarget(fixture);
+  assert.equal(targetNode?.foreground, "occluded");
+  assert.deepEqual(targetNode?.exposedRects, []);
+  assert.deepEqual(targetNode?.rect, { x: 108, y: 108, width: 16, height: 16 });
+
+  const candidates = checkCandidates(observeCandidates({ observation: snapshot.observation }), createFocusSpec());
+  const slot = candidates.slots.find(candidate => candidate.nodeRef === targetRef);
+  assert.equal(slot.status, "filtered_out");
+  assert.deepEqual(slot.reasons, ["occluded"]);
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === targetRef));
+
+  const symbolRef = stableNodeRefFor(registry, fixture.symbol);
+  const symbolPathRef = stableNodeRefFor(registry, fixture.symbol.children[0]);
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === symbolRef));
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === symbolPathRef));
+  assert.ok(candidates.slots.some(candidate => candidate.nodeRef === symbolPathRef));
+});
+
+test("external USE root-only positive partial cover stays unknown", () => {
+  const coverRect = { x: 100, y: 100, width: 16, height: 32 };
+  const fixture = buildLocalUsePublicFixture({
+    targetAttrs: { href: "external.svg#local-symbol" },
+    coverRect,
+  });
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x < 0 || x >= VIEWPORT.width || y < 0 || y >= VIEWPORT.height) return [];
+    return inPublicRect({ x, y }, coverRect)
+      ? [fixture.cover, fixture.root, fixture.html]
+      : [fixture.root, fixture.html];
+  };
+  assert.ok(certifySvgAtomicViewport(fixture.target, fixture.window), "missing external USE certificate");
+
+  const { targetNode } = observeTarget(fixture);
+  assert.equal(targetNode?.foreground, "unassessed");
+  assert.equal(targetNode?.exposedRects, null);
+});
+
+test("external USE atomic order rejects a target or root ahead of the blocker", () => {
+  const targetFirst = buildLocalUsePublicFixture({
+    targetAttrs: { href: "external.svg#local-symbol" },
+  });
+  targetFirst.document.elementsFromPoint = () => [
+    targetFirst.target,
+    targetFirst.cover,
+    targetFirst.root,
+    targetFirst.html,
+  ];
+  assert.equal(observeTarget(targetFirst).targetNode.foreground, "visible");
+
+  const rootFirst = buildLocalUsePublicFixture({
+    targetAttrs: { href: "external.svg#local-symbol" },
+  });
+  rootFirst.document.elementsFromPoint = () => [rootFirst.root, rootFirst.cover, rootFirst.html];
+  assert.notEqual(observeTarget(rootFirst).targetNode.foreground, "occluded");
+});
+
+test("external USE certificate keeps unsupported outer facts rejected", () => {
+  const cases = [
+    ["visible root overflow", { rootStyle: { overflowX: "visible" } }],
+    ["mixed root overflow", { rootStyle: { overflowY: "visible" } }],
+    ["root filter", { rootStyle: { filter: "blur(1px)" } }],
+    ["root backdrop filter", { rootStyle: { backdropFilter: "blur(1px)" } }],
+    ["root mask", { rootStyle: { maskImage: 'url("mask")' } }],
+    ["root 3D transform", { rootStyle: { transform: "matrix3d(1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1)" } }],
+    ["outer filter", { rootParentStyle: { filter: "blur(1px)" } }],
+    ["outer backdrop filter", { rootParentStyle: { backdropFilter: "blur(1px)" } }],
+    ["outer mask", { rootParentStyle: { maskImage: 'url("mask")' } }],
+    ["fixed position", { targetStyle: { position: "fixed" } }],
+    ["sticky position", { targetStyle: { position: "sticky" } }],
+  ];
+  for (const [name, options] of cases) {
+    const fixture = buildLocalUsePublicFixture({
+      ...options,
+      targetAttrs: { href: "external.svg#local-symbol" },
+    });
+    assert.equal(certifySvgAtomicViewport(fixture.target, fixture.window), null, name);
+  }
+
+  const topLayer = buildLocalUsePublicFixture({
+    targetAttrs: { href: "external.svg#local-symbol" },
+  });
+  topLayer.target.matches = selector => selector === ":fullscreen";
+  assert.equal(certifySvgAtomicViewport(topLayer.target, topLayer.window), null);
+});
+
+test("local USE occlusion preserves raw USE, symbol, descendant, and candidate slots", () => {
+  const fixture = buildLocalUsePublicFixture();
+  const { registry, targetRef, snapshot } = observeTarget(fixture);
+  const candidates = checkCandidates(observeCandidates({ observation: snapshot.observation }), createFocusSpec());
+  const symbolRef = stableNodeRefFor(registry, fixture.symbol);
+  const symbolPathRef = stableNodeRefFor(registry, fixture.symbol.children[0]);
+
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === targetRef));
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === symbolRef));
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === symbolPathRef));
+  assert.ok(candidates.slots.some(slot => slot.nodeRef === targetRef));
+  assert.ok(candidates.slots.some(slot => slot.nodeRef === symbolPathRef));
+});
+
+// A filled leaf PATH inside a rotated outermost SVG keeps the atomic
+// positive-axis certificate unavailable. The bounded negative seed may still
+// recover actual target order from the fixed 5x5 lattice when the shape-hole
+// center misses the target.
+const ROTATED_LEAF_PATH_D = "M8 8 C10 8 22 8 24 8 C24 10 24 22 24 24 C22 24 10 24 8 24 C8 22 8 10 8 8 Z";
+const ROTATED_LEAF_PATH_RECT = { x: 104, y: 104, width: 16, height: 16 };
+
+function buildRotatedLeafPathPublicFixture(options = {}) {
+  return buildAtomicSvgPublicFixture({
+    rootRect: { x: 100, y: 100, width: 32, height: 32 },
+    viewBox: "0 0 32 32",
+    targetRect: ROTATED_LEAF_PATH_RECT,
+    includeSibling: false,
+    rootStyle: { transform: "matrix(0.9396926, 0.3420201, -0.3420201, 0.9396926, 0, 0)" },
+    targetAttrs: { d: ROTATED_LEAF_PATH_D },
+    targetStyle: { d: `path("${ROTATED_LEAF_PATH_D}")`, textShadow: "none" },
+    ...options,
+  });
+}
+
+function pathNativeStack(fixture, x, y, holeCenter = null, holeHalf = 2) {
+  const inRect = rect => x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
+  const targetRect = fixture.target.getBoundingClientRect();
+  const center = holeCenter ?? { x: targetRect.x + targetRect.width / 2, y: targetRect.y + targetRect.height / 2 };
+  const inHole = Math.abs(x - center.x) < holeHalf && Math.abs(y - center.y) < holeHalf;
+  const coverHere = inRect(fixture.cover.getBoundingClientRect());
+  const targetHere = inRect(targetRect) && !inHole;
+  const { target, cover, root, html } = fixture;
+  if (coverHere && targetHere) return [cover, target, root, html];
+  if (coverHere) return [cover, root, html];
+  if (targetHere) return [target, root, html];
+  return [root, html];
+}
+
+function latticePoints(rect) {
+  const points = [];
+  for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+    for (const fy of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      points.push({ x: rect.x + rect.width * fx, y: rect.y + rect.height * fy });
+    }
+  }
+  return points;
+}
+
+test("rotated filled leaf PATH center hole recovers off-center target order", () => {
+  const fixture = buildRotatedLeafPathPublicFixture();
+  assert.equal(certifySvgAtomicViewport(fixture.target, fixture.window), null);
+  const queries = [];
+  fixture.document.elementsFromPoint = (x, y) => {
+    queries.push([x, y]);
+    if (x === 0 && y === 0) return [fixture.html];
+    return pathNativeStack(fixture, x, y);
+  };
+  const { registry, targetRef, targetNode, snapshot } = observeTarget(fixture);
+  const candidates = checkCandidates(observeCandidates({ observation: snapshot.observation }), createFocusSpec());
+
+  assert.equal(targetNode?.foreground, "occluded", `foreground=${targetNode?.foreground}`);
+  assert.deepEqual(targetNode?.exposedRects, []);
+  assert.deepEqual(targetNode?.rect, ROTATED_LEAF_PATH_RECT);
+  assert.deepEqual(targetNode?.clippedRect, ROTATED_LEAF_PATH_RECT);
+  assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === targetRef));
+  const slot = candidates.slots.find(candidate => candidate.nodeRef === targetRef);
+  assert.equal(slot.status, "filtered_out");
+  assert.deepEqual(slot.reasons, ["occluded"]);
+
+  // Center result is reused; the added search is exactly the 24 other points.
+  const center = { x: ROTATED_LEAF_PATH_RECT.x + ROTATED_LEAF_PATH_RECT.width / 2,
+    y: ROTATED_LEAF_PATH_RECT.y + ROTATED_LEAF_PATH_RECT.height / 2 };
+  const added = latticePoints(ROTATED_LEAF_PATH_RECT).filter(point => !samePoint(point, center));
+  assert.equal(added.length, 24);
+  for (const point of added) {
+    const count = queries.filter(([x, y]) => x === point.x && y === point.y).length;
+    assert.equal(count, 1, `lattice ${point.x},${point.y} queries=${count}`);
+  }
+});
+
+test("rotated filled leaf PATH target-absent samples supply no bounded witness", () => {
+  const fixture = buildRotatedLeafPathPublicFixture();
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x === 0 && y === 0) return [fixture.html];
+    const cover = fixture.cover.getBoundingClientRect();
+    const inCover = x >= cover.x && x < cover.x + cover.width && y >= cover.y && y < cover.y + cover.height;
+    return inCover ? [fixture.cover, fixture.root, fixture.html] : [fixture.root, fixture.html];
+  };
+  const { targetNode } = observeTarget(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed", `foreground=${targetNode?.foreground}`);
+  assert.equal(targetNode?.exposedRects, null);
+});
+
+test("rotated filled leaf PATH reverse order at any sample rejects the seed", () => {
+  const fixture = buildRotatedLeafPathPublicFixture();
+  const reversePoint = { x: ROTATED_LEAF_PATH_RECT.x + ROTATED_LEAF_PATH_RECT.width * 0.3,
+    y: ROTATED_LEAF_PATH_RECT.y + ROTATED_LEAF_PATH_RECT.height * 0.3 };
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x === 0 && y === 0) return [fixture.html];
+    if (samePoint({ x, y }, reversePoint)) {
+      return [fixture.target, fixture.cover, fixture.root, fixture.html];
+    }
+    return pathNativeStack(fixture, x, y);
+  };
+  const { targetNode } = observeTarget(fixture);
+
+  assert.notEqual(targetNode?.foreground, "occluded", `foreground=${targetNode?.foreground}`);
+  assert.equal(targetNode?.exposedRects, null);
+});
+
+test("rotated filled leaf PATH recovered seed still requires the corner probes", () => {
+  const fixture = buildRotatedLeafPathPublicFixture();
+  const failingCorner = { x: ROTATED_LEAF_PATH_RECT.x + 1, y: ROTATED_LEAF_PATH_RECT.y + 1 };
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x === 0 && y === 0) return [fixture.html];
+    if (samePoint({ x, y }, failingCorner)) return [fixture.target, fixture.root, fixture.html];
+    return pathNativeStack(fixture, x, y);
+  };
+  const { targetNode } = observeTarget(fixture);
+
+  assert.equal(targetNode?.foreground, "unassessed", `foreground=${targetNode?.foreground}`);
+  assert.equal(targetNode?.exposedRects, null);
+});
+
+test("rotated filled leaf PATH partial cover keeps the uncovered region exposed", () => {
+  const coverRect = { x: 104, y: 104, width: 8, height: 16 };
+  const fixture = buildRotatedLeafPathPublicFixture({ coverRect });
+  fixture.document.elementsFromPoint = (x, y) => {
+    if (x === 0 && y === 0) return [fixture.html];
+    return pathNativeStack(fixture, x, y);
+  };
+  const { targetNode } = observeTarget(fixture);
+
+  assert.equal(targetNode?.foreground, "visible", `foreground=${targetNode?.foreground}`);
+  assert.deepEqual(targetNode?.exposedRects, [{ x: 112, y: 104, width: 8, height: 16 }]);
+});
+
+test("rotated PATH without the contained-fill facts stays outside the bounded seed", () => {
+  const cases = [
+    ["stroke", buildStrokedPathPublicFixture({
+      rootRect: { x: 100, y: 100, width: 32, height: 32 },
+      viewBox: "0 0 32 32",
+      targetRect: ROTATED_LEAF_PATH_RECT,
+      includeSibling: false,
+      rootStyle: { transform: "matrix(0.9396926, 0.3420201, -0.3420201, 0.9396926, 0, 0)" },
+    })],
+    ["marker", buildRotatedLeafPathPublicFixture({ targetStyle: { markerEnd: 'url("#marker")' } })],
+    ["filter", buildRotatedLeafPathPublicFixture({ targetStyle: { filter: "blur(1px)" } })],
+    ["non-leaf", buildRotatedLeafPathPublicFixture({ targetChildren: 1 })],
+    ["unsupported path", buildRotatedLeafPathPublicFixture({
+      targetAttrs: { d: "M4 4H20V20H4Z" },
+      targetStyle: { d: 'path("M4 4H20V20H4Z")', textShadow: "none" },
+    })],
+    ["missing computed path", buildRotatedLeafPathPublicFixture({
+      targetStyle: { textShadow: "none" },
+    })],
+  ];
+  for (const [name, fixture] of cases) {
+    fixture.document.elementsFromPoint = (x, y) => {
+      if (x === 0 && y === 0) return [fixture.html];
+      return pathNativeStack(fixture, x, y);
+    };
+    const { targetNode } = observeTarget(fixture);
+    assert.notEqual(targetNode?.foreground, "occluded", `${name} foreground=${targetNode?.foreground}`);
+  }
 });

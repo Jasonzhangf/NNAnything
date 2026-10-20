@@ -4,6 +4,8 @@ import type { ObservationNode, PageObservation, Rect } from "./observation.js";
 
 export type MeasurementStatus = "measured" | "unmeasured" | "not_applicable";
 export type DirectChildrenCoverage = "complete" | "incomplete" | "unknown";
+const UNASSESSED_INTERIORS = ["iframe", "shadow_root", "object_content"] as const;
+export type UnassessedInteriorKind = typeof UNASSESSED_INTERIORS[number];
 type Boundary = "complete" | "hop_limit_reached" | "incomplete_observation" | "unknown";
 export interface ExplorationRelativeSummary {
   readonly nodeRef: string; readonly tag: string | null; readonly role: string | null;
@@ -11,7 +13,7 @@ export interface ExplorationRelativeSummary {
   readonly nonFormatDirectTextPresent?: boolean | null; readonly beforeContentPresent?: boolean | null;
   readonly afterContentPresent?: boolean | null; readonly backgroundImagePresent?: boolean | null; readonly maskImagePresent?: boolean | null;
   readonly childElementCount?: number | null; readonly directChildrenStatus?: DirectChildrenCoverage | null;
-  readonly unassessedInterior?: readonly ("iframe" | "shadow_root")[] | null;
+  readonly unassessedInterior?: readonly UnassessedInteriorKind[] | null;
 }
 export interface ExplorationContainmentEdge {
   readonly relation: "contained_by" | "contains"; readonly relativeHops: number;
@@ -36,7 +38,7 @@ export interface ExplorationInputV1 {
   };
   readonly geometry: { readonly rect: Rect | null; readonly clippedRect: Rect | null; readonly parentRect: Rect | null };
   readonly measurementCoverage: Readonly<Record<typeof coverageFields[number], MeasurementStatus>> & {
-    readonly directChildren: DirectChildrenCoverage; readonly unassessedInterior: readonly ("iframe" | "shadow_root")[];
+    readonly directChildren: DirectChildrenCoverage; readonly unassessedInterior: readonly UnassessedInteriorKind[];
   };
 }
 const own = (x: Record<string, unknown>, keys: readonly string[]) => {
@@ -63,7 +65,7 @@ function relative(x: unknown): ExplorationRelativeSummary {
     nonFormatDirectTextPresent: (r.nonFormatDirectTextPresent ?? null) as boolean | null, beforeContentPresent: (r.beforeContentPresent ?? null) as boolean | null, afterContentPresent: (r.afterContentPresent ?? null) as boolean | null, backgroundImagePresent: (r.backgroundImagePresent ?? null) as boolean | null, maskImagePresent: (r.maskImagePresent ?? null) as boolean | null };
   const childElementCount = r.childElementCount === undefined ? undefined : r.childElementCount === null ? null : integer(r.childElementCount);
   const directChildrenStatus = r.directChildrenStatus === undefined ? undefined : r.directChildrenStatus === null ? null : choice(r.directChildrenStatus, ["complete", "incomplete", "unknown"] as const);
-  const unassessedInterior = r.unassessedInterior === undefined ? undefined : r.unassessedInterior === null ? null : array(r.unassessedInterior).map(v => choice(v, ["iframe", "shadow_root"] as const));
+  const unassessedInterior = r.unassessedInterior === undefined ? undefined : r.unassessedInterior === null ? null : array(r.unassessedInterior).map(v => choice(v, UNASSESSED_INTERIORS));
   return { ...row,
     ...(childElementCount === undefined ? {} : { childElementCount }),
     ...(directChildrenStatus === undefined ? {} : { directChildrenStatus }),
@@ -111,14 +113,14 @@ export function validateExplorationInput(value: unknown): ExplorationInputV1 {
       ancestorEdges: edges(c.ancestorEdges, "contained_by"), descendantEdges: edges(c.descendantEdges, "contains"), ancestorBoundary: choice(c.ancestorBoundary, ["complete", "hop_limit_reached", "incomplete_observation", "unknown"] as const), descendantBoundary: choice(c.descendantBoundary, ["complete", "hop_limit_reached", "incomplete_observation", "unknown"] as const) },
     childComposition: { directChildrenStatus, children: childRows, childTagCounts, positiveAreaChildTagCounts },
     geometry: { rect: rectangle(geometry.rect), clippedRect: rectangle(geometry.clippedRect), parentRect: rectangle(geometry.parentRect) },
-      measurementCoverage: { ...Object.fromEntries(coverageFields.map(k => [k, choice(coverage[k], ["measured", "unmeasured", "not_applicable"] as const)])) as Record<typeof coverageFields[number], MeasurementStatus>, directChildren: directChildrenStatus, unassessedInterior: array(coverage.unassessedInterior).map(v => choice(v, ["iframe", "shadow_root"] as const)) },
+      measurementCoverage: { ...Object.fromEntries(coverageFields.map(k => [k, choice(coverage[k], ["measured", "unmeasured", "not_applicable"] as const)])) as Record<typeof coverageFields[number], MeasurementStatus>, directChildren: directChildrenStatus, unassessedInterior: array(coverage.unassessedInterior).map(v => choice(v, UNASSESSED_INTERIORS)) },
   };
 }
 
 export function buildExplorationInputs(input: {
   observation: PageObservation; itemObservations?: readonly ({ readonly nodeRef: string } & BasicKindMeasurements)[];
   maxRelationHops: number; directChildrenStatus?: DirectChildrenCoverage; rootNodeRef?: string;
-  unassessedInteriors?: ReadonlyMap<string, readonly ("iframe" | "shadow_root")[]>;
+  unassessedInteriors?: ReadonlyMap<string, readonly UnassessedInteriorKind[]>;
 }): ReadonlyMap<string, ExplorationInputV1> {
   if (!Number.isInteger(input.maxRelationHops) || input.maxRelationHops < 1) throw new TypeError("maxRelationHops must be an explicit positive integer");
   const nodes = new Map(input.observation.nodes.map(n => [n.nodeRef, n]));

@@ -1,15 +1,21 @@
 import { hasNonFormatDirectText, shapeAppearanceMeasurements, type BasicKindMeasurements, type BasicKindProperties } from "../../filters/basic-kinds.js";
-import { isSafeRuleAttribute, type ForegroundState, type ObservationNode, type PageObservation, type Rect } from "./observation.js";
-import { buildExplorationInputs, type ExplorationInputV1 } from "./exploration-input.js";
+import { isSafeRuleAttribute, type ForegroundState, type ObservationCurrentView, type ObservationNode, type PageObservation, type Rect } from "./observation.js";
+import { buildExplorationInputs, type ExplorationInputV1, type UnassessedInteriorKind } from "./exploration-input.js";
 import { deriveBasicKindContentRelations } from "./content-relations.js";
 import {
+  axisLinearGradientDomain,
+  axisLinearGradientPaintRect,
+  axisLinearGradientPaintsAt,
   backgroundImageOutsideBox,
   borderOnlyClearInterior,
   containedReplacedPaintRect,
+  fullReplacedImageCoverageRect,
   roundedOuterClearCorners,
+  roundedDomainContainsRect,
   equalRoundedDomains,
   pointInRoundedDomain,
   extractRoundedClipDomain,
+  type AxisLinearGradientDomain,
   type ReplacedObjectIntrinsicFacts,
   type RoundedRectDomain,
 } from "./paint-surface.js";
@@ -19,6 +25,7 @@ import {
   certifyContainedSvgOverflow,
   certifySvgAtomicViewport,
   resolveLocalSvgClipPathRect,
+  resolveOutermostSvgPhysicalViewport,
   resolveSvgUserSpaceMapping,
 } from "./svg-clipping.js";
 
@@ -53,6 +60,7 @@ export interface LiveCaptureCoverage {
   readonly traversedElementCount: number;
   readonly excludedElementCount: number;
   readonly unassessedIframeCount: number;
+  readonly unassessedObjectCount?: number;
   readonly unassessedOpenShadowRootCount: number;
   readonly closedShadowRootDetection: "not_available";
 }
@@ -270,6 +278,30 @@ function localScaleOf(transform: string | undefined): LocalScale | null {
   if (b !== 0 || c !== 0 || a <= 0 || d <= 0) return null;
   return { x: a, y: d };
 }
+// This proof is local to clipping. Accept only signed unit axes, and require
+// one measured physical rect with no local clipping or containing effect.
+function exactHtmlAxisReflection(element: Element, style: CSSStyleDeclaration): boolean {
+  const prefixedBackdrop = (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter;
+  if (element.namespaceURI !== XHTML_NAMESPACE) return false;
+  if (style.translate !== "none" || style.rotate !== "none" || style.scale !== "none"
+    || style.perspective !== "none" || style.overflowX !== "visible" || style.overflowY !== "visible"
+    || style.clip !== "auto" || style.clipPath !== "none" || style.contain !== "none"
+    || style.filter !== "none" || style.backdropFilter !== "none"
+    || typeof prefixedBackdrop !== "string" || (prefixedBackdrop !== "" && prefixedBackdrop !== "none")) return false;
+  const match = /^matrix\(([^)]+)\)$/.exec(style.transform ?? "");
+  if (!match) return false;
+  const fields = match[1]!.split(",").map(value => value.trim());
+  if (fields.length !== 6 || fields.some(value => value.length === 0)) return false;
+  const values = fields.map(Number);
+  if (!values.every(Number.isFinite)) return false;
+  const [a, b, c, d, tx, ty] = values;
+  if ((a !== 1 && a !== -1) || b !== 0 || c !== 0 || (d !== 1 && d !== -1)
+    || (a === 1 && d === 1) || tx === undefined || ty === undefined) return false;
+  const bounds = element.getBoundingClientRect();
+  if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
+    || bounds.width < 0 || bounds.height < 0) return false;
+  return element.getClientRects().length === 1;
+}
 type LegacyClipState = "none" | "empty" | "unsupported";
 // Legacy clip applies only to absolute/fixed elements; only an exact zero rect is interpretable here.
 function legacyClipState(style: CSSStyleDeclaration): LegacyClipState {
@@ -435,34 +467,148 @@ function subtractAll(source: readonly Rect[], blocker: Rect): Rect[] | null {
 }
 type FixedAnchorProof = { readonly status: "absent" } | { readonly status: "proven"; readonly index: number } | { readonly status: "unknown" };
 function fixedAnchorProof(chain: readonly Element[], styles: readonly CSSStyleDeclaration[]): FixedAnchorProof {
-  let anchor = -1;
-  for (let index = 0; index < chain.length; index++) {
-    if (styles[index]?.position !== "fixed") continue;
-    if (anchor !== -1) return { status: "unknown" };
-    anchor = index;
-  }
-  if (anchor === -1) return { status: "absent" };
   const ordinaryOverflow = (value: string | undefined): boolean =>
     value === "visible" || value === "hidden" || value === "scroll" || value === "auto";
-  for (let index = anchor + 1; index < chain.length; index++) {
-    const style = styles[index]!, tag = chain[index]!.tagName.toLowerCase();
-    if (tag === "svg" || tag === "foreignobject") return { status: "unknown" };
-    if (!ordinaryOverflow(style.overflowX) || !ordinaryOverflow(style.overflowY)) return { status: "unknown" };
-    const prefixedBackdrop = (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter;
-    if (style.transform !== "none" || style.translate !== "none" || style.rotate !== "none"
-      || style.scale !== "none" || style.perspective !== "none" || style.filter !== "none"
-      || style.backdropFilter !== "none"
-      || (prefixedBackdrop !== undefined && prefixedBackdrop !== "" && prefixedBackdrop !== "none")
-      || style.contain !== "none" || style.willChange !== "auto"
-      || style.contentVisibility !== "visible") return { status: "unknown" };
+  const prefixedBackdrop = (style: CSSStyleDeclaration): string | undefined =>
+    (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter;
+  const baselineContainingFacts = (style: CSSStyleDeclaration): boolean => {
+    const prefixed = prefixedBackdrop(style);
+    return style.transform === "none" && style.translate === "none" && style.rotate === "none"
+      && style.scale === "none" && style.perspective === "none" && style.filter === "none"
+      && style.backdropFilter === "none"
+      && (prefixed === undefined || prefixed === "" || prefixed === "none")
+      && style.contain === "none" && style.willChange === "auto"
+      && style.contentVisibility === "visible";
+  };
+  const passesViewportAnchorGuard = (start: number): boolean => {
+    for (let index = start; index < chain.length; index++) {
+      const style = styles[index]!, tag = chain[index]!.tagName.toLowerCase();
+      if (tag === "svg" || tag === "foreignobject") return false;
+      if (!ordinaryOverflow(style.overflowX) || !ordinaryOverflow(style.overflowY)) return false;
+      if (!baselineContainingFacts(style)) return false;
+    }
+    return true;
+  };
+  const finiteBox = (element: Element): boolean => {
+    const bounds = element.getBoundingClientRect();
+    return [bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)
+      && bounds.width >= 0 && bounds.height >= 0;
+  };
+  let innerAnchor = -1;
+  for (let index = 0; index < chain.length; index++) {
+    if (styles[index]?.position !== "fixed") continue;
+    innerAnchor = index;
+    // The nearest fixed ancestor is the viewport anchor. A further fixed
+    // ancestor is not a containing block by itself, so it stays in the
+    // containing-block guard scan below instead of rejecting the proof.
+    break;
   }
-  return { status: "proven", index: anchor };
+  if (innerAnchor === -1) return { status: "absent" };
+  if (passesViewportAnchorGuard(innerAnchor + 1)) return { status: "proven", index: innerAnchor };
+
+  // A fixed element below one relative blur(20px) backdrop is positioned by
+  // that backdrop. The outer fixed remains the first ordinary-overflow escape
+  // boundary, while clipping between the target and it stays in effect.
+  let containingBlock = -1, viewportAnchor = -1;
+  for (let index = innerAnchor + 1; index < chain.length; index++) {
+    const element = chain[index]!, style = styles[index]!;
+    if (element.namespaceURI !== XHTML_NAMESPACE || ["svg", "foreignobject"].includes(element.tagName.toLowerCase())
+      || !ordinaryOverflow(style.overflowX) || !ordinaryOverflow(style.overflowY)) return { status: "unknown" };
+    if (style.position === "relative" && style.backdropFilter === "blur(20px)") {
+      const prefixed = prefixedBackdrop(style);
+      if (containingBlock !== -1 || viewportAnchor !== -1 || style.transform !== "none"
+        || style.translate !== "none" || style.rotate !== "none" || style.scale !== "none"
+        || style.perspective !== "none" || style.filter !== "none"
+        || (prefixed !== undefined && prefixed !== "" && prefixed !== "none")
+        || style.contain !== "none" || style.willChange !== "auto"
+        || style.contentVisibility !== "visible" || !finiteBox(element)) return { status: "unknown" };
+      containingBlock = index;
+      continue;
+    }
+    if (style.position === "fixed") {
+      if (containingBlock === -1 || viewportAnchor !== -1 || !baselineContainingFacts(style) || !finiteBox(element)) {
+        return { status: "unknown" };
+      }
+      viewportAnchor = index;
+      break;
+    }
+    if (!baselineContainingFacts(style)) return { status: "unknown" };
+  }
+  if (containingBlock === -1 || viewportAnchor === -1 || !passesViewportAnchorGuard(viewportAnchor + 1)) {
+    return { status: "unknown" };
+  }
+  return { status: "proven", index: viewportAnchor };
+}
+type AbsoluteContainingBlockProof =
+  | { readonly status: "absent" }
+  | { readonly status: "proven"; readonly index: number }
+  | { readonly status: "unknown" };
+function absoluteContainingBlockProof(
+  chain: readonly Element[],
+  styles: readonly CSSStyleDeclaration[],
+  document: Document,
+  readCss: ClipCssReader,
+): AbsoluteContainingBlockProof {
+  if (styles[0]?.position !== "absolute" || chain[0]?.namespaceURI !== XHTML_NAMESPACE) {
+    return { status: "absent" };
+  }
+  let containingBlock = -1;
+  for (let index = 1; index < chain.length; index++) {
+    const position = styles[index]?.position;
+    if (typeof position !== "string") return { status: "unknown" };
+    if (position !== "static") {
+      containingBlock = index;
+      break;
+    }
+  }
+  if (containingBlock === -1) return { status: "absent" };
+  // There is no intermediate overflow between the target and its immediate
+  // positioned containing block.
+  if (containingBlock === 1) return { status: "absent" };
+  if (chain.at(-1) !== document.documentElement) return { status: "unknown" };
+  // Only ordinary overflow that would otherwise clip the target needs proof.
+  let needsEscape = false;
+  for (let index = 1; index < containingBlock; index++) {
+    const style = styles[index]!;
+    const overflowX = readCss(chain[index]!, style, "overflowX");
+    const overflowY = readCss(chain[index]!, style, "overflowY");
+    const ordinary = ["visible", "hidden", "scroll", "auto"];
+    const supported = (value: string | null | undefined): boolean =>
+      ordinary.includes(value ?? "") || value === "clip";
+    if (!supported(overflowX) || !supported(overflowY)) return { status: "unknown" };
+    if (overflowX === "clip" || overflowY === "clip") continue;
+    if (overflowX !== "visible" || overflowY !== "visible") needsEscape = true;
+  }
+  if (!needsEscape) return { status: "absent" };
+  for (let index = 1; index < containingBlock; index++) {
+    const element = chain[index]!, style = styles[index]!;
+    const tag = element.tagName.toLowerCase();
+    const prefixedBackdrop = (style as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter;
+    if (style.position !== "static"
+      || element.namespaceURI !== XHTML_NAMESPACE || tag === "svg" || tag === "foreignobject"
+      || readCss(element, style, "transform") !== "none"
+      || readCss(element, style, "translate") !== "none"
+      || readCss(element, style, "rotate") !== "none"
+      || readCss(element, style, "scale") !== "none"
+      || readCss(element, style, "perspective") !== "none"
+      || style.filter !== "none" || style.backdropFilter !== "none"
+      || (prefixedBackdrop !== "" && prefixedBackdrop !== "none")
+      || readCss(element, style, "contain") !== "none"
+      || style.willChange !== "auto" || style.contentVisibility !== "visible"
+      || !["visible", "hidden", "scroll", "auto", "clip"].includes(readCss(element, style, "overflowX") ?? "")
+      || !["visible", "hidden", "scroll", "auto", "clip"].includes(readCss(element, style, "overflowY") ?? "")) {
+      return { status: "unknown" };
+    }
+  }
+  return { status: "proven", index: containingBlock };
 }
 function rootScrollport(document: Document, window: Window, root: Element, style: CSSStyleDeclaration): Rect | null {
   if (document.compatMode !== "CSS1Compat" || document.scrollingElement !== root
     || root !== document.documentElement || root.tagName.toLowerCase() !== "html"
     || root.namespaceURI !== XHTML_NAMESPACE) return null;
-  if (style.overflowX !== "auto" || style.overflowY !== "auto"
+  const supportedOverflow = (value: string): boolean =>
+    value === "auto" || value === "hidden" || value === "scroll";
+  if (!supportedOverflow(style.overflowX) || !supportedOverflow(style.overflowY)
     || style.transform !== "none" || style.translate !== "none" || style.rotate !== "none"
     || style.scale !== "none" || style.perspective !== "none" || style.zoom !== "1"
     || style.borderLeftWidth !== "0px" || style.borderTopWidth !== "0px"
@@ -475,48 +621,99 @@ function rootScrollport(document: Document, window: Window, root: Element, style
     || root.clientWidth > window.innerWidth || root.clientHeight > window.innerHeight) return null;
   return { x: 0, y: 0, width: root.clientWidth, height: root.clientHeight };
 }
-function clippedBox(element: Element, window: Window, rect: Rect, document: Document): Rect | null {
+type ElementAncestry = ReadonlyMap<Element, Element | null>;
+type ClipCssKey =
+  | "translate"
+  | "rotate"
+  | "scale"
+  | "perspective"
+  | "transform"
+  | "contain"
+  | "clipPath"
+  | "overflowX"
+  | "overflowY";
+type ClipCssReader = (
+  element: Element,
+  style: CSSStyleDeclaration,
+  key: ClipCssKey,
+) => string | null | undefined;
+function ancestryPath(element: Element, ancestry: ElementAncestry): readonly Element[] {
+  const path: Element[] = [];
+  let current: Element | null = element;
+  while (current) {
+    path.push(current);
+    const recorded = ancestry.get(current);
+    current = recorded === undefined ? current.parentElement : recorded;
+  }
+  return path;
+}
+function clippedBox(
+  element: Element,
+  window: Window,
+  rect: Rect,
+  fragments: readonly Rect[],
+  document: Document,
+  ancestry: ElementAncestry,
+  readCss: ClipCssReader,
+): Rect | null {
   const chain: Element[] = [], styles: CSSStyleDeclaration[] = [], scales: (LocalScale | null)[] = [];
+  const exactHtmlReflections: boolean[] = [];
   const clipRects: (Rect | null)[] = [];
   const containedSvg = certifyContainedSvgOverflow(element, window);
   const reflectedSvg = certifyAxisReflectedSvgViewport(element, window);
   let empty = false;
   // First pass validates the whole chain and records each local scale.
-  for (let current: Element | null = element; current; current = current.parentElement) {
+  for (const current of ancestryPath(element, ancestry)) {
     const style = window.getComputedStyle(current);
-    if ([style.translate, style.rotate, style.scale, style.perspective]
+    if ([readCss(current, style, "translate"), readCss(current, style, "rotate"), readCss(current, style, "scale"), readCss(current, style, "perspective")]
       .some(value => value !== undefined && value !== "" && value !== "none")) return null;
-    if (style.contain?.includes("paint")) return null;
-    const scale = localScaleOf(style.transform);
+    if (readCss(current, style, "contain")?.includes("paint")) return null;
+    const transform = readCss(current, style, "transform");
+    const scale = localScaleOf(transform === null ? undefined : transform);
+    const exactHtmlReflection = scale === null && exactHtmlAxisReflection(current, style);
     // A reflected root has a null local axis scale, but its measured physical
     // viewport still bounds the certified direct path. Never fake a unit scale.
-    if (scale === null && current !== containedSvg?.root && current !== reflectedSvg?.root) return null;
+    if (scale === null && current !== containedSvg?.root && current !== reflectedSvg?.root
+      && !exactHtmlReflection) return null;
     const legacy = legacyClipState(style);
     if (legacy === "unsupported") return null;
     if (legacy === "empty") empty = true;
     // A clip-path is provable only as one local rectangular SVG resource; any
     // other clip value stays unknown rather than being assumed absent.
-    const clipValue = style.clipPath && style.clipPath !== "none" ? style.clipPath : null;
+    const clipPath = readCss(current, style, "clipPath");
+    const clipValue = clipPath && clipPath !== "none" ? clipPath : null;
     let clipRect: Rect | null = null;
     if (clipValue !== null) {
       clipRect = resolveLocalSvgClipPathRect(current, clipValue, window);
       if (clipRect === null) return null;
     }
     chain.push(current); styles.push(style); scales.push(scale); clipRects.push(clipRect);
+    exactHtmlReflections.push(exactHtmlReflection);
   }
   if (empty) return { x: rect.x, y: rect.y, width: 0, height: 0 };
+  if (exactHtmlReflections.some(Boolean) && (!positive(rect) || fragments.length !== 1)) return null;
   const fixedAnchor = fixedAnchorProof(chain, styles);
   if (fixedAnchor.status === "unknown") return null;
+  const absoluteContainingBlock: AbsoluteContainingBlockProof = fixedAnchor.status === "proven"
+    ? { status: "absent" }
+    : absoluteContainingBlockProof(chain, styles, document, readCss);
+  if (absoluteContainingBlock.status === "unknown") return null;
   // Cumulative scale runs from each element through the root, so descendants cannot widen an outer clip.
   const cumulative: (LocalScale | null)[] = [];
   let outerScale: LocalScale | null = { x: 1, y: 1 };
   for (let index = chain.length - 1; index >= 0; index--) {
     const local = scales[index];
-    outerScale = local == null || outerScale === null ? null
-      : { x: outerScale.x * local.x, y: outerScale.y * local.y };
+    if (local != null) {
+      outerScale = outerScale === null ? null : { x: outerScale.x * local.x, y: outerScale.y * local.y };
+    } else if (!exactHtmlReflections[index]) {
+      outerScale = null;
+    }
+    // A signed unit-axis reflection changes axis sign only. Keep the positive
+    // outer scale for ancestor client geometry without creating a local scale.
     cumulative[index] = outerScale;
   }
   let left = rect.x, top = rect.y, right = rect.x + rect.width, bottom = rect.y + rect.height;
+  const outermostHtmlReflection = exactHtmlReflections.lastIndexOf(true);
   for (let index = 0; index < chain.length; index++) {
     const clipRect = clipRects[index] ?? null;
     if (clipRect !== null) {
@@ -534,8 +731,16 @@ function clippedBox(element: Element, window: Window, rect: Rect, document: Docu
     // Only ordinary ancestor overflow outside a proved viewport anchor escapes.
     // Explicit clip-path/legacy clips were processed above and still apply.
     if (fixedAnchor.status === "proven" && index > fixedAnchor.index) continue;
-    const clipsX = ["hidden", "clip", "scroll", "auto"].includes(style.overflowX);
-    const clipsY = ["hidden", "clip", "scroll", "auto"].includes(style.overflowY);
+    const overflowX = readCss(parent, style, "overflowX");
+    const overflowY = readCss(parent, style, "overflowY");
+    // An absolute target escapes ordinary overflow only between itself and its
+    // nearest proven containing block. The containing block and outer ancestors
+    // still clip, and explicit clip-path/legacy clips were processed above.
+    if (absoluteContainingBlock.status === "proven" && index < absoluteContainingBlock.index
+      && (overflowX === "visible" || overflowX === "hidden" || overflowX === "scroll" || overflowX === "auto")
+      && (overflowY === "visible" || overflowY === "hidden" || overflowY === "scroll" || overflowY === "auto")) continue;
+    const clipsX = overflowX === "hidden" || overflowX === "clip" || overflowX === "scroll" || overflowX === "auto";
+    const clipsY = overflowY === "hidden" || overflowY === "clip" || overflowY === "scroll" || overflowY === "auto";
     // An axis-reflected root is not a convex-contained fill: its physical
     // viewport must actually clip the direct path on each declared axis.
     if (parent === reflectedSvg?.root) {
@@ -573,8 +778,40 @@ function clippedBox(element: Element, window: Window, rect: Rect, document: Docu
       }
       continue;
     }
+    const physicalSvgAxesKnown = (overflowX === "hidden" || overflowX === "visible")
+      && (overflowY === "hidden" || overflowY === "visible");
+    if (parent.tagName.toLowerCase() === "svg" && physicalSvgAxesKnown
+      && (overflowX === "hidden" || overflowY === "hidden")) {
+      let unitHtmlChain = true;
+      for (let ancestorIndex = index + 1; ancestorIndex < chain.length; ancestorIndex++) {
+        const ancestor = chain[ancestorIndex]!;
+        const scale = scales[ancestorIndex];
+        if (ancestor.namespaceURI !== XHTML_NAMESPACE
+          || (!exactHtmlReflections[ancestorIndex] && (scale == null || scale.x !== 1 || scale.y !== 1))) {
+          unitHtmlChain = false;
+          break;
+        }
+      }
+      if (unitHtmlChain) {
+        const viewport = resolveOutermostSvgPhysicalViewport(parent, window);
+        if (viewport !== null) {
+          if (overflowX === "hidden") {
+            left = Math.max(left, viewport.x);
+            right = Math.min(right, viewport.x + viewport.width);
+          }
+          if (overflowY === "hidden") {
+            top = Math.max(top, viewport.y);
+            bottom = Math.min(bottom, viewport.y + viewport.height);
+          }
+          continue;
+        }
+      }
+    }
     const bounds = parent.getBoundingClientRect();
     if (![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite)) return null;
+    // Client offsets below a reflected axis cannot use the positive-axis
+    // mapping. Physical SVG proofs above remain independent of this path.
+    if (outermostHtmlReflection > index) return null;
     const cumulativeScale = cumulative[index];
     if (cumulativeScale == null) return null;
     if (clipsX) {
@@ -776,6 +1013,113 @@ function ordinaryOrderOwnPaintKnown(
   return true;
 }
 
+function knownSingleFragmentDomain(
+  element: Element,
+  node: ObservationNode,
+  style: CSSStyleDeclaration,
+  geometricPoint: { readonly x: number; readonly y: number },
+  visibleRects: readonly Rect[],
+  allowClearCorners: boolean,
+  window: Window,
+  styleByElement: ReadonlyMap<Element, CSSStyleDeclaration>,
+): boolean {
+  if (element.namespaceURI !== XHTML_NAMESPACE || node.fragments?.length !== 1
+    || node.rect === null || node.clippedRect === null || !positive(node.clippedRect)
+    || !allowClearCorners || style.clipPath !== "none" || style.display === "none"
+    || style.visibility === "hidden" || style.visibility === "collapse") return false;
+  if (![style.borderTopLeftRadius, style.borderTopRightRadius,
+    style.borderBottomLeftRadius, style.borderBottomRightRadius].every(zeroLength)) return false;
+  const scale = cumulativeScaleOf(element, window);
+  if (!scale || scale.x <= 0 || scale.y <= 0) return false;
+  if (!ordinaryOrderOwnPaintKnown(element, window, styleByElement)) return false;
+  return visibleRects.some(rect => geometricPoint.x >= rect.x && geometricPoint.x <= rect.x + rect.width
+    && geometricPoint.y >= rect.y && geometricPoint.y <= rect.y + rect.height);
+}
+
+function rectCovers(outer: Rect, inner: Rect): boolean {
+  return outer.x <= inner.x && outer.y <= inner.y
+    && outer.x + outer.width >= inner.x + inner.width
+    && outer.y + outer.height >= inner.y + inner.height;
+}
+
+function coversAllRects(outer: Rect, rects: readonly Rect[]): boolean {
+  return rects.length > 0 && rects.every(rect => positive(rect) && rectCovers(outer, rect));
+}
+
+function svgPathOwnPaintKnown(
+  element: Element,
+  window: Window,
+  styleByElement: ReadonlyMap<Element, CSSStyleDeclaration>,
+): boolean {
+  const style = styleByElement.get(element);
+  if (!style || style.outlineStyle === undefined || style.outlineWidth === undefined
+    || style.boxShadow === undefined || style.textShadow === undefined
+    || style.backgroundImage === undefined || style.maskImage === undefined
+    || typeof style.webkitMaskImage !== "string") return false;
+  if (visibleOutline(style) !== false || style.boxShadow !== "none" || style.textShadow !== "none"
+    || style.backgroundImage !== "none" || style.maskImage !== "none"
+    || (style.webkitMaskImage !== "" && style.webkitMaskImage !== "none")) return false;
+  for (const pseudo of ["::before", "::after"] as const) {
+    const content = window.getComputedStyle(element, pseudo).content;
+    if (content === undefined) return false;
+    if (!["none", "normal", '""', "''"].includes(content)) return false;
+  }
+  return true;
+}
+
+// Bounded negative-order seed. A center miss can hide the first native order
+// witness of an eligible target. These fixed point sets only retrieve actual
+// target/blocker order evidence; they do not prove paint coverage or replace
+// the existing corner checks and complete subtraction.
+function negativeOrderWitnessPoints(
+  element: Element,
+  node: ObservationNode,
+  style: CSSStyleDeclaration,
+  visibleRects: readonly Rect[],
+  overlap: Rect,
+  allowClearCorners: boolean,
+  window: Window,
+  styleByElement: ReadonlyMap<Element, CSSStyleDeclaration>,
+): readonly { readonly x: number; readonly y: number }[] | null {
+  // Multiline HTML SPAN: exactly two positive fragments of direct text and no
+  // element-child escape. Own shadow, outline, generated content and other
+  // unsupported paint expansion must be known absent.
+  if (element.namespaceURI === XHTML_NAMESPACE && element.tagName.toLowerCase() === "span") {
+    if (node.fragments?.length !== 2 || visibleRects.length !== 2) return null;
+    if (element.children === undefined || element.children.length !== 0) return null;
+    const directText = Array.from(element.childNodes)
+      .filter(child => child.nodeType === 3).map(child => child.textContent ?? "").join("");
+    if (hasNonFormatDirectText(directText) !== true) return null;
+    if (!allowClearCorners) return null;
+    if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse"
+      || style.clipPath !== "none") return null;
+    if (![style.borderTopLeftRadius, style.borderTopRightRadius,
+      style.borderBottomLeftRadius, style.borderBottomRightRadius].every(zeroLength)) return null;
+    const scale = cumulativeScaleOf(element, window);
+    if (!scale || scale.x <= 0 || scale.y <= 0) return null;
+    if (!ordinaryOrderOwnPaintKnown(element, window, styleByElement)) return null;
+    return visibleRects.map(rect => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }));
+  }
+  // Direct leaf SVG PATH: the existing contained-fill certificate must already
+  // admit it. A rotated root can keep atomic certification unavailable.
+  if (element.namespaceURI === "http://www.w3.org/2000/svg"
+    && element.tagName.toLowerCase() === "path") {
+    if (node.clippedRect === null || !positive(node.clippedRect)) return null;
+    if (element.children === undefined || element.children.length !== 0) return null;
+    const contained = certifyContainedSvgOverflow(element, window);
+    if (contained === null || contained.targetKind !== "directPath") return null;
+    if (!svgPathOwnPaintKnown(element, window, styleByElement)) return null;
+    const points: { readonly x: number; readonly y: number }[] = [];
+    for (const fx of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+      for (const fy of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+        points.push({ x: overlap.x + overlap.width * fx, y: overlap.y + overlap.height * fy });
+      }
+    }
+    return points;
+  }
+  return null;
+}
+
 function proveOwnPaintBehindLaterPositiveBranch(
   document: Document,
   window: Window,
@@ -824,8 +1168,15 @@ function proveOwnPaintBehindLaterPositiveBranch(
   return true;
 }
 
-function roundedClippingAncestor(element: Element, window: Window, includeSelf = false): boolean {
-  for (let parent: Element | null = includeSelf ? element : element.parentElement; parent; parent = parent.parentElement) {
+function roundedClippingAncestor(
+  element: Element,
+  window: Window,
+  ancestry: ElementAncestry,
+  includeSelf = false,
+): boolean {
+  const path = ancestryPath(element, ancestry);
+  for (let index = includeSelf ? 0 : 1; index < path.length; index++) {
+    const parent = path[index]!;
     const style = window.getComputedStyle(parent);
     if ([style.overflowX, style.overflowY].some(value => ["hidden", "clip", "scroll", "auto"].includes(value))
       && [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]
@@ -839,9 +1190,10 @@ function ancestorRoundedClearCorners(
   visibleBox: Rect,
   window: Window,
   styles: ReadonlyMap<Element, CSSStyleDeclaration>,
+  ancestry: ElementAncestry,
 ): readonly Rect[] {
   const path: { element: Element; style: CSSStyleDeclaration }[] = [];
-  for (let current: Element | null = element; current; current = current.parentElement) {
+  for (const current of ancestryPath(element, ancestry)) {
     const style = styles.get(current);
     if (current.namespaceURI !== "http://www.w3.org/1999/xhtml" || !style
       || style.zoom !== "1" || localScaleOf(style.transform) === null
@@ -888,6 +1240,81 @@ function hitAt(document: Document, x: number, y: number): readonly Element[] | n
   return null;
 }
 
+interface NativeWitnessViewport {
+  readonly width: number;
+  readonly height: number;
+  readonly enabled: boolean;
+}
+
+interface NativePointQuery {
+  readonly geometricPoint: { readonly x: number; readonly y: number };
+  readonly nativePoint: { readonly x: number; readonly y: number };
+  readonly hits: readonly Element[] | null;
+  readonly supplemented: boolean;
+}
+
+function nativeWitnessViewport(window: Window): NativeWitnessViewport {
+  const width = window.innerWidth, height = window.innerHeight;
+  const nativeWindow = window as Window & {
+    devicePixelRatio?: unknown;
+    visualViewport?: { scale?: unknown; offsetLeft?: unknown; offsetTop?: unknown } | null;
+  };
+  try {
+    const viewport = nativeWindow.visualViewport;
+    return {
+      width,
+      height,
+      enabled: Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0
+        && nativeWindow.devicePixelRatio === 1
+        && viewport?.scale === 1
+        && viewport?.offsetLeft === 0
+        && viewport?.offsetTop === 0,
+    };
+  } catch {
+    return { width, height, enabled: false };
+  }
+}
+
+function reachesLastColumnBand(rect: Rect, width: number): boolean {
+  return rect.x >= width - 1 && rect.x < width && rect.x + rect.width >= width;
+}
+
+function reachesLastRowBand(rect: Rect, height: number): boolean {
+  return rect.y >= height - 1 && rect.y < height && rect.y + rect.height >= height;
+}
+
+function queryNativeHitPoint(
+  document: Document,
+  point: { readonly x: number; readonly y: number },
+  rect: Rect,
+  viewport: NativeWitnessViewport,
+): NativePointQuery {
+  const originalHits = hitAt(document, point.x, point.y);
+  const original: NativePointQuery = {
+    geometricPoint: point,
+    nativePoint: point,
+    hits: originalHits,
+    supplemented: false,
+  };
+  if (originalHits === null || originalHits.length !== 0 || !viewport.enabled || !positive(rect)) return original;
+
+  const right = reachesLastColumnBand(rect, viewport.width);
+  const bottom = reachesLastRowBand(rect, viewport.height);
+  if (!right && !bottom) return original;
+
+  const nativePoint = {
+    x: right ? viewport.width - 1 : point.x,
+    y: bottom ? viewport.height - 1 : point.y,
+  };
+  if (nativePoint.x === point.x && nativePoint.y === point.y) return original;
+  return {
+    geometricPoint: point,
+    nativePoint,
+    hits: hitAt(document, nativePoint.x, nativePoint.y),
+    supplemented: true,
+  };
+}
+
 interface SurfaceClassification {
   readonly kind: "blocker" | "uncertain" | "transparent";
   readonly passThrough: boolean;
@@ -896,6 +1323,7 @@ interface SurfaceClassification {
   readonly clearInterior: Rect | null;
   readonly paintRect?: Rect | null;
   readonly clearCornerRects?: readonly Rect[];
+  readonly gradientDomain?: AxisLinearGradientDomain;
 }
 
 interface ForegroundContext {
@@ -924,6 +1352,7 @@ function surfaceFor(
   window: Window,
   ancestorOpacity: number,
   hidden: boolean,
+  ancestry: ElementAncestry,
 ): SurfaceClassification {
   // An empty prefixed alias is absent evidence. It must not override the standard CSS fact.
   const declared = (value: string | undefined): boolean => value !== undefined && value !== "" && value !== "none";
@@ -958,6 +1387,73 @@ function surfaceFor(
   if (!visible) return { kind: "transparent", passThrough: false, proven: false, relevant: false, clearInterior: null };
   if (borders === null || outline === null) {
     return { kind: "uncertain", passThrough: style.pointerEvents === "none", proven: false, relevant: true, clearInterior: null };
+  }
+  const gradientCandidate = element.namespaceURI === XHTML_NAMESPACE
+    && image && (style.pointerEvents === "auto" || style.pointerEvents === "none")
+    && !mask && !filter && !media && !ownText && !pseudo && !shadow && !outline && borders === false
+    && style.clipPath === "none"
+    && style.mixBlendMode === "normal" && style.isolation === "auto"
+    && style.contain === "none" && style.contentVisibility === "visible"
+    && style.transformStyle === "flat" && style.willChange === "auto"
+    && [style.translate, style.rotate, style.scale, style.perspective]
+      .every(value => value === "none")
+    && !radius && !roundedClippingAncestor(element, window, ancestry, true);
+  if (gradientCandidate && node.rect !== null && node.clippedRect !== null
+    && positive(node.rect) && positive(node.clippedRect) && node.fragments?.length === 1) {
+    let zoomProven = true, gradientOpacityProven = true, gradientEffectiveOpacity = 1;
+    for (let current: Element | null = element; current; current = current.parentElement) {
+      const currentStyle = current === element ? style : window.getComputedStyle(current);
+      const opacityText = currentStyle.opacity;
+      const opacityValue = opacityText === undefined || String(opacityText).trim() === ""
+        ? null : Number(opacityText);
+      if (opacityValue === null || !Number.isFinite(opacityValue)
+        || opacityValue < 0 || opacityValue > 1) {
+        gradientOpacityProven = false;
+        break;
+      }
+      gradientEffectiveOpacity *= opacityValue;
+      const prefixed = currentStyle as CSSStyleDeclaration & { webkitBackdropFilter?: string; webkitMaskImage?: string };
+      if (declared(currentStyle.maskImage) || declared(prefixed.webkitMaskImage)
+        || declared(currentStyle.backdropFilter) || declared(prefixed.webkitBackdropFilter)
+        || currentStyle.filter !== "none" || currentStyle.clipPath !== "none"
+        || currentStyle.contain !== "none" || currentStyle.mixBlendMode !== "normal"
+        || currentStyle.isolation !== "auto" || currentStyle.contentVisibility !== "visible"
+        || currentStyle.transformStyle !== "flat" || currentStyle.willChange !== "auto") {
+        zoomProven = false;
+        break;
+      }
+      if (currentStyle.zoom !== "1"
+        || [currentStyle.translate, currentStyle.rotate, currentStyle.scale, currentStyle.perspective]
+          .some(value => value !== undefined && value !== "none")) {
+        zoomProven = false;
+        break;
+      }
+    }
+    const gradientScale = zoomProven ? cumulativeScaleOf(element, window) : null;
+    if (gradientOpacityProven
+      && gradientScale !== null && gradientScale.x > 0 && gradientScale.y > 0
+      && hasNoEscapeEffects(element, window)) {
+      const gradientDomain = axisLinearGradientDomain({
+        style,
+        borderBox: node.rect,
+        scale: gradientScale,
+        effectiveOpacity: gradientEffectiveOpacity,
+        alphaOfColor: parseCssAlpha,
+      });
+      if (gradientDomain !== null) {
+        const pointerPassThrough = style.pointerEvents === "none";
+        const paintRect = axisLinearGradientPaintRect(gradientDomain, pointerPassThrough);
+        return paintRect === null
+          ? {
+            kind: "transparent", passThrough: pointerPassThrough, proven: false,
+            relevant: true, clearInterior: null, gradientDomain,
+          }
+          : {
+            kind: "blocker", passThrough: pointerPassThrough, proven: true,
+            relevant: true, clearInterior: null, paintRect, gradientDomain,
+          };
+      }
+    }
   }
   const hasOwnPaint = bgAlpha > 0 || image || mask || backdrop || filter || media || ownText || pseudo || borders || shadow || outline;
   if (!hasOwnPaint) {
@@ -1014,7 +1510,7 @@ function surfaceFor(
     && bgAlpha === 1 && opacity === 1;
   const pure = node.clippedRect !== null && positive(node.clippedRect) && !radius && !image && !mask && !media && !backdrop && !filter
     && (!shadow || contentBoxCoincidentOpaque) && !outline
-    && style.clipPath === "none" && !roundedClippingAncestor(element, window)
+    && style.clipPath === "none" && !roundedClippingAncestor(element, window, ancestry)
     && (!style.backgroundClip || style.backgroundClip === "border-box" || contentBoxCoincidentOpaque);
   if (!pure) return { kind: "uncertain", passThrough: style.pointerEvents === "none", proven: false, relevant: true, clearInterior: null };
   if (style.pointerEvents === "none") {
@@ -1028,7 +1524,12 @@ function surfaceFor(
 }
 
 function surfacePaintRects(surface: SurfaceClassification, outer: Rect, allowCorners: boolean): Rect[] {
-  const base = surface.paintRect ? intersection(outer, surface.paintRect) : outer;
+  const gradientRect = surface.gradientDomain === undefined
+    ? undefined
+    : axisLinearGradientPaintRect(surface.gradientDomain, surface.passThrough);
+  const paintRect = surface.gradientDomain === undefined ? surface.paintRect : gradientRect;
+  if (surface.gradientDomain !== undefined && paintRect === null) return [];
+  const base = paintRect ? intersection(outer, paintRect) : outer;
   if (!positive(base)) return [];
   let result: Rect[] = [base];
   const clear = [...(surface.clearInterior === null ? [] : [surface.clearInterior]),
@@ -1048,7 +1549,9 @@ function subtractSurface(source: readonly Rect[] | null, surface: SurfaceClassif
 }
 
 function surfacePaintsAt(surface: SurfaceClassification, x: number, y: number, allowCorners = true): boolean {
-  if (surface.paintRect
+  if (surface.gradientDomain !== undefined) {
+    if (!axisLinearGradientPaintsAt(surface.gradientDomain, x, y, surface.passThrough)) return false;
+  } else if (surface.paintRect
     && !(x >= surface.paintRect.x && x <= surface.paintRect.x + surface.paintRect.width
       && y >= surface.paintRect.y && y <= surface.paintRect.y + surface.paintRect.height)) return false;
   const clear = [...(surface.clearInterior === null ? [] : [surface.clearInterior]),
@@ -1131,6 +1634,7 @@ export type ForegroundDiagnosticEvent =
     readonly hitRefs: readonly (string | null)[] | null;
     readonly nativeBefore: boolean;
     readonly nativeOrderWitnessRef?: string;
+    readonly nativeWitnessPoint?: { readonly x: number; readonly y: number };
     readonly paintOrderBefore: boolean | "uncertain" | "not_queried";
     readonly pointerBefore: boolean;
     readonly remainingBefore: number | null;
@@ -1144,6 +1648,7 @@ export type ForegroundDiagnosticEvent =
     readonly targetRef: string;
     readonly remainingRect: Rect;
     readonly point: { readonly x: number; readonly y: number };
+    readonly nativePoint?: { readonly x: number; readonly y: number };
     readonly hitRefs: readonly (string | null)[] | null;
     readonly firstOpaqueRef: string | null;
     readonly chosenOwnerRef: string | null;
@@ -1169,12 +1674,100 @@ const diagnosticSurface = (surface: SurfaceClassification | undefined): Foregrou
 const remainingCount = (rects: readonly Rect[] | null): number | null => rects === null ? null : rects.length;
 
 function isTopLayer(element: Element): boolean | null {
-  if (typeof element.matches !== "function") return null;
   try {
+    if (typeof element.matches !== "function") return null;
     return [":fullscreen", ":modal", ":popover-open"].some(selector => element.matches(selector));
   } catch {
     return null;
   }
+}
+
+function nativeTabIndexOf(element: Element): number | null {
+  try {
+    const native = (element as Element & { tabIndex?: unknown }).tabIndex;
+    return typeof native === "number" && Number.isInteger(native) ? native : null;
+  } catch {
+    return null;
+  }
+}
+
+function pointerEventsNone(style: CSSStyleDeclaration): boolean | null {
+  const value = style.pointerEvents;
+  return value === undefined || value === "" ? null : value === "none";
+}
+
+function strictZeroOpacity(style: CSSStyleDeclaration): boolean | null {
+  const raw = style.opacity;
+  if (raw === undefined || String(raw).trim() === "") return null;
+  const text = String(raw).trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(text)) return null;
+  const value = Number(text);
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value === 0 : null;
+}
+
+function htmlElement(element: Element): boolean {
+  try {
+    return element.namespaceURI === XHTML_NAMESPACE;
+  } catch {
+    return false;
+  }
+}
+
+function zeroOpacityInCurrentPaintPath(
+  element: Element,
+  style: CSSStyleDeclaration,
+  styleByElement: Map<Element, CSSStyleDeclaration>,
+  cache: Map<Element, boolean | null>,
+): boolean | null {
+  const path: Element[] = [];
+  let result: boolean | null = null;
+  let current: Element | null = element;
+  let currentStyle: CSSStyleDeclaration | undefined = style;
+  while (current) {
+    if (cache.has(current)) { result = cache.get(current)!; break; }
+    path.push(current);
+    if (!htmlElement(current) || currentStyle === undefined) break;
+    const currentOpacity = strictZeroOpacity(currentStyle);
+    if (currentOpacity === true) { result = true; break; }
+    if (currentOpacity === null || isTopLayer(current) !== false) break;
+    const parent: Element | null = current.parentElement;
+    if (parent === null) { result = false; break; }
+    current = parent;
+    currentStyle = styleByElement.get(parent);
+  }
+  for (const entry of path) cache.set(entry, result);
+  return result;
+}
+
+function currentViewRecordFor(
+  element: Element,
+  tag: string,
+  style: CSSStyleDeclaration,
+  styleByElement: Map<Element, CSSStyleDeclaration>,
+  opacityPathCache: Map<Element, boolean | null>,
+  directText: boolean | null,
+  ownLabelPresent: boolean | null,
+  contentEditable: boolean | null,
+): ObservationCurrentView | undefined {
+  if (!htmlElement(element) || (tag !== "div" && tag !== "object")) return undefined;
+  let focusWithin: boolean | null = null;
+  try {
+    const matched = typeof element.matches === "function" ? element.matches(":focus-within") : null;
+    focusWithin = typeof matched === "boolean" ? matched : null;
+  } catch {
+    focusWithin = null;
+  }
+  return {
+    zeroOpacityInCurrentPaintPath: zeroOpacityInCurrentPaintPath(element, style, styleByElement, opacityPathCache),
+    pointerEventsNone: pointerEventsNone(style),
+    activeElementFocus: null,
+    focusWithin,
+    nativeTabIndex: nativeTabIndexOf(element),
+    contentEditable,
+    directTextPresent: directText,
+    ownLabelPresent,
+    topLayer: isTopLayer(element),
+  };
 }
 
 function hasZeroEdges(style: CSSStyleDeclaration): boolean {
@@ -1214,6 +1807,39 @@ function commonAncestorOf(a: Element, b: Element): Element | null {
   return null;
 }
 
+function sameRect(left: Rect, right: Rect): boolean {
+  return left.x === right.x && left.y === right.y
+    && left.width === right.width && left.height === right.height;
+}
+
+function rectangleDomain(rect: Rect): RoundedRectDomain {
+  return {
+    bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+    radii: [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }],
+  };
+}
+
+function boundedEmptyHtmlSubtree(element: Element, window: Window): boolean {
+  if (element.namespaceURI !== XHTML_NAMESPACE || element.tagName.toLowerCase() !== "div") return false;
+  const text = Array.from(element.childNodes)
+    .filter(child => child.nodeType === 3)
+    .map(child => child.textContent ?? "")
+    .join("");
+  if (hasNonFormatDirectText(text) === true) return false;
+  const children = Array.from(element.children);
+  if (children.length > 1 || (children.length === 1 && children[0]!.tagName.toLowerCase() !== "div")) return false;
+  if (children.length === 1) {
+    const rect = element.getBoundingClientRect(), childRect = children[0]!.getBoundingClientRect();
+    if (![rect.x, rect.y, rect.width, rect.height, childRect.x, childRect.y, childRect.width, childRect.height]
+      .every(Number.isFinite) || !sameRect(rect, childRect)) return false;
+  }
+  const style = window.getComputedStyle(element);
+  if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse"
+    || style.backgroundImage !== "none" || style.mixBlendMode !== "normal"
+    || style.isolation !== "auto" || !hasNoEscapeEffects(element, window)) return false;
+  return children.length === 0 || boundedEmptyHtmlSubtree(children[0]!, window);
+}
+
 // A normal source-over background can add coverage without removing opaque
 // descendant pixels. This lower-bound proof is not a paint-bounds proof.
 function preservesOpaqueDescendantCoverage(element: Element, window: Window): boolean {
@@ -1232,6 +1858,11 @@ function preservesOpaqueDescendantCoverage(element: Element, window: Window): bo
       || !style.backgroundImage.startsWith("linear-gradient(")) return false;
   }
   return true;
+}
+
+interface ImageCoverageProof {
+  readonly targetPaintDomain: RoundedRectDomain;
+  readonly commonAncestor: Element;
 }
 
 function verifyImageResourceProof(
@@ -1274,30 +1905,25 @@ function verifyImageResourceProof(
   return true;
 }
 
-function certifyVideoImageEqualRoundedDomain(
+function certifyImageCoverage(
   targetElement: Element,
   targetNode: ObservationNode,
   blockerElement: Element,
   blockerNode: ObservationNode,
+  targetVisibleRect: Rect,
   window: Window,
-  documentRef: string,
-  registry: StableNodeRefRegistry,
   styleByElement: Map<Element, CSSStyleDeclaration>,
   effectiveOpacity: Map<Element, number>,
-  imageResourceFor?: (element: Element) => JpegImageResourceObservation | undefined,
-): RoundedRectDomain | null {
-  if (targetElement.tagName.toLowerCase() !== "video" || blockerElement.tagName.toLowerCase() !== "img") {
-    return null;
-  }
-  if (targetElement.namespaceURI !== "http://www.w3.org/1999/xhtml" || targetNode.fragments?.length !== 1) {
-    return null;
-  }
-  if (blockerElement.namespaceURI !== "http://www.w3.org/1999/xhtml" || blockerNode.fragments?.length !== 1) {
-    return null;
-  }
+): ImageCoverageProof | null {
+  const targetTag = targetElement.tagName.toLowerCase();
+  if (!["video", "div"].includes(targetTag) || blockerElement.tagName.toLowerCase() !== "img") return null;
+  if (targetElement.namespaceURI !== XHTML_NAMESPACE || targetNode.fragments?.length !== 1) return null;
+  if (blockerElement.namespaceURI !== XHTML_NAMESPACE || blockerNode.fragments?.length !== 1) return null;
+  if (!positive(targetVisibleRect)) return null;
   if (effectiveOpacity.get(targetElement) !== 1 || effectiveOpacity.get(blockerElement) !== 1) {
     return null;
   }
+  if (targetTag === "div" && !boundedEmptyHtmlSubtree(targetElement, window)) return null;
   if (isTopLayer(targetElement) !== false || isTopLayer(blockerElement) !== false) {
     return null;
   }
@@ -1315,9 +1941,7 @@ function certifyVideoImageEqualRoundedDomain(
     }
   }
 
-  if (!hasZeroEdges(targetStyle) || !hasZeroEdges(blockerStyle)) {
-    return null;
-  }
+  if (!hasZeroEdges(blockerStyle)) return null;
   if (![blockerStyle.borderTopLeftRadius, blockerStyle.borderTopRightRadius,
     blockerStyle.borderBottomRightRadius, blockerStyle.borderBottomLeftRadius].every(zeroLength)) return null;
   if (!hasNoEscapeEffects(targetElement, window) || !hasNoEscapeEffects(blockerElement, window)) {
@@ -1331,40 +1955,25 @@ function certifyVideoImageEqualRoundedDomain(
     return null;
   }
 
-  if (!targetNode.rect || !targetNode.clippedRect) return null;
-  const targetDomain = extractRoundedClipDomain(targetNode.rect, targetStyle, targetScale, "clip");
-  if (!targetDomain) return null;
-  if (!targetDomain.radii.some(r => r.x > 0 || r.y > 0)) return null;
-
-  if (!blockerNode.rect || !blockerNode.clippedRect) return null;
-  if (targetNode.rect.x !== blockerNode.rect.x || targetNode.rect.y !== blockerNode.rect.y
-    || targetNode.rect.width !== blockerNode.rect.width || targetNode.rect.height !== blockerNode.rect.height) return null;
+  if (!targetNode.rect || !blockerNode.rect || !blockerNode.clippedRect) return null;
   const bgAlpha = parseCssAlpha(blockerStyle.backgroundColor ?? "transparent");
   if (bgAlpha !== 0) return null;
 
-  const paintRect = containedReplacedPaintRect(
+  const coverageRect = fullReplacedImageCoverageRect(
     blockerNode.rect,
-    blockerNode.clippedRect,
     blockerStyle,
     blockerScale,
     replacedObjectIntrinsicFacts(blockerElement),
   );
-  if (!paintRect) return null;
-  if (
-    paintRect.x !== blockerNode.rect.x
-    || paintRect.y !== blockerNode.rect.y
-    || paintRect.width !== blockerNode.rect.width
-    || paintRect.height !== blockerNode.rect.height
-  ) {
-    return null;
-  }
+  if (!coverageRect || !sameRect(coverageRect, blockerNode.rect) || !boundedImagePaint(blockerElement, window)) return null;
 
   const commonAncestor = commonAncestorOf(targetElement, blockerElement);
   if (!commonAncestor) return null;
 
-  let foundMatchingClip = false;
-  for (let curr: Element | null = blockerElement.parentElement; curr && curr !== commonAncestor; curr = curr.parentElement) {
-    if (curr.namespaceURI !== "http://www.w3.org/1999/xhtml" || curr.getClientRects().length !== 1) return null;
+  let imageDomain: RoundedRectDomain | null = null;
+  let reachedCommon = false;
+  for (let curr: Element | null = blockerElement.parentElement; curr; curr = curr.parentElement) {
+    if (curr.namespaceURI !== XHTML_NAMESPACE || curr.getClientRects().length !== 1) return null;
     if (effectiveOpacity.get(curr) !== 1) return null;
     if (isTopLayer(curr) !== false) return null;
     const currStyle = styleByElement.get(curr) ?? window.getComputedStyle(curr);
@@ -1374,19 +1983,28 @@ function certifyVideoImageEqualRoundedDomain(
 
     const unclipped = currStyle.overflowX === "visible" && currStyle.overflowY === "visible";
     if (unclipped) {
+      if (curr === commonAncestor) {
+        reachedCommon = true;
+        break;
+      }
       continue;
     }
     const currDomain = extractRoundedClipDomain(curr.getBoundingClientRect(), currStyle, currScale, "hidden_or_clip");
-    if (currDomain && equalRoundedDomains(currDomain, targetDomain)) {
-      foundMatchingClip = true;
-      continue;
+    if (!currDomain || !sameRect(currDomain.bounds, blockerNode.rect)) return null;
+    const rounded = currDomain.radii.some(radius => radius.x > 0 || radius.y > 0);
+    if (rounded && imageDomain === null) imageDomain = currDomain;
+    else if (rounded && !equalRoundedDomains(imageDomain!, currDomain)) return null;
+    if (curr === commonAncestor) {
+      reachedCommon = true;
+      break;
     }
-    return null;
   }
-  if (!foundMatchingClip) return null;
+  if (!reachedCommon || imageDomain === null) return null;
 
-  for (let curr: Element | null = targetElement.parentElement; curr && curr !== commonAncestor; curr = curr.parentElement) {
-    if (curr.namespaceURI !== "http://www.w3.org/1999/xhtml" || curr.getClientRects().length !== 1) return null;
+  let targetAncestorDomain: RoundedRectDomain | null = null;
+  reachedCommon = false;
+  for (let curr: Element | null = targetElement.parentElement; curr; curr = curr.parentElement) {
+    if (curr.namespaceURI !== XHTML_NAMESPACE || curr.getClientRects().length !== 1) return null;
     if (effectiveOpacity.get(curr) !== 1) return null;
     if (isTopLayer(curr) !== false) return null;
     const currStyle = styleByElement.get(curr) ?? window.getComputedStyle(curr);
@@ -1396,16 +2014,40 @@ function certifyVideoImageEqualRoundedDomain(
 
     const unclipped = currStyle.overflowX === "visible" && currStyle.overflowY === "visible";
     if (unclipped) {
+      if (curr === commonAncestor) {
+        reachedCommon = true;
+        break;
+      }
       continue;
     }
     const currDomain = extractRoundedClipDomain(curr.getBoundingClientRect(), currStyle, currScale, "hidden_or_clip");
-    if (currDomain && equalRoundedDomains(currDomain, targetDomain)) {
-      continue;
+    if (!currDomain) return null;
+    const rounded = currDomain.radii.some(radius => radius.x > 0 || radius.y > 0);
+    if (rounded && sameRect(currDomain.bounds, targetNode.rect)) targetAncestorDomain = currDomain;
+    if (curr === commonAncestor) {
+      reachedCommon = true;
+      break;
     }
-    return null;
+  }
+  if (!reachedCommon) return null;
+
+  let targetPaintDomain: RoundedRectDomain;
+  if (targetTag === "video") {
+    if (!hasZeroEdges(targetStyle)) return null;
+    const ownDomain = extractRoundedClipDomain(targetNode.rect, targetStyle, targetScale, "clip");
+    if (!ownDomain || !ownDomain.radii.some(radius => radius.x > 0 || radius.y > 0)) return null;
+    targetPaintDomain = targetAncestorDomain && equalRoundedDomains(targetAncestorDomain, ownDomain)
+      ? targetAncestorDomain
+      : ownDomain;
+  } else {
+    targetPaintDomain = targetAncestorDomain ?? rectangleDomain(targetVisibleRect);
   }
 
-  return verifyImageResourceProof(blockerElement, documentRef, registry, imageResourceFor) ? targetDomain : null;
+  const targetContained = equalRoundedDomains(targetPaintDomain, imageDomain)
+    || roundedDomainContainsRect(imageDomain, targetPaintDomain.bounds);
+  if (!targetContained) return null;
+
+  return { targetPaintDomain, commonAncestor };
 }
 
 export function observeLiveDom(input: {
@@ -1424,8 +2066,22 @@ export function observeLiveDom(input: {
   const properties = new Map<string, BasicKindProperties>(), evidence = new Map<string, LiveDomEvidence>();
   const elementByRef = new Map<string, Element>(), participating = new Map<Element, PaintParticipation>();
   const styleByElement = new Map<Element, CSSStyleDeclaration>();
+  const ancestryByElement = new Map<Element, Element | null>();
   const effectiveOpacity = new Map<Element, number>();
+  const opacityPathCache = new Map<Element, boolean | null>();
   const hiddenByElement = new Map<Element, boolean>();
+  const clippedBoxCss = new Map<Element, Map<ClipCssKey, string | null | undefined>>();
+  const readClippedBoxCss: ClipCssReader = (element, style, key) => {
+    let byKey = clippedBoxCss.get(element);
+    if (byKey !== undefined && byKey.has(key)) return byKey.get(key)!;
+    const value = (style as CSSStyleDeclaration & Record<ClipCssKey, string | null | undefined>)[key];
+    if (byKey === undefined) {
+      byKey = new Map();
+      clippedBoxCss.set(element, byKey);
+    }
+    byKey.set(key, value);
+    return value;
+  };
   const stack: Element[] = document.documentElement ? [document.documentElement] : [];
   const excludedRoots = new Set(input.excludeRoots?.filter((root): root is Element => root !== null) ?? []);
   if (input.excludeRoot) excludedRoots.add(input.excludeRoot);
@@ -1436,11 +2092,12 @@ export function observeLiveDom(input: {
     }
     return false;
   };
-  let excluded = 0, frames = 0, shadows = 0;
+  let excluded = 0, frames = 0, objects = 0, shadows = 0;
   let domOrder = 0;
   while (stack.length) {
     const element = stack.pop()!;
     if (isExcluded(element)) { excluded += 1 + element.querySelectorAll("*").length; continue; }
+    ancestryByElement.set(element, element.parentElement);
     const allChildren = Array.from(element.children), children = allChildren.filter(child => !isExcluded(child));
     for (let index = allChildren.length - 1; index >= 0; index--) stack.push(allChildren[index]!);
     const nodeRef = stableNodeRefFor(registry, element), tag = element.tagName.toLowerCase();
@@ -1460,7 +2117,7 @@ export function observeLiveDom(input: {
     hiddenByElement.set(element, hidden);
     const visible = !hidden && style.visibility !== "hidden" && style.visibility !== "collapse";
     const fragments = visible ? Array.from(element.getClientRects(), rectOf) : [];
-    const clippedRect = clippedBox(element, window, rect, document);
+    const clippedRect = clippedBox(element, window, rect, fragments, document, ancestryByElement, readClippedBoxCss);
     const attributes: Record<string, string | boolean> = {};
     for (const key of ["aria-disabled", "aria-expanded", "aria-hidden", "aria-selected", "contenteditable", "disabled", "hidden", "tabindex"]) {
       const value = element.getAttribute(key);
@@ -1470,7 +2127,6 @@ export function observeLiveDom(input: {
     attributes.disabled = element.hasAttribute("disabled");
     attributes.hidden = element.hasAttribute("hidden");
     const role = element.getAttribute("role");
-    nodes.push({ nodeRef, parentRef: element.parentElement ? stableNodeRefFor(registry, element.parentElement) : null, tag, role, rect, fragments, clippedRect, attributes });
     const positiveAreaChildren = children.filter(child => { const r = child.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
     const rawDirectText = Array.from(element.childNodes).filter(node => node.nodeType === 3).map(node => node.textContent ?? "").join("");
     const beforeStyle = window.getComputedStyle(element, "::before"), afterStyle = window.getComputedStyle(element, "::after");
@@ -1511,10 +2167,21 @@ export function observeLiveDom(input: {
     const area = rect.width * rect.height;
     const ownLabelPresent = [element.getAttribute("title"), element.getAttribute("aria-label")]
       .some(value => hasNonFormatDirectText(value) === true);
+    const contentEditable = measureContentEditable(element, document);
+    const currentView = currentViewRecordFor(
+      element,
+      tag,
+      style,
+      styleByElement,
+      opacityPathCache,
+      appearance.directTextPresent,
+      ownLabelPresent,
+      contentEditable,
+    );
     const local: BasicKindMeasurements = {
       inputType: tag === "input" ? element.getAttribute("type") || "text" : null,
       hrefPresent: element.hasAttribute("href"),
-      contentEditable: measureContentEditable(element, document),
+      contentEditable,
       ...appearance,
       childElementCount: children.length,
       positiveAreaChildCount: positiveAreaChildren.length,
@@ -1536,6 +2203,7 @@ export function observeLiveDom(input: {
     };
     itemObservations.push({ nodeRef, ...local });
     properties.set(nodeRef, { ...local, tag, role, disabled: element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true", hidden: element.hasAttribute("hidden") || element.getAttribute("aria-hidden") === "true" });
+    nodes.push({ nodeRef, parentRef: element.parentElement ? stableNodeRefFor(registry, element.parentElement) : null, tag, role, rect, fragments, clippedRect, ...(currentView === undefined ? {} : { currentView }), attributes });
     const parents: string[] = [];
     for (let p = element.parentElement; p && parents.length < 3; p = p.parentElement) parents.push(p.tagName.toLowerCase());
     let linkPathname: string | null = null;
@@ -1543,6 +2211,7 @@ export function observeLiveDom(input: {
     if (href && !href.startsWith("javascript:")) { try { linkPathname = new URL(href, document.baseURI).pathname; } catch { /* Invalid link is evidence, not a navigation request. */ } }
     const unassessedChildContent: string[] = [];
     if (tag === "iframe") { frames++; unassessedChildContent.push("iframe"); }
+    if (tag === "object") { objects++; unassessedChildContent.push("object_content"); }
     if (element.shadowRoot) { shadows++; unassessedChildContent.push("shadow_root"); }
     evidence.set(nodeRef, { nodeRef, tag, id: element.id || null, classList: Array.from(element.classList), textSummary: safeText(element), linkPathname, rect, clippedRect, parentTags: parents, unassessedChildContent });
   }
@@ -1562,9 +2231,17 @@ export function observeLiveDom(input: {
   for (const [ref, value] of [...properties]) {
     properties.set(ref, { ...value, activeElementFocus: activeFocus(ref) });
   }
+  for (let index = 0; index < nodes.length; index++) {
+    const node = nodes[index]!;
+    if (node.currentView !== undefined) {
+      nodes[index] = { ...node, currentView: { ...node.currentView, activeElementFocus: activeFocus(node.nodeRef) } };
+    }
+  }
   const foregroundByRef = new Map<string, { readonly foreground: ForegroundState; readonly exposedRects: readonly Rect[] | null }>();
   const viewport = { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
+  const witnessViewport = nativeWitnessViewport(window);
   const refByElement = new Map([...elementByRef].map(([ref, element]) => [element, ref] as const));
+  const nodeByRef = new Map(nodes.map(node => [node.nodeRef, node] as const));
   const visibleByRef = new Map<string, readonly Rect[]>();
   const surfaces = new Map<string, SurfaceClassification>();
   for (const node of nodes) {
@@ -1582,10 +2259,11 @@ export function observeLiveDom(input: {
       window,
       element.parentElement ? effectiveOpacity.get(element.parentElement) ?? 1 : 1,
       hiddenByElement.get(element) ?? false,
+      ancestryByElement,
     );
     const corners = surface.relevant && surface.kind !== "transparent" && node.clippedRect !== null
       && node.fragments?.length === 1
-      ? ancestorRoundedClearCorners(element, node.clippedRect, window, styleByElement)
+      ? ancestorRoundedClearCorners(element, node.clippedRect, window, styleByElement, ancestryByElement)
       : [];
     surfaces.set(node.nodeRef, corners.length === 0 ? surface : {
       ...surface, clearCornerRects: [...(surface.clearCornerRects ?? []), ...corners],
@@ -1646,22 +2324,31 @@ export function observeLiveDom(input: {
       continue;
     }
     let remaining: Rect[] | null = [...rects];
-    const allowClearCorners = !roundedClippingAncestor(element, window, true);
+    const allowClearCorners = !roundedClippingAncestor(element, window, ancestryByElement, true);
     let provenRemaining: Rect[] | null = [...rects];
+    const unresolvedWitnessBlockers: Rect[] = [];
     const targetRect = node.clippedRect;
     if (targetRect === null) {
       reportFinal(null, null, "clipped_rect_unavailable");
       continue;
     }
+    const boundDomain = atomicSvg?.paintDomain ?? null;
+    const relevantBound = boundDomain === null ? null : intersection(boundDomain, viewport);
+    // Only the certified domain inside this observation viewport is auditable.
+    // An empty intersection stays unknown and cannot authorize a BCR-only proof.
+    const boundedPaintDomain = relevantBound !== null && positive(relevantBound) ? relevantBound : null;
+    const paintDomain = boundedPaintDomain ?? targetRect;
+    let boundRemaining: Rect[] | null = boundedPaintDomain === null ? null : [boundedPaintDomain];
     const blockers = foregroundContexts.filter(blocker => blocker.node.nodeRef !== node.nodeRef
       && blocker.surface.relevant && blocker.surface.kind !== "transparent"
-      && !isWithin(blocker.element, element) && !isWithin(element, blocker.element)
-      && blocker.visibleRect !== null && positive(intersection(targetRect, blocker.visibleRect)));
+      && blocker.visibleRect !== null && positive(intersection(paintDomain, blocker.visibleRect))
+      && !isWithin(blocker.element, element) && !isWithin(element, blocker.element));
     for (const blocker of blockers) {
       let overlap: Rect | null = null;
       let hitRefs: readonly (string | null)[] | null = null;
       let nativeBefore = false;
       let nativeOrderWitnessRef: string | null = null;
+      let nativeWitnessPoint: { readonly x: number; readonly y: number } | null = null;
       let paintOrderBefore: boolean | "uncertain" | "not_queried" = "not_queried";
       let pointerBefore = false;
       const remainingBefore = remainingCount(remaining);
@@ -1679,6 +2366,7 @@ export function observeLiveDom(input: {
           hitRefs,
           nativeBefore,
           ...(nativeOrderWitnessRef === null ? {} : { nativeOrderWitnessRef }),
+          ...(nativeWitnessPoint === null ? {} : { nativeWitnessPoint }),
           paintOrderBefore,
           pointerBefore,
           remainingBefore,
@@ -1697,13 +2385,18 @@ export function observeLiveDom(input: {
         reportBlocker("blocker_rect_unavailable");
         continue;
       }
-      overlap = intersection(blockerRect, targetRect);
+      overlap = intersection(blockerRect, paintDomain);
       if (!positive(overlap)) {
         reportBlocker("overlap_unavailable");
         continue;
       }
+      const subtractBound = (): void => {
+        if (boundRemaining !== null) {
+          boundRemaining = subtractSurface(boundRemaining, blocker.surface, blockerRect, allowClearCorners);
+        }
+      };
       const point = { x: overlap.x + overlap.width / 2, y: overlap.y + overlap.height / 2 };
-      const rawHits = hitAt(document, point.x, point.y);
+      const rawHits = queryNativeHitPoint(document, point, overlap, witnessViewport).hits;
       if (rawHits === null) {
         remaining = null;
         reportBlocker("hit_unavailable_break");
@@ -1715,37 +2408,78 @@ export function observeLiveDom(input: {
       const targetIndex = hits.indexOf(element);
       nativeBefore = blockerIndex >= 0 && targetIndex >= 0 && targetIndex > blockerIndex;
       const centerBefore = nativeBefore;
-      const certifiedEqualDomain = (element.tagName.toLowerCase() === "video" && blocker.element.tagName.toLowerCase() === "img")
-        ? certifyVideoImageEqualRoundedDomain(
+      // Geometry and paint order qualify first. The resource callback runs only
+      // after this pair is a candidate for proven coverage.
+      const coverageGeometry = (["video", "div"].includes(element.tagName.toLowerCase())
+        && blocker.element.tagName.toLowerCase() === "img")
+        ? certifyImageCoverage(
           element,
           node,
           blocker.element,
           blocker.node,
+          rects[0]!,
           window,
-          input.documentRef,
-          registry,
           styleByElement,
           effectiveOpacity,
-          input.imageResourceFor,
         )
         : null;
+      // A bounded finite seed can recover the missing initial target order
+      // witness for the two narrow subsets. The center result and its
+      // diagnostic stay intact; centerBefore is never promoted by this seed.
+      if (!nativeBefore && blockerIndex >= 0 && targetIndex < 0
+        && blocker.surface.proven && !blocker.surface.passThrough
+        && styleByElement.get(element)?.pointerEvents !== "none"
+        && coversAllRects(blockerRect, rects)) {
+        const elementStyle = styleByElement.get(element);
+        const before = simplePaintBefore(blocker.element, element, participating);
+        // The overlap center already missed the target, so the explicit
+        // paint-order rule must explain every target-absent sample.
+        if (elementStyle !== undefined && before === true) {
+          const witnessPoints = negativeOrderWitnessPoints(
+            element, node, elementStyle, rects, overlap, allowClearCorners, window, styleByElement,
+          );
+          let witnessed: { readonly x: number; readonly y: number } | null = null;
+          let contradicted = false;
+          for (const witnessPoint of witnessPoints ?? []) {
+            if (witnessPoint.x === point.x && witnessPoint.y === point.y) continue;
+            const stack = queryNativeHitPoint(document, witnessPoint, overlap, witnessViewport)
+              .hits?.filter(candidate => !isExcluded(candidate));
+            if (stack === undefined || stack === null) continue;
+            const blockerAt = stack.indexOf(blocker.element);
+            const targetAt = stack.indexOf(element);
+            if (targetAt >= 0) {
+              if (blockerAt >= 0 && targetAt > blockerAt) {
+                if (witnessed === null) witnessed = witnessPoint;
+                continue;
+              }
+              contradicted = true;
+              break;
+            }
+          }
+          if (witnessed !== null && !contradicted) {
+            nativeBefore = true;
+            nativeWitnessPoint = witnessed;
+          }
+        }
+      }
       if (nativeBefore) {
         const dx = Math.min(1, overlap.width / 4), dy = Math.min(1, overlap.height / 4);
         const probePoints: [number, number][] = [
           [overlap.x + dx, overlap.y + dy], [overlap.x + overlap.width - dx, overlap.y + dy],
           [overlap.x + dx, overlap.y + overlap.height - dy], [overlap.x + overlap.width - dx, overlap.y + overlap.height - dy],
         ];
-        if (certifiedEqualDomain) {
+        if (coverageGeometry !== null) {
           const paintBefore = simplePaintBefore(blocker.element, element, participating);
           if (paintBefore !== true) {
             nativeBefore = false;
           } else {
             nativeBefore = probePoints.every(([x, y]) => {
-              const stack = hitAt(document, x!, y!)?.filter(candidate => !isExcluded(candidate));
+              const stack = queryNativeHitPoint(document, { x: x!, y: y! }, overlap!, witnessViewport)
+                .hits?.filter(candidate => !isExcluded(candidate));
               if (!stack) return false;
               const front = stack.indexOf(blocker.element), back = stack.indexOf(element);
               if (back >= 0 && (front < 0 || back < front)) return false;
-              if (pointInRoundedDomain(certifiedEqualDomain, x!, y!)) {
+              if (pointInRoundedDomain(coverageGeometry.targetPaintDomain, x!, y!)) {
                 return front >= 0 && (back > front
                   || (back < 0 && paintBefore === true));
               }
@@ -1754,7 +2488,8 @@ export function observeLiveDom(input: {
           }
         } else {
           nativeBefore = probePoints.every(([x, y]) => {
-            const stack = hitAt(document, x!, y!)?.filter(candidate => !isExcluded(candidate));
+            const stack = queryNativeHitPoint(document, { x: x!, y: y! }, overlap!, witnessViewport)
+              .hits?.filter(candidate => !isExcluded(candidate));
             if (!stack) return false;
             const front = stack.indexOf(blocker.element), back = stack.indexOf(element);
             return front >= 0 && (back > front
@@ -1774,10 +2509,18 @@ export function observeLiveDom(input: {
           [overlap.x + dx, overlap.y + dy], [overlap.x + overlap.width - dx, overlap.y + dy],
           [overlap.x + dx, overlap.y + overlap.height - dy], [overlap.x + overlap.width - dx, overlap.y + overlap.height - dy],
         ].every(([x, y]) => {
-          const stack = hitAt(document, x!, y!)?.filter(candidate => !isExcluded(candidate));
+          const stack = queryNativeHitPoint(document, { x: x!, y: y! }, overlap!, witnessViewport)
+            .hits?.filter(candidate => !isExcluded(candidate));
           return stack !== undefined && stack !== null && beforeWitness(stack);
         });
         if (nativeBefore) nativeOrderWitnessRef = refByElement.get(witness) ?? null;
+      }
+      if (!nativeBefore && targetIndex < 0 && coverageGeometry !== null
+        && styleByElement.get(element)?.pointerEvents === "none") {
+        const before = simplePaintBefore(blocker.element, element, participating);
+        const witnessIndex = hits.indexOf(coverageGeometry.commonAncestor);
+        nativeBefore = before === true && blockerIndex >= 0 && witnessIndex > blockerIndex;
+        if (nativeBefore) nativeOrderWitnessRef = refByElement.get(coverageGeometry.commonAncestor) ?? null;
       }
       pointerBefore = nativeBefore;
       if (blocker.surface.passThrough || styleByElement.get(element)?.pointerEvents === "none") {
@@ -1801,6 +2544,7 @@ export function observeLiveDom(input: {
             break;
           }
           remaining = next;
+          subtractBound();
           reportBlocker("ordinary_order_proven_subtracted");
           continue;
         }
@@ -1814,10 +2558,16 @@ export function observeLiveDom(input: {
           reportBlocker("bounded_image_order_uncertain_subtracted");
           continue;
         }
+        unresolvedWitnessBlockers.push(blockerRect);
         reportBlocker("pointer_not_before");
         continue;
       }
-      if (certifiedEqualDomain) {
+      if (coverageGeometry !== null && verifyImageResourceProof(
+        blocker.element,
+        input.documentRef,
+        registry,
+        input.imageResourceFor,
+      )) {
         remaining = [];
         provenRemaining = [];
         reportBlocker("proven_surface_subtracted");
@@ -1830,6 +2580,7 @@ export function observeLiveDom(input: {
       }
       const next = subtractSurface(remaining, blocker.surface, blockerRect, allowClearCorners);
       provenRemaining = provenRemaining === null ? null : subtractSurface(provenRemaining, blocker.surface, blockerRect, allowClearCorners);
+      subtractBound();
       if (next === null) {
         remaining = null;
         reportBlocker("fragment_cap_break");
@@ -1838,8 +2589,17 @@ export function observeLiveDom(input: {
       remaining = next;
       reportBlocker("proven_surface_subtracted");
     }
-    if (remaining !== null && remaining.length === 0) {
-      const result = provenRemaining?.length === 0
+    const boundCovered = boundedPaintDomain !== null && boundRemaining !== null && boundRemaining.length === 0;
+    // A USE can paint beyond its target BCR. Without a complete paint-domain
+    // certificate, the target-rect fallback cannot prove full occlusion.
+    const unboundedSvgUse = boundDomain === null
+      && element.tagName.toLowerCase() === "use"
+      && element.namespaceURI === "http://www.w3.org/2000/svg";
+    // A local USE certificate widens the occlusion domain to the complete
+    // conservative bound inside this viewport. If bound tracking is unavailable
+    // (fragment cap), the smaller target-rect result cannot prove occlusion.
+    if (boundCovered || (boundDomain === null && remaining !== null && remaining.length === 0)) {
+      const result = boundCovered || (boundDomain === null && !unboundedSvgUse && provenRemaining?.length === 0)
         ? { foreground: "occluded", exposedRects: [] } as const
         : { foreground: "unassessed", exposedRects: null } as const;
       foregroundByRef.set(node.nodeRef, result);
@@ -1848,50 +2608,132 @@ export function observeLiveDom(input: {
       continue;
     }
     const exposed: Rect[] = [];
-    for (const rect of remaining ?? []) {
-      const pointX = rect.x + rect.width / 2, pointY = rect.y + rect.height / 2;
-      const rawHits = hitAt(document, pointX, pointY);
+    const crossPoints = boundDomain === null || node.rect === null ? [] : [
+      { x: node.rect.x + node.rect.width * 0.5, y: node.rect.y + node.rect.height * 0.1 },
+      { x: node.rect.x + node.rect.width * 0.9, y: node.rect.y + node.rect.height * 0.5 },
+      { x: node.rect.x + node.rect.width * 0.5, y: node.rect.y + node.rect.height * 0.9 },
+      { x: node.rect.x + node.rect.width * 0.1, y: node.rect.y + node.rect.height * 0.5 },
+    ];
+    const queriedPoints: { readonly x: number; readonly y: number }[] = [];
+    const evaluatePoint = (rect: Rect, point: { readonly x: number; readonly y: number }): boolean | null => {
+      const nativeQuery = queryNativeHitPoint(
+        document,
+        point,
+        rect,
+        witnessViewport,
+      );
+      const rawHits = nativeQuery.hits;
+      const nativePointDiagnostic = nativeQuery.supplemented ? { nativePoint: nativeQuery.nativePoint } : {};
       if (rawHits === null) {
         report?.({
           phase: "point_probe",
           targetRef,
           remainingRect: rect,
-          point: { x: pointX, y: pointY },
+          point,
+          ...nativePointDiagnostic,
           hitRefs: null,
           firstOpaqueRef: null,
           chosenOwnerRef: null,
           targetBeforeOpaque: false,
           exposed: false,
         });
-        continue;
+        return null;
       }
       const hits = rawHits.filter(candidate => !isExcluded(candidate));
+      let knownBoundaryWitness: Element | null = null;
+      if (nativeQuery.supplemented && !unresolvedWitnessBlockers.some(blockerRect => positive(intersection(blockerRect, rect)))) {
+        const candidate = hits.find(hit => {
+          const ref = refByElement.get(hit);
+          if (ref === undefined) return false;
+          const witnessNode = hit === element ? node : nodeByRef.get(ref);
+          const witnessStyle = styleByElement.get(hit);
+          const witnessRects = visibleByRef.get(ref);
+          const witnessSurface = surfaces.get(ref);
+          if (!witnessNode || !witnessStyle || !witnessRects || !witnessSurface) return false;
+          if (hit !== element && !isWithin(hit, element)) return false;
+          if (!knownSingleFragmentDomain(
+            hit,
+            witnessNode,
+            witnessStyle,
+            point,
+            witnessRects,
+            allowClearCorners,
+            window,
+            styleByElement,
+          )) return false;
+          return surfacePaintsAt(witnessSurface, point.x, point.y, allowClearCorners);
+        });
+        if (candidate !== undefined) {
+          const candidateIndex = hits.indexOf(candidate);
+          if (hits.slice(0, candidateIndex).every(hit => isWithin(hit, element))) knownBoundaryWitness = candidate;
+        }
+      }
       const first = hits[0];
       const firstOpaque = hits.find(candidate => {
         const ref = refByElement.get(candidate);
         if (ref === undefined) return false;
         const surface = surfaces.get(ref);
-        return surface !== undefined && surface.kind !== "transparent" && surfacePaintsAt(surface, pointX, pointY, allowClearCorners);
+        return surface !== undefined && surface.kind !== "transparent" && surfacePaintsAt(surface, point.x, point.y, allowClearCorners);
       });
       const owner = firstOpaque ?? first;
       const opaqueIndex = firstOpaque === undefined ? -1 : hits.indexOf(firstOpaque);
       const target = element;
       const targetBeforeOpaque = opaqueIndex > 0 && hits.slice(0, opaqueIndex)
         .some(hit => hit === target || isWithin(hit, target));
-      const exposedHere = targetBeforeOpaque || Boolean(owner && (owner === element || isWithin(owner, element) || isWithin(element, owner)
-        || (styleByElement.get(element)?.pointerEvents === "none" && simplePaintBefore(owner, element, participating) === false)));
+      const ownerSurface = owner ? surfaces.get(refByElement.get(owner) ?? "") : undefined;
+      const ownerPaintsHere = ownerSurface !== undefined
+        && surfacePaintsAt(ownerSurface, point.x, point.y, allowClearCorners);
+      const clearRoundedImageCorner = owner !== undefined
+        && styleByElement.get(element)?.pointerEvents === "none"
+        && boundedImagePaint(owner, window)
+        && (ownerSurface?.clearCornerRects?.length ?? 0) > 0
+        && !ownerPaintsHere
+        && simplePaintBefore(owner, element, participating) === true;
+      // A complete SVG paint domain only bounds and orders paint; an ancestor
+      // owner proves containment, not that the target paints here.
+      const hasCompleteSvgPaintDomain = boundDomain !== null;
+      const exposedHere = nativeQuery.supplemented
+        ? knownBoundaryWitness !== null
+        : hasCompleteSvgPaintDomain
+          ? targetBeforeOpaque || Boolean(owner && (owner === element || isWithin(owner, element)))
+          : targetBeforeOpaque || clearRoundedImageCorner
+            || Boolean(owner && (owner === element || isWithin(owner, element) || isWithin(element, owner)
+              || (styleByElement.get(element)?.pointerEvents === "none" && simplePaintBefore(owner, element, participating) === false)));
       report?.({
         phase: "point_probe",
         targetRef,
         remainingRect: rect,
-        point: { x: pointX, y: pointY },
+        point,
+        ...nativePointDiagnostic,
         hitRefs: hits.map(candidate => refByElement.get(candidate) ?? null),
         firstOpaqueRef: firstOpaque === undefined ? null : refByElement.get(firstOpaque) ?? null,
         chosenOwnerRef: owner === undefined ? null : refByElement.get(owner) ?? null,
         targetBeforeOpaque,
         exposed: exposedHere,
       });
-      if (exposedHere) exposed.push(rect);
+      return exposedHere;
+    };
+    for (const rect of remaining ?? []) {
+      const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+      queriedPoints.push(center);
+      const centerResult = evaluatePoint(rect, center);
+      if (centerResult === true) {
+        exposed.push(rect);
+        continue;
+      }
+      if (centerResult === null) continue;
+      for (const point of crossPoints) {
+        if (queriedPoints.some(previous => previous.x === point.x && previous.y === point.y)) continue;
+        if (!(point.x >= rect.x && point.x < rect.x + rect.width
+          && point.y >= rect.y && point.y < rect.y + rect.height)) continue;
+        queriedPoints.push(point);
+        const result = evaluatePoint(rect, point);
+        if (result === true) {
+          exposed.push(rect);
+          break;
+        }
+        if (result === null) break;
+      }
     }
     const result: { readonly foreground: ForegroundState; readonly exposedRects: readonly Rect[] | null } = exposed.length > 0
       ? { foreground: "visible", exposedRects: exposed }
@@ -1907,7 +2749,7 @@ export function observeLiveDom(input: {
     : foregroundNodes.every(node => node.foreground === "visible" || node.foreground === "occluded") ? "assessed"
       : foregroundNodes.some(node => node.foreground === "visible" || node.foreground === "occluded") ? "mixed" : "unassessed";
   const observation: PageObservation = { viewport, nodes, coverage: { geometry: "assessed", fragments: "assessed", clipping, ...(foregroundCoverage ? { foreground: foregroundCoverage } : {}) } };
-  const unassessedInteriors = new Map([...evidence].map(([ref, ev]) => [ref, (ev.unassessedChildContent ?? []) as readonly ("iframe" | "shadow_root")[]]));
+  const unassessedInteriors = new Map([...evidence].map(([ref, ev]) => [ref, (ev.unassessedChildContent ?? []) as readonly UnassessedInteriorKind[]]));
   const explorationInputs = new Map(buildExplorationInputs({ observation, itemObservations, maxRelationHops: input.maxRelationHops ?? 4, ...(nodes[0] ? { rootNodeRef: nodes[0].nodeRef } : {}), directChildrenStatus: "complete", unassessedInteriors }));
   const enrichedObservations = itemObservations.map(item => {
     const exploration = explorationInputs.get(item.nodeRef);
@@ -1938,7 +2780,7 @@ export function observeLiveDom(input: {
     snapshotRef: input.snapshotRef, documentRef: input.documentRef, frameRef: "top", pageRef: input.documentRef,
     observation, explorationInputs,
     itemObservations: enrichedObservations, properties, evidence,
-    coverage: { scope: "top_document_only", frameContent: "captured", directChildren: "complete", traversedElementCount: nodes.length, excludedElementCount: excluded, unassessedIframeCount: frames, unassessedOpenShadowRootCount: shadows, closedShadowRootDetection: "not_available" },
+    coverage: { scope: "top_document_only", frameContent: "captured", directChildren: "complete", traversedElementCount: nodes.length, excludedElementCount: excluded, unassessedIframeCount: frames, unassessedObjectCount: objects, unassessedOpenShadowRootCount: shadows, closedShadowRootDetection: "not_available" },
     resolveElement: ref => resolveStableNodeRef(registry, ref),
   };
 }

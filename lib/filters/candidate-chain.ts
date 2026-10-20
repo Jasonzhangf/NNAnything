@@ -83,6 +83,23 @@ function intersection(a: Rect, b: Rect): Rect {
   return { x, y, width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - x), height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y) };
 }
 
+function currentViewNonrendered(node: ObservationNode): boolean {
+  const tag = node.tag?.toLowerCase();
+  const view = node.currentView;
+  return (tag === "div" || tag === "object")
+    && view !== undefined
+    && view.zeroOpacityInCurrentPaintPath === true
+    && view.pointerEventsNone === true
+    && view.activeElementFocus === false
+    && view.focusWithin === false
+    && typeof view.nativeTabIndex === "number"
+    && view.nativeTabIndex < 0
+    && view.contentEditable === false
+    && node.role === null
+    && view.ownLabelPresent === false
+    && view.directTextPresent === false;
+}
+
 function geometry(slot: CandidateSlot, node: ObservationNode, area: Rect, outside: string): CandidateSlot {
   const evidence: CandidateSlot["evidence"] = {
     boundingBoxIntersection: node.rect === null ? "unassessed" : intersectsPositive(node.rect, area) ? "positive" : "none",
@@ -142,7 +159,10 @@ export function applyCandidateStage(batch: CandidateBatch, focus: FocusSpec, sta
     if (slot.status !== "ok") return slot;
     const node = nodes.get(slot.nodeRef);
     if (!node) return verdict(slot, "unknown", "missing_node_ref");
-    if (stage === "viewport") return geometry(slot, node, batch.observation.viewport, "outside_viewport");
+    if (stage === "viewport") {
+      if (currentViewNonrendered(node)) return verdict(slot, "filtered_out", "current_view_nonrendered");
+      return geometry(slot, node, batch.observation.viewport, "outside_viewport");
+    }
     if (stage === "focus") {
       if (focus.within !== undefined && !ancestors(node, nodes).some(ancestor => ancestor.nodeRef === focus.within)) return verdict(slot, "filtered_out", "outside_focus");
       return focus.region === undefined ? slot : geometry(slot, node, intersection(batch.observation.viewport, focus.region), "outside_focus");

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { compileWorkflow, createWorkflowInputEvent, loadWorkflow, runWorkflow } from "nnanything";
 import { readBasicKindTrainingRequest } from "nnanything/training";
-import { BASIC_KIND_FAMILIES, BASIC_KIND_WIRE_NAMES, classifyBasicKind, classifyBasicKindBatch, computeBasicKindStageRawIntervals, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
+import { BASIC_KIND_FAMILIES, BASIC_KIND_WIRE_NAMES, LEAF_SUPPORT_WIRES, PRIORITY_BASIC_KIND_INITIAL_PROFILE, classifyBasicKind, classifyBasicKindBatch, computeBasicKindStageRawIntervals, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
 
 const complete = { contentEditable: false, directTextPresent: false, childElementCount: 0, positiveAreaChildCount: 0, repeatedChildGeometry: false, inVerifiedListParent: false, svgGraphicChildren: false };
 const classify = (tag, fields = {}, profile) => classifyBasicKind({ tag, role: null, ...complete, ...fields }, DEFAULT_BASIC_KIND_CONFIG, profile);
@@ -1070,4 +1070,107 @@ test("combobox family migration adds zero without changing original coefficients
   assert.equal(migrated.familyWeights.control.nat_input_tag, 0.37);
   assert.equal(migrated.familyWeights.control.role_select, 0.29);
   assert.equal(migrated.leafWeights.input.input_type_text, 0.61);
+});
+
+const neutralMultiChildShapeWire = "neutral_multi_child_shape";
+const warmBaseOnlyCells = [
+  ["familyWeights", "structure", "div_repeated_children"],
+  ["leafWeights", "ignore", "div_repeated_children"],
+  ["leafWeights", "ignore", "neutral_structural_heterogeneity"],
+  ["leafWeights", "ignore", "neutral_structural_peers"],
+  ["leafWeights", "list", "neutral_inherited_pointer_wrapper"],
+  ["leafWeights", "list", "neutral_multi_child"],
+];
+
+function fullWarmLayout() {
+  const profile = structuredClone(PRIORITY_BASIC_KIND_INITIAL_PROFILE);
+  for (const [group, target, wire] of warmBaseOnlyCells) profile[group][target][wire] = 0;
+  return validateBasicKindProfile(profile);
+}
+
+function profileCellMap(profile) {
+  const cells = new Map();
+  for (const [group, rows] of [["familyWeights", profile.familyWeights], ["leafWeights", profile.leafWeights]]) {
+    for (const [target, weights] of Object.entries(rows)) {
+      for (const [wire, value] of Object.entries(weights)) cells.set(`${group}.${target}.${wire}`, value);
+    }
+  }
+  return cells;
+}
+
+test("neutral_multi_child_shape follows the bounded neutral-multi-child formula", () => {
+  const shape = (positiveAreaChildCount, aspectRatio) => extractBasicKindWires(validateBasicKindProperties({
+    tag: "div",
+    role: null,
+    ...complete,
+    childElementCount: positiveAreaChildCount,
+    positiveAreaChildCount,
+    aspectRatio,
+  })).neutral_multi_child_shape;
+
+  assert.equal(shape(2, 0.25), 0.25);
+  assert.equal(shape(2, 0), 0);
+  assert.equal(shape(1, 0.25), 0);
+  assert.equal(shape(null, 0), 0);
+  assert.equal(shape(0, null), 0);
+  assert.equal(shape(null, 0.25), null);
+  assert.equal(shape(2, null), null);
+});
+
+test("neutral_multi_child_shape completes the public schema without a support gate", () => {
+  assert.equal(BASIC_KIND_WIRE_NAMES.length, 79);
+  assert.equal(new Set(BASIC_KIND_WIRE_NAMES).size, 79);
+  assert.equal(LEAF_SUPPORT_WIRES.list.includes(neutralMultiChildShapeWire), false);
+  assert.equal(profileCellMap(fullWarmLayout()).size, 304);
+});
+
+test("neutral_multi_child_shape migration adds exactly one list zero and preserves old coefficients", () => {
+  const source = fullWarmLayout();
+  delete source.leafWeights.list[neutralMultiChildShapeWire];
+  source.familyWeights.structure.nat_div = 0.29;
+  source.leafWeights.list.nat_list = 0.83;
+  source.leafWeights.container.div_multi_child = -0.37;
+  const before = profileCellMap(source);
+  const snapshot = structuredClone(source);
+
+  const migrated = migrateBasicKindProfile(source);
+  assert.deepEqual(source, snapshot);
+  assert.equal(migrated.leafWeights.list[neutralMultiChildShapeWire], 0);
+
+  const after = profileCellMap(migrated);
+  assert.deepEqual([...after.keys()].filter(address => !before.has(address)), [`leafWeights.list.${neutralMultiChildShapeWire}`]);
+  for (const [address, value] of before) assert.equal(after.get(address), value, address);
+});
+
+test("neutral_multi_child_shape changes public list scores without hard classification", () => {
+  const input = validateBasicKindProperties({
+    tag: "div",
+    role: null,
+    ...complete,
+    childElementCount: 2,
+    positiveAreaChildCount: 2,
+    repeatedChildGeometry: true,
+    aspectRatio: 0.25,
+  });
+  const zero = structuredClone(migrateBasicKindProfile(DEFAULT_BASIC_KIND_PROFILE));
+  zero.id = "shape-zero";
+  zero.leafWeights.list[neutralMultiChildShapeWire] = 0;
+  const weighted = structuredClone(zero);
+  weighted.id = "shape-weighted";
+  weighted.leafWeights.list[neutralMultiChildShapeWire] = 0.5;
+
+  const before = classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, zero);
+  const after = classifyBasicKind(input, DEFAULT_BASIC_KIND_CONFIG, weighted);
+  const term = after.evidence.activeTerms.find(item =>
+    item.stage === "leaf"
+    && item.target === "list"
+    && item.wire === neutralMultiChildShapeWire);
+
+  assert.equal(extractBasicKindWires(input).neutral_multi_child_shape, 0.25);
+  assert.equal(after.family, before.family);
+  assert.equal(after.basicKind, before.basicKind);
+  assert.ok(after.leafScores.list.max > before.leafScores.list.max);
+  assert.equal(term?.value, 0.25);
+  assert.equal(term?.weight, 0.5);
+  assert.deepEqual(term?.contribution, { min: 0.125, max: 0.125 });
 });

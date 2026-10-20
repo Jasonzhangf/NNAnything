@@ -7,6 +7,7 @@ import {
   DEFAULT_BASIC_KIND_CONFIG,
   DEFAULT_BASIC_KIND_PROFILE,
   extractBasicKindWires,
+  migrateBasicKindProfile,
   validateBasicKindProfile,
 } from "../dist/filters/basic-kinds.js";
 import {
@@ -318,4 +319,46 @@ test("real Handwired fitting updates the new explicit-zero appearance cells", as
   const gradients = await inspect(image, "image", profile);
   assert.equal(Object.hasOwn(gradients.familyGradients.media, "nat_svg_child"), true);
   assert.equal(Object.hasOwn(gradients.leafGradients.image, "nat_svg_child"), true);
+});
+
+test("public Handwired numeric graph binds neutral_multi_child_shape on positive, negative and missing paths", async () => {
+  const wire = "neutral_multi_child_shape";
+  const shapeProperties = aspectRatio => properties("div", {
+    childElementCount: 2,
+    positiveAreaChildCount: 2,
+    repeatedChildGeometry: true,
+    aspectRatio,
+  });
+  const shapeProfile = (weight, id) => {
+    const profile = structuredClone(migrateBasicKindProfile(DEFAULT_BASIC_KIND_PROFILE));
+    profile.id = id;
+    profile.leafWeights.list[wire] = weight;
+    return profile;
+  };
+  const zeroProfile = shapeProfile(0, "shape-numeric-zero");
+
+  for (const [id, weight, aspectRatio, contribution] of [
+    ["shape-numeric-positive", 0.4, 0.25, [0.1, 0.1]],
+    ["shape-numeric-negative", -0.4, 0.25, [-0.1, -0.1]],
+    ["shape-numeric-missing", 0.4, null, [0, 0.4]],
+  ]) {
+    const input = shapeProperties(aspectRatio);
+    const profile = shapeProfile(weight, id);
+    const wires = extractBasicKindWires(input);
+    const formal = computeBasicKindStageRawIntervals(
+      "leaf",
+      Object.values(BASIC_KIND_FAMILIES).flat(),
+      profile.leafWeights,
+      wires,
+    );
+    const baseline = await inspect(input, "list", zeroProfile);
+    const evaluated = await inspect(input, "list", profile);
+
+    close(evaluated.leaf.list.min, formal.list.min);
+    close(evaluated.leaf.list.max, formal.list.max);
+    close(evaluated.leaf.list.min - baseline.leaf.list.min, contribution[0]);
+    close(evaluated.leaf.list.max - baseline.leaf.list.max, contribution[1]);
+    assert.equal(Object.hasOwn(evaluated.leafGradients.list, wire), true);
+    assert.equal(typeof evaluated.leafGradients.list[wire], "number");
+  }
 });

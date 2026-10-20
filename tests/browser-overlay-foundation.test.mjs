@@ -576,6 +576,137 @@ function liveMeasurementDom() {
   return { document, window, html };
 }
 
+function currentViewDom() {
+  const baseStyle = {
+    display: "block",
+    visibility: "visible",
+    transform: "none",
+    translate: "none",
+    rotate: "none",
+    scale: "none",
+    perspective: "none",
+    overflowX: "visible",
+    overflowY: "visible",
+    clipPath: "none",
+    clip: "auto",
+    position: "static",
+    zIndex: "auto",
+    opacity: "1",
+    pointerEvents: "auto",
+    cursor: "auto",
+    content: "none",
+    backgroundImage: "none",
+    maskImage: "none",
+    webkitMaskImage: "none",
+    backgroundColor: "rgba(0, 0, 0, 0)",
+    backdropFilter: "none",
+    webkitBackdropFilter: "none",
+    filter: "none",
+    boxShadow: "none",
+    borderImageSource: "none",
+    outlineStyle: "none",
+    outlineWidth: "0px",
+    outlineColor: "rgba(0, 0, 0, 0)",
+    mixBlendMode: "normal",
+    isolation: "auto",
+    contain: "none",
+    borderTopWidth: "0px",
+    borderRightWidth: "0px",
+    borderBottomWidth: "0px",
+    borderLeftWidth: "0px",
+    borderTopStyle: "none",
+    borderRightStyle: "none",
+    borderBottomStyle: "none",
+    borderLeftStyle: "none",
+    borderTopColor: "rgba(0, 0, 0, 0)",
+    borderRightColor: "rgba(0, 0, 0, 0)",
+    borderBottomColor: "rgba(0, 0, 0, 0)",
+    borderLeftColor: "rgba(0, 0, 0, 0)",
+    borderTopLeftRadius: "0px",
+    borderTopRightRadius: "0px",
+    borderBottomLeftRadius: "0px",
+    borderBottomRightRadius: "0px",
+    paddingTop: "0px",
+    paddingRight: "0px",
+    paddingBottom: "0px",
+    paddingLeft: "0px",
+  };
+  const document = { baseURI: "https://fixture.test/page", activeElement: null };
+  const html = currentViewElement(document, {
+    tag: "HTML",
+    parent: null,
+    rect: rect(0, 0, 800, 600),
+    tabIndex: -1,
+  });
+  html.clientLeft = html.clientTop = 0;
+  html.clientWidth = 800;
+  html.clientHeight = 600;
+  document.documentElement = html;
+  document.body = html;
+  document.activeElement = html;
+  const window = {
+    innerWidth: 800,
+    innerHeight: 600,
+    getComputedStyle: (element, pseudo) => pseudo ? { content: "none" } : element.currentViewStyle,
+  };
+  for (const element of [html]) element.currentViewStyle = baseStyle;
+  return { document, window, html, baseStyle };
+}
+
+function currentViewElement(document, {
+  tag = "DIV",
+  parent = null,
+  namespaceURI = "http://www.w3.org/1999/xhtml",
+  rectValue = rect(),
+  tabIndex = -1,
+  isContentEditable = false,
+  focusWithin = false,
+  topLayer = false,
+  topLayerThrows = false,
+  role = null,
+  title = null,
+  ariaLabel = null,
+  directText = "",
+} = {}) {
+  const element = {
+    nodeType: 1,
+    tagName: tag,
+    namespaceURI,
+    parentElement: parent,
+    ownerDocument: document,
+    isConnected: true,
+    id: "",
+    classList: [],
+    children: [],
+    childElementCount: 0,
+    childNodes: directText === "" ? [] : [{ nodeType: 3, textContent: directText }],
+    tabIndex,
+    isContentEditable,
+    getBoundingClientRect: () => ({ ...rectValue }),
+    getClientRects: () => [{ ...rectValue }],
+    querySelectorAll: () => [],
+    getAttribute: name => name === "role" ? role : name === "title" ? title : name === "aria-label" ? ariaLabel : null,
+    hasAttribute: () => false,
+    matches: selector => {
+      if (selector === ":focus-within") return focusWithin;
+      if ([":fullscreen", ":modal", ":popover-open"].includes(selector)) {
+        if (topLayerThrows) throw new Error("native top-layer selector unavailable");
+        return topLayer;
+      }
+      if (selector === ":read-write") return isContentEditable;
+      throw new Error(`unexpected selector ${selector}`);
+    },
+  };
+  return element;
+}
+
+function appendCurrentViewChild(parent, child) {
+  child.parentElement = parent;
+  parent.children = [...parent.children, child];
+  parent.childElementCount = parent.children.length;
+  parent.childNodes = [...parent.childNodes, child];
+}
+
 function surfaceAliasFixture({
   maskImage = "none",
   webkitMaskImage = "none",
@@ -823,6 +954,168 @@ test("positive diagonal scale keeps measured viewport rectangles without rescali
   assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, child)).clippedRect, { x: 210, y: 85, width: 60, height: 25 });
 });
 
+test("signed unit-axis HTML reflections preserve measured and outer-clipped physical rects", () => {
+  const baseStyle = {
+    display: "block",
+    visibility: "visible",
+    transform: "none",
+    translate: "none",
+    rotate: "none",
+    scale: "none",
+    perspective: "none",
+    overflowX: "visible",
+    overflowY: "visible",
+    clipPath: "none",
+    clip: "auto",
+    contain: "none",
+    filter: "none",
+    backdropFilter: "none",
+    webkitBackdropFilter: "none",
+    position: "static",
+  };
+  const dom = fakeDom(), root = dom.document.documentElement;
+  root.namespaceURI = "http://www.w3.org/1999/xhtml";
+  root.clientLeft = 0; root.clientTop = 0;
+  root.clientWidth = 800; root.clientHeight = 600;
+  const outer = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [],
+    childElementCount: 0, clientLeft: 0, clientTop: 0, clientWidth: 50, clientHeight: 40,
+    getBoundingClientRect: () => ({ x: 600, y: 340, width: 50, height: 40 }),
+    getClientRects: () => [{ x: 600, y: 340, width: 50, height: 40 }],
+  };
+  const reflected = { ...outer, tagName: "DIV", parentElement: outer, children: [], childNodes: [],
+    childElementCount: 1, clientLeft: 0, clientTop: 0, clientWidth: 60, clientHeight: 60,
+    getBoundingClientRect: () => ({ x: 596, y: 330, width: 60, height: 60 }),
+    getClientRects: () => [{ x: 596, y: 330, width: 60, height: 60 }],
+  };
+  const child = { ...reflected, tagName: "SPAN", parentElement: reflected, children: [], childNodes: [],
+    childElementCount: 0, getBoundingClientRect: () => ({ x: 604, y: 344, width: 36, height: 28 }),
+    getClientRects: () => [{ x: 604, y: 344, width: 36, height: 28 }],
+  };
+  root.children = [outer]; outer.children = [reflected]; reflected.children = [child];
+  const registry = createStableNodeRefRegistry("html-reflection");
+  const observe = ({
+    transform = "matrix(-1, 0, 0, -1, 16, -30)",
+    reflectedStyle = {},
+    reflectedFragments = [{ x: 596, y: 330, width: 60, height: 60 }],
+    reflectedNamespace = "http://www.w3.org/1999/xhtml",
+    childStyle = {},
+  } = {}) => {
+    reflected.namespaceURI = reflectedNamespace;
+    reflected.getClientRects = () => reflectedFragments.map(fragment => ({ ...fragment }));
+    dom.window.getComputedStyle = element => ({
+      ...baseStyle,
+      transform: element === reflected ? transform : "none",
+      overflowX: element === reflected ? reflectedStyle.overflowX ?? "visible"
+        : element === outer ? "hidden" : "visible",
+      overflowY: element === reflected ? reflectedStyle.overflowY ?? "visible"
+        : element === outer ? "hidden" : "visible",
+      ...(element === reflected ? reflectedStyle : {}),
+      ...(element === child ? childStyle : {}),
+    });
+    return observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "html-reflection", documentRef: "fixture" });
+  };
+  const outcome = (snapshot) => {
+    const reflectedRef = stableNodeRefFor(registry, reflected);
+    const observation = snapshot.observation.nodes.find(node => node.nodeRef === reflectedRef);
+    const candidate = checkCandidates(
+      observeCandidates({ observation: snapshot.observation }),
+      createFocusSpec(),
+    ).slots.find(slot => slot.nodeRef === reflectedRef);
+    return { observation, candidate, clippedRect: snapshot.evidence.get(reflectedRef).clippedRect };
+  };
+
+  const measured = observe();
+  assert.deepEqual(measured.evidence.get(stableNodeRefFor(registry, reflected)).clippedRect,
+    { x: 600, y: 340, width: 50, height: 40 });
+  assert.deepEqual(measured.evidence.get(stableNodeRefFor(registry, child)).clippedRect,
+    { x: 604, y: 344, width: 36, height: 28 });
+
+  for (const [label, transform] of [
+    ["horizontal mirror", "matrix(-1, 0, 0, 1, 16, -30)"],
+    ["vertical mirror", "matrix(1, 0, 0, -1, 16, -30)"],
+    ["180-degree inversion", "matrix(-1, 0, 0, -1, 16, -30)"],
+  ]) {
+    const result = outcome(observe({ transform }));
+    assert.deepEqual(result.clippedRect, { x: 600, y: 340, width: 50, height: 40 }, label);
+    assert.deepEqual(result.observation.clippedRect, { x: 600, y: 340, width: 50, height: 40 }, label);
+    assert.equal(result.candidate.status, "ok", label);
+    assert.equal(result.candidate.evidence.clipping, "assessed", label);
+  }
+
+  const grandchild = { ...child, parentElement: child,
+    getBoundingClientRect: () => ({ x: 606, y: 346, width: 12, height: 12 }),
+    getClientRects: () => [{ x: 606, y: 346, width: 12, height: 12 }],
+  };
+  child.children = [grandchild]; child.childElementCount = 1;
+  const innerClip = observe({ childStyle: { overflowX: "hidden", overflowY: "hidden" } });
+  assert.equal(innerClip.evidence.get(stableNodeRefFor(registry, grandchild)).clippedRect, null,
+    "client offsets below a reflected axis need an independent clipping proof");
+  child.children = []; child.childElementCount = 0;
+
+  const hiddenReflection = outcome(observe({ reflectedStyle: { overflowX: "hidden", overflowY: "hidden" } }));
+  assert.equal(hiddenReflection.clippedRect, null);
+
+  for (const [label, reflectedStyle] of [
+    ["clip", { clip: "rect(0px, 60px, 60px, 0px)" }],
+    ["clip-path", { clipPath: 'url("#local")' }],
+    ["contain", { contain: "layout" }],
+    ["filter", { filter: "blur(1px)" }],
+    ["perspective", { perspective: "500px" }],
+    ["standard backdrop effect", { backdropFilter: "blur(2px)" }],
+    ["missing standard backdrop fact", { backdropFilter: undefined }],
+    ["prefixed backdrop effect", { webkitBackdropFilter: "blur(2px)" }],
+    ["missing prefixed backdrop fact", { webkitBackdropFilter: undefined }],
+    ["missing overflow fact", { overflowX: undefined }],
+  ]) {
+    const result = outcome(observe({ reflectedStyle }));
+    assert.equal(result.clippedRect, null, label);
+    assert.equal(result.observation.clippedRect, null, label);
+    assert.equal(result.candidate.status, "unknown", label);
+    assert.deepEqual(result.candidate.reasons, ["insufficient_observation"], label);
+    assert.equal(result.candidate.evidence.clipping, "unassessed", label);
+  }
+
+  const emptyPrefixedBackdrop = outcome(observe({ reflectedStyle: { webkitBackdropFilter: "" } }));
+  assert.deepEqual(emptyPrefixedBackdrop.clippedRect, { x: 600, y: 340, width: 50, height: 40 });
+
+  for (const transform of [
+    "matrix(-1, 0, 0.01, -1, 16, -30)",
+    "matrix(0, -1, 1, 0, 16, -30)",
+    "matrix(-1, 0, 0, -2, 16, -30)",
+    "matrix(-1, 0, 0, 0.5, 16, -30)",
+    "matrix(0, 0, 0, 0, 0, 0)",
+    "matrix3d(-1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 16, -30, 0, 1)",
+    "matrix(-1, 0, 0, -1, NaN, -30)",
+  ]) {
+    const result = outcome(observe({ transform }));
+    assert.equal(result.clippedRect, null, transform);
+    assert.equal(result.candidate.status, "unknown", transform);
+  }
+
+  for (const [label, reflectStyle] of [
+    ["independent translate", { translate: "10px" }],
+    ["missing independent translate", { translate: undefined }],
+    ["missing transform", { transform: undefined }],
+  ]) {
+    const result = outcome(observe({ reflectedStyle: reflectStyle }));
+    assert.equal(result.clippedRect, null, label);
+    assert.equal(result.candidate.status, "unknown", label);
+  }
+
+  const multiFragment = outcome(observe({
+    reflectedFragments: [
+      { x: 596, y: 330, width: 30, height: 60 },
+      { x: 626, y: 330, width: 30, height: 60 },
+    ],
+  }));
+  assert.equal(multiFragment.clippedRect, null);
+  assert.equal(multiFragment.candidate.status, "unknown");
+
+  const svgDomain = outcome(observe({ reflectedNamespace: "http://www.w3.org/2000/svg" }));
+  assert.equal(svgDomain.clippedRect, null);
+  assert.equal(svgDomain.candidate.status, "unknown");
+});
+
 test("scaled overflow ancestor converts client offsets and sizes through cumulative scale", () => {
   const dom = fakeDom(), root = dom.document.documentElement;
   const scroller = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [], childElementCount: 2,
@@ -941,6 +1234,205 @@ test("legacy zero rect is empty only for absolute and fixed applicability", () =
   assert.deepEqual(clippedRect(relativeTarget), { x: 220, y: 220, width: 10, height: 10 });
   assert.ok(snapshot.observation.nodes.some(node => node.nodeRef === stableNodeRefFor(registry, absolute)));
   assert.ok(snapshot.evidence.has(stableNodeRefFor(registry, descendant)));
+});
+
+test("proven HTML absolute containing block escapes only intermediate ordinary overflow", () => {
+  const baseStyle = {
+    display: "block",
+    visibility: "visible",
+    transform: "none",
+    translate: "none",
+    rotate: "none",
+    scale: "none",
+    perspective: "none",
+    overflowX: "visible",
+    overflowY: "visible",
+    clipPath: "none",
+    clip: "auto",
+    contain: "none",
+    filter: "none",
+    backdropFilter: "none",
+    webkitBackdropFilter: "",
+    willChange: "auto",
+    contentVisibility: "visible",
+    position: "static",
+  };
+  const observeAbsolute = ({
+    spanPosition = "static",
+    spanOverflow = "hidden",
+    containingBlockOverflow = "visible",
+    outerOverflow = "visible",
+    containingBlockHeight = 60,
+    outerHeight = 60,
+    pictureHeight = 0,
+    imageStyle = {},
+    spanStyle = {},
+    containingBlockStyle = {},
+    pictureStyle = {},
+  } = {}) => {
+    const dom = fakeDom(), root = dom.document.documentElement;
+    root.namespaceURI = "http://www.w3.org/1999/xhtml";
+    root.clientLeft = 0; root.clientTop = 0;
+    root.clientWidth = 800; root.clientHeight = 600;
+    const outer = { ...root, tagName: "DIV", parentElement: root, children: [], childNodes: [], childElementCount: 1,
+      clientLeft: 0, clientTop: 0, clientWidth: 100, clientHeight: outerHeight,
+      getBoundingClientRect: () => ({ x: 10, y: 20, width: 100, height: 60 }),
+      getClientRects: () => [{ x: 10, y: 20, width: 100, height: 60 }],
+    };
+    const containingBlock = { ...outer, tagName: "DIV", parentElement: outer, children: [], childNodes: [], childElementCount: 1,
+      clientHeight: containingBlockHeight,
+    };
+    const span = { ...containingBlock, tagName: "SPAN", parentElement: containingBlock, children: [], childNodes: [], childElementCount: 1,
+      clientWidth: 100, clientHeight: 0,
+      getBoundingClientRect: () => ({ x: 10, y: 20, width: 100, height: 0 }),
+      getClientRects: () => [{ x: 10, y: 20, width: 100, height: 0 }],
+    };
+    const picture = { ...span, tagName: "PICTURE", parentElement: span, children: [], childNodes: [], childElementCount: 1,
+      clientWidth: 100, clientHeight: pictureHeight,
+      getBoundingClientRect: () => ({ x: 10, y: 20, width: 100, height: pictureHeight }),
+      getClientRects: () => [{ x: 10, y: 20, width: 100, height: pictureHeight }],
+    };
+    const image = { ...picture, tagName: "IMG", parentElement: picture, children: [], childNodes: [], childElementCount: 0,
+      getBoundingClientRect: () => ({ x: 10, y: 20, width: 100, height: 60 }),
+      getClientRects: () => [{ x: 10, y: 20, width: 100, height: 60 }],
+    };
+    root.children = [outer];
+    outer.children = [containingBlock];
+    containingBlock.children = [span];
+    span.children = [picture];
+    picture.children = [image];
+    dom.document.querySelectorAll = () => [];
+    dom.window.getComputedStyle = element => {
+      const style = { ...baseStyle };
+      if (element === image) return { ...style, position: "absolute", ...imageStyle };
+      if (element === picture) return { ...style, display: "inline", ...pictureStyle };
+      if (element === span) return {
+        ...style,
+        position: spanPosition,
+        overflowX: spanOverflow,
+        overflowY: spanOverflow,
+        ...spanStyle,
+      };
+      if (element === containingBlock) return {
+        ...style,
+        position: "absolute",
+        overflowX: containingBlockOverflow,
+        overflowY: containingBlockOverflow,
+        ...containingBlockStyle,
+      };
+      if (element === outer) return { ...style, overflowX: outerOverflow, overflowY: outerOverflow };
+      return style;
+    };
+    const registry = createStableNodeRefRegistry("absolute-containing-block");
+    const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "absolute-contain", documentRef: "fixture" });
+    const imageRef = stableNodeRefFor(registry, image);
+    return {
+      clippedRect: snapshot.evidence.get(imageRef).clippedRect,
+      candidate: checkCandidates(
+        observeCandidates({ observation: snapshot.observation }),
+        createFocusSpec(),
+      ).slots.find(slot => slot.nodeRef === imageRef),
+    };
+  };
+
+  const escaped = observeAbsolute();
+  assert.deepEqual(escaped.clippedRect, { x: 10, y: 20, width: 100, height: 60 },
+    "a static zero-height wrapper must not become a false zero clip");
+  assert.equal(escaped.candidate.status, "ok");
+
+  const positioned = observeAbsolute({ spanPosition: "relative" });
+  assert.deepEqual(positioned.clippedRect, { x: 10, y: 20, width: 100, height: 0 });
+  assert.deepEqual(positioned.candidate.reasons, ["nonrendered"]);
+
+  const containingBlockClip = observeAbsolute({ containingBlockOverflow: "hidden", containingBlockHeight: 20 });
+  assert.deepEqual(containingBlockClip.clippedRect, { x: 10, y: 20, width: 100, height: 20 });
+
+  const outerClip = observeAbsolute({ outerOverflow: "hidden", outerHeight: 20 });
+  assert.deepEqual(outerClip.clippedRect, { x: 10, y: 20, width: 100, height: 20 });
+
+  const legacy = observeAbsolute({ imageStyle: { clip: "rect(0px, 0px, 0px, 0px)" } });
+  assert.deepEqual(legacy.clippedRect, { x: 10, y: 20, width: 0, height: 0 });
+  assert.deepEqual(legacy.candidate.reasons, ["nonrendered"]);
+
+  const clipPath = observeAbsolute({ spanStyle: { clipPath: 'url("#absolute-clip")' } });
+  assert.equal(clipPath.clippedRect, null);
+  assert.equal(clipPath.candidate.status, "unknown");
+
+  const unprovenContain = observeAbsolute({ spanStyle: { contain: "layout" } });
+  assert.equal(unprovenContain.clippedRect, null);
+  assert.equal(unprovenContain.candidate.status, "unknown");
+
+  const missingContainingFact = observeAbsolute({ spanStyle: { willChange: undefined } });
+  assert.equal(missingContainingFact.clippedRect, null);
+  assert.equal(missingContainingFact.candidate.status, "unknown");
+
+  const applicabilityCases = [
+    {
+      label: "identity target with immediate positioned containing block",
+      result: observeAbsolute({
+        spanOverflow: "visible",
+        imageStyle: { transform: "matrix(1, 0, 0, 1, 0, 0)" },
+        pictureStyle: { position: "relative" },
+      }),
+      clippedRect: { x: 10, y: 20, width: 100, height: 60 },
+    },
+    {
+      label: "positively scaled target with immediate positioned containing block",
+      result: observeAbsolute({
+        spanOverflow: "visible",
+        imageStyle: { transform: "matrix(1.7, 0, 0, 1.7, 0, 0)" },
+        pictureStyle: { position: "relative" },
+      }),
+      clippedRect: { x: 10, y: 20, width: 100, height: 60 },
+    },
+    {
+      label: "translated target with immediate positioned containing block",
+      result: observeAbsolute({
+        spanOverflow: "visible",
+        imageStyle: { transform: "matrix(1, 0, 0, 1, -0.5, 0)" },
+        pictureStyle: { position: "relative" },
+      }),
+      clippedRect: { x: 10, y: 20, width: 100, height: 60 },
+    },
+    {
+      label: "outer translation with hidden immediate containing block",
+      result: observeAbsolute({
+        spanOverflow: "visible",
+        pictureHeight: 20,
+        pictureStyle: { position: "relative", overflowX: "hidden", overflowY: "hidden" },
+        containingBlockStyle: { transform: "matrix(1, 0, 0, 1, 50, 0)" },
+      }),
+      clippedRect: { x: 10, y: 20, width: 100, height: 20 },
+    },
+    {
+      label: "farther containing block with all intermediate overflow visible",
+      result: observeAbsolute({
+        spanOverflow: "visible",
+        imageStyle: { transform: "matrix(1, 0, 0, 1, 0, 0)" },
+        pictureStyle: { overflowX: "visible", overflowY: "visible" },
+        containingBlockStyle: { transform: "matrix(1, 0, 0, 1, 50, 0)" },
+      }),
+      clippedRect: { x: 10, y: 20, width: 100, height: 60 },
+    },
+  ];
+  assert.deepEqual(
+    applicabilityCases.map(({ label, result }) => ({
+      label,
+      clippedRect: result.clippedRect,
+      candidateStatus: result.candidate.status,
+    })),
+    applicabilityCases.map(({ label, clippedRect }) => ({
+      label,
+      clippedRect,
+      candidateStatus: "ok",
+    })),
+  );
+
+  const staticIdentityContainingBlock = observeAbsolute({
+    pictureStyle: { transform: "matrix(1, 0, 0, 1, 0, 0)" },
+  });
+  assert.equal(staticIdentityContainingBlock.clippedRect, null);
+  assert.equal(staticIdentityContainingBlock.candidate.status, "unknown");
 });
 
 test("unsupported transforms, legacy rects and SVG clipping remain unknown", () => {
@@ -1338,6 +1830,224 @@ test("overlay node definitions expose only the production graph nodes", () => {
   const definitions = createBrowserOverlayNodeDefinitions({ document: {}, window: {}, registry: createStableNodeRefRegistry("no-hooks"), excludeHost: null,
     present: () => undefined });
   assert.deepEqual(definitions.map(definition => definition.operator), ["browser.observe_live", "browser.qualify_live", "browser.classify_live", "overlay.present"]);
+});
+
+test("unread OBJECT document is explicit coverage, not an empty inspected interior", () => {
+  const dom = fakeDom(), html = dom.document.documentElement;
+  const embedded = { ...html, tagName: "OBJECT", parentElement: html, children: [], childNodes: [],
+    get contentDocument() { throw new Error("the top-document observer must not inspect the embedded document"); },
+  };
+  html.children = [embedded];
+  const registry = createStableNodeRefRegistry("object-coverage");
+  const snapshot = observeLiveDom({ ...dom, registry, excludeRoot: null, snapshotRef: "object-coverage", documentRef: "fixture" });
+  assert.equal(snapshot.observation.nodes.length, 2);
+  assert.deepEqual(snapshot.evidence.get(stableNodeRefFor(registry, embedded)).unassessedChildContent, ["object_content"]);
+  assert.equal(snapshot.coverage.unassessedObjectCount, 1);
+  const exploration = snapshot.explorationInputs.get(stableNodeRefFor(registry, embedded));
+  assert.deepEqual(exploration.measurementCoverage.unassessedInterior, ["object_content"]);
+});
+
+test("live currentView records nine HTML facts and does not pretend an SVG element is HTML", () => {
+  const dom = currentViewDom();
+  const transparent = currentViewElement(dom.document, {
+    tag: "DIV",
+    parent: dom.html,
+    rectValue: rect(10, 10, 120, 40),
+  });
+  const embedded = currentViewElement(dom.document, {
+    tag: "OBJECT",
+    parent: transparent,
+    rectValue: rect(10, 10, 120, 40),
+  });
+  const svg = currentViewElement(dom.document, {
+    tag: "DIV",
+    parent: transparent,
+    namespaceURI: "http://www.w3.org/2000/svg",
+    rectValue: rect(20, 20, 40, 20),
+  });
+  appendCurrentViewChild(dom.html, transparent);
+  appendCurrentViewChild(transparent, embedded);
+  appendCurrentViewChild(transparent, svg);
+  transparent.currentViewStyle = { ...dom.baseStyle, opacity: "0", pointerEvents: "none" };
+  embedded.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+  svg.currentViewStyle = { ...dom.baseStyle, opacity: "0", pointerEvents: "none" };
+
+  const registry = createStableNodeRefRegistry("current-view-facts");
+  const snapshot = observeLiveDom({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "current-view-facts",
+    documentRef: "fixture",
+  });
+  const transparentRecord = snapshot.observation.nodes.find(node => node.nodeRef === stableNodeRefFor(registry, transparent));
+  const embeddedRecord = snapshot.observation.nodes.find(node => node.nodeRef === stableNodeRefFor(registry, embedded));
+  const svgRecord = snapshot.observation.nodes.find(node => node.nodeRef === stableNodeRefFor(registry, svg));
+
+  assert.deepEqual(transparentRecord.currentView, {
+    zeroOpacityInCurrentPaintPath: true,
+    pointerEventsNone: true,
+    activeElementFocus: false,
+    focusWithin: false,
+    nativeTabIndex: -1,
+    contentEditable: false,
+    directTextPresent: false,
+    ownLabelPresent: false,
+    topLayer: false,
+  });
+  assert.equal(embeddedRecord.currentView.zeroOpacityInCurrentPaintPath, true);
+  assert.equal(Object.hasOwn(svgRecord, "currentView"), false);
+});
+
+test("currentView opacity proof requires a non-top-layer path and never infers zero from invalid or underflowing values", () => {
+  const dom = currentViewDom();
+  const zeroParent = currentViewElement(dom.document, { parent: dom.html });
+  const inherited = currentViewElement(dom.document, { tag: "OBJECT", parent: zeroParent });
+  const topLayerTrue = currentViewElement(dom.document, { tag: "OBJECT", parent: zeroParent, topLayer: true });
+  const topLayerUnknown = currentViewElement(dom.document, { tag: "OBJECT", parent: zeroParent, topLayerThrows: true });
+  const selfZero = currentViewElement(dom.document, { parent: dom.html, topLayer: true });
+  const underflowOuter = currentViewElement(dom.document, { parent: dom.html });
+  const underflowInner = currentViewElement(dom.document, { parent: underflowOuter });
+  const underflowTarget = currentViewElement(dom.document, { tag: "OBJECT", parent: underflowInner });
+  const invalidParent = currentViewElement(dom.document, { parent: dom.html });
+  const invalidTarget = currentViewElement(dom.document, { tag: "OBJECT", parent: invalidParent });
+  for (const [parent, child] of [
+    [dom.html, zeroParent],
+    [zeroParent, inherited],
+    [zeroParent, topLayerTrue],
+    [zeroParent, topLayerUnknown],
+    [dom.html, selfZero],
+    [dom.html, underflowOuter],
+    [underflowOuter, underflowInner],
+    [underflowInner, underflowTarget],
+    [dom.html, invalidParent],
+    [invalidParent, invalidTarget],
+  ]) appendCurrentViewChild(parent, child);
+  zeroParent.currentViewStyle = { ...dom.baseStyle, opacity: "0" };
+  inherited.currentViewStyle = { ...dom.baseStyle, opacity: "1" };
+  topLayerTrue.currentViewStyle = { ...dom.baseStyle, opacity: "1" };
+  topLayerUnknown.currentViewStyle = { ...dom.baseStyle, opacity: "1" };
+  selfZero.currentViewStyle = { ...dom.baseStyle, opacity: "0" };
+  underflowOuter.currentViewStyle = { ...dom.baseStyle, opacity: "1e-200" };
+  underflowInner.currentViewStyle = { ...dom.baseStyle, opacity: "1e-200" };
+  underflowTarget.currentViewStyle = { ...dom.baseStyle, opacity: "1" };
+  invalidParent.currentViewStyle = { ...dom.baseStyle, opacity: "" };
+  invalidTarget.currentViewStyle = { ...dom.baseStyle, opacity: "1" };
+
+  const registry = createStableNodeRefRegistry("current-view-opacity");
+  const snapshot = observeLiveDom({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "current-view-opacity",
+    documentRef: "fixture",
+  });
+  const opacity = element => snapshot.observation.nodes
+    .find(node => node.nodeRef === stableNodeRefFor(registry, element))
+    .currentView.zeroOpacityInCurrentPaintPath;
+  assert.equal(opacity(inherited), true);
+  assert.equal(opacity(topLayerTrue), null);
+  assert.equal(opacity(topLayerUnknown), null);
+  assert.equal(opacity(selfZero), true);
+  assert.equal(opacity(underflowTarget), false);
+  assert.equal(opacity(invalidTarget), null);
+
+  // An invalid target opacity cannot borrow a valid zero from its ancestor.
+  for (const value of ["not-opacity", "NaN", "Infinity", "-0.5", "1.5", "0x0"]) {
+    inherited.currentViewStyle = { ...dom.baseStyle, opacity: value };
+    const invalid = observeLiveDom({ document: dom.document, window: dom.window, registry,
+      excludeRoot: null, snapshotRef: "invalid-current-opacity", documentRef: "fixture" });
+    assert.equal(invalid.observation.nodes.find(node => node.nodeRef === stableNodeRefFor(registry, inherited))
+      .currentView.zeroOpacityInCurrentPaintPath, null, value);
+  }
+});
+
+test("current-view paint-path facts are measured once per snapshot rather than once per descendant", () => {
+  for (const size of [40, 80, 160]) {
+    const dom = currentViewDom();
+    let parent = dom.html, selectors = 0;
+    for (let index = 0; index < size; index++) {
+      const element = currentViewElement(dom.document, { parent });
+      element.currentViewStyle = dom.baseStyle;
+      const matches = element.matches;
+      element.matches = selector => { selectors++; return matches(selector); };
+      appendCurrentViewChild(parent, element);
+      parent = element;
+    }
+    const snapshot = observeLiveDom({ document: dom.document, window: dom.window,
+      registry: createStableNodeRefRegistry("paint-path-cost"), excludeRoot: null,
+      snapshotRef: "paint-path-cost", documentRef: "fixture" });
+    assert.equal(snapshot.observation.nodes.length, size + 1);
+    assert.ok(snapshot.observation.nodes.slice(1).every(node => node.currentView.zeroOpacityInCurrentPaintPath === false));
+    assert.ok(selectors <= 15 * size, `${size} nodes made ${selectors} native selector calls`);
+  }
+});
+
+test("public overlay workflow excludes current-view surfaces without pruning focus or OBJECT coverage", async () => {
+  const graph = JSON.parse(readFileSync(
+    new URL("../workflows/browser-visual-overlay.graph.json", import.meta.url),
+    "utf8",
+  ));
+  const dom = currentViewDom();
+  const transparent = currentViewElement(dom.document, { parent: dom.html, rectValue: rect(10, 10, 120, 40) });
+  const embedded = currentViewElement(dom.document, { tag: "OBJECT", parent: transparent, rectValue: rect(10, 10, 120, 40) });
+  const focused = currentViewElement(dom.document, { tag: "INPUT", parent: transparent, tabIndex: 0, rectValue: rect(20, 20, 40, 20) });
+  appendCurrentViewChild(dom.html, transparent);
+  appendCurrentViewChild(transparent, embedded);
+  appendCurrentViewChild(transparent, focused);
+  transparent.currentViewStyle = { ...dom.baseStyle, opacity: "0", pointerEvents: "none" };
+  embedded.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "none" };
+  focused.currentViewStyle = { ...dom.baseStyle, opacity: "1", pointerEvents: "auto" };
+  dom.document.activeElement = focused;
+
+  const registry = createStableNodeRefRegistry("current-view-workflow");
+  let presentCalls = 0;
+  const definitions = createBrowserOverlayNodeDefinitions({
+    document: dom.document,
+    window: dom.window,
+    registry,
+    excludeHost: null,
+    present: () => {
+      presentCalls += 1;
+    },
+  });
+  const compiled = compileWorkflow({
+    graph,
+    bindings: {
+      "筛选当前视口与关注候选": { config: { viewportOnly: true, scopeMode: "subtree" } },
+      "判断DOM基础种类": { config: DEFAULT_BASIC_KIND_CONFIG, profileId: "default" },
+    },
+  }, {
+    nodeDefinitions: definitions,
+    profiles: { default: DEFAULT_BASIC_KIND_PROFILE },
+    grantedEffects: ["browser.dom.read", "browser.overlay.present"],
+  });
+  const result = await runWorkflow(compiled, createWorkflowInputEvent({
+    runId: "current-view-overlay-run",
+    eventId: "current-view-overlay-run:input",
+    port: "overlay_request",
+    type: BROWSER_OVERLAY_REQUEST_EVENT_TYPE,
+    correlation: {},
+    payload: { snapshotRef: "current-view-overlay", documentRef: "fixture" },
+  }));
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.outputEvent.status, "ok");
+  assert.equal(presentCalls, 1);
+  const frame = result.outputEvent.payload;
+  const transparentRef = stableNodeRefFor(registry, transparent);
+  const embeddedRef = stableNodeRefFor(registry, embedded);
+  const focusedRef = stableNodeRefFor(registry, focused);
+  const candidateSlots = new Map(frame.candidateBatch.slots.map(slot => [slot.nodeRef, slot]));
+  assert.deepEqual(candidateSlots.get(transparentRef).reasons, ["current_view_nonrendered"]);
+  assert.deepEqual(candidateSlots.get(embeddedRef).reasons, ["current_view_nonrendered"]);
+  assert.equal(candidateSlots.get(focusedRef).status, "ok");
+  assert.equal(frame.snapshot.itemObservations.find(item => item.nodeRef === focusedRef).activeElementFocus, true);
+  assert.equal(frame.basicKindBatch.slots.find(slot => slot.nodeRef === embeddedRef).candidateStatus, "filtered_out");
+  assert.deepEqual(frame.snapshot.evidence.get(embeddedRef).unassessedChildContent, ["object_content"]);
+  assert.equal(frame.snapshot.coverage.unassessedObjectCount, 1);
 });
 
 test("optional resource producer requires explicit read effect before workflow execution", () => {

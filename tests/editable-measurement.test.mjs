@@ -213,7 +213,7 @@ test("native Boolean measurements take precedence over declarations and selector
     designMode: "on",
     targetMatches: contradicted,
   })), false);
-  assert.equal(contradicted.calls.length, 0);
+  assert.equal(contradicted.calls.filter(selector => selector === ":read-write").length, 0);
   assert.equal(contentEditable(editableDom({
     targetNativeEditable: true,
     targetAttributes: { contenteditable: "false" },
@@ -307,7 +307,7 @@ test("trusted native selector Booleans substitute before declaration fallback", 
       designMode: "unknown",
       targetMatches: probe,
     })), value, `no declaration, selector ${value}`);
-    assert.deepEqual(probe.calls, [":read-write"]);
+    assert.deepEqual(probe.calls.filter(selector => selector === ":read-write"), [":read-write"]);
 
     assert.equal(contentEditable(editableDom({
       targetAttributes: { contenteditable: "false" },

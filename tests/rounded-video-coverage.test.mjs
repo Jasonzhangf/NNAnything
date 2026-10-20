@@ -150,6 +150,8 @@ function makeScene({
   imageResourceFor,
   documentRef = "fixture-doc-1",
   registry = createStableNodeRefRegistry("rounded-video-coverage"),
+  prototypeRects = false,
+  ancestorRect,
 } = {}) {
   const rect = { x: 100, y: 120, width: 542, height: 304.875 };
   const html = element({ key: "html", tagName: "HTML", rect: viewport });
@@ -241,6 +243,21 @@ function makeScene({
     },
   };
   const diagnostics = [];
+  if (ancestorRect) {
+    poster.getBoundingClientRect = () => ({ ...rect, ...ancestorRect });
+  }
+  if (prototypeRects) {
+    for (const candidate of [html, player, poster, picture, image, video, subtitle]) {
+      const raw = candidate.getBoundingClientRect();
+      if (prototypeRects === "getter") {
+        const prototype = Object.create(null);
+        for (const key of ["x", "y", "width", "height"]) {
+          Object.defineProperty(prototype, key, { get: () => raw[key], enumerable: false });
+        }
+        candidate.getBoundingClientRect = () => Object.create(prototype);
+      } else candidate.getBoundingClientRect = () => Object.create(raw);
+    }
+  }
   const observationInput = {
     document,
     window: {
@@ -279,7 +296,187 @@ function makeScene({
   };
 }
 
+function makeCoverageScene({
+  target = "video",
+  rect = { x: 100, y: 120, width: 542, height: 304.875 },
+  targetRect = rect,
+  imageRect = targetRect,
+  targetStyle = {},
+  sharedStyle = {},
+  imageBranchRect = rect,
+  imageStyle = {},
+  imageDims = { width: 640, height: 360 },
+  childSameBox = false,
+  escapedChild = false,
+  reverseNativeOrder = false,
+  prototypeRects = "getter",
+  includeImage = true,
+  registry = createStableNodeRefRegistry("coverage-scene"),
+  imageResourceFor,
+} = {}) {
+  const html = element({ key: "html", tagName: "HTML", rect: viewport });
+  const shared = element({
+    key: "shared",
+    rect,
+    parent: html,
+    style: {
+      display: "block",
+      position: "relative",
+      ...(target === "subtitle" ? {} : {
+        overflowX: "hidden",
+        overflowY: "hidden",
+        borderTopLeftRadius: "8px",
+        borderTopRightRadius: "8px",
+        borderBottomRightRadius: "8px",
+        borderBottomLeftRadius: "8px",
+      }),
+      ...sharedStyle,
+    },
+  });
+  const targetElement = element({
+    key: "target",
+    tagName: target === "video" ? "VIDEO" : "DIV",
+    rect: targetRect,
+    parent: shared,
+    style: {
+      position: "absolute",
+      ...(target === "video" ? {
+        overflowX: "clip",
+        overflowY: "clip",
+        overflowClipMargin: "content-box",
+        borderTopLeftRadius: "8px",
+        borderTopRightRadius: "8px",
+        borderBottomRightRadius: "8px",
+        borderBottomLeftRadius: "8px",
+      } : { pointerEvents: "none" }),
+      ...targetStyle,
+    },
+  });
+  let targetChild = null;
+  if (target !== "video" && (childSameBox || escapedChild)) {
+    targetChild = element({
+      key: "target-child",
+      rect: escapedChild ? { ...targetRect, x: targetRect.x + targetRect.width + 4 } : targetRect,
+      parent: targetElement,
+      style: { position: "absolute", pointerEvents: "none" },
+    });
+    setChildren(targetElement, [targetChild]);
+  }
+  const imageBranch = element({
+    key: "image-branch",
+    rect: imageBranchRect,
+    parent: shared,
+    style: {
+      position: "absolute",
+      zIndex: "3",
+      overflowX: "hidden",
+      overflowY: "hidden",
+      borderTopLeftRadius: "8px",
+      borderTopRightRadius: "8px",
+      borderBottomRightRadius: "8px",
+      borderBottomLeftRadius: "8px",
+    },
+  });
+  const image = element({
+    key: "image",
+    tagName: "IMG",
+    rect: imageRect,
+    parent: imageBranch,
+    style: {
+      overflowX: "clip",
+      overflowY: "clip",
+      overflowClipMargin: "content-box",
+      objectFit: "cover",
+      objectPosition: "50% 50%",
+      ...imageStyle,
+    },
+    native: {
+      complete: true,
+      naturalWidth: imageDims.width,
+      naturalHeight: imageDims.height,
+      currentSrc: "https://fixture.test/current-image.jpg",
+    },
+  });
+  const children = includeImage ? [targetElement, imageBranch] : [targetElement];
+  setChildren(shared, children);
+  setChildren(imageBranch, [image]);
+  setChildren(html, [shared]);
+
+  const styles = new Map([
+    [html, baseStyle],
+    [shared, { ...baseStyle, ...shared.testStyle }],
+    [targetElement, { ...baseStyle, ...targetElement.testStyle }],
+    [imageBranch, { ...baseStyle, ...imageBranch.testStyle }],
+    [image, { ...baseStyle, ...image.testStyle }],
+    ...(targetChild ? [[targetChild, { ...baseStyle, ...targetChild.testStyle }]] : []),
+  ]);
+  const document = {
+    documentElement: html,
+    body: html,
+    baseURI: "https://fixture.test/page",
+    elementsFromPoint: (x, y) => {
+      const inside = x >= targetRect.x && x <= targetRect.x + targetRect.width
+        && y >= Math.max(0, targetRect.y) && y <= Math.min(viewport.height, targetRect.y + targetRect.height);
+      if (!inside) return [];
+      if (!includeImage) return [target === "video" ? targetElement : shared, shared, html];
+      if (reverseNativeOrder) return [target === "video" ? targetElement : shared, image, imageBranch, shared, html];
+      return target === "video"
+        ? [image, targetElement, imageBranch, shared, html]
+        : [image, imageBranch, shared, html];
+    },
+  };
+  if (prototypeRects) {
+    for (const candidate of [html, shared, targetElement, imageBranch, image, ...(targetChild ? [targetChild] : [])]) {
+      const raw = candidate.getBoundingClientRect();
+      if (prototypeRects === "getter") {
+        const prototype = Object.create(null);
+        for (const key of ["x", "y", "width", "height"]) {
+          Object.defineProperty(prototype, key, { get: () => raw[key], enumerable: false });
+        }
+        candidate.getBoundingClientRect = () => Object.create(prototype);
+      } else candidate.getBoundingClientRect = () => Object.create(raw);
+    }
+  }
+  const diagnostics = [];
+  const observationInput = {
+    document,
+    window: {
+      innerWidth: viewport.width,
+      innerHeight: viewport.height,
+      getComputedStyle: (candidate, pseudo) => pseudo
+        ? { content: "none" }
+        : styles.get(candidate) ?? baseStyle,
+    },
+    registry,
+    excludeRoot: null,
+    snapshotRef: "coverage-scene",
+    documentRef: "fixture-doc-1",
+    diagnostic: {
+      selectedRefs: new Set([stableNodeRefFor(registry, targetElement)]),
+      callback: event => diagnostics.push(event),
+    },
+    imageResourceFor,
+  };
+  const snapshot = observeLiveDom(observationInput);
+  const nodeFor = candidate => snapshot.observation.nodes
+    .find(node => node.nodeRef === stableNodeRefFor(registry, candidate));
+  const candidates = checkCandidates(observeCandidates({ observation: snapshot.observation }), createFocusSpec());
+  return {
+    snapshot,
+    registry,
+    observationInput,
+    image,
+    targetElement,
+    targetChild,
+    nodeFor,
+    diagnostics,
+    target: nodeFor(targetElement),
+    targetCandidate: candidates.slots.find(slot => slot.nodeRef === stableNodeRefFor(registry, targetElement)),
+  };
+}
+
 function validProofFor(image, registry, documentRef = "fixture-doc-1", overrides = {}) {
+  const currentSrc = overrides.binding?.currentSrc ?? image.currentSrc;
   return {
     status: "proven",
     proof: {
@@ -289,7 +486,7 @@ function validProofFor(image, registry, documentRef = "fixture-doc-1", overrides
         documentRef,
         nodeRef: stableNodeRefFor(registry, image),
         loadGeneration: 1,
-        currentSrc: "https://fixture.test/poster.jpg",
+        currentSrc,
         complete: true,
         naturalWidth: 640,
         naturalHeight: 360,
@@ -324,6 +521,30 @@ test("unsupported pair geometry does not request image resources", () => {
     const scene = makeScene({ ancestorStyle, imageResourceFor: () => { reads++; return undefined; } });
     assert.notEqual(scene.video.foreground, "occluded");
     assert.equal(reads, 0);
+  }
+});
+
+test("prototype-backed DOMRect fields preserve the rounded ancestor domain", () => {
+  for (const prototypeRects of [true, "getter"]) {
+  const registry = createStableNodeRefRegistry("native-rect-cover");
+  let requests = 0;
+  const scene = makeScene({ registry, prototypeRects, imageResourceFor: image => {
+    requests++;
+    return validProofFor(image, registry);
+  } });
+  assert.equal(requests, 1, JSON.stringify(scene.diagnostics));
+  assert.equal(scene.video.foreground, "occluded");
+  assert.deepEqual(scene.video.exposedRects, []);
+  assert.ok(scene.videoCandidate.reasons.includes("occluded"));
+  }
+});
+
+test("invalid ancestor rectangle cannot request or certify opaque coverage", () => {
+  for (const ancestorRect of [{ x: undefined }, { x: NaN }, { x: Infinity }, { width: 0 }, { height: -1 }]) {
+    let requests = 0;
+    const scene = makeScene({ ancestorRect, imageResourceFor: () => { requests++; return undefined; } });
+    assert.equal(requests, 0);
+    assert.notEqual(scene.video.foreground, "occluded");
   }
 });
 
@@ -518,4 +739,204 @@ test("existing G2 target own corner guard remains: rectangular subtitle stays vi
   // Subtitle DIV (pointer-events: none, rectangular) still sees clear corners and stays visible
   assert.equal(sceneWithReg.subtitle.foreground, "visible");
   assert.equal(sceneWithReg.subtitleCandidate.status, "ok");
+});
+
+test("partial off-viewport VIDEO uses full raw IMG coverage before viewport clipping", () => {
+  const registry = createStableNodeRefRegistry("partial-video");
+  const rect = { x: 313.5, y: -25, width: 542, height: 304.875 };
+  let requests = 0;
+  const scene = makeCoverageScene({
+    target: "video",
+    rect,
+    registry,
+    imageResourceFor: image => {
+      requests++;
+      return validProofFor(image, registry);
+    },
+  });
+  assert.equal(requests, 1, JSON.stringify(scene.diagnostics));
+  assert.equal(scene.target.foreground, "occluded", JSON.stringify(scene.diagnostics));
+  assert.deepEqual(scene.target.exposedRects, []);
+  assert.ok(scene.targetCandidate.reasons.includes("occluded"));
+});
+
+test("padded empty placeholder is bounded by its shared rounded clip and centered cover image", () => {
+  const registry = createStableNodeRefRegistry("placeholder-cover");
+  const rect = { x: 342.5, y: 480, width: 168, height: 224 };
+  let requests = 0;
+  const scene = makeCoverageScene({
+    target: "placeholder",
+    rect,
+    registry,
+    targetStyle: { paddingBottom: "133.333%" },
+    imageStyle: { objectFit: "cover" },
+    imageResourceFor: image => {
+      requests++;
+      return validProofFor(image, registry);
+    },
+  });
+  assert.equal(requests, 1, JSON.stringify(scene.diagnostics));
+  assert.equal(scene.target.foreground, "occluded", JSON.stringify(scene.diagnostics));
+  assert.deepEqual(scene.target.exposedRects, []);
+});
+
+test("empty subtitle parent and same-box empty child stay inside the rounded image coverage", () => {
+  const registry = createStableNodeRefRegistry("subtitle-subtree");
+  const rect = { x: 313.5, y: -25, width: 542, height: 304.875 };
+  let requests = 0;
+  const scene = makeCoverageScene({
+    target: "subtitle",
+    rect,
+    targetRect: { x: 313.5, y: -25, width: 542, height: 249.875 },
+    imageRect: rect,
+    childSameBox: true,
+    registry,
+    imageResourceFor: image => {
+      requests++;
+      return validProofFor(image, registry);
+    },
+  });
+  assert.equal(requests, 2, JSON.stringify(scene.diagnostics));
+  assert.equal(scene.target.foreground, "occluded", JSON.stringify(scene.diagnostics));
+  assert.deepEqual(scene.target.exposedRects, []);
+  assert.equal(scene.nodeFor(scene.targetChild).foreground, "occluded");
+});
+
+test("fully visible rounded corners remain exposed when target reaches the image corner bands", () => {
+  const registry = createStableNodeRefRegistry("visible-corners");
+  const rect = { x: 313.5, y: 0, width: 542, height: 304.875 };
+  const scene = makeCoverageScene({
+    target: "subtitle",
+    rect,
+    targetRect: rect,
+    imageRect: rect,
+    childSameBox: true,
+    registry,
+    imageResourceFor: image => validProofFor(image, registry),
+  });
+  assert.equal(scene.target.foreground, "visible", JSON.stringify(scene.diagnostics));
+  assert.ok(scene.target.exposedRects.length > 0);
+});
+
+test("image coverage rejects geometry and resource contrasts with exact read gating", () => {
+  const registry = createStableNodeRefRegistry("coverage-contrast");
+  const rect = { x: 313.5, y: -25, width: 542, height: 304.875 };
+  const cases = [
+    { imageStyle: { objectFit: "contain" }, imageDims: { width: 640, height: 480 }, expectedRequests: 0 },
+    { resource: () => undefined, expectedRequests: 2 },
+    { resource: image => validProofFor(image, registry, "fixture-doc-1", {
+      binding: { currentSrc: "https://fixture.test/stale.jpg" },
+    }), expectedRequests: 2 },
+    { resource: () => ({ status: "unavailable", reason: "unsupported-format" }), expectedRequests: 2 },
+    { escapedChild: true, expectedRequests: 0 },
+    { imageBranchRect: { ...rect, x: rect.x + 4 }, expectedRequests: 0 },
+    { targetStyle: { mixBlendMode: "multiply" }, expectedRequests: 0 },
+  ];
+  for (const options of cases) {
+    let requests = 0;
+    const scene = makeCoverageScene({
+      target: "subtitle",
+      rect,
+      targetRect: { x: 313.5, y: -25, width: 542, height: 249.875 },
+      imageRect: rect,
+      childSameBox: true,
+      registry,
+      ...(options.imageStyle ? { imageStyle: options.imageStyle } : {}),
+      ...(options.imageDims ? { imageDims: options.imageDims } : {}),
+      ...(options.escapedChild ? { escapedChild: options.escapedChild } : {}),
+      ...(options.imageBranchRect ? { imageBranchRect: options.imageBranchRect } : {}),
+      ...(options.targetStyle ? { targetStyle: options.targetStyle } : {}),
+      imageResourceFor: image => {
+        requests++;
+        return options.resource ? options.resource(image) : validProofFor(image, registry);
+      },
+    });
+    assert.notEqual(scene.target.foreground, "occluded");
+    assert.equal(requests, options.expectedRequests, JSON.stringify(scene.diagnostics));
+  }
+});
+
+test("explicit reverse native order rejects image coverage without requesting resources", () => {
+  const registry = createStableNodeRefRegistry("reverse-coverage");
+  const rect = { x: 313.5, y: -25, width: 542, height: 304.875 };
+  let requests = 0;
+  const scene = makeCoverageScene({
+    target: "video",
+    rect,
+    registry,
+    reverseNativeOrder: true,
+    imageResourceFor: image => {
+      requests++;
+      return validProofFor(image, registry);
+    },
+  });
+  assert.notEqual(scene.target.foreground, "occluded");
+  assert.equal(requests, 0);
+});
+
+test("original overlay workflow consumes subtitle coverage through the public resource path", async () => {
+  const registry = createStableNodeRefRegistry("public-subtitle");
+  const rect = { x: 313.5, y: -25, width: 542, height: 304.875 };
+  const scene = makeCoverageScene({
+    target: "subtitle",
+    rect,
+    targetRect: { x: 313.5, y: -25, width: 542, height: 249.875 },
+    imageRect: rect,
+    childSameBox: true,
+    registry,
+  });
+  const graph = JSON.parse(readFileSync(new URL("../workflows/browser-visual-overlay.graph.json", import.meta.url), "utf8"));
+  let observation;
+  let reads = 0;
+  let presents = 0;
+  const definitions = createBrowserOverlayNodeDefinitions({
+    document: scene.observationInput.document,
+    window: scene.observationInput.window,
+    registry: scene.registry,
+    excludeHost: null,
+    imageResources: {
+      peek: () => observation,
+      read: async image => {
+        reads++;
+        assert.equal(image, scene.image);
+        observation = validProofFor(image, registry);
+        return observation;
+      },
+    },
+    present: frame => {
+      presents++;
+      return frame.snapshot.snapshotRef;
+    },
+  });
+  const compiled = compileWorkflow({ graph, bindings: {
+    "筛选当前视口与关注候选": { config: { viewportOnly: true, scopeMode: "subtree" } },
+    "判断DOM基础种类": { config: DEFAULT_BASIC_KIND_CONFIG },
+  } }, { nodeDefinitions: definitions, grantedEffects: ["browser.dom.read", "browser.resource.read", "browser.overlay.present"] });
+  const result = await runWorkflow(compiled, createWorkflowInputEvent({
+    runId: "public-subtitle", eventId: "public-subtitle:input", port: "overlay_request",
+    type: BROWSER_OVERLAY_REQUEST_EVENT_TYPE, correlation: {},
+    payload: { snapshotRef: "public-subtitle-final", documentRef: "fixture-doc-1" },
+  }));
+  assert.equal(result.status, "completed");
+  assert.equal(result.outputEvent.status, "ok");
+  assert.equal(reads, 1);
+  assert.equal(presents, 1);
+  const node = result.outputEvent.payload.snapshot.observation.nodes
+    .find(node => node.nodeRef === stableNodeRefFor(registry, scene.targetElement));
+  assert.equal(node.foreground, "occluded");
+  assert.deepEqual(node.exposedRects, []);
+});
+
+test("nonempty DIV targets reject the empty-image-coverage shape before native paint-path queries", () => {
+  const calls = includeImage => {
+    const scene = makeCoverageScene({ target: "subtitle", includeImage });
+    scene.targetElement.childNodes = [{ nodeType: 3, textContent: "visible reading target" }];
+    let measured = 0;
+    const matches = scene.targetElement.matches;
+    scene.targetElement.matches = selector => { measured++; return matches(selector); };
+    observeLiveDom(scene.observationInput);
+    return measured;
+  };
+  const withoutImage = calls(false), withImage = calls(true);
+  assert.ok(withImage <= withoutImage, `nonempty target adds ${withImage-withoutImage} paint-path queries`);
 });

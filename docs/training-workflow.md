@@ -41,6 +41,14 @@ b_k = min(F_k.max, L_k.max)
 
 外层复用已有事件、节点与 Flowed 执行合同，不增加调度器。内部使用 Handwired 数值图。workflow 的边不传梯度；拟合循环在 training.fit 内部执行，不给 DAG 增加回边。基础前向算法与类别真源见 [基础种类连线](basic-kinds-wiring.md)，持久拓扑唯一位于 [训练图](../workflows/node-training.graph.json)。
 
+## 训练单元的四元素与升级边界
+
+本领域复用 [总体四元素](design.md#11-结构化语义的目标与状态推理) 及 [模型演进合同](model-evolution.md)，不另设采用条件。Goal为产生满足声明修复目标且保持必需旧能力的候选；satisfactionThreshold固定为100，实际satisfaction只有全部必需行为验收满足时为100，否则为0，证据不足单列未知，不能用loss或总体分抵消退化；State为确认监督、来源分区、基础参数、后端及真实评价证据；Action为六节点离线准备、拟合、比较和报告。New State是实际回载和公开分类的比较结果，不是拟合器对自己的成功声明。未达标或证据不足也返回具体结果，候选保持 `not_applied`。
+
+训练反推从期望类别及行为标准确定所需输入与wire，区别于Handwired数值反传。固定训练目标不必增加学生输入；仅在State或satisfactionThreshold改变正确标签时新增必要可辨输入与样本。六节点图仍为6N6E SESE：prepare保障监督合同，partition防止来源泄漏，fit产生真实参数，compare给出新旧差异，assess解释修复和退化，report交付可回载候选及证据；各边承载后续必需输入。固定mask容量诊断只是拟合前证据，不替代真实拟合或独立验证。
+
+该六节点图是升级过程中的领域离线子流程。独立单元升级复用 `model-evolution.graph.json`，冲突设计复用 `model-conflict-design.graph.json`。自动使用采样、升级过程对六节点的执行绑定、来源隔离的新能力评价、满足条件自动采用与冲突移交仍缺运行实现。现有手工采集/离线对照不得冒称已补齐这些接线。当前先完成三站真实观测、固定调用文件权重和候选验证；公共升级机制由其唯一owner后续接通。
+
 ## 1. 样本准备与训练是两条流程
 
 ```mermaid
@@ -214,6 +222,8 @@ L/O 按复核标签选择损失，不表示同一个输入接受两个标签。�
 | 属性白名单、wire 条件与缺测适用性、五大类和类内标签、两层顺序、门限、稀疏连线键、损失与参数区间 | profile.familyWeights、profile.leafWeights 已声明键的系数，含显式声明的零系数 |
 
 旧 profile 迁移由 `migrateBasicKindProfile(raw)` 唯一维护。它在验证后克隆 id 与全部旧权重，只补齐已登记新目标与 wire 条目的缺失 0：media/image 的 `nat_svg` 与 `svg_graphic_children`，structure/container 的 `div_single_child`，text/text 的 `div_leaf` 与 `div_direct_text` 在两个阶段各一项；其余呈现、关系、连续几何和 ignore 地址同样按名补 0。已存在的新系数保留。训练 profile 加载显式调用迁移，sparse cells 因此为这些显式 0 键建立 `Circuit.source` 参数，可从零开始学习。迁移补 0 不等于已有训练新权重或输入已测量。迁移不增加 profile 版本、校准或门限字段，不修改旧对象，也不自动采用候选。
+
+本轮`fit.trainableWires`沿现有按wire名称选择机制使用`neutral_structural_peers,neutral_multi_child,div_repeated_children,neutral_child_multiplicity,neutral_multi_child_shape,nat_div`，实际选中20个cell；完整稀疏布局为79条wire、304个cell。旧423行warm profile按目标与wire名称保留全部既有系数，仅将现有q两地址及新增shape一地址补0，不新增其他系数。算法公式、null语义和单地址注册见[基础种类连线](basic-kinds-wiring.md)。
 
 初版不新增 bias、不自动加边、不训练门限。disabled/hidden 等初值为零的系数没有未经证据支持的否决权。没有激活或只有缺测的特征不能凭训练补出事实。
 

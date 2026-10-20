@@ -188,8 +188,7 @@ async function waitFor(predicate: () => boolean): Promise<boolean> {
 
 async function loadFixtureProfile(): Promise<void> {
   const host = document.getElementById(HOST_ID);
-  const input = host?.shadowRoot?.querySelector<HTMLInputElement>("input.file-input");
-  if (!input) throw new Error("Missing public weight file input");
+  if (!host) throw new Error("Missing public overlay host");
   const fixtureFilename = "overlay-fixture-weights.json";
   const profile = structuredClone(DEFAULT_BASIC_KIND_PROFILE);
   for (const rows of [profile.familyWeights, profile.leafWeights]) {
@@ -210,13 +209,15 @@ async function loadFixtureProfile(): Promise<void> {
     profile: { ...profile, id: profileId },
     compatibility: { ...DEFAULT_BASIC_KIND_CONFIG },
   };
-  const transfer = new DataTransfer();
-  transfer.items.add(new File([JSON.stringify(asset)], fixtureFilename, { type: "application/json" }));
-  input.files = transfer.files;
-  input.dispatchEvent(new Event("change", { bubbles: true }));
+  // This lifecycle fixture uses an explicit in-memory source. Real file handles
+  // are accepted separately through the controller's native picker.
+  controller.setWeightFile({
+    sourceLabel: `in-memory fixture: ${fixtureFilename}`,
+    readText: async () => JSON.stringify(asset),
+  });
   const filenameShown = await waitFor(() => host!.shadowRoot?.querySelector(".profile-tag")?.textContent?.includes(fixtureFilename) === true);
   const stableFrame = filenameShown && await waitForStableFrame(INITIAL_STABLE_TIMEOUT_MS);
-  if (!stableFrame) throw new Error("Fixture weight profile did not load and settle through the public file input");
+  if (!stableFrame) throw new Error("Fixture weight source did not load and settle through the public controller");
 }
 
 function panelButton(label: string): HTMLButtonElement {

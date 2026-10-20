@@ -198,6 +198,73 @@ function makeMaskFixture({
   return { html, shell, main, mask, sidebar, document, window };
 }
 
+function makeBackdropFixedFixture({
+  globalStyle = {},
+  outerStyle = {},
+  backdropStyle = {},
+  wrapperStyle = {},
+  wrapperRect = { x: 60, y: 75, width: 100, height: 40 },
+  childRect = { x: 60, y: 75, width: 100, height: 40 },
+} = {}) {
+  const styles = new Map();
+  const html = makeElement(styles, "HTML", viewport, null, {
+    style: { overflowX: "visible", overflowY: "visible" },
+  });
+  const global = makeElement(styles, "DIV", { x: 16, y: 35, width: 160, height: 120 }, html, {
+    style: {
+      position: "absolute",
+      overflowX: "hidden",
+      overflowY: "hidden",
+      ...globalStyle,
+    },
+  });
+  const outer = makeElement(styles, "DIV", { x: 16, y: 35, width: 160, height: 120 }, global, {
+    style: {
+      position: "fixed",
+      overflowX: "visible",
+      overflowY: "visible",
+      ...outerStyle,
+    },
+  });
+  const backdrop = makeElement(styles, "HEADER", { x: 36, y: 55, width: 100, height: 70 }, outer, {
+    style: {
+      position: "relative",
+      backdropFilter: "blur(20px)",
+      overflowX: "visible",
+      overflowY: "visible",
+      ...backdropStyle,
+    },
+  });
+  const wrapper = makeElement(styles, "DIV", wrapperRect, backdrop, {
+    style: {
+      position: "fixed",
+      transform: "matrix(1, 0, 0, 1, -16, 0)",
+      overflowX: "visible",
+      overflowY: "visible",
+      ...wrapperStyle,
+    },
+  });
+  const child = makeElement(styles, "INPUT", childRect, wrapper);
+  append(html, global);
+  append(global, outer);
+  append(outer, backdrop);
+  append(backdrop, wrapper);
+  append(wrapper, child);
+
+  const document = {
+    documentElement: html,
+    body: html,
+    baseURI: "https://fixture.test/backdrop",
+    elementsFromPoint: () => [],
+  };
+  const window = {
+    innerWidth: viewport.width,
+    innerHeight: viewport.height,
+    getComputedStyle: (element, pseudo) => pseudo ? { content: "none" } : styles.get(element),
+  };
+  return { html, global, outer, backdrop, wrapper, child, document, window };
+}
+
 test("viewport-fixed mask retains the full viewport and occludes the sidebar", () => {
   const fixture = makeMaskFixture();
   const observed = observeFixture(fixture);
@@ -282,6 +349,28 @@ test("missing fixed-containing-block facts leave the fixed mask clippedRect unkn
   }
 });
 
+test("a nested fixed control uses its nearest fixed ancestor as the viewport anchor", () => {
+  const fixture = makeMaskFixture({
+    outerStyle: { position: "fixed" },
+  });
+  const observed = observeFixture(fixture);
+
+  assert.deepEqual(observed.evidenceFor(fixture.mask).clippedRect, viewport);
+});
+
+test("nested fixed guards above the nearest anchor remain unknown", () => {
+  for (const [label, outerStyle, missingOuterFacts = []] of [
+    ["transform", { position: "fixed", transform: "matrix(1, 0, 0, 1, 0, 0)" }],
+    ["filter", { position: "fixed", filter: "blur(1px)" }],
+    ["contain", { position: "fixed", contain: "layout" }],
+    ["missing will-change", { position: "fixed" }, ["willChange"]],
+  ]) {
+    const fixture = makeMaskFixture({ outerStyle, missingOuterFacts });
+    const observed = observeFixture(fixture);
+    assert.equal(observed.evidenceFor(fixture.mask).clippedRect, null, label);
+  }
+});
+
 test("ordinary overflow still clips a non-fixed descendant", () => {
   const fixture = makeMaskFixture({
     maskStyle: { position: "static" },
@@ -305,5 +394,108 @@ test("explicit legacy clipping remains in effect for a fixed mask", () => {
     y: viewport.y,
     width: 0,
     height: 0,
+  });
+});
+
+test("the admitted backdrop connection escapes only the outer fixed and global ordinary overflow", () => {
+  const targetRect = { x: 140, y: 75, width: 100, height: 40 };
+  const fixture = makeBackdropFixedFixture({
+    wrapperRect: targetRect,
+    childRect: targetRect,
+  });
+  const observed = observeFixture(fixture);
+
+  assert.deepEqual(observed.evidenceFor(fixture.wrapper).clippedRect, targetRect);
+  assert.deepEqual(observed.evidenceFor(fixture.child).clippedRect, targetRect);
+});
+
+test("the admitted connection retains a hidden backdrop's measured clip", () => {
+  const fixture = makeBackdropFixedFixture({
+    backdropStyle: { overflowX: "hidden", overflowY: "hidden" },
+  });
+  const observed = observeFixture(fixture);
+
+  assert.deepEqual(observed.evidenceFor(fixture.wrapper).clippedRect, {
+    x: 60,
+    y: 75,
+    width: 76,
+    height: 40,
+  });
+  assert.deepEqual(observed.evidenceFor(fixture.child).clippedRect, {
+    x: 60,
+    y: 75,
+    width: 76,
+    height: 40,
+  });
+});
+
+test("the admitted connection keeps a hidden inner wrapper separate from its child", () => {
+  const wrapperRect = { x: 60, y: 75, width: 60, height: 40 };
+  const childRect = { x: 60, y: 75, width: 100, height: 40 };
+  const visibleFixture = makeBackdropFixedFixture({ wrapperRect, childRect });
+  const hiddenFixture = makeBackdropFixedFixture({
+    wrapperRect,
+    childRect,
+    wrapperStyle: { overflowX: "hidden", overflowY: "hidden" },
+  });
+  const visible = observeFixture(visibleFixture);
+  const hidden = observeFixture(hiddenFixture);
+
+  assert.deepEqual(visible.evidenceFor(visibleFixture.wrapper).clippedRect, wrapperRect);
+  assert.deepEqual(visible.evidenceFor(visibleFixture.child).clippedRect, childRect);
+  assert.deepEqual(hidden.evidenceFor(hiddenFixture.wrapper).clippedRect, wrapperRect);
+  assert.deepEqual(hidden.evidenceFor(hiddenFixture.child).clippedRect, wrapperRect);
+});
+
+test("the admitted connection does not erase applicable legacy zero clipping", () => {
+  const fixture = makeBackdropFixedFixture({
+    outerStyle: { clip: "rect(0px, 0px, 0px, 0px)" },
+  });
+  const observed = observeFixture(fixture);
+
+  assert.deepEqual(observed.evidenceFor(fixture.wrapper).clippedRect, {
+    x: 60,
+    y: 75,
+    width: 0,
+    height: 0,
+  });
+  assert.deepEqual(observed.evidenceFor(fixture.child).clippedRect, {
+    x: 60,
+    y: 75,
+    width: 0,
+    height: 0,
+  });
+});
+
+test("backdrop fixed proof controls without exact supporting facts remain unknown", () => {
+  for (const [label, fixture] of [
+    ["missing outer will-change", makeBackdropFixedFixture({ outerStyle: { willChange: undefined } })],
+    ["ordinary outer filter", makeBackdropFixedFixture({ outerStyle: { filter: "blur(1px)" } })],
+    ["other backdrop", makeBackdropFixedFixture({ backdropStyle: { backdropFilter: "blur(10px)" } })],
+    ["non-unit negative inner axis", makeBackdropFixedFixture({ wrapperStyle: { transform: "matrix(-2, 0, 0, 1, -16, 0)" } })],
+  ]) {
+    const observed = observeFixture(fixture);
+    assert.equal(observed.evidenceFor(fixture.wrapper).clippedRect, null, label);
+    assert.equal(observed.evidenceFor(fixture.child).clippedRect, null, label);
+  }
+});
+
+test("a unit-axis mirror on the inner wrapper admits the backdrop connection with measured rects", () => {
+  const fixture = makeBackdropFixedFixture({
+    wrapperStyle: { transform: "matrix(-1, 0, 0, 1, -16, 0)" },
+  });
+  const observed = observeFixture(fixture);
+
+  assert.deepEqual(observed.evidenceFor(fixture.wrapper).clippedRect, {
+    x: 60,
+    y: 75,
+    width: 100,
+    height: 40,
+  });
+  assert.deepEqual(observed.evidenceFor(fixture.child).clippedRect, {
+    x: 60,
+    y: 75,
+    width: 100,
+    height: 40,
   });
 });

@@ -1,5 +1,8 @@
 import type { Rect } from "./observation.js";
 
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
+
 // Axis-aligned user-space -> screen mapping for an SVG viewport. Only positive,
 // axis-aligned scales are representable; rotation, skew, and flips stay null.
 export interface SvgUserSpaceMapping {
@@ -307,6 +310,36 @@ function resolveSvgViewport(svg: SvgElementLike, window: Window): Rect | null {
   return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
 }
 
+// Exact screen-space viewport proof for an outermost SVG. The measured border
+// box is the viewport because the chain only contains positive translations or
+// the existing HTML unit-axis reflection certificate. This proof is independent
+// of viewBox, path geometry, resource content, and paint.
+export function resolveOutermostSvgPhysicalViewport(element: Element, window: Window): Rect | null {
+  if (element.tagName.toLowerCase() !== "svg" || element.namespaceURI !== SVG_NAMESPACE) return null;
+  if (nearestAncestorSvg(element) !== null) return null;
+  const svg = element as SvgElementLike;
+  const style = window.getComputedStyle(element);
+  if (!zeroBorderAndPadding(style)) return null;
+  const width = parseCssPx(style.width);
+  const height = parseCssPx(style.height);
+  if (width === null || height === null) return null;
+  if (positiveAxisTransform(style.transform) === null) return null;
+  if ([style.translate, style.rotate, style.scale, style.perspective]
+    .some(value => value !== "none")) return null;
+  if (typeof element.getClientRects !== "function") return null;
+  let fragments: DOMRectList;
+  try {
+    fragments = element.getClientRects();
+  } catch {
+    return null;
+  }
+  if (fragments.length !== 1) return null;
+  const viewport = resolveSvgViewport(svg, window);
+  if (viewport === null) return null;
+  if (![viewport.x, viewport.y, viewport.width, viewport.height].every(Number.isFinite)) return null;
+  return viewport.width > 0 && viewport.height > 0 ? viewport : null;
+}
+
 export function resolveSvgUserSpaceMapping(element: Element, window: Window): SvgUserSpaceMapping | null {
   if (element.tagName.toLowerCase() !== "svg") return null;
   const svg = element as SvgElementLike;
@@ -354,6 +387,7 @@ export function resolveSvgUserSpaceMapping(element: Element, window: Window): Sv
 export interface SvgAtomicViewportCertificate {
   readonly rootElement: Element;
   readonly physicalViewport: Rect;
+  readonly paintDomain?: Rect;
 }
 
 function noTopLayerEscape(element: Element): boolean {
@@ -384,6 +418,194 @@ function knownSvgFillBounds(element: Element, window: Window): boolean {
   return true;
 }
 
+function noElementChildContent(element: Element): boolean {
+  return element.children !== undefined && element.children.length === 0;
+}
+
+function localUseReference(element: Element): string | null {
+  const href = element.getAttribute("href");
+  let xlinkHref: string | null = null;
+  if (typeof element.getAttributeNS === "function") {
+    try {
+      xlinkHref = element.getAttributeNS(XLINK_NAMESPACE, "href");
+    } catch {
+      return null;
+    }
+  } else {
+    xlinkHref = element.getAttribute("xlink:href");
+  }
+  if (href !== null && xlinkHref !== null && href !== xlinkHref) return null;
+  return href ?? xlinkHref;
+}
+
+function uniqueLocalUseSymbol(element: Element): Element | null {
+  const href = localUseReference(element);
+  if (href === null || !href.startsWith("#")) return null;
+  const id = href.slice(1);
+  if (id === "" || id.includes("#")) return null;
+  const document = element.ownerDocument;
+  if (document === null || typeof document.querySelectorAll !== "function") return null;
+  let matches: Element[];
+  try {
+    matches = Array.from(document.querySelectorAll("*"))
+      .filter(candidate => (candidate.getAttribute("id") ?? candidate.id) === id);
+  } catch {
+    return null;
+  }
+  if (matches.length !== 1) return null;
+  const symbol = matches[0]!;
+  if (symbol.namespaceURI !== SVG_NAMESPACE || symbol.tagName.toLowerCase() !== "symbol"
+    || symbol.ownerDocument !== document) return null;
+  return symbol;
+}
+
+function finiteLocalUseSubtree(symbol: Element, window: Window): boolean {
+  if (typeof symbol.querySelectorAll !== "function") return false;
+  let pathCount = 0;
+  for (const element of [symbol, ...Array.from(symbol.querySelectorAll("*"))]) {
+    if (element.namespaceURI !== SVG_NAMESPACE) return false;
+    const tag = element.tagName.toLowerCase();
+    if (element === symbol ? tag !== "symbol" : (tag !== "g" && tag !== "path")) return false;
+    if (tag === "path") pathCount += 1;
+    if (!noTopLayerEscape(element)) return false;
+    const style = window.getComputedStyle(element);
+    if (style.position === "fixed" || style.position === "sticky") return false;
+  }
+  return pathCount > 0;
+}
+
+function knownUseOuterStyle(style: CSSStyleDeclaration): boolean {
+  return knownSvgBaseChainStyle(style)
+    && knownNone(style.clipPath)
+    && style.boxShadow === "none"
+    && style.outlineStyle === "none";
+}
+
+function knownUseOuterContainmentStyle(style: CSSStyleDeclaration): boolean {
+  return knownSvgBaseChainStyle(style)
+    && knownNone(style.clipPath);
+}
+
+function certifySvgLocalUseViewport(
+  element: Element,
+  window: Window,
+): SvgAtomicViewportCertificate | null {
+  if (!noElementChildContent(element)) return null;
+  const root = nearestSvgIncludingSelf(element);
+  if (root === null || root === element || root.namespaceURI !== SVG_NAMESPACE) return null;
+  if (nearestAncestorSvg(root) !== null) return null;
+  if (typeof root.getClientRects !== "function") return null;
+  let rootRects: DOMRectList;
+  try {
+    rootRects = root.getClientRects();
+  } catch {
+    return null;
+  }
+  if (rootRects.length !== 1) return null;
+  // Local `#` references read and validate the finite same-document symbol
+  // subtree. External references cannot be read here, so they keep only the
+  // physical outer root bound; the root atomic order stays with the caller.
+  const reference = localUseReference(element);
+  if (reference === null) return null;
+  const localReference = reference.startsWith("#");
+  if (localReference) {
+    const symbol = uniqueLocalUseSymbol(element);
+    if (symbol === null || !finiteLocalUseSubtree(symbol, window)) return null;
+  } else if (reference.trim() === "") {
+    return null;
+  }
+  for (let current: Element | null = element; current !== root; current = current.parentElement) {
+    if (current === null || current.namespaceURI !== SVG_NAMESPACE) return null;
+    const tag = current.tagName.toLowerCase();
+    if (tag !== "use" && tag !== "g") return null;
+    if (!noTopLayerEscape(current)) return null;
+    const style = window.getComputedStyle(current);
+    if (style.position === "fixed" || style.position === "sticky") return null;
+  }
+
+  const rootStyle = window.getComputedStyle(root);
+  if (!knownSvgRootMappingStyle(rootStyle)) return null;
+  if (positiveAxisTransform(rootStyle.transform) === null) return null;
+  if (!knownUseOuterStyle(rootStyle)) return null;
+  if (rootStyle.overflowX !== "hidden" || rootStyle.overflowY !== "hidden") return null;
+  if (!passesKnownSvgChain(root) || !noTopLayerEscape(root)) return null;
+  for (const pseudo of ["::before", "::after"]) {
+    const content = window.getComputedStyle(root, pseudo).content;
+    if (content !== "none" && content !== "normal") return null;
+  }
+
+  const physicalViewport = localReference
+    ? resolveSvgViewport(root as SvgElementLike, window)
+    : resolveOutermostSvgPhysicalViewport(root, window);
+  if (physicalViewport === null) return null;
+  if (![physicalViewport.x, physicalViewport.y, physicalViewport.width, physicalViewport.height]
+    .every(Number.isFinite) || !(physicalViewport.width > 0 && physicalViewport.height > 0)) return null;
+
+  for (let current: Element | null = root.parentElement; current; current = current.parentElement) {
+    const style = window.getComputedStyle(current);
+    if (positiveAxisTransform(style.transform) === null) return null;
+    if ([style.translate, style.rotate, style.scale, style.perspective].some(value => value !== "none")) return null;
+    if (!knownUseOuterContainmentStyle(style)) return null;
+  }
+
+  return { rootElement: root, physicalViewport, paintDomain: physicalViewport };
+}
+
+function certifySvgStrokedLeafPathViewport(
+  element: Element,
+  window: Window,
+): SvgAtomicViewportCertificate | null {
+  if (element.tagName.toLowerCase() !== "path"
+    || element.namespaceURI !== SVG_NAMESPACE
+    || element.children === undefined
+    || element.children.length !== 0
+    || element.getAttribute("transform") !== null) return null;
+  const style = window.getComputedStyle(element);
+  if (!knownSvgAtomicChainStyle(element, style, window)
+    || !noTopLayerEscape(element)
+    || style.stroke === undefined || style.stroke.trim() === "" || style.stroke === "none"
+    || style.position === "fixed" || style.position === "sticky"
+    || style.markerStart !== "none" || style.markerMid !== "none" || style.markerEnd !== "none"
+    || style.boxShadow !== "none" || style.outlineStyle !== "none"
+    || style.transformStyle !== "flat" || style.perspective !== "none"
+    || [style.translate, style.rotate, style.scale].some(value => value !== "none")) return null;
+  for (const pseudo of ["::before", "::after"]) {
+    const content = window.getComputedStyle(element, pseudo).content;
+    if (content !== "none" && content !== "normal") return null;
+  }
+
+  const root = nearestSvgIncludingSelf(element);
+  if (root === null || root === element || root.namespaceURI !== SVG_NAMESPACE
+    || nearestAncestorSvg(root) !== null
+    || element.parentElement !== root) return null;
+  const rootStyle = window.getComputedStyle(root);
+  if (!knownSvgRootMappingStyle(rootStyle) || !knownUseOuterStyle(rootStyle)
+    || positiveAxisTransform(rootStyle.transform) === null
+    || rootStyle.overflowX !== "hidden" || rootStyle.overflowY !== "hidden"
+    || !passesKnownSvgChain(root) || !noTopLayerEscape(root)) return null;
+  for (const pseudo of ["::before", "::after"]) {
+    const content = window.getComputedStyle(root, pseudo).content;
+    if (content !== "none" && content !== "normal") return null;
+  }
+
+  const mapping = resolveSvgUserSpaceMapping(root, window);
+  if (mapping === null) return null;
+  const physicalViewport = mapping.viewport;
+  if (![physicalViewport.x, physicalViewport.y,
+    physicalViewport.width, physicalViewport.height].every(Number.isFinite)
+    || !(physicalViewport.width > 0 && physicalViewport.height > 0)) return null;
+
+  for (let current: Element | null = root.parentElement; current; current = current.parentElement) {
+    const currentStyle = window.getComputedStyle(current);
+    if (positiveAxisTransform(currentStyle.transform) === null) return null;
+    if ([currentStyle.translate, currentStyle.rotate, currentStyle.scale, currentStyle.perspective]
+      .some(value => value !== "none")) return null;
+    if (!knownUseOuterContainmentStyle(currentStyle)) return null;
+  }
+
+  return { rootElement: root, physicalViewport, paintDomain: physicalViewport };
+}
+
 // Narrow containment certificate for a PATH/G descendant of an outermost SVG
 // whose hidden viewport clips all target paint. It proves only physical
 // containment and actual viewport clipping; it does not prove opacity, order,
@@ -393,8 +615,12 @@ export function certifySvgAtomicViewport(
   window: Window,
 ): SvgAtomicViewportCertificate | null {
   const tag = element.tagName.toLowerCase();
+  if (tag === "use") return certifySvgLocalUseViewport(element, window);
   if (tag !== "path" && tag !== "g") return null;
   if (element.namespaceURI !== "http://www.w3.org/2000/svg") return null;
+  if (tag === "path" && window.getComputedStyle(element).stroke !== "none") {
+    return certifySvgStrokedLeafPathViewport(element, window);
+  }
   if (!knownSvgFillBounds(element, window)) return null;
   const root = nearestSvgIncludingSelf(element);
   if (root === null || root === element || root.namespaceURI !== "http://www.w3.org/2000/svg") return null;

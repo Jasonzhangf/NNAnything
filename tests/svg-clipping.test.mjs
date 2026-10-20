@@ -638,6 +638,179 @@ function buildAxisReflectedSvgFixture({
   return { document, window, html, bridge, root, path, group, extra, allElements };
 }
 
+// Synthetic outer-SVG physical viewport fixture. The HTML wrapper supplies a
+// proven unit-axis reflection, while the SVG root has no viewBox and its only
+// target is an external USE. All coordinates are measured facts.
+function buildOutermostSvgUseFixture({
+  rootRect = { x: 100, y: 200, width: 16, height: 16 },
+  useRect = { x: 104, y: 204, width: 8, height: 8 },
+  reflectionTransform = "matrix(-1, 0, 0, -1, 16, -30)",
+  transformOrigin = "0px 0px",
+  rootOverflowX = "hidden",
+  rootOverflowY = "hidden",
+  rootStyle = {},
+  rootFragments = null,
+  clientClipBelowMirror = false,
+} = {}) {
+  const document = { documentElement: null, body: null, baseURI: "https://fixture.test/outer-svg-use" };
+  const styleOverrides = new Map();
+  const make = (tag, {
+    parent = null,
+    rect = { x: 0, y: 0, width: 0, height: 0 },
+    attrs = {},
+    client = null,
+    fragments = null,
+    namespace = tag === "html" ? XHTML_NAMESPACE : SVG_NAMESPACE,
+  } = {}) => {
+    const element = {
+      nodeType: 1,
+      tagName: tag.toUpperCase(),
+      namespaceURI: namespace,
+      parentElement: parent,
+      children: [],
+      childNodes: [],
+      childElementCount: 0,
+      id: attrs.id ?? "",
+      classList: [],
+      ownerDocument: document,
+      shadowRoot: null,
+      isConnected: true,
+      getAttribute(name) {
+        return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
+      },
+      hasAttribute(name) {
+        return Object.prototype.hasOwnProperty.call(attrs, name);
+      },
+      getBoundingClientRect() {
+        return { ...rect };
+      },
+      getClientRects() {
+        return (fragments ?? [rect]).map(fragment => ({ ...fragment }));
+      },
+      querySelectorAll() {
+        return [];
+      },
+    };
+    element.clientWidth = client?.width ?? 0;
+    element.clientHeight = client?.height ?? 0;
+    element.clientLeft = client?.left ?? 0;
+    element.clientTop = client?.top ?? 0;
+    return element;
+  };
+  const attach = (parent, children) => {
+    parent.children = children;
+    parent.childNodes = children;
+    parent.childElementCount = children.length;
+    for (const child of children) child.parentElement = parent;
+  };
+  const window = {
+    innerWidth: 800,
+    innerHeight: 600,
+    getComputedStyle(element, pseudo) {
+      const base = { ...BASE_STYLE, ...(styleOverrides.get(element) ?? {}) };
+      if (pseudo) return base;
+      base.getPropertyValue = property => {
+        const key = String(property).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+        return base[key] === undefined || base[key] === null ? "" : String(base[key]);
+      };
+      return base;
+    },
+  };
+
+  const html = make("html", {
+    rect: { x: 0, y: 0, width: 800, height: 600 },
+    client: { left: 0, top: 0, width: 800, height: 600 },
+  });
+  html.scrollLeft = 0;
+  html.scrollTop = 0;
+  const reflected = make("div", {
+    parent: html,
+    rect: rootRect,
+    client: { left: 0, top: 0, width: rootRect.width, height: rootRect.height },
+    namespace: XHTML_NAMESPACE,
+  });
+  const clientClip = clientClipBelowMirror
+    ? make("div", {
+      parent: reflected,
+      rect: rootRect,
+      client: { left: 0, top: 0, width: rootRect.width, height: rootRect.height },
+      namespace: XHTML_NAMESPACE,
+    })
+    : null;
+  const root = make("svg", {
+    parent: clientClip ?? reflected,
+    rect: rootRect,
+    client: { width: rootRect.width, height: rootRect.height },
+    fragments: rootFragments,
+  });
+  const use = make("use", {
+    parent: root,
+    rect: useRect,
+    attrs: { href: "https://fixture.test/assets.svg#arrow" },
+  });
+
+  attach(root, [use]);
+  if (clientClip) {
+    attach(clientClip, [root]);
+    attach(reflected, [clientClip]);
+  } else {
+    attach(reflected, [root]);
+  }
+  attach(html, [reflected]);
+
+  document.documentElement = html;
+  document.body = html;
+  document.compatMode = "CSS1Compat";
+  document.scrollingElement = html;
+  document.querySelectorAll = () => [];
+  styleOverrides.set(html, {
+    overflowX: "auto",
+    overflowY: "auto",
+    transform: "none",
+    translate: "none",
+    rotate: "none",
+    scale: "none",
+    perspective: "none",
+    zoom: "1",
+    borderTopWidth: "0px",
+    borderLeftWidth: "0px",
+    paddingTop: "0px",
+    paddingLeft: "0px",
+  });
+  styleOverrides.set(reflected, {
+    transform: reflectionTransform,
+    transformOrigin,
+    overflowX: "visible",
+    overflowY: "visible",
+  });
+  if (clientClip) {
+    styleOverrides.set(clientClip, {
+      transform: "none",
+      overflowX: "hidden",
+      overflowY: "hidden",
+    });
+  }
+  styleOverrides.set(root, {
+    width: `${rootRect.width}px`,
+    height: `${rootRect.height}px`,
+    overflowX: rootOverflowX,
+    overflowY: rootOverflowY,
+    transform: "none",
+    ...rootStyle,
+  });
+  styleOverrides.set(use, {
+    transform: "none",
+    stroke: "none",
+    strokeWidth: "0px",
+    filter: "none",
+    clipPath: "none",
+    maskImage: "none",
+    webkitMaskImage: "",
+  });
+
+  return { document, window, html, reflected, clientClip, root, use };
+}
+
 function buildNegativeScaleHtmlFixture() {
   const document = { documentElement: null, body: null, baseURI: "https://fixture.test/negative-html" };
   const styleOverrides = new Map();
@@ -729,6 +902,28 @@ function clippedRects(fixture) {
     documentRef: "fixture",
   });
   return element => snapshot.evidence.get(stableNodeRefFor(registry, element)).clippedRect;
+}
+
+function assertObservedClippedRect(fixture, element, expected, message) {
+  const registry = createStableNodeRefRegistry("svg-clipping-test");
+  const snapshot = observeLiveDom({
+    document: fixture.document,
+    window: fixture.window,
+    registry,
+    excludeRoot: null,
+    snapshotRef: "svg-clipping",
+    documentRef: "fixture",
+  });
+  const nodeRef = stableNodeRefFor(registry, element);
+  const observation = snapshot.observation.nodes.find(node => node.nodeRef === nodeRef);
+  assert.notEqual(observation, undefined, message);
+  assert.deepEqual({
+    observation: observation.clippedRect,
+    evidence: snapshot.evidence.get(nodeRef).clippedRect,
+  }, {
+    observation: expected,
+    evidence: expected,
+  }, message);
 }
 
 test("contained cubic fill certificate accepts the actual unused stroke width and absent mask alias", () => {
@@ -1026,4 +1221,72 @@ test("reflected svg preserves outer ancestor clipping through the public observe
   const clipped = clippedRects(f);
   assert.deepEqual(clipped(f.root), { x: 100, y: 100, width: 12, height: 24 });
   assert.deepEqual(clipped(f.path), { x: 108, y: 110, width: 4, height: 6 });
+});
+
+test("outermost SVG physical viewport keeps a positive translation control known", () => {
+  const f = buildOutermostSvgUseFixture({
+    reflectionTransform: "matrix(1, 0, 0, 1, 16, -30)",
+    useRect: { x: 96, y: 204, width: 12, height: 20 },
+  });
+  assertObservedClippedRect(f, f.use, { x: 100, y: 204, width: 8, height: 12 }, "positive translation");
+});
+
+test("outermost SVG physical viewport clips an external USE under an exact HTML mirror", () => {
+  const f = buildOutermostSvgUseFixture({ transformOrigin: "7px 9px" });
+  assertObservedClippedRect(f, f.use, { x: 104, y: 204, width: 8, height: 8 }, "mirrored root");
+});
+
+test("outermost SVG physical viewport intersects a partially covered external USE", () => {
+  const f = buildOutermostSvgUseFixture({
+    useRect: { x: 96, y: 204, width: 12, height: 20 },
+  });
+  assertObservedClippedRect(f, f.use, { x: 100, y: 204, width: 8, height: 12 }, "partial overlap");
+});
+
+test("outermost SVG physical viewport returns an empty rect for a fully outside external USE", () => {
+  const f = buildOutermostSvgUseFixture({
+    useRect: { x: 120, y: 204, width: 4, height: 4 },
+  });
+  assertObservedClippedRect(f, f.use, { x: 120, y: 204, width: 0, height: 4 }, "fully outside");
+});
+
+test("outermost SVG physical viewport clips a hidden x axis only", () => {
+  const f = buildOutermostSvgUseFixture({
+    useRect: { x: 96, y: 204, width: 12, height: 20 },
+    rootOverflowX: "hidden",
+    rootOverflowY: "visible",
+  });
+  assertObservedClippedRect(f, f.use, { x: 100, y: 204, width: 8, height: 20 }, "hidden x");
+});
+
+test("outermost SVG physical viewport clips a hidden y axis only", () => {
+  const f = buildOutermostSvgUseFixture({
+    useRect: { x: 96, y: 204, width: 12, height: 20 },
+    rootOverflowX: "visible",
+    rootOverflowY: "hidden",
+  });
+  assertObservedClippedRect(f, f.use, { x: 96, y: 204, width: 12, height: 12 }, "hidden y");
+});
+
+test("outermost SVG physical viewport rejects missing root viewport facts", () => {
+  for (const [name, options] of [
+    ["missing zero-border fact", { rootStyle: { borderTopWidth: undefined } }],
+    ["missing finite width", { rootStyle: { width: undefined } }],
+    ["missing fragment fact", { rootFragments: [] }],
+  ]) {
+    const f = buildOutermostSvgUseFixture(options);
+    assertObservedClippedRect(f, f.use, null, name);
+  }
+});
+
+test("outermost SVG physical viewport rejects unsupported mirror chains", () => {
+  for (const [name, options] of [
+    ["non-unit negative axis", { reflectionTransform: "matrix(-2, 0, 0, -1, 16, -30)" }],
+    ["HTML client clip below mirror", { clientClipBelowMirror: true }],
+  ]) {
+    const f = buildOutermostSvgUseFixture(options);
+    assertObservedClippedRect(f, f.use, null, name);
+  }
+  const nested = buildAxisReflectedSvgFixture({ ancestorSvg: true });
+  assertObservedClippedRect(nested, nested.path, null, "nested SVG root");
 });

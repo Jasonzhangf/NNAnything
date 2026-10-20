@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="external-soft" filterUnits="userSpaceOnUse" x="-24" y="-24" width="80" height="72">
+      <feGaussianBlur stdDeviation="2"></feGaussianBlur>
+    </filter>
+
+    <symbol id="external-basic" overflow="visible">
+      <path d="M-8 12 H40" fill="none" stroke="#ef4444" stroke-width="6" stroke-linecap="butt"></path>
+    </symbol>
+
+    <symbol id="external-effect" overflow="visible">
+      <path d="M-8 12 H32" fill="none" stroke="#ef4444" stroke-width="6"
+        filter="url(#external-soft)"></path>
+      <path d="M4 4 H38 V20 H4 Z" fill="none" stroke="#ef4444" stroke-width="3"></path>
+      <circle cx="20" cy="12" r="4" fill="#ef4444"></circle>
+    </symbol>
+  </defs>
+</svg>

@@ -139,7 +139,7 @@ const typeSets = {
   input_type_hidden: ["hidden"],
 } as const;
 const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_repeated_child_extent", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden",
-  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_single_child", "neutral_focusable_control", "neutral_actual_focus", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "search_region_group", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_named_graphic_owner"] as const;
+  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_multi_child_shape", "neutral_single_child", "neutral_focusable_control", "neutral_actual_focus", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "search_region_group", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_named_graphic_owner", "anchor_pointer_boundary", "neutral_child_multiplicity"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
 export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
   ...Object.keys(tagSets) as (keyof typeof tagSets)[],
@@ -158,7 +158,7 @@ export interface BasicKindProfile {
 const leafSupportWires = {
   input: ["nat_control_text", "nat_input_tag", "role_input", "input_type_text", "attr_editable", "editable_non_input", "input_text_combobox", "neutral_focusable_control", "neutral_actual_focus"],
   select: ["nat_control_select", "role_select", "input_type_select", "input_text_combobox", "listitem_role_select", "neutral_list_choice"],
-  button: ["nat_control_button", "role_button", "input_type_button", "own_pointer_boundary", "neutral_focusable_control", "neutral_actual_focus", "empty_pointer_extent"],
+  button: ["nat_control_button", "role_button", "input_type_button", "own_pointer_boundary", "neutral_focusable_control", "neutral_actual_focus", "empty_pointer_extent", "anchor_pointer_boundary"],
   link: ["nat_anchor", "anchor_href", "role_link"],
   text: ["nat_text", "role_text", "span_direct_text", "div_direct_text", "direct_non_format_text", "nat_inline_format_text", "css_before_content", "css_after_content"],
   image: ["nat_image", "role_image", "nat_svg", "svg_graphic_children", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "neutral_named_graphic_owner"],
@@ -351,6 +351,11 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "image", "neutral_named_graphic_owner"],
   ["familyWeights", "structure", "neutral_named_graphic_owner"],
   ["leafWeights", "ignore", "neutral_named_graphic_owner"],
+  ["familyWeights", "control", "anchor_pointer_boundary"],
+  ["leafWeights", "button", "anchor_pointer_boundary"],
+  ["leafWeights", "list", "neutral_child_multiplicity"],
+  ["leafWeights", "list", "neutral_multi_child_shape"],
+  ["leafWeights", "container", "neutral_child_multiplicity"],
 ] as const;
 
 function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
@@ -658,6 +663,21 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     bool(input.nonFormatDirectTextPresent),
   );
   wires.neutral_multi_child = and(neutralContainer, input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount >= 2 ? 1 : 0);
+  const neutralMultiChild = wires.neutral_multi_child;
+  const aspectRatio = input.aspectRatio ?? null;
+  wires.neutral_multi_child_shape =
+    neutralMultiChild === 0 || aspectRatio === 0
+      ? 0
+      : neutralMultiChild === null || aspectRatio === null
+        ? null
+        : aspectRatio;
+  // Existing measured child counts only: no new collector, property, or schema.
+  const positiveChildSupport = input.positiveAreaChildCount == null
+    ? null
+    : input.positiveAreaChildCount <= 1
+      ? 0
+      : (input.positiveAreaChildCount - 1) / input.positiveAreaChildCount;
+  wires.neutral_child_multiplicity = andContinuous(neutralContainer, positiveChildSupport);
   wires.neutral_single_child = and(neutralContainer, input.positiveAreaChildCount == null ? null : input.positiveAreaChildCount === 1 ? 1 : 0);
   wires.neutral_focusable_control = and(neutralContainer, bool(input.tabIndexFocus));
   wires.neutral_actual_focus = and(neutralContainer, bool(input.activeElementFocus));
@@ -694,6 +714,16 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
     neutralContainer,
     bool(input.pointerCursor),
     input.parentPointerCursor == null ? null : input.parentPointerCursor ? 0 : 1,
+  );
+  // No-href A with its own pointer boundary: support/scoring evidence only.
+  // role===null is the canonical "no explicit role" contract, not a new fact.
+  wires.anchor_pointer_boundary = and(
+    input.tag === "a" ? 1 : 0,
+    input.role === null ? 1 : 0,
+    input.hrefPresent === false ? 1 : input.hrefPresent === true ? 0 : null,
+    input.contentEditable === false ? 1 : input.contentEditable === true ? 0 : null,
+    input.pointerCursor === true ? 1 : input.pointerCursor === false ? 0 : null,
+    input.parentPointerCursor === false ? 1 : input.parentPointerCursor === true ? 0 : null,
   );
   const neutralPresentationOwnPointerBoundary = and(
     neutralPresentationTag,
