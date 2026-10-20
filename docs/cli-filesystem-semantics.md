@@ -1,6 +1,6 @@
 # file.property：Shell 文件属性目标与状态转换
 
-状态：2026-10-19 设计合同；本轮 PWD/CD/LS 三个 `file.property` 切片已接入统一运行入口。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
+状态：2026-10-19 设计合同。0.2.0 的 PWD/CD/LS 三个 `file.property` 切片已接入统一运行入口；本批 0.3.0 新增 `path.resolve`、`path.relative`、`path.parts` 与 `entry.inspect` 的合同、30 列共享矩阵和两张持久图的节点载荷升级。0.3.0 已由 I2–I7 实施完成并有运行证据：全仓 335/335、独立套件 56/56（40 场景+16 探针）、旧独立套件回归 34/34；新候选 `836b58b9-3d18-4aaa-9008-41d18b2c7226` 保持 `uncalibrated/not_applied`。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
 
 ## 1. 唯一目标形式
 
@@ -31,17 +31,17 @@ type Request = {
 
 ## 2. 文件属性目录与操作映射
 
-目录、普通文件、symlink、字符/块设备、FIFO、socket 是文件类型，不另设平行推理体系；类型会约束可用属性与动作。当前 M0 只分 file/directory/symlink/other，特殊类型细分尚未实现。并非所有类型都能按普通文件读取、复制或定位偏移。Linux 一切皆文件是统一抽象，不是操作语义相同的证明。
+目录、普通文件、symlink、字符/块设备、FIFO、socket 是文件类型，不另设平行推理体系；类型会约束可用属性与动作。批次1的 `entry.inspect` 合同使用完整 8 类联合：`regular`、`directory`、`symlink`、`character_device`、`block_device`、`fifo`、`socket`、`other`。旧 M0 的 `type="file"` 接口只做兼容映射：`regular→file`，特殊类→`other`，与新的完整接口共用同一底层 OS 读取，不维护两套 stat 算法。特殊类型细分未因本合同落盘而取得运行证据。并非所有类型都能按普通文件读取、复制或定位偏移。Linux 一切皆文件是统一抽象，不是操作语义相同的证明。
 
 | 属性键 | 值/关系与范围 | 观测 Action | 改变或构建目标属性的 Action |
 | --- | --- | --- | --- |
 | `file.property.path.absolute` | 明确 base/input 的词法绝对路径 | path.resolve | 纯计算增加路径知识，不改变 OS 对象 |
 | `file.property.path.relative` | 相对于明确 from 的词法路径 | path.relative | 纯计算；不改变 cwd |
-| `file.property.path.parent` | 路径的父路径；实际归属另有观测依据 | path.parts、entry.inspect/list | entry.move 改变实际目录条目位置 |
-| `file.property.path.name` | 目录条目名 | path.parts、directory.list | 同父目录 entry.move 即重命名 |
+| `file.property.path.parent` | 路径的父路径；只合并重复斜杠并去掉尾斜线（根`/`除外），不解析`.`或`..`；实际归属另有观测依据 | path.parts、entry.inspect/list | entry.move 改变实际目录条目位置 |
+| `file.property.path.name` | 目录条目名；只合并重复斜杠并去掉尾斜线（根`/`除外），不解析`.`或`..` | path.parts、directory.list | 同父目录 entry.move 即重命名 |
 | `file.property.path.physical` | OS解析后的物理路径 | path.realpath | 改链接或移动后需重新观测，不能仅改字符串 |
 | `file.property.exists` | 明确路径是否有条目 | entry.inspect；ENOENT与拒权分开 | directory/file.create、entry.remove；树操作为有限组合 |
-| `file.property.type` | 普通文件/目录/链接/设备/FIFO/socket等 | entry.inspect；当前特殊类为other | 按目标类型创建；不假设可将任意原对象原地变类型 |
+| `file.property.type` | regular/directory/symlink/character_device/block_device/fifo/socket/other 完整类型 | entry.inspect；旧M0兼容映射为file/other | 按目标类型创建；不假设可将任意原对象原地变类型 |
 | `file.property.directory.entries` | 直接子条目、类型及覆盖 | directory.list | create/move/remove 改条目集合；不默认递归 |
 | `file.property.content.bytes` | 明确范围的字节及EOF/覆盖 | file.read；类型适用时才可读取 | file.replace/write/append/truncate/copy |
 | `file.property.content.format` | 明确编码/格式的证据或判断 | 显式读取后固定解码/parser，必要时独立模型 | 改字节后重新评价；扩展名不是格式真值 |
@@ -50,7 +50,8 @@ type Request = {
 | `file.property.mode` | POSIX权限位 | entry.inspect | entry.mode.set；不代表ACL或实际可访问性 |
 | `file.property.owner` | uid/gid | entry.inspect | entry.owner.set；不默认提权 |
 | `file.property.times` | atime/mtime/ctime/birthtime及缺测 | entry.inspect | entry.times.set只设置atime/mtime，其他时间只观察实际效果 |
-| `file.property.link.target` | 链接文本或已证实目标关系 | lstat/readlink/realpath | link.create；不跟随删除，不假设链接文本目标存在 |
+| `file.property.link.target` | follow=false时为readlink原文；follow=true不伪造目标文本，目标关系与组合不在本批 | entry.inspect(lstat/readlink) | link.create；不跟随删除，不假设链接文本目标存在 |
+| `file.property.entry.identity` | `{dev,ino,nlink,rdev}`；逐项可null，不用路径相等推断对象相同 | entry.inspect | 不提供设置操作；跨路径硬链接关系仍属未注册的file.property.links |
 | `file.property.links` | 硬链接关系与实际对象身份 | 适用OS对象证据，当前M0缺失 | file.link、entry.remove；删一名称不等于销毁内容 |
 | `file.property.relation.sessionCwd` | 此目录与指定session当前目录的关系 | cwd.get；参数显式绑定S | cwd.set；改变的是S的关系，不是目录的全局属性 |
 | `file.property.operation.applicability` | 指定操作对当前类型/状态的适用条件及未知 | 类型/实际状态与操作合同 | 仅增加条件知识；不授予权限，不保证OS随后成功 |
@@ -61,7 +62,7 @@ type Request = {
 
 ## 3. 共享属性状态转换 DAG
 
-持久图：[cli-file-property.graph.json](../workflows/cli-file-property.graph.json)，6N5E SESE。每个属性单元以上表属性键及具体 schema 实例化同一闭合图；不为同一 I/O 结构复制图，也不以共享拓扑省略单项合同。
+持久图：[cli-file-property.graph.json](../workflows/cli-file-property.graph.json)，0.3.0、6N5E SESE。每个属性单元以上表属性键及具体 schema 实例化同一闭合图；不为同一 I/O 结构复制图，也不以共享拓扑省略单项合同。
 
 | 节点 / owner | 输入 → 输出 | 必要性与错误收束 |
 | --- | --- | --- |
@@ -94,7 +95,7 @@ type Request = {
 | 内容/用途判断 | content.format/role 的指定关系observed；100 | 真实文件证据 → parser或独立模型 → 对照复核真值，保留未知 | 同后缀不同内容、配置示例与生效配置、生成源码角色重叠 |
 | 操作条件 | operation.applicability 对指定操作observed；100 | 类型/状态及声明能力 → 判断 → 独立合同/执行证据核对 | mode当实际权限、设备按普通文件处理、缺测当允许 |
 
-训练复用[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。当前图文件及绑定是`cli.command.*@0.2.0`单阶段运行版；[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见[命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
+训练复用[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。两张图的合同已升级为`cli.command.*@0.3.0`与`cli.file-property@0.3.0`；当前源码绑定仍是0.2.0，待I3–I5按合同同步。[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见[命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
 
 每单元按 [project-design](../workflows/project-design.graph.json) 完成四元素、SESE和最小必要性准入，按 [model-evolution](../workflows/model-evolution.graph.json) 自动采样、复核、训练及采用，回归/冲突交大模型裁决。采用条件只引用 [model-evolution.md](model-evolution.md)，不建平行门槛。真实OS效果、动作选择、参数绑定和知识判断分别计分。
 
@@ -104,11 +105,11 @@ type Request = {
 
 现有 `observe_cwd/set_cwd/list_directory` 旧 Goal 已由本轮迁移显式退役；运行入口拒绝旧 Goal 对象。PWD/CD/LS 只接受本节第6条的 `file.property` typed 请求，不新增同义 Goal。
 
-设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前已实现：本图六个属性算子与 `cli-file-property` 运行绑定、PWD/CD/LS 的 typed 请求/统一结果、单 profile 显式迁移与真实拟合/回载。当前未实现：B对象查找与训练、P1/P2/P4/P5/P6其余22个操作、特殊文件细分、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
+设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前已实现：0.2.0 的六个属性算子与 `cli-file-property` 运行绑定、PWD/CD/LS 的 typed 请求/统一结果、单 profile 显式迁移与真实拟合/回载。当前仅有合同、尚无运行实现：批次1的四个新 head、typed E/D/F/P 引用和完整 inspect 属性。当前未实现：B对象查找与训练、目录/文件变更等其余操作、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
 
-## 6. 当前实施切片：PWD/CD/LS typed 请求与统一结果（2026-10-19）
+## 6. 0.2.0 已实施切片：PWD/CD/LS typed 请求与统一结果（2026-10-19）
 
-本节是当前运行实现的准入正文，与 `docs/cli-filesystem-training.md` §0.1、`docs/cli-call-contract.md` §1.1 共同生效。它只覆盖 sessionCwd observed/equals 与 directory.entries observed，不把未来 22 个操作写成已运行。
+本节是0.2.0运行实现的准入正文，与 `docs/cli-filesystem-training.md` §0.1、`docs/cli-call-contract.md` §1.1 共同生效。它只覆盖 sessionCwd observed/equals 与 directory.entries observed；0.3.0 的路径原语与 entry.inspect 合同见第7节，不得把合同当成已运行。
 
 ### 6.1 可导入请求形状
 
@@ -174,6 +175,8 @@ type Request = {
 | 已注册 Goal，目录仅为合法未绑定 `DirectoryQuery` | `DEFER`；typed `binding_unresolved`，零 executor |
 | 结构合法但本轮未注册的 property/predicate | `unsupported`；零 executor，`satisfaction:null` |
 
+未注册 property/predicate 由 harness 结构化判定，不进入打分；`features` 保留，`scores`/`probabilities` 为按 head 长度的全 0 数组。已注册请求才进入共享 softmax，guard 继续按第 6.4 节保留模型错选。
+
 统一顶层 `status` 词表为 `achieved | unmet | unknown | rejected | failed`。旧公开 `unverified` 分支退役。`achieved` 只在必要事实完整且实际 satisfaction=100；`unmet` 表示必要事实已证伪、actual=0；`unknown` 表示必要证据不足、actual=null；`rejected` 表示 typed/guard/绑定拒绝并保留具体原因；`failed` 表示真实必需操作失败。`policy_error`、绑定错误、native/grant 失败、partial 与 CD 后验失败分别保留，不用一个 `unsupported` 覆盖。
 
 ### 6.4 统一结果与调用边界
@@ -189,3 +192,74 @@ satisfaction, status, reason, evidence, collection_result
 并保留实际 `session_before`/`session_after`、`changed`、CD 后条件等诊断。`NOOP` 与 `DEFER` 的 `invocation` 为 null、`executorInvoked` 为 false。`onSample` 未配置时 `collection_result.status="not_configured"`；回调失败只记录 `collection_result.status="failed"`，不改变已发生业务结果。
 
 边界唯一选择：非法 schema、额外答案字段、坏 ref、跨 session 矛盾、旧 Goal kind 或旧 4×4 profile 直接抛 `TypeError`，零 OS 副作用；结构合法但未注册的 property/predicate 返回 `unsupported` 控制结果。guard 在策略选择后拒绝不可执行/不符合目标约束的 head，保留原 `policy_error`，不改选正确 head、不 mask logits、不把错误计成功。
+
+## 7. 0.3.0 批次1合同：路径原语与条目检查
+
+本节是 I1 落盘的合同正文，不等于已实现。0.2.0 的运行入口和测试保持不变；I2–I7 分别负责 gate/红测、typed 语义、adapter、工作流封装、训练与独立验收。图文件已升级到 0.3.0，但 `lib/nodes/*` 的实现版本仍由 I5 同步。
+
+### 7.1 注册切片与共享矩阵
+
+0.3.0 注册 10 个 head，顺序固定为 `unsupported,DEFER,NOOP,pwd,cd,ls,path.resolve,path.relative,path.parts,entry.inspect`。`path.realpath` 不注册，也不预留空行。
+
+property 块按属性目录次序注册 14 列：`path.absolute`、`path.relative`、`path.parent`、`path.name`、`exists`、`type`、`directory.entries`、`size`、`mode`、`owner`、`times`、`link.target`、`entry.identity`、`relation.sessionCwd`。predicate 块按 P1→P2→P3 顺序注册 7 列：`observe.absolute`、`observe.relative`、`observe.parts`、`observe.inspect`、`observe.sessionCwd`、`equals.sessionCwd`、`observe.entries`。state 块仍为 4 列，交互项 1 列；`hasSessionRef` 保持常量，不注册。
+
+property 与 predicate 的 wire 名沿用现有前缀，分别为 `property.<后缀>` 与 `predicate.<标签>`。因此 `F=4+14+7+4+1=30`、`K=10`，矩阵为 `10×30=300`。旧 `6×14=84` 交叉块按 name 原值复制，其余 216 个位置补零；`unsupported,DEFER,NOOP,pwd,cd,ls` 之外的四个新 head 不复制任何旧行。零填充只保证结构兼容，不证明 softmax 无回归。
+
+本批不注册 `observedType`、`requiredTargetType`、`selectorTargetType`、`combination` 块，不注册 `followSymlinks` wire，也不注册 `hasSessionRef`。`followSymlinks` 只作为 `entry.inspect` 的 typed 执行参数。`path.physical`、`observe.physical`、`observe.resolvedTarget` 与 `file.property.links` 均不在本批词表。
+
+### 7.2 typed 引用与身份
+
+```ts
+type EntryType = "regular" | "directory" | "symlink" | "character_device"
+  | "block_device" | "fifo" | "socket" | "other";
+type OsInteger = number | string | null; // number-safe | string-decimal | null
+
+type PathRef = Readonly<{
+  kind: "cli.path";
+  scenarioId: string;
+  sessionId: string;
+  path: AbsolutePath;             // 明确路径，不保证存在、类型或对象身份
+}>;
+
+type ObservedObjectRef = Readonly<{
+  kind: "cli.entry" | "cli.file" | "cli.directory";
+  scenarioId: string;
+  sessionId: string;
+  type: EntryType;
+  identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
+  sourceRun: string;
+  sessionRevision: number;
+  absolutePath: AbsolutePath;
+}>;
+```
+
+`cli.path` 是批次1新增的 P 引用，只做 schema 与场景归属校验；词法操作不 stat，也不要求路径存在。`cli.entry` 与 `cli.file` 是新增的 E/F 对象引用；D 继续复用 `cli.directory`。E/D/F 对象引用必须携带或显式关联已观测的 `{type,identity:{dev,ino},sourceRun,sessionRevision,absolutePath}`，由 sandbox 的绑定 API 生成并由其 authority 验证。引用不得从业务 metadata、日志或旧路径字符串重建。
+
+旧 D 的四字段形状 `{kind:"cli.directory",scenarioId,sessionId,path}` 继续服务旧 `cd`/`ls`。它缺少对象身份时用于 `inspect` 必须返回 unknown 与 `binding_identity_missing`，不得静默降级为 P，也不得用遗留路径继续执行。`followSymlinks=true` 时先 `lstat` 核对来源条目身份，再 `stat` 目标；链接自身身份与解析目标身份分别保存，不能直接把链接自身 ino 与目标 ino 比较。session revision 变化、身份/类型不再匹配或引用过期时返回 stale/rejected，不猜测新对象。
+
+事件与校验契约：两张持久图的端口事件名保留 `cli.*.v1`，不因本次载荷扩展改名；`cli.file-property.*` 与 `cli.command.training.*` 的 `operator_version` 已升到 0.3.0，I5 必须同步对应 NodeDefinition.version 后用显式联合类型重新编译，不能把旧 6×14 形状当运行兼容。运行 schema 校验按本节的显式联合类型升级，不接受旧 6×14 形状、不按行索引猜兼容，也不复用未注册的 property/predicate 对。新增 `cli.path`、`cli.entry` 与 `cli.file` 引用由版本化验证器识别；旧四字段 D 之外的多余字段按非法 schema 拒绝。
+
+### 7.3 entry.inspect 属性值
+
+| property | typed 值与缺测合同 |
+| --- | --- |
+| `exists` | `{entryExists,resolvedTargetExists}` 按明确 follow 模式投影为 boolean；错误失败不写 false |
+| `type` | 完整 8 类，来自 OS stat mode/API，不按后缀或路径猜测 |
+| `size` | 精确 `sizeBytes`；目录值不表示子树大小 |
+| `mode` | POSIX mode/permission bits；不表示 ACL 或有效可访问性 |
+| `owner` | `{uid,gid}` |
+| `times` | atime/mtime/ctime/birthtime 及观测精度；不可用项为 null |
+| `link.target` | follow=false 时的 readlink 原文；非链接为不适用 unknown；follow=true 不伪造目标文本 |
+| `entry.identity` | `{dev,ino,nlink,rdev}`；逐项缺测 null。rdev 仅在设备语义有效；普通条目可保留 OS 原值并标明非设备，不能把 0 当缺测 |
+
+OS 整数使用 bigint 读取。超出安全整数时以固定十进制字符串保真，不用 JSON Number 截断；同一公开值 schema 明确为 `number-safe|string-decimal|null`。`nlink` 是观测计数，不证明另一个路径与其同对象。跨条目硬链接关系 `file.property.links` 不在本批。
+
+### 7.4 OS 错误与满足度终点
+
+明确 P 且 `followSymlinks=false` 的本次 ENOENT 是有效观测：`exists=false` 可达 100；其余依赖对象的属性没有值，按 failed/0 保留。ENOTDIR、EACCES、EPERM 与 ELOOP 均不得写成 `exists=false`。`followSymlinks=true` 的 ENOENT 必须区分 `entryExists` 与 `resolvedTargetExists`：链接自身可存在而解析目标不存在。E/D/F 的 ENOENT 按失效引用处理，不能标成“普通的 P 不存在”。
+
+身份不足或属性不适用时为 unknown/null；已证不匹配为 unmet/0；guard 或 typed 绑定拒绝为 rejected/0；非法 schema、额外答案字段、坏 ref、跨 session 矛盾沿公开 `TypeError` 异常边界，零 OS 副作用。OS 调用失败与属性结果分开记录，不以错误填充假值。
+
+### 7.5 平台边界
+
+`block_device` 保留在完整类型联合中。本机 macOS 没有真实 fixture 时，其 native 证据必须标 `UNVERIFIED`；不得用 `mknod`、sudo 或其他伪设备方式伪造。FIFO、socket 与 symlink 必须在沙盒内真实构造并保留证据，不能只靠注入或 mock 宣称实测。未知平台能力保持缺测，不阻塞其他属性。

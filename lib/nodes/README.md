@@ -22,30 +22,36 @@
 
 训练执行 `workflows/cli-path-training.graph.json`，推理执行 `cli-path-resolve.graph.json`，不复制拓扑。内部数值结构单独由 `lib/nodes/trainable/cli-path-controller.ts` 管理。schema/阶段数据在领域节点校验，compile检查profile和effects，runner按既有失败合同收束。实际拟合、失效后端、冻结/回载、根目录/父路径、拒权与写入边界验收见 cli-path 系列测试及公开consumer。
 
-## CLI file.property 共享命令节点（0.2.0）
+## CLI file.property 共享命令节点（0.3.0.0000）
 
-公开入口为 `nnanything/cli-goal`。`createCliCommandPolicy` 加载 `cli-file-property` 6N5E 运行图，使用同一 `cli.command-policy.v1` profile 处理 typed `file.property` 请求；`runCliCommandTraining` 加载 8N8E 训练图并从一份指定起点真实拟合。旧六参数 `createCliGoalPolicy`/`runCliGoalTraining`、旧三个 Goal kind、旧 `cli-command-step` 与旧 cli-goal 图已物理退役。CWD 关系测量保留为独立概念测量，不产生命令候选。
+公开入口为 `nnanything/cli-goal`。`createCliCommandPolicy`加载`cli-file-property` 6N5E图，使用同一`cli.command-policy.v1` profile处理10 head、30 wire的typed `file.property`请求；`runCliCommandTraining`加载8N8E训练图并从指定起点真实拟合。旧六参数`createCliGoalPolicy`/`runCliGoalTraining`、旧三个Goal kind、旧`cli-command-step`与旧cli-goal图已物理退役。CWD关系测量保持独立概念测量，不产生命令候选。
 
 | operator | I/O和职责 | effect和资源 |
 | --- | --- | --- |
-| `cli.file-property.bind` | file_property_request → file_property_context；校验请求、阈值、State与来源，绑定属性目标及当前会话基准 | 无effect |
-| `cli.file-property.select` | file_property_context → file_property_action_proposal；同一共享 profile 选择全 head 并记录策略错误 | 无effect |
-| `cli.file-property.execute` | file_property_action_proposal → file_property_execution；guard 核对后按 pwd/cd/ls 固定分流；NOOP/DEFER/unsupported 不调用 executor | 业务 read/exec/session.write 由 sandbox 动态检查 |
-| `cli.file-property.observe` | file_property_execution → file_property_transition；归一真实回执、副作用与受信来源，CD 后验同 session 新 PWD | 无静态effect |
-| `cli.file-property.evaluate` | file_property_transition → file_property_evaluation；按实际 New State 评价 Goal 与满足度，区分 unknown/unmet | 无effect |
-| `cli.file-property.report` | file_property_evaluation → file_property_result；统一结果与显式采样回执 | 无静态effect；采样由调用者回调承载 |
-| `cli.command.training.partition` | command_training_request → command_partition；验证请求、预算、来源分区和共享候选形状 | 无effect |
-| `cli.command.training.prepare` | command_partition → command_fit_data；准备 typed file.property train 行及历史命令回放 | 无effect |
+| `cli.file-property.bind` | file_property_request → file_property_context；按0.3.0联合校验路径/条目Goal、阈值、State、P/E/D/F引用与来源，不在绑定期取得Goal答案 | 无effect |
+| `cli.file-property.select` | file_property_context → file_property_action_proposal；同一10×30 profile选择全head、typed参数绑定提案与guard期待 | 无effect |
+| `cli.file-property.execute` | file_property_action_proposal → file_property_execution；guard核对后执行pwd/cd/ls或path.resolve/path.relative/path.parts/entry.inspect；NOOP/DEFER/unsupported不调用executor | 静态声明为空；adapter按实际调用动态检查process.exec、session.write与filesystem.read；词法head零业务effect |
+| `cli.file-property.observe` | file_property_execution → file_property_transition；归一真实回执、pathKnowledge/entryKnowledge、errno、来源与身份；CD后验同session新PWD | 无静态effect |
+| `cli.file-property.evaluate` | file_property_transition → file_property_evaluation；按property投影、follow模式、实际证据与阈值评价，区分unknown/unmet/failed | 无effect |
+| `cli.file-property.report` | file_property_evaluation → file_property_result；保留完整ref/action/原回执、统一结果与显式采样 | 无静态effect；采样由调用者回调承载 |
+| `cli.command.training.partition` | command_training_request → command_partition；验证请求、预算、来源分区与当前注册的数据集合同 | 无effect |
+| `cli.command.training.prepare` | command_partition → command_fit_data；经共享样本合同准备训练行与历史回放 | 无effect |
 | `cli.command.training.prepare-verification` | command_partition → command_verification_data；可选验证资料仅供评价 | 无effect；缺资源明确 `not_provided` |
-| `cli.command.training.fit` | command_fit_data → command_fitted；从显式 4×4 起点按名称迁移到6×14后真实拟合 | filesystem.read；显式 Handwired 源码根 |
+| `cli.command.training.fit` | command_fit_data → command_fitted；从显式起点按name迁移到当前10×30 profile后真实拟合 | filesystem.read；显式 Handwired 源码根 |
 | `cli.command.training.save` | command_fitted → command_candidate；独占保存样本与共享候选 | filesystem.write；显式 outputRoot |
-| `cli.command.training.execute` | command_candidate + command_verification_data → command_executions；同一候选真实调用各命令 | 临时场景与 session 授权由 sandbox 检查，finally 清理 |
-| `cli.command.training.verify` | command_executions → command_evaluation；逐命令比较策略、真实效果、历史回归和名称/类型 | 无effect |
-| `cli.command.training.report` | command_evaluation → command_training_receipt；保存分命令结果、计时和清理证据 | filesystem.write |
+| `cli.command.training.execute` | command_candidate + command_verification_data → command_executions；执行当前数据集登记的样本并保留真实 transition | 临时场景与 session 授权由 sandbox 检查，finally 清理 |
+| `cli.command.training.verify` | command_executions → command_evaluation；按case、十个head与错误来源汇总策略和真实效果，并保留旧能力回归 | 无effect |
+| `cli.command.training.report` | command_evaluation → command_training_receipt；保存新维度、两预测对照、分命令结果、计时与清理证据 | filesystem.write |
 
-推理执行 `workflows/cli-file-property.graph.json`（6N5E SESE `0.2.0`，配置 `cli-file-property.workflow.json`），训练执行 `workflows/cli-filesystem-training.graph.json`（8N8E SESE `0.2.0`，配置 `cli-filesystem-training.workflow.json`），不复制拓扑。内部多分类线性电路由 `lib/nodes/trainable/cli-command-policy.ts` 管理。`workflows/cli-filesystem-curriculum.graph.json` 只是未来属性单元顺序设计，不代表已有独立Flowed课程引擎。
+推理执行 `workflows/cli-file-property.graph.json`（6N5E SESE `0.3.0.0000`，配置 `cli-file-property.workflow.json`），训练执行 `workflows/cli-filesystem-training.graph.json`（8N8E SESE `0.3.0.0000`，配置 `cli-filesystem-training.workflow.json`），不复制拓扑。节点ID、边、ARC ID与端口未变；六个推理节点和八个训练节点的 `NodeDefinition.version` 均由 `scripts/bump-version.mjs --sync --write` 与图 `operator_version` 对齐到 `0.3.0.0000`。内部多分类线性电路由 `lib/nodes/trainable/cli-command-policy.ts` 管理。`workflows/cli-filesystem-curriculum.graph.json` 只是未来属性单元顺序设计，不代表已有独立Flowed课程引擎。
 
-`accepted` 只覆盖实际提供的评价分区；无 verification 资源时 `fullyVerified=false`。候选保持 `uncalibrated/not_applied`。固定调用、边界和后条件见[文件系统训练合同](../../docs/cli-filesystem-training.md)。作者测试为 `tests/cli-command.test.mjs`、`tests/cli-command-training.test.mjs` 及 CLI sandbox/binding/evaluation 用例；公开训练与新进程回载入口为 `playground/cli/command-learning/`。
+推理端口按图固定为 `file_property_request → file_property_context → file_property_action_proposal → file_property_execution → file_property_transition → file_property_evaluation → file_property_result`。`execute` 的静态 `effects` 为空，adapter按实际调用动态检查：`pwd` 读取并执行固定进程，`cd` 还提交同session状态，`ls` 读取并执行固定helper，`entry.inspect` 只读取文件系统，三个路径词法head无业务effect。guard拒绝、`NOOP`、`DEFER` 与 `unsupported` 均零executor。
+
+`execute` 回执保留 `status`、`executorInvoked`、`reason`、`error` 与原始 `receipt`；`receipt.call` 保存固定语义operation与typed参数，`receipt.execution` 保存observation或显式error。`path.resolve` 投影base/input/absolute/parent，`path.relative` 投影from/to/relative，`path.parts` 投影path/parent/name/isRoot。inspect回执保留 `query`、`configuredPath`、`observedWith`、`entryExists`、`resolvedTargetExists`、`type`、`size`、`mode`、`owner`、`times`、`linkTarget`、`identity`、`errno`、`sourceRun`与`sessionRevision`；缺测字段为null，不补0。
+
+`report` 输出保留 `goal`、`state_before`、`action`、`invocation`、`policy`、`policy_error`、`execution_result`、`postcondition`、`observed_state_after.pathKnowledge/entryKnowledge`、`evidence`、`collection_result`与`defer`。错误head的action只按实际Goal投影参数，不借用不匹配Goal伪造调用；失败保持非achieved。
+
+`accepted`只覆盖实际提供的评价分区；无verification资源时`fullyVerified=false`。候选保持`uncalibrated/not_applied`。固定调用、边界和后条件见[文件系统训练合同](../../docs/cli-filesystem-training.md)。训练节点最终回执包含 `runId`、`paths`、`profile`、`initialProfile`/`sourceProfile`、`comparison`、`controls`、`regression`、`semanticChanges`、`verification` 与 `timing`；`comparison` 按case、head和错误来源汇总真实执行行。I6负责的version 3样本、真实拟合和新进程回载尚未进入本报告。
 
 ## CLI 基础观测节点（0.1.0）
 

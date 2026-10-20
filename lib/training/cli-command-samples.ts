@@ -1,13 +1,39 @@
-import { lstat, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { lstat, realpath, symlink } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { expectRecord } from "../core/schema.js";
-import { createCliFilesystemSandbox, type DirectoryRef, type SandboxRecipe, type SessionRef } from "../adapters/cli/filesystem-sandbox.js";
-import { CLI_COMMAND_HEADS, cliCommandFeatures, type CliCommandHead } from "../filters/cli-command-policy.js";
-import { CWD_PROPERTY, ENTRIES_PROPERTY, type CwdGoal, type DirectoryQuery, type FilePropertyGoal, type PropertyFacts } from "../filters/cli-file-property.js";
+import {
+  createCliFilesystemSandbox,
+  type DirectoryRef,
+  type SandboxRecipe,
+  type SessionRef,
+} from "../adapters/cli/filesystem-sandbox.js";
+import {
+  CLI_COMMAND_HEADS,
+  cliCommandFeatures,
+  type CliCommandHead,
+} from "../filters/cli-command-policy.js";
+import {
+  CWD_PROPERTY,
+  ENTRIES_PROPERTY,
+  PATH_ABSOLUTE_PROPERTY,
+  PATH_NAME_PROPERTY,
+  PATH_PARENT_PROPERTY,
+  PATH_RELATIVE_PROPERTY,
+  validateGoal,
+  type EntryRef,
+  type FilePropertyGoal,
+  type FileRef,
+  type InspectProperty,
+  type InspectRef,
+  type ObservedDirectoryRef,
+  type PathRef,
+  type PropertyFacts,
+} from "../filters/cli-file-property.js";
 import type { CliCommandStatus } from "../nodes/cli-command.js";
 
 export type CommandPartition = "train" | "development" | "verification";
-export type CommandCase =
+
+export type LegacyCommandCase =
   | "cwd-observed"
   | "entries-observed"
   | "entries-observed-old-listing"
@@ -19,6 +45,65 @@ export type CommandCase =
   | "entries-observed-unbound"
   | "unregistered-property";
 
+export type Batch1CommandCase =
+  | "path-resolve"
+  | "path-relative"
+  | "path-parts-parent"
+  | "path-parts-name"
+  | "inspect-exists"
+  | "inspect-type"
+  | "inspect-size"
+  | "inspect-mode"
+  | "inspect-owner"
+  | "inspect-times"
+  | "inspect-link-target"
+  | "inspect-entry-identity";
+
+export type CommandCase = LegacyCommandCase | Batch1CommandCase;
+
+export type Batch1Query =
+  | Readonly<{ kind: "path.resolve"; base: PathRef; input: string }>
+  | Readonly<{ kind: "path.relative"; from: PathRef; to: PathRef }>
+  | Readonly<{ kind: "path.parts"; property: typeof PATH_PARENT_PROPERTY | typeof PATH_NAME_PROPERTY; path: PathRef }>
+  | Readonly<{ kind: "inspect"; property: InspectProperty; ref: InspectRef; followSymlinks: boolean }>;
+
+type PathFixtureBase = Readonly<{
+  id: string;
+  base: string;
+  input: string;
+}>;
+
+type PathFixtureRelative = Readonly<{
+  id: string;
+  from: string;
+  to: string;
+}>;
+
+type PathFixtureParts = Readonly<{
+  id: string;
+  property: typeof PATH_PARENT_PROPERTY | typeof PATH_NAME_PROPERTY;
+  path: string;
+}>;
+
+type InspectRefKind = "cli.path" | "cli.entry" | "cli.file" | "cli.directory";
+
+export type InspectFixture = Readonly<{
+  id: string;
+  property: InspectProperty;
+  state: "a" | "b";
+  path: string;
+  refKind: InspectRefKind;
+  followSymlinks: boolean;
+}>;
+
+export type Batch1PathFixtures = Readonly<{
+  resolve: readonly PathFixtureBase[];
+  relative: readonly PathFixtureRelative[];
+  parts: readonly PathFixtureParts[];
+  inspect: readonly InspectFixture[];
+  symlinks: readonly Readonly<{ path: string; target: string }>[];
+}>;
+
 export type CommandScenario = Readonly<{
   id: string;
   sourceGroup: string;
@@ -27,6 +112,8 @@ export type CommandScenario = Readonly<{
   targetPath: string;
   recipe: SandboxRecipe;
   expectedEntries: readonly Readonly<{ name: string; type: "file" | "directory" | "symlink" }>[];
+  familyKind?: "legacy" | "batch1";
+  pathFixtures?: Batch1PathFixtures;
 }>;
 
 export type CommandSample = Readonly<{
@@ -35,19 +122,21 @@ export type CommandSample = Readonly<{
   sourceGroup: string;
   partition: CommandPartition;
   case: CommandCase;
+  variant?: string;
+  query?: Batch1Query;
   expectedHead: CliCommandHead;
   expectedStatus: CliCommandStatus;
   expectedSatisfaction: 0 | 100 | null;
 }>;
 
 export type CliCommandDataset = Readonly<{
-  version: 2;
+  version: 2 | 3;
   scenarios: readonly CommandScenario[];
   samples: readonly CommandSample[];
   teacherEvidence?: readonly unknown[];
 }>;
 
-const CASES: readonly CommandCase[] = [
+const LEGACY_CASES: readonly LegacyCommandCase[] = [
   "cwd-observed",
   "entries-observed",
   "entries-observed-old-listing",
@@ -60,7 +149,28 @@ const CASES: readonly CommandCase[] = [
   "unregistered-property",
 ];
 
-const CASE_EXPECTATION: Readonly<Record<CommandCase, Readonly<{ head: CliCommandHead; status: CliCommandStatus; satisfaction: 0 | 100 | null }>>> = Object.freeze({
+const BATCH1_CASES: readonly Batch1CommandCase[] = [
+  "path-resolve",
+  "path-relative",
+  "path-parts-parent",
+  "path-parts-name",
+  "inspect-exists",
+  "inspect-type",
+  "inspect-size",
+  "inspect-mode",
+  "inspect-owner",
+  "inspect-times",
+  "inspect-link-target",
+  "inspect-entry-identity",
+];
+
+type CaseExpectation = Readonly<{
+  head: CliCommandHead;
+  status: CliCommandStatus;
+  satisfaction: 0 | 100 | null;
+}>;
+
+const LEGACY_CASE_EXPECTATION: Readonly<Record<LegacyCommandCase, CaseExpectation>> = Object.freeze({
   "cwd-observed": { head: "pwd", status: "achieved", satisfaction: 100 },
   "entries-observed": { head: "ls", status: "achieved", satisfaction: 100 },
   "entries-observed-old-listing": { head: "ls", status: "achieved", satisfaction: 100 },
@@ -73,9 +183,31 @@ const CASE_EXPECTATION: Readonly<Record<CommandCase, Readonly<{ head: CliCommand
   "unregistered-property": { head: "unsupported", status: "unknown", satisfaction: null },
 });
 
+const BATCH1_CASE_EXPECTATION: Readonly<Record<Batch1CommandCase, CaseExpectation>> = Object.freeze({
+  "path-resolve": { head: "path.resolve", status: "achieved", satisfaction: 100 },
+  "path-relative": { head: "path.relative", status: "achieved", satisfaction: 100 },
+  "path-parts-parent": { head: "path.parts", status: "achieved", satisfaction: 100 },
+  "path-parts-name": { head: "path.parts", status: "achieved", satisfaction: 100 },
+  "inspect-exists": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-type": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-size": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-mode": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-owner": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-times": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-link-target": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-entry-identity": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+});
+
+const ZERO_FACTS: PropertyFacts = Object.freeze({
+  hasFreshEvidence: 0,
+  knownValue: 0,
+  requiredConditionHolds: 0,
+  hasDestinationRef: 0,
+});
+
 const grants = ["filesystem.read", "process.exec", "session.write"] as const;
 
-function scenario(id: string, partition: "train" | "development", start: string, target: string,
+function legacyScenario(id: string, partition: "train" | "development", start: string, target: string,
   files: readonly string[], directories: readonly string[]): CommandScenario {
   const directorySet = new Set<string>();
   const add = (path: string): void => {
@@ -92,6 +224,7 @@ function scenario(id: string, partition: "train" | "development", start: string,
     partition,
     startPath: start,
     targetPath: target,
+    familyKind: "legacy",
     recipe: {
       scenarioId: id,
       sessions: [
@@ -107,20 +240,144 @@ function scenario(id: string, partition: "train" | "development", start: string,
   };
 }
 
-const scenarios: readonly CommandScenario[] = [
-  scenario("train-empty-same-directory", "train", "empty", "empty", [], []),
-  scenario("train-sibling-mixed", "train", "branches/left", "branches/right", ["one.txt"], ["empty-child"]),
-  scenario("train-child-dot-files", "train", "parent", "parent/child", [".hidden", "visible", "notes.txt"], []),
-  scenario("train-parent-with-descendants", "train", "outer/inner", "outer", [], ["inner"]),
-  scenario("development-multibranch-space", "development", "begin/deep/a", "work space/target", ["alpha space", "beta", "gamma"], ["left", "right"]),
-  scenario("development-extension-types", "development", "source/start", "ending/root", ["a", "b", "c", "d", "looks-like-folder"], ["folder.txt"]),
+type PathFamilyInput = Readonly<{
+  id: string;
+  partition: "train" | "development";
+  start: string;
+  target: string;
+  token: string;
+}>;
+
+function pathFamily(input: PathFamilyInput): CommandScenario {
+  const emptyName = `empty-${input.token}.bin`;
+  const filledName = `filled-${input.token}.bin`;
+  const anchorName = `anchor-${input.token}.txt`;
+  const folderName = `folder-${input.token}`;
+  const itemLinkName = `item-${input.token}.link`;
+  const brokenLinkName = `broken-${input.token}.link`;
+  const nestedName = "nested";
+  const targetFolder = join(input.target, folderName);
+  const targetNested = join(input.target, nestedName);
+  const targetNestedLeaf = join(targetNested, `leaf-${input.token}.txt`);
+  const startAnchor = join(input.start, anchorName);
+  const rootPath = "/";
+  const trailingTarget = `${input.target}/`;
+  const virtual = `/virtual/${input.token.replaceAll("/", "-")}`;
+  const directorySet = new Set<string>();
+  const add = (path: string): void => {
+    if (!path || path === ".") return;
+    const normalized = path.replace(/\/+$/, "");
+    if (!normalized || normalized === "/") return;
+    if (normalized.includes("/")) add(normalized.slice(0, normalized.lastIndexOf("/")));
+    directorySet.add(normalized);
+  };
+  [input.start, input.target, targetFolder, targetNested].forEach(add);
+
+  const inspect: readonly InspectFixture[] = [
+    { id: "exists-a", property: "file.property.exists", state: "a", path: join(input.target, filledName), refKind: "cli.path", followSymlinks: false },
+    { id: "exists-b", property: "file.property.exists", state: "b", path: join(input.target, `missing-${input.token}.entry`), refKind: "cli.path", followSymlinks: false },
+    { id: "type-a", property: "file.property.type", state: "a", path: join(input.target, emptyName), refKind: "cli.file", followSymlinks: false },
+    { id: "type-b", property: "file.property.type", state: "b", path: targetFolder, refKind: "cli.directory", followSymlinks: false },
+    { id: "size-a", property: "file.property.size", state: "a", path: join(input.target, emptyName), refKind: "cli.path", followSymlinks: false },
+    { id: "size-b", property: "file.property.size", state: "b", path: join(input.target, filledName), refKind: "cli.entry", followSymlinks: false },
+    { id: "mode-a", property: "file.property.mode", state: "a", path: join(input.target, filledName), refKind: "cli.file", followSymlinks: false },
+    { id: "mode-b", property: "file.property.mode", state: "b", path: targetFolder, refKind: "cli.directory", followSymlinks: false },
+    { id: "owner-a", property: "file.property.owner", state: "a", path: join(input.target, itemLinkName), refKind: "cli.entry", followSymlinks: true },
+    { id: "owner-b", property: "file.property.owner", state: "b", path: join(input.target, brokenLinkName), refKind: "cli.path", followSymlinks: false },
+    { id: "times-a", property: "file.property.times", state: "a", path: startAnchor, refKind: "cli.file", followSymlinks: false },
+    { id: "times-b", property: "file.property.times", state: "b", path: targetFolder, refKind: "cli.directory", followSymlinks: false },
+    { id: "link-target-a", property: "file.property.link.target", state: "a", path: join(input.target, itemLinkName), refKind: "cli.path", followSymlinks: false },
+    { id: "link-target-b", property: "file.property.link.target", state: "b", path: join(input.target, brokenLinkName), refKind: "cli.path", followSymlinks: false },
+    { id: "identity-a", property: "file.property.entry.identity", state: "a", path: join(input.target, filledName), refKind: "cli.file", followSymlinks: false },
+    { id: "identity-b", property: "file.property.entry.identity", state: "b", path: targetFolder, refKind: "cli.directory", followSymlinks: false },
+  ];
+
+  return {
+    id: input.id,
+    sourceGroup: input.id,
+    partition: input.partition,
+    startPath: input.start,
+    targetPath: input.target,
+    familyKind: "batch1",
+    recipe: {
+      scenarioId: input.id,
+      sessions: [
+        { id: "s", cwd: input.start, grantedEffects: grants },
+        { id: "other", cwd: input.start, grantedEffects: grants },
+      ],
+      entries: [
+        ...[...directorySet].sort().map(path => ({ path, kind: "directory" as const })),
+        { path: startAnchor, kind: "file" as const, contents: `anchor ${input.token}\n` },
+        { path: join(input.target, emptyName), kind: "file" as const, contents: "" },
+        { path: join(input.target, filledName), kind: "file" as const, contents: `payload ${input.token}\n` },
+        { path: targetNestedLeaf, kind: "file" as const, contents: `nested ${input.token}\n` },
+      ],
+    },
+    expectedEntries: [
+      { name: filledName, type: "file" },
+      { name: emptyName, type: "file" },
+      { name: folderName, type: "directory" },
+      { name: nestedName, type: "directory" },
+      { name: itemLinkName, type: "symlink" },
+      { name: brokenLinkName, type: "symlink" },
+    ],
+    pathFixtures: {
+      resolve: [
+        { id: "resolve-a", base: input.start, input: "." },
+        { id: "resolve-b", base: input.start, input: "../output/../entry" },
+        { id: "resolve-c", base: input.target, input: "./nested/../nested" },
+        { id: "resolve-d", base: input.start, input: `${virtual}/../ghost` },
+        { id: "resolve-e", base: input.target, input: `~/$HOME/${input.token}/*` },
+        { id: "resolve-f", base: input.start, input: `missing/../${input.token}` },
+      ],
+      relative: [
+        { id: "relative-a", from: input.start, to: input.target },
+        { id: "relative-b", from: input.target, to: input.start },
+        { id: "relative-c", from: input.target, to: input.target },
+        { id: "relative-d", from: input.start, to: dirname(input.target) },
+        { id: "relative-e", from: targetNested, to: targetNestedLeaf },
+        { id: "relative-f", from: startAnchor, to: join(input.target, folderName) },
+      ],
+      parts: [
+        { id: "parts-parent-a", property: PATH_PARENT_PROPERTY, path: input.start },
+        { id: "parts-parent-b", property: PATH_PARENT_PROPERTY, path: input.target },
+        { id: "parts-parent-c", property: PATH_PARENT_PROPERTY, path: rootPath },
+        { id: "parts-name-a", property: PATH_NAME_PROPERTY, path: input.target },
+        { id: "parts-name-b", property: PATH_NAME_PROPERTY, path: trailingTarget },
+        { id: "parts-name-c", property: PATH_NAME_PROPERTY, path: rootPath },
+      ],
+      inspect,
+      symlinks: [
+        { path: join(input.target, itemLinkName), target: filledName },
+        { path: join(input.target, brokenLinkName), target: `missing-${input.token}-target` },
+      ],
+    },
+  };
+}
+
+const legacyScenarios: readonly CommandScenario[] = [
+  legacyScenario("train-empty-same-directory", "train", "empty", "empty", [], []),
+  legacyScenario("train-sibling-mixed", "train", "branches/left", "branches/right", ["one.txt"], ["empty-child"]),
+  legacyScenario("train-child-dot-files", "train", "parent", "parent/child", [".hidden", "visible", "notes.txt"], []),
+  legacyScenario("train-parent-with-descendants", "train", "outer/inner", "outer", [], ["inner"]),
+  legacyScenario("development-multibranch-space", "development", "begin/deep/a", "work space/target", ["alpha space", "beta", "gamma"], ["left", "right"]),
+  legacyScenario("development-extension-types", "development", "source/start", "ending/root", ["a", "b", "c", "d", "looks-like-folder"], ["folder.txt"]),
 ];
 
-function samplesFor(scene: CommandScenario): readonly CommandSample[] {
-  const effective = CASES.filter(name => scene.startPath !== scene.targetPath
+const batch1Scenarios: readonly CommandScenario[] = [
+  pathFamily({ id: "train-path-flat", partition: "train", start: "families/one/alpha/current", target: "families/one/alpha/output", token: "alpha" }),
+  pathFamily({ id: "train-path-deep", partition: "train", start: "families/two/level-a/level-b/深度/current", target: "families/two/level-a/level-b/深度/result", token: "深度" }),
+  pathFamily({ id: "train-path-spaces", partition: "train", start: "families/three/space base/quote'name/start", target: "families/three/space base/quote'name/finish", token: "quote'name" }),
+  pathFamily({ id: "train-path-controls", partition: "train", start: "families/four/line\nname/begin", target: "families/four/line\nname/end", token: "line\nname" }),
+  pathFamily({ id: "development-path-siblings", partition: "development", start: "families/dev/sibling/left/entry", target: "families/dev/sibling/right/exit", token: "dev-left" }),
+  pathFamily({ id: "development-path-deep-edge", partition: "development", start: "families/dev/deep/a/b/c/d/current", target: "families/dev/deep/a/b/c/d/target", token: "dev-edge" }),
+];
+
+function legacySamplesFor(scene: CommandScenario): readonly CommandSample[] {
+  const effective = LEGACY_CASES.filter(name => scene.startPath !== scene.targetPath
     || (name !== "cwd-equals-fresh-unequal" && name !== "cwd-equals-unknown"));
   return effective.map(name => {
-    const expectation = CASE_EXPECTATION[name];
+    const expectation = LEGACY_CASE_EXPECTATION[name];
     return Object.freeze({
       id: `${scene.id}-${name}`,
       scenarioId: scene.id,
@@ -134,14 +391,61 @@ function samplesFor(scene: CommandScenario): readonly CommandSample[] {
   });
 }
 
-function nonEmpty(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0 || value.includes("\0")) throw new TypeError(`${label} must be a non-empty string`);
-  return value;
+function batch1SamplesFor(scene: CommandScenario, queries: ReadonlyMap<string, Batch1Query>): readonly CommandSample[] {
+  const fixtures = scene.pathFixtures;
+  if (!fixtures) throw new TypeError(`Batch1 scenario ${scene.id} is missing path fixtures`);
+  const grouped = [
+    ...fixtures.resolve.map(item => ({ case: "path-resolve" as const, fixture: item, query: queries.get(item.id) })),
+    ...fixtures.relative.map(item => ({ case: "path-relative" as const, fixture: item, query: queries.get(item.id) })),
+    ...fixtures.parts.map(item => ({
+      case: item.property === PATH_PARENT_PROPERTY ? "path-parts-parent" as const : "path-parts-name" as const,
+      fixture: item,
+      query: queries.get(item.id),
+    })),
+    ...fixtures.inspect.map(item => ({
+      case: inspectCase(item.property),
+      fixture: item,
+      query: queries.get(item.id),
+    })),
+  ];
+  return grouped.map(({ case: name, fixture, query }) => {
+    if (!query) throw new TypeError(`Missing bound query for ${scene.id}/${fixture.id}`);
+    const expectation = BATCH1_CASE_EXPECTATION[name];
+    return Object.freeze({
+      id: `${scene.id}-${fixture.id}`,
+      scenarioId: scene.id,
+      sourceGroup: scene.sourceGroup,
+      partition: scene.partition,
+      case: name,
+      variant: fixture.id,
+      query,
+      expectedHead: expectation.head,
+      expectedStatus: expectation.status,
+      expectedSatisfaction: expectation.satisfaction,
+    });
+  });
+}
+
+function inspectCase(property: InspectProperty): Batch1CommandCase {
+  const name = property.slice("file.property.".length).replaceAll(".", "-");
+  const value = `inspect-${name}`;
+  if (!BATCH1_CASES.includes(value as Batch1CommandCase)) throw new TypeError(`Unsupported inspect property ${property}`);
+  return value as Batch1CommandCase;
+}
+
+function isLegacyCase(value: unknown): value is LegacyCommandCase {
+  return typeof value === "string" && LEGACY_CASES.includes(value as LegacyCommandCase);
+}
+
+export function isBatch1CommandCase(value: unknown): value is Batch1CommandCase {
+  return typeof value === "string" && BATCH1_CASES.includes(value as Batch1CommandCase);
 }
 
 export function prepareCliCommandDataset(value: unknown, partitions: readonly CommandPartition[] = ["train", "development"]) {
   const dataset = expectRecord(value, "command dataset");
-  if (dataset.version !== 2 || !Array.isArray(dataset.scenarios) || !Array.isArray(dataset.samples)) throw new TypeError("Invalid command dataset");
+  if ((dataset.version !== 2 && dataset.version !== 3) || !Array.isArray(dataset.scenarios) || !Array.isArray(dataset.samples)) {
+    throw new TypeError("Invalid command dataset");
+  }
   const groups = new Map<string, CommandPartition>(), sceneMap = new Map<string, CommandScenario>();
   for (const raw of dataset.scenarios) {
     const item = expectRecord(raw, "command scenario") as unknown as CommandScenario;
@@ -173,10 +477,20 @@ export function prepareCliCommandDataset(value: unknown, partitions: readonly Co
     if (!scene || scene.partition !== item.partition || scene.sourceGroup !== item.sourceGroup || typeof item.id !== "string" || ids.has(item.id)) {
       throw new TypeError("Invalid sample source/identity");
     }
-    if (!CASES.includes(item.case)) throw new TypeError("Unknown command sample case");
-    const expectation = CASE_EXPECTATION[item.case];
+    const batch1 = isBatch1CommandCase(item.case);
+    if (!isLegacyCase(item.case) && !batch1) throw new TypeError("Unknown command sample case");
+    if (dataset.version === 2 && batch1) throw new TypeError("Batch1 samples require command dataset version 3");
+    const expectation = batch1
+      ? BATCH1_CASE_EXPECTATION[item.case as Batch1CommandCase]
+      : LEGACY_CASE_EXPECTATION[item.case as LegacyCommandCase];
     if (item.expectedHead !== expectation.head || item.expectedStatus !== expectation.status || item.expectedSatisfaction !== expectation.satisfaction) {
       throw new TypeError("Sample expectation conflicts with the registered case");
+    }
+    if (batch1) {
+      if (item.query === undefined) throw new TypeError("Batch1 sample requires a typed query");
+      validateGoal(sampleGoal(item, scene));
+    } else if (item.query !== undefined) {
+      throw new TypeError("Legacy command sample must not contain a Batch1 query");
     }
     if (!CLI_COMMAND_HEADS.includes(item.expectedHead)) throw new TypeError("Sample head is outside the shared head table");
     ids.add(item.id);
@@ -200,18 +514,19 @@ function placeholderDirectory(scene: CommandScenario): DirectoryRef {
   return Object.freeze({ kind: "cli.directory", scenarioId: scene.id, sessionId: "s", path: "." });
 }
 
-function directoryQuery(name: string): DirectoryQuery {
+function directoryQuery(name: string) {
   return Object.freeze({
-    kind: "cli.file-query",
-    relation: "entrySelector",
+    kind: "cli.file-query" as const,
+    relation: "entrySelector" as const,
     scopes: Object.freeze([]),
-    selector: Object.freeze({ type: "directory", ...(name ? { name } : {}) }),
-    cardinality: "one",
+    selector: Object.freeze({ type: "directory" as const, ...(name ? { name } : {}) }),
+    cardinality: "one" as const,
   });
 }
 
 export function sampleFacts(sample: CommandSample): PropertyFacts {
-  const facts: Record<CommandCase, PropertyFacts> = {
+  if (!isLegacyCase(sample.case)) return ZERO_FACTS;
+  const facts: Record<LegacyCommandCase, PropertyFacts> = {
     "cwd-observed": { hasFreshEvidence: 0, knownValue: 0, requiredConditionHolds: 0, hasDestinationRef: 0 },
     "entries-observed": { hasFreshEvidence: 0, knownValue: 0, requiredConditionHolds: 0, hasDestinationRef: 1 },
     "entries-observed-old-listing": { hasFreshEvidence: 0, knownValue: 1, requiredConditionHolds: 0, hasDestinationRef: 1 },
@@ -227,6 +542,39 @@ export function sampleFacts(sample: CommandSample): PropertyFacts {
 }
 
 export function sampleGoal(sample: CommandSample, scene: CommandScenario): FilePropertyGoal {
+  if (sample.query !== undefined) {
+    if (sample.query.kind === "path.resolve") {
+      return Object.freeze({
+        kind: "file.property",
+        property: PATH_ABSOLUTE_PROPERTY,
+        target: Object.freeze({ kind: "cli.path-query", base: sample.query.base, input: sample.query.input }),
+        requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
+      });
+    }
+    if (sample.query.kind === "path.relative") {
+      return Object.freeze({
+        kind: "file.property",
+        property: PATH_RELATIVE_PROPERTY,
+        target: Object.freeze({ kind: "cli.path-query", from: sample.query.from, to: sample.query.to }),
+        requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
+      });
+    }
+    if (sample.query.kind === "path.parts") {
+      return Object.freeze({
+        kind: "file.property",
+        property: sample.query.property,
+        target: sample.query.path,
+        requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
+      });
+    }
+    return Object.freeze({
+      kind: "file.property",
+      property: sample.query.property,
+      target: Object.freeze({ kind: "cli.entry-query", ref: sample.query.ref, followSymlinks: sample.query.followSymlinks }),
+      requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
+    });
+  }
+
   const session = placeholderSession(scene), directory = placeholderDirectory(scene);
   if (sample.case === "unregistered-property") {
     return Object.freeze({
@@ -242,11 +590,11 @@ export function sampleGoal(sample: CommandSample, scene: CommandScenario): FileP
   if (sample.case === "entries-observed-unbound") {
     return Object.freeze({ kind: "file.property", property: ENTRIES_PROPERTY, target: directoryQuery(scene.targetPath), requirement: Object.freeze({ kind: "observed", freshness: "this_run" }) });
   }
-  const requirement: CwdGoal["requirement"] = sample.case === "cwd-observed"
-    ? Object.freeze({ kind: "observed", freshness: "this_run" })
+  const requirement = sample.case === "cwd-observed"
+    ? Object.freeze({ kind: "observed" as const, freshness: "this_run" as const })
     : sample.case === "cwd-equals-unbound"
-      ? Object.freeze({ kind: "equals", expected: directoryQuery(scene.targetPath) })
-      : Object.freeze({ kind: "equals", expected: directory });
+      ? Object.freeze({ kind: "equals" as const, expected: directoryQuery(scene.targetPath) })
+      : Object.freeze({ kind: "equals" as const, expected: directory });
   return Object.freeze({
     kind: "file.property",
     property: CWD_PROPERTY,
@@ -259,13 +607,78 @@ export function sampleFeatures(sample: CommandSample, scene: CommandScenario): r
   return cliCommandFeatures(sampleGoal(sample, scene), sampleFacts(sample));
 }
 
-export async function makeCliCommandFixture(options: Readonly<{ root: string; partitions?: readonly ("train" | "development")[] }>) {
+function sceneAbsolute(sceneRoot: string, path: string): string {
+  return isAbsolute(path) ? path : join(sceneRoot, path);
+}
+
+async function bindPathFixtures(
+  sandbox: Awaited<ReturnType<typeof createCliFilesystemSandbox>>,
+  scene: CommandScenario,
+): Promise<ReadonlyMap<string, Batch1Query>> {
+  const fixtures = scene.pathFixtures;
+  if (!fixtures) return new Map();
+  const session = sandbox.bindSession("s"), queries = new Map<string, Batch1Query>();
+  for (const item of fixtures.resolve) {
+    queries.set(item.id, Object.freeze({
+      kind: "path.resolve",
+      base: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, item.base)),
+      input: item.input,
+    }));
+  }
+  for (const item of fixtures.relative) {
+    queries.set(item.id, Object.freeze({
+      kind: "path.relative",
+      from: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, item.from)),
+      to: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, item.to)),
+    }));
+  }
+  for (const item of fixtures.parts) {
+    queries.set(item.id, Object.freeze({
+      kind: "path.parts",
+      property: item.property,
+      path: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, item.path)),
+    }));
+  }
+  for (const item of fixtures.inspect) {
+    const absolute = sceneAbsolute(sandbox.scenarioRoot, item.path);
+    const ref: InspectRef = item.refKind === "cli.path"
+      ? sandbox.bindPath(session, absolute)
+      : item.refKind === "cli.entry"
+        ? await sandbox.bindEntry(session, absolute) as EntryRef
+        : item.refKind === "cli.file"
+          ? await sandbox.bindFile(session, absolute) as FileRef
+          : await sandbox.bindDirectoryObject(session, absolute) as ObservedDirectoryRef;
+    queries.set(item.id, Object.freeze({
+      kind: "inspect",
+      property: item.property,
+      ref,
+      followSymlinks: item.followSymlinks,
+    }));
+  }
+  return queries;
+}
+
+export async function makeCliCommandFixture(options: Readonly<{
+  root: string;
+  partitions?: readonly ("train" | "development")[];
+  extended?: boolean;
+}>) {
   const partitions = options.partitions ?? ["train", "development"];
-  const selected = scenarios.filter(scene => (partitions as readonly CommandPartition[]).includes(scene.partition));
-  const teacherEvidence = [];
+  const selectedLegacy = legacyScenarios.filter(scene => (partitions as readonly CommandPartition[]).includes(scene.partition));
+  const selectedBatch1 = options.extended === true
+    ? batch1Scenarios.filter(scene => (partitions as readonly CommandPartition[]).includes(scene.partition))
+    : [];
+  const selected = [...selectedLegacy, ...selectedBatch1];
+  const teacherEvidence = [], datasetScenes: CommandScenario[] = [], datasetSamples: CommandSample[] = [];
   for (const scene of selected) {
     const sandbox = await createCliFilesystemSandbox({ root: options.root, recipe: scene.recipe, ownerGrantedEffects: ["filesystem.write"] });
     try {
+      if (scene.pathFixtures) {
+        for (const item of scene.pathFixtures.symlinks) {
+          const path = sceneAbsolute(sandbox.scenarioRoot, item.path);
+          await symlink(item.target, path);
+        }
+      }
       const target = join(sandbox.scenarioRoot, scene.targetPath), evidence = [];
       for (const entry of scene.expectedEntries) {
         const info = await lstat(join(target, entry.name));
@@ -273,19 +686,29 @@ export async function makeCliCommandFixture(options: Readonly<{ root: string; pa
         if (observedType !== entry.type) throw new Error("Fixture teacher type differs from actual OS type");
         evidence.push({ ...entry, observedType });
       }
+      const queries = await bindPathFixtures(sandbox, scene);
+      datasetScenes.push(scene);
+      if (scene.familyKind === "batch1") datasetSamples.push(...batch1SamplesFor(scene, queries));
+      else datasetSamples.push(...legacySamplesFor(scene));
       teacherEvidence.push({
         scenarioId: scene.id,
         physicalStart: await realpath(join(sandbox.scenarioRoot, scene.startPath)),
         physicalTarget: await realpath(target),
         entries: evidence,
+        pathFixtures: scene.pathFixtures === undefined ? null : {
+          resolve: scene.pathFixtures.resolve.length,
+          relative: scene.pathFixtures.relative.length,
+          parts: scene.pathFixtures.parts.length,
+          inspect: scene.pathFixtures.inspect.length,
+        },
       });
     } finally { await sandbox.cleanup(); }
   }
   const dataset: CliCommandDataset = {
-    version: 2,
-    scenarios: selected,
+    version: options.extended === true ? 3 : 2,
+    scenarios: datasetScenes,
     teacherEvidence,
-    samples: selected.flatMap(samplesFor),
+    samples: datasetSamples,
   };
   prepareCliCommandDataset(dataset, partitions);
   return { dataset, teacherEvidence };

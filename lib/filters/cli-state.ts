@@ -1,6 +1,13 @@
 import { expectRecord } from "../core/schema.js";
 import { validateDirectoryListing, type DirectoryListObservation } from "../adapters/cli/directory-listing.js";
 import type { PwdObservation } from "../adapters/cli/observation.js";
+import type {
+  EntryInspectQuery,
+  EntryType,
+  InspectRef,
+  OsInteger,
+  PathRef,
+} from "./cli-file-property.js";
 import { validateCliCwd } from "./cli-path.js";
 
 export type CwdKnowledge = Readonly<{
@@ -20,10 +27,60 @@ export type DirectoryKnowledge = Readonly<{
   sourceRun: string;
 }>;
 
+export type PathKnowledge = Readonly<
+  | {
+      kind: "path.resolve";
+      base: PathRef;
+      input: string;
+      absolutePath: string;
+      parent: string;
+      sourceRun: string;
+      sessionRevision: number;
+    }
+  | {
+      kind: "path.relative";
+      from: PathRef;
+      to: PathRef;
+      relativePath: string;
+      sourceRun: string;
+      sessionRevision: number;
+    }
+  | {
+      kind: "path.parts";
+      path: PathRef;
+      parent: string;
+      name: string;
+      isRoot: boolean;
+      sourceRun: string;
+      sessionRevision: number;
+    }
+>;
+
+export type EntryKnowledge = Readonly<{
+  kind: "entry.inspect";
+  query: EntryInspectQuery;
+  absolutePath: string;
+  observedWith: "stat" | "lstat" | null;
+  entryExists: boolean | null;
+  resolvedTargetExists: boolean | null;
+  type: EntryType | null;
+  size: OsInteger;
+  mode: OsInteger;
+  owner: Readonly<{ uid: OsInteger; gid: OsInteger }> | null;
+  times: Readonly<{ atimeMs: OsInteger; mtimeMs: OsInteger; ctimeMs: OsInteger; birthtimeMs: OsInteger }> | null;
+  linkTarget: string | null;
+  identity: Readonly<{ dev: OsInteger; ino: OsInteger; nlink: OsInteger; rdev: OsInteger }>;
+  errno: string | null;
+  sourceRun: string;
+  sessionRevision: number;
+}>;
+
 export type ExplicitFileState = Readonly<{
   session: string;
   cwdObservation: CwdKnowledge | null;
   directoryListing: DirectoryKnowledge | null;
+  pathKnowledge?: PathKnowledge | null;
+  entryKnowledge?: EntryKnowledge | null;
 }>;
 
 function nonEmpty(value: unknown, label: string): string {
@@ -41,6 +98,101 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[], labe
   if (Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
     throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`);
   }
+}
+
+function nonnegativeInteger(value: unknown, label: string): number {
+  if (!Number.isInteger(value) || (value as number) < 0) throw new TypeError(`${label} must be a nonnegative integer`);
+  return value as number;
+}
+
+function osInteger(value: unknown, label: string, allowNegative = false): OsInteger {
+  if (value === null) return null;
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value) || (!allowNegative && value < 0)) {
+      throw new TypeError(`${label} must be a ${allowNegative ? "safe integer" : "safe nonnegative integer"}`);
+    }
+    return value;
+  }
+  if (typeof value === "string" && /^-?(0|[1-9]\d*)$/.test(value) && (allowNegative || !value.startsWith("-"))) return value;
+  throw new TypeError(`${label} must be a safe integer, decimal string, or null`);
+}
+
+function validatePathRef(value: unknown, label: string): PathRef {
+  const ref = expectRecord(value, label);
+  exactKeys(ref, ["kind", "path", "scenarioId", "sessionId"], label);
+  if (ref.kind !== "cli.path") throw new TypeError(`${label} must be a cli.path reference`);
+  return Object.freeze({
+    kind: "cli.path",
+    scenarioId: nonEmpty(ref.scenarioId, `${label}.scenarioId`),
+    sessionId: nonEmpty(ref.sessionId, `${label}.sessionId`),
+    path: absolutePath(ref.path, `${label}.path`),
+  });
+}
+
+function validateObjectIdentity(value: unknown, label: string): Readonly<{ dev: OsInteger; ino: OsInteger }> {
+  const identity = expectRecord(value, label);
+  exactKeys(identity, ["dev", "ino"], label);
+  return Object.freeze({
+    dev: osInteger(identity.dev, `${label}.dev`),
+    ino: osInteger(identity.ino, `${label}.ino`),
+  });
+}
+
+function validateFullIdentity(value: unknown, label: string): EntryKnowledge["identity"] {
+  const identity = expectRecord(value, label);
+  exactKeys(identity, ["dev", "ino", "nlink", "rdev"], label);
+  return Object.freeze({
+    dev: osInteger(identity.dev, `${label}.dev`),
+    ino: osInteger(identity.ino, `${label}.ino`),
+    nlink: osInteger(identity.nlink, `${label}.nlink`),
+    rdev: osInteger(identity.rdev, `${label}.rdev`),
+  });
+}
+
+function validateInspectRef(value: unknown, label: string): InspectRef {
+  const ref = expectRecord(value, label);
+  if (ref.kind === "cli.path") return validatePathRef(ref, label);
+  if (ref.kind !== "cli.entry" && ref.kind !== "cli.file" && ref.kind !== "cli.directory") {
+    throw new TypeError(`${label} must be a typed inspect reference`);
+  }
+  if (ref.kind === "cli.directory" && Object.hasOwn(ref, "path")) {
+    exactKeys(ref, ["kind", "path", "scenarioId", "sessionId"], label);
+    return Object.freeze({
+      kind: "cli.directory",
+      scenarioId: nonEmpty(ref.scenarioId, `${label}.scenarioId`),
+      sessionId: nonEmpty(ref.sessionId, `${label}.sessionId`),
+      path: nonEmpty(ref.path, `${label}.path`),
+    });
+  }
+  exactKeys(ref, ["absolutePath", "identity", "kind", "scenarioId", "sessionId", "sessionRevision", "sourceRun", "type"], label);
+  if (!["regular", "directory", "symlink", "character_device", "block_device", "fifo", "socket", "other"].includes(ref.type as string)) {
+    throw new TypeError(`${label}.type must be a supported entry type`);
+  }
+  const observed = {
+    scenarioId: nonEmpty(ref.scenarioId, `${label}.scenarioId`),
+    sessionId: nonEmpty(ref.sessionId, `${label}.sessionId`),
+    type: ref.type as EntryType,
+    identity: validateObjectIdentity(ref.identity, `${label}.identity`),
+    sourceRun: nonEmpty(ref.sourceRun, `${label}.sourceRun`),
+    sessionRevision: nonnegativeInteger(ref.sessionRevision, `${label}.sessionRevision`),
+    absolutePath: absolutePath(ref.absolutePath, `${label}.absolutePath`),
+  };
+  if (ref.kind === "cli.entry") return Object.freeze({ kind: "cli.entry", ...observed });
+  if (ref.kind === "cli.file") return Object.freeze({ kind: "cli.file", ...observed });
+  return Object.freeze({ kind: "cli.directory", ...observed });
+}
+
+function validateEntryInspectQuery(value: unknown): EntryInspectQuery {
+  const query = expectRecord(value, "entryKnowledge.query");
+  exactKeys(query, ["followSymlinks", "kind", "ref"], "entryKnowledge.query");
+  if (query.kind !== "cli.entry-query" || typeof query.followSymlinks !== "boolean") {
+    throw new TypeError("entryKnowledge.query must be a cli.entry-query with boolean followSymlinks");
+  }
+  return Object.freeze({
+    kind: "cli.entry-query",
+    ref: validateInspectRef(query.ref, "entryKnowledge.query.ref"),
+    followSymlinks: query.followSymlinks,
+  });
 }
 
 function sameEntries(
@@ -198,13 +350,131 @@ export function validateDirectoryKnowledge(value: unknown): DirectoryKnowledge {
   });
 }
 
+export function validatePathKnowledge(value: unknown): PathKnowledge {
+  const knowledge = expectRecord(value, "state.pathKnowledge");
+  if (knowledge.kind === "path.resolve") {
+    exactKeys(knowledge, ["absolutePath", "base", "input", "kind", "parent", "sessionRevision", "sourceRun"], "path.resolve knowledge");
+    return Object.freeze({
+      kind: "path.resolve",
+      base: validatePathRef(knowledge.base, "path.resolve knowledge base"),
+      input: nonEmpty(knowledge.input, "path.resolve knowledge input"),
+      absolutePath: absolutePath(knowledge.absolutePath, "path.resolve knowledge absolutePath"),
+      parent: absolutePath(knowledge.parent, "path.resolve knowledge parent"),
+      sourceRun: nonEmpty(knowledge.sourceRun, "path.resolve knowledge sourceRun"),
+      sessionRevision: nonnegativeInteger(knowledge.sessionRevision, "path.resolve knowledge sessionRevision"),
+    });
+  }
+  if (knowledge.kind === "path.relative") {
+    exactKeys(knowledge, ["from", "kind", "relativePath", "sessionRevision", "sourceRun", "to"], "path.relative knowledge");
+    if (typeof knowledge.relativePath !== "string" || knowledge.relativePath.includes("\0")) {
+      throw new TypeError("path.relative knowledge relativePath must be a string without NUL");
+    }
+    return Object.freeze({
+      kind: "path.relative",
+      from: validatePathRef(knowledge.from, "path.relative knowledge from"),
+      to: validatePathRef(knowledge.to, "path.relative knowledge to"),
+      relativePath: knowledge.relativePath,
+      sourceRun: nonEmpty(knowledge.sourceRun, "path.relative knowledge sourceRun"),
+      sessionRevision: nonnegativeInteger(knowledge.sessionRevision, "path.relative knowledge sessionRevision"),
+    });
+  }
+  if (knowledge.kind === "path.parts") {
+    exactKeys(knowledge, ["isRoot", "kind", "name", "parent", "path", "sessionRevision", "sourceRun"], "path.parts knowledge");
+    if (typeof knowledge.name !== "string" || knowledge.name.includes("\0") || typeof knowledge.isRoot !== "boolean") {
+      throw new TypeError("path.parts knowledge name/isRoot are invalid");
+    }
+    return Object.freeze({
+      kind: "path.parts",
+      path: validatePathRef(knowledge.path, "path.parts knowledge path"),
+      parent: absolutePath(knowledge.parent, "path.parts knowledge parent"),
+      name: knowledge.name,
+      isRoot: knowledge.isRoot,
+      sourceRun: nonEmpty(knowledge.sourceRun, "path.parts knowledge sourceRun"),
+      sessionRevision: nonnegativeInteger(knowledge.sessionRevision, "path.parts knowledge sessionRevision"),
+    });
+  }
+  throw new TypeError("state.pathKnowledge.kind must be path.resolve, path.relative, or path.parts");
+}
+
+export function validateEntryKnowledge(value: unknown): EntryKnowledge {
+  const knowledge = expectRecord(value, "state.entryKnowledge");
+  const required = [
+    "absolutePath", "entryExists", "errno", "identity", "kind", "linkTarget", "mode", "owner",
+    "query", "resolvedTargetExists", "sessionRevision", "size", "sourceRun", "times", "type",
+  ];
+  if (Object.keys(knowledge).some(key => !required.includes(key) && key !== "observedWith")
+    || required.some(key => !Object.hasOwn(knowledge, key))) {
+    throw new TypeError(`state.entryKnowledge must contain ${required.join(", ")} and optional observedWith`);
+  }
+  if (knowledge.kind !== "entry.inspect") throw new TypeError("state.entryKnowledge.kind must be entry.inspect");
+  if (knowledge.observedWith !== undefined && knowledge.observedWith !== null
+    && knowledge.observedWith !== "stat" && knowledge.observedWith !== "lstat") {
+    throw new TypeError("entryKnowledge.observedWith must be stat, lstat, or null");
+  }
+  if (knowledge.entryExists !== null && typeof knowledge.entryExists !== "boolean") throw new TypeError("entryKnowledge.entryExists must be boolean or null");
+  if (knowledge.resolvedTargetExists !== null && typeof knowledge.resolvedTargetExists !== "boolean") {
+    throw new TypeError("entryKnowledge.resolvedTargetExists must be boolean or null");
+  }
+  if (knowledge.type !== null && !["regular", "directory", "symlink", "character_device", "block_device", "fifo", "socket", "other"].includes(knowledge.type as string)) {
+    throw new TypeError("entryKnowledge.type must be a supported entry type or null");
+  }
+  if (knowledge.linkTarget !== null && (typeof knowledge.linkTarget !== "string" || knowledge.linkTarget.includes("\0"))) {
+    throw new TypeError("entryKnowledge.linkTarget must be a string without NUL or null");
+  }
+  if (knowledge.errno !== null && (typeof knowledge.errno !== "string" || knowledge.errno.length === 0)) {
+    throw new TypeError("entryKnowledge.errno must be a non-empty string or null");
+  }
+  let owner: EntryKnowledge["owner"] = null;
+  if (knowledge.owner !== null) {
+    const raw = expectRecord(knowledge.owner, "entryKnowledge.owner");
+    exactKeys(raw, ["gid", "uid"], "entryKnowledge.owner");
+    owner = Object.freeze({ uid: osInteger(raw.uid, "entryKnowledge.owner.uid"), gid: osInteger(raw.gid, "entryKnowledge.owner.gid") });
+  }
+  let times: EntryKnowledge["times"] = null;
+  if (knowledge.times !== null) {
+    const raw = expectRecord(knowledge.times, "entryKnowledge.times");
+    exactKeys(raw, ["atimeMs", "birthtimeMs", "ctimeMs", "mtimeMs"], "entryKnowledge.times");
+    times = Object.freeze({
+      atimeMs: osInteger(raw.atimeMs, "entryKnowledge.times.atimeMs", true),
+      mtimeMs: osInteger(raw.mtimeMs, "entryKnowledge.times.mtimeMs", true),
+      ctimeMs: osInteger(raw.ctimeMs, "entryKnowledge.times.ctimeMs", true),
+      birthtimeMs: osInteger(raw.birthtimeMs, "entryKnowledge.times.birthtimeMs", true),
+    });
+  }
+  return Object.freeze({
+    kind: "entry.inspect",
+    query: validateEntryInspectQuery(knowledge.query),
+    absolutePath: absolutePath(knowledge.absolutePath, "entryKnowledge.absolutePath"),
+    observedWith: knowledge.observedWith === undefined || knowledge.observedWith === null
+      ? null
+      : knowledge.observedWith as "stat" | "lstat",
+    entryExists: knowledge.entryExists as boolean | null,
+    resolvedTargetExists: knowledge.resolvedTargetExists as boolean | null,
+    type: knowledge.type as EntryType | null,
+    size: osInteger(knowledge.size, "entryKnowledge.size"),
+    mode: osInteger(knowledge.mode, "entryKnowledge.mode"),
+    owner,
+    times,
+    linkTarget: knowledge.linkTarget as string | null,
+    identity: validateFullIdentity(knowledge.identity, "entryKnowledge.identity"),
+    errno: knowledge.errno as string | null,
+    sourceRun: nonEmpty(knowledge.sourceRun, "entryKnowledge.sourceRun"),
+    sessionRevision: nonnegativeInteger(knowledge.sessionRevision, "entryKnowledge.sessionRevision"),
+  });
+}
+
 export function validateExplicitFileState(value: unknown): ExplicitFileState {
   const state = expectRecord(value, "property state");
-  exactKeys(state, ["session", "cwdObservation", "directoryListing"], "property state");
+  const keys = ["session", "cwdObservation", "directoryListing"], allowed = [...keys, "pathKnowledge", "entryKnowledge"];
+  if (Object.keys(state).some(key => !allowed.includes(key)) || keys.some(key => !Object.hasOwn(state, key))) {
+    throw new TypeError(`property state must contain ${keys.join(", ")} and optional pathKnowledge, entryKnowledge`);
+  }
   return Object.freeze({
     session: nonEmpty(state.session, "state.session"),
     cwdObservation: state.cwdObservation === null ? null : validateCwdKnowledge(state.cwdObservation),
     directoryListing: state.directoryListing === null ? null : validateDirectoryKnowledge(state.directoryListing),
+    pathKnowledge: state.pathKnowledge === undefined || state.pathKnowledge === null ? null : validatePathKnowledge(state.pathKnowledge),
+    entryKnowledge: state.entryKnowledge === undefined || state.entryKnowledge === null ? null : validateEntryKnowledge(state.entryKnowledge),
   });
 }
 

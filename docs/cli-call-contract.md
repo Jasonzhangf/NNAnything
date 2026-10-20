@@ -1,6 +1,6 @@
 # CLI调用参数简化合同
 
-状态：2026-10-19实施合同；PWD/CD/LS 已迁移到 `file.property` typed 请求与统一单 profile，旧 `observe_cwd/set_cwd/list_directory` Goal 与旧 `cli.command-policy.v1` 4×4 运行对象已退役。本文是当前调用边界的唯一入口；Goal/证据/结果语义见[file.property合同](cli-filesystem-semantics.md)第6节，训练与迁移见[文件系统训练合同](cli-filesystem-training.md)§0.1。共享候选保持`uncalibrated/not_applied`；B对象查找、其余22个操作、自动采集/自动采用仍未实现。
+状态：2026-10-19实施合同。0.2.0 的 PWD/CD/LS 已迁移到 `file.property` typed 请求与统一单 profile；0.3.0 已实现并接入 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 与 10×30 共享矩阵；运行证据为全仓 335/335 通过、独立套件 40 场景+16 探针 56/56、旧独立套件回归 34/34。旧 `observe_cwd/set_cwd/list_directory` Goal 与旧 `cli.command-policy.v1` 4×4 运行对象已退役。本文是当前调用边界的唯一入口；Goal/证据/结果语义见[file.property合同](cli-filesystem-semantics.md)第7节，训练与迁移见[文件系统训练合同](cli-filesystem-training.md)§0.1。共享候选保持`uncalibrated/not_applied`；B对象查找、其余目录/文件操作、自动采集/自动采用仍未实现。
 
 ## 1. 模型输出调用序列与显式资源信封
 
@@ -28,6 +28,10 @@ Shell 的统一 Goal 为 [file.property.xxx](cli-filesystem-semantics.md)，指�
 | `{operation:"cwd.get",parameters:{session:S}}` | session引用 | PWD映射、`/bin/pwd -P`、显式cwd、授权、回执来源 |
 | `{operation:"cwd.set",parameters:{session:S,directory:D}}` | session和目录引用 | CD映射、固定执行模板、目标路径绑定、成功后提交S、后续观测验证 |
 | `{operation:"directory.list",parameters:{session:S,directory:D}}` | session和目录引用 | LIST映射、固定结构化CLI helper、只列直接条目、隐藏项保留、不跟随链接、不递归 |
+| `{operation:"path.resolve",parameters:{base:P,input:PathText}}` | 明确绝对base与原始input | 固定词法解释器；不访问FS，不展开`~`、环境变量或glob |
+| `{operation:"path.relative",parameters:{from:P,to:P}}` | 两个明确绝对路径 | 固定`path.posix.relative`；非绝对参数拒绝 |
+| `{operation:"path.parts",parameters:{path:P}}` | 明确绝对路径 | 固定`dirname/basename`；只合并重复斜杠并去掉尾斜线（根`/`除外），不解析`.`或`..`；根目录返回显式parent/name/isRoot |
+| `{operation:"entry.inspect",parameters:{ref:E/D/F/P,followSymlinks:boolean}}` | typed来源引用与明确跟随模式 | 固定helper执行stat/lstat/readlink；只读，不打开FIFO/socket/设备字节流 |
 
 `DirectoryRef.path`在调用时相对S当前cwd解析；CD提交后调用者重新绑定。`DirectoryQuery` 是合法但本轮未完成的目录绑定：`scopes` 显式、`selector.type="directory"`、`cardinality="one"`；它进入 `DEFER`，不扫描磁盘。harness不做隐藏重定向。
 
@@ -50,11 +54,15 @@ Shell 的统一 Goal 为 [file.property.xxx](cli-filesystem-semantics.md)，指�
 - 非法 schema、额外答案字段、坏 ref、跨 session 矛盾或旧 Goal/旧 profile 直接抛 `TypeError`，零 OS 副作用。结构合法但未注册的 property/predicate 返回 `unsupported` 控制结果。
 - 顶层 `status` 统一为 `achieved | unmet | unknown | rejected | failed`；旧 `unverified` 分支退役。
 
-### 1.1 当前实现切片与训练入口
+### 1.1 实现切片、0.3.0合同与训练入口
 
-当前 profile 保存精确的 `properties`、`predicates`、`heads`、`wires`、`weights` 顺序。head 为 `unsupported,DEFER,NOOP,pwd,cd,ls`；wire 前四条固定为 `bias,goalObserveCwd,goalSetCwd,goalListDirectory`，随后是 `property.directory.entries,property.relation.sessionCwd`、`predicate.observe.sessionCwd,predicate.equals.sessionCwd,predicate.observe.entries`、`state.hasFreshEvidence,state.knownValue,state.requiredConditionHolds,state.hasDestinationRef` 与交互 `state.requiredConditionHolds*state.hasFreshEvidence`。`hasSessionRef` 恒为 1，记录为常量，不注册。当前矩阵为 6×14=84 参数。
+0.2.0 已实现 profile 保存精确的 `properties`、`predicates`、`heads`、`wires`、`weights` 顺序，head 为 `unsupported,DEFER,NOOP,pwd,cd,ls`，矩阵为 6×14=84 参数。I1 不修改运行校验器；0.3.0 运行接入由 I3–I5 完成。
 
-离线迁移只接受旧 `[unsupported,pwd,cd,ls]×[bias,goalObserveCwd,goalSetCwd,goalListDirectory]` 对象，按 name 复制旧交叉块，新行列补零并补阶段注册；运行入口拒绝未显式迁移的旧对象。legacy 四 wire 从 typed property/predicate 相等关系计算，不调用期望 head 或 teacher。
+0.3.0 合同 profile 的 head 顺序为 `unsupported,DEFER,NOOP,pwd,cd,ls,path.resolve,path.relative,path.parts,entry.inspect`。wire 顺序固定为：`bias,goalObserveCwd,goalSetCwd,goalListDirectory`；`property.path.absolute,property.path.relative,property.path.parent,property.path.name,property.exists,property.type,property.directory.entries,property.size,property.mode,property.owner,property.times,property.link.target,property.entry.identity,property.relation.sessionCwd`；`predicate.observe.absolute,predicate.observe.relative,predicate.observe.parts,predicate.observe.inspect,predicate.observe.sessionCwd,predicate.equals.sessionCwd,predicate.observe.entries`；`state.hasFreshEvidence,state.knownValue,state.requiredConditionHolds,state.hasDestinationRef` 与交互 `state.requiredConditionHolds*hasFreshEvidence`。`hasSessionRef` 恒为 1，只记录常量，不注册。`F=4+14+7+4+1=30`、`K=10`，合同矩阵为 10×30=300 参数。
+
+离线迁移分两级且都显式执行：旧 `[unsupported,pwd,cd,ls]×[bias,goalObserveCwd,goalSetCwd,goalListDirectory]` 4×4 对象按 name 迁移到 6×14；旧 6×14 的 84 个交叉位置再按 name 原值复制到 10×30，新增四行、16 列及其他未对应位置补零。运行入口不静默接受旧形状，也不按行索引复用权重。legacy 四 wire 从 typed property/predicate 相等关系计算，不调用期望 head 或 teacher。
+
+本批不注册 `observedType`、`requiredTargetType`、`selectorTargetType`、`combination` 块，不注册 `followSymlinks` wire、`path.physical`、`observe.physical`、`observe.resolvedTarget` 或 `file.property.links`。`path.realpath` 不注册且不预留空列；后续按独立批次闭合物理路径与链接全链解析。
 
 补全的目录/文件操作按语义目录2.1/2.2的必要参数接入：引用 source/destination/parent/file/session 与 typed Bytes、offset、length、mode、uid/gid、时间或link文本，字段按具体operation固定。创建目标用已知父目录与明确目标路径，不要求伪造已有引用。固定harness在 `lib/adapters/cli/`，仅接已声明操作，不开放通用shell；OS/固定helper映射及部分副作用验收须在各操作实现前补齐。递归创建、树复制/删除等由有限单操作组合，不给命令加隐含递归/覆盖fallback。
 

@@ -1,6 +1,6 @@
 # file.property 最小单元训练设计
 
-状态：2026-10-19 设计合同；P3 的 sessionCwd observed/equals 与 directory.entries observed 已接入运行入口并真实拟合。本页其余 P1/P2/P4/P5/P6、B 与 R 仍为设计，单元不能因本页存在就标为已训练。所有命令/操作选择只使用[文件系统训练合同](cli-filesystem-training.md)§2的同一`cli.command-policy.v1`共享矩阵；P1-P6只是样本/统计/效果分组。B对象关系与R用途关系是独立概念模型；C组合下一步若选命令，复用同一共享矩阵。特殊文件只训练观测/拒绝关系，不学习未定义设备协议。语义和命令方案分别沿 [属性合同](cli-filesystem-semantics.md) 与 [固定调用设计](cli-command-design.md)。
+状态：2026-10-19 设计合同；0.2.0 的 P3 sessionCwd observed/equals 与 directory.entries observed 已接入运行入口并真实拟合。0.3.0 合同登记 P1 的四个路径词法属性与 P2 的 `entry.inspect` 八项属性，但尚未训练或接入运行入口。本页其余 P4/P5/P6、B 与 R 仍为设计，单元不能因本页存在就标为已训练。所有命令/操作选择只使用[文件系统训练合同](cli-filesystem-training.md)§2的同一`cli.command-policy.v1`共享矩阵；P1-P6只是样本/统计/效果分组。B对象关系与R用途关系是独立概念模型；C组合下一步若选命令，复用同一共享矩阵。特殊文件只训练观测/拒绝关系，不学习未定义设备协议。语义和命令方案分别沿 [属性合同](cli-filesystem-semantics.md) 与 [固定调用设计](cli-command-design.md)。
 
 ## 1. 四元素与分工
 
@@ -33,14 +33,14 @@ sessionCwd关系复用CWD设计 `[1,sameSession,hasObservation]` 的2×3参数�
 
 不训练任意命令生成器，也不为每个操作族建立独立profile。所有命令/操作选择由[文件系统训练合同](cli-filesystem-training.md)§2.1-2.4的同一`cli.command-policy.v1`共享矩阵承担：同一head词表、同一wire顺序、同一softmax与CE。P1-P6不是部署单元，只是样本、统计与效果分组；prepare不按P族路由到独立selector，不按族过滤logits或硬mask，不保存P族候选。B对象关系与R用途是两个独立概念模型，它们不输出命令head；C组合下一步若选命令，同样使用这一共享矩阵。
 
-当前运行schema登记 P3 的 2 个 property、3 个 predicate、4 个 state 位与 1 个交互项，并同时登记 `unsupported/DEFER/NOOP/pwd/cd/ls` 六个 head，见[文件系统训练合同](cli-filesystem-training.md)§0.1；本页其余 P 组头/块仍是设计，不是已接入模型。
+0.2.0运行schema当前登记 P3 的2个property、3个predicate、4个state位与1个交互项，并同时登记`unsupported/DEFER/NOOP/pwd/cd/ls`六个head。0.3.0合同登记 P1/P2/P3 的14个property、7个predicate、10个head，见[文件系统训练合同](cli-filesystem-training.md)§0.1；运行schema由I3切换。本页其余P组头/块仍是设计，不是已接入模型。
 
 下表只列各P组的样本覆盖与反例重点，不含K、F或参数数，不构成独立矩阵。
 
 | 分组 | property样本覆盖 | predicate样本覆盖 | 共享head覆盖 | 反例重点 |
 | --- | --- | --- | --- | --- |
-| P1 路径词法/物理 | `file.property.path.absolute/relative/parent/name/physical` | `observe.absolute/relative/parts/physical` | `path.resolve/relative/parts/realpath` | 词法与物理不可互换；复用已有`path.resolve`训练 |
-| P2 存在/类型/元数据/链接 | `file.property.exists/type/size/mode/owner/times/link.target/links` | `observe.inspect`、`observe.resolvedTarget` | `entry.inspect`、`path.realpath` | 拒权不等于不存在；`nlink`缺测不补0 |
+| P1 路径词法/物理 | 批次1：`file.property.path.absolute/relative/parent/name`；`path.physical`未注册 | 批次1：`observe.absolute/relative/parts`；`observe.physical`未注册 | 批次1：`path.resolve/relative/parts`；`path.realpath`未注册 | 词法与物理不可互换；复用已有`path.resolve`符号能力但不加载历史控制器 |
+| P2 存在/类型/元数据/链接 | 批次1：`file.property.exists/type/size/mode/owner/times/link.target/entry.identity`；`links`未注册 | 批次1：`observe.inspect`；`observe.resolvedTarget`未注册 | 批次1：`entry.inspect`；`path.realpath`未注册 | 拒权不等于不存在；`nlink`缺测不补0；完整类型8类 |
 | P3 cwd与目录选择 | `file.property.relation.sessionCwd`、`file.property.directory.entries` | `observe.sessionCwd`、`equals.sessionCwd`、`observe.entries`、`select.entry` | 复用`pwd/cd/ls`，新增`directory.select/file.select` | S/D不可交换；候选类型可辨 |
 | P4 创建/移动/删除/链接 | `file.property.exists/path.name/path.parent/link.target/links` | `exists.true/false`、`name.equals`、`parent.equals`、`linkText.equals`、`hardLink.sameObject` | `directory.create/file.create/link.create/file.link/entry.move/entry.remove` | rename与move同head；create不覆盖；目标类型可辨 |
 | P5 字节与长度 | `file.property.content.bytes`、`file.property.size` | `observe.range`、`equals.bytes`、`patch.bytes`、`append.suffix`、`equals.length`、`copy.bytes` | `file.read/replace/write/append/truncate/copy` | 不接受任意options；整文件与局部字节分别监督 |
@@ -53,13 +53,15 @@ sessionCwd关系复用CWD设计 `[1,sameSession,hasObservation]` 的2×3参数�
 共享矩阵的wire顺序和维度公式唯一维护在[文件系统训练合同](cli-filesystem-training.md)§2.1。本页只声明各块来源：
 
 - legacy块：`bias`、`goalObserveCwd`、`goalSetCwd`、`goalListDirectory`原样保留在最前。
-- property块：按[属性合同](cli-filesystem-semantics.md)第2节目录次序，只注册当前阶段实际使用的属性；旧P族局部property one-hot合并为这一全局块，同name只保留一次。
-- predicate块：按下面predicate表的P1→P6次序，只注册当前阶段实际使用的predicate；旧P族局部`oneHot(requirement variant)`并入predicate块，不再单独复制一列。
+- property块：按[属性合同](cli-filesystem-semantics.md)第2节目录次序，只注册当前阶段实际使用的属性；0.3.0固定14列为`path.absolute,path.relative,path.parent,path.name,exists,type,directory.entries,size,mode,owner,times,link.target,entry.identity,relation.sessionCwd`。旧P族局部property one-hot合并为这一全局块，同name只保留一次。
+- predicate块：按下面predicate表的P1→P6次序，只注册当前阶段实际使用的predicate；0.3.0固定7列为`observe.absolute,observe.relative,observe.parts,observe.inspect,observe.sessionCwd,equals.sessionCwd,observe.entries`。旧P族局部`oneHot(requirement variant)`并入predicate块，不再单独复制一列。
 - selectorTargetType块：3维，只在阶段含`select.entry`类predicate时整块注册。
 - requiredTargetType块：4维，只在阶段含P4目标类型条件时整块注册。
 - observedType块：9维，只在阶段需要实际观测类型时整块注册。
 - state块与interaction：逐条按阶段需要注册。
 - combination块：22维（7 predicate + 15 state），只在C阶段注册。
+
+批次1不注册`selectorTargetType`、`requiredTargetType`、`observedType`、`combination`，也不注册`followSymlinks` wire、`hasSessionRef`、`path.physical`、`observe.physical`、`observe.resolvedTarget`或`file.property.links`。`followSymlinks`只作为`entry.inspect` typed执行参数；`hasSessionRef`仍为常量。所有可观测类型选择同一个`entry.inspect` head，不增加observedType选择维度。
 
 同一阶段所有P1-P6行共享同一wire顺序和同一F；不再存在"每族F不同"的局部矩阵。某个property/predicate对不在注册表时返回`unsupported`，不路由到另一个族。
 
@@ -70,9 +72,9 @@ sessionCwd关系复用CWD设计 `[1,sameSession,hasObservation]` 的2×3参数�
 | `observe.absolute` | P1：`property=file.property.path.absolute`，`requirement.kind=observed` |
 | `observe.relative` | P1：`property=file.property.path.relative`，`requirement.kind=observed` |
 | `observe.parts` | P1：`property=file.property.path.parent`或`file.property.path.name`，`requirement.kind=observed` |
-| `observe.physical` | P1：`property=file.property.path.physical`，`requirement.kind=observed` |
+| `observe.physical` | P1：`property=file.property.path.physical`，`requirement.kind=observed`；批次1未注册 |
 | `observe.inspect` | P2：`property`为P2组8项之一，`requirement.kind=observed`；实际类型、存在性、长度、元数据、链接文本和链接关系分别由property选定 |
-| `observe.resolvedTarget` | P2：`property=file.property.link.target`，`requirement.kind=matches`且声明typed predicate`resolvedTarget` |
+| `observe.resolvedTarget` | P2：`property=file.property.link.target`，`requirement.kind=matches`且声明typed predicate`resolvedTarget`；批次1未注册 |
 | `observe.sessionCwd` | P3：`property=file.property.relation.sessionCwd`，`requirement.kind=observed` |
 | `equals.sessionCwd` | P3：`property=file.property.relation.sessionCwd`，`requirement.kind=equals`，expected为typed DirectoryRef |
 | `observe.entries` | P3：`property=file.property.directory.entries`，`requirement.kind=observed` |
@@ -103,7 +105,7 @@ sessionCwd关系复用CWD设计 `[1,sameSession,hasObservation]` 的2×3参数�
 
 `selectorTargetType`固定为3项：`unspecified`、`regular`、`directory`。它只在共享矩阵的selectorTargetType块中出现，并在predicate块之后、requiredTargetType/observedType之前形成一个3维one-hot块；该块在阶段含`select.entry`类predicate时整块注册。对于`select.entry`，它从typed `entrySelector.type`读取：明确要求普通文件时对`regular`置1，明确要求目录时对`directory`置1，没有类型要求时对`unspecified`置1；`sessionCwd`和`observe.entries`固定对`unspecified`置1。`entrySelector.type`为symlink及其他类型时返回unsupported，不伪造`unknown`，也不映射为`other`或`unspecified`。它只表示Goal要选择的候选类型，与`observedType`表示父目录或实际候选的已观测类型严格分开，不得从head标签、操作名称、扩展名、候选顺序或harness选择推导。
 
-`requiredTargetType`固定为4项：`unspecified`、`regular`、`directory`、`symlink`。它只在共享矩阵的requiredTargetType块中取值，该块在阶段含P4目标类型条件时整块注册。存在唯一精确目标类型要求时对相应token置1；Goal没有类型要求时对`unspecified`置1；多个类型要求冲突时返回invalid_input。未注册该块的阶段不包含这4维，也不从State补恒定块。它不得从teacher/head标签、操作名称、扩展名、候选顺序或harness选择推导，也不得由`observedType`复制。selectorTargetType与requiredTargetType是两个不同块，一个阶段可按需注册其中之一或两者，不能互相复制。`observedType`固定为9种实际观测状态：`regular/directory/symlink/char/block/fifo/socket/other/unobserved`。类型要求块表示Goal要求，`observedType`表示State中的实际观测。
+`requiredTargetType`固定为4项：`unspecified`、`regular`、`directory`、`symlink`。它只在共享矩阵的requiredTargetType块中取值，该块在阶段含P4目标类型条件时整块注册。存在唯一精确目标类型要求时对相应token置1；Goal没有类型要求时对`unspecified`置1；多个类型要求冲突时返回invalid_input。未注册该块的阶段不包含这4维，也不从State补恒定块。它不得从teacher/head标签、操作名称、扩展名、候选顺序或harness选择推导，也不得由`observedType`复制。selectorTargetType与requiredTargetType是两个不同块，一个阶段可按需注册其中之一或两者，不能互相复制。`observedType`固定为9种实际观测状态：`regular/directory/symlink/character_device/block_device/fifo/socket/other/unobserved`。类型要求块表示Goal要求，`observedType`表示State中的实际观测。
 
 `unspecified`只表示Goal没有目标类型要求，不能写成“未知类型”；未知实际类型仍只由`observedType=unobserved`表达。P4当前head不能创建设备、FIFO或socket，要求这些目标类型的请求在进入策略监督前返回unsupported，不能借用`other`或`unspecified`。P3的`entrySelector.type`超出普通文件/目录时同样返回unsupported。动作顺序按共享head表（[文件系统训练合同](cli-filesystem-training.md)§2.2）；`NOOP`、`DEFER`是共享控制head，不执行shell。NOOP只在当前State已满足Goal且证据适用时进入可接受集合；DEFER表示缺必要对象、观测或参数。harness只绑定学生选定head的typed参数并执行，不依据`selectorTargetType`或`requiredTargetType`替换、补选或纠正head。
 
@@ -123,7 +125,7 @@ x = [1, goalObserveCwd, goalSetCwd, goalListDirectory, // 四条legacy wire
      oneHot(predicate),           // 全局predicate块，替代原"requirement variant in family"
      selectorTargetType block,    // 3维或空
      requiredTargetType block,    // 4维或空
-     oneHot(observedType: regular/directory/symlink/char/block/fifo/socket/other/unobserved),
+     oneHot(observedType: regular/directory/symlink/character_device/block_device/fifo/socket/other/unobserved),
      hasFreshEvidence, knownValue, requiredConditionHolds,
      hasSourceRef, hasDestinationRef, hasParentRef, hasSessionRef, hasPayload,
      requiredConditionHolds*hasFreshEvidence,
@@ -255,7 +257,7 @@ P3选择类型配对固定用于train、dev、verification三个分区。每分�
 
 ## 7. DAG、验收与升级闭合
 
-外层推理图为 [cli-file-property](../workflows/cli-file-property.graph.json)，训练图复用 [cli-filesystem-training](../workflows/cli-filesystem-training.graph.json)；合同/反推/分区→训练开发准备与独立验证准备分支→真实拟合→保存候选→回载独立执行→汇总→保存/清理。当前真实训练图为`cli.command.*@0.2.0`、8N8E，推理图为`cli-file-property@0.2.0`、6N5E；P3 已接入，其余 P 组与 B/R 仍是设计，不写入真实图，也不新增第二套执行图。B与R是独立概念模型；P与C共用同一`cli.command-policy.v1`共享profile、同一head词表、同一softmax/CE。内部数值连线按共享矩阵注册表构建，外层跨节点不反传。
+外层推理图为 [cli-file-property](../workflows/cli-file-property.graph.json)，训练图复用 [cli-filesystem-training](../workflows/cli-filesystem-training.graph.json)；合同/反推/分区→训练开发准备与独立验证准备分支→真实拟合→保存候选→回载独立执行→汇总→保存/清理。两张图的0.3.0合同均为8N8E/6N5E，节点ID、边、ARC ID与端口不变，仅operator_version和载荷联合类型升级；当前源码绑定仍为0.2.0，由I5同步。P1路径词法、P2 inspect与P3已进入0.3.0注册合同，其余P组、B/R及`path.realpath`仍是设计，不写入本批head/wire，也不新增第二套执行图。B与R是独立概念模型；P与C共用同一`cli.command-policy.v1`共享profile、同一head词表、同一softmax/CE。内部数值连线按共享矩阵注册表构建，外层跨节点不反传。
 
 验收分别统计：按head、按属性、按P1-P6样本分组的允许集合正确、参数绑定、真实属性效果及满足度、错误/unknown保持、副作用、保存回载、旧路径/PWD黄金回归。P1-P6统计分开报告，但selector只有一个profile；不得用分组统计掩盖某组退化。精确属性验证与必要错误/副作用用例全部满足，旧黄金零回归；角色验证必须保留未知/冲突，不以覆盖增加替代准确率；候选作用于新场景有明确修复才可沿既有升级条件采用。不能用loss下降、命令退出0或平均指标掩盖一项必要失败。
 

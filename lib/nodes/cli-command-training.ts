@@ -5,7 +5,12 @@ import type { NodeDefinition } from "../core/contracts.js";
 import { expectRecord } from "../core/schema.js";
 import { createCliFilesystemSandbox, type DirectoryRef, type SessionRef } from "../adapters/cli/filesystem-sandbox.js";
 import { cleanupCliFilesystemSandboxes } from "../adapters/cli/sandbox-cleanup.js";
-import { predictCliCommand, validateCliCommandProfile, type CliCommandProfile } from "../filters/cli-command-policy.js";
+import {
+  CLI_COMMAND_HEADS,
+  predictCliCommand,
+  validateCliCommandProfile,
+  type CliCommandProfile,
+} from "../filters/cli-command-policy.js";
 import { CWD_PROPERTY, ENTRIES_PROPERTY, type CwdGoal, type FilePropertyGoal } from "../filters/cli-file-property.js";
 import type { ExplicitFileState } from "../filters/cli-state.js";
 import { fitCliCommandProfile } from "../training/cli-command-numeric.js";
@@ -54,6 +59,8 @@ export type CommandEvaluationRow = Readonly<{
   sideEffectsOk: boolean;
   status: string;
   satisfaction: 0 | 100 | null;
+  reason: string;
+  errorCode: string | null;
   invocation: CliCommandTransition["invocation"];
   transition: CliCommandTransition;
   cleanup: "removed";
@@ -233,6 +240,10 @@ export async function executeCliCommandTrainingSample(sample: CommandSample, sce
       sideEffectsOk: JSON.stringify(foreignAfter) === JSON.stringify(foreignBefore) && parentCwd === process.cwd(),
       status: transition.status,
       satisfaction: transition.satisfaction,
+      reason: transition.reason,
+      errorCode: transition.execution_result.receipt?.execution.status === "failed"
+        ? transition.execution_result.receipt.execution.error.code
+        : null,
       invocation: transition.invocation,
       transition,
       cleanup: "removed" as const,
@@ -256,12 +267,24 @@ export async function executeCliCommandTrainingSample(sample: CommandSample, sce
 }
 
 function summarize(rows: readonly CommandEvaluationRow[]) {
-  const byCase = Object.fromEntries([...new Set(rows.map(row => row.case))].sort().map(name => {
-    const selected = rows.filter(row => row.case === name);
-    return [name, { count: selected.length, correct: selected.filter(row => row.correct).length, effectsCorrect: selected.filter(row => row.effectsOk && row.sideEffectsOk).length }];
-  }));
-  return { count: rows.length, correct: rows.filter(row => row.correct).length, byCase,
-    passed: rows.length > 0 && rows.every(row => row.correct && row.effectsOk && row.sideEffectsOk), rows };
+  const group = (key: (row: CommandEvaluationRow) => string) =>
+    Object.fromEntries([...new Set(rows.map(key))].sort().map(name => {
+      const selected = rows.filter(row => key(row) === name);
+      return [name, {
+        count: selected.length,
+        correct: selected.filter(row => row.correct).length,
+        effectsCorrect: selected.filter(row => row.effectsOk && row.sideEffectsOk).length,
+      }];
+    }));
+  return {
+    count: rows.length,
+    correct: rows.filter(row => row.correct).length,
+    byCase: group(row => row.case),
+    byHead: group(row => row.expectedHead),
+    byError: group(row => row.errorCode ?? row.reason),
+    passed: rows.length > 0 && rows.every(row => row.correct && row.effectsOk && row.sideEffectsOk),
+    rows,
+  };
 }
 
 function controls(samples: readonly CommandSample[], scenes: Map<string, CommandScenario>, profile: CliCommandProfile) {
@@ -296,7 +319,7 @@ function assertDisjointVerificationSources(primary: Prepared["prepared"], verifi
 export function createCliCommandTrainingNodes(resources: CliCommandTrainingResources, factory: Factory, diagnostics: { partialPaths: Partial<Paths> }): readonly NodeDefinition[] {
   if (!isAbsolute(resources.outputRoot) || !isAbsolute(resources.handwiredRoot)) throw new TypeError("Explicit absolute output/backend roots required");
   const ports = ["command_training_request", "command_partition", "command_fit_data", "command_verification_data", "command_fitted", "command_candidate", "command_executions", "command_evaluation", "command_training_receipt"].map(generic);
-  const node = (operator: string, inputs: number[], output: number, effects: string[], execute: NodeDefinition["execute"]): NodeDefinition => ({ operator: `cli.command.training.${operator}`, version: "0.2.0", inputPorts: inputs.map(index => ports[index]!), outputPort: ports[output]!, effects, execute });
+  const node = (operator: string, inputs: number[], output: number, effects: string[], execute: NodeDefinition["execute"]): NodeDefinition => ({ operator: `cli.command.training.${operator}`, version: "0.3.0.0000", inputPorts: inputs.map(index => ports[index]!), outputPort: ports[output]!, effects, execute });
   return [
     node("partition", [0], 1, [], context => {
       const stage = prepare(context.inputs[0]!.payload);
@@ -351,7 +374,7 @@ export function createCliCommandTrainingNodes(resources: CliCommandTrainingResou
       const stage = context.inputs[0]!.payload as Saved & { rows: CommandEvaluationRow[]; verificationProvided: boolean };
       const comparison = { train: summarize(stage.rows.filter(row => row.partition === "train")), development: summarize(stage.rows.filter(row => row.partition === "development")) };
       const regression: CliCommandTrainingReceipt["regression"] = {};
-      for (const head of ["pwd", "cd", "ls", "unsupported"] as const) {
+      for (const head of CLI_COMMAND_HEADS) {
         const rows = [...stage.prepared.train, ...stage.prepared.development].filter(row => row.expectedHead === head);
         const counts = { retained: 0, fixed: 0, regressed: 0, unresolved: 0 };
         for (const row of rows) {
