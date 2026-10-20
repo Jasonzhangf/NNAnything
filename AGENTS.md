@@ -87,10 +87,12 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 项目远端为https://github.com/Jasonzhangf/NNAnything.git。训练必须有公开 consumer 真实拟合与回载证据，不以静态图校验冒称可运行。原始登录态页面、站点特定标注规则与样本产物保持本地。初始手写分数保持未校准（uncalibrated），不冒称经过独立标定的概率或置信度；重新拟合使旧校准自动失效。
 
+通用递归 Goal 已独立实现并完成行为验收。公开入口为 `nnanything/recursive-goal` 的 `runRecursiveGoal`，调用者显式注入 adapter、技能、评价器、selector、comparators 与 effects 授权；`initialObservation` 只用于新请求并与 continuation 互斥。外层图/配置为 `0.1.0` 3N2E SESE，三个 `NodeDefinition` 唯一 owner 为 `lib/workflow/recursive-goal/module.ts`，不得在 `lib/nodes/` 复制实现。根 Goal/阈值/绑定不变，子条件须以真实 State、证据和 effects 反向满足；错误、根事实、control、effects 与 atomic ledger 分开。权限沿根、父、组合技能与子条件显式集合求交，空集合不继承权限。组合选择目前是固定有限规则，不宣称神经模型学会任意高级 Goal；browser/computer operation 未接入。验收证据见docs/recursive-goal-module.md；Review 与 main 交付回执统一由note.md维护。
+
 ## 唯一Owner与入口
 
 - 总体架构入口：docs/design.md；D0交付与后续浏览器范围：docs/framework-m1.md。
-- 通用递归目标与节点反向满足设计：docs/recursive-goal-design.md；独立模块边界及错误返回唯一owner为docs/recursive-goal-module.md；外层workflows/recursive-goal.graph.json，当前设计态。根Goal保持不变，每层仅选已启用技能，缺技能显式报错；cwd首例设计与实测边界见docs/recursive-goal-cwd-validation.md，不把外置consumer当通用runner已实现。
+- 通用递归目标与节点反向满足：docs/recursive-goal-design.md；独立模块边界及错误返回唯一owner为docs/recursive-goal-module.md；外层workflows/recursive-goal.graph.json与配置为已实现的0.1.0。根Goal保持不变，每层仅选已启用技能，缺技能显式报错；cwd公开模块首例与历史外置probe的证据边界见docs/recursive-goal-cwd-validation.md。
 - 通用节点/事件与workflow合同：docs/node-workflows.md、docs/canvas-events.md；持久基础配置：docs/workflow-config.md。
 - 可复用经验节点合同：docs/node-contract.md；目录和实施顺序：docs/implementation-plan.md。
 - 当前第一层训练合同、内部数值图与验收：docs/training-workflow.md；外层拓扑和配置：workflows/node-training.graph.json、node-training.workflow.json（算子与绑定均为 0.1.0）。

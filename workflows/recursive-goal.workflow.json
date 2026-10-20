@@ -1,0 +1,6 @@
+{
+  "configVersion": 1,
+  "graphRef": "./recursive-goal.graph.json",
+  "configs": {},
+  "bindings": {}
+}

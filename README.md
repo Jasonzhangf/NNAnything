@@ -12,6 +12,8 @@
 
 文件系统语义训练由 `nnanything/cli-goal` 提供 `createCliCommandPolicy`、`runCliCommandTraining` 与单一共享 `CliCommandProfile` 合同 `cli.command-policy.v1`。运行入口只接受 typed `file.property` Goal，当前实现 sessionCwd 的 `observed(this_run)`/`equals` 和 directory.entries 的 `observed(this_run)`；模型在同一 6×14、84 参数矩阵内选择 `unsupported`、`DEFER`、`NOOP`、`pwd`、`cd`、`ls`。显式 session、typed directory 引用和真实执行由 harness 绑定；`NOOP`/`DEFER` 零执行，模型不生成 shell 语法，也不解析输出正文。旧六参数 PWD API、旧 Goal kind、旧 4×4 运行对象和旧命令图已物理退役；旧 4×4 权重只能经显式离线迁移工具按名称扩展。运行 `npm run demo:command-training -- --handwired-root /absolute/handwired` 完成真实拟合、保存和新进程回载。本轮单候选 train 38/38、development 20/20，新进程回载 58 题、34 次真实执行；候选保持 uncalibrated/not_applied，独立验证由父级另派。合同与结果见[文件系统训练](docs/cli-filesystem-training.md)和[共享训练实测](docs/cli-filesystem-training-results.md)。
 
+独立递归 Goal 模块已实现并完成行为验收。公开入口 `nnanything/recursive-goal` 导出 `runRecursiveGoal` 与合同类型；调用者必须按请求显式提供 adapter、启用技能与评价器、selector、comparators、effects 授权及可选取消信号，没有默认 adapter/profile。外层为 `0.1.0` 3N2E SESE；三个 `NodeDefinition` 的唯一 owner 是 `lib/workflow/recursive-goal/module.ts`，不在 `lib/nodes/` 复制实现。`initialObservation` 只用于新请求并与 continuation 互斥，根 Goal、阈值和绑定不变；子条件必须用真实 State、证据和 effects 反向满足。错误、根事实、control、effects 和 atomic ledger 分别记录。组合选择当前是固定有限规则，不宣称神经模型学会任意高级 Goal；browser/computer operation 尚未接入。完整边界和验收见[独立递归模块合同](docs/recursive-goal-module.md)，Review 与 main 交付回执统一记于 [note.md](note.md)。
+
 ## 快速开始（L1 能动切片与离线训练）
 
 基线要求：Node.js >= 20（ESM 模块规范）。测试环境已验证 Node 22（Bun 未经验证）；TypeScript 为已安装的 devDependency。
@@ -46,12 +48,19 @@ npm run demo:training -- --handwired-root <path-to-handwired>
 
 # 运行共享 CLI 命令训练公开 Consumer（PWD→CD→LS 增量拟合、保存与新进程回载）
 npm run demo:command-training -- --handwired-root <path-to-handwired>
+
+# 运行递归 Goal cwd 公开 Consumer（显式回载已有候选，不训练、不自动采用）
+node playground/recursive-goal/cwd.mjs --profile explicit.json
+
+# 运行递归 Goal 非 CLI 泛化公开 Consumer
+node playground/recursive-goal/finite-search.mjs
 ```
 
 - 浏览器 Consumer 固定入口为 playground/browser/demo.mjs，负责完整演示保存观测加载、7 节点有限图编译运行及保序候选槽位输出。
 - 采样 Consumer 固定入口为 playground/sampling/demo.mjs，负责演示离线语义规则匹配、单任务训练样本组装与安全 JSONL 持久化（见 [playground/sampling/README.md](playground/sampling/README.md)）。
 - 基础种类公开 Demo 入口为 npm run demo:basic-kinds，使用标准的 1 节点图与完整合成候选数据离线运行（见 [playground/basic-kinds/README.md](playground/basic-kinds/README.md)）；可选 --input 参数接收已保存的候选 batch。纯属性诊断调用不属于工作流合格分类。
 - 离线训练公开 Demo 入口为 npm run demo:training（见 [playground/training/README.md](playground/training/README.md)）。默认使用合成样例数据（故意弱化基础参数以演示拟合）；`--input` 接入真实复核数据时使用真实手写基础权重；必须通过 `--handwired-root` 或 `HANDWIRED_ROOT` 环境变量显式指定 Handwired 源码根目录；输出根默认指向仓库内 `training/` 目录树（每次运行生成唯一 runId 资产）。
+- 两个递归 Goal consumer 都从 `nnanything/recursive-goal` 调用产品模块。cwd consumer 只加载 `--profile` 给出的已有命令候选并执行真实 fixture；它不训练、不修改 profile，也不自动采用候选。finite-search consumer 使用纯计算 adapter 验证有限规则、嵌套依赖和分支边界。
 - 公开 API 包含主入口 nnanything（事件模型、配置加载与编译执行基座）、浏览器子入口 nnanything/browser（7 个手写 DOM 算子定义、3 个采样算子、基础种类算子 domBasicKindsNode、纯函数 classifyBasicKind、classifyBasicKindBatch、validateBasicKindProfile、默认配置与手写 profile）、以及训练子入口 nnanything/training（6 个训练算子工厂 createTrainingNodeDefinitions、多分类样本与请求校验器、分区/比较/评估/报告辅助函数及 loadTrainingProfiles）。
 
 ## 架构职责与已实现算子
@@ -93,6 +102,9 @@ npm run demo:command-training -- --handwired-root <path-to-handwired>
 - [第一层DOM基础种类数值连线与算法设计](docs/basic-kinds-wiring.md)
 - [第一层基础种类离线训练 workflow 设计与验收](docs/training-workflow.md)
 - [真实训练、六页评估与MAP式增量实验](docs/training-m1-results.md)
+- [通用递归目标算法设计](docs/recursive-goal-design.md)
+- [独立递归目标模块、错误与使用合同](docs/recursive-goal-module.md)
+- [递归目标 cwd 验证与公开运行入口](docs/recursive-goal-cwd-validation.md)
 - [工作流清单与拓扑真源 (workflows/)](workflows/README.md)
 - [L1 候选图真源 (7N6E SESE)](workflows/dom-candidates.graph.json)
 - [基础采样图真源 (3N2E SESE)](workflows/dom-rule-sampling.graph.json)

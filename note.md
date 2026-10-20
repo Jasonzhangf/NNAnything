@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-20 通用递归框架实现与行为验收
+
+用户将通用链式/递归框架正式定为实现目标，并要求Codex编排。独立Planner在Gemini4 medium实际429后由新OAuth gpt-6.1-sol medium会话完成READY计划；合同、运行时、gate、CLI与非CLI consumer由独立GCM执行。全程使用唯一外置工作树，保留原main的peer extension提交及其他peer工作树。
+
+公开入口`nnanything/recursive-goal`的`runRecursiveGoal`已实现，唯一核心位于`lib/workflow/recursive-goal/`。3N2E图/配置为0.1.0，DAGpipe validate/inspect通过；三个请求级算子复用现有workflow编译与Flowed runner。根Goal/阈值/绑定保持不变，有限条件向下衍生、真实证据沿fulfills向上回收。单步head、依赖调度、父后验、stage/persistent、共享预算、无进展、取消、显式恢复、完整错误及effect ledger均按合同验收。初始证据用initialObservation显式准入，与continuation互斥；空权限集不继承，子权限按根/父/组合技能/原条件交集收窄。组合规则固定，不训练层序或是否继续，不宣称任意高级Goal神经模型已训练。
+
+已验收RG-01至RG-08，共8/9项：42/42递归公开测试；正式`npm run test:full`719/719、0skip；独立cwd consumer4/4；非CLI depth3/同层3依赖/分支/persistent失效/60与100覆盖验收；独立完整性7/7及原子根/初始零动作/并发请求隔离3/3。独立verifier的V01-V14为PASS；其只读全仓V15因既有扩展测试写artifacts被EPERM拒绝，记UNVERIFIED。该环境缺口由父在原已授权可写树执行完整命令闭合，未改测试/断言，不把只读拒绝改写为独立全仓PASS。
+
+证据归档`/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/`：plan.md、graph-*.log、effect-scope-red.log、effect-scope-all.log、author-full.log、verification-report.md与verification-{cwd,finite,integrity,public-api}.log。CLI只显式回载既有uncalibrated/not_applied候选；same为pwd一次，different为pwd→cd且revision+1；真实绑定拒绝不冒充executor失败，cd已提交后观察注入失败返回root unknown、源错误与known effect且不重放。旧外部87/87不计入本轮模块验收。语义/API唯一owner为docs/recursive-goal-module.md，算法及领域首例分别沿原递归文档。
+
+当前剩余RG-09：一次完整独立milestone Review、正常main集成/推送及自有资源清理。尚未将Review或main交付写成完成。browser/computer operation、新组合selector训练、跨进程exactly-once和并发重复恢复保护不在本轮实现范围。
+
 ## 2026-10-20 通用递归框架独立泛化性审查
 
 用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。

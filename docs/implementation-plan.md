@@ -8,6 +8,8 @@
 
 2026-10-17 阶段更新：基础训练六节点闭环已实现（0.1.0），包含真实 Handwired Circuit evaluate/backprop 拟合、Adam 优化器、TypeScript 源码加载器、已有样本复核试验及回载验证。后续按需规划独立的 WebUI 阶段；UX 须单独设计后再实现。阶段顺序、范围与验收由第 8 节单一维护。
 
+2026-10-20 独立递归 Goal 状态：RG-01 至 RG-07 的源码、公开 consumer 和行为验收已完成。`contracts.ts`、`errors.ts`、`module.ts`、`lib/recursive-goal.ts` 已接通；三个 `goal.recursive.bind/run/report@0.1.0` 的 `NodeDefinition` 唯一 owner 为 `lib/workflow/recursive-goal/module.ts`，对应图/配置为 0.1.0 3N2E SESE，不在 `lib/nodes/` 复制实现。cwd 与 finite-search 入口由 `playground/recursive-goal/` 提供，组合选择仍是固定有限规则。递归测试42/42、正式全仓719/719均通过，无跳过；RG-08独立验证及RG-09 Review/main/资源收口的具体回执由note.md维护。
+
 ## 1. 本轮D0的完成条件
 
 | 项目 | D0交付 | 针对性验收 |

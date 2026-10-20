@@ -2,8 +2,8 @@
 
 状态：候选内容，实施中复核（candidate under verification）。本文的 12 类、关系测量与 ignore 节点合同仍需完成本增量整体场景回归；候选 profile 不因合同更新自动采用。
 
-本目录为 NNAnything 节点定义（`NodeDefinition`）的唯一源码根目录。
-遵循 [可复用经验节点合同](../../docs/node-contract.md)，本文件是基础采样 3 节点、第一层 DOM 基础种类节点（`dom.basic_kinds@0.1.0`）与离线训练 6 节点（`training.*@0.1.0`）合同卡（身份、输入、输出、配置与状态、副作用、训练能力、兼容条件、验收）的规范真源，并索引已实现的算子。
+本目录为 NNAnything 领域节点定义（`NodeDefinition`）的默认源码根目录。通用递归目标的三个运行算子跟随其运行时状态机，唯一实现 owner 为 `lib/workflow/recursive-goal/module.ts`；本目录只登记其最小合同卡，禁止为目录惯例复制第二份实现。
+遵循 [可复用经验节点合同](../../docs/node-contract.md)，本文件是基础采样 3 节点、第一层 DOM 基础种类节点（`dom.basic_kinds@0.1.0`）、离线训练 6 节点（`training.*@0.1.0`）与通用递归目标 3 节点最小合同卡的规范真源，并索引已实现的算子；递归模块的完整 API 与错误语义仍只由模块合同维护。
 详细算法设计与训练流程分别复用 [基础种类连线设计](../../docs/basic-kinds-wiring.md) 与 [训练 workflow 设计](../../docs/training-workflow.md)，本卡聚焦节点 I/O、配置与副作用契约。
 
 ---
@@ -46,6 +46,18 @@
 推理执行 `workflows/cli-file-property.graph.json`（6N5E SESE `0.2.0`，配置 `cli-file-property.workflow.json`），训练执行 `workflows/cli-filesystem-training.graph.json`（8N8E SESE `0.2.0`，配置 `cli-filesystem-training.workflow.json`），不复制拓扑。内部多分类线性电路由 `lib/nodes/trainable/cli-command-policy.ts` 管理。`workflows/cli-filesystem-curriculum.graph.json` 只是未来属性单元顺序设计，不代表已有独立Flowed课程引擎。
 
 `accepted` 只覆盖实际提供的评价分区；无 verification 资源时 `fullyVerified=false`。候选保持 `uncalibrated/not_applied`。固定调用、边界和后条件见[文件系统训练合同](../../docs/cli-filesystem-training.md)。作者测试为 `tests/cli-command.test.mjs`、`tests/cli-command-training.test.mjs` 及 CLI sandbox/binding/evaluation 用例；公开训练与新进程回载入口为 `playground/cli/command-learning/`。
+
+## 通用递归目标节点合同（0.1.0）
+
+外层图与配置均为 `0.1.0`，拓扑为 3N2E SESE。三个 `NodeDefinition` 由每次 `runRecursiveGoal` 调用创建，绑定该请求独占的显式运行时状态；它们不导出独立工厂，也不位于 `lib/nodes/`。公开入口为 `nnanything/recursive-goal` 的 `runRecursiveGoal`，调用者必须显式提供 adapter、启用技能/评价器、selector、comparators 与 effects 授权。完整 API、错误和 continuation 唯一维护于[独立递归模块合同](../../docs/recursive-goal-module.md)。
+
+| operator | 输入 → 输出 | 职责与 effect 边界 |
+| --- | --- | --- |
+| `goal.recursive.bind` | `recursive-goal.request` → `recursive-goal.context` | 接受已通过通用 guard 与领域 adapter 验证的不可变根快照；无领域动作，外层图无静态 effect |
+| `goal.recursive.run` | `recursive-goal.context` → `recursive-goal.outcome` | 在中间算子内部使用有界显式栈，逐层选择启用技能、衍生真实子条件并反向满足；adapter 每次只处理一步，领域 effects 走显式授权与 ledger |
+| `goal.recursive.report` | `recursive-goal.outcome` → `recursive-goal.result` | 生成 typed 根事实、control、frames、errors、effects 与 atomic results 投影；runner failure 由 facade 本地 finalize 收口 |
+
+验收从公开 subpath 导入并编译真实 3N2E 图。42项递归测试覆盖成功、失败、取消、预算、未知 effect、continuation 和权限交集；真实cwd及纯计算consumer均通过。完整证据见模块合同，Review 与 main 交付回执见项目note.md。
 
 ## CLI 基础观测节点（0.1.0）
 
@@ -207,7 +219,7 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 
 ## 4. 已实现节点清单索引
 
-所有已实现的算子（7 个 DOM 候选、3 个采样、1 个基础种类、6 个离线训练与 3 个通用）源码位于 `lib/nodes/`：
+多数领域算子（7 个 DOM 候选、3 个采样、1 个基础种类、6 个离线训练与 3 个 common）源码位于 `lib/nodes/`；递归目标三节点是明确例外，唯一实现位于 `lib/workflow/recursive-goal/module.ts`：
 
 ### 4.1 浏览器 DOM 候选、采样与基础种类节点 (`lib/nodes/dom.ts`, `lib/nodes/sampling.ts`, `lib/nodes/basic-kinds.ts`)
 1. `dom.observe` (`0.1.0`): 适配保存的页面观测，保留白名单几何/结构，剥离原始 class/id/文本；
@@ -235,7 +247,12 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 19. `common.sum` (`1`): 数值求和；
 20. `common.count` (`1`): 数组元素计数。
 
-### 4.4 实时网页标注与采集节点（`lib/nodes/browser-overlay.ts`，0.1.0）
+### 4.4 通用递归目标节点（`lib/workflow/recursive-goal/module.ts`，0.1.0）
+21. `goal.recursive.bind` (`0.1.0`): 生成请求独占的根与上下文快照；
+22. `goal.recursive.run` (`0.1.0`): 有界衍生、真实子条件核验与反向满足；
+23. `goal.recursive.report` (`0.1.0`): 统一投影根事实、control、错误、effects 与 continuation。
+
+### 4.5 实时网页标注与采集节点（`lib/nodes/browser-overlay.ts`，0.1.0）
 
 公开入口 `nnanything/browser-classify` 供浏览器 consumer 使用，排除 Node 磁盘 loader、训练 writer 与 Handwired 后端。通过显式资源创建节点定义，再编译项目图；不在 UI 手写第二条执行链。
 

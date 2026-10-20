@@ -1,6 +1,6 @@
 # 递归目标首例：两层cwd验证
 
-状态：2026-10-20，通用递归合同的首个领域实例与验收设计。当前公开CLI原子能力可运行，通用递归runner尚未实现。外置consumer可验证这些原子能力按规则组合的行为；这不等于递归框架已经运行。通用规则唯一源为[递归目标设计](recursive-goal-design.md)，CLI原子调用仍沿[调用合同](cli-call-contract.md)。
+状态：2026-10-20，通用递归合同的首个领域实例。公开递归模块与cwd consumer已实现，本轮独立public consumer为4/4通过。第4节保留历史外置probe，第5节单列本轮`nnanything/recursive-goal` public runtime入口，两者不混算。通用规则唯一源为[递归目标设计](recursive-goal-design.md)，CLI原子调用仍沿[调用合同](cli-call-contract.md)；Review与main交付回执见项目note.md。
 
 ## 1. 用户要求与四元素
 
@@ -61,9 +61,9 @@ flowchart TD
 | 相对目标 | 初始目标绑定在执行后保持同一意义 | 在新cwd下重新解释相对目标文本 |
 | 其他会话 | foreign S和Agent进程cwd保持不变 | 把改错会话算根成功 |
 
-真实验证只调用当前`createCliCommandPolicy(...).step(...)`，显式回载保存候选，不拟合、不改profile、不采用候选。外置consumer负责本例确定性衍生与父目标评价，产品没有新增recursive-goal API。异常注入如有执行，单列为合同验证，不报成真实OS故障。实际结果与未覆盖项在下面记录。
+历史外置consumer只调用`createCliCommandPolicy(...).step(...)`，显式回载保存候选，不拟合、不改profile、不采用候选；它手写本例的确定性衍生与父目标评价，结果见第4节。本轮公开consumer改为从`nnanything/recursive-goal`导入`runRecursiveGoal`，由产品运行时执行同样的根目标保持、子条件衍生和反向满足；入口与证据边界见第5节。异常注入单列为合同验证，不报成真实OS故障。
 
-## 4. 本轮实测记录
+## 4. 历史外置probe记录
 
 使用当前canonical `dist/cli-goal.js`公开入口、显式读取保存候选`ba002b23-b650-4869-87ec-2d36f4fe7485/candidate.json`，外置consumer已完成4场景、87/87断言，0失败：
 
@@ -77,3 +77,16 @@ flowchart TD
 四场景均检查foreign session及Agent进程cwd不变、自有fixture无非预期副作用且已清理、profile文本未改。第四场景是公开sandbox依赖的受控故障注入，前三项为真实进程/文件系统路径；第三项验证执行前真实绑定拒绝，不冒称shell cd已执行后失败。脚本和逐步原始回执位于外置`/Volumes/Intel/playground/nnanything-runs/recursive-goal-design-20261020/cwd-probe/`的`run-cwd-probe.mjs`、`result.json`与`run.log`。没有重新训练、改权重或采用候选。
 
 这些证据证明现有CLI叶workflow可以组成用户要求的两层cwd例子，并正确处理两类失败；根调度/比较由外置consumer手写，不是产品递归框架。未实测任意深度递归、组合技能学习、预算、恢复、跨领域operation或任意自然语言目标；这些仍沿通用合同列为后续实现/验收。
+
+## 5. 本轮public runtime证据入口
+
+公开模块入口为`nnanything/recursive-goal`，cwd consumer从该subpath导入`runRecursiveGoal`。运行命令为：
+
+```sh
+node playground/recursive-goal/cwd.mjs --profile explicit.json
+node playground/recursive-goal/finite-search.mjs
+```
+
+cwd consumer 使用显式命令候选完成same、different、binding-refused与postcommit-observation-injected四场景，断言真实session/fixture、父条件反向满足、effects与失败范围；它只回载已有候选，不训练、不改权重、不自动采用。finite-search consumer 使用同一公开模块和纯计算adapter，覆盖有限搜索阈值、三级依赖、分支与父后验；adapter每次只执行一步，不自行调度递归树。组合选择是固定有限规则，不宣称神经模型学会任意高级Goal。
+
+本轮最终构建的递归套件42/42、正式全仓719/719通过，无跳过。独立`verification-cwd.log`为4/4：same仅一次pwd；different为pwd→cd且真实revision+1；binding-refused返回invalid_binding且executor未调用；postcommit注入保留已提交cd、原观察错误与known effect，根为unknown且不重放。相对目标固定、foreign session、Agent cwd、profile原文与fixture清理均通过。独立完整性probe为7/7，其中V05是report-node fault injection。第4节87/87不计入本轮结果。证据目录及非CLI泛化、原子根和请求隔离结果见[模块合同第13节](recursive-goal-module.md#13-当前实现状态与验收)；Review与main回执由note.md维护。

@@ -7,7 +7,7 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
-| `recursive-goal.graph.json` | 设计态，无运行配置 | 3 节点 2 边 (3N2E SESE) | `0.1.0-design` | 通用递归目标3阶段，算法见docs/recursive-goal-design.md；独立模块/error/执行错误返回见docs/recursive-goal-module.md。预期Outcome沿图返回，infra fault由模块入口收口；未实现，无第二执行引擎 |
+| `recursive-goal.graph.json` | `recursive-goal.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现并通过行为验收 | 通用递归目标3阶段，算法见docs/recursive-goal-design.md；独立模块/error/执行错误返回见docs/recursive-goal-module.md。`goal.recursive.bind/run/report` 的 `NodeDefinition` 唯一 owner 为 `lib/workflow/recursive-goal/module.ts`；预期 Outcome 沿图返回，infra fault 由模块入口收口。公开入口、cwd 与纯计算 consumer、预算/恢复及显式权限交集均有运行证据；Review 与 main 回执见 note.md |
 | `cli-file-property.graph.json` | `cli-file-property.workflow.json` | 6 节点 5 边 (6N5E SESE) | `0.2.0` 已实现 | 当前 typed `file.property` 运行入口：绑定→同一策略选择→条件与固定执行→实际属性/副作用观测→满足度评价→统一结果与显式采样；仅PWD/CD/NOOP/DEFER/LS切片可运行 |
 | `cli-filesystem-training.graph.json` | `cli-filesystem-training.workflow.json` | 8 节点 8 边 (8N8E SESE) | `0.2.0` 已实现 | 当前单候选训练图：旧4×4按名迁移→typed样本准备与历史回放→真实拟合并保存→同一候选执行→train/dev、回归与清理报告；可选独立验证未提供时`fullyVerified=false` |
 | `project-design.graph.json` | 当前治理标准，无运行配置 | 7 节点 6 边 (7N6E SESE) | `0.2.0-design` | 每个语义及训练设计的四元素闭合、训练反推、固定调用、图纸、独立验收与最小必要性准入；操作方法归nnanything-design Skill，不是自动审核器 |
@@ -27,6 +27,7 @@
 > [!NOTE]
 > `dom-candidates.graph.json` (7N6E SESE)、`dom-rule-sampling.graph.json` (3N2E SESE)、`dom-basic-kinds.graph.json` (1N0E SESE) 与 `node-training.graph.json` (6N6E SESE) 均已升级为已实现版本，经 `dagpipe graph validate` 与 `inspect` 验证通过。当前 CLI 推理图 `cli-file-property.graph.json` 与训练图 `cli-filesystem-training.graph.json` 也通过同一静态校验；旧 `cli-command-step` 与旧 cli-goal 图已退役。
 > 运行时可通过 `compileWorkflow` 配合 `nnanything/browser`、`nnanything/training` 与 `nnanything/cli-goal` 导出的算子节点执行。当前第一层基础种类判断、离线训练框架及 typed `file.property` CLI 推理/训练路径已闭环，第二层业务卡片语义（`dom-recognition.graph.json`）仍保持后续设计态。
+> `recursive-goal.graph.json` 与配置均为 `0.1.0`，三个算子由 `nnanything/recursive-goal` 的公开运行时提供。42项递归测试与两个公开consumer通过；完整验收和交付回执见模块合同及note.md，静态图校验不替代这些运行证据。
 
 训练图、节点端口、内部 wire、数据范围、真实试验证据及验收统一见 [训练 workflow 设计](../docs/training-workflow.md)。公开离线 consumer 见 [playground/training/README.md](../playground/training/README.md)。
 

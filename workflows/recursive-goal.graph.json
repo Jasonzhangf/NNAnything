@@ -1,11 +1,11 @@
 {
   "id": "recursive-goal",
-  "version": "0.1.0-design",
+  "version": "0.1.0",
   "inputs": [{"id":"recursive_goal_request","schema":"Object"}],
   "nodes": [
-    {"id":"绑定根目标与递归执行条件","operator":"goal.recursive.bind","operator_version":"0.1.0-design","inputs":["recursive_goal_request"],"output":{"id":"recursive_goal_context","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"有界衍生子目标并核验真实结果","operator":"goal.recursive.run","operator_version":"0.1.0-design","inputs":["recursive_goal_context"],"output":{"id":"recursive_goal_outcome","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
-    {"id":"汇总根目标与逐层证据","operator":"goal.recursive.report","operator_version":"0.1.0-design","inputs":["recursive_goal_outcome"],"output":{"id":"recursive_goal_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+    {"id":"绑定根目标与递归执行条件","operator":"goal.recursive.bind","operator_version":"0.1.0","inputs":["recursive_goal_request"],"output":{"id":"recursive_goal_context","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"有界衍生子目标并核验真实结果","operator":"goal.recursive.run","operator_version":"0.1.0","inputs":["recursive_goal_context"],"output":{"id":"recursive_goal_outcome","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总根目标与逐层证据","operator":"goal.recursive.report","operator_version":"0.1.0","inputs":["recursive_goal_outcome"],"output":{"id":"recursive_goal_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
   ],
   "edges": [
     {"from":"绑定根目标与递归执行条件","to":"有界衍生子目标并核验真实结果","arc_id":"recursive_goal_context"},
