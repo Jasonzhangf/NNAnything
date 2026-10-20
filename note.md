@@ -2,6 +2,10 @@
 
 ## 2026-10-20 通用递归框架实现与行为验收
 
+最终状态：RG-01至RG-09共9项已验收。通用模块、两类公开consumer、独立完整Review及finding闭包、main集成与推送均完成；最终58/58递归、735/735正式全仓且0skip。结案经验审计由新OAuth gpt-6.1-sol medium只读会话完成，报告为外置run的`audit-result.md`。父级接收其两项最小记录建议：更新RG-09状态并登记资源保留；无需新增或修改长期规则/Skill/受管记忆，无需重跑产品测试或再审计。下文保留按时间顺序的原始失败、整改与交付记录。
+
+资源终点：本任务worktree已核销，其他peer树保留。外置证据run及其临时`.git`仍由本目标owner保留：`/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/.git`删除命令被自动审批拒绝（“rm -f style commands are not permitted”），未换通道绕过，也不声明全部临时资源清零。该残留不影响main代码与公开入口交付。最终记录提交及push沿本轮Git回执确认。
+
 用户将通用链式/递归框架正式定为实现目标，并要求Codex编排。独立Planner在Gemini4 medium实际429后由新OAuth gpt-6.1-sol medium会话完成READY计划；合同、运行时、gate、CLI与非CLI consumer由独立GCM执行。全程使用唯一外置工作树，保留原main的peer extension提交及其他peer工作树。
 
 公开入口`nnanything/recursive-goal`的`runRecursiveGoal`已实现，唯一核心位于`lib/workflow/recursive-goal/`。3N2E图/配置为0.1.0，DAGpipe validate/inspect通过；三个请求级算子复用现有workflow编译与Flowed runner。根Goal/阈值/绑定保持不变，有限条件向下衍生、真实证据沿fulfills向上回收。单步head、依赖调度、父后验、stage/persistent、共享预算、无进展、取消、显式恢复、完整错误及effect ledger均按合同验收。初始证据用initialObservation显式准入，与continuation互斥；空权限集不继承，子权限按根/父/组合技能/原条件交集收窄。组合规则固定，不训练层序或是否继续，不宣称任意高级Goal神经模型已训练。
@@ -23,6 +27,8 @@ Review整改作者验证完成：新增9项公开入口回归后，统一build�
 有效复核r4确认深层取消修复，另指出首次子评价前取消把not_evaluated转成无evaluator的unknown。新增AbortController边界回归先红，stopCancelled原样同步frame.fact后58/58递归、735/735正式全仓均通过且0skip；cwd4/4、finite与完整性7/7通过，r5-*.log保留证据。新origin/main纯文档f80d8ea已正常合入，无冲突，peer关系设计完整保留。当前等待该最后finding复核，未main。
 
 独立finding闭包复核r5（新OAuth gpt-6.1-sol medium只读会话）exit0，输出schema合法、findings空，controller分类PASS。首轮完整Review与历次FAIL原件均保留；原5项及后续直接影响的取消恢复缺陷已关闭，未换模型绕过finding。作者最终验收58/58递归、735/735正式全仓、0skip及公开consumer证据见模块合同第13节。当前RG-01至RG-08已验收，RG-09进入main集成/推送、清理及一次结案经验审计。
+
+main交付已完成：正常fast-forward合入候选，集成端点e703049；canonical main构建通过，公开cwd4/4与finite-search六场景回执保持正确。`main-push.log`记录`f80d8ea..e703049 main -> main`，本地主链与origin/main同步。自有工作树`/Volumes/Intel/playground/nnanything/recursive-goal-framework`已正常remove/prune并确认路径不存在。清理前3个注册树，核销本任务1个，保留canonical及CLI peer树2个；CLI peer资源不触碰。完整证据归档保持外置run，尚待一次结案经验审计，RG-09未最终收口。
 
 ## 2026-10-20 通用递归框架独立泛化性审查
 
