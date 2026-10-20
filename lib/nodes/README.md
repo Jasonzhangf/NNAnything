@@ -28,9 +28,12 @@
 
 | operator | I/O和职责 | effect和资源 |
 | --- | --- | --- |
-| `cli.command.select` | file_property_request → command_selection；同一共享 profile 选择全 head 并记录策略错误 | 无effect |
-| `cli.command.execute` | command_selection → command_execution；按 pwd/cd/ls 固定分流，绑定显式 session 与 directory | 业务 read/exec/session.write 由 sandbox 动态检查 |
-| `cli.command.verify` | command_execution → command_transition；核对受信来源、实际 pwd、CD 后新 PWD、LS完整直接条目并评价统一GoalResult | 无静态effect |
+| `cli.file-property.bind` | file_property_request → file_property_context；校验请求、阈值、State与来源，绑定属性目标及当前会话基准 | 无effect |
+| `cli.file-property.select` | file_property_context → file_property_action_proposal；同一共享 profile 选择全 head 并记录策略错误 | 无effect |
+| `cli.file-property.execute` | file_property_action_proposal → file_property_execution；guard 核对后按 pwd/cd/ls 固定分流；NOOP/DEFER/unsupported 不调用 executor | 业务 read/exec/session.write 由 sandbox 动态检查 |
+| `cli.file-property.observe` | file_property_execution → file_property_transition；归一真实回执、副作用与受信来源，CD 后验同 session 新 PWD | 无静态effect |
+| `cli.file-property.evaluate` | file_property_transition → file_property_evaluation；按实际 New State 评价 Goal 与满足度，区分 unknown/unmet | 无effect |
+| `cli.file-property.report` | file_property_evaluation → file_property_result；统一结果与显式采样回执 | 无静态effect；采样由调用者回调承载 |
 | `cli.command.training.partition` | command_training_request → command_partition；验证请求、预算、来源分区和共享候选形状 | 无effect |
 | `cli.command.training.prepare` | command_partition → command_fit_data；准备 typed file.property train 行及历史命令回放 | 无effect |
 | `cli.command.training.prepare-verification` | command_partition → command_verification_data；可选验证资料仅供评价 | 无effect；缺资源明确 `not_provided` |

@@ -290,4 +290,5 @@ guard在softmax之后拒绝不可执行或类型不匹配的调用；它不改�
 1. 共享模型经统一公开入口在新进程加载并逐项验证：作者侧已执行；父级独立验证另行记录。
 2. 历史必需能力零回归：旧 PWD/CD/LS/unsupported 回放零回归。
 3. 真实argv、权限拒绝、受控注入和清理回执完整无遗漏：作者与sandbox用例覆盖。
-4. 当前只支持 `pwd`/`cd`/`ls` 与 `NOOP`/`DEFER`/`unsupported` 控制结果。B对象查找、未来22个操作、自动采样/采用及LLM冲突裁决仍未实现。自然语言识别、help泛化、文件搜索、多步组合规划、browser与自动升级保持在范围外。
+4. 全仓基线用 `npm run test:full`。缺 `NN_HANDWIRED_ROOT`、`NN_CLI_COMMAND_PROFILE`、`NN_CWD_RELATION_PROFILE` 任一项时非零退出，不以 skip 冒充通过；迁移后记录数字为 255/255、0 跳过。默认 `npm test` 仍可在无资产环境运行，但其中的跳过项不计作通过。
+5. 当前只支持 `pwd`/`cd`/`ls` 与 `NOOP`/`DEFER`/`unsupported` 控制结果。B对象查找、未来22个操作、自动采样/采用及LLM冲突裁决仍未实现。自然语言识别、help泛化、文件搜索、多步组合规划、browser与自动升级保持在范围外。
