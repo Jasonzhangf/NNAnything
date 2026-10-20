@@ -131,6 +131,80 @@ function verificationGap() {
   });
 }
 
+function pendingRecoveryFixture() {
+  const fixture = createFixtureAdapter({
+    evaluate: counterEvaluation,
+    select: (_input, _calls, memory) => ({
+      kind: "selected",
+      skillId: memory.unknownDispatchObserved ? "verify-counter" : "write-counter",
+    }),
+    executeAtomic: (input, _calls, memory) => {
+      if (input.skill.id === "write-counter") {
+        memory.unknownDispatchObserved = true;
+        return { ...knownEffectReceipt(), verificationErrors: [verificationGap()] };
+      }
+      return successfulAtomicReceipt({
+        count: 1,
+        stateId: "verified-state",
+        evidenceId: "verified-evidence",
+      });
+    },
+  });
+  return {
+    fixture,
+    deps: dependencies(fixture.adapter, {
+      enabledSkills: [
+        skill("write-counter", "atomic", {
+          effectClass: "mutating",
+          allowedEffects: ["counter.write"],
+          requiredEffects: ["counter.write"],
+        }),
+        skill("verify-counter", "atomic", { effectClass: "read_only" }),
+      ],
+      selectors: [selector("root-selector", ["write-counter", "verify-counter"])],
+      grantedEffects: new Set(["counter.write"]),
+    }),
+  };
+}
+
+test("pending verification rejects an evaluate phase without an actual proof dispatch", async () => {
+  const api = await loadPublicApi();
+  const { fixture, deps } = pendingRecoveryFixture();
+  const request = makeRequest();
+  const first = responseReport(await api.runRecursiveGoal(request, deps));
+  const continuation = structuredClone(first.continuation);
+  assert.ok(continuation);
+  continuation.stack.find(entry => entry.frameId === first.root.rootFrameId).phase = "evaluate";
+  const response = await api.runRecursiveGoal({ ...request, continuation }, deps);
+  assert.equal(response.kind, "request_rejected");
+  assert.equal(fixture.calls.executeAtomic, 1, "neither mutation nor verification was dispatched");
+  assert.ok(pendingVerificationControl(first));
+});
+
+test("a returned read-only proof survives an evaluation budget stop without another dispatch", async () => {
+  const api = await loadPublicApi();
+  const { fixture, deps } = pendingRecoveryFixture();
+  const request = makeRequest();
+  const first = responseReport(await api.runRecursiveGoal(request, deps));
+  const second = responseReport(await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: first.budgetUsed.transitionsUsed + 2 },
+    continuation: first.continuation,
+  }, deps));
+  assert.equal(second.control.outcome, "exceeded");
+  assert.equal(fixture.calls.executeAtomic, 2);
+  const thirdResponse = await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: 64 },
+    continuation: second.continuation,
+  }, deps);
+  const third = responseReport(thirdResponse);
+  assert.equal(third.control.outcome, "completed");
+  assert.equal(fixture.calls.executeAtomic, 2);
+  assert.equal(third.continuation, null);
+  assertResponseReferencesClosed(thirdResponse);
+});
+
 test("known committed effects persist a pending verification without replaying the mutating head", async () => {
   const api = await loadPublicApi();
   const fixture = createFixtureAdapter({

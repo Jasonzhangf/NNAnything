@@ -404,3 +404,86 @@ test("a later State change invalidates a deeper persistent condition before the 
   );
   assertResponseReferencesClosed(response);
 });
+
+test("deep persistent failure returns a continuation that can be accepted without replay", async () => {
+  const api = await loadPublicApi();
+  const { request, deps, fixture } = nestedPersistentFixture({
+    invalidateAfterOuter: true,
+    middleObservations: [],
+  });
+  const first = responseReport(await api.runRecursiveGoal(request, deps));
+  assert.equal(first.control.outcome, "error");
+  assert.ok(first.continuation);
+  const secondResponse = await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: 64 },
+    continuation: first.continuation,
+  }, deps);
+  assert.equal(secondResponse.kind, "run_result", JSON.stringify(secondResponse));
+  const second = responseReport(secondResponse);
+  assert.equal(second.control.outcome, "error");
+  assert.equal(fixture.calls.executeAtomic, 2, "restoring facts must not replay either action");
+  assert.ok(second.budgetUsed.transitionsUsed > first.budgetUsed.transitionsUsed);
+  assert.equal(second.frames.find(frame => frame.depth === 0).conditionResults
+    .find(item => item.conditionId === "mutate").fact, "satisfied");
+  assertResponseReferencesClosed(secondResponse);
+});
+
+test("budget exhaustion during deep persistent revalidation retains a resumable snapshot", async () => {
+  const api = await loadPublicApi();
+  const baseline = nestedPersistentFixture({
+    invalidateAfterOuter: true,
+    middleObservations: [],
+  });
+  const baselineReport = responseReport(await api.runRecursiveGoal(baseline.request, baseline.deps));
+  const { request, deps, fixture } = nestedPersistentFixture({
+    invalidateAfterOuter: true,
+    middleObservations: [],
+  });
+  const first = responseReport(await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: baselineReport.budgetUsed.transitionsUsed - 1 },
+  }, deps));
+  assert.equal(first.control.outcome, "exceeded");
+  assert.ok(first.continuation);
+  const secondResponse = await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: 64 },
+    continuation: first.continuation,
+  }, deps);
+  assert.equal(secondResponse.kind, "run_result", JSON.stringify(secondResponse));
+  const second = responseReport(secondResponse);
+  assert.equal(second.control.outcome, "error");
+  assert.equal(fixture.calls.executeAtomic, 2);
+  assert.ok(second.budgetUsed.transitionsUsed > first.budgetUsed.transitionsUsed);
+  assertResponseReferencesClosed(secondResponse);
+});
+
+test("a restored local evaluation cannot hide a required descendant behind a satisfied parent", async () => {
+  const api = await loadPublicApi();
+  const { request, deps, fixture } = nestedPersistentFixture({
+    invalidateAfterOuter: true,
+    middleObservations: [],
+  });
+  const evaluate = deps.adapter.evaluate;
+  deps.adapter.evaluate = async input => {
+    const receipt = await evaluate(input);
+    if (input.goal.kind !== "chain-middle" || input.state.count < 1) return receipt;
+    return { ...receipt, result: "satisfied", satisfaction: 100, necessaryConditionsMet: true };
+  };
+  const first = responseReport(await api.runRecursiveGoal(request, deps));
+  assert.equal(first.control.outcome, "error");
+  const continuation = structuredClone(first.continuation);
+  assert.ok(continuation);
+  continuation.stack[0].phase = "evaluate";
+  const secondResponse = await api.runRecursiveGoal({
+    ...request,
+    limits: { ...request.limits, maxTransitions: 64 },
+    continuation,
+  }, deps);
+  const second = responseReport(secondResponse);
+  assert.equal(second.control.outcome, "error");
+  assert.equal(fixture.calls.executeAtomic, 2);
+  assert.ok(second.frames.some(frame => frame.unresolvedRequirements.includes("inner")));
+  assertResponseReferencesClosed(secondResponse);
+});

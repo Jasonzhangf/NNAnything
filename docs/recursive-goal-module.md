@@ -457,6 +457,10 @@ DependencyState<G, B> {
 
 首次评价尚未选技能时，可以保存baseline；该合法阶段停止后仍可续接，累计消耗不清零。`pendingVerification` 单独保存已提交但后验失败的待验证义务，引用已有dispatch、技能及原验证错误。effect仍保持真实`known`；它不表示Goal已经验证。恢复只能选择显式启用的只读或无副作用原子补证技能；缺能力或仍选择mutation时返回evidence_unavailable，不重放已提交动作。未选分支保持fact:not_applicable、execution:not_started，取消和恢复不会把它改成已执行。
 
+待验证义务只允许进入受限选择阶段；只有已经返回实际成功补证回执，且其State与当前State一致时，才可恢复到评价阶段。准入同时核对该技能的只读/无效果原子合同。局部fact为satisfied不能删除待验证字段；评价必须引用该实际补证State上的有效证据，随后才显式清除义务。补证已返回但评价前预算耗尽时，续接直接消费这份回执，不重复派发。
+
+persistent子条件自底向上重评。每个帧只用自己的Goal和条件集取得自己的评价回执；不能把后代评价结果直接写成父帧事实。停止时诊断保留真实源帧，control指向实际活动栈位置；依赖的execution保留子帧真实执行状态，使失败和重评中途预算停止都能原样恢复。
+
 调度稳定顺序不来自模型学习。图内不回边；stack 的 `phase` 是唯一阶段位置，frame control、dependency state、状态表和祖先快照共同构成中间 node 的可序列化显式 State。公开 `RunState` 不含函数、资源句柄或隐藏 controller。
 
 ## 6. 等价比较与循环下降
@@ -740,11 +744,11 @@ cleanup/collect 输入含 accepted root、可信 State/Evidence/effects/atomic r
 
 本轮证据归档于 `/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/`：
 
-- `review-fix-all.log`：51/51公开递归测试通过，无跳过。在原42项上补充首轮Review发现的必要链、深层persistent、已提交后验失败、未选分支和首次评价停止边界反例。父局部条件达标不能绕过未闭合必要链；persistent子帧使用自己的条件集并自底向上重评。`effect-scope-red.log`中两个权限反例在修复前各真实执行一次未授权write；修复后均零执行。
-- `review-fix-full.log`：正常 `npm run test:full` 为728/728通过，无跳过。原`author-full.log`为修复前已覆盖范围的719/719。独立verifier的只读全仓运行曾因扩展测试需要生成artifacts而受限；该限制由具有原始写入授权的owner执行完整命令闭合，未改测试或降低断言。
-- `verification-cwd.log`：独立公开cwd consumer为4/4通过，修复后`review-fix-cwd.log`同样4/4。真实same、different、绑定拒绝与真实cd后受控观察故障分别保留原始回执；profile未训练、修改或采用。
-- `verification-finite.log`及修复后`review-fix-finite.log`：同一runtime完成至少三级非CLI嵌套、同层三依赖、分支、persistent失效及60/100覆盖阈值。固定10项范围分别检查6项/10项；找到匹配另作必要条件。
-- `verification-integrity.log`及修复后`review-fix-integrity.log`：独立设计的7项完整性probe均通过，覆盖根与历史隔离、无效证据拒绝、report-node故障后保留ledger。V05是定点fault injection，只证明该故障边界，不冒称真实OS故障。
+- `r2-closure-all-final.log`：56/56公开递归测试通过，无跳过。在原42项和首次整改51项上补充深层失败/预算续接、错误补证phase、已返回补证回执续评以及未闭合后代保护。父局部条件达标不能绕过未闭合必要链；persistent子帧使用自己的条件集并自底向上重评。`effect-scope-red.log`中两个权限反例在修复前各真实执行一次未授权write；修复后均零执行。
+- `r2-closure-full-final.log`：正常 `npm run test:full` 为733/733通过，无跳过。原`author-full.log`的719/719与`review-fix-full.log`的728/728为前两轮已覆盖范围的原始结果。独立verifier的只读全仓运行曾因扩展测试需要生成artifacts而受限；该限制由具有原始写入授权的owner执行完整命令闭合，未改测试或降低断言。
+- `verification-cwd.log`：独立公开cwd consumer为4/4通过，最新`r2-closure-cwd.log`同样4/4。真实same、different、绑定拒绝与真实cd后受控观察故障分别保留原始回执；profile未训练、修改或采用。
+- `verification-finite.log`及最新`r2-closure-finite.log`：同一runtime完成至少三级非CLI嵌套、同层三依赖、分支、persistent失效及60/100覆盖阈值。固定10项范围分别检查6项/10项；找到匹配另作必要条件。
+- `verification-integrity.log`及最新`r2-closure-integrity.log`：独立设计的7项完整性probe均通过，覆盖根与历史隔离、无效证据拒绝、report-node故障后保留ledger。V05是定点fault injection，只证明该故障边界，不冒称真实OS故障。
 - `verification-public-api.log`：原子根一步完成、显式初始证据零动作完成、两个并发请求的根/ledger/预算隔离，3/3通过；这不是单次运行内部的动作并发调度。
 
 独立验证的逐项结论、整体Review与main交付回执由note.md单一入口维护。历史外置cwd probe的87/87只证明旧外部组合逻辑，不计算为上述新结果。组合选择器仍为显式有限规则；未训练递归层序、是否继续或任意高级Goal模型。调用者必须提供有界adapter；本模块不承诺进程崩溃后返回、永不返回callback的终止、跨进程exactly-once或并发重复恢复保护。

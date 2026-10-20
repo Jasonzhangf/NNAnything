@@ -2982,6 +2982,17 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
   for (const frame of frames) {
     const pending = controlById.get(frame.frameId)?.pendingVerification;
     if (pending === null || pending === undefined) continue;
+    const entry = stackByFrameId.get(frame.frameId);
+    const proof = atomicById.get(frame.atomicResultRefs.at(-1) ?? "");
+    const returnedProof = proof !== undefined && proof.dispatchId !== pending.dispatchId &&
+      proof.outcome === "succeeded" && proof.executionErrorIds.length === 0 &&
+      proof.verificationErrorIds.length === 0 && proof.observedStateRef !== null &&
+      proof.observedStateRef === states.at(-1)?.id && evidence.some(item =>
+        item.stateRef === proof.observedStateRef && item.validity === "valid");
+    if (entry === undefined || (entry.phase !== "select" &&
+        !(entry.phase === "evaluate" && returnedProof))) {
+      throw new TypeError(`continuation frame ${frame.frameId} pending verification has no safe recovery phase`);
+    }
     const effect = ledgerById.get(pending.dispatchId);
     const result = atomicById.get(pending.dispatchId);
     if (

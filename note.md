@@ -16,6 +16,8 @@
 
 Review整改作者验证完成：新增9项公开入口回归后，统一build通过，递归51/51、正式全仓728/728均通过且0skip；cwd4/4、finite-search和完整性7/7重放通过。`FrameControl.pendingVerification`显式保存已提交但待验证的dispatch/原验证错误；known效果保持known，恢复只能显式选只读/无效果原子补证，缺能力即错误且mutation仍一次。父局部事实达标也不得完成未闭合必要链；persistent组合条件使用自身条件集并自底向上刷新。未选分支保持not_started，合法pre-selection baseline可恢复且不清零预算。三worker无冲突修改后父接收，临时根笔记已移交外置证据目录；新增测试两处误用顶层error.category已改为合同规定source.category，预期类别及全部断言保留。当前等待5条finding独立闭包复核，仍未main。
 
+有效独立复核r2关闭3项，仍有2条P1：deep persistent自产continuation的事实/自身receipt不一致，以及pending可被错误evaluate phase绕过。两个新GCM修复worker仅停在Connection failed重连，未读写产品；父按精确PID结束自有进程并接管，未动共享服务或扩大权限。补充真实失败往返和阶段反例后，persistent改为显式postorder刷新自己的回执再传播，停止control始终定位活动栈、诊断保留真实源；待补证在准入和完成路径均受保护，只有实际只读回执及关联证据评价才清除，评价预算停止可复用既有回执。追加5项测试后递归56/56、正式全仓733/733、0skip；cwd4/4、finite和完整性7/7重放通过。证据r2-closure-*.log。等待剩余两条finding独立复核，未main。
+
 ## 2026-10-20 通用递归框架独立泛化性审查
 
 用户明确要求独立review“是否可以泛化”。本轮按完整架构专项审查六类：CLI、browser、computer use、纯计算/只读、有限搜索与连续阈值、深度3及同层3依赖。首选Gemini4 Argon medium实际返回429/exit3后，新建独立OAuth gpt-6.1-sol medium只读后备，退出0、schema合法、无finding、controller PASS，不复述上一轮闭包PASS代替泛化审查。
