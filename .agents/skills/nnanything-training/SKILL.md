@@ -5,13 +5,15 @@ description: NNAnything项目内DOM基础种类与CLI共享命令的训练路由
 
 # NNAnything训练方法
 
-CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-training.md)，调用边界沿[参数简化合同](../../../docs/cli-call-contract.md)，公开consumer为`demo:command-training`。当前只训练一份`cli.command-policy.v1` 6×14矩阵，覆盖typed `file.property` PWD/CD/NOOP/DEFER/LS；旧六参数PWD、旧Goal与旧4/9/16阶段候选已退役。动作行扩展、标签迁移、历史回放和逐命令评价以该领域合同为准；命名补零不保证共享softmax无回归。下文DOM样本、特征、迁移参考及`demo:training`命令不直接套用于CLI。
+CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-training.md)，调用边界沿[参数简化合同](../../../docs/cli-call-contract.md)，公开consumer为`demo:command-training`。命令选择只用一份`cli.command-policy.v1`；当前接入能力、词表、维度及退役状态由领域合同维护。动作行扩展、标签迁移、历史回放和逐命令评价以该领域合同为准；命名补零不保证共享softmax无回归。下文DOM样本、特征、迁移参考及`demo:training`命令不直接套用于CLI。
 
 先读项目[AGENTS.md](../../../AGENTS.md)的目录边界。学生输入、wire、标签和训练I/O分别以[基础种类算法](../../../docs/basic-kinds-wiring.md)、[训练合同](../../../docs/training-workflow.md)为准。不要在Skill中另建schema、调度器或权重注册表。
 
 若需改变语义I/O、输入、wire、节点连线或采用规则，先沿[本地设计方法](../nnanything-design/SKILL.md)更新唯一合同与图纸；已有合同内的普通拟合直接走下文。跨模型使用采集、训练/使用隔离和条件自动升级沿[模型演进合同](../../../docs/model-evolution.md)。当前离线候选仍not_applied，不能因设计要求已落盘就宣称自动升级已运行。
 
 ## 开始前确定变化的owner
+
+CLI任务走下节专属入口；本表和后续DOM步骤用于DOM特征及分类训练。
 
 | 观察到的问题 | 先处理的owner |
 | --- | --- |
@@ -23,7 +25,15 @@ CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-
 
 最小必要性：先复用已有属性。tag已有SVG值时增加评分wire，不再增加重复isSvg输入。增加新输入必须说明它能区分哪组反例，以及现有输入为什么不足。所有适用属性进入评分；不靠单一tag、role、hidden或class直接决定类别。
 
-## 样本与标签
+## CLI共享命令训练与回归
+
+1. 先读文件系统训练合同的当前注册切片和数据合同；修改Goal/State/调用/连线先沿设计Skill闭合。固定合同内的普通拟合复用设计。每个配对须由学生输入辨别，不把teacher答案或执行结果塞入输入。
+2. 来源家族先分train/development/verification；独立配方不交fitter。若扩展矩阵，从上一保存候选显式按name迁移，回放旧能力；零/冻结对照仅预测，不能替代真实拟合。
+3. 用`demo:command-training`公开consumer和显式Handwired源码根拟合、保存一份候选；用`playground/cli/command-learning/reload.mjs`在新进程回载。具体参数和资产字段读领域合同，不调用DOM的`demo:training`。
+4. 独立执行者只读固定候选，分别核对选头、typed参数/调用、OS实际State、满足度、失败/部分副作用及清理，报告逐命令回归。修复校验或harness错误后重跑受影响行为；输入/wire/权重未变时，不为取得绿色结果重训。
+5. 训练、开发、独立验证、修复后回归和Review分别记证据。skip不算通过；测试语法或fixture失败不算产品行为红测。候选采用规则仍沿模型演进合同，离线通过不冒称已采用。交接必须区分已交付main、候选提交和未提交修复。
+
+## DOM样本与标签
 
 1. 原始页面／几何证据留在`training/samples/<run>/`，先声明页面、viewport/Focus、iframe/shadow、完整性和缺测范围。只采到顶层时不宣称覆盖内嵌内容。
 2. class、id、正文、账号名、URL仅用于teacher证据。学生白名单不接收这些信息，也不接收绝对DOM路径或全局深度。
@@ -32,7 +42,7 @@ CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-
 5. 单任务单标签，数组保序。包装节点不自动继承后代语义。other确认须有具体原因；combobox等边界不明时保留ambiguous。
 6. 通过现有公开提取器／prepare读取请求。未复核、被排除或观测不足不能靠改状态进入训练。
 
-## 标准训练与验收
+## DOM标准训练与验收
 
 1. 先读受影响现有DAG及有效证据。拓扑不变则复用，不为本轮再造图。内部wire变化更新算法owner；外部workflow变化更新对应图与绑定。
 2. 固定本轮训练集、开发回放、旧黄金回归及新页面/新场景留出用途。同页面/资产/结构关联组不得跨训练与独立验证。重复快照不是独立来源。CLI的typed State配对和未绑定query边界先按文件系统合同登记，不以执行结果或teacher head替代学生输入。

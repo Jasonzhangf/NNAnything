@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-10-19 3条P1关闭，局部复核通过，待集成（当前状态）
+
+接手后未重训、未改权重、未改标签或预算。3条P1已修：State知识值与内嵌观测交叉核对并让authority记录完整真实receipt；公开`step`在进入workflow前调用唯一校验入口，保留`TypeError`与零副作用；注册/未绑定事实只从`validateGoal`/`validatePropertyRequest`取一次，未注册属性搭配合法`DirectoryQuery`收束为`unsupported`且`defer=null`。
+
+证据：修复前后同文件公开反例，`review-fix-red-file-property.log`（14测试9通过5失败）到14/14；修复后`npm run typecheck`、`npm run build` exit 0；显式环境下全仓255/255、0失败0跳过（`logs/post-fix-full-suite-r1.log`，迁移树测试集合已变化，旧253不再作门禁）；公开基线4/4；独立验证34/34场景与16/16探针（`verification/verification-execution-1792464439194.json`）；新进程回载58题0失败34次真实执行`fitted=false`；父级3P1探针通过。作者报告`review-fix-result.md`，验证记录`post-fix-verification.md`。
+
+局部复核用独立只读OAuth gpt-6.1-sol medium会话，只审3条finding与受影响闭包，`review-final.json`零finding，controller `review-verdict.json` 判pass（首次失败结果保留在`review-final-first.json`、`review-verdict-first.json`）。候选仍`uncalibrated/not_applied`，main未集成、未推送。下一步：提交修复、组合最新`origin/main`、canonical构建、main集成与推送、资源核销。
+
+## 2026-10-19 用户要求Skill核查与任务交接（历史）
+
+固定流程与架构owner已核对，核查正文为`/Volumes/Intel/playground/nnanything-runs/cli-property-migration-20261019/skills-agents-audit.md`。两本本地Skill补CLI迁移/训练专属路由，并将当前词表/维度改读唯一领域合同；尚未提交，主树未同步。本项目AGENTS已有目录职责、设计/训练入口与架构合同导航，本次不重复添加规则。
+
+首次整体Review实际已返回3个P1并由controller裁决fail：内嵌观测与authority未完整对应、step丢失TypeError、未注册属性query结果混为DEFER。GCM已留下5个文件dirty修复；局部受影响回归37pass/4skip、概念回归34pass/1skip、build/typecheck通过，尚未修复后全仓/独立验证及finding复核。为用户交接，owner已SIGINT停止自有PID40251，exec session51172退出1；停止不代表产品失败，不再有本worker后台写入。候选不采用，main未集成/推送。
+
+原8项计划W1–W6已验收，W7仍开放、W8未做；修复前253/253及34case/16probe证据不可冒称修复后结果。完整交接及可复制提示词分别为本run的`handoff.md`、`handoff-prompt.md`。接手必须复用当前唯一worktree和dirty改动，先关闭3个finding，再按正常main/push/资源收口交付；保留他人three-site-zero与B/R设计。
+
 ## 2026-10-19 属性迁移独立验收完成，整体Review进行中
 
 计划W1–W6已验收，W7独立行为部分通过，整体Review与W8交付尚待完成。独立GCM固定读取ba002b23-b650-4869-87ec-2d36f4fe7485候选，33预先配方场景及1失效引用反例34/34、16失败探针16/16（native10/grant4/injected2），基线公开consumer4/4，全仓253/253、0fail/skip。未重新拟合、未改模型/标签/预算。原始证据为外置run verification/verification-execution-1792461348175.json、baseline-contract-r2.log、npm-test-r2-2.log；验证器适配首轮错误保留，未算产品训练失败。正式资产已归档canonical training/{samples,results,weights}/filesystem/command/ba002b23-b650-4869-87ec-2d36f4fe7485/，候选仍not_applied。
