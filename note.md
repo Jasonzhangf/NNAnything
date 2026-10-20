@@ -797,3 +797,5 @@ Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Arg
 此前“插件已加载权重并显示352框”的表述不成立：那批框来自Agent在页面world手工注入的第二个控制器，不是扩展面板；修复前面板一直0框。修复后面板自身为唯一真实来源。候选权重仍保持未采用、未校准。
 
 补充：`tests/extension-build-weight.test.mjs`会在运行中真正驱动构建，此前其after钩子会调用无参构建，把`artifacts/chrome-extension`与`artifacts/overlay-harness`重写为手写基线，等于用测试覆盖用户正在浏览器里加载的交付产物。现已改为开跑前递归备份这两个产物目录、结束后原样还原，测试不再改变交付内容；构建测试仍只做进程级与文件级断言，不重跑真实浏览器。因该还原动作，跑完全量测试后须按交付权重重新构建产物，本轮已重建并核对content.js内嵌profileId两次、无`weightFile: null`。
+
+清理与集成：独占 worktree 与临时目录已按 SESE 收口。固定任务树 `/Volumes/Intel/playground/nnanything/ext-weight-autoload` 在提取改动后 `git worktree remove --force` 并 `prune`，路径确认不存在；`fix/ext-weight-autoload` 分支已删除；`/tmp/nn-accept`、`/tmp/nn-wtest` 已删除；验收用 HTTP 服务按显式 PID 关闭。`recursive-goal-framework` 与 `cli-path-primitives` 属其他任务域，未触碰。main 已推送，`main...origin/main` 为 0/0，集成提交 d4841be；交付构建按验收权重重建，content.js 内嵌 profileId 两处、无 `weightFile: null`，真实浏览器公开 consumer 复核仍为“构建加载 · three-site-20261019194017792-93975-abe88de9.weight.json · …-candidate”、14框、无失败提示。
