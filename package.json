@@ -50,6 +50,10 @@
       "types": "./dist/browser-search.d.ts",
       "import": "./dist/browser-search.js"
     },
+    "./browser-receipt": {
+      "types": "./dist/browser-receipt.d.ts",
+      "import": "./dist/browser-receipt.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"

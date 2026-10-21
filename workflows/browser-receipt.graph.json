@@ -1,0 +1,6 @@
+{
+  "id":"browser-receipt","version":"0.1.0.0000",
+  "inputs":[{"id":"receipt_request","schema":"Object"}],
+  "nodes":[{"id":"判断回执结果知识","operator":"browser.receipt.infer","operator_version":"0.1.0.0000","inputs":["receipt_request"],"output":{"id":"receipt_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}],
+  "edges":[],"outputs":["receipt_result"]
+}

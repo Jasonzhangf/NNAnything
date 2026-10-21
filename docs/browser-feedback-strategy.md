@@ -48,6 +48,14 @@ F2的候选评分和原子显式策略接入、递归控制扩展须在F1通过�
 
 结论：在可信typed回执的三状态域内，隔离的基础语义可真实训练、回载，并与独立effects/Goal事实组合而不相互污染。三种学生特征全部在train出现；54项只证明未训练信封组合及输入隔离，不是未见特征泛化。历史8项不是本轮新操作或外站验收。新成员处理R5正确不修复旧F1，也不改变旧F1的23/24失败记录。候选继续uncalibrated/not_applied，自动采集/采用未接入。完整Review及main交付沿note.md；下一语义本轮不启动。
 
+### F12 公开接入（2026-10-21）
+
+按 docs/browser-foundation-plan.md 的 F12，本小节登记回执三态知识单元的公开入口，不重训、不改 head/wire/投影/矩阵/监督。公开入口为 `nnanything/browser-receipt`：`runBrowserReceiptInference(input, { profilePath })` 每次调用显式读取候选文件，经 `compileWorkflow` + 1N0E `browser-receipt` 图执行；缺文件、坏 JSON、坏 schema、坏 heads/wires/weights 或状态非 `uncalibrated/not_applied` 显式拒绝，不落入语义 `unknown`，也不复用旧内存 profile 或内嵌默认权重。
+
+typed 合同由 `lib/adapters/browser/receipt-contract.ts` 维护：head 为 `explicit_failure/explicit_success/unknown`，wire 为 `bias/receipt.present/receipt.ok`，3×3 共 9 参数，schema 为 `receipt-knowledge.experimental.v1`。合法投影仅 `[1,1,0]`、`[1,1,1]`、`[1,0,0]`；`receipt:null` 是语义 `unknown`，不表示观察到失败。成员预测 `satisfaction` 恒为 null，不评价 Goal、不解释失败原因、不授权重试。
+
+图与绑定为 `workflows/browser-receipt.graph.json` + `browser-receipt.workflow.json`，版本 `0.1.0.0000`，唯一算子 `browser.receipt.infer`。原始信封由 consumer 保留，不进入数值投影。候选文件留在原外置 run，不复制到源码、不提交默认权重。训练仍复用外置 `receiptUnit.infer/train` 与既有拟合证据；本次不新增生产训练入口。F12 作者验收与 review 状态沿 note.md 记录。
+
 ## F1结果与限制
 
 ### 2026-10-21 有限域后训练与有界鲁棒性验证

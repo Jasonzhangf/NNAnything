@@ -27,6 +27,7 @@
 | `browser-single-action-training.graph.json` | `browser-single-action-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 独立50参数关系/能力profile；准备、family分区、Handwired拟合、比较、评价、保存；候选未采用，沿浏览器单次训练合同 |
 | `browser-feedback.graph.json` | `browser-feedback.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0.0000`，已实现 | 解释上次真实执行及后验；原事实/错误保留，诊断不替代目标验收 |
 | `browser-feedback-training.graph.json` | `browser-feedback-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 3×12独立反馈参数已完成拟合与回载；F1候选未采用，不改原子50参数或独立F2策略20参数 |
+| `browser-receipt.graph.json` | `browser-receipt.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0.0000`，已实现，候选未采用 | 回执三态知识公开入口：显式候选文件 → browser.receipt.infer → 回执知识；公开入口 `nnanything/browser-receipt`；9参数候选沿用外置run，不重训 |
 | `browser-strategy-step.graph.json` | `browser-strategy-step.workflow.json` | 5 节点 4 边 (5N4E SESE) | `0.1.0.0000`，已实现并完成限定原生行为验收 | 当前策略与候选自身反馈→一次原子执行→真实回执；多轮仅由既有递归runner管理 |
 | `browser-strategy-training.graph.json` | `browser-strategy-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合；候选未采用 | 20参数共享候选竞争，原子/F1固定，当前步监督不训练n与继续；原oracle失败与前提裁决沿F2合同保留 |
 
