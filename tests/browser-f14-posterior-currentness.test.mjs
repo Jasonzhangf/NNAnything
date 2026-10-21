@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createStableNodeRefRegistry, observeLiveDom, resolveStableNodeRef } from "nnanything/browser-classify";
+import { compareAttributeChange, createStableNodeRefRegistry, observeLiveDom, resolveStableNodeRef } from "nnanything/browser-classify";
 import * as atomicPolicy from "../dist/filters/browser-single-action-policy.js";
 import * as feedbackPolicy from "../dist/filters/browser-feedback.js";
 import * as strategyPublic from "../dist/browser-strategy.js";
@@ -170,4 +170,46 @@ test("iframe interiors are counted as unassessed instead of silently covered", (
   const registry = createStableNodeRefRegistry("f14-frame");
   const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f14-frame", documentRef: "f14" });
   assert.equal(snapshot.coverage.unassessedIframeCount, 1);
+});
+test("two objects with the same id and text are not reported as one object", () => {
+  const style = { display: "block", visibility: "visible", position: "static", transform: "none", translate: "none", rotate: "none", scale: "none", perspective: "none", overflowX: "visible", overflowY: "visible", clipPath: "none", clip: "auto", opacity: "1", zIndex: "auto", pointerEvents: "auto", cursor: "auto", borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "0px", borderLeftWidth: "0px", borderTopStyle: "none", borderRightStyle: "none", borderBottomStyle: "none", borderLeftStyle: "none", borderTopColor: "rgba(0, 0, 0, 0)", borderRightColor: "rgba(0, 0, 0, 0)", borderBottomColor: "rgba(0, 0, 0, 0)", borderLeftColor: "rgba(0, 0, 0, 0)", borderTopLeftRadius: "0px", borderTopRightRadius: "0px", borderBottomLeftRadius: "0px", borderBottomRightRadius: "0px", backgroundColor: "rgba(0, 0, 0, 0)", backgroundImage: "none", backgroundClip: "border-box", maskImage: "none", webkitMaskImage: "none", backdropFilter: "none", webkitBackdropFilter: "none", filter: "none", mixBlendMode: "normal", isolation: "auto", contain: "none", content: "none" };
+  const make = (tagName, overrides = {}) => ({
+    nodeType: 1, tagName, namespaceURI: "http://www.w3.org/1999/xhtml",
+    parentElement: null, children: [], childNodes: [], childElementCount: 0,
+    id: "", classList: [], matches: () => false, querySelectorAll: () => [],
+    getAttribute: () => null, hasAttribute: () => false,
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 40, height: 20 }),
+    getClientRects: () => [{ x: 0, y: 0, width: 40, height: 20 }],
+    ...overrides,
+  });
+  const button = (checked, text) => make("DIV", {
+    id: "same-name", getAttribute: name => (name === "aria-checked" ? checked : null),
+    hasAttribute: name => name === "aria-checked", childNodes: [{ nodeType: 3, textContent: text }],
+  });
+
+  const html = make("HTML", { getBoundingClientRect: () => ({ x: 0, y: 0, width: 800, height: 600 }) });
+  const document = { documentElement: html, body: html, baseURI: "https://f14.test/same", activeElement: null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f14-same-name");
+
+  const observeDiv = () => {
+    const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f14-same", documentRef: "f14" });
+    return snapshot.observation.nodes.find(node => node.tag === "div");
+  };
+
+  const first = button("true", "同名对象");
+  html.children = [first]; html.childNodes = [first]; html.childElementCount = 1; first.parentElement = html;
+  const before = observeDiv();
+
+  // Replace the element with a new one that has the same id and text.
+  first.isConnected = false;
+  const second = button("false", "同名对象");
+  html.children = [second]; html.childNodes = [second]; html.childElementCount = 1; second.parentElement = html;
+  const after = observeDiv();
+
+  // Same id, same text, different Element, so different ref.
+  assert.notEqual(before.nodeRef, after.nodeRef);
+  const change = compareAttributeChange(before, after, "aria-checked");
+  assert.equal(change.state, "unknown");
+  assert.equal(change.unknownReason, "object_mismatch");
 });
