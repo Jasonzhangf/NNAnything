@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-21 Shell基础语义完整规划与worker交接（设计）
+
+用户要求Shell也按浏览器同样的分层隔离、最小实验与后续review方式规划。专项计划docs/cli-foundation-plan.md落盘，21项S00–S20覆盖范围/证据、最小词法与存在性隔离实验、对象/属性/内容/关系、session与执行事实、组合边界及独立OS来源。编程/日常用途和目录/文件修改列后续映射，不扩成任意Shell执行；共享cli.command-policy.v1及file.property目标不变。
+
+已读当前cli-file-property6N5E、cli-filesystem-training8N8E和curriculum7N6E，现有对象流闭合；本轮仅文档无图/算子/运行变更，不新造业务图，不执行文件操作/训练/派worker。现有fullyVerified=false及5项UNVERIFIED要求worker亲查，不用56/56改写。提示词位于专项计划第8节；worker交候选待原编排者review，不自行合main或采用权重。项目实施计划仅加入口。21项均待实际执行验收。
+
 ## 2026-10-21 浏览器基础语义完整规划与worker交接（设计）
 
 用户要求详细规划基础任务、落盘并提供完成提示词，由用户交worker实施后原编排者继续review。本轮仅文档，不派worker、不实现、不采新样本、不训练。唯一专项计划docs/browser-foundation-plan.md，19项F00–F18覆盖边界/评价、基础种类、属性内容、感知、局部关系、事件和跨帧事实、只读组合检查、新鲜来源及review交接；docs/implementation-plan.md仅链接入口。
