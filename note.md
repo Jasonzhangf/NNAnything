@@ -1060,3 +1060,5 @@ Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Arg
 证据：受影响测试 355 项全过、0 跳过（含 `NN_HANDWIRED_ROOT=/Volumes/extension/code/handwired`）；13 个 workflow 图 dagpipe validate 全部 exit 0；`npm run build`（tsc + check-layout）exit 0。新增公开入口只在 `nnanything/browser-classify` 下追加，无旧入口改名或删除。
 
 诚实缺口（不写成已完成）：F04 audio=0、ignore=0、video=1 黄金样本不足，未用其他类别凑数；F06 `currentView.activeElementFocus` 对非 div/object/svg 元素缺失（properties/itemObservations 路径仍保留焦点事实）；F06 未在真实浏览器端到端跑；F14 缺同名异对象后验配对测试；F16 不训练二层；F17 family B 无原生 select 保持 unverified，真实外站证据复用 2026-10-20 的 c1 观测，本轮无新外站导航观测；全部候选权重保持 uncalibrated / not_applied。父编排者独立 review 尚未进行，不声称 review PASS。
+
+补充（同日）：F14 补了同名同文本不同对象的配对比较黑盒测试（`tests/browser-f14-posterior-currentness.test.mjs`），同 id 同文本重建后 ref 不同、比较为 `unknown/object_mismatch`，不再借用下层测试代替。F06 补了同一对象四态连续切换黑盒测试（`tests/browser-f06-perception-states.test.mjs`），同 registry 内可见、离屏、部分露出、完全遮挡的 ref 不变，并确认 button 的 `properties.activeElementFocus=true` 而 `currentView` 无记录。新发现：`lib/adapters/browser/live-dom.ts:2627-2633` 把无正面积可见片段一律写成 `visible` 加 `exposedRects: []`，完全离视口的元素也被标成 `visible`；候选链先用几何过滤，故不影响候选结果，本轮不改三值 `ForegroundState` 语义，交 review 决定。证据：受影响测试 358 项全过、0 跳过；`npm run build` exit 0。
