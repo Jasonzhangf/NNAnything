@@ -8,6 +8,8 @@
 
 反馈heads为completed_without_goal、execution_rejected、indeterminate。真实Goal已经达成时沿实际证据直接返回goal_achieved，不另训练成功判断。completed_without_goal只证明实际目标未达成，不证明没有其他副作用。原子执行失败、后验缺失和effects未知必须分别保留；点击无效不能自动标成按钮关系负例。
 
+有效且当前的后验确认Goal达成时，即使执行回调报错或effects未知，知识结果仍可为goal_achieved；原执行错误和effects不清除，这不表示执行干净成功或允许重试。新增逐步观察反馈独立承载执行错误与观测错误，F1优先检查该typed后验适用性；旧样本缺新增字段沿原合同读取，不补造新观测。现有36参数是否覆盖新的合法失败投影须实际回放判断，不从旧样本通过推成全部新反馈正确。
+
 本切片completed_without_goal的监督要求：已派发、成功回执、无执行错误、后验当前且足以证明目标未达成，并且effects知识明确。effects未知时即使实际satisfaction=0仍标indeterminate，原始满足度0不丢失。effects明确不代表无副作用，任何诊断均不授予retry权限。有明确拒绝证据可归execution_rejected；派发不确定不能只因出现错误就当成已明确拒绝。
 
 唯一输入/样本/profile合同为lib/adapters/browser/feedback-contract.ts。12条wire：bias、dispatch known/value、receipt.ok known/value、executionError.present、post.currentValid、expanded known/value、rendered known/value、effects resolved。post有效性沿原子Goal document/scope绑定、当前控制、更新观测身份和revision检查，不能因字段存在就补为true。缺测保留known=false，不能将缺测与数值false混淆。raw错误消息、元素名称、引用字符串和后续动作teacher不进学生特征。
@@ -27,6 +29,10 @@ F1验收先于策略代码派发：真实拟合/非零梯度、新进程回载�
 F2的候选评分和原子显式策略接入、递归控制扩展须在F1通过后落对应图/gate/红测；不把未完成行为验收的组合或retry写成已运行。F1资料不能兼作F2独立留出；每次当步输入只能包含此前发生的真实反馈。实际F2合同与状态只沿[browser-progressive-strategy.md](browser-progressive-strategy.md)。
 
 ## F1结果与限制
+
+2026-10-20逐步观察修复后的旧样本推理及新增失败判定：原子50参数旧60/60、F1 36参数旧72/72、F2 20参数train/dev48/48，逐例输出与修前一致；F2独立包仍22/24，两项既有single-candidate-defer前提缺陷保留rawFAIL，不能改gold清零。旧候选均未重新拟合、未采用。真实Chrome点击未展开后，执行回调抛transport错误，随后读回有效未达成状态，dispatch/effects仍unknown；旧F1给出execution_rejected，合同要求indeterminate。这是新增失败投影的后训练缺口。该反例已用于开发，不能再当未见留出。下一轮先检验现有12wire可辨性，再准备按来源家族分开的派发不确定、明确拒绝及观察失败对照，真实拟合、新进程回载和旧能力回归；F2在F1更新后做组合回归，本轮无独立改权重依据。
+
+目标已由当前有效后验达成且执行器有错，是另一种情况。真实Goal事实仍应返回goal_achieved，错误与unknown effects保留且不授权重试；本轮修复的是确定性事实门禁，不靠训练覆盖运行逻辑。原始回执、推理结果及边界说明在`/Volumes/Intel/playground/nnanything-runs/step-observation-20261020/training-assessment.md`。
 
 证据根为 `/Volumes/Intel/playground/nnanything-runs/browser-semantic-single-action-20261020/feedback-strategy`。四个GCM资料/实现worker实际连接失败，Flash后备实际quota失败，均未改产品；父接管实现和资料准备。48份资料中1份来自真实原生无效点击，47份为明确合成；train36/dev12。24份保留资料在拟合前分开准备，未送入fitter；它们由父接管作者职责，不能称为独立worker作者。独立Reviewer另核对监督和首次评价证据。
 

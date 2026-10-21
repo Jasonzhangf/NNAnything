@@ -12,6 +12,8 @@ node playground/browser/search-fixture/server.mjs --port 4173
 
 场景包括正常、延迟、空结果、首次错误后重试、登录阻断和首选点击无效。慢查询在文字中包含`slow`，可检验慢A、快B的迟到结果隔离。分页只代表样本内的两个批次，不证明网络全量覆盖。输入草稿与已提交查询分开，旧结果显示自己的查询归属。
 
+`mixed`配置用同一页面核心表达瀑布主结果、流内相关查询和独立AI旁栏，使用普通text输入承接当前最小runtime。查询输入保留旧推荐词placeholder；placeholder不变，当前value与提交文案由真实输入决定。`ai-first`场景让AI摘要先到、主结果后到，主结果加载中不显示分页也不标记当前批次完成，新提交会让迟到的旧回调失效。`invalid`场景在首次非空输入事件时将值重置为空并显示反馈，因此必须在任何提交前读回；后续重新输入可恢复。以上状态全部由自然HTML文本呈现，不写data-gold、profile或teacher信息。
+
 表示参数、故障参数和模型权重分开。配置中的关系与字段用于构造应用；学生应通过实际DOM/视觉观测判断，不能读取样本源码或教师答案。新增布局只检验配置兼容性，不算独立模型泛化。当前媒体使用原创本地占位；视频卡片预览不代表真实视频播放能力。
 
 当前配置返回固定的合成内容集，查询提交会更新结果归属与批次，但不执行语义检索。结果可包含与查询不匹配的内容；后续训练必须分别评价查询关联和内容匹配，不能把页面回显查询或“有结果”当作根目标达成。
@@ -22,5 +24,17 @@ node playground/browser/search-fixture/server.mjs --port 4173
 node --test tests/search-page-fixture.test.mjs
 npm run build
 ```
+
+HTTP验收入口：
+
+```sh
+node playground/browser/search-fixture/server.mjs --port 4173
+```
+
+- `http://127.0.0.1:4173/?profile=mixed&scenario=normal`
+- `http://127.0.0.1:4173/?profile=mixed&scenario=ai-first`
+- `http://127.0.0.1:4173/?profile=mixed&scenario=invalid`
+
+事件行为（输入读回、重置、AI/主列表异步与迟到隔离）需要真实键鼠在页面操作；HTTP静态内容只证明配置与场景可被同一renderer渲染。
 
 真实浏览器验收及交付证据由项目[note.md](../../../../note.md)维护。训练、回载、真实跨站评价和采用继续沿既有领域合同；本环境支持textarea/search宿主不表示旧InputTextValue运行能力已扩展。

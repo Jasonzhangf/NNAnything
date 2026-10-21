@@ -1,4 +1,5 @@
 export * from "./adapters/browser/single-action-contract.js";
+export * from "./adapters/browser/action-observation.js";
 export * from "./adapters/browser/single-action-observation.js";
 export * from "./filters/browser-single-action-policy.js";
 export * from "./training/browser-single-action-numeric.js";

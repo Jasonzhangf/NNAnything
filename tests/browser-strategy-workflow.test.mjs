@@ -793,3 +793,55 @@ test("root request rejects duplicated initial evidence that omits a snapshot fac
   assert.equal(result.kind, "request_rejected");
   assert.match(result.error.diagnosticMessage, /cover the current snapshot exactly|current state snapshot/);
 });
+
+test("recursive receipt separates executor and post-observation failures", async () => {
+  const initial = snapshot({ observationId: "double-initial", revision: 1 });
+  const { resources } = goalResources({ initial, observations: [
+    snapshot({ observationId: "double-preflight", revision: 2 }),
+    snapshot({ observationId: "double-pre", revision: 3 }),
+  ] });
+  let clicks = 0;
+  resources.nativeClick = async () => { clicks++; throw new Error("execution transport failed"); };
+  const result = await strategyGoal.runBrowserStrategyGoal(goalRequest({ requestId: "double-errors", initial }), resources);
+  assert.equal(result.kind, "run_result");
+  const atomic = result.report.atomicResults[0];
+  assert.ok(atomic.executionErrorIds.length > 0);
+  assert.ok(atomic.verificationErrorIds.length > 0);
+  assert.equal(atomic.effect.knowledge, "unknown");
+  assert.notEqual(result.report.rootEvaluation.result, "satisfied");
+  assert.equal(clicks, 1);
+});
+
+test("stale achieved-looking post-state cannot become recursive root evidence", async () => {
+  const initial = snapshot({ observationId: "stale-initial", revision: 1 });
+  const { resources } = goalResources({ initial, observations: [
+    snapshot({ observationId: "stale-preflight", revision: 2 }),
+    snapshot({ observationId: "stale-pre", revision: 3 }),
+    snapshot({ observationId: "stale-post", revision: 3, expanded: true }),
+  ], proveNoEffect: () => null });
+  let clicks = 0;
+  resources.nativeClick = async () => { clicks++; throw new Error("execution transport failed"); };
+  const result = await strategyGoal.runBrowserStrategyGoal(goalRequest({ requestId: "stale-errors", initial }), resources);
+  assert.equal(result.kind, "run_result");
+  assert.notEqual(result.report.rootEvaluation.result, "satisfied");
+  assert.ok(result.report.atomicResults[0].verificationErrorIds.length > 0);
+  assert.equal(clicks, 1);
+});
+
+test("recursive goal fact survives execution transport error without safe-retry fiction", async () => {
+  const initial = snapshot({ observationId: "achieved-error-initial", revision: 1 });
+  const { resources } = goalResources({ initial, observations: [
+    snapshot({ observationId: "achieved-error-preflight", revision: 2 }),
+    snapshot({ observationId: "achieved-error-pre", revision: 3 }),
+    snapshot({ observationId: "achieved-error-post", revision: 4, expanded: true }),
+  ], proveNoEffect: () => null });
+  let clicks = 0;
+  resources.nativeClick = async () => { clicks++; throw new Error("execution transport failed"); };
+  const result = await strategyGoal.runBrowserStrategyGoal(goalRequest({ requestId: "achieved-error", initial }), resources);
+  assert.equal(result.kind, "run_result");
+  assert.equal(result.report.rootEvaluation.result, "satisfied", JSON.stringify({states: result.report.states, atomic: result.report.atomicResults, errors: result.report.errors}));
+  assert.equal(result.report.atomicResults[0].effect.knowledge, "unknown");
+  assert.ok(result.report.atomicResults[0].executionErrorIds.length > 0);
+  assert.notEqual(result.report.control.outcome, "yielded");
+  assert.equal(clicks, 1);
+});

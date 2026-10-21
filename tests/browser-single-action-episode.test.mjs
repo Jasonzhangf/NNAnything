@@ -212,7 +212,8 @@ test("native callback exception preserves uncertain dispatch and effects", async
   assert.equal(result.receipt, null);
   assert.equal(result.dispatchState, "unknown");
   assert.equal(result.effectKnowledge, "unknown");
-  assert.equal(result.satisfaction, null);
+  assert.equal(result.satisfaction, 100);
+  assert.equal(result.observationFeedback.status, "satisfied");
   assert.equal(result.error.code, "native_click_failed");
   assert.equal(resource.collected.length, 1);
 });

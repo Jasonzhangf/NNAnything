@@ -1211,8 +1211,24 @@ function atomicReceipt(
   BrowserStrategyEffect,
   BrowserStrategyStepReceipt
 > {
-  const state = newStateFromStep(input, result, strategy);
+  const feedback = result.atomic?.observationFeedback;
+  // Invalid raw observations remain in sourceResult, never in trusted root State.
+  const validPost = feedback === undefined || (feedback.status === "satisfied"
+    && feedback.observationId === result.atomic?.newState?.observationId);
+  const state = validPost ? newStateFromStep(input, result, strategy) : null;
   const effect = verifiedEffect(input, result, strategy);
+  const verificationErrors: AdapterDiagnostic[] = feedback === undefined || validPost ? []
+    : (feedback.errors.length > 0 ? feedback.errors : [{ code: "observation_insufficient", message: `Missing facts: ${feedback.unmetFacts.join(", ")}` }])
+      .map(error => Object.freeze({
+        diagnosticId: `browser-post:${error.code}`,
+        code: "evidence_unavailable" as const, stage: "observation" as const,
+        sourceCategory: "browser_single_action_observation", message: error.message,
+        nativeCode: error.code, refs: Object.freeze(effect.receiptRef === null ? [] : [effect.receiptRef]),
+      }));
+  const executionErrors = result.atomic?.executionErrors?.length
+    ? result.atomic.executionErrors.flatMap(error => diagnostic({ ...result, error }, effect))
+    : diagnostic(result, effect).filter(error => !verificationErrors.some(observation =>
+      observation.nativeCode === error.nativeCode));
   return Object.freeze({
     runId: randomUUID(),
     executorInvoked: true,
@@ -1222,9 +1238,9 @@ function atomicReceipt(
       value: result,
     }),
     newState: state,
-    evidence: snapshotEvidence(state.value.browser, state.id),
-    executionErrors: diagnostic(result, effect),
-    verificationErrors: Object.freeze([]),
+    evidence: state === null ? Object.freeze([]) : snapshotEvidence(state.value.browser, state.id),
+    executionErrors,
+    verificationErrors: Object.freeze(verificationErrors),
     effect,
   });
 }

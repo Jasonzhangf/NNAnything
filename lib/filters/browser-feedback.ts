@@ -2,6 +2,7 @@ import { FEEDBACK_HEADS, FEEDBACK_WIRES, type FeedbackInput, type FeedbackPredic
 import { readSingleActionRequest, readSingleActionSnapshot } from "../adapters/browser/single-action-observation.js";
 import type { SingleActionEpisodeResult } from "../adapters/browser/single-action-contract.js";
 import { expectRecord } from "../core/schema.js";
+import { readBrowserObservationErrors, readBrowserObservationFeedback } from "../adapters/browser/action-observation.js";
 
 function control(value: unknown) {
   const input = expectRecord(value, "feedback control");
@@ -26,6 +27,8 @@ export function readFeedbackInput(value: unknown): FeedbackInput {
     || (rawResult.collectionError !== null && typeof rawResult.collectionError !== "string")) throw new TypeError("Invalid feedback attempt result");
   const result = rawResult as unknown as SingleActionEpisodeResult;
   error(result.error);
+  if (result.executionErrors !== undefined) readBrowserObservationErrors(result.executionErrors);
+  if (result.observationFeedback !== undefined) readBrowserObservationFeedback(result.observationFeedback);
   if (result.newState !== null) readSingleActionSnapshot(result.newState);
   if (input.controlAtCompletion !== null) control(input.controlAtCompletion);
   if (result.receipt !== null) {
@@ -65,6 +68,8 @@ export function createZeroFeedbackProfile(): FeedbackProfile {
 function postValid(input: FeedbackInput): boolean {
   const { request, result, controlAtCompletion: current } = input;
   const state = result.newState;
+  if (result.observationFeedback !== undefined && (result.observationFeedback.status !== "satisfied"
+    || result.observationFeedback.observationId !== state?.observationId)) return false;
   if (!state || !current || state.documentRef !== request.state.documentRef || state.scopeRef !== request.state.scopeRef
     || current.documentRef !== state.documentRef || current.observationId !== state.observationId || current.revision !== state.revision
     || !state.regions.some(region => region.ref === request.goal.regionRef)
@@ -93,7 +98,7 @@ export function predictFeedback(value: FeedbackInput, rawProfile: FeedbackProfil
   const features = feedbackFeatures(input);
   const region = input.result.newState?.regions.find(item => item.ref === input.request.goal.regionRef);
   const evidenceRefs = region ? [region.expanded, region.rendered].flatMap(fact => fact.status === "observed" ? [...fact.evidenceRefs] : []) : [];
-  if (postValid(input) && input.result.error === null && input.result.achieved && input.result.satisfaction === 100
+  if (postValid(input) && input.result.achieved && input.result.satisfaction === 100
     && region?.expanded.status === "observed" && region.expanded.value
     && region.rendered.status === "observed" && region.rendered.value) {
     return { status: "goal_achieved", head: null, features, scores: [], evidenceRefs };

@@ -4,6 +4,8 @@
 
 本合同唯一维护独立模块边界、公开数据类型、adapter 调用形状、错误传播、response 和 continuation。通用语义及 3N2E 仍由 [recursive-goal-design.md](recursive-goal-design.md)维护。实现源码 owner 为 `lib/workflow/recursive-goal/`，公开门面 owner 为 `lib/recursive-goal.ts`。
 
+逐步观察接入补充：执行失败但原子回执提供可信且当前的New State/证据、无验证错误时，错误停止前允许纯重验已有必要条件及根事实。重验仅消费本次post证据，沿既有条件自下而上暂存再提交；不创建或执行子Goal，不调用规划、retry或普通成功终结。每次评价消耗现有transition预算并遵守取消，材料/预算不足、取消或评价失败时根保持unknown并保留原因。原执行错误、失败execution及effects不因根事实达标而清除。错误停止仍是error，不能把“根事实satisfied”写成干净执行成功；无有效post不得用初态评价冒充本次结果。
+
 ## 1. 边界与依赖
 
 通用模块只管理 Goal 帧生命周期、条件衍生、预算、取消、dispatch ledger、错误关联和统一返回。领域应用提供 typed Goal、State、对象绑定、证据 payload、effect fact、原始回执、评价器、selector、组合规则和原子执行。

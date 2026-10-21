@@ -26,6 +26,9 @@ test('fixture server publishes only page resources and accepts explicit known co
       assert.equal(response.status,200);
       assert.match(await response.text(),/搜索结果/);
     }
+    for(const scenario of scenarios) {
+      assert.equal((await fetch(`${root}/?profile=mixed&scenario=${scenario}`)).status,200);
+    }
     assert.equal((await fetch(`${root}/?profile=not-registered`)).status,400);
     assert.equal((await fetch(`${root}/?scenario=not-registered`)).status,400);
     for(const path of ['/cases.mjs','/teacher','/oracle','/api/profile','/..%2Fcases.mjs']) {

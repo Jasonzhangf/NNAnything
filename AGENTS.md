@@ -91,6 +91,8 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 ## 唯一Owner与入口
 
+- 浏览器逐步观察义务：`lib/adapters/browser/action-observation.ts`；原子执行异常后仍读取安全后验，执行错误、观察错误、真实Goal事实与effects分离。普通text输入搜索公开入口为`nnanything/browser-search`的`runBrowserSearchGoal`，领域合同由`docs/search-page-abstraction.md`维护，节点复用operation-episode 7N6E，组合复用recursive-goal。当前显式绑定/handwired起点，未训练搜索模型；textarea/search/contenteditable、任意网页自动绑定、分页滚动筛选未接入。旧原子/F1/F2权重不变；新失败投影的F1后训练缺口沿`docs/browser-feedback-strategy.md`记录，不把旧回归全绿当新增泛化。
+
 - 人的可观察/可感知评价、已有及未来元素族与具名指标分母由docs/semantic-evaluation.md维护。身份、资格、能力、感知与目标效果分开。编码的完整milestone独立Review还须审原始逐例依据、oracle前提与评估结论合理性，不以测试全绿替代；沿本地设计Skill，不加逐节点审核。
 - 基础解耦、组合重叠/覆盖/干扰及多候选偏好由docs/goal-selection-policy.md维护，当前为设计。性格只影响合法候选排序，不改根Goal/阈值/权限/基础gold，不将模型分数当满足度，也不改变当前F2同分DEFER合同。
 - 预测推理/执行推理、有界多路径、真实checkpoint、备选及失败先验恢复由docs/bounded-goal-planning.md维护，已接既有3N2E controller并验证finite合成域和真实cwd；6N5E 0.2.0-design为内部责任图，无独立六算子绑定。N步可行前缀可执行，边界/checkpoint或无适用路才重推；根保留，预测与实际分开，换图不重置budget/retry/ledger，不训练控制层序。

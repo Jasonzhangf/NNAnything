@@ -71,7 +71,7 @@ fixture的字段role、item key和结构属于应用源/teacher，不能作为�
 
 ### 动作各自的观察方式
 
-每行是可独立验证的当前步骤。使用同一operation-episode的识别/决策/执行/重观测/验证责任链；表内跨步依赖交既有递归controller，不新增浏览器执行引擎或单次DAG回边。以下均为待实现搜索绑定，非新增可调用API。
+每行是可独立验证的当前步骤。使用同一operation-episode的识别/决策/执行/重观测/验证责任链；表内跨步依赖交既有递归controller，不新增浏览器执行引擎或单次DAG回边。完整表是领域设计目录；普通text输入、提交和当前结果检查已接入下述最小运行切片，其余行为仍未实现。
 
 | 当前子Goal / Action | 本步观察方式与最小事实 | 达成依据与下一步可用条件 | 必须保留的反例/失败 |
 | --- | --- | --- | --- |
@@ -108,15 +108,25 @@ fixture的字段role、item key和结构属于应用源/teacher，不能作为�
 
 | 已有基础 | 当前结论 | 具体缺口及owner |
 | --- | --- | --- |
-| operation-episode 7N6E | 拓扑闭合，已含dom.reobserve/operation.verify；可承载逐步反馈，无需为本次设计改图 | 泛化的观察义务与方法选择尚无typed绑定；browser adapter/operation节点，核心不内置站点 |
-| SetExpanded单次、F1/F2 | 已有展开域真实后验、失败解释和有界候选选择；并非通用搜索 | 现lib/nodes/browser-single-action.ts在stage.error或未派发时跳过reobserve；未来执行异常后的搜索后验须按本节单独实现安全采集/unknown，不能用原链冒称全覆盖 |
-| recursive-goal与bounded规划 | 可持有真实State、原子回执、错误、checkpoint与失败先验，当前一步推进 | 搜索领域adapter/技能/评价器与观察义务未注入；原子执行返回什么后验由领域负责，core不能自动证明采集充分 |
-| 可配置HTML样本 | 六表示、现有状态场景可用于开发，已验收证据复用 | 待补组合：瀑布流+独立AI栏、插入相关查询、旧placeholder、新value、结果异步与虚拟化；playground样本owner |
-| 四类训练slot与演进DAG | 可承接分解训练和后验学习的设计方向 | InputTextValue仍未实现；支持的编辑宿主、输入读回、数值连线、样本分区、真实拟合/回载、搜索独立consumer和自动采样仍未就绪；对应adapter/filter/training owner |
+| operation-episode 7N6E | 拓扑闭合，已含dom.reobserve/operation.verify；已复用于本轮原子与搜索切片 | 观察义务已有typed绑定；学习型观察对象/方法选择尚未训练，核心不内置站点 |
+| SetExpanded单次、F1/F2 | 已有展开域真实后验、失败解释和有界候选选择；并非通用搜索 | 本轮已修复可能派发后异常仍安全读回，executionErrors与observationFeedback分开；unknown effects保留，不能据此自动重试 |
+| recursive-goal与bounded规划 | 可持有真实State、原子回执、错误、checkpoint与失败先验，当前一步推进 | 本轮已注入搜索adapter/技能/评价器；错误停止前可纯重验当前事实，领域负责实际后验，core不能自动证明采集充分 |
+| 可配置HTML样本 | 原六表示保持，增加mixed组合与ai-first/invalid场景 | 瀑布主列表、AI旁栏、相关查询、旧placeholder与输入重置已补；虚拟化仍未实现，异步场景HTTP可用但未作为时序原生验收 |
+| 四类训练slot与演进DAG | 可承接分解训练和后验学习的设计方向 | 普通text输入、读回和搜索公开consumer已实现；其余编辑宿主、数值连线、样本分区、真实搜索拟合/回载和自动采样仍未就绪 |
 
 实施按上述依赖推进，不在本轮用文档补全冒称行为已运行。每阶段都要求公开consumer驱动真实原生操作，独立记录学生原始选择、实际后验、错误、effects和逐步根评价；合成与真实站点分别报告。独立Reviewer检查评价是否符合人的可感知事实、是否存在错误完成及已知回归，不以fixture响应归属或总准确率替代内容条件。
 
 必要反例至少包括：输入未生效而Enter提交默认词；写对输入但未提交；读取placeholder冒充value；慢A快B；旧结果与AI/主列表不同步；观察失败误判点击无效；查询建议/直播/引用误计结果；筛选后旧证据；无新内容的滚动与虚拟化；根内容不足但子Goal全成功；执行报错且effects未知；预算耗尽。每个反例分别断言当前动作是否允许、需观察什么、真实状态口径、是否允许继续及停止原因。反例定位到具体owner后再补对应gate/红测，不训练一次性脚本掩盖缺口。
+
+## 本轮最小运行接入合同
+
+实施先交普通text input的精确搜索切片：调用者显式绑定输入/提交/结果范围和证据，提供原生IO、观察方式、固定内容条件、已显示范围的覆盖要求及预算。公开`nnanything/browser-search`入口`runBrowserSearchGoal`在现有recursive-goal内推进，每个原子步复用7N6E，持久绑定配置为`workflows/browser-search.workflow.json`；不新增控制循环或站点解析分支。实现/验收状态以note.md与本轮回执为准，不从本段推断已完成。
+
+决策资源显式为手写起点，可替换兼容provider；只选择当前已启用动作，guard只拒绝非法输出，不能替错选模型补成正确动作。原子50/F1 36/F2 20参数profile只用于其原合同回归，不承接搜索或输入新语义。此轮不拟合新模型；先用同输入/同候选新进程回放，分开报告采集修复、参数退化及新语义尚未训练。新输入、连线或监督需要真实训练时，沿既有单元升级流程，不以延长epoch或改gold掩盖缺口。
+
+第一切片的textarea/search/contenteditable必须明确unsupported且零写入，不能因夹具可操作就越过当前InputTextValue合同。分页、滚动与筛选未接入时同样显式拒绝；当前覆盖只证明实际读到的指定显示范围，不证明全网或全部批次。结果采集只用当前可读字段和归属证据；原始class/id仅用于显式adapter绑定，不作为数值特征。普通text输入→读回→提交→响应/内容检查是本轮必要运行验收，不以未来任意网页识别拖延。
+
+浏览器共享观察义务类型由`lib/adapters/browser/action-observation.ts`维护，包含本步条件、方法、对象、scope、必需事实和当前性，反馈记录义务是否完成、证据、未满足事实和观察错误。状态仍只存本步newState，不在反馈内复制第二份。具体读取/等待预算在领域请求与现有controller分别持有。观察义务完成不是业务Goal达成，缺失项不能被分数或执行回执覆盖。执行器错误后的只读后验不改变原始执行错误、dispatch或effects知识；旧结果读取兼容不伪造已完成观察。
 
 ## 验收和后续缺口
 
@@ -124,4 +134,8 @@ fixture的字段role、item key和结构属于应用源/teacher，不能作为�
 
 后续样本按页面实现家族与关联episode先分区，再投影。改CSS或交换顺序不产生独立来源。合成teacher、历史资料、当前真实操作分别计数；分别评价边界、字段、归属、查询关联、实际效果与覆盖，unknown/conflict不归负例。用于修订的留出转回归，另留新材料。
 
-现有[operation-episode](../workflows/operation-episode.graph.json)为闭合7N6E，拓扑不变，不另建执行引擎。搜索运行绑定、通用DOM语义识别、textarea/search原生能力、真实搜索训练/回载、跨站独立评价及自动采样/采用仍未完成。本轮样本与字段设计不替代这些验收。
+现有[operation-episode](../workflows/operation-episode.graph.json)为闭合7N6E，拓扑不变，不另建执行引擎。普通text输入搜索运行绑定已完成；通用DOM语义识别、textarea/search原生能力、真实搜索训练/回载、跨站独立评价及自动采样/采用仍未完成。本轮样本与字段设计不替代这些验收。
+
+2026-10-20运行验收：公开`nnanything/browser-search`的`runBrowserSearchGoal`复用现有递归controller；`playground/browser/search/run.mjs`要求显式request与IO模块。根评价和进度比较纯消费State，不读取页面。每个原子步先观察、按当前决定执行、再观察并验证；输入实际值不符时不会提交，提交前再读当前值，结果必须属于当前查询与指定集合，并满足明确内容条件。当前采用显式handwired决策起点，无搜索权重或拟合。共享观察义务仍是四元素内的State/evidence要求，没有新增第五要素。
+
+现场证据位于`/Volumes/Intel/playground/nnanything-runs/step-observation-20261020`：`native-search-normal-result.json`保留真实原生输入、读回、提交、查询与内容检查的三episode闭环；该首版现场投影按字段读取，只证明minimumMatches=1，不作为多结果计数验收。后续`native-search-scoped-result.json`改按AX直接子容器读取两个独立主条目，排除相关查询与AI旁栏，零重复输入/提交后根满足100。`native-search-invalid-result.json`为输入被页面重置后只一次输入、零提交。`normal-final`因采集时前台切到其他标签，观察器明确拒绝缺失查询对象并停止，保留原回执。AX仅验证显式预绑定合成页面，不证明通用DOM识别或外站泛化。相邻备注保持原值、旧placeholder未被当实际value。原子执行异常后的有效后验及双重失败另有现场与公开API证据。

@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import type { NodeDefinition } from "../core/contracts.js";
 import { createWorkflowInputEvent } from "../core/events.js";
 import { expectRecord } from "../core/schema.js";
+import { readBrowserObservationErrors, readBrowserObservationFeedback,
+  type BrowserObservationError, type BrowserObservationFeedback } from "../adapters/browser/action-observation.js";
 import {
   type NativeClickInvocation,
   type NativeClickReceipt,
@@ -92,6 +94,8 @@ interface EpisodeStage {
   readonly achieved: boolean;
   readonly error: SingleActionEpisodeResult["error"];
   readonly collectionError: string | null;
+  readonly executionErrors: readonly BrowserObservationError[];
+  readonly observationFeedback: BrowserObservationFeedback;
 }
 
 export interface BrowserSingleActionExecutionConstraint {
@@ -126,6 +130,8 @@ function resultOf(stage: EpisodeStage): SingleActionEpisodeResult {
     achieved: stage.achieved,
     error: stage.error,
     collectionError: stage.collectionError,
+    executionErrors: stage.executionErrors,
+    observationFeedback: stage.observationFeedback,
   });
 }
 
@@ -144,6 +150,8 @@ export function readBrowserSingleActionEpisodeResult(value: unknown): SingleActi
   if (input.collectionError !== null && typeof input.collectionError !== "string") {
     throw new TypeError("browser single action episode result.collectionError must be string or null");
   }
+  if (input.executionErrors !== undefined) readBrowserObservationErrors(input.executionErrors);
+  if (input.observationFeedback !== undefined) readBrowserObservationFeedback(input.observationFeedback);
   return value as SingleActionEpisodeResult;
 }
 
@@ -197,6 +205,12 @@ export function createBrowserSingleActionEpisodeNodes(
         request, prediction: null, invocation: null, receipt: null,
         dispatchState: "not_dispatched", effectKnowledge: "none",
         newState: null, satisfaction: null, achieved: false, error: null, collectionError: null,
+        executionErrors: [],
+        observationFeedback: {
+          obligation: { conditionRef: request.goal.regionRef, method: "expanded-state", subjectRef: request.goal.regionRef,
+            scopeRef: request.state.scopeRef, requiredFacts: ["expanded", "rendered"], freshness: "after_action" },
+          status: "incomplete", observationId: null, evidenceRefs: [], unmetFacts: ["expanded", "rendered"], errors: [],
+        },
       };
       try {
         const snapshot = readSingleActionSnapshot(await resources.observe());
@@ -361,14 +375,21 @@ export function createBrowserSingleActionEpisodeNodes(
           || typeof receipt.source !== "string" || !receipt.source
           || (!receipt.dispatched && receipt.effectKnowledge !== "none")
           || (receipt.error !== null && (typeof receipt.error?.code !== "string" || typeof receipt.error?.message !== "string"))) {
-          return context.emit(stageError(pending, "adapter_contract_invalid", "Native executor returned an invalid receipt"));
+          const error = { code: "adapter_contract_invalid", message: "Native executor returned an invalid receipt" };
+          return context.emit(stageError({ ...pending, executionErrors: [error] }, error.code, error.message));
         }
-        return context.emit(Object.freeze({ ...pending, receipt,
+        const executionError = receipt.error ?? (!receipt.ok
+          ? { code: "native_click_rejected", message: "Native executor reported failure" } : null);
+        const completed: EpisodeStage = { ...pending, receipt,
           dispatchState: receipt.dispatched ? "dispatched" as const : "not_dispatched" as const,
           effectKnowledge: receipt.effectKnowledge,
-        }));
+          executionErrors: executionError === null ? [] : [executionError],
+        };
+        return context.emit(Object.freeze(executionError === null ? completed
+          : stageError(completed, executionError.code, executionError.message)));
       } catch (error) {
-        return context.emit(stageError(pending, "native_click_failed", errorText(error)));
+        const diagnostic = { code: "native_click_failed", message: errorText(error) };
+        return context.emit(stageError({ ...pending, executionErrors: [diagnostic] }, diagnostic.code, diagnostic.message));
       }
     },
   );
@@ -380,16 +401,27 @@ export function createBrowserSingleActionEpisodeNodes(
     [],
     async context => {
       const stage = context.inputs[0]!.payload as EpisodeStage;
-      if (stage.error) return context.emit(stage);
+      const failedObservation = (code: string, message: string, newState = stage.newState) => stageError({
+        ...stage, newState,
+        observationFeedback: { ...stage.observationFeedback, status: "failed" as const,
+          observationId: newState?.observationId ?? null, errors: [{ code, message }] },
+      }, code, message);
       if (stage.invocation === null) {
-        return context.emit(Object.freeze({ ...stage, newState: stage.request.state }));
+        if (stage.error) return context.emit(stage);
+        return context.emit(Object.freeze({ ...stage, newState: stage.request.state,
+          observationFeedback: { ...stage.observationFeedback,
+            obligation: { ...stage.observationFeedback.obligation, freshness: "current" as const },
+            status: stage.prediction?.capability === "NOOP" ? "satisfied" as const : "not_required" as const,
+            observationId: stage.request.state.observationId, evidenceRefs: stage.request.state.evidence.map(item => item.id),
+            unmetFacts: [], errors: [] },
+        }));
       }
-      if (stage.receipt === null || !stage.receipt.dispatched) return context.emit(stage);
+      if (stage.dispatchState === "not_dispatched") return context.emit(stage);
       try {
         const newState = readSingleActionSnapshot(await resources.observe());
         if (newState.documentRef !== stage.request.state.documentRef
           || newState.scopeRef !== stage.request.state.scopeRef) {
-          return context.emit(stageError({ ...stage, newState }, "invalid_binding", "Post-action observation replaced the Goal document or scope"));
+          return context.emit(failedObservation("invalid_binding", "Post-action observation replaced the Goal document or scope", newState));
         }
         if (constraint === null) {
           readSingleActionRequest({ ...stage.request, state: newState });
@@ -405,18 +437,24 @@ export function createBrowserSingleActionEpisodeNodes(
         try {
           current = await resources.currentControl();
         } catch (error) {
-          return context.emit(stageError({ ...stage, newState }, "control_unavailable", errorText(error)));
+          return context.emit(failedObservation("control_unavailable", errorText(error), newState));
         }
         if (current.documentRef !== newState.documentRef
           || current.observationId !== newState.observationId
           || current.revision !== newState.revision
           || newState.revision <= stage.request.state.revision
           || newState.observationId === stage.request.state.observationId) {
-          return context.emit(stageError({ ...stage, newState }, "stale_reference", "Post-action evidence is not a fresh current observation"));
+          return context.emit(failedObservation("stale_reference", "Post-action evidence is not a fresh current observation", newState));
         }
-        return context.emit(Object.freeze({ ...stage, newState }));
+        const region = newState.regions.find(item => item.ref === stage.request.goal.regionRef);
+        const unmetFacts = ["expanded", "rendered"].filter(key => !region
+          || region[key as "expanded" | "rendered"].status !== "observed");
+        return context.emit(Object.freeze({ ...stage, newState,
+          observationFeedback: { ...stage.observationFeedback, status: unmetFacts.length ? "incomplete" as const : "satisfied" as const,
+            observationId: newState.observationId, evidenceRefs: newState.evidence.map(item => item.id), unmetFacts, errors: [] },
+        }));
       } catch (error) {
-        return context.emit(stageError(stage, "post_observation_failed", errorText(error)));
+        return context.emit(failedObservation("post_observation_failed", errorText(error)));
       }
     },
   );
@@ -428,7 +466,7 @@ export function createBrowserSingleActionEpisodeNodes(
     [],
     context => {
       const stage = context.inputs[0]!.payload as EpisodeStage;
-      if (stage.error || stage.prediction === null) return context.emit(stage);
+      if (stage.observationFeedback.status !== "satisfied" || stage.prediction === null) return context.emit(stage);
       if (stage.prediction.capability === "DEFER") return context.emit(stage);
       const snapshot = stage.newState;
       const region = snapshot?.regions.find(item => item.ref === stage.request.goal.regionRef);

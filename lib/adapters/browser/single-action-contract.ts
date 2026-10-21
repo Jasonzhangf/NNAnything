@@ -1,5 +1,6 @@
 import type { BasicKindLabel, BasicKindStatus } from "../../filters/basic-kinds.js";
 import type { BrowserExpansionStrategy } from "./strategy-contract.js";
+import type { BrowserObservationError, BrowserObservationFeedback } from "./action-observation.js";
 
 /** Shared typed contract. Raw identifiers and content are never numeric student inputs. */
 export type ActionObservation<T> =
@@ -139,6 +140,9 @@ export interface SingleActionEpisodeResult {
   readonly achieved: boolean;
   readonly error: { readonly code: string; readonly message: string } | null;
   readonly collectionError: string | null;
+  /** Absent only on legacy saved episodes. Never infer fresh evidence from absence. */
+  readonly executionErrors?: readonly BrowserObservationError[];
+  readonly observationFeedback?: BrowserObservationFeedback;
 }
 
 export interface SingleActionResources {

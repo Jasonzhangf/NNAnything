@@ -2,7 +2,7 @@
 const field=(role,text,extra={})=>({role,text,...extra});
 const item=(key,fields,children=[])=>({key,fields,children});
 const layout=(extra={})=>({columns:1,maxWidth:1120,cardBorder:true,fieldOrder:['title','author','time','body','image','video','source','citation','metric'],wrapperDepth:0,...extra});
-export const scenarios=['normal','delayed','empty','error','blocked','ineffective'];
+export const scenarios=['normal','delayed','empty','error','blocked','ineffective','ai-first','invalid'];
 export const profiles=[
   {
     id:'stream',label:'社交流与旁栏',layout:layout(),input:{tag:'input',type:'text'},
@@ -79,4 +79,29 @@ profiles.push({
     item('compact-b',[field('source','装备资料组'),field('title','露营装备记录'),field('metric','记录 12 条'),field('body','按睡眠、饮水和照明整理资料。')]),
     item('compact-c',[field('author','天气记录组'),field('title','天气变化记录'),field('metric','记录 3 条')]),
   ]}],
+});
+
+// Mixed representation: waterfall main cards, an inline related-query set, and
+// an independent AI aside. Application content only; no teacher or profile key
+// crosses into the rendered page.
+profiles.push({
+  id:'mixed',label:'混合瀑布与AI旁栏',
+  layout:{columns:2,maxWidth:1240,cardBorder:true,fieldOrder:['image','title','body','author','time','metric','citation','source'],wrapperDepth:1},
+  input:{tag:'input',type:'text',placeholder:'旧推荐词：城市散步路线'},
+  groups:[
+    {label:'笔记',placement:'main',items:[
+      item('mixed-note-one',[field('image','帐篷搭建示意图',{ratio:0.75}),field('title','露营装备的轻量清单'),field('author','户外笔记本'),field('time','今天 08:15'),field('body','按睡眠、饮水、照明和天气防护分组整理装备。'),field('metric','喜欢 62 · 评论 9')]),
+      item('mixed-note-two',[field('video','城市散步封面',{ratio:1.3}),field('title','慢慢走过一条老街'),field('author','小路记录'),field('time','昨天 19:40'),field('body','沿河岸步道经过旧街区，到公园休息。'),field('metric','喜欢 17')]),
+      item('mixed-note-three',[field('image','无独立标题的营地照片',{ratio:0.65}),field('author','沿途留影'),field('time','昨天 11:20'),field('body','雨后步道和营地附近的观察记录。'),field('metric','喜欢 9')]),
+      item('mixed-note-four',[field('image','雨后步道示意图',{ratio:1.1}),field('title','雨后路线观察'),field('author','自然观察员'),field('time','前天 09:00'),field('body','记录雨后的步行路线与地面条件。'),field('metric','评论 4')]),
+    ]},
+    {label:'相关查询',placement:'main',items:[
+      item('related-camping',[field('title','露营装备清单'),field('body','按季节和行程核对装备。')]),
+      item('related-walk',[field('title','城市散步路线'),field('body','沿河岸与公园组织路线。')]),
+      item('related-weather',[field('title','天气与户外条件'),field('body','查看天气和场地限制。')]),
+    ]},
+    {label:'AI 摘要',placement:'aside',items:[
+      item('ai-summary',[field('body','综合笔记与网页资料，露营准备可先按睡眠、饮水、照明和天气防护分组。'),field('citation','来源一：营地准备指南'),field('citation','来源二：步道安全手册')]),
+    ]},
+  ],
 });

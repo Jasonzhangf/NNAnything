@@ -38,6 +38,18 @@ test('a learned diagnostic cannot declare the original Goal achieved', async () 
   input.controlAtCompletion.revision += 1;
   assert.notEqual(api.predictFeedback(input, api.createZeroFeedbackProfile()).status, 'goal_achieved');
 });
+test('a verified goal fact is separate from executor errors and unknown effects', async () => {
+  const input = structuredClone(api.makeFeedbackSamples()[0].input);
+  const region = input.result.newState.regions.find(row => row.ref === input.request.goal.regionRef);
+  region.expanded.value = true; region.rendered.value = true;
+  input.result.achieved = true; input.result.satisfaction = 100;
+  input.result.receipt = null; input.result.dispatchState = 'unknown'; input.result.effectKnowledge = 'unknown';
+  input.result.error = {code:'native_click_failed',message:'callback failed after possible dispatch'};
+  const result = await api.browserFeedbackUnit.infer(input, {profile:api.createZeroFeedbackProfile()});
+  assert.equal(result.prediction.status,'goal_achieved');
+  assert.equal(result.input.result.error.code,'native_click_failed');
+  assert.equal(result.input.result.effectKnowledge,'unknown');
+});
 test('feedback schema rejects contradictory receipts and profiles without fallback', () => {
   const input = structuredClone(api.makeFeedbackSamples()[0].input);
   input.result.receipt.dispatched = false;

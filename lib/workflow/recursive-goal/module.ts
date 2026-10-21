@@ -2299,7 +2299,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           atomicResultRefs: [dispatchId],
         });
       if (original === null) this.addDiagnostic(primary);
-      this.finishAtomicFailure(frame, primary);
+      const stopOnly = await this.refreshFactsBeforeAtomicStop(frame, receipt, projection.result, primary);
+      this.finishAtomicFailure(frame, primary, frame.fact, stopOnly);
       return;
     }
 
@@ -2319,10 +2320,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         atomicResultRefs: [dispatchId],
       });
       this.addDiagnostic(primary);
-      this.markRootUnknownFromAtomicFailure(
-        receipt.evidence.map(item => item.id),
-      );
-      this.finishAtomicFailure(frame, primary, "unknown");
+      const stopOnly = await this.refreshFactsBeforeAtomicStop(frame, receipt, projection.result, primary);
+      if (!stopOnly) this.markRootUnknownFromAtomicFailure(receipt.evidence.map(item => item.id));
+      this.finishAtomicFailure(frame, primary, stopOnly ? frame.fact : "unknown", stopOnly);
       return;
     }
 
@@ -2341,15 +2341,115 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     frame.phase = "evaluate";
   }
 
+  /** Pure fact refresh only: execution failure still terminates with its original error. */
+  private async refreshFactsBeforeAtomicStop(
+    failed: InternalFrame<G, B, C>,
+    atomic: AtomicReceipt<S, E, F, R>,
+    result: AtomicExecutionResult<F, R>,
+    original: RecursiveGoalErrorDiagnostic,
+  ): Promise<boolean> {
+    const stateRef = this.currentStateRecord().id;
+    const plannedNode = this.planControl?.plan?.nodes.find(item => item.id === this.planControl?.cursor?.nodeRef);
+    // This already has a normal evaluate/replan path; preserve its existing safe recovery.
+    if (this.planningMode && plannedNode !== undefined && atomic.effect.knowledge === "none"
+      && (atomic.outcome === "failed" || atomic.outcome === "rejected")
+      && result.observedStateRef === stateRef && result.verificationErrorIds.length === 0
+      && ["execution_failed", "precondition_unsatisfied", "invalid_binding"].includes(original.code)) return false;
+    this.markRootUnknownFromAtomicFailure([]);
+    if (atomic.newState === null || result.observedStateRef !== stateRef || atomic.newState.id !== stateRef
+      || result.verificationErrorIds.length > 0) return false;
+    const admitted = new Set(atomic.evidence.map(item => item.id));
+    const evidence = this.evidence.filter(item => admitted.has(item.id)
+      && item.stateRef === stateRef && item.validity === "valid");
+    if (evidence.length === 0) return false;
+    const currentIds = new Set(evidence.map(item => item.id));
+    this.markRootUnknownFromAtomicFailure([...currentIds]);
+    failed.execution = "failed";
+    failed.errorId = original.errorId;
+    if (this.primaryErrorId === null) this.primaryErrorId = original.errorId;
+    const failurePath = new Set<string>();
+    for (let item: InternalFrame<G, B, C> | null = failed; item !== null; item = this.parentFrame(item)) {
+      failurePath.add(item.frameId);
+    }
+    const staged = new Map<string, EvaluationReceipt>();
+    const stack = [{ frame: this.rootFrame, leave: false }];
+    const visited = new Set<string>();
+    try {
+      while (stack.length > 0) {
+        const entry = stack.pop()!;
+        const target = entry.frame;
+        if (!entry.leave) {
+          if (visited.has(target.frameId)) continue;
+          visited.add(target.frameId);
+          stack.push({ frame: target, leave: true });
+          for (const condition of target.conditions.values()) {
+            if (condition.activation !== "required" || condition.childFrameId === null
+              || (condition.lifetime === "stage" && condition.fact === "satisfied"
+                && !failurePath.has(condition.childFrameId))) continue;
+            const child = this.frames.get(condition.childFrameId);
+            if (child === undefined) throw new TypeError("missing child for failure fact refresh");
+            stack.push({ frame: child, leave: false });
+          }
+          continue;
+        }
+        if (!this.beginTransition(target, "evaluation")) return true;
+        const conditions = this.conditionFacts(target).map(condition => {
+          const updated = condition.childFrameId === null ? undefined : staged.get(condition.childFrameId);
+          return updated === undefined ? condition : { ...condition, fact: updated.result,
+            satisfaction: updated.satisfaction, evaluatorId: updated.evaluatorId, evidenceRefs: [...updated.evidenceRefs] };
+        });
+        const evaluation = readEvaluationReceipt(await this.deps.adapter.evaluate({
+          context: this.context(target), goal: this.callbackGoal(target.goal),
+          satisfactionThreshold: target.satisfactionThreshold, bindings: this.callbackBindings(target.bindings),
+          state: this.callbackState(), evidence: freezeSnapshot(evidence), conditions: freezeSnapshot(conditions),
+        }), target.satisfactionThreshold);
+        if (this.deps.signal?.aborted === true) { this.stopCancelled(failed); return true; }
+        if (evaluation.evaluatorId !== target.evaluatorId || !this.deps.evaluatorsById.has(evaluation.evaluatorId)
+          || evaluation.evidenceRefs.some(id => !currentIds.has(id))
+          || this.evaluationEvidenceFailure(evaluation) !== null
+          || (evaluation.result === "satisfied" && conditions.some(condition =>
+            condition.fact !== "satisfied" && condition.fact !== "not_applicable"))) {
+          throw new TypeError("failure fact evaluation lacks current evidence or required conditions");
+        }
+        staged.set(target.frameId, evaluation);
+      }
+      for (const [id, evaluation] of staged) {
+        const target = this.frames.get(id)!;
+        target.lastEvaluation = evaluation;
+        target.lastEvaluationAtTransition = this.transitionsUsed;
+        target.fact = evaluation.result;
+        target.evidenceRefs = [...evaluation.evidenceRefs];
+        const parent = this.parentFrame(target);
+        const condition = target.fulfillsConditionId === null ? undefined : parent?.conditions.get(target.fulfillsConditionId);
+        if (condition !== undefined) {
+          condition.fact = evaluation.result; condition.satisfaction = evaluation.satisfaction;
+          condition.observedEvaluatorId = evaluation.evaluatorId; condition.evidenceRefs = [...evaluation.evidenceRefs];
+        }
+      }
+      const root = staged.get(this.rootFrame.frameId)!;
+      this.rootEvaluation = { state: "evaluated", result: root.result, satisfaction: root.satisfaction,
+        evaluatorId: root.evaluatorId, evidenceRefs: [...root.evidenceRefs], evaluatedAtTransition: this.transitionsUsed };
+    } catch (error) {
+      this.addDiagnostic(this.diagnostics.create({
+        code: "adapter_contract_invalid", stage: "evaluation", message: errorMessage(error),
+        origin: { frameId: failed.frameId, skillId: failed.selectedSkillId, conditionId: failed.fulfillsConditionId },
+        owner: "adapter", category: "failure_fact_evaluation", effectKnowledge: atomic.effect.knowledge,
+        atomicResultRefs: [result.dispatchId], cause: this.diagnostics.capturedCause(error),
+      }));
+    }
+    return true;
+  }
+
   private finishAtomicFailure(
     frame: InternalFrame<G, B, C>,
     diagnostic: RecursiveGoalErrorDiagnostic,
     conditionFact: RecursiveGoalFact = frame.fact,
+    stopOnly = false,
   ): void {
     if (this.finished) return;
     const atomic=this.atomicResults.at(-1);
     const node=this.planControl?.plan?.nodes.find(item=>item.id===this.planControl?.cursor?.nodeRef);
-    if(this.planningMode && this.planControl !== null && node!==undefined && atomic!==undefined &&
+    if(!stopOnly && this.planningMode && this.planControl !== null && node!==undefined && atomic!==undefined &&
       (atomic.outcome==="failed" || atomic.outcome==="rejected") && atomic.effect.knowledge==="none" &&
       atomic.observedStateRef === this.currentStateRecord().id &&
       ["execution_failed","precondition_unsatisfied","invalid_binding"].includes(diagnostic.code) && atomic.verificationErrorIds.length===0) {
