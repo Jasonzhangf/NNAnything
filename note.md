@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-21 F1有限域后训练与有界鲁棒性（泛化失败已确认，Review通过，待main交付）
+
+用户要求继续现有假设，依次验证有限样本、真实操作及泛化。独占树`/Volumes/Intel/playground/nnanything/f1-robustness`，证据根`/Volumes/Intel/playground/nnanything-runs/f1-robustness-20261021`。独立OAuth gpt-6.1-sol medium的plan.md、plan-update.md、plan-budget.md已接受；Gemini4沿仍有效quota证据后备，不重试耗尽配额。无.appsdk需求文件。复用闭合的F1推理1N0E、训练6N6E，拓扑及推理结构不变。
+
+计划7项已执行，6项通过；独立组合泛化项经补正后失败，不能称7项全部验收。全milestone独立Review发现1项P1资料实例化缺口，作者已补正证据及结论，独立OAuth gpt-6.1-sol medium定点复核PASS、零finding；未变实现复用整体审查，候选仍不具备鲁棒性验收或采用资格。Review与指导一致性结案核对归档run/controller-review，当前待main/push和资源清理。GCM观察者未交审计成果，另一样本worker超时无产物后按精确PID结束；独立样本设计由新OAuth只读作者完成，父机械实例化及执行，不冒称GCM交付。
+
+336组合为228合法/108无效/0未决，56失败投影无冲突；解析诊断可分，梯度差约1.05e-8，不支持本有限域缺wire。新增可选类/投影平衡训练目标，省略时旧行为完全保留。三次均从旧候选开始，固定77train/13dev、36参数/.1：投影等权200epoch失败63/77、9/13、216/228；类平衡200epoch失败73/77、13/13、220/228；独立诊断后预定2700epoch通过77/77、13/13、228/228。失败与gold全部保留。2700由train覆盖系数推导，不称首次预注册或等价优化进程。第三次207900行梯度，真实拟合852.996ms。
+
+新进程回载一致，旧72/72；真实开发反例正确indeterminate，原错误/实际Goal/effects保留。两种自有HTML上8/8（6次原生点击、2次受控拒绝，错误部分为明确注入）；其中无error正文拒绝是新受控投影。原24/24及72/72报告保留，但Review发现R5要求effects未知，父实例化误用known。仅修正result/receipt的effectKnowledge，gold/候选不变；4个受影响公开推理均错判indeterminate而非execution_rejected。补正后独立组合23/24、变换分类69/72，结构不变性仍72/72。R5是此前train/有限域未见投影，故本轮泛化失败，不再训练或采用。小红书无已验证展开绑定，不计真实外站操作。F2原48/48逐例不变，独立22/24及原两项rawFAIL保留；新递归6类7变体7/7，含一个故意错分诊断，不混入候选准确率。
+
+目标红/绿13/13，完整1031/1031零skip，worktree build及扩展构建通过。未改原子/F2权重、推理core或用户扩展产物；候选`fitted-coverage-budget-r1/candidate.json`继续uncalibrated/not_applied。合同与精确限制沿docs/browser-feedback-strategy.md。本轮证明有限域可通过训练补齐，未证明模型健壮，且已发现一个泛化反例。下一轮须独立规划交叉覆盖及新鲜留出，本轮不越过固定拟合停止条件。
+
 ## 2026-10-20 逐步观察运行补齐与旧样本推理回归（已交付）
 
 用户授权补齐运行缺口并用已有样本检查是否需要重训。独占树`/Volumes/Intel/playground/nnanything/step-observation`，证据run为`/Volumes/Intel/playground/nnanything-runs/step-observation-20261020`。独立技术计划plan.md已接受，角色准入裁决在plan-acceptance.md：本次Gemini4 quota错误后，正式OAuth gpt-6.1-sol medium只读独立规划；不将其自报型号阻塞当真实阻塞。

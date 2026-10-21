@@ -47,12 +47,14 @@ export interface FeedbackEpisode {
     readonly note: string;
   };
 }
+export type FeedbackObjective = 'distinct_projection_coverage' | 'class_balanced_projection_coverage';
 export interface FeedbackFitInput {
   readonly initial: FeedbackProfile;
   readonly episodes: readonly FeedbackEpisode[];
   readonly handwiredRoot: string;
   readonly epochs: number;
   readonly learningRate: number;
+  readonly objective?: FeedbackObjective;
 }
 export interface FeedbackTrajectoryEntry {
   readonly epoch: number;
@@ -63,9 +65,12 @@ export interface FeedbackTrajectoryEntry {
 export interface FeedbackFitResult {
   readonly profile: FeedbackProfile;
   readonly objective: {
-    readonly kind: "distinct_projection_coverage";
+    readonly kind: FeedbackObjective;
     readonly projectionCount: number;
     readonly groupSizes: readonly number[];
+    readonly classCount?: number;
+    /** Counts in FEEDBACK_HEADS order, including zero for an absent class. */
+    readonly classProjectionCounts?: readonly number[];
   };
   readonly trajectory: readonly FeedbackTrajectoryEntry[];
   readonly timing: {
@@ -90,6 +95,7 @@ export interface FeedbackTrainingRequest {
   readonly initial: FeedbackProfile;
   readonly epochs: number;
   readonly learningRate: number;
+  readonly objective?: FeedbackObjective;
 }
 export interface FeedbackTrainingResources {
   readonly handwiredRoot: string;

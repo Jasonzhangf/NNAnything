@@ -4,6 +4,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import * as api from 'nnanything/browser-feedback';
+test('public feedback training workflow propagates the opt-in objective without changing profile shape', {skip:!process.env.NN_HANDWIRED_ROOT},async t=>{
+  const outputDirectory=await mkdtemp(join(tmpdir(),'feedback-objective-'));t.after(()=>rm(outputDirectory,{recursive:true,force:true}));
+  const initial=api.createZeroFeedbackProfile();
+  const result=await api.browserFeedbackUnit.train({episodes:api.makeFeedbackSamples(),initial,epochs:0,learningRate:.1,objective:'class_balanced_projection_coverage'},
+    {handwiredRoot:process.env.NN_HANDWIRED_ROOT,outputDirectory});
+  assert.equal(result.fit.objective.kind,'class_balanced_projection_coverage');assert.equal(result.fit.objective.classCount,3);
+  assert.equal(result.fit.timing.epochs,0);assert.deepEqual(result.profile,initial);
+});
 test('feedback unit exposes a real workflow inference entry', async () => {
   const api = await import('nnanything/browser-feedback');
   const sample = api.makeFeedbackSamples()[0];

@@ -7,6 +7,8 @@ import { loadHandwired } from "./handwired.js";
 export async function fitFeedbackProfile(input: FeedbackFitInput): Promise<FeedbackFitResult> {
   const started = performance.now();
   const initial = validateFeedbackProfile(input.initial);
+  const objective = input.objective === undefined ? "distinct_projection_coverage" : input.objective;
+  if (objective !== "distinct_projection_coverage" && objective !== "class_balanced_projection_coverage") throw new TypeError("Unsupported feedback objective");
   if (!Number.isInteger(input.epochs) || input.epochs < 0 || !Number.isFinite(input.learningRate) || input.learningRate <= 0) throw new TypeError("Invalid feedback fit budget");
   if (!Array.isArray(input.episodes) || input.episodes.length === 0 || input.episodes.some(row => row.partition !== "train" || !FEEDBACK_HEADS.includes(row.teacher.head))) throw new TypeError("Feedback fitter accepts nonempty train episodes only");
   const rows = input.episodes.map(row => ({ features: feedbackFeatures(row.input), expected: FEEDBACK_HEADS.indexOf(row.teacher.head) }));
@@ -17,6 +19,8 @@ export async function fitFeedbackProfile(input: FeedbackFitInput): Promise<Feedb
     if (group && group.expected !== row.expected) throw new TypeError("Conflicting feedback labels for one student projection");
     groups.set(key, { count: (group?.count ?? 0) + 1, expected: row.expected });
   }
+  const classProjectionCounts = FEEDBACK_HEADS.map((_, head) => [...groups.values()].filter(group => group.expected === head).length);
+  const classCount = classProjectionCounts.filter(count => count > 0).length;
   const loadStarted = performance.now();
   const module = await loadHandwired(input.handwiredRoot);
   const backendLoadMs = performance.now() - loadStarted;
@@ -31,7 +35,10 @@ export async function fitFeedbackProfile(input: FeedbackFitInput): Promise<Feedb
       const gradient = new Float64Array(weights.length);
       let loss = 0;
       for (const row of rows) {
-        const scale = 1 / (groups.size * groups.get(JSON.stringify(row.features))!.count);
+        const group = groups.get(JSON.stringify(row.features))!;
+        const scale = objective === "class_balanced_projection_coverage"
+          ? 1 / (classCount * classProjectionCounts[row.expected]! * group.count)
+          : 1 / (groups.size * group.count);
         const source = new Float32Array(circuit.circuit.sourceSize);
         circuit.parameters.forEach((wire, index) => { source[wire] = Math.fround(weights[index]!); });
         circuit.features.forEach((wire, index) => { source[wire] = Math.fround(row.features[index]!); });
@@ -56,7 +63,8 @@ export async function fitFeedbackProfile(input: FeedbackFitInput): Promise<Feedb
   }
   const profile: FeedbackProfile = { ...initial, weights: FEEDBACK_HEADS.map((_, index) => weights.slice(index * FEEDBACK_WIRES.length, (index + 1) * FEEDBACK_WIRES.length)) };
   return { profile: validateFeedbackProfile(profile), trajectory,
-    objective: { kind: "distinct_projection_coverage", projectionCount: groups.size, groupSizes: [...groups.values()].map(group => group.count) }, timing: { backendLoadMs, circuitBuildMs,
+    objective: { kind: objective, projectionCount: groups.size, groupSizes: [...groups.values()].map(group => group.count),
+      ...(objective === "class_balanced_projection_coverage" ? { classCount, classProjectionCounts } : {}) }, timing: { backendLoadMs, circuitBuildMs,
     fitMs: performance.now() - fitStarted, totalMs: performance.now() - started, epochs: trajectory.length,
     rows: rows.length, gradientRowEpochs: rows.length * trajectory.length, trainableParamCount: weights.length } };
 }

@@ -30,6 +30,34 @@ F2的候选评分和原子显式策略接入、递归控制扩展须在F1通过�
 
 ## F1结果与限制
 
+### 2026-10-21 有限域后训练与有界鲁棒性验证
+
+本轮保持12 wire、三个head、36参数和推理合同，未增加特征或改写推理逻辑。训练请求新增可选`objective`：省略或`distinct_projection_coverage`保持原来的投影等权行为；显式`class_balanced_projection_coverage`使每个已出现的gold类等权，类内每个完整学生投影等权。每行损失/梯度系数为`1/(C × Kc × n)`，C是train内出现的类数，Kc是该gold类的不同投影数，n是该投影的重复行数。gold不参与投影键，冲突标签仍拒绝；development不进入分组。训练回执记录目标与类投影数，推理profile形状不变。未知objective显式报错。
+
+有限语法为8种attempt×14种posterior×3种观察承载，共336组合；228合法、108无效、0未决。合法失败有56种学生投影、0标签冲突；旧候选215/228。独立解析梯度与Handwired最大差约1.05e-8；同结构解析分隔矩阵能处理228/228，但它仅作诊断，未作训练初值或候选。现有表示足以表达本轮有限域，不能据此证明覆盖任意浏览器状态。
+
+训练固定77行、47种投影，development13行；类投影数按head顺序为3/17/27。旧36行train保留，新增训练排除了独立设计预留的9种投影。三次拟合均从原`fitted-feedback-coverage-r1/candidate.json`开始，学习率0.1，旧gold不变，失败候选全部保留：
+
+| 尝试 | 目标与预算 | train | development | 有限域 |
+| --- | --- | --- | --- | --- |
+| 首次扩展 | 投影等权，200epoch | 63/77 | 9/13 | 216/228 |
+| 类平衡修订 | 类/投影等权，200epoch | 73/77 | 13/13 | 220/228 |
+| 覆盖预算修订 | 类/投影等权，2700epoch | 77/77 | 13/13 | 228/228 |
+
+第三次是失败诊断后的独立计划修订，不是首次实验前预注册。预算由旧每投影累计目标系数`200/6`与新最小系数`1/(3×27)`推得2700；只比较累计目标系数，不宣称优化进程等价或保证收敛。无中间checkpoint择优、无验证集早停。实际207900次逐行梯度求值，2700次更新，拟合852.996ms。此前4种观察不完整投影的margin由负转正约0.98–1.13，此数只作事后诊断。新进程回载预测一致，旧72/72；已知原生开发反例改判indeterminate，原错误/effects和实际Goal事实保留，反馈自身satisfaction仍null。
+
+真实Chrome验证在两种自有HTML布局上运行8个episode：6次原生点击、2次受控执行前拒绝。覆盖已知其他副作用但Goal未达成、点击后注入transport错误且Goal未达成、明确拒绝、Goal达成但回调报错，全部8/8。拒绝不是实际点击失败，注入错误不是站点自身报错。toolbar的拒绝回执没有error正文，其学生投影未在有限域或训练出现，正确归execution_rejected；这只提供一个新的受控拒绝投影证据。对象关系和命中点由调用者依可见证据预绑定，不能称已学会DOM发现。小红书只读观察未证实本切片的展开关系及状态，不计外站操作验收。
+
+独立作者设计24个组合，父编排者机械实例化，原评价24/24及72对变换全部通过，但独立Review发现R5实例化遗漏：配方要求已派发、明确拒绝且effects未知，实际复制模板时将result及receipt的effectKnowledge均保留为known。原报告保留，不能作为24个原配方全部通过的证据。作者仅将这两个字段补为unknown，保持gold和保存候选不变，另存r5-corrected-cases.json与r5-correction-evaluation.json，补测R5及三个原语义变换，4/4均错误预测indeterminate，预期execution_rejected。该投影`[1,1,1,1,0,1,1,1,1,1,0,0]`未在train及有限域出现，暴露真实的未见投影泛化失败。
+
+结合未受影响结果，正确配方成绩为23/24，变换分类正确为69/72；72对特征及预测结构不变性仍保持，不能与分类准确率混淆。正确24例中8例投影与训练重合，23例投影已在有限域诊断出现；R5为补正后首次评价的新投影。72对不是72个独立来源。评价后没有再次拟合。有限域验收通过，但本轮泛化/鲁棒性验收失败，候选不具备采用资格；不得将报告失败收口解释为模型健壮性已经完成。下一轮须先独立规划补齐副作用知识与拒绝的交叉覆盖，再确定训练与新鲜留出，不用本轮失败反复调参。
+
+F2不改权重：原train/development48/48且逐例不变；独立包仍22/24，两个既有single-candidate-defer前提问题保留rawFAIL。新增公开递归consumer的6类边界、7种变体7/7，覆盖不确定effects停止、已知其他effects不授权重试、明确拒绝、达成且报错、失效后验及空权限；其中一个故意错分的诊断profile验证F1标签不能越过控制边界，不计候选准确率。
+
+证据根为`/Volumes/Intel/playground/nnanything-runs/f1-robustness-20261021`：三轮fit回执、finite逐例、reload-audit.json、native-summary.json、holdout/first-evaluation.json、holdout/r5-correction-evaluation.json、f2-combination.json及完整失败资料均保留。最终候选为`fitted-coverage-budget-r1/candidate.json`，继续uncalibrated/not_applied；当前默认权重及用户扩展不变。作者全仓1031/1031零skip。结论限于声明有限域、受控原生行为和组合不变性；已证实一个未见投影泛化失败，独立外站操作仍未验证。整体Review及main交付回执由note.md维护。
+
+### 2026-10-20 历史验收
+
 2026-10-20逐步观察修复后的旧样本推理及新增失败判定：原子50参数旧60/60、F1 36参数旧72/72、F2 20参数train/dev48/48，逐例输出与修前一致；F2独立包仍22/24，两项既有single-candidate-defer前提缺陷保留rawFAIL，不能改gold清零。旧候选均未重新拟合、未采用。真实Chrome点击未展开后，执行回调抛transport错误，随后读回有效未达成状态，dispatch/effects仍unknown；旧F1给出execution_rejected，合同要求indeterminate。这是新增失败投影的后训练缺口。该反例已用于开发，不能再当未见留出。下一轮先检验现有12wire可辨性，再准备按来源家族分开的派发不确定、明确拒绝及观察失败对照，真实拟合、新进程回载和旧能力回归；F2在F1更新后做组合回归，本轮无独立改权重依据。
 
 目标已由当前有效后验达成且执行器有错，是另一种情况。真实Goal事实仍应返回goal_achieved，错误与unknown effects保留且不授权重试；本轮修复的是确定性事实门禁，不靠训练覆盖运行逻辑。原始回执、推理结果及边界说明在`/Volumes/Intel/playground/nnanything-runs/step-observation-20261020/training-assessment.md`。
