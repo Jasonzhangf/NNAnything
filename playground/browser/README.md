@@ -1,5 +1,7 @@
 # 离线 DOM 候选 consumer
 
+可交互的参数化搜索页面环境见[search-fixture](search-fixture/README.md)。它通过同一页面核心表达不同结果表示，为后续搜索训练准备场景；不改变本文的离线候选API，不代表搜索runner或真实跨站训练已完成。
+
 从项目根目录运行：
 
 ```sh

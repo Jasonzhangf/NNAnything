@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-10-20 跨站搜索抽象与可配置HTML样本
+
+用户要求从微博/小红书搜索观察扩展到三社交平台（按上下文含知乎）及Google/Bing，重点是固定通用框架，页面差异用参数与训练表达。证据run为`/Volumes/Intel/playground/nnanything-runs/search-results-fixture-20261020`，user-scope.md/observation.md/plan.md。现有operation-episode7N6E读取闭合；本轮是被操作fixture应用及抽象合同，不增加业务图或搜索运行绑定。
+
+微博、Google、Bing本轮原生查询取得结果；小红书提交查询后仍为推荐页并登录遮罩，知乎登录页，不能计为本轮搜索成功。两站历史本地搜索资料仅为结构线索，知乎标题/查询与若干内容不一致，关联未经确认。原始材料仅本地，入仓内容与SVG均原创。Google textarea、Bing textarea→search input体现必要宿主差异，不声称旧InputTextValue已支持。
+
+按两站历史真实搜索URL直接导航复核，小红书仍返回推荐/登录；知乎出现搜索外壳、“未搜到内容”与登录面板并存。原始p1/p2-direct-settled.local.json保留，不能将其当真实无结果。抽象将请求、显示、访问状态分别观测，避免单互斥status吞掉并存事实。
+
+固定抽象唯一owner为docs/search-page-abstraction.md，fixture位于playground/browser/search-fixture。五种表示（stream/columns/discussion/documents/synthesis）及后加compact共用renderPage；compact是在核心完成后只增加配置，证明表示兼容，不是独立实现家族或ML泛化通过。配置参数、故障参数、未来四类训练slot与权重分开。teacher字段/key/profile不进入学生页面，浏览器只接收正常HTML内容，不提供源码或oracle路由。
+
+原生证据native-six-representations.json为6/6（三种编辑宿主），native-state-cases.json为11/11（分页、草稿不改旧归属、新查询页1、旧结果加载状态、迟到A不覆盖B、空、错误保留/恢复、阻断、无效点击和备用）。样本390px下documentWidth=390、输入可见；桌面/移动截图和现场来源保存在run。fixture-red.log记录模块缺失红测；fixture-final-tests.log为2/2，公开HTTP和参数兼容验证，npm build通过。未改lib/权重，不重复无关全仓拟合。
+
+两个GCM按互斥owner尝试实施：page worker提前结束仅交继续读取说明，cases worker未交编辑/完成回执，父按记录PID结束并接管。原events/stderr保留，不冒充worker实现，也不泛化为后端能力结论。独立整体Review首选Gemini4本次配额失败，后备OAuth gpt-6.1-sol medium只读新session完成，五项模块边界、findings为空，父核对scope后接受PASS。当前8/9工作包已验收，最后一项为main/push、样本入口及自有树收口；实际回执归档于上述run的delivery.md，不以Review替代交付。
+
+边界：内容响应按配置固定，不进行语义检索；resultsFor只表示应用响应的查询归属，不证明内容相关。媒体为合成封面，视频不播放。搜索runner、通用页面识别/关系训练、真实拟合/回载、独立跨站泛化及自动采样/采用仍未实施。
+
 ## 2026-10-20 有界推理原型、可替换决策与候选热重载
 
 本轮执行用户在设计后的实现要求。总目标是公开原型、两域验证、通用控制抽取、一次整体独立Review、main/push与资源收口。证据根为`/Volumes/Intel/playground/nnanything-runs/bounded-reasoning-prototype-20261020`，原需求user-scope.md，独立计划plan.md、plan-update.md、hot-reload-plan.md。每次新Plan首选Gemini4实际配额失败后，均由独立OAuth gpt-6.1-sol medium规划。旧worker受连接/预算限制未交闭环时父已接管；未将worker限制当产品阻塞。
