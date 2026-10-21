@@ -72,6 +72,10 @@ export interface LiveDomEvidence {
   readonly classList: readonly string[];
   readonly textSummary: string | null;
   readonly linkPathname: string | null;
+  readonly inputValue: string | null;
+  readonly placeholder: string | null;
+  readonly mediaSrc: string | null;
+  readonly mediaType: "video" | "audio" | null;
   readonly rect: Rect | null;
   readonly clippedRect: Rect | null;
   readonly parentTags: readonly string[];
@@ -2472,7 +2476,14 @@ export function observeLiveDom(input: {
     if (tag === "iframe") { frames++; unassessedChildContent.push("iframe"); }
     if (tag === "object") { objects++; unassessedChildContent.push("object_content"); }
     if (element.shadowRoot) { shadows++; unassessedChildContent.push("shadow_root"); }
-    evidence.set(nodeRef, { nodeRef, tag, id: element.id || null, classList: Array.from(element.classList), textSummary: safeText(element), linkPathname, rect, clippedRect, parentTags: parents, unassessedChildContent });
+    const inputElement = element as HTMLInputElement;
+    const isInputHost = tag === "input" || tag === "textarea" || tag === "select";
+    const inputValue = isInputHost ? (inputElement.value !== undefined ? inputElement.value : null) : null;
+    const placeholder = tag === "input" || tag === "textarea" ? (element.getAttribute("placeholder") ?? null) : null;
+    const mediaElement = element as HTMLMediaElement;
+    const mediaSrc = tag === "video" || tag === "audio" ? (mediaElement.currentSrc !== undefined && mediaElement.currentSrc !== "" ? mediaElement.currentSrc : (element.getAttribute("src") ?? null)) : null;
+    const mediaType = tag === "video" ? "video" : tag === "audio" ? "audio" : null;
+    evidence.set(nodeRef, { nodeRef, tag, id: element.id || null, classList: Array.from(element.classList), textSummary: safeText(element), linkPathname, inputValue, placeholder, mediaSrc, mediaType, rect, clippedRect, parentTags: parents, unassessedChildContent });
   }
   // Focus is a single-document fact. A readable observed active element gives
   // true for its node and false for every other observed node; a missing or
