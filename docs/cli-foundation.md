@@ -51,9 +51,9 @@ pwd 不接收任意 executable、argv 或命令字符串。子进程使用 `shel
 
 ## 内容范围读取
 
-`read` 只对普通文件返回字节范围。`offset`/`length` 必须是非负安全整数。读取前先 `lstat`：最终符号链接被拒（`ELOOP`），非普通文件被拒（`READ_TYPE_DENIED`，含实际类型名）；打开后再次 `fstat` 核对类型，防止检查与打开之间被替换。返回 `bytes`（base64）、`bytesRead`、`eof`、读时 `size` 与 `observedRange`。
+`read` 只对普通文件返回字节范围。`offset`/`length` 必须是非负安全整数。读取前先 `lstat`：最终符号链接被拒（`ELOOP`），非普通文件被拒（`READ_TYPE_DENIED`，含实际类型名）。打开阶段是安全边界：以 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` 打开，最终符号链接即使检查后被换入也在 `open` 直接失败（`ELOOP`），FIFO 不会阻塞；打开后 `fstat` 核对类型，并把打开的 `dev/ino` 与 `lstat` 前记录的身份比对，被换成另一普通文件则拒（`READ_TARGET_CHANGED`）。返回 `bytes`（base64）、`bytesRead`、`eof`、读时 `size` 与 `observedRange`。
 
-`length:0` 合法，但仍先验证目标是普通文件；零长度读取不声称 EOF。有范围数据不声称已读完整文件；`eof` 只表示本次读取未填满请求长度。一次读取不是原子快照，不支持并发语义。不打开 FIFO/socket/设备流做普通文件读取，不写目标文件。
+平台边界：`O_NOFOLLOW`/`O_NONBLOCK` 是本机 macOS/POSIX 语义；Windows 等无 `O_NOFOLLOW` 的平台不在当前运行范围。受控替换反例（symlink/FIFO/普通文件换入）见 `tests/cli-file-read.test.mjs`。零长度读取合法，但仍通过同一打开与身份核对；零长度读取不声称 EOF。有范围数据不声称已读完整文件；`eof` 只表示本次读取未填满请求长度。一次读取不是原子快照，不支持并发语义。不打开 FIFO/socket/设备流做普通文件读取，不写目标文件。
 
 ## 独立验收与后续训练
 
