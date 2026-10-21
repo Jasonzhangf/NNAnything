@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-21 Shell基础语义候选 P1 修复（独立 review FAIL → 修复后待定点复核）
+
+原候选 `5d8bc10` 经独立只读 review FAIL，5 项 P1；已在同一独占树 `codex/cli-foundation` 修复并提交 `85ad458`，未合 main、未 push、未采用权重。独立只读复核 8/8 PASS。main 仍 `83ff464`。
+
+- P1#1 打开边界（S10）：`lib/adapters/cli/file-content.ts` 改 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` 打开，打开后 dev/ino 与 lstat 前核对（`READ_TARGET_CHANGED`），拒绝最终 symlink（ELOOP）与非普通文件（READ_TYPE_DENIED）；注入 io 缝的受控替换反例 4 项（symlink 换普通文件/FIFO 阻塞反例/普通文件替换/真实 end-to-end）。`tests/cli-file-read.test.mjs` 9/9。
+- P1#2 链接环归因（S05/S12）：旧 ENOENT 归因作废。真实闭环探针 `loop-probe.mjs`（run 目录保留）证明 cyc-a↔cyc-b 与 self 环 readlink 端点/inode 齐全、stat 与 follow=true 均 ELOOP，与 R14/P02 一致。证据 `s05-result.correction.md`；Linux 行为仍不推断。
+- P1#3 S18 consumer：对精确读取字节、EFFECT_DENIED、目录覆盖与 names、无写入后验全部断言，硬链接以 lstat dev/ino 核对同对象，断言失败非零退出。`rc=0` 通过。
+- P1#4 S17：新增 `lib/filters/cli-change.ts` `compareSnapshots`（unchanged/changed/unknown；mtime 相等从不证明字节未变；对象替换无字节覆盖 → unknown；不同引用 → unknown）+ `tests/cli-change.test.mjs` 8/8 + 真实 OS 探针 `playground/cli/foundation-s17/change-facts.mjs`（字节变但 mtime 经 utimes 恢复相同 → changed）。
+- P1#5 声明来源（S15）：`lib/filters/cli-declaration.ts` 要求 manifestPath 绝对且在 scope 内（否则 `manifest_out_of_scope` → rejected），相对引用按 manifest 目录解析，每条引用保留 source 端点。`tests/cli-declaration.test.mjs` 9/9。
+
+全量 `node scripts/test-full.mjs` 1067 通过 / 0 失败 / 0 跳过（基线 1031 + 既有 20 + 本轮新增 16）。共享 `cli.command-policy.v1` 权重未改，候选 `35bd5ad9` 未重训未采用，仍 `uncalibrated/not_applied`、`fullyVerified=false`；5 项 UNVERIFIED（character/block/other 设备、synthetic dev/ino 注入、syscall 零 I/O 追踪）逐项保留。写操作/path.realpath/`file.property.links`/role 仍未实现。S06 保持部分完成；本轮修复不宣称第一层全部完成。交原编排者定点复核。
+
 ## 2026-10-21 Shell／文件系统第一层基础语义执行（候选待 review）
 
 worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-foundation`（branch `codex/cli-foundation`）执行 docs/cli-foundation-plan.md 的 S00–S20，过程证据在 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-20261021/`。亲查确认当前候选 `35bd5ad9` 为 10×30=300、`uncalibrated/not_applied`、`fullyVerified=false`、`verification=not_provided`，并逐项亲读 5 项 UNVERIFIED 原始报告，不用 56/56 清零。
