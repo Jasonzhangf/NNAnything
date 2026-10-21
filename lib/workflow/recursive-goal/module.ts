@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import {resolvePlanningDecision} from "./decision-contracts.js";
+import {readPlanningEntryAssessment, type GoalGraphPlan, type PathCandidate, type PlanNode, type PlanEdge} from "./planning-contracts.js";
 
 import type {
   EmitOptions,
@@ -15,6 +17,8 @@ import { loadWorkflow } from "../loader.js";
 import { runWorkflow } from "../runner.js";
 import {
   RECURSIVE_GOAL_CONTINUATION_SCHEMA,
+  assertBoundedPlanningCapabilityContract,
+  assertBoundedPlanningPresence,
   assertRecursiveGoalInitialObservationContinuationBoundary,
   readAdapterDiagnostic,
   readAtomicReceipt,
@@ -23,19 +27,23 @@ import {
   readEnabledEvaluator,
   readEnabledSkill,
   readEvaluationReceipt,
+  readGoalGraphPlan,
   readRecursiveGoalInitialObservation,
-  readRecursiveGoalContinuation,
+  readRecursiveGoalResumableContinuation,
   readRecursiveGoalRequestEnvelope,
   readSelectorBinding,
   readSelection,
   sameAcceptedRoot,
   sameRecursiveGoalObligation,
   sameStringSet,
+  sameVersionedRef,
   type AdapterDiagnostic,
   type AcceptedRoot,
   type AtomicExecutionResult,
   type AtomicReceipt,
   type BoundedRetryPolicy,
+  type BoundedPlanningCapability,
+  type BoundedPlanningRequest,
   type BudgetUsed,
   type ConditionFact,
   type DependencyState,
@@ -69,9 +77,11 @@ import {
   type RecursiveGoalModuleFault,
   type RecursiveGoalObligationSnapshot,
   type RecursiveGoalPartialRunReport,
+  type RecursiveGoalPlanningContinuation,
   type RecursiveGoalPendingVerification,
   type RecursiveGoalProgressBaseline,
   type RecursiveGoalRequestEnvelope,
+  type RecursiveGoalResumableContinuation,
   type RecursiveGoalResponse,
   type RecursiveGoalRetryControl,
   type RecursiveGoalRunReport,
@@ -86,7 +96,20 @@ import {
   type SelectorBinding,
   type StateRecord,
   type ValidatedRequest,
+  type PlanControl,
+  type PlanningActionBoundary,
+  type PlanningContractRefs,
+  type PlanningDecision,
+  type PlanningReport,
+  type PlanningSelectionView,
+  type PredictionResult,
+  type PriorAssessment,
 } from "./contracts.js";
+import {
+  emptyPlanControl,
+  expandGoalGraph,
+  type ExpandGoalGraphOutput,
+} from "./planning.js";
 import {
   ModuleInvariantError,
   RecursiveGoalDiagnosticFactory,
@@ -95,7 +118,7 @@ import {
 const BIND_OPERATOR = "goal.recursive.bind";
 const RUN_OPERATOR = "goal.recursive.run";
 const REPORT_OPERATOR = "goal.recursive.report";
-const OPERATOR_VERSION = "0.1.0";
+const OPERATOR_VERSION = "0.2.0";
 const CONTEXT_EVENT_TYPE = "recursive-goal.context";
 const OUTCOME_EVENT_TYPE = "recursive-goal.outcome";
 const RESULT_EVENT_TYPE = "recursive-goal.result";
@@ -110,13 +133,22 @@ interface NormalizedDependencies<G, S, B, E, F, R, C> {
   readonly selectorsById: ReadonlyMap<string, SelectorBinding>;
   readonly comparators: RecursiveGoalComparators<G, B, S, E>;
   readonly grantedEffects: ReadonlySet<string>;
+  readonly planning: BoundedPlanningCapability<G, B, S, E, F, C> | null;
   readonly signal: AbortSignal | null;
 }
 
 interface Admission<G, S, B, E, F, R, C> {
   readonly envelope: RecursiveGoalRequestEnvelope;
   readonly validated: ValidatedRequest<G, S, B, E, F, R, C>;
-  readonly continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C> | null;
+  readonly continuation: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > | null;
   readonly acceptedRoot: AcceptedRoot<G, B>;
   readonly dependencies: NormalizedDependencies<G, S, B, E, F, R, C>;
 }
@@ -270,6 +302,18 @@ export async function runRecursiveGoal<G, S, B, E, F, R, C>(
       await normalized.adapter.validateRequest(snapshotData(envelope)),
     );
     validateValidatedRequest(envelope, validated, normalized.comparators);
+    if (validated.planning !== undefined) {
+      if (normalized.planning === null) {
+        throw new TypeError(
+          "validated.planning requires dependencies.planning",
+        );
+      }
+      assertBoundedPlanningCapabilityContract(
+        validated.planning,
+        normalized.planning,
+        "validated.planning",
+      );
+    }
   } catch (error) {
     return requestRejected(
       envelope.requestId,
@@ -284,9 +328,22 @@ export async function runRecursiveGoal<G, S, B, E, F, R, C>(
     );
   }
 
-  let continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C> | null = null;
+  let continuation: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > | null = null;
   try {
     continuation = readValidatedContinuation(validated.continuation, normalized);
+    validatePlanningContinuationAdmission(
+      continuation,
+      validated,
+      normalized,
+    );
   } catch (error) {
     return requestRejected(
       envelope.requestId,
@@ -444,6 +501,20 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private collectionReceipt: { readonly receiptId: string } | null = null;
   private sideEffectsFinalized = false;
   private retryControl: MutableRecursiveGoalRetryControl | null = null;
+  private readonly planningMode: boolean;
+  private readonly planningRequest: BoundedPlanningRequest<G, B> | null;
+  private readonly planningCapability: BoundedPlanningCapability<
+    G,
+    B,
+    S,
+    E,
+    F,
+    C
+  > | null;
+  private readonly planningContract: PlanningContractRefs | null;
+  private planControl: PlanControl<G, B, S, E, F> | null;
+  private planningActionBoundary: PlanningActionBoundary | null;
+  private planningReport: PlanningReport | null;
   private readonly invocationLimit: 1 | null;
   private atomicDispatchesThisInvocation = 0;
 
@@ -457,6 +528,34 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     this.diagnostics = diagnostics;
     this.acceptedRoot = admission.acceptedRoot;
     this.invocationLimit = admission.envelope.invocation?.maxAtomicDispatches ?? null;
+    this.planningRequest = admission.validated.planning ?? null;
+    this.planningCapability = admission.dependencies.planning;
+    this.planningMode = this.planningRequest !== null;
+    this.planningContract =
+      this.planningRequest === null
+        ? null
+        : {
+            capabilityRef: this.planningRequest.capabilityRef,
+            resultModelRefs: [...this.planningRequest.resultModelRefs],
+            preference: this.planningRequest.preference,
+            checkpointSpecRefs: this.planningRequest.checkpointSpecs.map(
+              checkpoint => checkpoint.id,
+            ),
+            horizonN: this.planningRequest.horizonN,
+            limits: this.planningRequest.limits,
+            ...(this.planningCapability?.decision===undefined ? {} : {decisionRef:this.planningCapability.decision.ref}),
+          };
+    this.planControl =
+      admission.continuation?.schema ===
+      "nnanything.recursive-goal.continuation.v2"
+        ? admission.continuation.planControl
+        : this.planningMode ? emptyPlanControl<G, B, S, E, F>() : null;
+    this.planningActionBoundary = null;
+    this.planningReport = null;
+    if(this.planControl?.plan !== null && this.planControl?.plan !== undefined && this.planControl.currentPathRef !== null) {
+      const plan=this.planControl.plan;
+      this.planningReport={kind:"bounded_goal_planning_report.v1",prediction:{kind:"ready",transitionRef:plan.planId,rootRef:plan.rootRef,startStateRef:plan.startStateRef,planRef:plan.planId,rankedPathRefs:[this.planControl.currentPathRef,...this.planControl.alternatePathRefs],frontier:plan.frontier,predictionCallsUsed:this.planControl.usage.predictionCallsUsed},decision:null,priorAssessments:[]};
+    }
 
     if (admission.continuation === null) {
       this.rootEvaluation = {
@@ -500,6 +599,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
 
     const continuation = admission.continuation;
+    if (continuation.schema === "nnanything.recursive-goal.continuation.v2") {
+      this.planningActionBoundary = continuation.actionBoundary;
+    }
     this.rootEvaluation = continuation.rootEvaluation;
     this.control = continuation.control;
     this.states =
@@ -529,6 +631,16 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       throw new ModuleInvariantError("continuation root frame was not restored");
     }
     this.restoreStack(continuation);
+    if(this.planningActionBoundary?.nextPhase === "evaluate_actual") {
+      const boundary=this.planningActionBoundary;
+      const frame=this.frames.get(boundary.frameId)!;
+      const atomic=this.atomicResults.find(result=>result.dispatchId===boundary.dispatchId)!;
+      const skill=this.deps.skillsById.get(atomic.skillId)!;
+      frame.pendingProgressCheck=true;
+      frame.safeRetrySkill=skill.retry === "completed_no_effect";
+      frame.lastAtomicOutcome=atomic.outcome;
+      frame.lastAttemptEffectKnowledge=atomic.effect.knowledge;
+    }
   }
 
   nodeDefinitions(): readonly NodeDefinition[] {
@@ -825,6 +937,13 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
 
+    if (this.planningMode) {
+      try {if(!(await this.reconcilePlanning(frame,receipt))) return;}
+      catch(error) {
+        this.stopWithNewDiagnostic(frame,{code:"adapter_contract_invalid",stage:"evaluation",message:errorMessage(error),category:"planning_actual_callback",cause:this.diagnostics.capturedCause(error)},"error","fatal_error");
+        return;
+      }
+    }
     if (frame.fact === "satisfied") {
       if (this.activeConditions(frame).length > 0) {
         frame.phase = "await_children";
@@ -834,9 +953,14 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.finishSatisfiedFrame(frame);
       return;
     }
-    if (evaluatesCommittedAtomic) {
+    if (evaluatesCommittedAtomic && (!this.planningMode || this.atomicResults.at(-1)?.outcome === "succeeded")) {
       const retryHandled = await this.applyRetryGate(frame, receipt);
-      if (retryHandled) return;
+      if (retryHandled) {
+        if(this.planControl !== null && !this.finished) {
+          this.planControl={...this.planControl,currentPathRef:null,cursor:null,recovery:{...this.planControl.recovery,phase:"replan"}};
+        }
+        return;
+      }
     }
     if (!this.retryPolicyAppliesToFrame(frame) && frame.noProgressCount >= 2) {
       this.stopWithNewDiagnostic(
@@ -898,7 +1022,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       );
       return;
     }
-    if (
+    if (!this.planningMode &&
       frame.lastAtomicOutcome === "succeeded" &&
       frame.safeRetrySkill === false
     ) {
@@ -1268,7 +1392,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.invocationLimit !== null &&
       this.atomicDispatchesThisInvocation >= this.invocationLimit
     ) {
-      this.yieldStep(frame);
+      if (this.planningMode) {
+        this.yieldPlanningFromLastResult(frame, "select");
+      } else {
+        this.yieldStep(frame);
+      }
       return true;
     }
     return false;
@@ -1412,7 +1540,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       }
     }
 
+    if (!(await this.preparePlanning(frame, candidates))) return;
     if (!this.beginTransition(frame, "selection")) return;
+    const planningView = this.planningSelectionView(frame);
     let raw: unknown;
     try {
       raw = await this.deps.adapter.select({
@@ -1430,6 +1560,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
             : freezeSnapshot(frame.lastEvaluation),
         candidates: this.callbackSkills(candidates),
         ...(retryView === undefined ? {} : { retry: retryView }),
+        ...(planningView === null ? {} : { planning: planningView }),
       });
     } catch (error) {
       this.stopWithNewDiagnostic(
@@ -1537,6 +1668,34 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
 
     const skill = this.deps.skillsById.get(selection.skillId)!;
+    if(this.planningMode && this.ledger.some(item=>item.skillId===skill.id && (item.dispatchState==="in_flight" || item.knowledge==="unknown" || item.knowledge==="mixed"))) {
+      this.stopWithNewDiagnostic(frame,{code:"evidence_unavailable",stage:"effect",message:"unresolved atomic dispatch cannot be replayed",category:"planning_replay_guard"},"error","fatal_error");
+      return;
+    }
+    if (
+      planningView !== null &&
+      !planningView.allowedEntrySkillRefs.some(reference =>
+        sameVersionedRef(reference, {
+          id: skill.id,
+          version: skill.version,
+        }),
+      )
+    ) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "policy_error",
+          stage: "selection",
+          message: `selector chose ${skill.id} outside the current planning entry`,
+          origin: { skillId: skill.id },
+          owner: "adapter",
+          category: "selection_plan_entry",
+        },
+        "error",
+        "fatal_error",
+      );
+      return;
+    }
     if (frame.expectedMode !== null && skill.mode !== frame.expectedMode) {
       this.stopWithNewDiagnostic(
         frame,
@@ -1905,6 +2064,14 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     skill: EnabledSkill,
     selectedRetryView?: RetrySelectionView,
   ): Promise<void> {
+    if (
+      this.planningMode &&
+      this.invocationLimit !== null &&
+      this.atomicDispatchesThisInvocation >= this.invocationLimit
+    ) {
+      this.yieldPlanningFromLastResult(frame, "select");
+      return;
+    }
     const frameRetry = this.ensureRetryFrame(frame);
     if (
       this.retryControl !== null &&
@@ -1915,6 +2082,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
     if (!this.beginTransition(frame, "dispatch")) return;
+    if (this.planningMode || this.retryControl !== null) {
+      this.atomicDispatchesThisInvocation += 1;
+    }
     let atomicRetryView: RetrySelectionView | undefined;
     if (this.retryControl !== null) {
       if (frameRetry !== null) {
@@ -1934,7 +2104,6 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           });
       }
       this.retryControl!.atomicAttemptsUsed += 1;
-      this.atomicDispatchesThisInvocation += 1;
     }
     const dispatchId = `${frame.frameId}:dispatch:${this.ledger.length + 1}`;
     const riskEffect: EffectRecord<F> = {
@@ -2161,6 +2330,14 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     this.synchronizeFrameConditionExecution(frame, "completed", null);
     frame.errorId = null;
     frame.pendingProgressCheck = true;
+    if (
+      this.planningMode &&
+      this.invocationLimit !== null &&
+      this.atomicDispatchesThisInvocation >= this.invocationLimit
+    ) {
+      this.yieldPlanningAction(frame, projection.result, "evaluate_actual");
+      return;
+    }
     frame.phase = "evaluate";
   }
 
@@ -2170,6 +2347,25 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     conditionFact: RecursiveGoalFact = frame.fact,
   ): void {
     if (this.finished) return;
+    const atomic=this.atomicResults.at(-1);
+    const node=this.planControl?.plan?.nodes.find(item=>item.id===this.planControl?.cursor?.nodeRef);
+    if(this.planningMode && this.planControl !== null && node!==undefined && atomic!==undefined &&
+      (atomic.outcome==="failed" || atomic.outcome==="rejected") && atomic.effect.knowledge==="none" &&
+      atomic.observedStateRef === this.currentStateRecord().id &&
+      ["execution_failed","precondition_unsatisfied","invalid_binding"].includes(diagnostic.code) && atomic.verificationErrorIds.length===0) {
+      frame.execution="failed";
+      frame.errorId=diagnostic.errorId;
+      if(this.primaryErrorId===null) this.primaryErrorId=diagnostic.errorId;
+      const prior={id:`${atomic.dispatchId}:failure-prior`,rootRef:this.acceptedRoot.rootFrameId,obligationRef:node.obligationRef,skillRef:node.skillRef,
+        source:{kind:"verified_failure" as const,dispatchId:atomic.dispatchId,atomicResultRef:atomic.dispatchId,errorRefs:atomic.executionErrorIds},
+        scope:{bindings:frame.bindings,stateProjection:this.callbackState(),evidenceProjection:this.currentEvidence().map(item=>item.payload)},
+        preconditions:node.preconditions,conclusion:{kind:"exclude_transition" as const,transitionRefs:node.predictedResults.map(result=>result.transitionRef)},invalidation:[]};
+      this.planControl={...this.planControl,failurePriors:[...this.planControl.failurePriors,prior],recovery:{...this.planControl.recovery,phase:"checkpoint_recheck",reasonRefs:[...this.planControl.recovery.reasonRefs,diagnostic.errorId]}};
+      frame.pendingProgressCheck=true;
+      frame.phase="evaluate";
+      if(this.invocationLimit!==null && this.atomicDispatchesThisInvocation>=this.invocationLimit) this.yieldPlanningAction(frame,atomic,"evaluate_actual");
+      return;
+    }
     frame.execution = "failed";
     frame.errorId = diagnostic.errorId;
     this.primaryErrorId = diagnostic.errorId;
@@ -2426,7 +2622,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         stopReason: "root_evaluation",
         frameId: frame.frameId,
       };
-      this.primaryErrorId = null;
+      if(!this.planningMode) this.primaryErrorId = null;
+      else this.rootFrame.execution="completed";
       this.finished = true;
       return;
     }
@@ -3249,6 +3446,56 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     this.finished = true;
   }
 
+  private yieldPlanningFromLastResult(
+    frame: InternalFrame<G, B, C>,
+    nextPhase: PlanningActionBoundary["nextPhase"],
+  ): void {
+    const result = this.atomicResults.at(-1);
+    if (
+      this.planningMode === false ||
+      result === undefined ||
+      result.frameId !== frame.frameId
+    ) {
+      throw new ModuleInvariantError(
+        "planning action yield requires a committed frame dispatch",
+      );
+    }
+    this.yieldPlanningAction(frame, result, nextPhase);
+  }
+
+  private yieldPlanningAction(
+    frame: InternalFrame<G, B, C>,
+    result: AtomicExecutionResult<F, R>,
+    nextPhase: PlanningActionBoundary["nextPhase"],
+  ): void {
+    if (this.finished) return;
+    if (!this.planningMode) {
+      throw new ModuleInvariantError(
+        "planning action boundary requires planning mode",
+      );
+    }
+    this.planningActionBoundary = freezeSnapshot({
+      kind: "planning_action_boundary.v1",
+      dispatchId: result.dispatchId,
+      frameId: result.frameId,
+      atomicResultRef: result.dispatchId,
+      observedStateRef: result.observedStateRef,
+      nextPhase,
+    });
+    frame.phase =
+      nextPhase === "evaluate_actual"
+        ? "evaluate"
+        : nextPhase === "verify_checkpoint"
+          ? "aggregate"
+          : "select";
+    this.control = {
+      outcome: "yielded",
+      stopReason: "step_boundary",
+      frameId: frame.frameId,
+    };
+    this.finished = true;
+  }
+
   private stopWithNewDiagnostic(
     frame: InternalFrame<G, B, C>,
     spec: StopDiagnosticSpec,
@@ -3397,6 +3644,214 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     frame: InternalFrame<G, B, C>,
   ): readonly ConditionFact[] {
     return freezeSnapshot(this.conditionFacts(frame));
+  }
+
+  private planningDecision(decision: PlanningDecision): void {
+    if (this.planningReport !== null) this.planningReport = {...this.planningReport, decision};
+  }
+
+  private async preparePlanning(frame: InternalFrame<G, B, C>, candidates: readonly EnabledSkill[]): Promise<boolean> {
+    if (!this.planningMode || this.planningRequest === null || this.planningCapability === null || this.planControl === null) return true;
+    if (candidates.some(skill => skill.mode === "composite" && this.deps.adapter.supports({goal: frame.goal, bindings: frame.bindings, skill}))) return true;
+    try {
+    const control = this.planControl;
+    const node = control.plan?.nodes.find(item => item.id === control.cursor?.nodeRef);
+    if (node?.obligationRef.frameRef === frame.frameId && control.currentPathRef !== null && control.recovery.phase === "idle" &&
+      candidates.some(skill=>skill.id===node.skillRef.id && skill.version===node.skillRef.version && this.effectsAllowed(frame,skill))) {
+      const path=control.plan!.paths.find(path=>path.pathId===control.currentPathRef)!;
+      if(this.planningEntryApplies(control.plan!,path,node)) return true;
+    }
+    const replanning = control.plan !== null;
+    if (replanning && control.usage.replansUsed >= this.planningRequest.limits.maxReplans) {
+      this.stopWithNewDiagnostic(frame, {code:"budget_exceeded",stage:"selection",message:"planning replan budget exhausted",category:"planning_budget"}, "exceeded", "budget");
+      return false;
+    }
+      let output = await expandGoalGraph({
+        planId: `${this.acceptedRoot.requestId}:plan:${control.usage.replansUsed + 1}:${this.transitionsUsed}`,
+        rootRef:this.acceptedRoot.rootFrameId,frameRef:frame.frameId,goal:frame.goal,bindings:frame.bindings,
+        state:this.callbackState(),stateRef:this.currentStateRecord().id,evidence:this.currentEvidence().map(item=>item.payload),
+        skills:candidates.filter(skill=>skill.mode === "atomic" && this.effectsAllowed(frame,skill) && this.deps.adapter.supports({goal:frame.goal,bindings:frame.bindings,skill})),
+        options:this.planningRequest,capability:this.planningCapability,control,
+        consumePrediction:()=>this.beginTransition(frame,"selection"),rootSatisfied:false,
+      });
+      if (this.finished) return false;
+      if(output.plan!==null) output={...output,plan:readGoalGraphPlan(output.plan,this.planningCapability.guards)};
+      if(output.plan!==null && output.plan.paths.length>0 && (output.prediction.kind==="ready" || output.prediction.kind==="deferred")) {
+        const plan=output.plan;
+        const influences=control.failurePriors.filter(prior=>prior.conclusion.kind==="deprioritize_transition" && this.planningCapability!.assessPrior({prior,obligationRef:{rootRef:this.acceptedRoot.rootFrameId,frameRef:frame.frameId,conditionRef:null},skillRef:prior.skillRef,actualState:this.callbackState(),actualEvidence:this.currentEvidence().map(item=>item.payload),invalidation:prior.invalidation}).kind==="applicable").flatMap(prior=>plan.paths.flatMap(path=>{
+          const transitions=plan.nodes.filter(n=>path.nodeRefs.includes(n.id)).flatMap(n=>n.predictedResults.map(r=>r.transitionRef));
+          return prior.conclusion.transitionRefs.some(ref=>transitions.includes(ref)) ? [{priorRef:prior.id,pathRef:path.pathId,transitionRefs:prior.conclusion.transitionRefs}] : [];
+        }));
+        const ranking=this.planningCapability.decision === undefined ? output.ranking! : await resolvePlanningDecision(this.planningCapability.decision,{
+          preference:this.planningRequest.preference,candidates:plan.paths.map(path=>({pathId:path.pathId,rankOrder:path.rankOrder,projection:path.projection,attemptOrder:path.attemptOrder})),priorInfluences:influences,unknown:[],
+        });
+        if(this.deps.signal?.aborted===true) {this.stopCancelled(frame);return false;}
+        output={...output,ranking,prediction:ranking.kind==="ranked" ? {kind:"ready",transitionRef:plan.planId,rootRef:plan.rootRef,startStateRef:plan.startStateRef,planRef:plan.planId,rankedPathRefs:ranking.pathRefs,frontier:plan.frontier,predictionCallsUsed:output.usage.predictionCallsUsed} : {kind:"deferred",rootRef:plan.rootRef,startStateRef:plan.startStateRef,requirements:ranking.missingKeys.map(ref=>({ref,reason:ranking.reason})),frontier:plan.frontier,predictionCallsUsed:output.usage.predictionCallsUsed}};
+      }
+      this.planControl = {...control,plan:output.plan,usage:{...output.usage,replansUsed:control.usage.replansUsed + Number(replanning)}};
+      this.planningReport = {kind:"bounded_goal_planning_report.v1",prediction:output.prediction,decision:this.planningReport?.decision ?? null,priorAssessments:output.priorAssessments};
+      if (output.prediction.kind !== "ready" || output.ranking?.kind !== "ranked" || output.plan === null) {
+        const prediction=output.prediction;
+        const deferred=prediction.kind==="deferred";
+        const exhausted=prediction.kind==="stopped" && prediction.reason==="budget_exhausted";
+        const missing=prediction.kind==="not_ready" && ["missing_model","missing_skill","missing_evaluator"].includes(prediction.reason);
+        const code:RecursiveGoalErrorCode=deferred ? "policy_deferred" : exhausted ? "budget_exceeded" : missing ? "capability_missing" : prediction.kind==="not_ready" && prediction.reason==="invalid_contract" ? "adapter_contract_invalid" : "precondition_unsatisfied";
+        this.stopWithNewDiagnostic(frame, {code,stage:"selection",message:`planning ${prediction.kind}: ${"reason" in prediction ? prediction.reason : "no comparable path"}`,category:"planning_not_ready"},deferred ? "stalled" : exhausted ? "exceeded" : "error",deferred ? "no_progress" : exhausted ? "budget" : "fatal_error");
+        return false;
+      }
+      const pathRef=output.ranking.pathRefs.find(ref=>{
+        const path=output.plan!.paths.find(path=>path.pathId===ref)!;
+        const entry=output.plan!.nodes.find(node=>node.id===path.entryNodeRef)!;
+        return this.planningEntryApplies(output.plan!,path,entry);
+      });
+      if(pathRef===undefined) {
+        this.stopWithNewDiagnostic(frame,{code:"precondition_unsatisfied",stage:"selection",message:"no planned entry is applicable to current State",category:"planning_entry_inapplicable"},"error","fatal_error");
+        return false;
+      }
+      const selected=output.plan.paths.find(item=>item.pathId===pathRef);
+      const first=output.plan.nodes.find(item=>item.id===selected?.entryNodeRef);
+      if (selected === undefined || first === undefined) throw new TypeError("planning ranking has no valid entry");
+      this.planControl={...this.planControl,currentPathRef:selected.pathId,alternatePathRefs:output.ranking.pathRefs.slice(1),cursor:{pathRef:selected.pathId,nodeRef:first.id,resultRef:first.predictedResults[0]!.resultRef,stepIndex:0},recovery:{...control.recovery,phase:"idle"}};
+      return true;
+    } catch(error) {
+      this.stopWithNewDiagnostic(frame,{code:"adapter_contract_invalid",stage:"selection",message:errorMessage(error),category:"planning_callback",cause:this.diagnostics.capturedCause(error)},"error","fatal_error");
+      return false;
+    }
+  }
+
+  private async reconcilePlanning(frame: InternalFrame<G, B, C>, evaluation: EvaluationReceipt): Promise<boolean> {
+    if (this.planControl === null || this.planningCapability === null || this.planningRequest === null) return true;
+    const control=this.planControl;
+    if(frame.frameId === this.rootFrame.frameId && evaluation.result === "satisfied" && this.unclosedRequiredFrame(frame)===null) {
+      this.planningDecision({kind:"root_satisfied",evaluationStateRef:this.currentStateRecord().id});
+      if(this.planningReport!==null) this.planningReport={...this.planningReport,recoveredFailureRefs:control.failurePriors.flatMap(prior=>prior.source.kind==="verified_failure" ? prior.source.errorRefs : [])};
+      return true;
+    }
+    const atomic=this.atomicResults.find(item=>item.dispatchId===frame.atomicResultRefs.at(-1));
+    if(atomic === undefined || control.recovery.recoveryRefs.includes(atomic.dispatchId)) return true;
+    const plan=control.plan;
+    const node=plan?.nodes.find(item=>item.id===control.cursor?.nodeRef);
+    if(plan === null || node === undefined || node.obligationRef.frameRef !== frame.frameId) return true;
+    this.planControl={...control,recovery:{...control.recovery,recoveryRefs:[...control.recovery.recoveryRefs,atomic.dispatchId]}};
+    if(atomic.outcome==="failed" || atomic.outcome==="rejected") {
+      let recovered:string|null=null;
+      if(atomic.observedStateRef===this.currentStateRecord().id) {
+        for(const priorCheckpoint of [...control.verifiedCheckpoints].reverse()) {
+          const spec=this.planningRequest.checkpointSpecs.find(item=>item.id===priorCheckpoint.specRef);
+          if(spec!==undefined && await this.evaluateCheckpoint(frame,spec)!==null) {recovered=spec.id;break;}
+        }
+      }
+      if(recovered!==null && control.usage.rollbacksUsed>=this.planningRequest.limits.maxRollbacks) {
+        this.stopWithNewDiagnostic(frame,{code:"budget_exceeded",stage:"selection",message:"checkpoint rollback budget exhausted",category:"planning_budget"},"exceeded","budget");
+        return false;
+      }
+      this.planControl={...this.planControl,currentPathRef:null,cursor:null,usage:{...this.planControl.usage,rollbacksUsed:control.usage.rollbacksUsed+Number(recovered!==null)},recovery:{...this.planControl.recovery,phase:"replan",checkpointRef:recovered}};
+      this.planningDecision(recovered===null ? {kind:"replan",frontierRefs:[],triggerRefs:[atomic.dispatchId]} : {kind:"rollback",checkpointRef:recovered,currentStateRef:this.currentStateRecord().id,sourceErrorRefs:atomic.executionErrorIds});
+      return !this.finished;
+    }
+    if(this.planningReport!==null) this.planningReport={...this.planningReport,priorAssessments:control.failurePriors.map(prior=>({priorRef:prior.id,applicability:this.planningCapability!.assessPrior({prior,obligationRef:node.obligationRef,skillRef:prior.skillRef,actualState:this.callbackState(),actualEvidence:this.currentEvidence().map(item=>item.payload),invalidation:prior.invalidation})}))};
+    const matches=node.predictedResults.filter(predicted=>this.planningCapability!.matchesActual({
+      rootGoal:frame.goal,bindings:frame.bindings,obligationRef:node.obligationRef,skillRef:node.skillRef,predicted,
+      actualState:this.callbackState(),actualEvidence:this.currentEvidence().map(item=>item.payload),actualEffects:atomic.effect.confirmedEffects,
+      actualOutcome:atomic.outcome,
+    }).kind === "applicable");
+    for(const spec of this.planningRequest.checkpointSpecs) {
+      if(this.planControl.verifiedCheckpoints.some(item=>item.specRef===spec.id)) continue;
+      const checked=await this.evaluateCheckpoint(frame,spec);
+      if(checked === null) continue;
+      this.planControl={...this.planControl,verifiedCheckpoints:[...this.planControl.verifiedCheckpoints,{specRef:spec.id,planRef:plan.planId,cursor:control.cursor!,verifiedAtTransition:this.transitionsUsed,evaluation:{evaluatorId:checked.evaluatorId,result:checked.result,satisfaction:checked.satisfaction,evidenceRefs:checked.evidenceRefs,stateRef:this.currentStateRecord().id,evaluatedAtTransition:this.transitionsUsed}}],currentPathRef:null,cursor:null,recovery:{...this.planControl.recovery,phase:"replan"}};
+      this.planningDecision({kind:"checkpoint_reached",checkpointRef:spec.id});
+      return !this.finished;
+    }
+    const paths=[control.currentPathRef,...control.alternatePathRefs].flatMap(id=>plan.paths.filter(path=>path.pathId===id));
+    for(const path of paths) {
+      const index=path.nodeRefs.indexOf(node.id);
+      if(index<0) continue;
+      const nextRef=path.nodeRefs[index+1];
+      if(nextRef===undefined) continue;
+      const edge=plan.edges.find(item=>item.source.nodeRef===node.id && matches.some(result=>result.resultRef===item.source.resultRef) && item.target.kind==="node" && item.target.targetRef===nextRef);
+      if(edge===undefined) continue;
+      const next=plan.nodes.find(item=>item.id===nextRef)!;
+      if(!this.planningEntryApplies(plan,path,next,edge)) continue;
+      this.planControl={...this.planControl,currentPathRef:path.pathId,alternatePathRefs:paths.filter(item=>item.pathId!==path.pathId).map(item=>item.pathId),cursor:{pathRef:path.pathId,nodeRef:next.id,resultRef:next.predictedResults[0]!.resultRef,stepIndex:index+1},recovery:{...this.planControl.recovery,phase:"idle"}};
+      this.planningDecision(path.pathId===control.currentPathRef ? {kind:"continue",pathRef:path.pathId,nodeRef:next.id} : {kind:"switch",fromPathRef:control.currentPathRef!,toPathRef:path.pathId,entryNodeRef:next.id});
+      frame.phase="select";
+      return true;
+    }
+    this.planControl={...this.planControl,currentPathRef:null,cursor:null,recovery:{...this.planControl.recovery,phase:"replan"}};
+    this.planningDecision({kind:"replan",frontierRefs:plan.frontier.map(item=>item.frontierRef),triggerRefs:[atomic.dispatchId]});
+    return true;
+  }
+
+  private async evaluateCheckpoint(frame: InternalFrame<G,B,C>, spec: BoundedPlanningRequest<G,B>["checkpointSpecs"][number]): Promise<EvaluationReceipt|null> {
+    if(!this.deps.evaluatorsById.has(spec.evaluatorId)) throw new TypeError("checkpoint evaluator is disabled");
+    if(!this.beginTransition(frame,"evaluation")) return null;
+    const checked=readEvaluationReceipt(await this.deps.adapter.evaluate({context:this.context(frame),goal:spec.goal,bindings:spec.bindings,satisfactionThreshold:spec.satisfactionThreshold,state:this.callbackState(),evidence:this.callbackEvidence(),conditions:this.callbackConditions(frame)}),spec.satisfactionThreshold);
+    if(checked.evaluatorId!==spec.evaluatorId) throw new TypeError("checkpoint evaluator mismatch");
+    if(checked.result!=="satisfied" || this.evaluationEvidenceFailure(checked)!==null || !checked.evidenceRefs.some(id=>this.evidence.some(e=>e.id===id && e.validity==="valid" && e.stateRef===this.currentStateRecord().id)) || spec.evidenceRequirementRefs.some(id=>!checked.evidenceRefs.includes(id))) return null;
+    const closed=spec.obligations.every(ref=>{
+      const owner=this.frames.get(ref.frameRef);
+      return ref.rootRef===this.acceptedRoot.rootFrameId && owner!==undefined && (ref.conditionRef===null ? owner.fact==="satisfied" : owner.conditions.get(ref.conditionRef)?.fact==="satisfied");
+    });
+    return closed ? checked : null;
+  }
+
+  private planningEntryApplies(
+    plan: GoalGraphPlan<G,B,S,E,F>, path: PathCandidate<G,B,S,E>,
+    node: PlanNode<G,B,S,E,F>, edge?: PlanEdge<G,B,S,E>,
+  ): boolean {
+    const incoming=edge ?? plan.edges.find(item=>item.target.kind==="node" && item.target.targetRef===node.id);
+    const hasConditions=node.preconditions.length>0 || node.predictedResults.some(result=>result.preconditions.length>0) ||
+      path.invalidation.length>0 || (incoming?.conditions.length ?? 0)>0;
+    const assess=this.planningCapability!.assessEntry;
+    if(assess===undefined) {
+      if(hasConditions) throw new TypeError("typed planning entry requires an explicit assessEntry capability");
+      return true;
+    }
+    const assessment=readPlanningEntryAssessment(assess(freezeSnapshot({path,node,edge:incoming ?? null,
+      actualState:this.callbackState(),actualEvidence:this.currentEvidence().map(item=>item.payload)})));
+    return assessment.kind==="applicable";
+  }
+
+  private planningSelectionView(
+    frame: InternalFrame<G, B, C>,
+  ): PlanningSelectionView | null {
+    if (!this.planningMode || this.planControl === null) return null;
+    const { plan, currentPathRef, cursor } = this.planControl;
+    if (plan === null || currentPathRef === null || cursor === null) {
+      return null;
+    }
+    const path = plan.paths.find(candidate => candidate.pathId === currentPathRef);
+    const node = plan.nodes.find(candidate => candidate.id === cursor.nodeRef);
+    if (
+      path === undefined ||
+      node === undefined ||
+      cursor.pathRef !== path.pathId ||
+      !path.nodeRefs.includes(node.id)
+    ) {
+      throw new ModuleInvariantError(
+        `planning cursor for frame ${frame.frameId} has no current node`,
+      );
+    }
+    if(node.obligationRef.frameRef !== frame.frameId) return null;
+    const skill = this.deps.skillsById.get(node.skillRef.id);
+    if (
+      skill === undefined ||
+      skill.version !== node.skillRef.version ||
+      skill.mode !== "atomic" ||
+      !selectorIncludes(this.deps.selectorsById.get(frame.selectorId), skill.id)
+    ) {
+      throw new ModuleInvariantError(
+        `planning node ${node.id} is not an enabled current atomic skill`,
+      );
+    }
+    return freezeSnapshot({
+      planRef: plan.planId,
+      pathRef: path.pathId,
+      cursorRef: cursor.nodeRef,
+      expectedSkillRef: node.skillRef,
+      allowedEntrySkillRefs: [node.skillRef],
+    });
   }
 
   private callbackSkills(
@@ -3599,9 +4054,16 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     return this.rootEvaluation;
   }
 
-  private continuation(): RecursiveGoalContinuation<G, S, B, E, F, R, C> {
-    return {
-      schema: RECURSIVE_GOAL_CONTINUATION_SCHEMA,
+  private continuation(): RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > {
+    const base = {
       acceptedRoot: this.acceptedRoot,
       lastTrustedTransition: this.transitionsUsed,
       rootEvaluation: this.compactRootEvaluation(),
@@ -3637,6 +4099,24 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       ...(this.retryControl === null
         ? {}
         : { retryControl: retryControlSnapshot(this.retryControl) }),
+    };
+    if (!this.planningMode) {
+      return {
+        schema: RECURSIVE_GOAL_CONTINUATION_SCHEMA,
+        ...base,
+      };
+    }
+    if (this.planControl === null || this.planningContract === null) {
+      throw new ModuleInvariantError(
+        "planning continuation requires plan control and contract refs",
+      );
+    }
+    return {
+      schema: "nnanything.recursive-goal.continuation.v2",
+      ...base,
+      planControl: this.planControl,
+      planningContract: this.planningContract,
+      actionBoundary: this.planningActionBoundary,
     };
   }
 
@@ -3679,6 +4159,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         derivedGoalsUsed: this.derivedGoalsUsed,
       },
       continuation: outcome === "completed" ? null : this.continuation(),
+      ...(this.planningReport === null
+        ? {}
+        : { planning: this.planningReport }),
       cleanup: this.cleanupReceipt,
       collection: this.collectionReceipt,
     };
@@ -3755,7 +4238,15 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   }
 
   private restoreFrames(
-    continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C>,
+    continuation: RecursiveGoalResumableContinuation<
+      G,
+      S,
+      B,
+      E,
+      F,
+      R,
+      C
+    >,
   ): void {
     const stackPhases = new Map(
       continuation.stack.map(entry => [entry.frameId, entry]),
@@ -3930,7 +4421,15 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   }
 
   private restoreStack(
-    continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C>,
+    continuation: RecursiveGoalResumableContinuation<
+      G,
+      S,
+      B,
+      E,
+      F,
+      R,
+      C
+    >,
   ): void {
     const ordered =
       continuation.stack.length > 0
@@ -4008,6 +4507,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           derivedGoalsUsed: this.derivedGoalsUsed,
         },
         continuation: null,
+        ...(this.planningReport === null
+          ? {}
+          : { planning: this.planningReport }),
         unavailableSections:
           this.finished ? [] : ["final-report", "cleanup", "collection"],
       };
@@ -4057,6 +4559,19 @@ function normalizeDependencies<G, S, B, E, F, R, C>(
   if (deps.grantedEffects === undefined || !isIterable(deps.grantedEffects)) {
     throw new TypeError("grantedEffects must be an iterable set");
   }
+  if (
+    deps.planning !== undefined &&
+    (!isRecord(deps.planning) ||
+      !isRecord(deps.planning.contract) ||
+      typeof deps.planning.contract.id !== "string" ||
+      typeof deps.planning.contract.version !== "string" ||
+      !Array.isArray(deps.planning.resultModels) ||
+      !isRecord(deps.planning.guards) ||
+      typeof deps.planning.matchesActual !== "function" ||
+      typeof deps.planning.assessPrior !== "function")
+  ) {
+    throw new TypeError("planning dependency is malformed");
+  }
   const enabledSkills = freezeSnapshot(deps.enabledSkills.map(readEnabledSkill));
   const enabledEvaluators = freezeSnapshot(
     deps.enabledEvaluators.map(readEnabledEvaluator),
@@ -4103,6 +4618,7 @@ function normalizeDependencies<G, S, B, E, F, R, C>(
     selectorsById,
     comparators: deps.comparators,
     grantedEffects,
+    planning: deps.planning ?? null,
     signal,
   };
 }
@@ -4121,6 +4637,10 @@ function validateAdmissionVocabulary<G, S, B, E, F, R, C>(
       `root selector ${envelope.rootSelectorId} is not enabled`,
     );
   }
+  assertBoundedPlanningPresence(
+    envelope.planning,
+    deps.planning ?? undefined,
+  );
   if (envelope.retryPolicy !== undefined) {
     if (typeof deps.adapter.assessRetry !== "function") {
       throw new TypeError("adapter.assessRetry is required by retryPolicy");
@@ -4190,6 +4710,19 @@ function validateValidatedRequest<G, S, B, E, F, R, C>(
       throw new TypeError("adapter changed retryPolicy");
     }
   }
+  if (
+    (envelope.planning === undefined) !==
+    (validated.planning === undefined)
+  ) {
+    throw new TypeError("adapter changed the presence of planning");
+  }
+  if (
+    envelope.planning !== undefined &&
+    validated.planning !== undefined &&
+    !sameCopyableValue(envelope.planning, validated.planning)
+  ) {
+    throw new TypeError("adapter changed request planning");
+  }
   if (!comparators.sameGoal(validated.rootGoal, envelope.rootGoal as G)) {
     throw new TypeError("adapter changed rootGoal");
   }
@@ -4234,12 +4767,28 @@ function validateValidatedRequest<G, S, B, E, F, R, C>(
 }
 
 function readValidatedContinuation<G, S, B, E, F, R, C>(
-  value: RecursiveGoalContinuation<G, S, B, E, F, R, C> | null,
+  value: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > | null,
   deps: NormalizedDependencies<G, S, B, E, F, R, C>,
-): RecursiveGoalContinuation<G, S, B, E, F, R, C> | null {
+): RecursiveGoalResumableContinuation<
+  G,
+  S,
+  B,
+  E,
+  F,
+  R,
+  C
+> | null {
   if (value === null) return null;
   return freezeSnapshot(
-    readRecursiveGoalContinuation(value, {
+    readRecursiveGoalResumableContinuation(value, {
       goal: raw => raw as G,
       state: raw => raw as S,
       bindings: raw => raw as B,
@@ -4255,8 +4804,114 @@ function readValidatedContinuation<G, S, B, E, F, R, C>(
   );
 }
 
+function validatePlanningContinuationAdmission<G, S, B, E, F, R, C>(
+  continuation: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > | null,
+  validated: ValidatedRequest<G, S, B, E, F, R, C>,
+  deps: NormalizedDependencies<G, S, B, E, F, R, C>,
+): void {
+  if (continuation === null) return;
+  const planningContinuation =
+    continuation.schema === "nnanything.recursive-goal.continuation.v2"
+      ? continuation
+      : null;
+  if (validated.planning === undefined) {
+    if (planningContinuation !== null) {
+      throw new TypeError(
+        "v2 planning continuation requires an active planning request",
+      );
+    }
+    return;
+  }
+  if (planningContinuation === null) {
+    throw new TypeError(
+      "planning request cannot continue from a v1 continuation",
+    );
+  }
+  if (
+    !sameVersionedRef(
+      validated.planning.capabilityRef,
+      planningContinuation.planningContract.capabilityRef,
+    ) ||
+    !sameCopyableValue(
+      validated.planning.preference,
+      planningContinuation.planningContract.preference,
+    ) ||
+    validated.planning.horizonN !== planningContinuation.planningContract.horizonN ||
+    !sameCopyableValue(
+      validated.planning.limits,
+      planningContinuation.planningContract.limits,
+    )
+  ) {
+    throw new TypeError(
+      "planning request contract disagrees with v2 continuation",
+    );
+  }
+  if (
+    validated.planning.checkpointSpecs.length !==
+      planningContinuation.planningContract.checkpointSpecRefs.length ||
+    validated.planning.checkpointSpecs.some(
+      (checkpoint, index) =>
+        checkpoint.id !==
+        planningContinuation.planningContract.checkpointSpecRefs[index],
+    )
+  ) {
+    throw new TypeError(
+      "planning checkpoint refs disagree with v2 continuation",
+    );
+  }
+  if (
+    validated.planning.resultModelRefs.length !==
+      planningContinuation.planningContract.resultModelRefs.length ||
+    validated.planning.resultModelRefs.some(
+      (modelRef, index) =>
+        planningContinuation.planningContract.resultModelRefs[index] ===
+          undefined ||
+        !sameVersionedRef(
+          modelRef,
+          planningContinuation.planningContract.resultModelRefs[index]!,
+        ),
+    )
+  ) {
+    throw new TypeError(
+      "planning result model refs disagree with v2 continuation",
+    );
+  }
+  const savedCheckpoints=planningContinuation.planControl.plan?.checkpoints ?? [];
+  if(savedCheckpoints.length!==validated.planning.checkpointSpecs.length || validated.planning.checkpointSpecs.some((spec,index)=>{
+    const saved=savedCheckpoints[index];
+    if(saved===undefined) return true;
+    const {goal:goalNow,bindings:bindingsNow,...controlNow}=spec;
+    const {goal:goalThen,bindings:bindingsThen,...controlThen}=saved;
+    return !deps.comparators.sameGoal(goalNow,goalThen) || !deps.comparators.sameBindings(bindingsNow,bindingsThen) || !sameCopyableValue(controlNow,controlThen);
+  })) throw new TypeError("planning checkpoint specification changed during continuation");
+  if (deps.planning === null) {
+    throw new TypeError(
+      "v2 planning continuation requires the planning dependency",
+    );
+  }
+  const previousDecision=planningContinuation.planningContract.decisionRef;
+  const nextDecision=deps.planning.decision?.ref;
+  if((previousDecision===undefined)!==(nextDecision===undefined) || (previousDecision!==undefined && nextDecision!==undefined && !sameVersionedRef(previousDecision,nextDecision))) throw new TypeError("planning continuation decision provider changed");
+}
+
 function validateContinuationContracts<G, S, B, E, F, R, C>(
-  continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C>,
+  continuation: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  >,
   deps: NormalizedDependencies<G, S, B, E, F, R, C>,
   requestRetryPolicy: BoundedRetryPolicy | undefined,
 ): void {
@@ -4711,6 +5366,13 @@ function isIterable(value: unknown): value is Iterable<string> {
     value !== null &&
     Symbol.iterator in value
   );
+}
+
+function selectorIncludes(
+  selector: SelectorBinding | undefined,
+  skillId: string,
+): boolean {
+  return selector !== undefined && selector.skillIds.includes(skillId);
 }
 
 function snapshotData<T>(value: T): T {

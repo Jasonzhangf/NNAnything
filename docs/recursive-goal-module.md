@@ -1,6 +1,6 @@
 # 通用递归目标独立模块与准确错误合同
 
-状态：2026-10-20，已实现并完成行为验收。`contracts.ts`、`module.ts` 与 `errors.ts` 已存在；三个 `NodeDefinition` 位于 `lib/workflow/recursive-goal/module.ts`，公开 facade 为 `lib/recursive-goal.ts`，package subpath 与两个公开 consumer 已接通，图/配置为 `0.1.0` 3N2E SESE。当前运行证据见第13节；整体Review、main集成及资源收口的实时回执统一维护于项目[note.md](../note.md)。
+状态：2026-10-20。v1递归行为保留，`0.2.0` 3N2E已接有界规划、真实结果对照、checkpoint与失败先验恢复，有限合成域和真实cwd consumer已有验收。第13节保留旧`0.1.0`历史证据；新实现证据另列，不混用分母。整体Review、main集成及资源收口由[note.md](../note.md)维护。
 
 本合同唯一维护独立模块边界、公开数据类型、adapter 调用形状、错误传播、response 和 continuation。通用语义及 3N2E 仍由 [recursive-goal-design.md](recursive-goal-design.md)维护。实现源码 owner 为 `lib/workflow/recursive-goal/`，公开门面 owner 为 `lib/recursive-goal.ts`。
 
@@ -42,7 +42,7 @@ const response = await runRecursiveGoal(request, deps);
 
 `deps` 必须显式提供 adapter、`enabledSkills`、`enabledEvaluators`、`selectors`、`comparators`、`grantedEffects` 和可选 `AbortSignal`。模块没有默认 adapter、profile、评价器或 effects 授权。
 
-新请求可带 `initialObservation`，用于把真实 State 与已观测 `EvidenceRecord` 一起准入；恢复请求使用 `continuation`。两者互斥。`continuation` 只承载已保存的 typed State、证据、帧控制、依赖定义、预算和 ledger，不携带新的初始观测或动作函数。
+新请求可带 `initialObservation`，用于把真实 State 与已观测 `EvidenceRecord` 一起准入；恢复请求使用 `continuation`。两者互斥。`continuation` 只承载已保存的 typed State、证据、帧控制、依赖定义、预算和 ledger，不携带新的初始观测或动作函数。规划请求另带可选 `planning`，并要求 dependencies 同时提供匹配 capability；只有一侧存在时显式拒绝。
 
 根 `rootGoal`、阈值和绑定在 admission 后不可变。子帧只能向直接父条件返回真实 New State、有效证据和已确认 effects；领域执行失败不能直接改写成根成功或根 false。错误、根事实、control、effects 和 atomic results 分开记录，调用者须读取 response discriminator 与 `rootEvaluation`，不能把 workflow `completed` 当作 Goal achieved。
 
@@ -121,6 +121,7 @@ RecursiveGoalRequestEnvelope {
     evidence: readonly EvidenceRecord<unknown>[]
   };
   continuation?: unknown
+  planning?: BoundedPlanningOptions
 }
 ```
 
@@ -132,7 +133,8 @@ ValidatedRequest {
   rootBindings: B, state: S,
   rootEvaluatorId, rootSelectorId, limits,
   initialObservation?: RecursiveGoalInitialObservation<E>,
-  continuation: RecursiveGoalContinuation | null
+  continuation: RecursiveGoalContinuation | RecursiveGoalPlanningContinuation | null,
+  planning?: BoundedPlanningRequest<G, B>
 }
 ```
 
@@ -185,11 +187,12 @@ RecursiveGoalDependencies {
   selectors: readonly SelectorBinding[];
   comparators: RecursiveGoalComparators<G, B, S, E>;
   grantedEffects: ReadonlySet<string>;
+  planning?: BoundedPlanningCapability<G, B, S, E, F, C>;
   signal?: AbortSignal
 }
 ```
 
-模块没有默认依赖。`signal` 供有界 callback 感知取消，不能证明未设期限的 callback 已超时。
+模块没有默认依赖。`planning` 只提供纯结果模型、领域投影守卫、actual/prior 适用性和路径排序；它不拥有 runtime、ledger 或第二份预算。`signal` 供有界 callback 感知取消，不能证明未设期限的 callback 已超时。
 
 ## 4. Adapter 单步合同
 
@@ -257,7 +260,7 @@ SupportsInput { goal, bindings, skill }
 
 `supports` 是纯合同兼容检查。它不得选技能、评价、观测或执行。模块先做确定性覆盖检查。没有兼容技能返回 `capability_missing`；有覆盖时 selector 仍接收其声明的完整启用词表，不按当前 Goal 裁剪候选或 logits。
 
-`SelectionInput` 包含 selector id、当前 Goal/阈值/绑定、State、Evidence、ConditionFact、上一次 EvaluationReceipt 和完整 candidates。输出是判别联合：
+`SelectionInput` 包含 selector id、当前 Goal/阈值/绑定、State、Evidence、ConditionFact、上一次 EvaluationReceipt 和完整 candidates。规划模式另带 `planning?: PlanningSelectionView`，只提供当前 plan/path/cursor、预期技能和合法入口引用；它不能裁剪候选词表或替换错误 head。输出是判别联合：
 
 ```text
 { kind: "selected"; skillId }
@@ -618,7 +621,8 @@ RunReport {
   primaryErrorId: string | null;
   relatedIssues;
   budgetUsed: { transitionsUsed; derivedGoalsUsed };
-  continuation: RecursiveGoalContinuation | null;
+  continuation: RecursiveGoalContinuation | RecursiveGoalPlanningContinuation | null;
+  planning?: PlanningReport;
   cleanup: ReceiptRef | null;
   collection: ReceiptRef | null
 }
@@ -668,9 +672,17 @@ RecursiveGoalContinuation {
     grantedEffects
   }
 }
+
+RecursiveGoalPlanningContinuation {
+  schema: "nnanything.recursive-goal.continuation.v2";
+  ...all-v1-copyable-runtime-fields;
+  planControl: PlanControl<G, B, S, E, F>;
+  planningContract: PlanningContractRefs;
+  actionBoundary: PlanningActionBoundary | null
+}
 ```
 
-`readRecursiveGoalContinuation(...)` 由应用注入 `goal/state/bindings/evidencePayload/effectFact/sameEffectFact/receiptPayload/cursor` guards，以及 `sameGoal/sameBindings/sameCursor` 纯比较器，并检查：
+`readRecursiveGoalContinuation(...)` 继续只接受 v1。`readRecursiveGoalPlanningContinuation(...)` 接受严格 v2；`readRecursiveGoalResumableContinuation(...)` 只按 schema 分派，不做字段猜测。两者都由应用注入 `goal/state/bindings/evidencePayload/effectFact/sameEffectFact/receiptPayload/cursor` guards，以及 `sameGoal/sameBindings/sameCursor` 纯比较器，并检查：
 
 - accepted root 不变；root frame 的 Goal、bindings、阈值和 effect scope 匹配 accepted root；
 - `frameControls` 与 frames 一一对应；每帧阈值、evaluator、selector、skill、effect scope 引用显式合同且可继续；
@@ -685,6 +697,13 @@ RecursiveGoalContinuation {
 - primary error 可解析；`remainingRequirements` 必须等于各 frame 的 `unresolvedRequirements`，且每个 owner frame/condition 定义可解析；
 - error cause 无环；
 - contractRefs 保存当前显式技能、评价器、selector 和 effect 授权词表。
+
+v2 额外检查 `planControl`、`planningContract` 与 `actionBoundary`：
+
+- plan root 等于 accepted root frame；start State、verified checkpoint、prior source 和 observed State 全部解析到 v1 runtime 表；
+- plan model/checkpoint/horizon 与 `planningContract` 一致，plan 内节点、结果边、路径与 frontier 引用闭合；
+- action boundary 的 frame、dispatch、atomic result 和 observed State 一致；它不能由 predicted node 构造；
+- planning counts 非负、累计不下降并受 planning-only limits 约束；总 transitions/retry/ledger 仍只读 v1 budget owner。
 
 恢复只接受已经保存的 typed frame control 和 dependency definition。adapter 可以重新解析 Goal/State/bindings/证据数据，并将等价领域值归一化到既有定义，但不得只凭 `frameId`、cursor、业务 payload 或当前 adapter 配置猜阈值、评价器、selector、effect scope 或条件语义。continuation 请求不得携带新 `initialObservation`；恢复的 State/evidence 只能来自 continuation 表。缺少任一控制字段即 `adapter_contract_invalid`，不得静默补默认值。
 
@@ -737,12 +756,15 @@ cleanup/collect 输入含 accepted root、可信 State/Evidence/effects/atomic r
 当前实现包含：
 
 - `contracts.ts` 的 generic public types、判别 response、request/continuation/evaluation/selection/atomic guards，以及显式 `initialObservation` 与 evidence refs 闭包 helper；
-- `module.ts` 的有界显式栈、admission、预算、取消、dispatch ledger、三个 `goal.recursive.*@0.1.0` 算子、本地 finalize 和公开 `runRecursiveGoal`；
+- `planning-contracts.ts` 的 planning plan/node/edge/path/frontier/checkpoint/prior/control/decision types、v1/v2 分派守卫和 planning-only 引用闭包；
+- `module.ts` 提供有界显式栈、admission、预算、取消、dispatch ledger、三个 `goal.recursive.*@0.2.0` 算子、本地 finalize 和公开 `runRecursiveGoal`；可选planning接入v2续接、单步边界、checkpoint及范围化失败恢复；
 - `errors.ts` 的稳定 diagnostic、source 映射和父链传播；
 - `lib/recursive-goal.ts` 与 package subpath `nnanything/recursive-goal`；
-- `0.1.0` 3N2E `recursive-goal.graph.json`、匹配 workflow 配置，以及 cwd/finite-search 两个公开 consumer。
+- 合同图与三个NodeDefinition均为`0.2.0` 3N2E，复用现有workflow编译/运行；6N5E bounded图只描述内部责任，不另建引擎。
 
-本轮证据归档于 `/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/`：
+有界增量证据位于`/Volumes/Intel/playground/nnanything-runs/bounded-reasoning-prototype-20261020`。有限域控制、新进程及真实cwd四场景由新增公开consumer测试覆盖；真实Handwired决策替换和热重载按[决策合同](bounded-planning-decision.md)验收。恢复不复制历史State，不删除错误/effects或重置预算，不重放unknown/inflight。当前有限规则不代表任意高层Goal已训练；具体分母与整体交付沿note.md。
+
+原v1实施证据归档于 `/Volumes/Intel/playground/nnanything-runs/recursive-goal-implementation-20261020/`：
 
 - 最新`r5-build.log`、`r5-recursive.log`与`r5-full.log`分别为构建通过、58/58递归测试及735/735正式全仓测试，均无跳过。新增首次子评价前取消往返：保留`not_evaluated`与空评价字段，同步真实取消execution；原样恢复成功，首次零动作、恢复后原子动作一次且预算累计。`r5-cancel-red.log`保留修前无evaluator的unknown被拒绝的真实红测。`r5-cwd.log`4/4、`r5-finite.log`及`r5-integrity.log`7/7通过；下列较早结果保留其当时覆盖范围。
 - `r4-recursive.log`：57/57公开递归测试通过，无跳过。在原42项和首次整改51项上补充深层失败/预算/取消续接、错误补证phase、已返回补证回执续评以及未闭合后代保护。父局部条件达标不能绕过未闭合必要链；persistent子帧使用自己的条件集并自底向上重评。取消保留真实诊断源，停止control定位活动栈，并同步父条件的实际执行状态。`r3-cancel-red.log`保留取消原样续接失败的红测；`effect-scope-red.log`中两个权限反例在修复前各真实执行一次未授权write，修复后均零执行。

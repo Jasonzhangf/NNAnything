@@ -87,13 +87,14 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 项目远端为https://github.com/Jasonzhangf/NNAnything.git。训练必须有公开 consumer 真实拟合与回载证据，不以静态图校验冒称可运行。原始登录态页面、站点特定标注规则与样本产物保持本地。初始手写分数保持未校准（uncalibrated），不冒称经过独立标定的概率或置信度；重新拟合使旧校准自动失效。
 
-通用递归 Goal 已独立实现并完成行为验收。公开入口为 `nnanything/recursive-goal` 的 `runRecursiveGoal`，调用者显式注入 adapter、技能、评价器、selector、comparators 与 effects 授权；`initialObservation` 只用于新请求并与 continuation 互斥。外层图/配置为 `0.1.0` 3N2E SESE，三个 `NodeDefinition` 唯一 owner 为 `lib/workflow/recursive-goal/module.ts`，不得在 `lib/nodes/` 复制实现。根 Goal/阈值/绑定不变，子条件须以真实 State、证据和 effects 反向满足；错误、根事实、control、effects 与 atomic ledger 分开。权限沿根、父、组合技能与子条件显式集合求交，空集合不继承权限。组合选择目前是固定有限规则，不宣称神经模型学会任意高级 Goal；browser/computer operation 未接入。验收证据见docs/recursive-goal-module.md；Review 与 main 交付回执统一由note.md维护。
+通用递归 Goal 已独立实现并完成行为验收。公开入口为 `nnanything/recursive-goal` 的 `runRecursiveGoal`，调用者显式注入 adapter、技能、评价器、selector、comparators 与 effects 授权；`initialObservation` 只用于新请求并与 continuation 互斥。外层图/配置为 `0.2.0` 3N2E SESE，三个 `NodeDefinition` 唯一 owner 为 `lib/workflow/recursive-goal/module.ts`，不得在 `lib/nodes/` 复制实现。根 Goal/阈值/绑定不变，子条件须以真实 State、证据和 effects 反向满足；错误、根事实、control、effects 与 atomic ledger 分开。权限沿根、父、组合技能与子条件显式集合求交，空集合不继承权限。组合选择目前是固定有限规则，不宣称神经模型学会任意高级 Goal；browser/computer operation 未接入。验收证据见docs/recursive-goal-module.md；Review 与 main 交付回执统一由note.md维护。
 
 ## 唯一Owner与入口
 
 - 人的可观察/可感知评价、已有及未来元素族与具名指标分母由docs/semantic-evaluation.md维护。身份、资格、能力、感知与目标效果分开。编码的完整milestone独立Review还须审原始逐例依据、oracle前提与评估结论合理性，不以测试全绿替代；沿本地设计Skill，不加逐节点审核。
 - 基础解耦、组合重叠/覆盖/干扰及多候选偏好由docs/goal-selection-policy.md维护，当前为设计。性格只影响合法候选排序，不改根Goal/阈值/权限/基础gold，不将模型分数当满足度，也不改变当前F2同分DEFER合同。
-- 预测推理/执行推理、有界多路径实例、真实checkpoint、次优匹配及重推演由docs/bounded-goal-planning.md维护；静态设计流程为workflows/bounded-goal-planning.graph.json。当前未接入运行：正常沿有效路线推进，分叉先检适用备选，无适用路径或指定checkpoint真实满足时再预测。根Goal保留，预测与实际State分开；换图不重置budget/retry/ledger，不训练层序或继续控制。
+- 预测推理/执行推理、有界多路径、真实checkpoint、备选及失败先验恢复由docs/bounded-goal-planning.md维护，已接既有3N2E controller并验证finite合成域和真实cwd；6N5E 0.2.0-design为内部责任图，无独立六算子绑定。N步可行前缀可执行，边界/checkpoint或无适用路才重推；根保留，预测与实际分开，换图不重置budget/retry/ledger，不训练控制层序。
+- 可替换决策单元与候选热重载唯一合同为docs/bounded-planning-decision.md。统一infer/train、18wire及默认/Handwired provider已实现替换，train明确未实施。参数版本按请求capture，旧续接不偷换；失败输入多候选对照仅数值，无自动动作重放或采用。预训练/后训练及重大表示缺口才修结构的规则归docs/model-evolution.md。
 
 - F2候选优选/重试组合合同：docs/browser-progressive-strategy.md；typed策略合同为lib/adapters/browser/strategy-contract.ts。20参数独立于原子50/F1 36，已完成真实拟合、回载及限定原生行为验收；控制计数在recursive-goal typed retryControl，绝不训练层序或从日志重建。三类单元沿共同infer/train接口，F2候选仍未采用。原独立oracle的22/24 FAIL及两项前提裁决保留，诊断对照不计作训练候选24/24。
 

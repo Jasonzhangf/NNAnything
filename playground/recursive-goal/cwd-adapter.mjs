@@ -1,11 +1,13 @@
 import {
   readAtomicReceipt,
   readRecursiveGoalContinuation,
+  readRecursiveGoalResumableContinuation,
 } from "nnanything/recursive-goal";
 import {
   validateDirectoryRef,
   validateExplicitFileState,
   validateSessionRef,
+  validateGoal,
 } from "nnanything/cli-goal";
 
 export const ROOT_COMPOSITE_SKILL = "cwd.equals.composite";
@@ -16,6 +18,10 @@ export const OBSERVE_EVALUATOR = "cwd-observed";
 export const ROOT_SELECTOR = "cwd-root-selector";
 export const OBSERVE_SELECTOR = "cwd-observe-selector";
 export const EQUALS_SELECTOR = "cwd-equals-selector";
+export const BOUNDED_CWD_OBSERVE_SKILL = "cwd.file-property.observe";
+export const BOUNDED_CWD_EQUALS_SKILL = "cwd.file-property.equals";
+export const BOUNDED_CWD_EVALUATOR = "cwd.file-property";
+export const BOUNDED_CWD_SELECTOR = "cwd-file-property-selector";
 
 const CWD_EFFECTS = Object.freeze([
   "filesystem.read",
@@ -80,6 +86,47 @@ export const CWD_SELECTORS = Object.freeze([
   Object.freeze({ id: EQUALS_SELECTOR, skillIds: Object.freeze([EQUALS_ATOMIC_SKILL]) }),
 ]);
 
+export const BOUNDED_CWD_SKILLS = Object.freeze([
+  Object.freeze({
+    id: BOUNDED_CWD_OBSERVE_SKILL,
+    version: "1.0.0",
+    mode: "atomic",
+    capability: "cwd.observe",
+    evaluatorId: BOUNDED_CWD_EVALUATOR,
+    requiredEffects: Object.freeze(["filesystem.read", "process.exec"]),
+    allowedEffects: Object.freeze(["filesystem.read", "process.exec"]),
+    retry: "never",
+    effectClass: "read_only",
+  }),
+  Object.freeze({
+    id: BOUNDED_CWD_EQUALS_SKILL,
+    version: "1.0.0",
+    mode: "atomic",
+    capability: "cwd.equals",
+    evaluatorId: BOUNDED_CWD_EVALUATOR,
+    requiredEffects: CWD_EFFECTS,
+    allowedEffects: CWD_EFFECTS,
+    retry: "never",
+    effectClass: "mutating",
+  }),
+]);
+
+export const BOUNDED_CWD_EVALUATORS = Object.freeze([
+  Object.freeze({
+    id: BOUNDED_CWD_EVALUATOR,
+    goalType: "file.property",
+    thresholdContract: "0..100",
+    allowsPartialSatisfaction: false,
+  }),
+]);
+
+export const BOUNDED_CWD_SELECTORS = Object.freeze([
+  Object.freeze({
+    id: BOUNDED_CWD_SELECTOR,
+    skillIds: Object.freeze([BOUNDED_CWD_OBSERVE_SKILL, BOUNDED_CWD_EQUALS_SKILL]),
+  }),
+]);
+
 export const CWD_COMPARATORS = Object.freeze({
   sameGoal: (left, right) => JSON.stringify(left) === JSON.stringify(right),
   sameBindings: (left, right) => JSON.stringify(left) === JSON.stringify(right),
@@ -114,6 +161,17 @@ function absolutePath(value, label) {
 
 function readGoal(value) {
   if (!isRecord(value)) throw new TypeError("cwd goal must be an object");
+  if (value.kind === "file.property") {
+    const validated = validateGoal(value);
+    if (
+      validated.goal.property !== "file.property.relation.sessionCwd" ||
+      validated.goal.target?.kind !== "cli.file-query" ||
+      validated.goal.target.relation !== "sessionCwd"
+    ) {
+      throw new TypeError("bounded cwd goal must target sessionCwd");
+    }
+    return validated.goal;
+  }
   if (value.kind === "cli.cwd.observe") {
     exactKeys(value, ["kind"], "cwd observed goal");
     return Object.freeze({ kind: "cli.cwd.observe" });
@@ -243,6 +301,19 @@ const DOMAIN_GUARDS = Object.freeze({
   effectFact: readEffectFact,
   sameEffectFact: (left, right) => JSON.stringify(left) === JSON.stringify(right),
   receiptPayload: readReceiptPayload,
+  cursor: readCursor,
+  sameGoal: CWD_COMPARATORS.sameGoal,
+  sameBindings: CWD_COMPARATORS.sameBindings,
+  sameFacts: CWD_COMPARATORS.sameFacts,
+  sameCursor: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+});
+
+export const BOUNDED_CWD_PLANNING_GUARDS = Object.freeze({
+  goal: readGoal,
+  bindings: readBindings,
+  stateProjection: readState,
+  evidenceProjection: readEvidencePayload,
+  effectFact: readEffectFact,
   cursor: readCursor,
 });
 
@@ -409,6 +480,87 @@ function propertyGoal(goal, bindings) {
       };
 }
 
+function boundedPropertyGoal(requirement, bindings) {
+  return Object.freeze({
+    kind: "file.property",
+    property: "file.property.relation.sessionCwd",
+    target: Object.freeze({
+      kind: "cli.file-query",
+      relation: "sessionCwd",
+      session: bindings.session,
+    }),
+    requirement,
+  });
+}
+
+function readBoundedRootGoal(value, bindings) {
+  const goal = readGoal(value);
+  if (
+    goal.kind !== "file.property" ||
+    goal.property !== "file.property.relation.sessionCwd" ||
+    goal.requirement.kind !== "equals"
+  ) {
+    throw new TypeError("bounded cwd root goal must be a sessionCwd equals property");
+  }
+  const expected = goal.requirement.expected;
+  if (
+    expected.scenarioId !== bindings.session.scenarioId ||
+    expected.sessionId !== bindings.session.sessionId ||
+    goal.target.session.scenarioId !== bindings.session.scenarioId ||
+    goal.target.session.sessionId !== bindings.session.sessionId
+  ) {
+    throw new TypeError("bounded cwd root goal and bindings must identify one session");
+  }
+  return goal;
+}
+
+function evaluateBoundedGoal(input) {
+  if (
+    input.goal.kind !== "file.property" ||
+    input.goal.property !== "file.property.relation.sessionCwd"
+  ) {
+    throw new TypeError("bounded cwd evaluator received a different property");
+  }
+  const knowledge = currentCwd(input.state, input.bindings);
+  const evidenceRefs = knowledge === null
+    ? []
+    : stateEvidenceRefs(input.state, input.evidence);
+  if (input.goal.requirement.kind === "observed") {
+    return knowledge !== null && evidenceRefs.length > 0
+      ? evaluation(BOUNDED_CWD_EVALUATOR, "satisfied", 100, evidenceRefs)
+      : evaluation(BOUNDED_CWD_EVALUATOR, "unsatisfied", 0, []);
+  }
+  if (knowledge === null) {
+    return evaluation(BOUNDED_CWD_EVALUATOR, "unknown", null, []);
+  }
+  if (knowledge.physicalCwd !== input.bindings.targetPhysical) {
+    return evaluation(BOUNDED_CWD_EVALUATOR, "unsatisfied", 0, []);
+  }
+  return evidenceRefs.length > 0
+    ? evaluation(BOUNDED_CWD_EVALUATOR, "satisfied", 100, evidenceRefs)
+    : evaluation(BOUNDED_CWD_EVALUATOR, "unknown", null, []);
+}
+
+function supportsBounded(input) {
+  if (
+    input.goal.kind !== "file.property" ||
+    input.goal.property !== "file.property.relation.sessionCwd"
+  ) {
+    return false;
+  }
+  return (
+    input.skill.id === BOUNDED_CWD_OBSERVE_SKILL ||
+    input.skill.id === BOUNDED_CWD_EQUALS_SKILL
+  );
+}
+
+function defaultBoundedSkill(input) {
+  const knowledge = currentCwd(input.state, input.bindings);
+  return knowledge === null || knowledge.physicalCwd === input.bindings.targetPhysical
+    ? BOUNDED_CWD_OBSERVE_SKILL
+    : BOUNDED_CWD_EQUALS_SKILL;
+}
+
 function diagnostic(transitionId, suffix, code, stage, category, message, nativeCode = null) {
   return Object.freeze({
     diagnosticId: `${transitionId}:${suffix}`,
@@ -530,6 +682,24 @@ function atomicResult(transition, stateId, evidenceId, transitionId) {
       confirmedEffects: Object.freeze(confirmedEffects),
       receiptRef: confirmedEffects.length === 0 ? null : transition.execution_result.receipt?.execution.runId ?? transitionId,
     }),
+  });
+}
+
+function policyErrorAtomicResult(transition, transitionId, expectedHead, stateId, evidenceId) {
+  const result = atomicResult(transition, stateId, evidenceId, transitionId);
+  const selectedHead = transition.policy.selectedHead;
+  const policyError = diagnostic(
+    transitionId,
+    "policy",
+    "policy_error",
+    "selection",
+    "cli.command_policy",
+    `command policy selected ${selectedHead}, expected ${expectedHead}`,
+  );
+  return Object.freeze({
+    ...result,
+    outcome: "rejected",
+    executionErrors: Object.freeze([...result.executionErrors, policyError]),
   });
 }
 
@@ -671,6 +841,181 @@ export function createCwdAdapter(input) {
   return Object.freeze({ adapter, calls, transitions, trace });
 }
 
+export function createBoundedCwdAdapter(input) {
+  const calls = {
+    validateRequest: 0,
+    supports: 0,
+    evaluate: 0,
+    select: 0,
+    derive: 0,
+    executeAtomic: 0,
+    validateAtomicReceipt: 0,
+    measureProgress: 0,
+  };
+  const transitions = [];
+  const trace = [];
+  let sequence = 0;
+  let traceSequence = 0;
+
+  const adapter = {
+    async validateRequest(request) {
+      calls.validateRequest += 1;
+      const rootBindings = readBindings(request.rootBindings);
+      const rootGoal = readBoundedRootGoal(request.rootGoal, rootBindings);
+      const state = readState(request.state);
+      if (
+        state.session.id !== rootBindings.session.sessionId
+      ) {
+        throw new TypeError("bounded cwd request state must belong to the bound session");
+      }
+      if (
+        request.rootEvaluatorId !== BOUNDED_CWD_EVALUATOR ||
+        request.rootSelectorId !== BOUNDED_CWD_SELECTOR
+      ) {
+        throw new TypeError("bounded cwd request evaluator or selector is unsupported");
+      }
+      const continuation =
+        request.continuation === undefined || request.continuation === null
+          ? null
+          : readRecursiveGoalResumableContinuation(request.continuation, DOMAIN_GUARDS);
+      return Object.freeze({
+        requestId: request.requestId,
+        rootGoal,
+        satisfactionThreshold: request.satisfactionThreshold,
+        rootBindings,
+        state,
+        rootEvaluatorId: request.rootEvaluatorId,
+        rootSelectorId: request.rootSelectorId,
+        limits: request.limits,
+        continuation,
+        ...(request.planning === undefined ? {} : { planning: request.planning }),
+      });
+    },
+
+    supports(callback) {
+      calls.supports += 1;
+      return supportsBounded(callback);
+    },
+
+    async evaluate(callback) {
+      calls.evaluate += 1;
+      return evaluateBoundedGoal(callback);
+    },
+
+    async select(callback) {
+      calls.select += 1;
+      const expected = callback.planning?.expectedSkillRef ?? null;
+      const expectedCandidate = expected === null
+        ? null
+        : callback.candidates.find(candidate =>
+            candidate.id === expected.id && candidate.version === expected.version,
+          ) ?? null;
+      const skillId = expectedCandidate?.id ??
+        (callback.candidates.some(candidate => candidate.id === defaultBoundedSkill(callback))
+          ? defaultBoundedSkill(callback)
+          : callback.candidates[0]?.id);
+      const selection = skillId === undefined
+        ? { kind: "no_capability", searchedSkillIds: [] }
+        : { kind: "selected", skillId };
+      trace.push(Object.freeze({
+        kind: "selection",
+        sequence: ++traceSequence,
+        frameId: callback.context.frameId,
+        goalKind: callback.goal.kind,
+        selectorId: callback.selectorId,
+        planning: callback.planning ?? null,
+        planningExpectedSkillId: expected?.id ?? null,
+        planningExpectedCandidate: expectedCandidate !== null,
+        selection,
+      }));
+      return selection;
+    },
+
+    async derive() {
+      calls.derive += 1;
+      return Object.freeze({
+        conditions: Object.freeze([]),
+        nextCursor: Object.freeze({ phase: "closed" }),
+        expansion: "closed",
+      });
+    },
+
+    async executeAtomic(callback) {
+      calls.executeAtomic += 1;
+      const step = calls.executeAtomic;
+      const requirement = callback.skill.id === BOUNDED_CWD_OBSERVE_SKILL
+        ? Object.freeze({ kind: "observed", freshness: "this_run" })
+        : Object.freeze({ kind: "equals", expected: input.bindings.target });
+      const goal = boundedPropertyGoal(requirement, input.bindings);
+      const expectedHead = callback.skill.id === BOUNDED_CWD_OBSERVE_SKILL ? "pwd" : "cd";
+      const request = {
+        goal,
+        satisfactionThreshold: callback.satisfactionThreshold,
+        state: callback.state.cli,
+      };
+      const transition = await input.policy.step(request);
+      const traceEntry = Object.freeze({
+        kind: "atomic",
+        sequence: ++traceSequence,
+        step,
+        goalKind: goal.kind,
+        property: goal.property,
+        requirementKind: goal.requirement.kind,
+        skillId: callback.skill.id,
+        expectedHead,
+        request,
+        transition,
+      });
+      transitions.push(traceEntry);
+      trace.push(traceEntry);
+      if (input.onTransition !== undefined) {
+        await input.onTransition({ step, transition, callback, traceEntry });
+      }
+      sequence += 1;
+      const transitionId = `${callback.context.requestId}:transition-${sequence}`;
+      if (
+        transition.policy_error !== null ||
+        transition.policy.selectedHead !== expectedHead
+      ) {
+        return policyErrorAtomicResult(transition, transitionId, expectedHead,
+          `${callback.context.requestId}:state-${sequence}`,
+          `${callback.context.requestId}:evidence-${sequence}`);
+      }
+      return atomicResult(
+        transition,
+        `${callback.context.requestId}:state-${sequence}`,
+        `${callback.context.requestId}:evidence-${sequence}`,
+        transitionId,
+      );
+    },
+
+    validateAtomicReceipt(raw) {
+      calls.validateAtomicReceipt += 1;
+      return readAtomicReceipt(raw, DOMAIN_GUARDS);
+    },
+
+    measureProgress(callback) {
+      calls.measureProgress += 1;
+      const before = currentCwd(callback.before, input.bindings);
+      const after = currentCwd(callback.after, input.bindings);
+      const improved = before === null
+        ? after !== null
+        : after !== null &&
+          (
+            before.physicalCwd !== after.physicalCwd ||
+            before.revision < after.revision
+          );
+      return {
+        improved,
+        reason: improved ? "facts_improved" : "none",
+        comparable: true,
+      };
+    },
+  };
+
+  return Object.freeze({ adapter, calls, transitions, trace });
+}
+
 export function createCwdDependencies(created, grantedEffects = CWD_EFFECTS) {
   return Object.freeze({
     adapter: created.adapter,
@@ -679,5 +1024,17 @@ export function createCwdDependencies(created, grantedEffects = CWD_EFFECTS) {
     selectors: CWD_SELECTORS,
     comparators: CWD_COMPARATORS,
     grantedEffects: new Set(grantedEffects),
+  });
+}
+
+export function createBoundedCwdDependencies(created, planning) {
+  return Object.freeze({
+    adapter: created.adapter,
+    enabledSkills: BOUNDED_CWD_SKILLS,
+    enabledEvaluators: BOUNDED_CWD_EVALUATORS,
+    selectors: BOUNDED_CWD_SELECTORS,
+    comparators: CWD_COMPARATORS,
+    grantedEffects: new Set(CWD_EFFECTS),
+    planning,
   });
 }

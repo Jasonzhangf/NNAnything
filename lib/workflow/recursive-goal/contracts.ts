@@ -1,6 +1,29 @@
+import {
+  assertPlanningControlProgress,
+  readBoundedPlanningOptions,
+  readBoundedPlanningRequest,
+  readPlanControl,
+  readPlanningActionBoundary,
+  readPlanningContractRefs,
+  readPlanningReport,
+  readPlanningSelectionView,
+  type BoundedPlanningCapability,
+  type BoundedPlanningOptions,
+  type BoundedPlanningRequest,
+  type PlanControl,
+  type PlanningActionBoundary,
+  type PlanningContractRefs,
+  type PlanningReport,
+  type PlanningSelectionView,
+} from "./planning-contracts.js";
+
+export * from "./planning-contracts.js";
+
 export const RECURSIVE_GOAL_REQUEST_SCHEMA = "nnanything.recursive-goal.request.v1" as const;
 export const RECURSIVE_GOAL_CONTINUATION_SCHEMA =
   "nnanything.recursive-goal.continuation.v1" as const;
+export const RECURSIVE_GOAL_PLANNING_CONTINUATION_SCHEMA =
+  "nnanything.recursive-goal.continuation.v2" as const;
 
 export type RecursiveGoalMode = "atomic" | "composite";
 export type RecursiveGoalFact =
@@ -139,6 +162,7 @@ export interface RecursiveGoalRequestEnvelope {
   readonly continuation?: unknown;
   readonly retryPolicy?: BoundedRetryPolicy;
   readonly invocation?: RecursiveGoalInvocationControl;
+  readonly planning?: BoundedPlanningOptions;
 }
 
 export interface StateRecord<S> {
@@ -323,6 +347,7 @@ export interface SelectionInput<G, S, B, E> {
   readonly previousEvaluation: EvaluationReceipt | null;
   readonly candidates: readonly EnabledSkill[];
   readonly retry?: RetrySelectionView;
+  readonly planning?: PlanningSelectionView;
 }
 
 export interface DerivationInput<G, S, B, E, C> {
@@ -419,8 +444,17 @@ export interface ValidatedRequest<G, S, B, E, F, R, C> {
   readonly rootSelectorId: string;
   readonly limits: RecursiveGoalLimits;
   readonly initialObservation?: RecursiveGoalInitialObservation<E>;
-  readonly continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C> | null;
+  readonly continuation: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > | null;
   readonly retryPolicy?: BoundedRetryPolicy;
+  readonly planning?: BoundedPlanningRequest<G, B>;
 }
 
 export type RetryAssessment =
@@ -488,6 +522,7 @@ export interface RecursiveGoalDependencies<G, S, B, E, F, R, C> {
   readonly selectors: readonly SelectorBinding[];
   readonly comparators: RecursiveGoalComparators<G, B, S, E>;
   readonly grantedEffects: ReadonlySet<string>;
+  readonly planning?: BoundedPlanningCapability<G, B, S, E, F, C>;
   readonly signal?: AbortSignal;
 }
 
@@ -677,7 +712,16 @@ export interface RecursiveGoalRunReport<G, S, B, E, F, R, C> {
   readonly primaryErrorId: string | null;
   readonly relatedIssues: readonly RelatedIssue[];
   readonly budgetUsed: BudgetUsed;
-  readonly continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C> | null;
+  readonly continuation: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > | null;
+  readonly planning?: PlanningReport;
   readonly cleanup: ReceiptRef | null;
   readonly collection: ReceiptRef | null;
 }
@@ -695,7 +739,16 @@ export interface RecursiveGoalPartialRunReport<G, S, B, E, F, R, C> {
   readonly primaryErrorId: string | null;
   readonly relatedIssues: readonly RelatedIssue[];
   readonly budgetUsed: BudgetUsed;
-  readonly continuation: RecursiveGoalContinuation<G, S, B, E, F, R, C> | null;
+  readonly continuation: RecursiveGoalResumableContinuation<
+    G,
+    S,
+    B,
+    E,
+    F,
+    R,
+    C
+  > | null;
+  readonly planning?: PlanningReport;
   readonly unavailableSections: readonly string[];
 }
 
@@ -732,10 +785,27 @@ export interface RecursiveGoalContinuation<G, S, B, E, F, R, C> {
   readonly retryControl?: RecursiveGoalRetryControl;
 }
 
-export type RecursiveGoalRunState<G, S, B, E, F, R, C> = Omit<
-  RecursiveGoalContinuation<G, S, B, E, F, R, C>,
-  "schema"
->;
+export interface RecursiveGoalPlanningContinuation<G, S, B, E, F, R, C>
+  extends Omit<
+    RecursiveGoalContinuation<G, S, B, E, F, R, C>,
+    "schema"
+  > {
+  readonly schema: typeof RECURSIVE_GOAL_PLANNING_CONTINUATION_SCHEMA;
+  readonly planControl: PlanControl<G, B, S, E, F>;
+  readonly planningContract: PlanningContractRefs;
+  readonly actionBoundary: PlanningActionBoundary | null;
+}
+
+export type RecursiveGoalResumableContinuation<G, S, B, E, F, R, C> =
+  | RecursiveGoalContinuation<G, S, B, E, F, R, C>
+  | RecursiveGoalPlanningContinuation<G, S, B, E, F, R, C>;
+
+export type RecursiveGoalRunState<G, S, B, E, F, R, C> =
+  RecursiveGoalResumableContinuation<G, S, B, E, F, R, C> extends infer T
+    ? T extends unknown
+      ? Omit<T, "schema">
+      : never
+    : never;
 
 export interface RequestRejected {
   readonly kind: "request_rejected";
@@ -1116,7 +1186,13 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
       "rootSelectorId",
       "limits",
     ],
-    ["initialObservation", "continuation", "retryPolicy", "invocation"],
+    [
+      "initialObservation",
+      "continuation",
+      "retryPolicy",
+      "invocation",
+      "planning",
+    ],
     "request",
   );
   if (value.schema !== RECURSIVE_GOAL_REQUEST_SCHEMA) {
@@ -1137,6 +1213,9 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
     : undefined;
   const invocation = Object.hasOwn(value, "invocation")
     ? readRecursiveGoalInvocationControl(value.invocation)
+    : undefined;
+  const planning = Object.hasOwn(value, "planning")
+    ? readBoundedPlanningOptions(value.planning)
     : undefined;
   assertRecursiveGoalInitialObservationContinuationBoundary(
     initialObservation,
@@ -1159,6 +1238,7 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
     ...(continuation === undefined ? {} : { continuation }),
     ...(retryPolicy === undefined ? {} : { retryPolicy }),
     ...(invocation === undefined ? {} : { invocation }),
+    ...(planning === undefined ? {} : { planning }),
   };
 }
 
@@ -2695,10 +2775,20 @@ function assertStringSubset(
   }
 }
 
-export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
+type RecursiveGoalContinuationBase<G, S, B, E, F, R, C> = Omit<
+  RecursiveGoalContinuation<G, S, B, E, F, R, C>,
+  "schema"
+>;
+
+function readRecursiveGoalContinuationBase<G, S, B, E, F, R, C>(
   value: unknown,
   guards: RecursiveGoalContinuationGuards<G, S, B, E, F, R, C>,
-): RecursiveGoalContinuation<G, S, B, E, F, R, C> {
+  schema:
+    | typeof RECURSIVE_GOAL_CONTINUATION_SCHEMA
+    | typeof RECURSIVE_GOAL_PLANNING_CONTINUATION_SCHEMA,
+  planningMode: boolean,
+  hasPlanningActionBoundary: boolean,
+): RecursiveGoalContinuationBase<G, S, B, E, F, R, C> {
   if (!isRecord(value)) throw new TypeError("continuation must be an object");
   assertExactKeys(
     value,
@@ -2723,11 +2813,13 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
       "remainingRequirements",
       "contractRefs",
     ],
-    ["retryControl"],
+    planningMode
+      ? ["retryControl", "planControl", "planningContract", "actionBoundary"]
+      : ["retryControl"],
     "continuation",
   );
-  if (value.schema !== RECURSIVE_GOAL_CONTINUATION_SCHEMA) {
-    throw new TypeError(`continuation.schema must be ${RECURSIVE_GOAL_CONTINUATION_SCHEMA}`);
+  if (value.schema !== schema) {
+    throw new TypeError(`continuation.schema must be ${schema}`);
   }
   if (
     !Array.isArray(value.frames) ||
@@ -3385,18 +3477,29 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
     }
   }
   if (runControl.outcome === "yielded") {
-    if (runControl.frameId === null || retryControl === undefined) {
-      throw new TypeError(
-        "yielded continuation requires retry control and a frame id",
+    if (planningMode) {
+      if (runControl.frameId === null || !hasPlanningActionBoundary) {
+        throw new TypeError(
+          "planning yielded continuation requires a frame id and action boundary",
+        );
+      }
+    } else {
+      if (runControl.frameId === null || retryControl === undefined) {
+        throw new TypeError(
+          "yielded continuation requires retry control and a frame id",
+        );
+      }
+      const yieldedFrame = retryControl.frames.find(
+        frame => frame.frameId === runControl.frameId,
       );
-    }
-    const yieldedFrame = retryControl.frames.find(
-      frame => frame.frameId === runControl.frameId,
-    );
-    if (yieldedFrame === undefined || yieldedFrame.lastAccountedDispatchId === null) {
-      throw new TypeError(
-        "yielded continuation requires an accounted retry dispatch",
-      );
+      if (
+        yieldedFrame === undefined ||
+        yieldedFrame.lastAccountedDispatchId === null
+      ) {
+        throw new TypeError(
+          "yielded continuation requires an accounted retry dispatch",
+        );
+      }
     }
   }
   for (const frame of frames) {
@@ -3666,7 +3769,6 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
     throw new TypeError("continuation control frame is outside the active stack");
   }
   return {
-    schema: RECURSIVE_GOAL_CONTINUATION_SCHEMA,
     acceptedRoot,
     lastTrustedTransition,
     rootEvaluation,
@@ -3687,4 +3789,266 @@ export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
     contractRefs,
     ...(retryControl === undefined ? {} : { retryControl }),
   };
+}
+
+function sameVersionedRefs(
+  left: readonly PlanningContractRefs["resultModelRefs"][number][],
+  right: readonly PlanningContractRefs["resultModelRefs"][number][],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every(
+      (entry, index) =>
+        entry.id === right[index]?.id &&
+        entry.version === right[index]?.version,
+    )
+  );
+}
+
+function assertPlanningEvaluationRefs<G, S, B, E, F, R, C>(
+  value: {
+    readonly stateRef: string;
+    readonly evidenceRefs: readonly string[];
+    readonly evaluatedAtTransition: number;
+  },
+  base: Pick<
+    RecursiveGoalContinuationBase<G, S, B, E, F, R, C>,
+    "states" | "evidence" | "lastTrustedTransition"
+  >,
+  label: string,
+): void {
+  if (!base.states.some(state => state.id === value.stateRef)) {
+    throw new TypeError(`${label}.stateRef is unknown`);
+  }
+  const evidenceById = new Map(base.evidence.map(item => [item.id, item]));
+  for (const evidenceRef of value.evidenceRefs) {
+    const evidence = evidenceById.get(evidenceRef);
+    if (evidence === undefined || evidence.stateRef !== value.stateRef) {
+      throw new TypeError(`${label} has an invalid evidence reference`);
+    }
+  }
+  if (value.evaluatedAtTransition > base.lastTrustedTransition) {
+    throw new TypeError(`${label} exceeds lastTrustedTransition`);
+  }
+}
+
+function assertPlanningContinuationReferences<G, S, B, E, F, R, C>(
+  base: RecursiveGoalContinuationBase<G, S, B, E, F, R, C>,
+  planControl: PlanControl<G, B, S, E, F>,
+  planningContract: PlanningContractRefs,
+  actionBoundary: PlanningActionBoundary | null,
+): void {
+  const stateIds = new Set(base.states.map(state => state.id));
+  const frameIds = new Set(base.frames.map(frame => frame.frameId));
+  const ledgerById = new Map(base.ledger.map(effect => [effect.dispatchId, effect]));
+  const atomicById = new Map(
+    base.atomicResults.map(result => [result.dispatchId, result]),
+  );
+  const errorIds = new Set(base.errors.map(error => error.errorId));
+  const plan = planControl.plan;
+  if (plan !== null) {
+    if (plan.rootRef !== base.acceptedRoot.rootFrameId) {
+      throw new TypeError("continuation.planControl.plan root disagrees with accepted root");
+    }
+    if (!stateIds.has(plan.startStateRef)) {
+      throw new TypeError("continuation.planControl.plan has an unknown startStateRef");
+    }
+    if (plan.horizonN !== planningContract.horizonN) {
+      throw new TypeError("continuation.planControl.plan horizon disagrees with planningContract");
+    }
+    if (!sameVersionedRefs(plan.modelRefs, planningContract.resultModelRefs)) {
+      throw new TypeError("continuation.planControl.plan models disagree with planningContract");
+    }
+    const checkpointIds = plan.checkpoints.map(checkpoint => checkpoint.id);
+    if (
+      checkpointIds.length !== planningContract.checkpointSpecRefs.length ||
+      checkpointIds.some(
+        (checkpointRef, index) =>
+          checkpointRef !== planningContract.checkpointSpecRefs[index],
+      )
+    ) {
+      throw new TypeError("continuation.planControl.plan checkpoints disagree with planningContract");
+    }
+  } else if (
+    planningContract.checkpointSpecRefs.length > 0 ||
+    planControl.usage.predictionCallsUsed > 0
+  ) {
+    throw new TypeError(
+      "continuation.planControl cannot preserve planning history without a current plan",
+    );
+  }
+
+  for (const checkpoint of planControl.verifiedCheckpoints) {
+    assertPlanningEvaluationRefs(
+      checkpoint.evaluation,
+      base,
+      `continuation.planControl.verifiedCheckpoint ${checkpoint.specRef}`,
+    );
+    if (
+      plan === null ||
+      !planningContract.checkpointSpecRefs.includes(checkpoint.specRef) ||
+      (checkpoint.planRef === plan.planId && !plan.paths.some(path => path.pathId === checkpoint.cursor.pathRef))
+    ) {
+      throw new TypeError(
+        `continuation.planControl.verifiedCheckpoint ${checkpoint.specRef} has invalid plan refs`,
+      );
+    }
+  }
+
+  for (const prior of planControl.failurePriors) {
+    if (prior.rootRef !== base.acceptedRoot.rootFrameId) {
+      throw new TypeError(`continuation.failurePrior ${prior.id} root is unknown`);
+    }
+    if (prior.source.kind === "verified_failure") {
+      const atomic = atomicById.get(prior.source.dispatchId);
+      const ledger = ledgerById.get(prior.source.dispatchId);
+      if (
+        atomic === undefined ||
+        ledger === undefined ||
+        prior.source.atomicResultRef !== prior.source.dispatchId ||
+        atomic.skillId !== prior.skillRef.id || atomic.frameId !== prior.obligationRef.frameRef ||
+        (atomic.outcome !== "failed" && atomic.outcome !== "rejected") || ledger.knowledge !== "none"
+      ) {
+        throw new TypeError(
+          `continuation.failurePrior ${prior.id} has invalid failure source`,
+        );
+      }
+      for (const errorRef of prior.source.errorRefs) {
+        if (
+          !errorIds.has(errorRef) ||
+          ![
+            ...atomic.executionErrorIds,
+            ...atomic.verificationErrorIds,
+          ].includes(errorRef)
+        ) {
+          throw new TypeError(
+            `continuation.failurePrior ${prior.id} has unknown error ${errorRef}`,
+          );
+        }
+      }
+    } else {
+      assertPlanningEvaluationRefs(
+        prior.source.evaluation,
+        base,
+        `continuation.failurePrior ${prior.id}.source.evaluation`,
+      );
+    }
+    for (const transitionRef of prior.conclusion.transitionRefs) {
+      if (!transitionRef.startsWith(`${prior.skillRef.id}@${prior.skillRef.version}:${prior.obligationRef.frameRef}:`)) {
+        throw new TypeError(`continuation.failurePrior ${prior.id} transition is outside its skill and obligation`);
+      }
+    }
+  }
+
+  if (actionBoundary !== null) {
+    const atomic = atomicById.get(actionBoundary.dispatchId);
+    const ledger = ledgerById.get(actionBoundary.dispatchId);
+    if (
+      atomic === undefined ||
+      ledger === undefined ||
+      actionBoundary.atomicResultRef !== actionBoundary.dispatchId ||
+      atomic.frameId !== actionBoundary.frameId ||
+      ledger.frameId !== actionBoundary.frameId ||
+      !frameIds.has(actionBoundary.frameId) ||
+      atomic.observedStateRef !== actionBoundary.observedStateRef
+    ) {
+      throw new TypeError("continuation.actionBoundary has invalid dispatch references");
+    }
+    if (
+      actionBoundary.observedStateRef !== null &&
+      !stateIds.has(actionBoundary.observedStateRef)
+    ) {
+      throw new TypeError("continuation.actionBoundary has unknown observed state");
+    }
+    if (
+      base.control.frameId !== null &&
+      base.control.frameId !== actionBoundary.frameId
+    ) {
+      throw new TypeError("continuation.actionBoundary frame disagrees with control");
+    }
+  }
+}
+
+export function readRecursiveGoalContinuation<G, S, B, E, F, R, C>(
+  value: unknown,
+  guards: RecursiveGoalContinuationGuards<G, S, B, E, F, R, C>,
+): RecursiveGoalContinuation<G, S, B, E, F, R, C> {
+  return {
+    schema: RECURSIVE_GOAL_CONTINUATION_SCHEMA,
+    ...readRecursiveGoalContinuationBase(
+      value,
+      guards,
+      RECURSIVE_GOAL_CONTINUATION_SCHEMA,
+      false,
+      false,
+    ),
+  };
+}
+
+export function readRecursiveGoalPlanningContinuation<G, S, B, E, F, R, C>(
+  value: unknown,
+  guards: RecursiveGoalContinuationGuards<G, S, B, E, F, R, C>,
+): RecursiveGoalPlanningContinuation<G, S, B, E, F, R, C> {
+  if (!isRecord(value)) throw new TypeError("continuation must be an object");
+  const hasPlanningActionBoundary =
+    Object.hasOwn(value, "actionBoundary") && value.actionBoundary !== null;
+  const base = readRecursiveGoalContinuationBase(
+    value,
+    guards,
+    RECURSIVE_GOAL_PLANNING_CONTINUATION_SCHEMA,
+    true,
+    hasPlanningActionBoundary,
+  );
+  const planningContract = readPlanningContractRefs(
+    value.planningContract,
+    "continuation.planningContract",
+  );
+  const planningGuards = {
+    goal: guards.goal,
+    bindings: guards.bindings,
+    stateProjection: guards.state,
+    evidenceProjection: guards.evidencePayload,
+    effectFact: guards.effectFact,
+    cursor: guards.cursor,
+  };
+  const planControl = readPlanControl(
+    value.planControl,
+    planningGuards,
+    planningContract.limits,
+    "continuation.planControl",
+  );
+  const actionBoundary =
+    value.actionBoundary === null
+      ? null
+      : readPlanningActionBoundary(
+          value.actionBoundary,
+          "continuation.actionBoundary",
+        );
+  assertPlanningContinuationReferences(
+    base,
+    planControl,
+    planningContract,
+    actionBoundary,
+  );
+  return {
+    schema: RECURSIVE_GOAL_PLANNING_CONTINUATION_SCHEMA,
+    ...base,
+    planControl,
+    planningContract,
+    actionBoundary,
+  };
+}
+
+export function readRecursiveGoalResumableContinuation<G, S, B, E, F, R, C>(
+  value: unknown,
+  guards: RecursiveGoalContinuationGuards<G, S, B, E, F, R, C>,
+): RecursiveGoalResumableContinuation<G, S, B, E, F, R, C> {
+  if (!isRecord(value)) throw new TypeError("continuation must be an object");
+  if (value.schema === RECURSIVE_GOAL_CONTINUATION_SCHEMA) {
+    return readRecursiveGoalContinuation(value, guards);
+  }
+  if (value.schema === RECURSIVE_GOAL_PLANNING_CONTINUATION_SCHEMA) {
+    return readRecursiveGoalPlanningContinuation(value, guards);
+  }
+  throw new TypeError("continuation.schema is not a supported version");
 }

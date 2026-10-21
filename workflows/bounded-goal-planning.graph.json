@@ -1,23 +1,23 @@
 {
   "id": "bounded-goal-planning-design",
-  "version": "0.1.0-design",
+  "version": "0.2.0-design",
   "inputs": [
     {"id": "bounded_planning_request", "schema": "Object"}
   ],
   "nodes": [
-    {"id": "接收根与真实起点", "operator": "bounded-plan.receive", "operator_version": "0.1.0-design", "inputs": ["bounded_planning_request"], "output": {"id": "planning_foundation", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
-    {"id": "展开有界预测分支", "operator": "bounded-plan.expand", "operator_version": "0.1.0-design", "inputs": ["planning_foundation"], "output": {"id": "candidate_plan_graph", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
-    {"id": "比较合法候选路线", "operator": "bounded-plan.compare", "operator_version": "0.1.0-design", "inputs": ["candidate_plan_graph"], "output": {"id": "ranked_plan_control", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
-    {"id": "复核并推进当前一步", "operator": "bounded-plan.execute-step", "operator_version": "0.1.0-design", "inputs": ["ranked_plan_control"], "output": {"id": "execution_receipt", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
-    {"id": "核对真实结果与检查点", "operator": "bounded-plan.verify", "operator_version": "0.1.0-design", "inputs": ["execution_receipt"], "output": {"id": "verified_plan_control", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
-    {"id": "汇总本段控制结果", "operator": "bounded-plan.report", "operator_version": "0.1.0-design", "inputs": ["verified_plan_control"], "output": {"id": "bounded_planning_result", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"}
+    {"id": "接收根与真实起点", "operator": "bounded-plan.receive", "operator_version": "0.2.0-design", "inputs": ["bounded_planning_request"], "output": {"id": "planning_foundation", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "复用有效计划或展开有界预测分支", "operator": "bounded-plan.expand", "operator_version": "0.2.0-design", "inputs": ["planning_foundation"], "output": {"id": "candidate_plan_graph", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "比较合法候选路线", "operator": "bounded-plan.compare", "operator_version": "0.2.0-design", "inputs": ["candidate_plan_graph"], "output": {"id": "ranked_plan_control", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "复核计划、权限与效果并推进当前一步", "operator": "bounded-plan.execute-step", "operator_version": "0.2.0-design", "inputs": ["ranked_plan_control"], "output": {"id": "execution_receipt", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "核对真实结果、检查点与失败先验", "operator": "bounded-plan.verify", "operator_version": "0.2.0-design", "inputs": ["execution_receipt"], "output": {"id": "verified_plan_control", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "汇总本段控制结果与续接条件", "operator": "bounded-plan.report", "operator_version": "0.2.0-design", "inputs": ["verified_plan_control"], "output": {"id": "bounded_planning_result", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"}
   ],
   "edges": [
-    {"from": "接收根与真实起点", "to": "展开有界预测分支", "arc_id": "planning_foundation"},
-    {"from": "展开有界预测分支", "to": "比较合法候选路线", "arc_id": "candidate_plan_graph"},
-    {"from": "比较合法候选路线", "to": "复核并推进当前一步", "arc_id": "ranked_plan_control"},
-    {"from": "复核并推进当前一步", "to": "核对真实结果与检查点", "arc_id": "execution_receipt"},
-    {"from": "核对真实结果与检查点", "to": "汇总本段控制结果", "arc_id": "verified_plan_control"}
+    {"from": "接收根与真实起点", "to": "复用有效计划或展开有界预测分支", "arc_id": "planning_foundation"},
+    {"from": "复用有效计划或展开有界预测分支", "to": "比较合法候选路线", "arc_id": "candidate_plan_graph"},
+    {"from": "比较合法候选路线", "to": "复核计划、权限与效果并推进当前一步", "arc_id": "ranked_plan_control"},
+    {"from": "复核计划、权限与效果并推进当前一步", "to": "核对真实结果、检查点与失败先验", "arc_id": "execution_receipt"},
+    {"from": "核对真实结果、检查点与失败先验", "to": "汇总本段控制结果与续接条件", "arc_id": "verified_plan_control"}
   ],
   "outputs": ["bounded_planning_result"]
 }

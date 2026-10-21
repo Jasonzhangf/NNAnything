@@ -16,6 +16,8 @@ import {
   createCwdAdapter,
   createCwdDependencies,
   emptyCwdState,
+  BOUNDED_CWD_EVALUATOR, BOUNDED_CWD_SELECTOR, BOUNDED_CWD_EQUALS_SKILL,
+  createBoundedCwdAdapter, createBoundedCwdDependencies,
 } from "./cwd-adapter.mjs";
 
 const GRANTED_EFFECTS = Object.freeze([
@@ -67,7 +69,7 @@ function errorRecord(error) {
       };
 }
 
-function scenarioOptions(name) {
+export function scenarioOptions(name) {
   if (name === "same") {
     return { initialCwd: "scene/target" };
   }
@@ -83,7 +85,7 @@ function scenarioOptions(name) {
   throw new TypeError(`Unknown cwd scenario: ${name}`);
 }
 
-function recipeFor(scenarioId, initialCwd) {
+export function recipeFor(scenarioId, initialCwd) {
   return {
     scenarioId,
     entries: [
@@ -99,7 +101,7 @@ function recipeFor(scenarioId, initialCwd) {
   };
 }
 
-function injectedObservation(injection) {
+export function injectedObservation(injection) {
   return async input => {
     if (injection.targetPhysical !== null && input.cwd === injection.targetPhysical) {
       injection.count += 1;
@@ -188,7 +190,7 @@ function scenarioPass(result) {
     const cd = atomicTrace(result.trace).find(entry =>
       entry.selectedHead === "cd",
     );
-    const cdAtomic = atomicResult(report, "cwd.equals.atomic");
+    const cdAtomic = atomicResult(report, "cwd.equals.atomic") ?? atomicResult(report, BOUNDED_CWD_EQUALS_SKILL);
     return !rootSatisfied(result) &&
       heads.filter(head => head === "cd").length === 1 &&
       cd !== undefined &&
@@ -334,6 +336,7 @@ export async function runCwdScenario({
   name,
   profile,
   fixtureParent,
+  bounded = null,
 }) {
   const options = scenarioOptions(name);
   await mkdir(fixtureParent, { recursive: true });
@@ -354,6 +357,8 @@ export async function runCwdScenario({
   let treeBefore = null;
   let treeAfter = null;
   let response = null;
+  const responses=[];
+  let boundedContext=null;
   let created = null;
   let target = null;
   let targetPhysical = null;
@@ -382,7 +387,8 @@ export async function runCwdScenario({
     treeBefore = await treePaths(sandbox.scenarioRoot);
 
     const policy = createCliCommandPolicy({ profile, sandbox, session });
-    created = createCwdAdapter({
+    boundedContext=bounded===null ? null : bounded({session,target,targetPhysical});
+    created = (boundedContext===null ? createCwdAdapter : createBoundedCwdAdapter)({
       policy,
       sandbox,
       session,
@@ -399,24 +405,29 @@ export async function runCwdScenario({
       },
     });
     const state = emptyCwdState(initialSession, `${scenarioId}:state-initial`);
-    response = await runRecursiveGoal(
-      {
+    const request={
         schema: "nnanything.recursive-goal.request.v1",
         requestId: `${scenarioId}:request`,
-        rootGoal: { kind: "cli.cwd.equals", targetPhysical },
+        rootGoal: boundedContext===null ? { kind: "cli.cwd.equals", targetPhysical } : {kind:"file.property",property:"file.property.relation.sessionCwd",target:{kind:"cli.file-query",relation:"sessionCwd",session},requirement:{kind:"equals",expected:target}},
         satisfactionThreshold: 100,
         rootBindings: { session, target, targetPhysical },
         state,
-        rootEvaluatorId: EQUALITY_EVALUATOR,
-        rootSelectorId: ROOT_SELECTOR,
+        rootEvaluatorId: boundedContext===null ? EQUALITY_EVALUATOR : BOUNDED_CWD_EVALUATOR,
+        rootSelectorId: boundedContext===null ? ROOT_SELECTOR : BOUNDED_CWD_SELECTOR,
         limits: {
           maxTransitions: 64,
           maxDepth: 8,
           maxDerivedGoals: 8,
         },
-      },
-      createCwdDependencies(created),
-    );
+        ...(boundedContext===null ? {} : {planning:boundedContext.planning,invocation:{maxAtomicDispatches:1}}),
+      };
+    const dependencies=boundedContext===null ? createCwdDependencies(created) : createBoundedCwdDependencies(created,boundedContext.capability);
+    let continuation;
+    do {
+      response=await runRecursiveGoal({...request,...(continuation===undefined ? {} : {continuation})},dependencies);
+      responses.push(response);
+      continuation=response.kind==="run_result" && response.report.control.outcome==="yielded" ? response.report.continuation : undefined;
+    } while(continuation!==undefined);
   } catch (caught) {
     error = errorRecord(caught);
   } finally {
@@ -479,6 +490,8 @@ export async function runCwdScenario({
               transition: entry.transition,
             })),
       response,
+      responses,
+      predictionCalls:boundedContext?.predictionCalls() ?? 0,
       summary: responseSummary(response),
       fixture: {
         caseRoot,
@@ -506,6 +519,7 @@ export async function runCwdScenario({
 export async function runCwdScenarios({
   profilePath,
   fixtureParent = tmpdir(),
+  bounded = null,
 }) {
   if (typeof profilePath !== "string" || profilePath.length === 0) {
     throw Object.assign(new Error("--profile requires an explicit candidate path"), {
@@ -528,6 +542,7 @@ export async function runCwdScenarios({
         name,
         profile,
         fixtureParent: fixtureRoot,
+        bounded,
       }));
     }
   } finally {

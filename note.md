@@ -1,5 +1,27 @@
 # 当前任务
 
+## 2026-10-20 有界推理原型、可替换决策与候选热重载
+
+本轮执行用户在设计后的实现要求。总目标是公开原型、两域验证、通用控制抽取、一次整体独立Review、main/push与资源收口。证据根为`/Volumes/Intel/playground/nnanything-runs/bounded-reasoning-prototype-20261020`，原需求user-scope.md，独立计划plan.md、plan-update.md、hot-reload-plan.md。每次新Plan首选Gemini4实际配额失败后，均由独立OAuth gpt-6.1-sol medium规划。旧worker受连接/预算限制未交闭环时父已接管；未将worker限制当产品阻塞。
+
+候选已接入既有Flowed外壳3N2E 0.2.0，bounded 6N5E 0.2.0-design是controller内部责任图，没有六个独立绑定算子。两图validate/inspect已有有效证据，后续未变拓扑。正常路线复用、实际分叉先检备选、无适用路重推、checkpoint现场重验/逻辑回退、范围化失败先验及前提变化失效已实现。根、阈值、预算、错误、effects与ledger保持。N步可行前缀可执行，不要求N步内根完成；无进展不凑N。公开API仍runRecursiveGoal，v1行为保留，v2续接固定合同与真实action-boundary。
+
+Finite是独立有限合成域，覆盖控制corner case和新进程续接，不能当OS实测。真实cwd公开consumer覆盖same/different/binding-refused/postcommit-observation-injected四场景：same仅pwd，different为pwd/cd并实际revision+1；真实拒绝和提交后观测失败不重放cd，沙盒清理且foreign session/agent cwd不变。cwd跨进程reattach未实现。浏览器/桌面operation未接入，本轮不宣称任意高层语义已泛化。
+
+决策采用共同infer/train接口。默认规则与真实Handwired18wire手工权重均能通过同一请求选择合法动作；手工权重不计训练成果，train准确拒绝未实现。候选热重载资源按参数版本reload/capture，捕获binding隔离调用者修改和后续reload；旧续接不能偷换权重。失败输入多候选对照输出features/known/missing、utility、ranking与逐项错误，无执行器或自动重放。后台采样/奖励评分、预训练/后训练、自动大模型诊断和采用均未实施，候选uncalibrated/not_applied。
+
+用户后续演进规则已归docs/model-evolution.md：先样本与手写teacher验证泛化，再初始权重及后验后训练；无回归且独立泛化改善才采用，冲突交大模型。默认不重写逻辑或重做预训练，只有重大参数/观测/表示缺失造成整类不可覆盖才修结构。热重载不绕过采用规则。
+
+阶段作者证据：red-bounded.log记录旧公开入口拒绝planning；bounded-control.log为25/25，decision-integration.log为11/11，reload-tests.log为4/4；final-full-tests.log为987/987，无跳过。最后恢复修订的no-fresh-red.log为3/4（缺新观测仍重推），permission-ranking-red.log为4/5（首选无权限时错误停止而未选合法路）；修后final-affected-tests.log为10/10（含四个真实cwd场景），构建通过。无fresh NewState的执行失败现在准确终止，不能据旧State继续重推写操作；预测候选先按当前effects授权筛选，学生真实head仍单独守卫。cwd策略错误包装复用实际回执，保留State/effects。默认策略直接复用helper排序，通用runtime不依赖filter。整体Review、main及清理仍待本轮收尾，不以这些测试代替交付。
+
+末轮两个GCM收尾worker分别停留于大量读取及上下文告警，未交付产品编辑；父按记录PID结束并接管，不继续重复同类派单。已有worker结果、代码和原错均保留在run。文档入口/owner状态已同步，不改历史证据。
+
+整体Review首选Gemini4实际quota失败，独立OAuth gpt-6.1-sol medium完成，review.json给出3条P1：备选入口条件未现场重验、同ID checkpoint规格可偷换、planning跳过retry gate。父已逐项修复：可选纯assessEntry检查path/node/edge及当前事实，非空条件缺能力显式报错；完整checkpoint规格对比含Goal/Bindings comparator；安全成功但未达标继续走原retry gate，v2 evaluate_actual恢复待评价与进度状态。review-fixes-red.log保留checkpoint原始失败；retry-gate-inverse-red.log与entry-check-inverse-red.log分别在隔离编译产物逆向撤销守卫时真实失败，随后build恢复源码，review-fixes-tests.log为123/123，review-fixes-integration.log为8/8，无跳过。复核仅覆盖这3条及受影响闭包，未重复全量审查。
+
+finding复核review-fix.json关闭原三条后发现retry资格变化与旧cursor冲突：A→B时A被锁定或后继A耗尽，旧入口仍被复用。新增两种公开多步组合反例，retry-cursor-red.log记录policy_error；preparePlanning复用入口现在必须仍在当次eligible candidates中且effects授权合法，否则按当前候选重推，计数不重置。retry-cursor-fix-tests.log为124/124，构建通过。结案经验审计retrospective.md已完成，父更正run笔记中计划材料路径、图名称和定向分母/worker事实；没有新增全局规则或memory，未递归审计。
+
+最终独立局部复核review-cursor.json为零finding，OAuth gpt-6.1-sol medium进程exit0、schema及scope有效，父按统一P0/P1规则裁决通过。未变的整体审查结果继续有效；所有P1已关闭。候选现已具备main集成条件，实际main/push和清理回执沿本run的delivery.md接收，不再新增Review或无变化重测。
+
 ## 2026-10-20 人的语义评价与预测／执行双推理设计
 
 用户在上一轮覆盖审计后要求完整复核已有与未来元素及评估标准：按人的可观察/可感知结果验收，基础职责不隐式耦合，组合重叠/覆盖/抵消需显式处理，实际编码时独立Reviewer核验评价依据和逐例结果的合理性。随后明确双推理：预测侧在有限视野生成符合性格倾向的主路线/次优路线；执行侧沿有效路径单步推进，正常继续、分叉先检适用备选，无适用备选重推演；指定checkpoint真实满足后返回预测入口，展开下一段。根Goal、阈值与固定绑定不丢。

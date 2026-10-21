@@ -49,7 +49,7 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 ## 人的语义评价与编码 Review
 
 涉及人的可观察语义、基础解耦或组合目标时，评价尺、证据适用性及缺口只引用[人的语义评价](../../../docs/semantic-evaluation.md)；候选比较、组合干扰和根评价边界只引用[目标选择策略](../../../docs/goal-selection-policy.md)。这些标准落在本流程现有的四元素、样本与验证、最小必要性产物中，不增加图节点或逐节点审核。
-未来有界预测与执行双推理由 `docs/bounded-goal-planning.md` 维护；该合同闭合及接入前只登记为未实现，本 Skill 不复制算法、head/wire、checkpoint或预算。
+有界预测与执行双推理由 `docs/bounded-goal-planning.md` 维护；已接入的有限域原型与后续领域缺口分别报告，决策替换和候选热重载沿 `docs/bounded-planning-decision.md`。本 Skill 不复制算法、head/wire、checkpoint或预算，不把手工权重替换当训练成果。
 
 四元素和样本设计须把身份、资格、能力、感知与实际效果分开。“不是其他类别”“disabled/readonly”“无poster/焦点”“代理特征命中”等单项状态不能替代这些判断；缺测保持unknown，不补成阴性事实。
 
