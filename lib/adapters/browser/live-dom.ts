@@ -2365,13 +2365,21 @@ export function observeLiveDom(input: {
     const fragments = visible ? Array.from(element.getClientRects(), rectOf) : [];
     const clippedRect = clippedBox(element, window, rect, fragments, document, ancestryByElement, readClippedBoxCss);
     const attributes: Record<string, string | boolean> = {};
-    for (const key of ["aria-disabled", "aria-expanded", "aria-hidden", "aria-selected", "contenteditable", "disabled", "hidden", "tabindex"]) {
+    for (const key of ["aria-disabled", "aria-expanded", "aria-hidden", "aria-selected", "aria-checked", "aria-readonly", "contenteditable", "disabled", "hidden", "readonly", "open", "selected", "tabindex"]) {
       const value = element.getAttribute(key);
       if (value !== null && isSafeRuleAttribute(key)) attributes[key] = value;
     }
     // Complete live DOM observation makes absent HTML boolean attributes known false.
     attributes.disabled = element.hasAttribute("disabled");
     attributes.hidden = element.hasAttribute("hidden");
+    // readOnly applies to editable host elements only; other tags stay unobserved.
+    if (tag === "input" || tag === "textarea") attributes.readonly = element.hasAttribute("readonly") || element.getAttribute("aria-readonly") === "true";
+    // Checked is a live choice state, not an attribute; only choice inputs carry it.
+    if (tag === "input" && ["checkbox", "radio"].includes((element as HTMLInputElement).type)) attributes.checked = (element as HTMLInputElement).checked;
+    // Expanded declared state: details open attribute is the native declaration.
+    if (tag === "details") attributes.open = element.hasAttribute("open");
+    // Selected native state on option elements; aria-selected stays the raw attribute.
+    if (tag === "option") attributes.selected = element.hasAttribute("selected");
     const role = element.getAttribute("role");
     const positiveAreaChildren = children.filter(child => { const r = child.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
     const rawDirectText = Array.from(element.childNodes).filter(node => node.nodeType === 3).map(node => node.textContent ?? "").join("");
