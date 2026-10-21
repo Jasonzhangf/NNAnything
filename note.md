@@ -1,10 +1,10 @@
 # 当前任务
 
-## 2026-10-20 逐步观察运行补齐与旧样本推理回归（验收完成，交付中）
+## 2026-10-20 逐步观察运行补齐与旧样本推理回归（已交付）
 
 用户授权补齐运行缺口并用已有样本检查是否需要重训。独占树`/Volumes/Intel/playground/nnanything/step-observation`，证据run为`/Volumes/Intel/playground/nnanything-runs/step-observation-20261020`。独立技术计划plan.md已接受，角色准入裁决在plan-acceptance.md：本次Gemini4 quota错误后，正式OAuth gpt-6.1-sol medium只读独立规划；不将其自报型号阻塞当真实阻塞。
 
-计划P0–P11共12项，P0–P10共11项已验收，P11交付收口执行中。GCM首批apply_patch协议失败、搜索后继网络中断后父接管；夹具worker实际交付并由父修订。原子/策略/core与搜索均已接入，搜索起点明确handwired，首轮仅普通text input；不把已有展开50/反馈36/策略20参数候选当搜索模型，未重新拟合或采用权重。
+计划P0–P11共12项全部验收。GCM首批apply_patch协议失败、搜索后继网络中断后父接管；夹具worker实际交付并由父修订。原子/策略/core与搜索均已接入，搜索起点明确handwired，首轮仅普通text input；不把已有展开50/反馈36/策略20参数候选当搜索模型，未重新拟合或采用权重。
 
 作者基线39/39相关测试通过。原保存原子候选+原样本经公开API执行器可能派发后throw，实际reads1/clicks1/newState=null，prechange-probe.log为exit1红证据。修复目标是安全只读后验、原执行错/观察错/effects和根事实分别保留；后验满足也不能消除unknown effects或自动重放。
 
@@ -12,7 +12,9 @@
 
 旧样本rows与基线相同：原子60/60、F1 72/72、F2训练开发48/48；F2独立包仍22/24，原两项oracle前提问题保留rawFAIL。F1新原生未达Goal/派发不确定反例错分execution_rejected，需定向后训练；旧72条只有6种数值投影且缺新投影。原子无需重训证据，F2先保留，搜索为新语义需新训练。详见docs/browser-feedback-strategy.md及run/training-assessment.md。
 
-独立Gemini4实际quota后，OAuth gpt-6.1-sol medium只读整体审查发现1项P1：matched_items被错误提升为全批次可读。已用公开入口红测复现，观察验证与纯评价共用searchContentFact；同输入matched_items达到最少匹配后完成、未知邻项仍未知，visible_batch继续拒绝未读整批。修复后相关28/28（搜索15、原子观察5、递归边界8），局部独立复核PASS、零finding；原整体未变范围复用，未重新训练。完整Review与规则一致性结案核对在外置run的controller-review-r1、controller-review-p1；不需要新增平行Skill或记忆规则。测试标签、两项自有服务已关闭，用户页面及先前canonical样本服务保留。main推送与树清理回执沿本段补正。
+独立Gemini4实际quota后，OAuth gpt-6.1-sol medium只读整体审查发现1项P1：matched_items被错误提升为全批次可读。已用公开入口红测复现，观察验证与纯评价共用searchContentFact；同输入matched_items达到最少匹配后完成、未知邻项仍未知，visible_batch继续拒绝未读整批。修复后相关28/28（搜索15、原子观察5、递归边界8），局部独立复核PASS、零finding；原整体未变范围复用，未重新训练。完整Review与规则一致性结案核对在外置run的controller-review-r1、controller-review-p1；不需要新增平行Skill或记忆规则。测试标签、两项自有服务已关闭，用户页面及先前canonical样本服务保留。
+
+实现提交f88f6a0已fast-forward合入main并推送，远端ACK为0e23c27..f88f6a0。主目录正式build通过，新`nnanything/browser-search`公开入口已编译；未改用户扩展权重或重建其加载产物。独占树已正常remove/prune且路径不存在，自有codex/step-observation分支已删除。过程及最终原始回执归档于上述外置run，后训练仍是下一轮未执行事项，不能把本轮12项完成解释为F1补训或搜索训练完成。
 
 ## 2026-10-20 逐步观察反馈与搜索闭环审计（设计）
 
