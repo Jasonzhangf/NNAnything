@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-21 Shell／文件系统第一层基础语义执行（候选待 review）
+
+worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-foundation`（branch `codex/cli-foundation`）执行 docs/cli-foundation-plan.md 的 S00–S20，过程证据在 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-20261021/`。亲查确认当前候选 `35bd5ad9` 为 10×30=300、`uncalibrated/not_applied`、`fullyVerified=false`、`verification=not_provided`，并逐项亲读 5 项 UNVERIFIED 原始报告，不用 56/56 清零。
+
+本轮新增两类最小能力，均为 O/D，无新训练头、不改共享 `cli.command-policy.v1` 权重、候选未重训未采用：
+- `lib/adapters/cli/file-content.ts` + `read` 请求（M0 `nnanything/cli`）：普通文件显式 offset/length 只读范围，拒绝最终 symlink 与非普通文件，零长度合法且不声称 EOF。
+- `lib/filters/cli-content.ts`（签名/utf8/JSON 证据，文件名不是 gold）与 `lib/filters/cli-declaration.ts`（只从显式声明字段取引用边，越界拒绝，部分覆盖不判无引用）。
+
+其余 S03–S09、S12–S14、S16–S17 以真实 macOS 探针复用既有实现取证：词法三阶段不变而 exists 翻转、链接/断链/环行为、硬链接同 dev/ino、目录项名称保真不递归、双 session 独立、执行事实分离、mtime 相同不证明字节未变。S18 只读组合 consumer 通过且零写入；S19 补第二独立 read 家族 4/4。
+
+`node scripts/test-full.mjs` 1051 通过 / 0 失败 / 0 跳过（基线 1031 + 新增 20）；独立套件 57/57 保持原状。未实现写操作、path.realpath、`file.property.links` 与 role；character_device/block_device/other/synthetic 注入/syscall 追踪 5 项仍 UNVERIFIED；无 Linux 运行环境不推断 Linux 行为。worker 停在可审查候选，不合 main、不 push main、不部署、不采用权重、不删除待审 worktree，交原编排者独立 review。
+
 ## 2026-10-21 Shell基础语义完整规划与worker交接（设计）
 
 用户要求Shell也按浏览器同样的分层隔离、最小实验与后续review方式规划。专项计划docs/cli-foundation-plan.md落盘，21项S00–S20覆盖范围/证据、最小词法与存在性隔离实验、对象/属性/内容/关系、session与执行事实、组合边界及独立OS来源。编程/日常用途和目录/文件修改列后续映射，不扩成任意Shell执行；共享cli.command-policy.v1及file.property目标不变。

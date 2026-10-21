@@ -35,6 +35,16 @@ export function readCliResult(value: unknown): CliResult {
         if (observation.birthtimeMs !== null) expectFiniteNumber(observation.birthtimeMs, "birthtimeMs");
         if (observation.linkTarget !== undefined) expectNonEmptyString(observation.linkTarget, "linkTarget");
         break;
+      case "read":
+        expectNonEmptyString(observation.absolutePath, "absolutePath");
+        for (const key of ["offset", "length", "size", "bytesRead"]) expectFiniteNumber(observation[key], key);
+        if (typeof observation.bytes !== "string") throw new TypeError("Invalid read bytes");
+        if (typeof observation.eof !== "boolean") throw new TypeError("Invalid read eof");
+        if (observation.observedRange === null || typeof observation.observedRange !== "object") throw new TypeError("Invalid read observedRange");
+        const observedRange = expectRecord(observation.observedRange, "observedRange");
+        expectFiniteNumber(observedRange.offset, "observedRange.offset");
+        expectFiniteNumber(observedRange.length, "observedRange.length");
+        break;
       default: throw new TypeError("Unsupported CLI observation");
     }
   } else throw new TypeError("CLI result must have a boolean ok");
@@ -45,7 +55,7 @@ export function readCliResult(value: unknown): CliResult {
 export function createCliObservationNode({ cwd }: { cwd: string }): NodeDefinition {
   const configuredCwd = validateCliCwd(cwd);
   return {
-    operator: "cli.observe", version: "0.1.0",
+    operator: "cli.observe", version: "0.1.0.0001",
     inputPorts: [{ name: "cli_request", schemaId: "cli/request/v1", eventType: "cli.request.v1", validate: readCliRequest }],
     outputPort: { name: "cli_observation", schemaId: "cli/result/v1", eventType: "cli.result.v1", validate: readCliResult },
     effects: [],

@@ -27,6 +27,7 @@ interpretCliPath('/absolute/project', { kind: 'path', path: 'future/file.ts' });
 | `pwd` | 固定 `/bin/pwd -P` 的原始 stdout、stderr、退出码、配置目录与物理目录 | `filesystem.read`、`process.exec` |
 | `path` | 原始输入、绝对/相对形式、join 后规范路径、相对 cwd 解析的绝对路径与父目录 | 无业务 IO 授权 |
 | `attributes` | 实际对象类型、大小、mode/uid/gid、时间，按显式跟随策略选择 stat/lstat | `filesystem.read` |
+| `read` | 普通文件的显式 offset/length 范围字节（base64）、bytesRead、eof、读时 size 与 observedRange | `filesystem.read` |
 
 模块调用实际持久 `cli-foundation.workflow.json` 与 `cli-foundation.graph.json`，复用现有 compiler、runner 与 Flowed。控制文件加载与业务 IO 分开；节点合同卡见 [节点清单](../lib/nodes/README.md)。固定工作目录在节点工厂中注入，授权从现有 workflow context 明确传入。路径请求不因 IO 未授权而失败。
 
@@ -47,6 +48,12 @@ M0 的 `attributes` 观察纯路径解释所得的绝对路径。这是显式的
 请求字段错误返回 validate/EINVAL；缺授权返回 authorize/EFFECT_DENIED；OS 错误保留 ENOENT、ENOTDIR、EACCES 等原始错误码。错误不变为空成功。失败请求不会关闭 session，后续独立请求仍可执行。工作流控制文件读取或编译失败属于模块配置错误，公开调用会拒绝 Promise，不伪装为目标路径错误。
 
 pwd 不接收任意 executable、argv 或命令字符串。子进程使用 `shell:false`，stdout 只移除末尾一个换行来取路径，不用 trim 删除合法空格。正常查询不读取文件正文，不写目标文件，不启动桌面操作。
+
+## 内容范围读取
+
+`read` 只对普通文件返回字节范围。`offset`/`length` 必须是非负安全整数。读取前先 `lstat`：最终符号链接被拒（`ELOOP`），非普通文件被拒（`READ_TYPE_DENIED`，含实际类型名）；打开后再次 `fstat` 核对类型，防止检查与打开之间被替换。返回 `bytes`（base64）、`bytesRead`、`eof`、读时 `size` 与 `observedRange`。
+
+`length:0` 合法，但仍先验证目标是普通文件；零长度读取不声称 EOF。有范围数据不声称已读完整文件；`eof` 只表示本次读取未填满请求长度。一次读取不是原子快照，不支持并发语义。不打开 FIFO/socket/设备流做普通文件读取，不写目标文件。
 
 ## 独立验收与后续训练
 
