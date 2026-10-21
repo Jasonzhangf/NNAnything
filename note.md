@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-21 浏览器基础语义完整规划与worker交接（设计）
+
+用户要求详细规划基础任务、落盘并提供完成提示词，由用户交worker实施后原编排者继续review。本轮仅文档，不派worker、不实现、不采新样本、不训练。唯一专项计划docs/browser-foundation-plan.md，19项F00–F18覆盖边界/评价、基础种类、属性内容、感知、局部关系、事件和跨帧事实、只读组合检查、新鲜来源及review交接；docs/implementation-plan.md仅链接入口。
+
+已复用project-design、DOM分类/训练及反馈推理/训练的闭合拓扑，无运行图变更，不新造业务图或宣称新算子绑定。计划明确O/D/L，直接读取不造训练头，基础节点不消费任务意图；二层覆盖交界只作后续组合条件。本轮第一层仍未完成，19项待worker按实际入口和证据验收。回执最小实验为一项可复用证据，不能扩大为全层完成；R5旧F1失败保留。
+
+提示词位于专项计划第9节。worker按用户分工停在作者验收完成的可审查候选，不合main/采用权重；原编排者独立review后再集成。文档针对性检查与main交付沿本轮实际Git回执，不以本计划等同后续独立实施Plan准入。
+
 ## 2026-10-21 基础语义隔离最小实验（有限域通过，已交付）
 
 用户要求先做最小实验，确定可行再做下一语义。独立计划位于`/Volumes/Intel/playground/nnanything-runs/atomic-refusal-20261021/plan.md`，OAuth gpt-6.1-sol medium新只读session，Gemini4沿同日未到期quota证据后备。唯一树`/Volumes/Intel/playground/nnanything/atomic-refusal`，无.appsdk需求文件。现有F1图闭合不变，外置新原型单独说明3N3E推理及6N6E训练对象流，不伪造项目算子绑定。
