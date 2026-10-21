@@ -28,6 +28,26 @@ F1验收先于策略代码派发：真实拟合/非零梯度、新进程回载�
 
 F2的候选评分和原子显式策略接入、递归控制扩展须在F1通过后落对应图/gate/红测；不把未完成行为验收的组合或retry写成已运行。F1资料不能兼作F2独立留出；每次当步输入只能包含此前发生的真实反馈。实际F2合同与状态只沿[browser-progressive-strategy.md](browser-progressive-strategy.md)。
 
+## 基础层隔离最小实验：回执结果知识（2026-10-21）
+
+用户要求先做一次最小实验，确认可行后再推进下一语义。本实验只验证一项基础知识：可信且关联本次尝试的typed执行回执明确报告失败、成功，还是缺少回执。它不解释任意失败原因，不判断Goal达成，也不授权重试。`ok=false`只证明明确失败，不能一概当作操作被拒绝的因果诊断；即使error为null也有明确失败证据。可信性与请求关联由调用者提供，不是学生学到的能力。
+
+四元素：Goal为获得回执结果知识；satisfactionThreshold固定100用于独立监督；State为回执/null及只供组合保留的原始事实；Action为一次知识分类。New State增加成员预测但不覆盖原事实，推理satisfaction为null。效果知识、实际Goal、执行错误和后验分开保留。训练反推只确定三种证据状态的必要区分，不训练动作或层序。
+
+这是仓库外可调用原型，入口为外置run的`train-once.mjs`导出`receiptUnit.infer/train`，组合由`prototype.mjs`的compose完成，不是新增生产导出API。推理对象流P校验投影→N成员推理→C组合返回，P另向C传原始信封，为3N3E；训练对象流资料准入分区→固定拟合→保存→新进程回载→评价→报告，分区另向评价供资料，为6N6E。两者单入口单出口且无回边；均为实验对象流，不假称已有F1算子接受新schema。项目workflows和生产lib不变，不新增执行引擎。
+
+学生仅有`bias, receipt.present, receipt.ok`三条输入，三个head为`explicit_failure, explicit_success, unknown`，9参数。合法投影仅`[1,1,0]`、`[1,1,1]`、`[1,0,0]`；无回执的末位0只是占位，不表示观察到失败。effects、Goal、DOM、历史、错误正文不进入学生输入。组合只附加成员知识并保留原信封，不将它映射为旧F1成功或安全重试。
+
+独立计划固定零初始化、真实Handwired CE全批量、200epoch/.1，3条train等权，只拟合一次。实际9参数、200次更新、600次逐行梯度求值；拟合6.606916ms，后端加载324.5765ms；loss由1.098612下降至0.269852，9参数均发生变化。GCM交付原型和单次训练，父补齐可导入的统一infer/train接口、profile语义校验及配对分数复核，未再次拟合。两项评价脚本错误原记录保留，修正后使用同一候选复测。
+
+所有资料在拟合前准备，gold按上述可信回执规则派生，非真人逐例标注。train3、development3、verification54（回执3×effects3×Goal事实3×外层错误2）、已知R5回归4、历史原生记录8分别保存。合成信封仅承载独立观察事实，不冒充完整浏览器执行结果；历史原生记录从实际result.receipt原样取值并保留原来源。配方实例化检查effects、Goal及回执字段，R5的result/receipt均为unknown effects。
+
+新进程回载：train3/3、development3/3、组合54/54、R5成员回归4/4、历史受控原生轨迹回放8/8；全部72项与保存前预测一致，原信封及回执72/72保留，反馈satisfaction均null。无关变化99/99对的特征、logits和预测完全相同；自身语义变化36/36对正确改变输出。零权重在全部72项均并列undecided；缺profile、坏schema/heads/wires/weights、缺回执字段、错误类型及缺后端共9项显式拒绝，无fallback。
+
+可复核位置：`/Volumes/Intel/playground/nnanything-runs/atomic-refusal-20261021`。`node <run>/reload-evaluate.mjs`回载原候选并评价；`author-check.mjs`另作新进程完整分数/事实及负控制复核，已有author-check.json时其独占输出保护会拒绝覆盖。`train-once.mjs`作为命令运行会因candidate.json已存在而拒绝重训。候选、完整trajectory、逐例、配对和失败日志均保留。
+
+结论：在可信typed回执的三状态域内，隔离的基础语义可真实训练、回载，并与独立effects/Goal事实组合而不相互污染。三种学生特征全部在train出现；54项只证明未训练信封组合及输入隔离，不是未见特征泛化。历史8项不是本轮新操作或外站验收。新成员处理R5正确不修复旧F1，也不改变旧F1的23/24失败记录。候选继续uncalibrated/not_applied，自动采集/采用未接入。完整Review及main交付沿note.md；下一语义本轮不启动。
+
 ## F1结果与限制
 
 ### 2026-10-21 有限域后训练与有界鲁棒性验证
