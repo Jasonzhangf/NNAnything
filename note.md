@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-20 逐步观察反馈与搜索闭环审计（设计）
+
+用户要求每个推理步骤均观察实际结果，不同Action采用不同观察方式；执行结果检查也属于观察，以真实反馈持续迭代并学习新结果表示。采集、回执核对和Goal检查是观察反馈内部的责任划分，不删除verify或用模型自报替代检查。本轮只审计及补设计，不实施搜索runner、采样或训练。通用义务唯一owner为docs/design.md 1.1.4，搜索实例/分解训练/缺口与验收唯一owner为docs/search-page-abstraction.md v0.2-design。
+
+已读受影响operation-episode 7N6E，单入口单出口闭合且已有reobserve/verify；无拓扑变更，复用有效图，不重复造图/校验。审计实际lib/nodes/browser-single-action.ts的reobserve：stage.error、未派发等分支跳过后验；已有F1/F2限展开域，不能称搜索已具备全错误后验。recursive-goal可收真实State/错误/checkpoint，但领域仍须提供真实且充分的后验；搜索typed绑定、动作特定观察、宿主读回、训练及自动采样均未接入。项目无.appsdk/requirements.json，不补建。
+
+设计明确：每步前观测→当前Action及观察要求→执行→按动作观察→评价反馈；只读以实际读取闭合，NOOP评价适用当前证据，不无限递归观察。输入读value而非placeholder，提交查响应归属，滚动查新内容，原始回执/effects、观测错误及语义反馈分开。必需观察项不由模型删减；模型学习对象/关系/反馈，控制与真实验收不训练。Chrome登录后露营搜索补证沿外置search-results-fixture-20261020/chrome-followup.md，不能将其作为项目学生运行证明。后续先单步，再提交/结果，再范围扩展与多候选组合；保持原四slot和现有递归/演进基座。
+
+本轮范围3份文档，diff空白与本地文件链接针对性检查通过。独立OAuth gpt-6.1-sol medium设计审查提出1项P2（根评价“读回”可能越过纯评价边界），已明确缺新观测须走技能派发，并取得独立定点复核通过；用户追加的执行结果检查归入观察不改变采集/验证职责。审查及main交付回执归档于`/Volumes/Intel/playground/nnanything-runs/search-results-fixture-20261020/observation-feedback-delivery.md`。未运行训练或变更权重，不扩大为已泛化或可保证外站结果正确。
+
 ## 2026-10-20 跨站搜索抽象与可配置HTML样本
 
 用户要求从微博/小红书搜索观察扩展到三社交平台（按上下文含知乎）及Google/Bing，重点是固定通用框架，页面差异用参数与训练表达。证据run为`/Volumes/Intel/playground/nnanything-runs/search-results-fixture-20261020`，user-scope.md/observation.md/plan.md。现有operation-episode7N6E读取闭合；本轮是被操作fixture应用及抽象合同，不增加业务图或搜索运行绑定。
