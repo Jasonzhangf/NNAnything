@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCliSession } from '../dist/cli.js';
+import { readFileRange } from '../dist/adapters/cli/file-content.js';
+import { constants } from 'node:fs';
 import { mkdtemp, writeFile, rm, mkdir, symlink } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -71,4 +73,72 @@ test('S10 refuses invalid offset/length', async t => {
     assert.equal(result.ok, false);
     assert.equal(result.error.stage, 'validate');
   }
+});
+
+// P1 fix: open boundary counterexamples. The pre-open lstat is not the
+// security boundary; the fixed open strategy (O_NOFOLLOW, O_NONBLOCK,
+// dev/ino comparison) must refuse every swap between lstat and open.
+
+test('P1 open boundary: a regular file swapped to a final symlink is refused', async t => {
+  const { root } = await makeScene(t);
+  const file = join(root, 'target.bin');
+  await writeFile(file, 'payload');
+  const link = join(root, 'link');
+  await symlink('target.bin', link);
+
+  // Real OS: lstat sees the regular file, O_NOFOLLOW rejects the link.
+  const real = await readFileRange(file, 0, 7);
+  assert.equal(real.ok, true);
+
+  const swapped = await readFileRange(file, 0, 7, {
+    lstat: async (path, options) => (await import('node:fs/promises')).lstat(file, options),
+    open: async () => {
+      const error = Object.assign(new Error('ELOOP: too many symbolic links encountered'), { code: 'ELOOP' });
+      throw error;
+    },
+  });
+  assert.equal(swapped.ok, false);
+  assert.equal(swapped.error.code, 'ELOOP');
+});
+
+test('P1 open boundary: a regular file swapped to a FIFO cannot block and is refused', async t => {
+  const { root } = await makeScene(t);
+  const file = join(root, 'target.bin');
+  await writeFile(file, 'payload');
+  const fifo = join(root, 'pipe');
+  await mkfifo(fifo);
+
+  // lstat still reports the regular file, but the open target is a FIFO.
+  const swapped = await readFileRange(file, 0, 7, {
+    lstat: async (path, options) => (await import('node:fs/promises')).lstat(file, options),
+    open: async () => (await import('node:fs/promises')).open(fifo, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK),
+  });
+  assert.equal(swapped.ok, false);
+  assert.equal(swapped.error.code, 'READ_TYPE_DENIED');
+});
+
+test('P1 open boundary: a regular file swapped to another regular file is refused', async t => {
+  const { root } = await makeScene(t);
+  const file = join(root, 'target.bin');
+  await writeFile(file, 'payload');
+  const other = join(root, 'other.bin');
+  await writeFile(other, 'different');
+
+  const swapped = await readFileRange(file, 0, 9, {
+    lstat: async (path, options) => (await import('node:fs/promises')).lstat(file, options),
+    open: async () => (await import('node:fs/promises')).open(other, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK),
+  });
+  assert.equal(swapped.ok, false);
+  assert.equal(swapped.error.code, 'READ_TARGET_CHANGED');
+});
+
+test('P1 open boundary: the real open refuses a final symlink end-to-end', async t => {
+  const { root, session } = await makeScene(t);
+  const file = join(root, 'target.bin');
+  await writeFile(file, 'payload');
+  await symlink('target.bin', join(root, 'final-link'));
+  const result = await session.observe({ kind: 'read', path: 'final-link', offset: 0, length: 7 });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.stage, 'observe');
+  assert.equal(result.error.code, 'ELOOP');
 });
