@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-10-20 人的语义评价与预测／执行双推理设计
+
+用户在上一轮覆盖审计后要求完整复核已有与未来元素及评估标准：按人的可观察/可感知结果验收，基础职责不隐式耦合，组合重叠/覆盖/抵消需显式处理，实际编码时独立Reviewer核验评价依据和逐例结果的合理性。随后明确双推理：预测侧在有限视野生成符合性格倾向的主路线/次优路线；执行侧沿有效路径单步推进，正常继续、分叉先检适用备选，无适用备选重推演；指定checkpoint真实满足后返回预测入口，展开下一段。根Goal、阈值与固定绑定不丢。
+
+证据根`/Volumes/Intel/playground/nnanything-runs/human-semantic-evaluation-20261020`。四个独立GCM专项审计为elements/composition/evaluation/lookahead，原始用户追加记录为lookahead-steering.md。原Plan与增补Plan均按当次实际Gemini4配额失败回退到独立OAuth gpt-6.1-sol medium，plan.md与plan-update.md已接受。T1人的矩阵、T3本地Skill先并行；用户新增后不重做未受影响部分，再并行T2组合选择与有界规划。所有文档执行均GCM独立会话，父持有入口、图索引和集成。
+
+H0–H5作者设计验收6/6，H6独立整体设计审查已通过，main与清理回执交付后归本run。新增docs/semantic-evaluation.md维护12基础类+other及观测/关系/行为/CLI/未来子控件的人的判据、证据/反例、状态与具名分母；身份/资格/能力/感知/效果分开，不发明90%准确率、统计下界或全样本真人签字。子族含多行/富文本、checkbox/radio/switch、combobox、range、tab/menu/tree、modal、表单错误、status、table、上传、拖拽和嵌套文档；先以既有类+属性关系表达，不能表达再改词表并回归。旧L1属性离线标签匹配与F2原22/24及oracle裁决范围保持原样，未重跑或改gold。
+
+docs/goal-selection-policy.md独占基础解耦、组合干扰、候选与路径排序。原始NN分数、预期满足度、实际满足度和utility分开；已观测结果与待执行动作分开；接受集合gold与指定偏好gold分开。分数/顺序/保守/激进按显式字典序，只比较当前确实需要的键；无声明或最终同分DEFER，顺序来自typed资源而非数组/日志。风格不改目标/阈值/权限/基础gold。路径用同尺终点评价、声明结果叶的保守投影、风险和成本，不能求和子满足度或乘未校准概率。
+
+docs/bounded-goal-planning.md独占预测/执行I/O、请求目标图实例、逐分支N视野、真实checkpoint、次优适用与局部重推演。workflows/bounded-goal-planning.graph.json为0.1.0-design 6N5E，已一次DAGpipe validate/inspect通过，日志planning-graph-validate.log/inspect.log；无运行绑定。静态每步经过展开节点时，正常有效计划只是透传复用，不调用预测器。N不按包装/NOOP/重复观测凑数，最长路径够N不代表失败分支都N。预测不写实际State/evidence/ledger，换图不重置budget/retry/in-flight，不重放未知派发；根真实满足立即收回必需链。
+
+本地设计Skill已加入人的标准与完整编码milestone的独立评价Review职责，不增加逐节点审查。父更新design/AGENTS/实施计划及图索引；新增Q24预测结果模型、Q25计划控制接入、Q26双推理真实验收、Q27偏好学习依赖，原Q1–Q23保持。派单中一次“新增lookahead-steering”输入描述歧义产生平行产品文档，父已删除并将评价归回唯一owner，原需求留外置run；不为单次问题新增全局规则或memory。
+
+本轮是审计/设计交付，没有运行代码、现行F2/递归图、样本或权重变化，没有新拟合或原生运行。当前lazy derivation不是有界预测，通用选择/GoalGraphPlan/checkpoint/重推演均未实现。未来必须先有领域技能/结果模型、typed控制接入、红测/公开真实入口证据，再按本轮标准由独立Reviewer审评估结果合理性。作者定向引用/layout/diff与案例检查通过，10份候选文件无相对文件断链。Gemini4 Review本次实际quota失败后按路由回退独立OAuth gpt-6.1-sol medium，review.json覆盖全部10文件、原始用户追加、既有证据、案例及Skill/AGENTS归属，零finding，父裁决通过；未要求新增全局规则或memory。main/push与资源回执归本run delivery.md。
+
 ## 2026-10-20 基础语义覆盖审计与并发补齐
 
 用户要求检查基础语义训练覆盖、列任务、制定计划并由GCM并发执行。本轮采用“全域审计、当前就绪证据/设计补齐、后续能力按依赖分批”的边界，不把所有浏览器行为与文件操作冒称完成。正式覆盖矩阵、C0-C4验收和Q1-Q23后续队列已落在docs/implementation-plan.md顶部。过程证据根为`/Volumes/Intel/playground/nnanything-runs/basic-semantic-coverage-20261020`，不另建治理台账。

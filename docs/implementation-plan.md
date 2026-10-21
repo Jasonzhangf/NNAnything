@@ -1,5 +1,32 @@
 # D0交付与后续浏览器项目实施计划
 
+## 2026-10-20 人的语义评价与预测／执行双推理增补
+
+本次用户在覆盖审计后新增：完整审已有/未来元素及评价标准，从人的可观察、可感知方向验收；基础职责独立，组合可重叠、覆盖或相互影响；多候选按满足度、显式尝试顺序和性格偏好选择；先做有界多路径预测，再沿路径单步执行，正常继续、分叉先检次优、无适用备选则重推演，指定checkpoint真实满足后展开下一段。该要求补充原Q1–Q23队列，不将其改成已实现。
+
+标准唯一owner为[人的语义评价](semantic-evaluation.md)、[目标选择策略](goal-selection-policy.md)与[有界目标规划](bounded-goal-planning.md)。下节旧样本覆盖数字保持原范围，不能替代新的感知/组合/预测评价。目标satisfactionThreshold=90不等于所有模型90%准确率门槛；预测路线达到预期值不等于实际达成。
+
+| 本轮项 | 产物/owner | 验收 |
+| --- | --- | --- |
+| H0 专项审计 | 外置run的elements/composition/evaluation/lookahead报告 | 已有与未来、人的判据、基础/组合风险和真实运行边界分开；复用有效旧训练证据 |
+| H1 人的元素评价 | docs/semantic-evaluation.md | 12基础类+other、观测/关系/行为/CLI及未来占位有人的问题、必要证据、反例、unknown及分母 |
+| H2 组合选择 | docs/goal-selection-policy.md | 基础无隐式耦合；组合干扰显式；实际/预期候选、同尺比较、同分与性格有确定规则 |
+| H3 双推理及图 | docs/bounded-goal-planning.md、workflows/bounded-goal-planning.graph.json | 预测/执行I/O分离；N/分支覆盖/checkpoint/次优/重推演/根收回闭合，图一次静态校验 |
+| H4 编码独立评价Review | 本地nnanything-design Skill | 既有milestone Review核验评估标准、oracle及逐例结果，不只看总分或测试绿 |
+| H5 公共入口和自检 | design.md、AGENTS、图索引与note | 单一owner、案例一致、引用有效、设计与运行状态分开 |
+| H6 独立设计审查及交付 | 独立Reviewer、父集成 | 完整设计一次Review；main/push与资源收口，未实现能力明确 |
+
+H1/H4与H2/H3分别按依赖用互斥GCM worker并行；父负责公共入口和最终交付。计划、用户原文、审计及回执在`/Volumes/Intel/playground/nnanything-runs/human-semantic-evaluation-20261020`。本轮只设计，不修改运行策略、代码、训练样本或权重，不重复旧拟合/全量/原生验收。
+
+未来接入在原队列后明确以下依赖，仍先图/gate/红测/实现/真实入口验收，再独立Review评价合理性：
+
+| 新增队列 | 下一动作与依赖 | 最小验收与owner |
+| --- | --- | --- |
+| Q24 有界预测能力 | 选一个已验收领域，注册真实技能schema与结果范围模型，明确N和未覆盖结果；先有领域评价尺与样本 | 预测不产实际证据，缺技能/模型不造路线；转移预测与选择各有独立样本/权重及反例；领域planning adapter |
+| Q25 计划控制接入 | Q24后接typed计划/cursor/checkpoint与现有continuation/ledger/retry资源 | 正常复用计划、真实分叉先检备选、无适用路径重推演、checkpoint成功再展开；不重置预算/派发；recursive-goal owner |
+| Q26 双推理真实验收 | Q25及对应原子行为已验收，公开consumer与原生/OS实际后验就绪 | 正常不重推、次优切换、意外重算、短目标、未知effects/in-flight、抵消、根收回逐例验证；独立evaluator/Reviewer |
+| Q27 当前候选/路径偏好学习 | H2设计及有可比较合法候选、明确用户偏好监督后实施，不以此训练循环 | 同尺/同分、风格差异与可接受集合oracle正确，真实拟合/回载/独立评价；组合策略owner；现F2不直接外推 |
+
 ## 2026-10-20 基础语义训练覆盖与执行计划
 
 本节是当前覆盖与实施队列入口。领域算法、样本 schema、权重及评价规则仍由各领域合同维护，不在本节复制。独立规划及逐域采证保存在 `/Volumes/Intel/playground/nnanything-runs/basic-semantic-coverage-20261020/`。本轮 `.appsdk/requirements.json` 不存在，不建立需求占位。

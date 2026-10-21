@@ -46,6 +46,25 @@ description: NNAnything本地语义能力、harness边界、数值连线、训�
 2. 什么证据能抓错？例如`pwd`不改变cwd；`cd`在同一会话中后续仍有效；目录列举不拆错特殊文件名。分类正确、调用正确和实际效果不可互相替代。
 3. 候选凭什么替换当前版本？没有独立证据、旧能力退化或冲突时保留当前版本；使用样本不是自动黄金；大模型改图仍是候选，后续走既有实现与验证流程。
 
+## 人的语义评价与编码 Review
+
+涉及人的可观察语义、基础解耦或组合目标时，评价尺、证据适用性及缺口只引用[人的语义评价](../../../docs/semantic-evaluation.md)；候选比较、组合干扰和根评价边界只引用[目标选择策略](../../../docs/goal-selection-policy.md)。这些标准落在本流程现有的四元素、样本与验证、最小必要性产物中，不增加图节点或逐节点审核。
+未来有界预测与执行双推理由 `docs/bounded-goal-planning.md` 维护；该合同闭合及接入前只登记为未实现，本 Skill 不复制算法、head/wire、checkpoint或预算。
+
+四元素和样本设计须把身份、资格、能力、感知与实际效果分开。“不是其他类别”“disabled/readonly”“无poster/焦点”“代理特征命中”等单项状态不能替代这些判断；缺测保持unknown，不补成阴性事实。
+
+样本与验证须写明人的可观察问题、gold及来源（human/LLM/teacher/规则）、合成与真实分区、oracle前提、具名分母、unknown/conflict处理、代理证据与实际效果、人可观察反例和逐例结果。不能只用judged总分、准确率或作者汇总证明人可感知语义已成立。
+
+组合产物须分别记录成员结果、证据覆盖、根Goal事实、实际满足度和逐例轨迹。父Goal成功不能由子项得分求和推出；共享证据不重复计覆盖；替代路径满足其一即可；规划和预测结果不因打印成功而变成实际New State。
+
+完整编码milestone到既有独立Review边界时，Reviewer必须核对：
+
+- 人的评价尺、gold来源及状态、oracle前提与代理/实际效果是否一致。
+- 分区、具名分母、unknown/conflict及逐例结果是否支持作者结论，而非只看测试绿。
+- 人可观察反例、身份/资格/能力/感知/效果边界及组合根事实是否成立。
+- 若含预测/执行两部分，预测State与候选分数不得充事实，checkpoint须由真实State判定；真实轨迹须能解释主路径、分叉、适用次优路径或重新推演。
+这是既有完整milestone Review的证据核对，不新增per-node review或gate，也不要求每例真人签字或固定截图+AX全套；证据按问题选择。
+
 ## 复用与路由
 
 - CLI统一目标为 [file.property.xxx](../../../docs/cli-filesystem-semantics.md)，路径、目录、普通/特殊文件的属性观测与变化共用 `cli-file-property.graph.json`；不新增零散Goal或平行核心语义。目录/文件操作完整设计目录沿 [CLI语义目录](../../../docs/cli-semantic-operations.md)。训练顺序与真实目录沙盒沿 [文件系统训练设计](../../../docs/cli-filesystem-training.md)，先CWD/pwd→cd→列举，再目录操作、文件操作；设计补全不等于已实现或授权操作真实用户文件。

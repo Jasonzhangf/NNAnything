@@ -7,6 +7,7 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
+| `bounded-goal-planning.graph.json` | 设计态，无运行配置 | 6 节点 5 边 (6N5E SESE) | `0.1.0-design`，未实现 | 双推理的单段资料流：真实起点→有界预测或复用→路线比较→当前一步→真实结果与checkpoint→控制汇总。每请求目标图是数据实例，正常续行复用预测，分叉先检适用备选，无适用路径或指定checkpoint实际满足时再预测；唯一合同docs/bounded-goal-planning.md |
 | `recursive-goal.graph.json` | `recursive-goal.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.1.0` 已实现并通过行为验收 | 通用递归目标3阶段，算法见docs/recursive-goal-design.md；独立模块/error/执行错误返回见docs/recursive-goal-module.md。`goal.recursive.bind/run/report` 的 `NodeDefinition` 唯一 owner 为 `lib/workflow/recursive-goal/module.ts`；预期 Outcome 沿图返回，infra fault 由模块入口收口。公开入口、cwd 与纯计算 consumer、预算/恢复及显式权限交集均有运行证据；Review 与 main 回执见 note.md |
 | `cli-file-property.graph.json` | `cli-file-property.workflow.json` | 6 节点 5 边 (6N5E SESE) | `0.3.0.0000` 已实现 | 图与六个`NodeDefinition`均为0.3.0.0000；保持绑定→同一策略选择→条件与固定执行→实际属性/副作用观测→满足度评价→统一结果。当前7个语义执行操作、3个控制head、30条wire和10×30矩阵已运行；执行操作含path.resolve/path.relative/path.parts/entry.inspect |
 | `cli-filesystem-training.graph.json` | `cli-filesystem-training.workflow.json` | 8 节点 8 边 (8N8E SESE) | `0.3.0.0000` 已实现 | 图与八个`NodeDefinition`均为0.3.0.0000；保持分区→prepare/独立验证支路→fit→save→execute合流→verify→report。10×30已训练并在训练图真实执行262条；历史6×14仅用于显式按名迁移，当前候选35bd5ad9保持uncalibrated/not_applied |

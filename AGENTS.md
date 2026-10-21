@@ -91,6 +91,10 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 ## 唯一Owner与入口
 
+- 人的可观察/可感知评价、已有及未来元素族与具名指标分母由docs/semantic-evaluation.md维护。身份、资格、能力、感知与目标效果分开。编码的完整milestone独立Review还须审原始逐例依据、oracle前提与评估结论合理性，不以测试全绿替代；沿本地设计Skill，不加逐节点审核。
+- 基础解耦、组合重叠/覆盖/干扰及多候选偏好由docs/goal-selection-policy.md维护，当前为设计。性格只影响合法候选排序，不改根Goal/阈值/权限/基础gold，不将模型分数当满足度，也不改变当前F2同分DEFER合同。
+- 预测推理/执行推理、有界多路径实例、真实checkpoint、次优匹配及重推演由docs/bounded-goal-planning.md维护；静态设计流程为workflows/bounded-goal-planning.graph.json。当前未接入运行：正常沿有效路线推进，分叉先检适用备选，无适用路径或指定checkpoint真实满足时再预测。根Goal保留，预测与实际State分开；换图不重置budget/retry/ledger，不训练层序或继续控制。
+
 - F2候选优选/重试组合合同：docs/browser-progressive-strategy.md；typed策略合同为lib/adapters/browser/strategy-contract.ts。20参数独立于原子50/F1 36，已完成真实拟合、回载及限定原生行为验收；控制计数在recursive-goal typed retryControl，绝不训练层序或从日志重建。三类单元沿共同infer/train接口，F2候选仍未采用。原独立oracle的22/24 FAIL及两项前提裁决保留，诊断对照不计作训练候选24/24。
 
 - 单次失败反馈及后续策略的分段实施合同：docs/browser-feedback-strategy.md。反馈36参数独立profile browser.action-feedback.v1，已完成真实拟合与回载；后续策略按独立F2合同完成限定训练，两类候选均未采用。不能把原子执行已记录失败写成学生已经学会失败利用。统一薄接口由lib/core/trainable-unit.ts承载；领域训练与推理复用现有workflow执行基座。
