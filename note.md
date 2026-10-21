@@ -1052,3 +1052,11 @@ Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Arg
 设计判定为未就绪，列出八项缺口及各自 owner 与恢复条件：typed 目标/条件/结果 schema 未成为正式合同；展开状态已可测但无学生消费路径；控制关联无法观测；条件当前性无承载；新关系 wire、参数与损失未定稿；缺真实操作监督集与来源分区；L3 浏览器固定操作和重观测能力未实现；关系训练 adapter 与演进接线未实现。作者核对了观测能力，把初稿混在一起的「展开状态不可用」拆成两项：`aria-expanded` 已在 `lib/adapters/browser/observation.ts` 的 `SAFE_ATTRIBUTE_NAMES` 采集，但不在 `BasicKindMeasurements` 白名单、`basic-kinds.ts` 只消费 `aria-hidden`/`aria-disabled`，故属缺消费 wire（owner 为 `lib/filters/`）；`aria-controls` 不在采集白名单，才属观测缺口（owner 为 browser adapter）。下一轮应先闭合一个展开／状态观测切片的正式合同与可辨观测；若两个真实用途仍映射为同一许可输入，先停该关系训练。L1 使用不受影响。
 
 依据边界：`docs/operation-goal-necessity.md` 为本文唯一 owner，已在 `AGENTS.md` 唯一 Owner 表登记；L1 词表与 wire 仍由 `docs/basic-kinds-wiring.md` 维护，L2/L3 图纸仍由 `workflows/dom-recognition.graph.json`、`workflows/operation-episode.graph.json` 维护。本轮未改图，故未跑 DAGpipe；SESE 结论来自读取既有拓扑。`node scripts/check-layout.mjs` 通过。
+
+2026-10-21 浏览器第一层基础语义补全（docs/browser-foundation-plan.md F00–F18）已按顺序完成可实施切片，候选分支 `codex/browser-foundation` 停在待父编排者 review 状态。本轮不合 main、不推送、不部署、不采用权重。逐项状态与证据在 run 目录 `/Volumes/Intel/playground/nnanything-runs/browser-foundation-20261021/f18-delivery.md`；过程材料同目录。
+
+交付内容：F04 逐类证据与隔离测试；F05 自身状态属性（readonly/checked/open/selected）进观测与回载；F06 感知事实作者验收记录；F07 内容读取（input value、placeholder、media src/type）；F08 结构包含事实；F09 accessible name 按 ref 绑定 aria-labelledby 并与显示文字分开；F10 既有 controls 黑盒验收；F11 确定性 owned/direct scope 边界 filter；F12 回执三态公开入口 `nnanything/browser-receipt`（72 回执训练/回载、99 隔离、36 自身语义）；F13 dispatch 错误分离验收；F14 顶层文档后验当前性（换 scope、DOM 重建、iframe 计数黑盒）；F15 属性变化比较 filter；F16 只读组合 consumer（身份/资格/关系/事件/属性变化五段，不求和、不推断用途）；F17 两个独立实现家族逐项评价（13 pass / 0 fail / 1 unverified）。
+
+证据：受影响测试 355 项全过、0 跳过（含 `NN_HANDWIRED_ROOT=/Volumes/extension/code/handwired`）；13 个 workflow 图 dagpipe validate 全部 exit 0；`npm run build`（tsc + check-layout）exit 0。新增公开入口只在 `nnanything/browser-classify` 下追加，无旧入口改名或删除。
+
+诚实缺口（不写成已完成）：F04 audio=0、ignore=0、video=1 黄金样本不足，未用其他类别凑数；F06 `currentView.activeElementFocus` 对非 div/object/svg 元素缺失（properties/itemObservations 路径仍保留焦点事实）；F06 未在真实浏览器端到端跑；F14 缺同名异对象后验配对测试；F16 不训练二层；F17 family B 无原生 select 保持 unverified，真实外站证据复用 2026-10-20 的 c1 观测，本轮无新外站导航观测；全部候选权重保持 uncalibrated / not_applied。父编排者独立 review 尚未进行，不声称 review PASS。
