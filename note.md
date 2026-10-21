@@ -1,10 +1,12 @@
 # 当前任务
 
-## 2026-10-21 F1有限域后训练与有界鲁棒性（泛化失败已确认，Review通过，待main交付）
+## 2026-10-21 F1有限域后训练与有界鲁棒性（实验与接口已交付，泛化验收失败）
 
 用户要求继续现有假设，依次验证有限样本、真实操作及泛化。独占树`/Volumes/Intel/playground/nnanything/f1-robustness`，证据根`/Volumes/Intel/playground/nnanything-runs/f1-robustness-20261021`。独立OAuth gpt-6.1-sol medium的plan.md、plan-update.md、plan-budget.md已接受；Gemini4沿仍有效quota证据后备，不重试耗尽配额。无.appsdk需求文件。复用闭合的F1推理1N0E、训练6N6E，拓扑及推理结构不变。
 
-计划7项已执行，6项通过；独立组合泛化项经补正后失败，不能称7项全部验收。全milestone独立Review发现1项P1资料实例化缺口，作者已补正证据及结论，独立OAuth gpt-6.1-sol medium定点复核PASS、零finding；未变实现复用整体审查，候选仍不具备鲁棒性验收或采用资格。Review与指导一致性结案核对归档run/controller-review，当前待main/push和资源清理。GCM观察者未交审计成果，另一样本worker超时无产物后按精确PID结束；独立样本设计由新OAuth只读作者完成，父机械实例化及执行，不冒称GCM交付。
+计划7项已执行，6项通过；独立组合泛化项经补正后失败，不能称7项全部验收。全milestone独立Review发现1项P1资料实例化缺口，作者已补正证据及结论，独立OAuth gpt-6.1-sol medium定点复核PASS、零finding；未变实现复用整体审查，候选仍不具备鲁棒性验收或采用资格。Review与指导一致性结案核对归档run/controller-review。GCM观察者未交审计成果，另一样本worker超时无产物后按精确PID结束；独立样本设计由新OAuth只读作者完成，父机械实例化及执行，不冒称GCM交付。
+
+接口与实验记录提交cd5510a已fast-forward合入main并推送，远端ACK b011bf0..cd5510a。主目录正式build通过，未重建用户扩展。自有Chrome测试标签及PID24024服务关闭，用户页面与先前canonical服务保留。工作树清理前注册2/任务目录1，本轮核销1，保留canonical1；remove/prune及物理不存在已确认，自有分支删除，main与origin/main同步且clean。原始模型、失败资料及Review保留在外置run。当前交付的是训练接口和如实验证结果，下一轮需解决R5泛化缺口；模型健壮性目标尚未完成。
 
 336组合为228合法/108无效/0未决，56失败投影无冲突；解析诊断可分，梯度差约1.05e-8，不支持本有限域缺wire。新增可选类/投影平衡训练目标，省略时旧行为完全保留。三次均从旧候选开始，固定77train/13dev、36参数/.1：投影等权200epoch失败63/77、9/13、216/228；类平衡200epoch失败73/77、13/13、220/228；独立诊断后预定2700epoch通过77/77、13/13、228/228。失败与gold全部保留。2700由train覆盖系数推导，不称首次预注册或等价优化进程。第三次207900行梯度，真实拟合852.996ms。
 
