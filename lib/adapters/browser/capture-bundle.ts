@@ -126,6 +126,7 @@ export class BrowserCaptureSession {
     this.sidecar.set(provenanceRef, {
       nodeRef: evidence.nodeRef, tag: evidence.tag, id: evidence.id, classList: [...evidence.classList], textSummary: evidence.textSummary,
       linkPathname: evidence.linkPathname, inputValue: evidence.inputValue, placeholder: evidence.placeholder, mediaSrc: evidence.mediaSrc, mediaType: evidence.mediaType,
+      accessibleName: evidence.accessibleName, accessibleNameSource: evidence.accessibleNameSource, labelledByRefs: [...evidence.labelledByRefs], labelledByUnresolved: evidence.labelledByUnresolved,
       rect: evidence.rect ? { ...evidence.rect } : null, clippedRect: evidence.clippedRect ? { ...evidence.clippedRect } : null,
       parentTags: [...evidence.parentTags], ...(evidence.unassessedChildContent ? { unassessedChildContent: [...evidence.unassessedChildContent] } : {}),
       provenanceRef, evidenceRef: provenanceRef, contextRef: context.contextRef,

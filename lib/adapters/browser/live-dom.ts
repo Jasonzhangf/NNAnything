@@ -76,6 +76,10 @@ export interface LiveDomEvidence {
   readonly placeholder: string | null;
   readonly mediaSrc: string | null;
   readonly mediaType: "video" | "audio" | null;
+  readonly accessibleName: string | null;
+  readonly accessibleNameSource: "aria-labelledby" | "aria-label" | "title" | null;
+  readonly labelledByRefs: readonly string[];
+  readonly labelledByUnresolved: boolean;
   readonly rect: Rect | null;
   readonly clippedRect: Rect | null;
   readonly parentTags: readonly string[];
@@ -2313,6 +2317,7 @@ export function observeLiveDom(input: {
   const { document, window, registry } = input;
   const nodes: ObservationNode[] = [], itemObservations: ({ nodeRef: string } & BasicKindMeasurements)[] = [];
   const properties = new Map<string, BasicKindProperties>(), evidence = new Map<string, LiveDomEvidence>();
+  const pendingAccessibleNames: { nodeRef: string; refs: string[] }[] = [];
   const elementByRef = new Map<string, Element>(), participating = new Map<Element, PaintParticipation>();
   const styleByElement = new Map<Element, CSSStyleDeclaration>();
   const ancestryByElement = new Map<Element, Element | null>();
@@ -2483,7 +2488,41 @@ export function observeLiveDom(input: {
     const mediaElement = element as HTMLMediaElement;
     const mediaSrc = tag === "video" || tag === "audio" ? (mediaElement.currentSrc !== undefined && mediaElement.currentSrc !== "" ? mediaElement.currentSrc : (element.getAttribute("src") ?? null)) : null;
     const mediaType = tag === "video" ? "video" : tag === "audio" ? "audio" : null;
-    evidence.set(nodeRef, { nodeRef, tag, id: element.id || null, classList: Array.from(element.classList), textSummary: safeText(element), linkPathname, inputValue, placeholder, mediaSrc, mediaType, rect, clippedRect, parentTags: parents, unassessedChildContent });
+    // F09: accessible name is a separate value from the display text. Resolve
+    // aria-labelledby to node refs (never to matching text), so two objects with
+    // the same wording never cross-bind. An unresolvable token stays unknown.
+    const labelledByRefs: string[] = [];
+    let labelledByUnresolved = false;
+    let accessibleName: string | null = null;
+    let accessibleNameSource: LiveDomEvidence["accessibleNameSource"] = null;
+    if (!svgTarget) {
+      const labelledBy = element.getAttribute("aria-labelledby");
+      if (labelledBy !== null) {
+        accessibleNameSource = "aria-labelledby";
+        for (const token of labelledBy.split(/\s+/).filter(Boolean)) {
+          const target = typeof document.getElementById === "function" ? document.getElementById(token) : null;
+          const targetRef = target ? registry.refByElement.get(target) : undefined;
+          if (targetRef !== undefined && elementByRef.has(targetRef)) labelledByRefs.push(targetRef); else labelledByUnresolved = true;
+        }
+        pendingAccessibleNames.push({ nodeRef, refs: labelledByRefs });
+      } else {
+        const ariaLabel = element.getAttribute("aria-label");
+        const title = element.getAttribute("title");
+        if (hasNonFormatDirectText(ariaLabel) === true) { accessibleName = ariaLabel!.trim(); accessibleNameSource = "aria-label"; }
+        else if (hasNonFormatDirectText(title) === true) { accessibleName = title!.trim(); accessibleNameSource = "title"; }
+      }
+    }
+    evidence.set(nodeRef, { nodeRef, tag, id: element.id || null, classList: Array.from(element.classList), textSummary: safeText(element), linkPathname, inputValue, placeholder, mediaSrc, mediaType, accessibleName, accessibleNameSource, labelledByRefs, labelledByUnresolved, rect, clippedRect, parentTags: parents, unassessedChildContent });
+  }
+  // Resolve labelledby names after the traversal so a forward reference sees
+  // its target. Reference targets bind by nodeRef; identical wording in two
+  // different nodes never cross-binds.
+  for (const pending of pendingAccessibleNames) {
+    if (pending.refs.length === 0) continue;
+    const current = evidence.get(pending.nodeRef);
+    if (!current) continue;
+    const name = pending.refs.map(ref => evidence.get(ref)?.textSummary ?? "").join(" ").trim();
+    evidence.set(pending.nodeRef, { ...current, accessibleName: name === "" ? null : name });
   }
   // Focus is a single-document fact. A readable observed active element gives
   // true for its node and false for every other observed node; a missing or
