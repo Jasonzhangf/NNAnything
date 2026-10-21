@@ -9,6 +9,7 @@ export * from "./adapters/browser/image-resource.js";
 export * from "./adapters/browser/image-resource-browser.js";
 export * from "./adapters/browser/exploration-input.js";
 export * from "./adapters/browser/content-relations.js";
+export * from "./filters/scope-boundary.js";
 export * from "./adapters/browser/weight-asset.js";
 export * from "./adapters/browser/file-weight-classify.js";
 export * from "./adapters/browser/capture-bundle.js";
