@@ -1,12 +1,14 @@
 # 当前任务
 
-## 2026-10-21 基础语义隔离最小实验（Review通过，待main交付）
+## 2026-10-21 基础语义隔离最小实验（有限域通过，已交付）
 
 用户要求先做最小实验，确定可行再做下一语义。独立计划位于`/Volumes/Intel/playground/nnanything-runs/atomic-refusal-20261021/plan.md`，OAuth gpt-6.1-sol medium新只读session，Gemini4沿同日未到期quota证据后备。唯一树`/Volumes/Intel/playground/nnanything/atomic-refusal`，无.appsdk需求文件。现有F1图闭合不变，外置新原型单独说明3N3E推理及6N6E训练对象流，不伪造项目算子绑定。
 
 本轮只学习可信回执明确失败/成功/无回执未知；学生不看effects、Goal或错误正文，effects保留原始独立观测。9参数、3训练行、零初始化、200epoch/.1，一次真实Handwired拟合600行梯度，6.606916ms；candidate未采用。GCM worker实际交付外置原型、拟合、回载及评价；父完成数据准备、API/校验修订和新进程author-check，未再拟合。两项评价脚本缺陷修正同候选复测，原日志保留。
 
-本轮5项工作中的资料、原型/拟合、作者验收、独立Review共4项完成，待main交付清理。独立OAuth gpt-6.1-sol medium完整实验Review PASS，findings为空；原型、配方、原始资料、数值后端、训练轨迹、来源和结论均亲读核对，指导一致性核对无新规则缺口。证据归档run/controller-review。训练前固定资料：train3/dev3/组合54/已知R5回归4/历史原生回放8。全部分别3/3、3/3、54/54、4/4、8/8；新进程72预测一致、事实保留72/72；无关变化99/99对特征/logits/预测一致，自身变化36/36正确翻转，零权重72项均undecided，9项错误显式拒绝。原型可导入receiptUnit.infer/train，不是生产API。
+本轮5项工作中的资料、原型/拟合、作者验收、独立Review、main交付清理全部完成。独立OAuth gpt-6.1-sol medium完整实验Review PASS，findings为空；原型、配方、原始资料、数值后端、训练轨迹、来源和结论均亲读核对，指导一致性核对无新规则缺口。证据归档run/controller-review。训练前固定资料：train3/dev3/组合54/已知R5回归4/历史原生回放8。全部分别3/3、3/3、54/54、4/4、8/8；新进程72预测一致、事实保留72/72；无关变化99/99对特征/logits/预测一致，自身变化36/36正确翻转，零权重72项均undecided，9项错误显式拒绝。原型可导入receiptUnit.infer/train，不是生产API。
+
+设计与结果提交8a4b816已fast-forward合入main并推送，远端ACK 1ae496c..8a4b816。候选/脚本保留于外置run，依赖canonical稳定入口，不依赖已删除worktree。清理前注册2/任务目录1，本轮核销1，保留canonical1；remove/prune及物理不存在确认，自有分支删除，main与origin/main同步clean。无本轮浏览器/服务资源，worker已退出。项目仅文档变更，diff/layout检查通过，未重复无关全仓测试或重建用户扩展。下一语义未启动。
 
 三种学生投影均在训练出现，不能称未见特征泛化；历史原生回放不是新浏览器操作。只证明基础层隔离及局部组合机制在这个有限语义可行，不证明底层识别、全部三层架构或旧F1已经泛化。旧F1及权重不变，R5原失败保留。唯一领域结果沿docs/browser-feedback-strategy.md，全部原型/样本/候选/回执在外置run；本轮不开始下一语义。
 
