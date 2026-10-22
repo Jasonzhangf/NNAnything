@@ -157,6 +157,24 @@ function safeText(root: Element): string | null {
 // name resolution reads the full text up to an explicit supported limit and
 // reports truncation instead of silently cutting the name.
 const NAME_TEXT_LIMIT = 1024;
+// readOnly applies to textarea and to text-like input types. These listed types
+// carry a readonly attribute without a native readonly constraint. An absent or
+// unrecognised type is text-like per HTML, so it stays applicable.
+// The authored type attribute is the source of truth; a live input also
+// normalises it into the type property, so either source answers the same
+// question. An absent or unrecognised type is text-like per HTML.
+function inputTypeOf(element: Element): string {
+  const attribute = element.getAttribute("type");
+  const property = (element as HTMLInputElement).type;
+  const raw = typeof attribute === "string" && attribute !== "" ? attribute
+    : typeof property === "string" ? property : "";
+  return raw.toLowerCase();
+}
+
+const READONLY_INAPPLICABLE_INPUT_TYPES: ReadonlySet<string> = new Set([
+  "checkbox", "radio", "range", "color", "file", "submit", "reset", "button",
+  "image", "hidden",
+]);
 function fullText(element: Element, limit: number): { text: string; truncated: boolean } {
   let text = "";
   const stack: Node[] = [element];
@@ -2421,12 +2439,24 @@ export function observeLiveDom(input: {
     // readOnly is a native constraint on editable hosts. A declared
     // aria-readonly is a separate fact: an input with only that declaration can
     // still be editable, so the native state and the declaration never merge.
-    const nativeReadonly = (tag === "input" || tag === "textarea") ? element.hasAttribute("readonly") : null;
+    // Applicability is part of the fact: readOnly does not apply to checkbox,
+    // radio, range, color, file or the button types, so a readonly attribute
+    // there is a declaration without a native constraint and stays out of the
+    // state.
+    const readonlyHostType = tag === "input" ? inputTypeOf(element) : "";
+    const readonlyApplies = tag === "textarea"
+      || (tag === "input" && !READONLY_INAPPLICABLE_INPUT_TYPES.has(readonlyHostType));
+    const nativeReadonly = readonlyApplies ? element.hasAttribute("readonly") : null;
     if (nativeReadonly !== null) attributes.readonly = nativeReadonly;
-    const declaredReadonly = element.getAttribute("aria-readonly") === "true";
+    const declaredReadonlyAttribute = element.getAttribute("aria-readonly");
+    const declaredReadonly = declaredReadonlyAttribute === "true" ? true : declaredReadonlyAttribute === "false" ? false : null;
+    // Two sources that disagree are a conflict in either direction; a single
+    // source decides the state and silence means editable.
     const readonlyState: ReadonlyState | null = nativeReadonly === null
       ? null
-      : nativeReadonly ? "readonly" : declaredReadonly ? "conflict" : "editable";
+      : declaredReadonly === null || declaredReadonly === nativeReadonly
+        ? nativeReadonly ? "readonly" : "editable"
+        : "conflict";
     // Checked is a live choice state, not an attribute; only choice inputs carry it.
     if (tag === "input" && ["checkbox", "radio"].includes((element as HTMLInputElement).type)) attributes.checked = (element as HTMLInputElement).checked;
     // Expanded declared state: details open attribute is the native declaration.
@@ -2535,8 +2565,13 @@ export function observeLiveDom(input: {
     if (element.shadowRoot) { shadows++; unassessedChildContent.push("shadow_root"); }
     const inputElement = element as HTMLInputElement;
     const isInputHost = tag === "input" || tag === "textarea" || tag === "select";
-    // Values are only read when the caller asks for ordinary content explicitly.
-    const inputValue = input.readContent === true && isInputHost
+    // Values are only read when the caller asks for ordinary content
+    // explicitly. Sensitive hosts are refused even then: a password or file
+    // field value never leaves the page through this adapter, readContent or
+    // not. Plain text-like inputs, textarea and select stay readable.
+    const inputType = tag === "input" ? inputTypeOf(element) : "";
+    const sensitiveInput = tag === "input" && (inputType === "password" || inputType === "file");
+    const inputValue = input.readContent === true && isInputHost && !sensitiveInput
       ? (inputElement.value !== undefined ? inputElement.value : null)
       : null;
     const placeholder = tag === "input" || tag === "textarea" ? (element.getAttribute("placeholder") ?? null) : null;
@@ -2556,7 +2591,10 @@ export function observeLiveDom(input: {
       const labelledBy = element.getAttribute("aria-labelledby");
       if (labelledBy !== null) {
         accessibleNameSource = "aria-labelledby";
-        nameTargets = labelledBy.split(/\s+/).filter(Boolean).map(token => ({
+        // A repeated token names the same target once. Keeping duplicates would
+        // repeat the same wording in the name and the same ref in the list.
+        const tokens = [...new Set(labelledBy.split(/\s+/).filter(Boolean))];
+        nameTargets = tokens.map(token => ({
           token,
           element: typeof document.getElementById === "function" ? document.getElementById(token) : null,
         }));

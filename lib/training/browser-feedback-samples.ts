@@ -108,6 +108,43 @@ export function evaluateFeedbackCases(profile: FeedbackProfile, value: readonly 
   });
   return { count: rows.length, passed: rows.filter(row => row.passed).length, failed: rows.filter(row => !row.passed).length, rows };
 }
+/**
+ * Recipe for one generated feedback variant, declared before instantiation.
+ * The variant decides which receipt/effect facts the instance must carry, so
+ * the recipe is written first and the generated instance is asserted against
+ * it. R5 is the historical counterexample: a dispatched, explicitly rejected
+ * action with unknown effects. An instance that fills those fields with
+ * "known" is rejected instead of reaching fitting.
+ */
+export function declareFeedbackVariantRecipe(variant: number): RecipeCondition[] {
+  const dispatched = (effectKnowledge: "known" | "unknown", ok: boolean): RecipeCondition[] => [
+    { path: "input.result.dispatchState", expected: "dispatched" },
+    { path: "input.result.effectKnowledge", expected: effectKnowledge },
+    { path: "input.result.receipt.dispatched", expected: true },
+    { path: "input.result.receipt.ok", expected: ok },
+    { path: "input.result.receipt.effectKnowledge", expected: effectKnowledge },
+  ];
+  const notDispatched: RecipeCondition[] = [
+    { path: "input.result.dispatchState", expected: "not_dispatched" },
+    { path: "input.result.effectKnowledge", expected: "none" },
+    { path: "input.result.receipt.dispatched", expected: false },
+    { path: "input.result.receipt.ok", expected: false },
+    { path: "input.result.receipt.effectKnowledge", expected: "none" },
+  ];
+  if (variant <= 3) return dispatched("known", true);
+  if (variant === 4 || variant === 6) return notDispatched;
+  // A dispatched action that was explicitly rejected leaves its effects
+  // unknown: the rejection says nothing about what the page did.
+  if (variant === 5 || variant === 7) return dispatched("unknown", false);
+  if (variant === 8) return dispatched("unknown", true);
+  if (variant === 9 || variant === 10) return dispatched("known", true);
+  return [
+    { path: "input.result.dispatchState", expected: "unknown" },
+    { path: "input.result.effectKnowledge", expected: "unknown" },
+    { path: "input.result.receipt", expected: null },
+  ];
+}
+
 export function makeFeedbackSamples(): readonly FeedbackEpisode[] {
   const base = makeBrowserSingleActionSamples()[0]!;
   const episodes: FeedbackEpisode[] = [];
@@ -138,7 +175,9 @@ export function makeFeedbackSamples(): readonly FeedbackEpisode[] {
           dispatchState: "not_dispatched", effectKnowledge: "none", newState: null, satisfaction: null };
         controlAtCompletion = null;
         if (variant === 5 || variant === 7) {
-          result = { ...result, receipt: { ...result.receipt!, dispatched: true, effectKnowledge: "known" }, dispatchState: "dispatched", effectKnowledge: "known", newState };
+          // The recipe for this variant is dispatched with unknown effects; an
+          // explicit rejection does not tell us what the page changed.
+          result = { ...result, receipt: { ...result.receipt!, dispatched: true, effectKnowledge: "unknown" }, dispatchState: "dispatched", effectKnowledge: "unknown", newState };
           controlAtCompletion = { documentRef: newState.documentRef, observationId: newState.observationId, revision: newState.revision };
         }
       } else if (variant >= 8) {
@@ -149,8 +188,12 @@ export function makeFeedbackSamples(): readonly FeedbackEpisode[] {
         if (variant === 11) { result = { ...result, dispatchState: "unknown", effectKnowledge: "unknown", receipt: null, newState: null, satisfaction: null,
           error: { code: "native_click_failed", message: "Synthetic uncertain dispatch" } }; controlAtCompletion = null; }
       }
-      episodes.push({ id, family: `feedback.${family}`, partition: familyIndex === 3 ? "development" : "train", input: { request, result, controlAtCompletion },
-        teacher: { head, source: "synthetic_projection", evidenceRefs: [request.state.evidence[0]!.id], note: "Explicit synthetic receipt/posterior projection; not a real browser effect." } });
+      const episode: FeedbackEpisode = { id, family: `feedback.${family}`, partition: familyIndex === 3 ? "development" : "train", input: { request, result, controlAtCompletion },
+        teacher: { head, source: "synthetic_projection", evidenceRefs: [request.state.evidence[0]!.id], note: "Explicit synthetic receipt/posterior projection; not a real browser effect." } };
+      // Declared recipe first, instance second: a mismatch throws instead of
+      // silently generating a sample that contradicts its own recipe.
+      assertRecipeFields(episode, declareFeedbackVariantRecipe(variant));
+      episodes.push(episode);
     }
   }
   return readFeedbackEpisodes(episodes);

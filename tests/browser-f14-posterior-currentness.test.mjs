@@ -210,8 +210,8 @@ test("two objects with the same id and text are not reported as one object", () 
   // Same id, same text, different Element, so different ref.
   assert.notEqual(before.nodeRef, after.nodeRef);
   const change = compareAttributeChange(before, after, "aria-checked", {
-    before: { documentRef: "f14", scopeRef: "f14-scope", observationId: "f14-same-before", revision: 1 },
-    after: { documentRef: "f14", scopeRef: "f14-scope", observationId: "f14-same-after", revision: 2 },
+    before: { documentRef: "f14", scopeRef: "f14-scope", observationId: "f14-same-before", revision: 1, registryRef: "f14-registry" },
+    after: { documentRef: "f14", scopeRef: "f14-scope", observationId: "f14-same-after", revision: 2, registryRef: "f14-registry" },
   });
   assert.equal(change.state, "unknown");
   assert.equal(change.unknownReason, "object_mismatch");

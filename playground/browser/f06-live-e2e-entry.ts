@@ -82,8 +82,12 @@ export function run(): Out {
     tooLongLabelCoverage: tooLongLabel?.accessibleNameCoverage ?? null,
     tooLongLabelLength: tooLongLabel?.accessibleName?.length ?? null,
     // Default capture path never reads input values.
+    // The default path never reads a value. The explicit path reads ordinary
+    // text content and still refuses a sensitive host such as a password field.
     noReadInputValue: evidenceOf(noRead, "#secret")?.inputValue ?? null,
-    readInputValuePresent: (evidenceOf(read, "#secret")?.inputValue?.length ?? 0) > 0,
+    noReadTextInputValue: evidenceOf(noRead, "#read-text")?.inputValue ?? null,
+    readTextInputValuePresent: (evidenceOf(read, "#read-text")?.inputValue?.length ?? 0) > 0,
+    readSensitiveInputValue: evidenceOf(read, "#secret")?.inputValue ?? null,
     // F10: the relation target is a node ref, and the fact is observed, not guessed.
     controlsStatus: inside?.controlsStatus ?? null,
     controlsTargetCount: (triggerControlsEvidence as { targets?: unknown[] } | null)?.targets?.length ?? null,

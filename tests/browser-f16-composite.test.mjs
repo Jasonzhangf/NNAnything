@@ -287,6 +287,7 @@ function attributeSide(nodeValue, observationId, revision, options = {}) {
       scopeRef,
       observationId,
       revision,
+      registryRef: "registry-f16",
       ...stateOverrides,
     },
     snapshot: {

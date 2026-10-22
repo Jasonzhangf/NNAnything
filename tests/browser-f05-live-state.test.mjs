@@ -208,3 +208,35 @@ test("selected reports the live choice, and the default declaration stays separa
   const chosenNode = byNode(snapshot, ref(defaultOption));
   assert.equal(chosenNode.attributes.selected, true);
 });
+test("readonly applicability follows the input type, and both disagreement directions conflict", () => {
+  const html = baseElement("HTML");
+  // Types where readOnly does not apply: the attribute is a declaration only.
+  const checkbox = baseElement("INPUT", { type: "checkbox", parentElement: html, hasAttribute: name => name === "readonly", getAttribute: name => (name === "readonly" ? "" : null) });
+  const file = baseElement("INPUT", { type: "file", parentElement: html, hasAttribute: name => name === "readonly", getAttribute: name => (name === "readonly" ? "" : null) });
+  // text-like host where readOnly applies.
+  const text = baseElement("INPUT", { type: "text", parentElement: html, hasAttribute: name => name === "readonly", getAttribute: name => (name === "readonly" ? "" : null) });
+  // Both sources present but disagreeing in the native-false direction.
+  const ariaTrueNativeFalse = baseElement("INPUT", { type: "text", parentElement: html, hasAttribute: () => false, getAttribute: name => (name === "aria-readonly" ? "true" : null) });
+  const ariaFalseNativeTrue = baseElement("INPUT", { type: "text", parentElement: html, hasAttribute: name => name === "readonly", getAttribute: name => (name === "readonly" ? "" : "false") });
+  // Explicit agreement.
+  const ariaFalseNativeFalse = baseElement("INPUT", { type: "text", parentElement: html, hasAttribute: () => false, getAttribute: name => (name === "aria-readonly" ? "false" : null) });
+  for (const node of [checkbox, file, text, ariaTrueNativeFalse, ariaFalseNativeTrue, ariaFalseNativeFalse]) node.parentElement = html;
+  html.children = [checkbox, file, text, ariaTrueNativeFalse, ariaFalseNativeTrue, ariaFalseNativeFalse];
+  html.childNodes = html.children;
+  html.childElementCount = html.children.length;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/readonly-apply", activeElement: null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f05-readonly-apply");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f05-readonly-apply", documentRef: "fixture" });
+  const evidence = snapshot.evidence;
+  const ref = element => stableNodeRefFor(registry, element);
+
+  // A readonly attribute on a type where readOnly does not apply is a
+  // declaration, not a native constraint, so the state stays unknown.
+  assert.equal(evidence.get(ref(checkbox)).readonlyState, null);
+  assert.equal(evidence.get(ref(file)).readonlyState, null);
+  assert.equal(evidence.get(ref(text)).readonlyState, "readonly");
+  assert.equal(evidence.get(ref(ariaTrueNativeFalse)).readonlyState, "conflict");
+  assert.equal(evidence.get(ref(ariaFalseNativeTrue)).readonlyState, "conflict");
+  assert.equal(evidence.get(ref(ariaFalseNativeFalse)).readonlyState, "editable");
+});

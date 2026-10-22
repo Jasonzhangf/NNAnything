@@ -86,3 +86,29 @@ test("content evidence separates value from placeholder and empty from unobserve
   assert.equal(plain.mediaSrc, null);
   assert.equal(plain.mediaType, null);
 });
+test("sensitive hosts are refused even when content reading is requested", () => {
+  const html = baseElement("HTML");
+  let passwordReads = 0, fileReads = 0;
+  const password = baseElement("INPUT", { type: "password", parentElement: html });
+  Object.defineProperty(password, "value", { get() { passwordReads += 1; return "sentinel-secret"; } });
+  const file = baseElement("INPUT", { type: "file", parentElement: html });
+  Object.defineProperty(file, "value", { get() { fileReads += 1; return "C:\\fakepath\\a.txt"; } });
+  const textarea = baseElement("TEXTAREA", { parentElement: html, value: "普通内容" });
+  html.children = [password, file, textarea];
+  html.childNodes = html.children;
+  html.childElementCount = html.children.length;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/page", activeElement: null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+
+  const registry = createStableNodeRefRegistry("f07-sensitive");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f07-sensitive", documentRef: "fixture", readContent: true });
+  const refOf = element => stableNodeRefFor(registry, element);
+
+  // The value getter is never touched, so the value cannot leave the page.
+  assert.equal(passwordReads, 0);
+  assert.equal(fileReads, 0);
+  assert.equal(snapshot.evidence.get(refOf(password)).inputValue, null);
+  assert.equal(snapshot.evidence.get(refOf(file)).inputValue, null);
+  // Ordinary editable hosts stay readable.
+  assert.equal(snapshot.evidence.get(refOf(textarea)).inputValue, "普通内容");
+});

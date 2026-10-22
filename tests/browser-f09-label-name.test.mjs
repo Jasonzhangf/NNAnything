@@ -170,3 +170,23 @@ test("a label longer than the supported name limit reports truncation, not a sum
   // The display summary is still capped at 180 and never passed off as the name.
   assert.ok((evidence.textSummary?.length ?? 0) <= 180);
 });
+test("a repeated labelledby token names the target once", () => {
+  const html = element("HTML");
+  const caption = element("SPAN", { id: "cap" }, { childNodes: [{ nodeType: 3, textContent: "删除" }] });
+  const button = element("BUTTON", { "aria-labelledby": "cap cap" });
+  for (const node of [caption, button]) node.parentElement = html;
+  html.children = [caption, button];
+  html.childNodes = html.children;
+  html.childElementCount = html.children.length;
+  const document = {
+    documentElement: html, body: html, baseURI: "https://fixture.test/page", activeElement: null,
+    getElementById: id => (id === "cap" ? caption : null),
+  };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f09-duplicate");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f09-duplicate", documentRef: "fixture" });
+  const evidence = snapshot.evidence.get(stableNodeRefFor(registry, button));
+  assert.equal(evidence.accessibleName, "删除");
+  assert.deepEqual(evidence.labelledByRefs, [stableNodeRefFor(registry, caption)]);
+  assert.equal(evidence.accessibleNameCoverage, "complete");
+});

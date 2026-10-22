@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { assertRecipeFields, declareRecipeConditions } from "nnanything/browser-feedback";
+import { assertRecipeFields, declareFeedbackVariantRecipe, declareRecipeConditions, makeFeedbackSamples } from "nnanything/browser-feedback";
 
 // R5 failed because the recipe required an explicit rejection with unknown
 // effects, but instantiation wrote effectKnowledge: "known" in both places.
@@ -143,4 +143,32 @@ test("assertion checks only declared fields and never mutates the instance or go
 
 test("an empty condition list never passes as a vacuous check", () => {
   assert.throws(() => assertRecipeFields({ receipt: { effectKnowledge: "unknown" } }, []), /recipe conditions must not be empty/);
+});
+
+test("the real sample consumer declares each variant recipe and asserts the instance", () => {
+  // The generated set is asserted variant by variant, so a recipe mismatch
+  // cannot silently reach fitting.
+  const samples = makeFeedbackSamples();
+  assert.equal(samples.length, 48);
+  for (const sample of samples) {
+    const variant = Number(sample.id.slice(sample.id.lastIndexOf("-") + 1));
+    assertRecipeFields(sample, declareFeedbackVariantRecipe(variant));
+  }
+  // The R5 shape: dispatched with an explicit rejection carries unknown effects.
+  const rejected = samples.filter(sample => sample.id.endsWith("-5"));
+  assert.equal(rejected.length, 4);
+  for (const sample of rejected) {
+    assert.equal(sample.input.result.effectKnowledge, "unknown");
+    assert.equal(sample.input.result.receipt.effectKnowledge, "unknown");
+  }
+});
+
+test("the historical R5 known-instance is rejected by the same recipe the consumer uses", () => {
+  // This is the exact defect the old instantiation made: the recipe says
+  // unknown, the instance filled known in both places.
+  const conditions = declareFeedbackVariantRecipe(5);
+  assert.throws(
+    () => assertRecipeFields({ input: r5Case() }, conditions),
+    error => error instanceof TypeError && error.message.includes("recipe_field_mismatch:input.result.effectKnowledge"),
+  );
 });

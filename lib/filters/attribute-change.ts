@@ -16,12 +16,15 @@ export interface AttributeChange {
 
 // F14 validated the observation control triple. A stable node ref alone cannot
 // prove the same document, the same scope, or a fresh observation: separate
-// registries can produce identical ref strings.
+// registries can produce identical ref strings. The ref namespace itself is a
+// separate fact, so the caller must name the observation source that produced
+// the ref. Two sides from different sources are never assumed to be one object.
 export interface ObservedObjectContext {
   readonly documentRef: string;
   readonly scopeRef: string;
   readonly observationId: string;
   readonly revision: number;
+  readonly registryRef: string;
 }
 
 export interface ComparisonContext {
@@ -80,6 +83,7 @@ function readObservedObjectContext(value: unknown, label: string): ObservedObjec
     scopeRef: nonEmptyString(value.scopeRef, `${label}.scopeRef`),
     observationId: nonEmptyString(value.observationId, `${label}.observationId`),
     revision,
+    registryRef: nonEmptyString(value.registryRef, `${label}.registryRef`),
   };
 }
 
@@ -109,6 +113,14 @@ function readObservedValue(value: unknown, label: string): ObservedValue {
   if (value.value !== null && typeof value.value !== "string") {
     throw new TypeError(`${label}.value must be a string or null`);
   }
+  // An observed read must carry the value it observed. A null value means the
+  // read produced nothing, which is unavailable, not an observed empty value.
+  if (value.status === "observed" && value.value === null) {
+    throw new TypeError(`${label}.value must be a string when status is observed`);
+  }
+  if (value.status === "unavailable" && value.value !== null) {
+    throw new TypeError(`${label}.value must be null when status is unavailable`);
+  }
   return { status: value.status, value: value.value };
 }
 
@@ -129,6 +141,7 @@ function readValueReads(value: unknown): ObservedValueReads | undefined {
 function contextRejection(context: ComparisonContext): string | null {
   if (context.before.documentRef !== context.after.documentRef) return "document_mismatch";
   if (context.before.scopeRef !== context.after.scopeRef) return "scope_mismatch";
+  if (context.before.registryRef !== context.after.registryRef) return "object_source_mismatch";
   if (context.after.revision <= context.before.revision) return "observation_order_invalid";
   if (context.after.observationId === context.before.observationId) return "observation_not_distinct";
   return null;

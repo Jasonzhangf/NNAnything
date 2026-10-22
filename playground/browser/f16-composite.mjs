@@ -115,6 +115,9 @@ function contextFromSide(side, explicit, label) {
     scopeRef: state.scopeRef,
     observationId: state.observationId,
     revision: state.revision,
+    // The ref namespace is a separate fact: both sides must name the same
+    // observation source before a ref match may mean one object.
+    registryRef: state.registryRef,
   };
 }
 

@@ -26,6 +26,7 @@ function comparisonContext(before = {}, after = {}) {
       scopeRef: "scope-1",
       observationId: "observation-1",
       revision: 1,
+      registryRef: "registry-1",
       ...before,
     },
     after: {
@@ -33,6 +34,7 @@ function comparisonContext(before = {}, after = {}) {
       scopeRef: "scope-1",
       observationId: "observation-2",
       revision: 2,
+      registryRef: "registry-1",
       ...after,
     },
   };
@@ -256,4 +258,46 @@ test("bulk compare includes value only when explicit value reads are supplied", 
   assert.equal(withByAttribute.get("value").before, "A");
   assert.equal(withByAttribute.get("value").after, "B");
   assert.equal(withByAttribute.get("disabled").state, "changed");
+});
+
+test("object association needs the same observation source, not just the same ref string", () => {
+  const before = node("shared", { checked: true });
+  const after = node("shared", { checked: false });
+  // Two registries can produce the same ref string for different elements, so
+  // different sources must never be read as one object.
+  const crossSource = comparisonContext({}, { registryRef: "registry-2" });
+  const crossResult = compareAttributeChange(before, after, "checked", crossSource);
+  assert.equal(crossResult.state, "unknown");
+  assert.equal(crossResult.unknownReason, "object_source_mismatch");
+  // The same source with an identical ref is one object.
+  const sameSource = compareAttributeChange(before, after, "checked", comparisonContext());
+  assert.equal(sameSource.state, "changed");
+  // Omitting the source identity is a contract error, not an implicit match.
+  assert.throws(
+    () => compareAttributeChange(before, after, "checked", { before: { documentRef: "document-1", scopeRef: "scope-1", observationId: "observation-1", revision: 1 }, after: comparisonContext().after }),
+    error => error instanceof TypeError && error.message.includes("registryRef"),
+  );
+});
+
+test("an observed value read must carry the value it observed", () => {
+  const before = node("n1", {});
+  const after = node("n1", {});
+  // A null value with status observed hides a missing read behind unchanged.
+  assert.throws(
+    () => compareAttributeChange(before, after, "value", comparisonContext(), {
+      before: { status: "observed", value: null },
+      after: { status: "observed", value: null },
+    }),
+    error => error instanceof TypeError && error.message.includes("when status is observed"),
+  );
+  // An unavailable read names no value on either side.
+  const unavailable = compareAttributeChange(before, after, "value", comparisonContext(), {
+    before: { status: "unavailable", value: null },
+    after: { status: "observed", value: "B" },
+  });
+  assert.equal(unavailable.state, "unknown");
+  assert.equal(unavailable.unknownReason, "value_unavailable");
+  // An observed empty string is a real value and stays comparable.
+  const empty = compareAttributeChange(before, after, "value", comparisonContext(), valueReads("", ""));
+  assert.equal(empty.state, "unchanged");
 });
