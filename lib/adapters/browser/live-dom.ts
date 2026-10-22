@@ -39,14 +39,21 @@ export interface StableNodeRefRegistry {
   readonly nextSequence: { value: number };
   readonly prefix: string;
 }
-// One process-wide sequence keeps two registries apart even when they share a
-// prefix. Two registries can therefore never claim the same ref namespace.
-let registryInstanceSequence = 0;
+// The source identity must stay unique across module instances and processes,
+// because two independent producers can observe the same document. A module
+// counter is not enough: a second copy of this module, or another process,
+// restarts it from one. A random UUID is unique per registry in every realm.
+function newRegistryRef(prefix: string): string {
+  const crypto = globalThis.crypto;
+  if (crypto === undefined || typeof crypto.randomUUID !== "function") {
+    throw new TypeError("registry source identity requires crypto.randomUUID");
+  }
+  return `${prefix}#${crypto.randomUUID()}`;
+}
 export function createStableNodeRefRegistry(prefix = "node"): StableNodeRefRegistry {
-  registryInstanceSequence += 1;
   return {
     prefix,
-    registryRef: `${prefix}#${registryInstanceSequence}`,
+    registryRef: newRegistryRef(prefix),
     refByElement: new WeakMap(),
     elementByRef: new Map(),
     nextSequence: { value: 0 },

@@ -302,11 +302,18 @@ test("an observed value read must carry the value it observed", () => {
   assert.equal(empty.state, "unchanged");
 });
 
-test("registries never share a source identity, even with the same prefix", () => {
+test("registries never share a source identity, even with the same prefix", async () => {
   const first = createStableNodeRefRegistry("shared-prefix");
   const second = createStableNodeRefRegistry("shared-prefix");
   assert.equal(first.prefix, second.prefix);
   assert.notEqual(first.registryRef, second.registryRef);
+  // A second copy of the module must not reuse the same source identity: two
+  // independent producers may observe the same document and different objects.
+  const moduleUrl = import.meta.resolve("nnanything/browser-classify");
+  const copy = await import(`${moduleUrl}?copy=1`);
+  const fromCopy = copy.createStableNodeRefRegistry("shared-prefix");
+  assert.notEqual(first.registryRef, fromCopy.registryRef);
+  assert.notEqual(second.registryRef, fromCopy.registryRef);
   // The source identity, not the prefix, is what a comparison context carries.
   const before = node("n1", { checked: true });
   const after = node("n1", { checked: false });
