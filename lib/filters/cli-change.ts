@@ -15,6 +15,9 @@ export type ChangeComparison = Readonly<{
   sizeSame: boolean | null;
   identitySame: boolean | null;
   bytesSame: boolean | null;
+  // Dimensions actually observed equal; an "unchanged" verdict is bounded to
+  // these, it never implies unobserved properties were compared.
+  proof: readonly string[];
 }>;
 
 export type ObservedSnapshot = Readonly<{
@@ -41,6 +44,7 @@ export function compareSnapshots(reference: string, before: ObservedSnapshot, af
       sizeSame: null,
       identitySame: null,
       bytesSame: null,
+      proof: Object.freeze([]) as readonly string[],
     });
   }
 
@@ -52,11 +56,13 @@ export function compareSnapshots(reference: string, before: ObservedSnapshot, af
     reasons.push("identity_unobserved");
   }
 
-  const sizeSame = before.size === after.size;
-  if (before.size !== null && after.size !== null && before.size !== after.size) reasons.push("size_changed");
+  // A property is compared only when both sides observed it. An unobserved
+  // property yields null, never a fabricated true/false.
+  const sizeSame: boolean | null = before.size !== null && after.size !== null ? before.size === after.size : null;
+  if (sizeSame === false) reasons.push("size_changed");
 
-  const mtimeSame = before.mtimeMs === after.mtimeMs;
-  if (before.mtimeMs !== null && after.mtimeMs !== null && before.mtimeMs !== after.mtimeMs) reasons.push("mtime_changed");
+  const mtimeSame: boolean | null = before.mtimeMs !== null && after.mtimeMs !== null ? before.mtimeMs === after.mtimeMs : null;
+  if (mtimeSame === false) reasons.push("mtime_changed");
 
   let bytesSame: boolean | null = null;
   const bytesObserved = before.bytes !== null && after.bytes !== null;
@@ -68,6 +74,14 @@ export function compareSnapshots(reference: string, before: ObservedSnapshot, af
     // Partial or absent coverage never establishes byte equality.
     reasons.push("bytes_not_fully_observed");
   }
+
+  // Record exactly which equalities were proven, so an "unchanged" verdict
+  // states its scope instead of implying every property was compared.
+  const proof: string[] = [];
+  if (identityObserved && identitySame) proof.push("identity_same");
+  if (sizeSame === true) proof.push("size_same");
+  if (mtimeSame === true) proof.push("mtime_same");
+  if (bytesSame === true) proof.push("bytes_same");
 
   let status: ChangeComparison["status"];
   const decisive = reasons.filter(
@@ -98,5 +112,6 @@ export function compareSnapshots(reference: string, before: ObservedSnapshot, af
     sizeSame,
     identitySame: identityObserved ? identitySame : null,
     bytesSame,
+    proof: Object.freeze(proof),
   });
 }
