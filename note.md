@@ -1,5 +1,16 @@
 # 当前任务
 
+## 2026-10-21 Shell候选第二轮定点复核（3 关闭，2 P1 + 1 P2 已修，待复核）
+
+原 5 项 finding 中 3 项已由独立复核关闭（声明来源/S15、S18 consumer、链接环归因）。剩余 2 项 P1 + 1 项 P2 本轮修复并提交 `ed09cb2`，未合 main、未 push、未采用权重。两个 GCM worker 独立复核 PASS。main 仍 `83ff464`。
+
+- P1#1 读取边界反例对标志敏感（S10）：seam 的 `open(path, flags)` 改为用生产函数实际传入的 path+flags 调真实 OS open（symlink/FIFO/普通文件换入均如此）；断言收到的 flags 含 O_NOFOLLOW/O_NONBLOCK。新增标志敏感性反例：去掉 O_NOFOLLOW 位后真实 open 跟随链接、读取成功；子进程无 O_NONBLOCK 打开 FIFO 阻塞、2s 超时被杀。受控回归：从构建移除两标志 → symlink 反例 not ok、FIFO 挂起至 timeout；恢复后 `tests/cli-file-read.test.mjs` 11/11。FIFO 有界执行 + makeScene 清理。
+- P1#2 缺测元数据返回 null（S17）：`cli-change.ts` sizeSame/mtimeSame 仅两侧都观测才比较，否则 null（不再两侧 null→true、单侧 null→false）；新增 `proof` 数组只列实际证明的相等维度，unchanged 判定边界到 proof。反例 6 项（两侧/单侧 size、两侧/单侧 mtime、字节同+身份同但元数据缺测→unchanged 且 sizeSame/mtimeSame null、size 不同→changed）；旧 `===` 逻辑下 5 项红，修复后 `tests/cli-change.test.mjs` 14/14。
+- P2 计数：`s20-summary.p1fix.md` 原"58/58"无出处，已按可复算口径改写：全量 1067/1067；五个受影响文件合计 36（9+4+6+9+8）；GCM 回执只跑三个修复套件合计 26/26，26 不等于 36/58。
+- 证据：`s10-result.md`、`s17-change-facts.md` 追加第二轮修正；GCM 回执存 `gcm-verification-round2.md`。
+
+全量 `node scripts/test-full.mjs` 1075 通过 / 0 失败 / 0 跳过（新增 8：file-read +2 敏感性、cli-change +6）。共享 `cli.command-policy.v1` 权重未改，候选 `35bd5ad9` 未重训未采用，仍 `uncalibrated/not_applied`、`fullyVerified=false`；5 项 UNVERIFIED 逐项保留。写操作/path.realpath/`file.property.links`/role 仍未实现。S06 部分完成；不宣称第一层全部完成。交原编排者定点复核剩余两项。
+
 ## 2026-10-21 Shell基础语义候选 P1 修复（独立 review FAIL → 修复后待定点复核）
 
 原候选 `5d8bc10` 经独立只读 review FAIL，5 项 P1；已在同一独占树 `codex/cli-foundation` 修复并提交 `85ad458`，未合 main、未 push、未采用权重。独立只读复核 8/8 PASS。main 仍 `83ff464`。
