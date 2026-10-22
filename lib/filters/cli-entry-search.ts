@@ -7,6 +7,7 @@ import type {
   EntrySearchRootFact,
   EntrySearchState,
 } from "../adapters/cli/entry-search-contract.js";
+import type { ObservedObjectRef } from "../adapters/cli/entry-inspection.js";
 import type { CliCommandTransition } from "../nodes/cli-command.js";
 import type { DirectoryListObservation } from "../adapters/cli/directory-listing.js";
 import type { ExplicitFileState } from "./cli-state.js";
@@ -20,6 +21,30 @@ export type ListingFacts = Readonly<{
   candidateNames: readonly string[];
   candidate: EntrySearchCandidate | null;
 }>;
+
+function observedRef(
+  inspect: EntrySearchInspectFact,
+  target: Readonly<{ scenarioId: string; sessionId: string }>,
+): ObservedObjectRef {
+  const kind = inspect.type === "regular"
+    ? "cli.file"
+    : inspect.type === "directory"
+      ? "cli.directory"
+      : "cli.entry";
+  return Object.freeze({
+    kind,
+    scenarioId: target.scenarioId,
+    sessionId: target.sessionId,
+    type: inspect.type as ObservedObjectRef["type"],
+    identity: Object.freeze({
+      dev: inspect.identity.dev,
+      ino: inspect.identity.ino,
+    }),
+    sourceRun: inspect.sourceRun,
+    sessionRevision: inspect.sessionRevision,
+    absolutePath: inspect.absolutePath,
+  });
+}
 
 export type RootDecision =
   | Readonly<{ result: "satisfied"; satisfaction: 100 }>
@@ -298,19 +323,13 @@ export function rootFact(
     });
   }
   const inspect = inspectFact(cli, listing.candidate.path, transitions);
-  const ref = Object.freeze({
-    kind: "cli.path" as const,
-    scenarioId: target.scenarioId,
-    sessionId: target.sessionId,
-    path: listing.candidate.path,
-  });
   if (inspect === null) {
     return Object.freeze({
       kind: "stale_or_unverified",
       predicate,
       listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
       inspect: null,
-      ref,
+      ref: null,
     });
   }
   if (
@@ -324,7 +343,7 @@ export function rootFact(
       predicate,
       listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
       inspect,
-      ref,
+      ref: null,
     });
   }
   if (inspect.type !== predicate.type) {
@@ -333,7 +352,7 @@ export function rootFact(
       predicate,
       listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
       inspect,
-      ref,
+      ref: observedRef(inspect, target),
     });
   }
   return Object.freeze({
@@ -341,7 +360,7 @@ export function rootFact(
     predicate,
     listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
     inspect,
-    ref,
+    ref: observedRef(inspect, target),
   });
 }
 
@@ -473,18 +492,7 @@ function achieved(
     status: "achieved",
     resolution: "matched",
     satisfaction: 100,
-    match: Object.freeze({
-      name: predicate.name,
-      type: predicate.type,
-      physicalDirectory: listing.physicalDirectory,
-      absolutePath: inspect.absolutePath,
-      identity: Object.freeze({
-        dev: inspect.identity.dev,
-        ino: inspect.identity.ino,
-      }),
-      observedWith: inspect.observedWith as "stat" | "lstat",
-      sourceRun: inspect.sourceRun,
-    }),
+    match: observedRef(inspect, request.goal.target),
     coverage: "complete",
     rootFact: rootFactValue,
     preserve: preserveFromReport(report),

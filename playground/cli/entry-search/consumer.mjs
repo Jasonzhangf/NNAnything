@@ -43,7 +43,7 @@ const sandbox = await createCliFilesystemSandbox({
   },
 });
 const session = sandbox.bindSession("s");
-const directory = await sandbox.bindDirectory(session, ".");
+const directory = await sandbox.bindDirectoryObject(session, ".");
 const start = sandbox.getSession(session).cwd;
 const beforeEntries = (await readdir(start)).sort();
 const parentCwd = process.cwd();
@@ -61,8 +61,10 @@ try {
 
   assert.equal(hit.domain.status, "achieved");
   assert.equal(hit.domain.satisfaction, 100);
-  assert.equal(hit.domain.match.name, "target.txt");
+  assert.equal(hit.domain.match.kind, "cli.file");
+  assert.equal(hit.domain.match.type, "regular");
   assert.equal(hit.domain.match.absolutePath, join(start, "target.txt"));
+  assert.deepEqual(hit.domain.rootFact.ref, hit.domain.match);
   const stat = await lstat(join(start, "target.txt"));
   assert.equal(String(hit.domain.match.identity.ino), String(stat.ino));
 

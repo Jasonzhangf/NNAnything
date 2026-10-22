@@ -17,10 +17,12 @@ import {
   type SelectionInput,
   type SupportsInput,
 } from "../../workflow/recursive-goal/contracts.js";
+import { relative } from "node:path";
 import {
   createCliCommandPolicy,
   type CliCommandPolicy,
 } from "../../cli-goal.js";
+import type { DirectoryObjectRef } from "./entry-search-contract.js";
 import {
   readEntrySearchCursor,
   readEntrySearchEffectFact,
@@ -395,12 +397,25 @@ function condition(
   });
 }
 
-function listGoal(bindings: unknown): EntrySearchListGoal {
-  const input = bindings as Readonly<{ directory: DirectoryRef }>;
+function policyDirectoryRef(directory: DirectoryObjectRef, cwd: string): DirectoryRef {
+  if ("absolutePath" in directory) {
+    const path = relative(cwd, directory.absolutePath) || ".";
+    return Object.freeze({
+      kind: "cli.directory",
+      scenarioId: directory.scenarioId,
+      sessionId: directory.sessionId,
+      path,
+    });
+  }
+  return directory;
+}
+
+function listGoal(bindings: unknown, cwd: string): EntrySearchListGoal {
+  const input = bindings as Readonly<{ directory: DirectoryObjectRef }>;
   return Object.freeze({
     kind: "file.property",
     property: "file.property.directory.entries",
-    target: input.directory,
+    target: policyDirectoryRef(input.directory, cwd),
     requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
   });
 }
@@ -438,7 +453,7 @@ async function derive(input: DerivationInput<unknown, EntrySearchState, unknown,
       conditions: Object.freeze([
         condition(
           "observe-direct-entries",
-          listGoal(input.bindings),
+          listGoal(input.bindings, input.state.session.cwd),
           input.bindings,
           LIST_SELECTOR,
           LIST_EVALUATOR,
@@ -489,10 +504,11 @@ async function validateDirectoryBinding(
 ): Promise<void> {
   const bindings = input.rootBindings as Readonly<{
     session: SessionRef;
-    directory: { kind: "cli.directory"; scenarioId: string; sessionId: string; path: string };
+    directory: DirectoryObjectRef;
     predicate: Readonly<{ name: string; type: "regular" | "directory" }>;
   }>;
-  await input.sandbox.resolveDirectory(bindings.directory);
+  const cwd = input.sandbox.getSession(bindings.session).cwd;
+  await input.sandbox.resolveDirectory(policyDirectoryRef(bindings.directory, cwd));
 }
 
 function executeList(

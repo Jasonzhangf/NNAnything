@@ -6,7 +6,11 @@ import type {
   SessionRef,
   SessionSnapshot,
 } from "./filesystem-sandbox.js";
-import type { PathRef } from "./entry-inspection.js";
+import {
+  readObservedObjectRef,
+  type ObservedObjectRef,
+  type PathRef,
+} from "./entry-inspection.js";
 import type {
   ExplicitFileState,
 } from "../../filters/cli-state.js";
@@ -19,6 +23,13 @@ import type { RecursiveGoalLimits } from "../../workflow/recursive-goal/contract
 
 export type EntrySearchType = "regular" | "directory";
 
+/** A bound directory reference. The trusted observed object shape is the
+ * public contract; the legacy relative-path shape remains an accepted
+ * compatibility form. DirectoryQuery is not accepted. */
+export type DirectoryObjectRef =
+  | DirectoryRef
+  | (ObservedObjectRef & Readonly<{ kind: "cli.directory" }>);
+
 export type EntrySearchPredicate = Readonly<{
   kind: "entrySelector";
   name: string;
@@ -29,7 +40,7 @@ export type EntrySearchPredicate = Readonly<{
 export type EntrySearchGoal = Readonly<{
   kind: "file.property";
   property: "file.property.directory.entries";
-  target: DirectoryRef;
+  target: DirectoryObjectRef;
   requirement: Readonly<{
     kind: "matches";
     predicate: EntrySearchPredicate;
@@ -65,7 +76,7 @@ export type EntrySearchRunGoal = EntrySearchGoal | EntrySearchListGoal | EntrySe
 
 export type EntrySearchBindings = Readonly<{
   session: SessionRef;
-  directory: DirectoryRef;
+  directory: DirectoryObjectRef;
   predicate: EntrySearchPredicate;
 }>;
 
@@ -138,7 +149,7 @@ export type EntrySearchRootFact =
       predicate: EntrySearchPredicate;
       listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
       inspect: EntrySearchInspectFact;
-      ref: PathRef;
+      ref: ObservedObjectRef;
     }>
   | Readonly<{
       kind: "not_found";
@@ -150,14 +161,14 @@ export type EntrySearchRootFact =
       predicate: EntrySearchPredicate;
       listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
       inspect: EntrySearchInspectFact;
-      ref: PathRef;
+      ref: ObservedObjectRef;
     }>
   | Readonly<{
       kind: "stale_or_unverified";
       predicate: EntrySearchPredicate;
       listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
       inspect: EntrySearchInspectFact | null;
-      ref: PathRef;
+      ref: ObservedObjectRef | null;
     }>
   | Readonly<{
       kind: "insufficient_evidence";
@@ -185,15 +196,7 @@ export type EntrySearchDomainProjection = Readonly<{
     | "failed"
     | "interrupted";
   satisfaction: number | null;
-  match: Readonly<{
-    name: string;
-    type: EntrySearchType;
-    physicalDirectory: string;
-    absolutePath: string;
-    identity: Readonly<{ dev: number | string | null; ino: number | string | null }>;
-    observedWith: "stat" | "lstat";
-    sourceRun: string;
-  }> | null;
+  match: ObservedObjectRef | null;
   coverage: "complete" | "partial" | null;
   rootFact: EntrySearchRootFact | null;
   preserve: Readonly<{
@@ -251,6 +254,21 @@ function sessionRef(value: unknown, label: string): SessionRef {
     scenarioId: nonEmpty(input.scenarioId, `${label}.scenarioId`),
     sessionId: nonEmpty(input.sessionId, `${label}.sessionId`),
   });
+}
+
+function directoryObjectRef(value: unknown, label: string): DirectoryObjectRef {
+  const input = record(value, label);
+  if (input.kind !== "cli.directory") {
+    throw new TypeError(`${label} must be a cli.directory reference`);
+  }
+  if (Object.hasOwn(input, "path")) {
+    return directoryRef(input, label);
+  }
+  const observed = readObservedObjectRef(input);
+  if (observed.kind !== "cli.directory" || observed.type !== "directory") {
+    throw new TypeError(`${label} must be a bound cli.directory object reference`);
+  }
+  return observed as DirectoryObjectRef;
 }
 
 function directoryRef(value: unknown, label: string): DirectoryRef {
@@ -354,7 +372,7 @@ export function validateEntrySearchGoal(value: unknown): EntrySearchGoal {
   return Object.freeze({
     kind: "file.property",
     property: "file.property.directory.entries",
-    target: directoryRef(goal.target, "entry search goal target"),
+    target: directoryObjectRef(goal.target, "entry search goal target"),
     requirement: Object.freeze({
       kind: "matches",
       predicate: validateEntrySearchPredicate(requirement.predicate),
@@ -383,7 +401,7 @@ export function validateEntrySearchBindings(value: unknown, session: SessionRef)
   const bindings = record(value, "entry search bindings");
   exactKeys(bindings, ["session", "directory", "predicate"], "entry search bindings");
   const boundSession = sessionRef(bindings.session, "bindings.session");
-  const directory = directoryRef(bindings.directory, "bindings.directory");
+  const directory = directoryObjectRef(bindings.directory, "bindings.directory");
   const predicate = validateEntrySearchPredicate(bindings.predicate);
   if (
     boundSession.scenarioId !== session.scenarioId ||

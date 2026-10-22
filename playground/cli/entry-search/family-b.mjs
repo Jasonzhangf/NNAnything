@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 // Family B is a separate consumer implementation. It uses only the package
 // public entry and node built-ins, and it does not import or copy family A.
@@ -59,11 +59,11 @@ function snapshot(result) {
     satisfaction: result.domain.satisfaction,
     coverage: result.domain.coverage,
     match: result.domain.match === null ? null : {
-      name: result.domain.match.name,
+      kind: result.domain.match.kind,
       type: result.domain.match.type,
       absolutePath: result.domain.match.absolutePath,
       ino: String(result.domain.match.identity.ino),
-      observedWith: result.domain.match.observedWith,
+      sessionRevision: result.domain.match.sessionRevision,
     },
     heads: atomic.map(item => item.sourceResult.value.policy.selectedHead),
     childOutcomes: atomic.map(item => item.outcome),
@@ -112,7 +112,7 @@ async function openWorld(spec = {}) {
     ...(spec.listingObserver === undefined ? {} : { listingObserver: spec.listingObserver }),
   });
   const session = sandbox.bindSession(spec.sessionId ?? "s");
-  const directory = await sandbox.bindDirectory(session, ".");
+  const directory = await sandbox.bindDirectoryObject(session, ".");
   return {
     root,
     sandbox,
@@ -259,8 +259,8 @@ const CASES = [
       const a = await call(world, "b-e04-a", "a", "regular");
       const ab = await call(world, "b-e04-ab", "ab", "regular");
       const miss = await call(world, "b-e04-miss", "hit.txt", "regular");
-      assert.equal(snapshot(a).match.name, "a");
-      assert.equal(snapshot(ab).match.name, "ab");
+      assert.equal(basename(snapshot(a).match.absolutePath), "a");
+      assert.equal(basename(snapshot(ab).match.absolutePath), "ab");
       expectShape(snapshot(miss), this.expected);
       assert.deepEqual(snapshot(miss).heads, ["ls"]);
       return { actual: { a: snapshot(a), ab: snapshot(ab), miss: snapshot(miss) }, cleanup: await world.close() };
@@ -280,7 +280,7 @@ const CASES = [
       for (let index = 0; index < names.length; index += 1) {
         const result = await call(world, `b-e05-${index}`, names[index], "regular");
         expectShape(snapshot(result), this.expected);
-        assert.equal(snapshot(result).match.name, names[index]);
+        assert.equal(basename(snapshot(result).match.absolutePath), names[index]);
         actual.push(snapshot(result));
       }
       assert.equal((await readdir(world.cwd)).includes("should-not-exist"), false);
@@ -575,7 +575,7 @@ const CASES = [
         },
       });
       const secondSession = world.sandbox.bindSession("s2");
-      const secondDirectory = await world.sandbox.bindDirectory(secondSession, ".");
+      const secondDirectory = await world.sandbox.bindDirectoryObject(secondSession, ".");
       const secondCwd = world.sandbox.getSession(secondSession).cwd;
       const beforeCwd = process.cwd();
       const beforeWork = (await readdir(world.cwd)).sort();

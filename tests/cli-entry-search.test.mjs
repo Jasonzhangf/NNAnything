@@ -11,7 +11,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 
 const LIMITS = Object.freeze({
@@ -178,25 +178,34 @@ async function withProfile(t, entries, options = {}) {
   return loaded;
 }
 
-test("E01 public exact-name hit returns the real inspected file and directory references", async t => {
+test("E01 public exact-name hit returns trusted observed object references", async t => {
   const value = await withProfile(t, [
     { path: "start/target.txt", kind: "file", contents: "must not be read" },
     { path: "start/subdir", kind: "directory" },
     { path: "start/other.txt", kind: "file", contents: "other" },
   ]);
   const start = value.sandbox.getSession(value.session).cwd;
+  const directoryObject = await value.sandbox.bindDirectoryObject(value.session, ".");
 
-  const fileResult = await run(value, request(value.directory, "target.txt", "regular"));
+  const fileResult = await run(value, request(directoryObject, "target.txt", "regular"));
   assert.equal(fileResult.domain.status, "achieved");
   assert.equal(fileResult.domain.resolution, "matched");
   assert.equal(fileResult.domain.satisfaction, 100);
-  assert.equal(fileResult.domain.match.name, "target.txt");
+  assert.equal(fileResult.domain.match.kind, "cli.file");
+  assert.equal(fileResult.domain.match.scenarioId, value.session.scenarioId);
+  assert.equal(fileResult.domain.match.sessionId, value.session.sessionId);
   assert.equal(fileResult.domain.match.type, "regular");
-  assert.equal(fileResult.domain.match.physicalDirectory, start);
   assert.equal(fileResult.domain.match.absolutePath, join(start, "target.txt"));
-  assert.equal(fileResult.domain.match.observedWith, "lstat");
+  assert.equal(basename(fileResult.domain.match.absolutePath), "target.txt");
+  assert.equal(fileResult.domain.match.sessionRevision, value.sandbox.getSession(value.session).revision);
+  assert.equal(typeof fileResult.domain.match.sourceRun, "string");
+  assert.notEqual(fileResult.domain.match.sourceRun.length, 0);
   const fileStat = await lstat(join(start, "target.txt"), { bigint: true });
   assert.equal(String(fileResult.domain.match.identity.ino), String(fileStat.ino));
+  assert.equal(String(fileResult.domain.match.identity.dev), String(fileStat.dev));
+  assert.equal(fileResult.domain.match.sourceRun, fileResult.domain.rootFact.inspect.sourceRun);
+  assert.deepEqual(fileResult.domain.rootFact.ref, fileResult.domain.match);
+  assert.equal(fileResult.domain.rootFact.inspect.observedWith, "lstat");
   assert.deepEqual(heads(fileResult.response), ["ls", "entry.inspect"]);
   assert.deepEqual(
     childSkillIds(fileResult.response),
@@ -204,13 +213,21 @@ test("E01 public exact-name hit returns the real inspected file and directory re
   );
   assert.equal(fileResult.response.report.rootEvaluation.result, "satisfied");
 
-  const directoryResult = await run(value, request(value.directory, "subdir", "directory"));
+  const directoryResult = await run(value, request(directoryObject, "subdir", "directory"));
   assert.equal(directoryResult.domain.status, "achieved");
-  assert.equal(directoryResult.domain.match.name, "subdir");
+  assert.equal(directoryResult.domain.match.kind, "cli.directory");
   assert.equal(directoryResult.domain.match.type, "directory");
   assert.equal(directoryResult.domain.match.absolutePath, join(start, "subdir"));
+  assert.equal(basename(directoryResult.domain.match.absolutePath), "subdir");
+  assert.equal(directoryResult.domain.match.sessionRevision, value.sandbox.getSession(value.session).revision);
+  assert.equal(typeof directoryResult.domain.match.sourceRun, "string");
   const directoryStat = await lstat(join(start, "subdir"), { bigint: true });
   assert.equal(String(directoryResult.domain.match.identity.ino), String(directoryStat.ino));
+  assert.equal(String(directoryResult.domain.match.identity.dev), String(directoryStat.dev));
+  assert.equal(directoryResult.domain.match.scenarioId, value.session.scenarioId);
+  assert.equal(directoryResult.domain.match.sessionId, value.session.sessionId);
+  assert.equal(directoryResult.domain.match.sourceRun, directoryResult.domain.rootFact.inspect.sourceRun);
+  assert.deepEqual(directoryResult.domain.rootFact.ref, directoryResult.domain.match);
   assert.deepEqual(heads(directoryResult.response), ["ls", "entry.inspect"]);
 });
 
@@ -269,6 +286,7 @@ test("E09 a match removed after listing is stale evidence, not a complete not_fo
   assert.equal(result.domain.satisfaction, null);
   assert.equal(result.domain.match, null);
   assert.equal(result.domain.rootFact.kind, "stale_or_unverified");
+  assert.equal(result.domain.rootFact.ref, null);
   assert.match(JSON.stringify(result.response.report.errors), /ENOENT/);
   assert.deepEqual(heads(result.response), ["ls", "entry.inspect"]);
 });
@@ -277,6 +295,7 @@ test("E13 achieved child observations cannot make a type-mismatched root achieve
   const value = await withProfile(t, [
     { path: "start/target.txt", kind: "directory" },
   ]);
+  const start = value.sandbox.getSession(value.session).cwd;
 
   const result = await run(value, request(value.directory, "target.txt", "regular"));
   assert.equal(result.domain.status, "unmet");
@@ -291,6 +310,10 @@ test("E13 achieved child observations cannot make a type-mismatched root achieve
   assert.equal(result.response.report.rootEvaluation.result, "unsatisfied");
   assert.equal(result.domain.rootFact.kind, "type_mismatch");
   assert.equal(result.domain.rootFact.inspect.type, "directory");
+  assert.equal(result.domain.rootFact.ref.kind, "cli.directory");
+  assert.equal(result.domain.rootFact.ref.type, "directory");
+  assert.equal(result.domain.rootFact.ref.absolutePath, join(start, "target.txt"));
+  assert.equal(result.domain.rootFact.ref.sessionRevision, value.sandbox.getSession(value.session).revision);
 });
 
 test("E03 a same-name entry with another real type is a mismatch and a symlink is not followed", async t => {
@@ -315,6 +338,9 @@ test("E03 a same-name entry with another real type is a mismatch and a symlink i
   assert.equal(link.domain.match, null);
   assert.equal(link.domain.rootFact.inspect.type, "symlink");
   assert.equal(link.domain.rootFact.inspect.observedWith, "lstat");
+  assert.equal(link.domain.rootFact.ref.kind, "cli.entry");
+  assert.equal(link.domain.rootFact.ref.type, "symlink");
+  assert.equal(link.domain.rootFact.ref.absolutePath, join(start, "link.txt"));
   assert.equal(await readFile(join(start, "real.txt"), "utf8"), "link target content");
   assert.deepEqual(heads(link.response), ["ls", "entry.inspect"]);
 });
@@ -332,12 +358,12 @@ test("E04 only direct children of the bound directory are searched", async t => 
 
   const a = await run(value, request(value.directory, "a", "regular"));
   assert.equal(a.domain.status, "achieved");
-  assert.equal(a.domain.match.name, "a");
+  assert.equal(basename(a.domain.match.absolutePath), "a");
   assert.equal(a.domain.match.absolutePath, join(start, "a"));
 
   const ab = await run(value, request(value.directory, "ab", "regular"));
   assert.equal(ab.domain.status, "achieved");
-  assert.equal(ab.domain.match.name, "ab");
+  assert.equal(basename(ab.domain.match.absolutePath), "ab");
   assert.equal(ab.domain.match.absolutePath, join(start, "ab"));
 
   const target = await run(value, request(value.directory, "target.txt", "regular"));
@@ -368,7 +394,7 @@ test("E05 special names are compared exactly and never shell-interpolated", asyn
   for (const name of names) {
     const result = await run(value, request(value.directory, name, "regular"));
     assert.equal(result.domain.status, "achieved", `expected hit for ${JSON.stringify(name)}`);
-    assert.equal(result.domain.match.name, name);
+    assert.equal(basename(result.domain.match.absolutePath), name);
     assert.equal(result.domain.match.absolutePath, join(start, name));
   }
   assert.equal((await readdir(start)).includes("nope"), false);
@@ -455,6 +481,34 @@ test("E08 missing effects reject before execution and a real helper failure stay
   assert.equal(rejectedAtomic.executorInvoked, false);
   assert.match(JSON.stringify(rejected.response.report.errors), /EFFECT_DENIED/);
 
+  let missingReadListings = 0;
+  const missingRead = await withProfile(
+    t,
+    [{ path: "start/target.txt", kind: "file", contents: "x" }],
+    {
+      grantedEffects: ["process.exec"],
+      listingObserver: async input => {
+        missingReadListings += 1;
+        return observeRealListing(input);
+      },
+    },
+  );
+  const refused = await run(missingRead, request(missingRead.directory, "target.txt", "regular"));
+  assert.equal(refused.domain.status, "rejected");
+  assert.equal(refused.domain.resolution, "rejected");
+  assert.equal(refused.domain.satisfaction, null);
+  assert.equal(refused.domain.match, null);
+  const refusedAtomic = refused.response.report.atomicResults[0];
+  assert.equal(refusedAtomic.outcome, "rejected");
+  assert.equal(refusedAtomic.executorInvoked, false);
+  assert.equal(refusedAtomic.sourceResult.value.execution_result.executorInvoked, false);
+  assert.equal(refusedAtomic.sourceResult.value.execution_result.receipt.execution.status, "failed");
+  assert.equal(refusedAtomic.sourceResult.value.execution_result.receipt.execution.error.code, "EFFECT_DENIED");
+  assert.equal(missingReadListings, 0);
+  assert.deepEqual(heads(refused.response), ["ls"]);
+  assert.equal(childSkillIds(refused.response).includes("entry-search.inspect"), false);
+  assert.match(JSON.stringify(refused.response.report.errors), /EFFECT_DENIED/);
+
   const broken = await withProfile(
     t,
     [{ path: "start/target.txt", kind: "file", contents: "x" }],
@@ -501,7 +555,8 @@ test("E10 replacement before verification uses the current object instead of the
   );
   assert.equal(replacement.length, 1);
   assert.equal(replaced.domain.status, "achieved");
-  assert.equal(replaced.domain.match.name, "target.txt");
+  assert.equal(replaced.domain.match.kind, "cli.file");
+  assert.equal(basename(replaced.domain.match.absolutePath), "target.txt");
   assert.equal(String(replaced.domain.match.identity.ino), String(replacement[0].ino));
   assert.equal(await readFile(target, "utf8"), "new");
 
@@ -663,7 +718,7 @@ test("E14 repeated evaluation does no extra IO and interleaved sessions stay iso
   );
   const start = value.sandbox.getSession(value.session).cwd;
   const second = value.sandbox.bindSession("s2");
-  const secondDirectory = await value.sandbox.bindDirectory(second, ".");
+  const secondDirectory = await value.sandbox.bindDirectoryObject(second, ".");
   const other = value.sandbox.getSession(second).cwd;
   const startEntries = (await readdir(start)).sort();
   const otherEntries = (await readdir(other)).sort();

@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 const { createCliFilesystemSandbox, runCliEntrySearchGoal } = await import("nnanything/cli-search");
 
@@ -55,7 +55,7 @@ async function makeWorld(entries, options = {}) {
     ...(options.listingObserver === undefined ? {} : { listingObserver: options.listingObserver }),
   });
   const session = sandbox.bindSession(options.sessionId ?? "s");
-  const directory = await sandbox.bindDirectory(session, ".");
+  const directory = await sandbox.bindDirectoryObject(session, ".");
   return {
     sandbox,
     session,
@@ -122,11 +122,11 @@ function actualOf(result) {
     match: result.domain.match === null
       ? null
       : {
-          name: result.domain.match.name,
+          kind: result.domain.match.kind,
           type: result.domain.match.type,
           absolutePath: result.domain.match.absolutePath,
           ino: String(result.domain.match.identity.ino),
-          observedWith: result.domain.match.observedWith,
+          sessionRevision: result.domain.match.sessionRevision,
         },
     heads: response.report.atomicResults.map(item => item.sourceResult.value.policy.selectedHead),
     childSkills: response.report.atomicResults.map(item => item.skillId),
@@ -257,7 +257,7 @@ await runCase(
         );
         const actual = actualOf(result);
         assert.equal(actual.status, "achieved");
-        assert.equal(actual.match.name, name);
+        assert.equal(basename(actual.match.absolutePath), name);
         observations.push(actual);
       }
       assert.equal((await readdir(world.start)).includes("nope"), false);
@@ -382,7 +382,7 @@ await runCase(
     );
     try {
       const second = world.sandbox.bindSession("s2");
-      const secondDirectory = await world.sandbox.bindDirectory(second, ".");
+      const secondDirectory = await world.sandbox.bindDirectoryObject(second, ".");
       const other = world.sandbox.getSession(second).cwd;
       const parentCwd = process.cwd();
       const startEntries = (await readdir(world.start)).sort();
