@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-22 通用反馈修复最终交付
+
+通用修复已在cbb8522集成并推送origin/main；CLI先前在a854bcc集成推送。独立整体Review及finding定点闭包已通过，主体全仓1097/1097，最后取消分支修复及主目录最终回归均21/21、0fail/skip。主目录正常npm run build通过。CLI与通用修复自有worktree已正常移除；browser-foundation含待接收成果，继续保留，不宣称浏览器整体通过。两域长程计划与启动提示词均已随main交付，尚未启动。
+
+用户另行授权将遗留pid原样移出根目录并保留，现位于`/Volumes/Intel/playground/nnanything-runs/reasoning-feedback-fix-20261022/legacy-pid`；未向其中记录的进程发送信号。此记录更新下方历史“pid未处理”状态。最终构建与回归日志为同run的main-build-final.log、main-targeted-final.log；交付回执见delivery.md。未训练、未采用权重、未部署。
+
 ## 2026-10-22 通用逐步反馈修订候选与两域长程任务
 
 按用户要求修复通用推理链审查4项：失败事实不再由controller自动推断整组转移不可用；新增纯领域attributeFailure和当前post/已生成集合守卫、可复制归因凭据；未配置/unknown准确停止，非法输出保留原错。F2跨模式反应、F3经验时间边界、F4刚性L1与混合上层的唯一合同已补到既有owner。拓扑3N2E不变，bumper补实际module共享版本owner后升0.2.0.0001，未动权重、未训练。原公开入口红测和版本红测保存在外置reasoning-feedback-fix-20261022；本轮全仓1096/1096、0fail/0skip，含真实cwd/finite公开consumer。修复twoLegalChoices测试fixture原先实际返回失败却手填finished的前提问题，改为两项真正成功的synthetic回执，未放宽产品断言。独立整体Review及main交付尚待，不把作者绿测写成PASS。
