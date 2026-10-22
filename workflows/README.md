@@ -7,6 +7,7 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
+| `cli-read-composition.graph.json` | 内部责任设计，无独立运行配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design`，未实现 | 显式目录内严格名称 regular 项的只读字节组合：绑定→列举→精确匹配→类型/引用核验→范围读→字节谓词与根事实评价→汇总；实施复用recursive-goal与cli-file-property，根目标`file.property.content.bytes`。合同见docs/cli-read-composition.md |
 | `cli-entry-search.graph.json` | 内部责任设计，无独立运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design`，未实现 | 单目录直接子项的精确名称查找：绑定→当前列举→名称关系→真实类型/引用核验→根评价；实施复用recursive-goal与cli-file-property，不新建五算子引擎。合同见docs/cli-entry-search-design.md |
 | `bounded-goal-planning.graph.json` | 设计责任图，无独立运行配置 | 6 节点 5 边 (6N5E SESE) | `0.2.0-design`，内部责任已接既有controller | 真实起点→有界预测或复用→路线比较→当前一步→真实结果与checkpoint→控制汇总；无六个独立绑定算子。正常复用，分叉先检备选，边界/checkpoint或无适用路时重推；唯一合同docs/bounded-goal-planning.md |
 | `recursive-goal.graph.json` | `recursive-goal.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.2.0.0001` 反馈归因修订，交付沿note.md | `goal.recursive.bind/run/report` 唯一owner为`lib/workflow/recursive-goal/module.ts`；v1行为保留，v2有界规划和action-boundary，失败限制须显式领域归因，不从错误码自动排除。finite/cwd及历史证据沿模块合同，不承诺任意语义已训练 |
