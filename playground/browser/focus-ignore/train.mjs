@@ -18,6 +18,7 @@ import {
   loadTrainingProfiles,
   prepareBasicKindSamples,
   readBasicKindTrainingRequest,
+  validateBasicKindTrainingConfig,
 } from "nnanything/training";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -42,12 +43,6 @@ export const EXPECTED_TRAINABLE_WIRES = Object.freeze([
   "neutral_actual_focus",
   "neutral_focusable_control",
 ]);
-
-const FIXED_OBJECTIVE = Object.freeze({
-  targetScore: 0.8,
-  rivalCeiling: 0.4,
-  otherGap: 0.05,
-});
 
 function readJsonFile(file, label) {
   let raw;
@@ -134,14 +129,18 @@ export function readRecipe(raw) {
   const objective = raw.objective;
   if (typeof objective !== "object" || objective === null || Array.isArray(objective)) throw new TypeError("recipe.objective must be an object");
   for (const key of Object.keys(objective)) {
-    if (!Object.hasOwn(FIXED_OBJECTIVE, key)) throw new TypeError(`recipe.objective has unsupported field ${key}`);
-  }
-  for (const key of Object.keys(FIXED_OBJECTIVE)) {
-    if (!Object.is(objective[key], FIXED_OBJECTIVE[key])) throw new TypeError(`recipe.objective.${key} must be ${FIXED_OBJECTIVE[key]}`);
+    if (!["targetScore", "rivalCeiling", "otherGap"].includes(key)) throw new TypeError(`recipe.objective has unsupported field ${key}`);
   }
   if (objective.mode !== undefined || objective.boundarySlack !== undefined || raw.boundarySlack !== undefined) {
     throw new TypeError("boundarySlack/objective.mode require priority_decision_v1; family_leaf_v1 compatible objective does not use them");
   }
+  const validatedObjective = validateBasicKindTrainingConfig({
+    taskId: BASIC_KIND_TASK_ID,
+    minScore: 0.6,
+    minMargin: 0.15,
+    objective,
+    fit: { epochs: 1, learningRate: 0.01, anchorLambda: 0 },
+  }).objective;
 
   if (!Array.isArray(raw.explicitUsage) || raw.explicitUsage.length === 0) {
     throw new TypeError("recipe.explicitUsage must be a nonempty array of {sampleId, usage}");
@@ -162,7 +161,7 @@ export function readRecipe(raw) {
     learningRate,
     anchorLambda,
     trainableWires: [...EXPECTED_TRAINABLE_WIRES],
-    objective: { ...FIXED_OBJECTIVE },
+    objective: validatedObjective,
     explicitUsage,
   };
 }

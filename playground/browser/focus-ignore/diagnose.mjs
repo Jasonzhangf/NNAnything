@@ -18,14 +18,15 @@ import {
 
 const HANDWIRED_ROOT = "/Volumes/extension/code/handwired";
 const COUNTEREXAMPLE = "actual-focus-native:actual-focus-candidate-112";
+const DEFAULT_OBJECTIVE = { targetScore: 0.8, rivalCeiling: 0.4, otherGap: 0.05 };
 
 function parseArgs(argv) {
   const values = new Map();
   for (let i = 0; i < argv.length; i += 2) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if (!["--request", "--usage", "--weight", "--out"].includes(flag) || value === undefined || value.startsWith("--")) {
-      throw new Error("expected --request --usage --weight --out");
+    if (!["--request", "--usage", "--weight", "--out", "--objective"].includes(flag) || value === undefined || value.startsWith("--")) {
+      throw new Error("expected --request --usage --weight --out [--objective <json>]");
     }
     values.set(flag, value);
   }
@@ -35,6 +36,7 @@ function parseArgs(argv) {
     usage: values.get("--usage"),
     weight: values.get("--weight"),
     out: values.get("--out"),
+    objective: values.get("--objective") ?? null,
   };
 }
 
@@ -47,6 +49,20 @@ const usage = Array.isArray(usageRaw) ? usageRaw : usageRaw.explicitUsage;
 const usageById = new Map(usage.map((e) => [e.sampleId, e.usage]));
 const asset = parseBrowserWeightAsset(readJson(args.weight), args.weight);
 const profile = asset.profile;
+const objective = args.objective === null ? DEFAULT_OBJECTIVE : (() => {
+  const parsed = JSON.parse(args.objective);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("--objective must be a JSON object");
+  }
+  return parsed;
+})();
+const config = {
+  taskId: "dom.basic-kinds.v1",
+  minScore: asset.config.minScore,
+  minMargin: asset.config.minMargin,
+  objective,
+  fit: { epochs: 1, learningRate: 0.01, anchorLambda: 0 },
+};
 
 const trainRows = request.rows.filter((r) => usageById.get(r.sampleId) === "train" && !r.sampleId.startsWith("fixture-"));
 const allOriginal = request.rows.filter((r) => !r.sampleId.startsWith("fixture-"));
@@ -60,7 +76,7 @@ const cexLeafIntervals = computeBasicKindStageRawIntervals(
   "leaf", Object.keys(profile.leafWeights), profile.leafWeights, cexWires, profile.topology,
 );
 const cexInspect = await inspectBasicKindNumericSample({
-  handwiredRoot: HANDWIRED_ROOT, properties: cex.properties, expectedLabel: cex.review.expectedLabel, profile,
+  handwiredRoot: HANDWIRED_ROOT, properties: cex.properties, expectedLabel: cex.review.expectedLabel, profile, config,
 });
 
 // 2) 训练分区上两条焦点 wire 的聚合梯度与分桶（这是 A3 报告里没有落盘的部分）
@@ -73,7 +89,7 @@ for (const wire of FOCUS) {
     const buckets = {};
     for (const row of trainRows) {
       const insp = await inspectBasicKindNumericSample({
-        handwiredRoot: HANDWIRED_ROOT, properties: row.properties, expectedLabel: row.review.expectedLabel, profile,
+        handwiredRoot: HANDWIRED_ROOT, properties: row.properties, expectedLabel: row.review.expectedLabel, profile, config,
       });
       const g = insp.leafGradients?.[leaf]?.[wire] ?? 0;
       if (g !== 0) nonzero += 1;
@@ -96,7 +112,7 @@ for (const wire of FOCUS) {
 const aFamily = [];
 for (const row of aRows) {
   const insp = await inspectBasicKindNumericSample({
-    handwiredRoot: HANDWIRED_ROOT, properties: row.properties, expectedLabel: row.review.expectedLabel, profile,
+    handwiredRoot: HANDWIRED_ROOT, properties: row.properties, expectedLabel: row.review.expectedLabel, profile, config,
   });
   const j = classifyBasicKind(row.properties, DEFAULT_BASIC_KIND_CONFIG, profile);
   aFamily.push({
@@ -140,6 +156,7 @@ const out = {
   generatedFor: "B1 §10.4 failure diagnostics, read-only",
   handwiredRoot: HANDWIRED_ROOT,
   weightSource: args.weight,
+  trainingObjective: objective,
   profileId: profile.id,
   thresholds: { minScore: asset.config.minScore, minMargin: asset.config.minMargin },
   counterexample: {
@@ -177,6 +194,7 @@ const out = {
 writeFileSync(args.out, `${JSON.stringify(out, null, 2)}\n`, "utf8");
 console.log(JSON.stringify({
   out: args.out,
+  objective,
   trainRows: trainRows.length,
   perRowIntervals: perRowIntervals.length,
   aFamilyNonZeroLossCount: out.aFamilyNonZeroLossCount,

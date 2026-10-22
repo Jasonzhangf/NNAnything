@@ -123,6 +123,12 @@ test("recipe validation pins the fixed 18 wires and compatible objective", () =>
   );
 });
 
+test("recipe validation accepts the C-RivalCeiling-0.6 objective once the consumer adopts the public config validator", () => {
+  const recipe = readRecipe(validRecipe({ objective: { targetScore: 0.8, rivalCeiling: 0.6, otherGap: 0.05 } }));
+  assert.deepEqual(recipe.objective, { targetScore: 0.8, rivalCeiling: 0.6, otherGap: 0.05 });
+  assert.deepEqual(readRecipe(validRecipe()).objective, { targetScore: 0.8, rivalCeiling: 0.4, otherGap: 0.05 });
+});
+
 test("trainable cell enumeration selects whole addresses by wire name and reports unselected cells", () => {
   const profile = migrateBasicKindProfile(structuredClone(DEFAULT_BASIC_KIND_PROFILE));
   const wires = ["neutral_actual_focus", "neutral_focusable_control", "own_focus_target"];
