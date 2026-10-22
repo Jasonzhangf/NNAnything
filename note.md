@@ -4,7 +4,15 @@
 
 `actual-focus-candidate-112` 在 train split 内，但拟合学不到 `own_focus_target` 负否决。逐行梯度证明：拟合点梯度 +1.497（应减小），权重到 -0.0188 即翻号为 -6.5，稳定点在 0 附近；翻号来自缺测焦点行，负权重按区间语义 [w,0] 压低其 ignore 下界、破坏 expected=ignore 召回。
 
-语义复核结论（用户指示先看语义、没有焦点不能伪造）：此前「缺测当无焦点、需改共享语义为 [0,0]」的结论错误，已撤回。区间语义 `null → {min:min(w,0), max:max(w,0)}` 对否决 wire（w<0）贡献 `[w,0]`：min 端点取 w、压低 ignore 下界，即按「焦点可能未测到」保守处理，没有把缺测当无焦点；真正的伪造是「缺测贡献 [0,0]」（把 null 当实测 false）。现语义正确，不改。否决学不出来的根因在语料：162 条 verified ignore 中 159 条 `own_focus_target` 为 null（旧快照未测 activeElementFocus，415/420 行缺测），负权重按正确语义压低这些行下界、损失召回，损失才拉回 0。修复在语料侧补测焦点后重拟合，不是共享语义增量。live 页面无此问题：四个 live 采集 5975 行 `own_focus_target` 缺测 0、40 行实测焦点 0 行判 ignore。详见 run 目录报告第 8 节。
+语义复核结论（用户指示先看语义、没有焦点不能伪造）：此前「缺测当无焦点、需改共享语义为 [0,0]」的结论错误，已撤回。区间语义 `null → {min:min(w,0), max:max(w,0)}` 对否决 wire（w<0）贡献 `[w,0]`：min 端点取 w、压低 ignore 下界，即按「焦点可能未测到」保守处理，没有把缺测当无焦点；真正的伪造是「缺测贡献 [0,0]」（把 null 当实测 false）。现语义正确，不改。否决学不出来的根因在语料：162 条 verified ignore 中 159 条 `own_focus_target` 为 null（旧快照未测 activeElementFocus，415/420 行缺测），负权重按正确语义压低这些行下界、损失召回，损失才拉回 0。修复在语料侧补测焦点后重拟合，不是共享语义增量。live 页面无此问题：四个 live 采集 5975 行 `own_focus_target` 缺测 0、40 行实测焦点 0 行判 ignore；缺陷行的精确 wire 签名（聚焦 + 三 wrapper 全 1）在 5975 个 live 节点里 0 次出现，live 的 5 个聚焦包装 div 只 `neutral_single_child=1`、其余两 wrapper 为 0，候选全判 container。详见 run 目录报告第 8 节。
+
+## 2026-10-22 焦点缺陷修法候选：container 侧正权重可零代价修，但拟合发现不了
+
+在选中候选上做定点实验：给 `leafWeights.container.neutral_actual_focus` 一个正权重（≥0.13 即翻号），`actual-focus-candidate-112` 从 ignore 0.863 变为 other/conflict，满足「实际可聚焦容器不得被判 ignore」的硬规则；同时 162 条 ignore 召回仍 149/162、13 条未召回行集合与基线逐行完全一致，即零新增召回损失。语义也正确：实测焦点把节点抬向 container，缺测时正权重只抬上界 `{min:0,max:w}`、不压 ignore 下界，不构成伪造。
+
+但普通拟合发现不了这个修法：该权重在拟合点梯度为 -0.43（朝减小），新增一次 200 epoch、把焦点 wire 一并可训练的拟合（`/tmp/ignore-fit-r7`，summary fixed 167/regressed 2/retained 117/unresolved 134）后，该权重只到 0.0009，缺陷行仍判 ignore 0.863。结论：修法存在且正确，但需要语料或拟合目标侧支持（等价于补测焦点后重拟合），不能靠当前语料上的普通梯度下降得到。
+
+F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 4/4、video 4/4。
 
 ## 2026-10-21 ego 浏览器微博重采：live 召回 24/26
 
