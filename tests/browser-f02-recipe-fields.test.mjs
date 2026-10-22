@@ -140,3 +140,7 @@ test("assertion checks only declared fields and never mutates the instance or go
     declareRecipeConditions({ receipt: { effectKnowledge: "unknown" } }),
   ));
 });
+
+test("an empty condition list never passes as a vacuous check", () => {
+  assert.throws(() => assertRecipeFields({ receipt: { effectKnowledge: "unknown" } }, []), /recipe conditions must not be empty/);
+});

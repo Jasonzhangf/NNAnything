@@ -58,6 +58,7 @@ function formatRecipeValue(value: unknown): string {
  */
 export function assertRecipeFields(instance: unknown, conditions: readonly RecipeCondition[]): void {
   if (!Array.isArray(conditions)) throw new TypeError("recipe conditions must be an array");
+  if (conditions.length === 0) throw new TypeError("recipe conditions must not be empty");
   for (const condition of conditions) {
     if (!isRecord(condition) || typeof condition.path !== "string" || condition.path.length === 0) {
       throw new TypeError("recipe condition must declare a nonempty path");
