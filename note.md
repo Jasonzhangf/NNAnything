@@ -12,7 +12,9 @@ worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-entry-search`（br
 
 2026-10-22 父级复核再判 FAIL（两项 P1，公开入口真实复现）：受信目录引用在桥接旧原子 `ls` 前被降成路径引用，绕过 sandbox 签发/identity/revision 校验；返回 `match`/`rootFact.ref` 由 filter 拼接而非 sandbox 签发，交回既有 `entry.inspect` 得 `binding_identity_missing`。本轮 r2 只修这两处 authority 闭合：新增公开 `sandbox.validateObservedObject` 复用既有 `validateObservedRef` 校验，`match`/`rootFact.ref` 改由 sandbox 的 `bindFile`/`bindDirectoryObject`/`bindEntry` 在真实观测后签发登记，filter 只传递；共享 policy/head/wire/权重不变，责任图拓扑不变。计划与版本说明见 run 目录 `plan-fix-r2.md`。
 
-同轮 r2 红测 `logs/fix-r2-red.log` 为 14/17，复现 forged/stale/wrong-identity/replaced 目录引用曾 achieved 及 match 复用曾 `binding_identity_missing`。修复后 build 通过，entry-search 17/17，指定四文件回归 42/42，家族 A 8/8、家族 B 14/14，原 consumer 通过；新增 `consumer-authority.mjs` 证明 search match 可交既有 `entry.inspect`，替换 inode 或推进 revision 后均以 `STALE_REFERENCE` 拒绝且 `executorInvoked=false`。证据日志为 run 目录 `logs/r2-*.log`；当前仅是候选修复，不自称 Review PASS。常规 `git add` 因 canonical worktree 的 `index.lock` 写入被拒绝而失败，未绕过权限，改动保持未提交，需 lead 提交。
+同轮 r2 红测 `logs/fix-r2-red.log` 为 14/17，复现 forged/stale/wrong-identity/replaced 目录引用曾 achieved 及 match 复用曾 `binding_identity_missing`。修复后 build 通过，entry-search 17/17，指定四文件回归 42/42，家族 A 8/8、家族 B 14/14，原 consumer 通过；新增 `consumer-authority.mjs` 证明 search match 可交既有 `entry.inspect`，替换 inode 或推进 revision 后均以 `STALE_REFERENCE` 拒绝且 `executorInvoked=false`。证据日志为 run 目录 `logs/r2-*.log`。改动由 lead 提交为 `83642fb`。
+
+r2 定点复核（独立 oauth gpt-6-sol，可运行测试）判 PASS：两项 P1 均闭合。父级原始探针实跑 `validSearch` achieved/matched、`returnedRefReuse` succeeded、`forgedSourceSearch` rejected/rejected、`wrongRevisionSearch` rejected/rejected；entry-search 17/17、四文件 42/42、authority consumer exit 0。lead 另用独立探针确认：伪造 sourceRun、错误 identity、错误 revision、同路径目录替换均 rejected，恢复原目录后再 achieved；文件替换与 revision 推进后旧 match 均 `STALE_REFERENCE` 且 `executorInvoked=false`。仍未合 main、未 push、未采用权重、未删除待审 worktree，交父编排者最终验收与集成。
 
 ## 2026-10-21 CLI精确名称查找设计交付
 
