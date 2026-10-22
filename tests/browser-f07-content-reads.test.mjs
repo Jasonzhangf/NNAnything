@@ -60,7 +60,7 @@ function contentDom() {
 test("content evidence separates value from placeholder and empty from unobserved", () => {
   const dom = contentDom();
   const registry = createStableNodeRefRegistry("f07-content");
-  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "f07-content", documentRef: "fixture" });
+  const snapshot = observeLiveDom({ document: dom.document, window: dom.window, registry, excludeRoot: null, snapshotRef: "f07-content", documentRef: "fixture", readContent: true });
   const evidence = snapshot.evidence;
   const ref = element => stableNodeRefFor(registry, element);
 

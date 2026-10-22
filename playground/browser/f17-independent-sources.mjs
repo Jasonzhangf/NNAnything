@@ -67,7 +67,7 @@ function familyA() {
   const checkbox = element("INPUT", { type: "checkbox" }, { type: "checkbox", checked: true });
   const readonlyInput = element("INPUT", { type: "text", readonly: "" }, { type: "text", value: "固定值" });
   const details = element("DETAILS", { open: "" });
-  const option = element("OPTION", { selected: "" }, { text: "选项一" });
+  const option = element("OPTION", { selected: "" }, { text: "选项一", selected: true });
   const select = element("SELECT", {}, { text: "" });
   select.children = [option]; select.childNodes = [option]; select.childElementCount = 1; option.parentElement = select;
   const link = element("A", { href: "/detail/1" }, { text: "详情" });
@@ -103,6 +103,9 @@ function observe(family, label) {
   const snapshot = observeLiveDom({
     document: family.dom.document, window: family.dom.window, registry,
     excludeRoot: null, snapshotRef: label, documentRef: "f17",
+    // The input-value check is an explicit ordinary content read, not a
+    // classification capture; the default path never reads form values.
+    readContent: true,
   });
   return { registry, snapshot, refOf: node => stableNodeRefFor(registry, node) };
 }

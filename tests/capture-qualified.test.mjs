@@ -152,8 +152,11 @@ function makeMixedFrame() {
     mediaType: null,
     accessibleName: null,
     accessibleNameSource: null,
+    accessibleNameCoverage: null,
     labelledByRefs: [],
     labelledByUnresolved: false,
+    readonlyState: null,
+    selectedDeclaration: null,
     rect: node.rect,
     clippedRect: node.rect,
     parentTags: [],
@@ -315,4 +318,46 @@ test("collect_qualified captures every qualified status as unreviewed and export
   assert.equal(exported.outputEvent.payload.receipt.rowCount, 5);
   assert.equal(downloaded.trainingRequest.rows.length, 5);
   assert.equal(exported.outputEvent.payload.receipt.downloadReceipt.receiptId, "capture-qualified-download");
+});
+
+test("classification capture never carries a form value into the exported bundle", async () => {
+  const graph = JSON.parse(readFileSync(
+    new URL("../workflows/browser-capture.graph.json", import.meta.url),
+    "utf8",
+  ));
+  const frame = makeMixedFrame();
+  // Simulate a host node whose observation carried an explicit content read.
+  // The bundle must still drop it, so a password field can never be exported.
+  const secret = "classification-must-not-export-this";
+  const hostEvidence = frame.snapshot.evidence.get("known-button");
+  assert.ok(hostEvidence, "fixture must expose evidence for the collected node");
+  frame.snapshot.evidence.set("known-button", { ...hostEvidence, inputValue: secret });
+
+  const session = new BrowserCaptureSession({
+    sessionId: "capture-sensitive-session",
+    createdAt: "2026-10-18T12:00:00.000Z",
+  });
+  const compiled = compileWorkflow({ graph, bindings: {} }, {
+    nodeDefinitions: createBrowserCaptureNodeDefinitions({
+      session,
+      download: () => ({ receiptId: "capture-sensitive-download" }),
+    }),
+    grantedEffects: ["browser.capture.download"],
+  });
+  const execute = action => runWorkflow(compiled, createWorkflowInputEvent({
+    runId: `capture-sensitive-${action}`,
+    eventId: `capture-sensitive-${action}:input`,
+    port: "capture_request",
+    type: BROWSER_CAPTURE_REQUEST_EVENT_TYPE,
+    correlation: {},
+    payload: { action, frame },
+  }));
+
+  assert.equal((await execute("collect_qualified")).status, "completed");
+  const bundle = session.toBundle();
+  const sidecar = Object.values(bundle.evidenceSidecar);
+  assert.equal(sidecar.length > 0, true);
+  // No sidecar entry owns the field at all, and the value never appears anywhere.
+  assert.equal(sidecar.every(entry => !Object.hasOwn(entry, "inputValue")), true);
+  assert.equal(JSON.stringify(bundle).includes(secret), false);
 });

@@ -93,6 +93,7 @@ function stateDom() {
   });
   const option = baseElement("OPTION", {
     parentElement: html,
+    selected: true,
     hasAttribute: name => name === "selected",
     getAttribute: name => name === "selected" ? "" : null,
   });
@@ -132,4 +133,78 @@ test("live observation captures self-state booleans only where the state exists"
   assert.equal(Object.hasOwn(plainNode.attributes, "checked"), false);
   assert.equal(Object.hasOwn(plainNode.attributes, "open"), false);
   assert.equal(Object.hasOwn(plainNode.attributes, "selected"), false);
+});
+
+test("aria-readonly alone does not claim native readonly; a disagreement is an explicit conflict", () => {
+  const html = baseElement("HTML");
+  const onlyAria = baseElement("INPUT", {
+    type: "text", parentElement: html,
+    getAttribute: name => name === "aria-readonly" ? "true" : null,
+  });
+  const native = baseElement("INPUT", {
+    type: "text", parentElement: html,
+    hasAttribute: name => name === "readonly",
+    getAttribute: name => name === "readonly" ? "" : null,
+  });
+  const both = baseElement("INPUT", {
+    type: "text", parentElement: html,
+    hasAttribute: name => name === "readonly",
+    getAttribute: name => name === "readonly" ? "" : name === "aria-readonly" ? "true" : null,
+  });
+  for (const node of [onlyAria, native, both]) node.parentElement = html;
+  html.children = [onlyAria, native, both];
+  html.childNodes = html.children;
+  html.childElementCount = 3;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/readonly", activeElement: null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f05-readonly");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f05-readonly", documentRef: "fixture" });
+  const evidence = snapshot.evidence;
+  const ref = element => stableNodeRefFor(registry, element);
+
+  // Only aria-readonly: the native input is editable, so this is a conflict,
+  // never a certain readonly claim.
+  const only = evidence.get(ref(onlyAria));
+  assert.equal(only.readonlyState, "conflict");
+  const nativeNode = evidence.get(ref(native));
+  assert.equal(nativeNode.readonlyState, "readonly");
+  const bothNode = evidence.get(ref(both));
+  assert.equal(bothNode.readonlyState, "readonly");
+});
+
+test("selected reports the live choice, and the default declaration stays separate", () => {
+  const html = baseElement("HTML");
+  const liveOption = baseElement("OPTION", {
+    parentElement: html,
+    selected: false, // user changed the selection away from the declared default
+    hasAttribute: name => name === "selected",
+    getAttribute: name => name === "selected" ? "" : null,
+  });
+  const defaultOption = baseElement("OPTION", {
+    parentElement: html,
+    selected: true,
+    hasAttribute: name => name === "selected",
+    getAttribute: name => name === "selected" ? "" : null,
+  });
+  for (const node of [liveOption, defaultOption]) node.parentElement = html;
+  html.children = [liveOption, defaultOption];
+  html.childNodes = html.children;
+  html.childElementCount = 2;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/select", activeElement: null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f05-select");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f05-select", documentRef: "fixture" });
+  const evidence = snapshot.evidence;
+  const ref = element => stableNodeRefFor(registry, element);
+  const byNode = (snap, nodeRef) => snap.observation.nodes.find(node => node.nodeRef === nodeRef);
+
+  // The live property says false while the default attribute says true.
+  const live = evidence.get(ref(liveOption));
+  assert.equal(live.selectedDeclaration, true);
+  const liveNode = byNode(snapshot, ref(liveOption));
+  assert.equal(liveNode.attributes.selected, false);
+  const chosen = evidence.get(ref(defaultOption));
+  assert.equal(chosen.selectedDeclaration, true);
+  const chosenNode = byNode(snapshot, ref(defaultOption));
+  assert.equal(chosenNode.attributes.selected, true);
 });

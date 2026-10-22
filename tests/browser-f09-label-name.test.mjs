@@ -113,3 +113,60 @@ test("an unresolvable label reference stays explicitly unknown", () => {
   assert.deepEqual(broken.labelledByRefs, []);
   assert.equal(broken.accessibleName, null);
 });
+
+test("a forward labelledby reference resolves because binding happens after traversal", () => {
+  const html = element("HTML");
+  const byId = new Map();
+  const label = element("SPAN", { id: "forward-label" }, { childNodes: [{ nodeType: 3, textContent: "前向标签" }] });
+  const button = element("BUTTON", { "aria-labelledby": "forward-label" });
+  // The label is declared after the button in document order and visited second.
+  for (const node of [button, label]) { node.parentElement = html; byId.set(node.id, node); }
+  html.children = [button, label]; html.childNodes = html.children; html.childElementCount = 2;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/forward", activeElement: null, getElementById: id => byId.get(id) ?? null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f09-forward");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f09-forward", documentRef: "forward" });
+  const evidence = snapshot.evidence.get(stableNodeRefFor(registry, button));
+  assert.equal(evidence.accessibleNameSource, "aria-labelledby");
+  assert.deepEqual(evidence.labelledByRefs, [stableNodeRefFor(registry, label)]);
+  assert.equal(evidence.labelledByUnresolved, false);
+  assert.equal(evidence.accessibleName, "前向标签");
+  assert.equal(evidence.accessibleNameCoverage, "complete");
+});
+
+test("two labels in mixed order both bind and join in document order", () => {
+  const html = element("HTML");
+  const byId = new Map();
+  const first = element("SPAN", { id: "mix-b" }, { childNodes: [{ nodeType: 3, textContent: "B标签" }] });
+  const button = element("BUTTON", { "aria-labelledby": "mix-a mix-b" });
+  const second = element("SPAN", { id: "mix-a" }, { childNodes: [{ nodeType: 3, textContent: "A标签" }] });
+  for (const node of [first, button, second]) { node.parentElement = html; byId.set(node.id, node); }
+  html.children = [first, button, second]; html.childNodes = html.children; html.childElementCount = 3;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/mixed", activeElement: null, getElementById: id => byId.get(id) ?? null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f09-mixed");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f09-mixed", documentRef: "mixed" });
+  const evidence = snapshot.evidence.get(stableNodeRefFor(registry, button));
+  assert.equal(evidence.labelledByUnresolved, false);
+  // The tokens are joined in the order the attribute lists them, not document order.
+  assert.equal(evidence.accessibleName, "A标签 B标签");
+});
+
+test("a label longer than the supported name limit reports truncation, not a summary", () => {
+  const html = element("HTML");
+  const byId = new Map();
+  const long = "很长的标签文字".repeat(300); // 1800 characters, over the 1024 limit
+  const label = element("SPAN", { id: "long-label" }, { childNodes: [{ nodeType: 3, textContent: long }] });
+  const button = element("BUTTON", { "aria-labelledby": "long-label" });
+  for (const node of [label, button]) { node.parentElement = html; byId.set(node.id, node); }
+  html.children = [label, button]; html.childNodes = html.children; html.childElementCount = 2;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/long", activeElement: null, getElementById: id => byId.get(id) ?? null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f09-long");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f09-long", documentRef: "long" });
+  const evidence = snapshot.evidence.get(stableNodeRefFor(registry, button));
+  assert.equal(evidence.accessibleNameCoverage, "truncated");
+  assert.ok((evidence.accessibleName?.length ?? 0) <= 1024);
+  // The display summary is still capped at 180 and never passed off as the name.
+  assert.ok((evidence.textSummary?.length ?? 0) <= 180);
+});
