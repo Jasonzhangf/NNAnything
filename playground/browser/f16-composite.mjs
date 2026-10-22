@@ -116,8 +116,9 @@ function contextFromSide(side, explicit, label) {
     observationId: state.observationId,
     revision: state.revision,
     // The ref namespace is a separate fact: both sides must name the same
-    // observation source before a ref match may mean one object.
-    registryRef: state.registryRef,
+    // observation source before a ref match may mean one object. The observer
+    // snapshot carries it, so a real state closes the association itself.
+    registryRef: state.registryRef ?? side?.snapshot?.registryRef,
   };
 }
 

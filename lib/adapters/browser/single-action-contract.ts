@@ -37,6 +37,9 @@ export interface SingleActionControl {
 
 export interface SingleActionSnapshot extends SingleActionControl {
   readonly scopeRef: string;
+  // Source identity of the ref namespace that produced the refs. Absent only on
+  // older fixtures; a comparison needs it on both sides.
+  readonly registryRef?: string;
   readonly regions: readonly SingleActionRegion[];
   readonly elements: readonly SingleActionElement[];
   readonly evidence: readonly {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { compareAttributeChange, compareObservedAttributeChanges } from "nnanything/browser-classify";
+import { compareAttributeChange, compareObservedAttributeChanges, createStableNodeRefRegistry } from "nnanything/browser-classify";
 
 // F15 attribute change facts: compare the same object across two observations.
 // A change statement never claims an action caused it, never claims a side
@@ -300,4 +300,21 @@ test("an observed value read must carry the value it observed", () => {
   // An observed empty string is a real value and stays comparable.
   const empty = compareAttributeChange(before, after, "value", comparisonContext(), valueReads("", ""));
   assert.equal(empty.state, "unchanged");
+});
+
+test("registries never share a source identity, even with the same prefix", () => {
+  const first = createStableNodeRefRegistry("shared-prefix");
+  const second = createStableNodeRefRegistry("shared-prefix");
+  assert.equal(first.prefix, second.prefix);
+  assert.notEqual(first.registryRef, second.registryRef);
+  // The source identity, not the prefix, is what a comparison context carries.
+  const before = node("n1", { checked: true });
+  const after = node("n1", { checked: false });
+  const context = {
+    before: { documentRef: "document-1", scopeRef: "scope-1", observationId: "observation-1", revision: 1, registryRef: first.registryRef },
+    after: { documentRef: "document-1", scopeRef: "scope-1", observationId: "observation-2", revision: 2, registryRef: second.registryRef },
+  };
+  const result = compareAttributeChange(before, after, "checked", context);
+  assert.equal(result.state, "unknown");
+  assert.equal(result.unknownReason, "object_source_mismatch");
 });

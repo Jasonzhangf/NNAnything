@@ -112,3 +112,22 @@ test("sensitive hosts are refused even when content reading is requested", () =>
   // Ordinary editable hosts stay readable.
   assert.equal(snapshot.evidence.get(refOf(textarea)).inputValue, "普通内容");
 });
+
+test("a type attribute and a live type property disagreeing still refuses a sensitive read", () => {
+  const html = baseElement("HTML");
+  let reads = 0;
+  // Authored as text, but the live property says password: either source naming a
+  // sensitive type must stop the read.
+  const disguised = baseElement("INPUT", { type: "text", parentElement: html });
+  Object.defineProperty(disguised, "type", { value: "password" });
+  Object.defineProperty(disguised, "value", { get() { reads += 1; return "sentinel"; } });
+  html.children = [disguised];
+  html.childNodes = html.children;
+  html.childElementCount = 1;
+  const document = { documentElement: html, body: html, baseURI: "https://fixture.test/page", activeElement: null };
+  const window = { innerWidth: 800, innerHeight: 600, getComputedStyle: () => style };
+  const registry = createStableNodeRefRegistry("f07-disguised");
+  const snapshot = observeLiveDom({ document, window, registry, excludeRoot: null, snapshotRef: "f07-disguised", documentRef: "fixture", readContent: true });
+  assert.equal(reads, 0);
+  assert.equal(snapshot.evidence.get(stableNodeRefFor(registry, disguised)).inputValue, null);
+});

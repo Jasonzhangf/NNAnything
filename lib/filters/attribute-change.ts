@@ -19,6 +19,12 @@ export interface AttributeChange {
 // registries can produce identical ref strings. The ref namespace itself is a
 // separate fact, so the caller must name the observation source that produced
 // the ref. Two sides from different sources are never assumed to be one object.
+//
+// registryRef is the observation source identity, not a label the caller may
+// invent: read it from the registry that produced the refs (its registryRef) or
+// from the observation state that registry filled in. Registries created by
+// createStableNodeRefRegistry never share this value, even with the same prefix;
+// passing the prefix instead is a caller error, just like fabricating documentRef.
 export interface ObservedObjectContext {
   readonly documentRef: string;
   readonly scopeRef: string;

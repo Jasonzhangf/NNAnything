@@ -30,13 +30,27 @@ import {
   resolveSvgUserSpaceMapping,
 } from "./svg-clipping.js";
 
-export interface StableNodeRefRegistry {  readonly refByElement: WeakMap<Element, string>;
+export interface StableNodeRefRegistry {
+  readonly refByElement: WeakMap<Element, string>;
+  // Source identity of this ref namespace. Observations carry it so a later
+  // comparison can tell the same source from a different one.
+  readonly registryRef: string;
   readonly elementByRef: Map<string, WeakRef<Element>>;
   readonly nextSequence: { value: number };
   readonly prefix: string;
 }
+// One process-wide sequence keeps two registries apart even when they share a
+// prefix. Two registries can therefore never claim the same ref namespace.
+let registryInstanceSequence = 0;
 export function createStableNodeRefRegistry(prefix = "node"): StableNodeRefRegistry {
-  return { prefix, refByElement: new WeakMap(), elementByRef: new Map(), nextSequence: { value: 0 } };
+  registryInstanceSequence += 1;
+  return {
+    prefix,
+    registryRef: `${prefix}#${registryInstanceSequence}`,
+    refByElement: new WeakMap(),
+    elementByRef: new Map(),
+    nextSequence: { value: 0 },
+  };
 }
 export function stableNodeRefFor(registry: StableNodeRefRegistry, element: Element): string {
   let ref = registry.refByElement.get(element);
@@ -163,12 +177,15 @@ const NAME_TEXT_LIMIT = 1024;
 // The authored type attribute is the source of truth; a live input also
 // normalises it into the type property, so either source answers the same
 // question. An absent or unrecognised type is text-like per HTML.
-function inputTypeOf(element: Element): string {
+function inputTypesOf(element: Element): readonly string[] {
   const attribute = element.getAttribute("type");
   const property = (element as HTMLInputElement).type;
-  const raw = typeof attribute === "string" && attribute !== "" ? attribute
-    : typeof property === "string" ? property : "";
-  return raw.toLowerCase();
+  const types = [attribute, property].filter((value): value is string => typeof value === "string" && value !== "");
+  return types.map(value => value.toLowerCase());
+}
+
+function inputTypeOf(element: Element): string {
+  return inputTypesOf(element)[0] ?? "";
 }
 
 const READONLY_INAPPLICABLE_INPUT_TYPES: ReadonlySet<string> = new Set([
@@ -2443,9 +2460,9 @@ export function observeLiveDom(input: {
     // radio, range, color, file or the button types, so a readonly attribute
     // there is a declaration without a native constraint and stays out of the
     // state.
-    const readonlyHostType = tag === "input" ? inputTypeOf(element) : "";
+    const readonlyHostTypes = tag === "input" ? inputTypesOf(element) : [];
     const readonlyApplies = tag === "textarea"
-      || (tag === "input" && !READONLY_INAPPLICABLE_INPUT_TYPES.has(readonlyHostType));
+      || (tag === "input" && !readonlyHostTypes.some(value => READONLY_INAPPLICABLE_INPUT_TYPES.has(value)));
     const nativeReadonly = readonlyApplies ? element.hasAttribute("readonly") : null;
     if (nativeReadonly !== null) attributes.readonly = nativeReadonly;
     const declaredReadonlyAttribute = element.getAttribute("aria-readonly");
@@ -2569,8 +2586,10 @@ export function observeLiveDom(input: {
     // explicitly. Sensitive hosts are refused even then: a password or file
     // field value never leaves the page through this adapter, readContent or
     // not. Plain text-like inputs, textarea and select stay readable.
-    const inputType = tag === "input" ? inputTypeOf(element) : "";
-    const sensitiveInput = tag === "input" && (inputType === "password" || inputType === "file");
+    // Either source can name the type, and a sensitive type in either source is
+    // enough to refuse the read.
+    const inputTypes = tag === "input" ? inputTypesOf(element) : [];
+    const sensitiveInput = inputTypes.some(value => value === "password" || value === "file");
     const inputValue = input.readContent === true && isInputHost && !sensitiveInput
       ? (inputElement.value !== undefined ? inputElement.value : null)
       : null;
@@ -2626,10 +2645,14 @@ export function observeLiveDom(input: {
     const refs: string[] = [];
     const parts: string[] = [];
     let unresolved = false, truncated = false, budget = NAME_TEXT_LIMIT;
+    const boundRefs = new Set<string>();
     for (const target of pending.targets) {
       if (target.element === null) { unresolved = true; continue; }
       const ref = registry.refByElement.get(target.element);
       if (ref === undefined || !elementByRef.has(ref)) { unresolved = true; continue; }
+      // Different tokens can resolve to one element. A target names itself once.
+      if (boundRefs.has(ref)) continue;
+      boundRefs.add(ref);
       refs.push(ref);
       const read = fullText(target.element, budget);
       if (read.truncated) truncated = true;
