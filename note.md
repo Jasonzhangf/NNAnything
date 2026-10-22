@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-21 Shell候选第三轮定点复核（唯一剩余 P1 已修，待复核）
+
+第二轮复核：缺测元数据与计数说明关闭；读取边界还剩一处 P1——主 FIFO 反例在测试进程内等待生产 readFileRange，移除 O_NONBLOCK 会挂起而非有界失败。已修并提交 `367f180`，未合 main、未 push、未采用权重。GCM 独立复核 4 点 PASS。main 仍 `83ff464`。
+
+- 主 FIFO 反例改为在子进程运行生产 `readFileRange`，透传生产 flags 给真实 `fs.open(fifo, flags)`；父进程 `execFileAsync` 显式 2s timeout，子进程被杀转 `assert.fail`（有界失败）；父进程 `makeScene` 的 `t.after` 在子进程退出后清理 FIFO 与目录。
+- 受控回归：从构建移除 O_NONBLOCK（保留 O_NOFOLLOW）→ 主 FIFO 用例 `not ok 8`、套件 10/11、无挂起；恢复构建 → 11/11、全量 1075/1075。
+- 证据：`s10-result.md` 追加第三轮；GCM 回执 `gcm-verification-round3.md`。
+
+已关闭项不再重审：声明来源（S15）、S18 consumer、链接环归因、缺测元数据、计数说明。共享 `cli.command-policy.v1` 权重未改，候选 `35bd5ad9` 未重训未采用，仍 `uncalibrated/not_applied`、`fullyVerified=false`；5 项 UNVERIFIED、Linux 限制、S06 部分完成继续保留，不宣称第一层全部完成。交原编排者定点复核本处。
+
 ## 2026-10-21 Shell候选第二轮定点复核（3 关闭，2 P1 + 1 P2 已修，待复核）
 
 原 5 项 finding 中 3 项已由独立复核关闭（声明来源/S15、S18 consumer、链接环归因）。剩余 2 项 P1 + 1 项 P2 本轮修复并提交 `ed09cb2`，未合 main、未 push、未采用权重。两个 GCM worker 独立复核 PASS。main 仍 `83ff464`。
