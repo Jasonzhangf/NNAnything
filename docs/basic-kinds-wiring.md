@@ -226,3 +226,5 @@ ignore 叶子的 16 条支撑 wire 全部依赖新测量字段（`singleChildSam
 推论有两条，均已在真实拟合与公开分类器上复核。第一，`same-rect` 单子元素包装只有在 31 项测量字段齐备时才可能被判 ignore：同一节点在完整字段下 `structure` 区间为 `[1,1]`，仅保留旧 12 字段后 `structure` 为 `[0.077,1]`、判断回落 other，`structure` 无法从旧字段单独达到 `minScore=0.6`。第二，旧语料无法承担 ignore 回归：`training-m1` 黄金 357 行每行仅 10–12 项字段，任何能让包装判 ignore 的系数都会把这些行的结构上界抬高，最多使 91 行从 judged 变为 `unresolved_missing_feature` 的 unknown，而不会产生假 ignore。
 
 因此 ignore 增量当前只能证明“测量齐备域内可用”，不能证明旧语料零变化；旧黄金与微博 152 行须按当前 31 字段重新观测后，才能作为该增量的回归与召回证据。在此之前不得把旧语料的判为 other 当作 ignore 无效，也不得把旧语料零变化当作增量验收通过。
+
+真实页面再观测（2026-10-21）复核了上述前提。用只读入口 `playground/browser/reobserve-live.mjs` 在登录态浏览器上跑真实 `observeLiveDom`，采集小红书 explore 1543 个节点、知乎专栏 1104 个、微博 tv/home 1489 个，共 4136 条完整测量。选中候选在其中判出 1126 条 ignore，带自身可见文字、焦点、href 或交互 tag/role 的为 0；代价是有 22 条原本判 container/listitem 的节点变成 unknown/conflict。旧快照页面已改版且视口不同，59 条小红书黄金行只有 6 条能按结构路径配对，因此旧行不能复原为同一批节点，旧黄金的“0 预测变化”不能由旧行承担；真实页面留出是该增量的有效回归证据。

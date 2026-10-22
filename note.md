@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-21 旧语料再观测：真实页面留出替代不可复原的旧行
+
+用户明确观察与采集不需要授权，本轮直接采证。新增只读入口 `playground/browser/reobserve-live.mjs` 与对比脚本 `reobserve-compare.mjs`，通过 CDP 9333 附着已开标签页跑真实 `observeLiveDom`，不跳转、不滚动、不点击。采集小红书 explore（1543 节点）、知乎专栏（1104）、微博 tv/home（1489），共 4136 条完整测量。
+
+选中候选在真实页面上的表现：变 ignore 1126 条（499 条由 container 转来，627 条由 unknown 补判），其中带自身可见文字、焦点、href 或交互 tag/role 的为 0；另有 21 条 container 与 1 条 listitem 转为 unknown/conflict，占 0.53%。39 条“有直接文字”的 span 实测只含空白与格式字符（`nonFormatDirectTextPresent=false`），1 条 iframe 为 0×0 隐藏信标，均不构成假 ignore。
+
+旧黄金与微博行不能按行复原：旧快照 1222 宽、当前 1447 宽，页面已改版。小红书 snapshot-001 的 1200 条旧节点与新采集只有 186 条结构路径重合、145 条 tag 相同，59 条黄金行只有 6 条可配对；微博 detail 页未打开，存盘 18 项字段缺 16 项新测量。因此“旧黄金 0 预测变化”不能再由旧行承担，当前有效回归证据是这批真实页面留出。证据与复现见 run 目录 `browser-ignore-capability-20261021/reobserve/reobserve-report.md`。
+
 ## 2026-10-21 ignore 能力缺口补齐（测量齐备域通过，旧语料验收受阻）
 
 用户要求补齐 F04 暴露的 ignore 能力缺口。独占树 `/Volumes/Intel/playground/nnanything/browser-foundation`，证据根 `/Volumes/Intel/playground/nnanything-runs/browser-ignore-capability-20261021`。主树只读，未合 main，未部署。
