@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Focus / wrapper oracle fixture A</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #1c2430;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 10px;
+    }
+    main {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .case {
+      min-height: 112px;
+      padding: 8px;
+      background: #ffffff;
+      border-radius: 4px;
+      box-shadow: 0 0 0 1px #d7dce5;
+    }
+    .case-label {
+      margin: 0 0 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #465163;
+    }
+    .own-control {
+      display: block;
+      margin: 0 0 6px;
+      min-height: 26px;
+      padding: 2px 8px;
+      font: inherit;
+      font-size: 12px;
+    }
+    .wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 54px;
+      padding: 6px;
+      background: #eef2ff;
+    }
+    .wrapper > :is(button, a, span, img, svg) {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 72px;
+      min-height: 32px;
+      padding: 4px 8px;
+      font: inherit;
+      font-size: 12px;
+    }
+    .wrapper > img,
+    .wrapper > svg {
+      display: block;
+      width: 72px;
+      height: 40px;
+      padding: 0;
+    }
+    .inner-wrap {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 96px;
+      min-height: 40px;
+      padding: 4px;
+      background: #f7f9ff;
+    }
+    .text-child {
+      background: #fff7db;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="case" data-case="button-S1">
+      <p class="case-label">button / S1</p>
+      <button class="own-control" type="button" data-own-control>Own control button-S1</button>
+      <div class="wrapper" data-construction="button" data-state="S1" tabindex="0">
+        <button type="button" data-target="child">Button child</button>
+      </div>
+    </section>
+
+    <section class="case" data-case="button-S2">
+      <p class="case-label">button / S2</p>
+      <button class="own-control" type="button" data-own-control>Own control button-S2</button>
+      <div class="wrapper" data-construction="button" data-state="S2" tabindex="0">
+        <button type="button" data-target="child">Button child</button>
+      </div>
+    </section>
+
+    <section class="case" data-case="button-S3">
+      <p class="case-label">button / S3</p>
+      <button class="own-control" type="button" data-own-control>Own control button-S3</button>
+      <div class="wrapper" data-construction="button" data-state="S3">
+        <button type="button" data-target="child">Button child</button>
+      </div>
+    </section>
+
+    <section class="case" data-case="svg-S1">
+      <p class="case-label">svg / S1</p>
+      <button class="own-control" type="button" data-own-control>Own control svg-S1</button>
+      <div class="wrapper" data-construction="svg" data-state="S1" tabindex="0">
+        <svg data-target="child" width="72" height="40" viewBox="0 0 72 40" role="img" aria-label="Sample graphic">
+          <rect width="72" height="40" rx="4" fill="#2563eb"></rect>
+        </svg>
+      </div>
+    </section>
+
+    <section class="case" data-case="svg-S2">
+      <p class="case-label">svg / S2</p>
+      <button class="own-control" type="button" data-own-control>Own control svg-S2</button>
+      <div class="wrapper" data-construction="svg" data-state="S2" tabindex="0">
+        <svg data-target="child" width="72" height="40" viewBox="0 0 72 40" role="img" aria-label="Sample graphic">
+          <rect width="72" height="40" rx="4" fill="#2563eb"></rect>
+        </svg>
+      </div>
+    </section>
+
+    <section class="case" data-case="svg-S3">
+      <p class="case-label">svg / S3</p>
+      <button class="own-control" type="button" data-own-control>Own control svg-S3</button>
+      <div class="wrapper" data-construction="svg" data-state="S3">
+        <svg data-target="child" width="72" height="40" viewBox="0 0 72 40" role="img" aria-label="Sample graphic">
+          <rect width="72" height="40" rx="4" fill="#2563eb"></rect>
+        </svg>
+      </div>
+    </section>
+
+    <section class="case" data-case="image-S1">
+      <p class="case-label">image / S1</p>
+      <button class="own-control" type="button" data-own-control>Own control image-S1</button>
+      <div class="wrapper" data-construction="image" data-state="S1" tabindex="0">
+        <img data-target="child" width="72" height="40" alt="Sample image" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MiIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjcyIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMjU2M2ViIi8+PC9zdmc+">
+      </div>
+    </section>
+
+    <section class="case" data-case="image-S2">
+      <p class="case-label">image / S2</p>
+      <button class="own-control" type="button" data-own-control>Own control image-S2</button>
+      <div class="wrapper" data-construction="image" data-state="S2" tabindex="0">
+        <img data-target="child" width="72" height="40" alt="Sample image" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MiIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjcyIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMjU2M2ViIi8+PC9zdmc+">
+      </div>
+    </section>
+
+    <section class="case" data-case="image-S3">
+      <p class="case-label">image / S3</p>
+      <button class="own-control" type="button" data-own-control>Own control image-S3</button>
+      <div class="wrapper" data-construction="image" data-state="S3">
+        <img data-target="child" width="72" height="40" alt="Sample image" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI3MiIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjcyIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMjU2M2ViIi8+PC9zdmc+">
+      </div>
+    </section>
+
+    <section class="case" data-case="link-S1">
+      <p class="case-label">link / S1</p>
+      <button class="own-control" type="button" data-own-control>Own control link-S1</button>
+      <div class="wrapper" data-construction="link" data-state="S1" tabindex="0">
+        <a href="#link-S1-target" data-target="child">Link child</a>
+      </div>
+    </section>
+
+    <section class="case" data-case="link-S2">
+      <p class="case-label">link / S2</p>
+      <button class="own-control" type="button" data-own-control>Own control link-S2</button>
+      <div class="wrapper" data-construction="link" data-state="S2" tabindex="0">
+        <a href="#link-S2-target" data-target="child">Link child</a>
+      </div>
+    </section>
+
+    <section class="case" data-case="link-S3">
+      <p class="case-label">link / S3</p>
+      <button class="own-control" type="button" data-own-control>Own control link-S3</button>
+      <div class="wrapper" data-construction="link" data-state="S3">
+        <a href="#link-S3-target" data-target="child">Link child</a>
+      </div>
+    </section>
+
+    <section class="case" data-case="text_span-S1">
+      <p class="case-label">text_span / S1</p>
+      <button class="own-control" type="button" data-own-control>Own control text_span-S1</button>
+      <div class="wrapper" data-construction="text_span" data-state="S1" tabindex="0">
+        <span class="text-child" data-target="child">Visible text</span>
+      </div>
+    </section>
+
+    <section class="case" data-case="text_span-S2">
+      <p class="case-label">text_span / S2</p>
+      <button class="own-control" type="button" data-own-control>Own control text_span-S2</button>
+      <div class="wrapper" data-construction="text_span" data-state="S2" tabindex="0">
+        <span class="text-child" data-target="child">Visible text</span>
+      </div>
+    </section>
+
+    <section class="case" data-case="text_span-S3">
+      <p class="case-label">text_span / S3</p>
+      <button class="own-control" type="button" data-own-control>Own control text_span-S3</button>
+      <div class="wrapper" data-construction="text_span" data-state="S3">
+        <span class="text-child" data-target="child">Visible text</span>
+      </div>
+    </section>
+
+    <section class="case" data-case="nested_button-S1">
+      <p class="case-label">nested_button / S1</p>
+      <button class="own-control" type="button" data-own-control>Own control nested_button-S1</button>
+      <div class="wrapper" data-construction="nested_button" data-state="S1" tabindex="0">
+        <div class="inner-wrap" data-target="child">
+          <button type="button" data-target="leaf">Nested button</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="case" data-case="nested_button-S2">
+      <p class="case-label">nested_button / S2</p>
+      <button class="own-control" type="button" data-own-control>Own control nested_button-S2</button>
+      <div class="wrapper" data-construction="nested_button" data-state="S2" tabindex="0">
+        <div class="inner-wrap" data-target="child">
+          <button type="button" data-target="leaf">Nested button</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="case" data-case="nested_button-S3">
+      <p class="case-label">nested_button / S3</p>
+      <button class="own-control" type="button" data-own-control>Own control nested_button-S3</button>
+      <div class="wrapper" data-construction="nested_button" data-state="S3">
+        <div class="inner-wrap" data-target="child">
+          <button type="button" data-target="leaf">Nested button</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -39,6 +39,12 @@ export interface BasicKindPartitionConfig {
   readonly seed: number;
   readonly evalFraction: number;
   readonly allowInSampleEval: boolean;
+  readonly explicitUsage?: readonly BasicKindExplicitUsage[];
+}
+
+export interface BasicKindExplicitUsage {
+  readonly sampleId: string;
+  readonly usage: "train" | "eval";
 }
 
 export interface BasicKindSourceCluster {
@@ -253,18 +259,41 @@ function within(root: string, path: string): void {
 
 export function readBasicKindPartitionConfig(value: unknown): BasicKindPartitionConfig {
   const input = expectRecord(value, "partition config");
-  onlyKeys(input, ["mode", "seed", "evalFraction", "allowInSampleEval"], "partition config");
+  onlyKeys(input, ["mode", "seed", "evalFraction", "allowInSampleEval", "explicitUsage"], "partition config");
   const seed = expectFiniteNumber(input.seed, "partition config.seed");
   if (!Number.isInteger(seed) || seed < 0 || seed > 0xffff_ffff) throw new TypeError("partition config.seed must be a uint32");
   const evalFraction = expectFiniteNumber(input.evalFraction, "partition config.evalFraction");
   if (evalFraction <= 0 || evalFraction >= 1) throw new TypeError("partition config.evalFraction must be between 0 and 1");
   if (input.allowInSampleEval !== undefined && typeof input.allowInSampleEval !== "boolean") throw new TypeError("partition config.allowInSampleEval must be boolean");
+  const mode = oneOf(input.mode, ["source_group_holdout", "development_only"] as const, "partition config.mode");
+  const explicitUsage = input.explicitUsage === undefined ? undefined : readExplicitUsage(input.explicitUsage, "partition config.explicitUsage");
+  if (explicitUsage !== undefined && mode !== "source_group_holdout") {
+    throw new TypeError("partition config.explicitUsage requires source_group_holdout");
+  }
   return {
-    mode: oneOf(input.mode, ["source_group_holdout", "development_only"] as const, "partition config.mode"),
+    mode,
     seed,
     evalFraction,
     allowInSampleEval: input.allowInSampleEval ?? false,
+    ...(explicitUsage === undefined ? {} : { explicitUsage }),
   };
+}
+
+function readExplicitUsage(value: unknown, field: string): BasicKindExplicitUsage[] {
+  const entries = expectArray(value, field).map((entry, index) => {
+    const input = expectRecord(entry, `${field}[${index}]`);
+    onlyKeys(input, ["sampleId", "usage"], `${field}[${index}]`);
+    return {
+      sampleId: expectNonEmptyString(input.sampleId, `${field}[${index}].sampleId`),
+      usage: oneOf(input.usage, ["train", "eval"] as const, `${field}[${index}].usage`),
+    };
+  });
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (seen.has(entry.sampleId)) throw new TypeError(`${field} contains duplicate sampleId ${entry.sampleId}`);
+    seen.add(entry.sampleId);
+  }
+  return entries;
 }
 
 class UnionFind {
@@ -344,10 +373,75 @@ function sourceClusters(rows: readonly PreparedBasicKindRow[], includedIndices: 
     });
 }
 
+function indexBySampleId(rows: readonly PreparedBasicKindRow[]): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const row of rows) result.set(row.sampleId, row.index);
+  return result;
+}
+
+function explicitPartitions(
+  samples: BasicKindSamples,
+  explicitUsage: readonly BasicKindExplicitUsage[],
+): { readonly ok: false; readonly reason: string; readonly details: Readonly<Record<string, number | string>> } | { readonly ok: true; readonly partitions: BasicKindPartitions } {
+  const rows = samples.rows, included = new Set(samples.includedIndices);
+  const bySampleId = indexBySampleId(rows);
+  const assigned = new Map<number, "train" | "eval">();
+  for (const entry of explicitUsage) {
+    const index = bySampleId.get(entry.sampleId);
+    if (index === undefined) return { ok: false, reason: "explicit_usage_unknown_sample", details: { sampleId: entry.sampleId } };
+    if (!included.has(index)) return { ok: false, reason: "explicit_usage_excluded_sample", details: { sampleId: entry.sampleId, index } };
+    assigned.set(index, entry.usage);
+  }
+  for (const index of included) {
+    if (!assigned.has(index)) return { ok: false, reason: "explicit_usage_missing_sample", details: { index, sampleId: rows[index]!.sampleId } };
+  }
+  const baseClusters = sourceClusters(rows, samples.includedIndices);
+  const clusterUsage = new Map<string, "train" | "eval">();
+  for (const cluster of baseClusters) {
+    const usages = new Set(cluster.rowIndices.map(index => assigned.get(index)!));
+    if (usages.size > 1) {
+      return {
+        ok: false,
+        reason: "explicit_usage_cross_source_cluster",
+        details: { clusterId: cluster.clusterId, usages: [...usages].join(",") },
+      };
+    }
+    clusterUsage.set(cluster.clusterId, [...usages][0]!);
+  }
+  const trainClusters = baseClusters.filter(cluster => clusterUsage.get(cluster.clusterId) === "train");
+  const evalClusters = baseClusters.filter(cluster => clusterUsage.get(cluster.clusterId) === "eval");
+  if (!trainClusters.length || !evalClusters.length) {
+    return { ok: false, reason: "explicit_usage_requires_both_uses", details: { trainClusters: trainClusters.length, evalClusters: evalClusters.length } };
+  }
+  const flatten = (clusters: readonly BasicKindSourceCluster[]) =>
+    clusters.flatMap(cluster => [...cluster.rowIndices]).sort((left, right) => left - right);
+  return {
+    ok: true,
+    partitions: {
+      schemaVersion: 1,
+      taskId: BASIC_KIND_TASK_ID,
+      inputScope: samples.inputScope,
+      rows: samples.rows,
+      includedIndices: samples.includedIndices,
+      sourceClusters: baseClusters.map(cluster => ({ ...cluster, usage: clusterUsage.get(cluster.clusterId)! })),
+      trainIndices: flatten(trainClusters),
+      evalIndices: flatten(evalClusters),
+      evaluationMode: "source_group_holdout",
+      independentEvaluation: true,
+      warnings: ["explicit_usage_partition"],
+    },
+  };
+}
+
 export function partitionBasicKindSamples(value: unknown, rawConfig: unknown): BasicKindPartitionResult {
   const samples = readBasicKindSamples(value), config = readBasicKindPartitionConfig(rawConfig);
   if (!samples.includedIndices.length) {
     return { ok: false, reason: "no_included_samples", details: { rows: samples.rows.length } };
+  }
+  if (config.explicitUsage !== undefined) {
+    const result = explicitPartitions(samples, config.explicitUsage);
+    if (!result.ok) return result;
+    return { ok: true, partitions: result.partitions };
   }
   const baseClusters = sourceClusters(samples.rows, samples.includedIndices);
   if (config.mode === "development_only" || (config.allowInSampleEval && baseClusters.length < 2)) {
