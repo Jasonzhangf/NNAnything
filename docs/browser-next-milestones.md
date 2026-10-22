@@ -166,6 +166,8 @@ A0–A3 已实际执行，A4 未解封：T1（200 epoch）与 T2（2000 epoch，
 
 ## 5. B2：一次写入，确认写到了正确对象
 
+2026-10-22 后续起点：真实焦点构造已由父级接收，native `tabindex=-1`容器经CDP原生点击及新页面重复，15条状态检查通过，5条focused为af=1/fc=0；81wire与精确反例相等，仍ignore0.864008。fc只表示中性容器显式非负tabindex，不能解释成完整键盘可达性或可聚焦能力。探索数据未标gold、未拟合，B1能力仍未完成。证据沿外置browser-focus-human-20261022/parent-acceptance.md；下一完整域任务沿[browser-next-longhorizon.md](browser-next-longhorizon.md)，不是再重跑原T1/T2。上文“尚未启动”是该次失败报告收口时点的历史状态。
+
 四元素：Goal为指定scope内的已确认编辑对象显示目标文本；threshold100；State为当前对象身份、可编辑事实、当前值与观测版本；Action为一次当前输入行为及其必要读回。已经达标可以零输入，但this_run观察义务不能省。
 
 先保留普通text输入的显式绑定最小consumer，验证低层操作与观察，再独立训练“当前Goal条件→合适对象/能力provider”的关系选择。只在出现需学习的关系时训练，不训练精确字符串相等、权限或层序。原有展开原子50参数不可直接当输入模型。对象关系保持Goal相关，不能污染L1类别或ignore标签。

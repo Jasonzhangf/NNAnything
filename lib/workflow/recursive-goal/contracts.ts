@@ -7,6 +7,7 @@ import {
   readPlanningContractRefs,
   readPlanningReport,
   readPlanningSelectionView,
+  sameVersionedRef,
   type BoundedPlanningCapability,
   type BoundedPlanningOptions,
   type BoundedPlanningRequest,
@@ -3924,6 +3925,25 @@ function assertPlanningContinuationReferences<G, S, B, E, F, R, C>(
           throw new TypeError(
             `continuation.failurePrior ${prior.id} has unknown error ${errorRef}`,
           );
+        }
+      }
+      const proof = prior.source.attribution;
+      if (!sameVersionedRef(proof.capabilityRef, planningContract.capabilityRef) ||
+        proof.stateRef !== atomic.observedStateRef || !stateIds.has(proof.stateRef) ||
+        prior.conclusion.transitionRefs.some(ref => !proof.generatedTransitionRefs.includes(ref))) {
+        throw new TypeError(`continuation.failurePrior ${prior.id} attribution is outside its observed transition`);
+      }
+      for (const ref of proof.evidenceRefs) {
+        if (!base.evidence.some(e => e.id === ref && e.stateRef === proof.stateRef && e.validity === "valid")) {
+          throw new TypeError(`continuation.failurePrior ${prior.id} attribution evidence is invalid`);
+        }
+      }
+      if (plan?.planId === proof.planRef) {
+        const node = plan.nodes.find(item => item.id === proof.nodeRef);
+        if (node === undefined || !sameVersionedRef(node.skillRef, prior.skillRef) ||
+          node.obligationRef.frameRef !== prior.obligationRef.frameRef ||
+          !sameStringSet(node.predictedResults.map(item => item.transitionRef), proof.generatedTransitionRefs)) {
+          throw new TypeError(`continuation.failurePrior ${prior.id} attribution disagrees with its generated node`);
         }
       }
     } else {

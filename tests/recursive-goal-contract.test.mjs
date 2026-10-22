@@ -38,7 +38,7 @@ function workflowNode({
 }) {
   return {
     operator,
-    version: "0.2.0",
+    version: "0.2.0.0001",
     inputPorts: [
       {
         name: input,
@@ -186,7 +186,7 @@ test("real recursive workflow assets load and compile as a 3N2E candidate", asyn
   assert.equal(graph.edges.length, 2);
   assert.equal(graph.inputs.length, 1);
   assert.equal(graph.outputs.length, 1);
-  assert.equal(graph.version, "0.2.0");
+  assert.equal(graph.version, "0.2.0.0001");
   assert.deepEqual(
     graph.nodes.map((node) => node.operator),
     [
@@ -196,7 +196,7 @@ test("real recursive workflow assets load and compile as a 3N2E candidate", asyn
     ],
   );
   assert.equal(
-    graph.nodes.every((node) => node.operator_version === "0.2.0"),
+    graph.nodes.every((node) => node.operator_version === "0.2.0.0001"),
     true,
   );
   assert.equal(workflow.configVersion, 1);

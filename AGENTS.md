@@ -91,6 +91,9 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 ## 唯一Owner与入口
 
+- 2026-10-22通用反馈修订候选：recursive-goal图/三个算子为`0.2.0.0001`，3N2E拓扑不变。失败事实与领域归因分开，`planning.attributeFailure`未配置或unknown时不创建转移排除并停止该自动恢复；合法限制须有当前post证据和已生成转移范围，续接保存归因凭据。最新行为/交付沿note.md，前述0.2.0/下述0.1.0只保留历史证据，不作为当前版本。分层刚性/混合唯一合同为docs/design.md 1.1.1；模式反应、归因、经验时间边界分别归recursive-goal-module.md 4.0、bounded-goal-planning.md 9.1、model-evolution.md 2.2。
+- 两个独立长程域任务由docs/browser-next-longhorizon.md和docs/cli-next-longhorizon.md维护，配套同名前缀的`-prompt.md`交用户派发；不因提示词落盘就启动。域owner不修改共享core，缺口交父编排者，不各自复制推理循环。旧browser-foundation尚待能力修复及整体集成；精确CLI查找已交付，不能据历史“未实现”导航忽略当前nnanything/cli-search入口。
+
 - 浏览器逐步观察义务：`lib/adapters/browser/action-observation.ts`；原子执行异常后仍读取安全后验，执行错误、观察错误、真实Goal事实与effects分离。普通text输入搜索公开入口为`nnanything/browser-search`的`runBrowserSearchGoal`，领域合同由`docs/search-page-abstraction.md`维护，节点复用operation-episode 7N6E，组合复用recursive-goal。当前显式绑定/handwired起点，未训练搜索模型；textarea/search/contenteditable、任意网页自动绑定、分页滚动筛选未接入。旧原子/F1/F2权重不变；新失败投影的F1后训练缺口沿`docs/browser-feedback-strategy.md`记录，不把旧回归全绿当新增泛化。
 
 - 人的可观察/可感知评价、已有及未来元素族与具名指标分母由docs/semantic-evaluation.md维护。身份、资格、能力、感知与目标效果分开。编码的完整milestone独立Review还须审原始逐例依据、oracle前提与评估结论合理性，不以测试全绿替代；沿本地设计Skill，不加逐节点审核。

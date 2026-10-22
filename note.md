@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-22 通用逐步反馈修订候选与两域长程任务
+
+按用户要求修复通用推理链审查4项：失败事实不再由controller自动推断整组转移不可用；新增纯领域attributeFailure和当前post/已生成集合守卫、可复制归因凭据；未配置/unknown准确停止，非法输出保留原错。F2跨模式反应、F3经验时间边界、F4刚性L1与混合上层的唯一合同已补到既有owner。拓扑3N2E不变，bumper补实际module共享版本owner后升0.2.0.0001，未动权重、未训练。原公开入口红测和版本红测保存在外置reasoning-feedback-fix-20261022；本轮全仓1096/1096、0fail/0skip，含真实cwd/finite公开consumer。修复twoLegalChoices测试fixture原先实际返回失败却手填finished的前提问题，改为两项真正成功的synthetic回执，未放宽产品断言。独立整体Review及main交付尚待，不把作者绿测写成PASS。
+
+CLI精确查找已在a854bcc合main并push，42/42与authority公开probe闭合，旧entry-search任务树已正常移除。browser真实构造由父级接收：15条状态，native原生点击在新页面重复af=1/fc=0，81wire与旧反例逐项相等，仍ignore0.864008。fc是显式非负tabindex，不能称完整聚焦能力；探索未标gold、未fit。证据在browser-focus-human-20261022的delivery/parent-acceptance，B1仍INCOMPLETE。工具和首次失败记录保留，未重采未训练。
+
+整体独立Review首轮发现一项P1：缺归因等停止路径跳过planning旧快速分支的post根重评。已通过公开入口复现旧unsatisfied与真实post已满足不一致（review-fix-red.log），修复为归因未接受后执行既有受控纯事实重评，保留原错且不派发恢复动作；缺证据/评价失败为unknown，取消保持取消。新测试覆盖缺callback/unknown/异常/坏输出/评价失败/缺证据/取消，21项受影响回归通过；最终复核与交付另记，不复开其余已审内容。
+
+后续独立定点复核关闭旧根评价P1，并发现取消与评价reject同时发生的P2；新增cancelDuringReject公开红测复现，catch补保留取消，21项定向通过。最终独立复核findings为空、exit0；使用正式classifyReviewOutput裁决PASS，完整整体审查与finding闭包已满足。本轮主体全仓1097/1097、0fail/skip，最后单行取消修复以21项受影响回归验收，不伪称新变体另跑全仓。Review原始结果、退出码及裁决在reasoning-feedback-fix-20261022，未训练/未采用。main交付回执由该run补充，不用本条PASS代替实际集成。
+
+用户要求两域随后独立长程完成：docs/browser-next-longhorizon.md与docs/cli-next-longhorizon.md为计划，各有-prompt.md可直接派发。尚未启动这两个新目标。域owner不改共享core，过程各记外置run；基础语义刚性且训练，高层组合混合，真实验收与控制不训练。主树遗留pid未处理。
+
 ## 2026-10-22 B1焦点保留与ignore学习修复：B1 INCOMPLETE（未产生合格候选，未采用）
 
 按docs/browser-next-milestones.md第0节A0–A5执行完毕，结论B1 INCOMPLETE，无合格候选，B未解封。完整交付见外置run `/Volumes/Intel/playground/nnanything-runs/browser-focus-repair-20261022/delivery.md`。

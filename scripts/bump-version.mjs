@@ -105,6 +105,18 @@ for (const graphFile of graphs) {
     operatorVersionsUpdated: sync ? 0 : stale,
   });
 
+  // recursive-goal owns its definitions in a shared runtime factory, not lib/nodes.
+  if (graph.id === "recursive-goal") {
+    const file = "lib/workflow/recursive-goal/module.ts";
+    const source = readFileSync(join(root, file), "utf8");
+    const match = /const OPERATOR_VERSION = "([^"]+)";/.exec(source);
+    if (match === null) throw new Error(`找不到 ${file} 的共享算子版本`);
+    if (match[1] !== now) {
+      nodeUpdates.push({file, operator: "goal.recursive.*", was: match[1], now});
+      nodeSources.set(file, source.replace(match[0], `const OPERATOR_VERSION = "${now}";`));
+    }
+  }
+
   // NodeDefinition.version 按 operator id 在其定义块内同步。
   // 支持两种写法：显式 `operator: "x.y.z"`，以及共享工厂的模板串 `operator: \`x.y.${name}\``。
   for (const node of operators) {
