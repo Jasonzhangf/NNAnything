@@ -56,6 +56,68 @@ function rawEvidence(byId, evidenceRefs, source) {
     .filter(item => item !== undefined && (source === undefined || item.source === source));
 }
 
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function snapshotNodes(side) {
+  const nodes = side?.snapshot?.observation?.nodes ?? side?.snapshot?.nodes;
+  return Array.isArray(nodes) ? nodes : [];
+}
+
+function nodeRefFromSide(side) {
+  if (isRecord(side) && typeof side.nodeRef === "string" && isRecord(side.attributes)) {
+    return side.nodeRef;
+  }
+  if (isRecord(side?.node) && typeof side.node.nodeRef === "string") {
+    return side.node.nodeRef;
+  }
+  const nodes = snapshotNodes(side);
+  return nodes.length === 1 && typeof nodes[0]?.nodeRef === "string" ? nodes[0].nodeRef : null;
+}
+
+function resolveSideNode(side, nodeRef) {
+  if (isRecord(side) && typeof side.nodeRef === "string" && isRecord(side.attributes)) {
+    return side.nodeRef === nodeRef ? side : null;
+  }
+  if (isRecord(side?.node)) {
+    return side.node.nodeRef === nodeRef ? side.node : null;
+  }
+  if (nodeRef === null) return null;
+  return snapshotNodes(side).find(item => item?.nodeRef === nodeRef) ?? null;
+}
+
+function sideEvidenceRows(side) {
+  const evidence = side?.snapshot?.evidence ?? side?.evidence;
+  if (evidence instanceof Map) return [...evidence.values()];
+  return Array.isArray(evidence) ? evidence : [];
+}
+
+function valueReadProvided(side, nodeRef) {
+  if (nodeRef === null) return false;
+  return sideEvidenceRows(side).some(item =>
+    item?.nodeRef === nodeRef && Object.hasOwn(item, "inputValue"));
+}
+
+function readSideValue(side, nodeRef) {
+  const row = sideEvidenceRows(side).find(item => item?.nodeRef === nodeRef);
+  if (row === undefined || !Object.hasOwn(row, "inputValue") || row.inputValue === null) {
+    return { status: "unavailable", value: null };
+  }
+  return { status: "observed", value: row.inputValue };
+}
+
+function contextFromSide(side, explicit, label) {
+  const state = explicit ?? side?.state ?? side?.context;
+  if (!isRecord(state)) throw new TypeError(`${label} comparison context is required`);
+  return {
+    documentRef: state.documentRef,
+    scopeRef: state.scopeRef,
+    observationId: state.observationId,
+    revision: state.revision,
+  };
+}
+
 function projectSnapshot(snapshot, byId, sections) {
   for (const element of list(snapshot?.elements, "snapshot.elements")) {
     const nodeRef = element.ref;
@@ -230,17 +292,37 @@ function projectAttributeChange(changeInput, sections) {
   if (changeInput === undefined) return;
   const before = changeInput.before ?? null;
   const after = changeInput.after ?? null;
-  const nodeRef = changeInput.nodeRef ?? before?.nodeRef ?? after?.nodeRef ?? null;
+  const nodeRef = changeInput.nodeRef ?? nodeRefFromSide(before) ?? nodeRefFromSide(after) ?? null;
+  const beforeNode = resolveSideNode(before, nodeRef);
+  const afterNode = resolveSideNode(after, nodeRef);
+  const context = changeInput.context ?? {
+    before: contextFromSide(before, changeInput.beforeContext, "attributeChange.before"),
+    after: contextFromSide(after, changeInput.afterContext, "attributeChange.after"),
+  };
+  const beforeValueProvided = valueReadProvided(before, nodeRef);
+  const afterValueProvided = valueReadProvided(after, nodeRef);
+  const valueReads = changeInput.valueReads !== undefined
+    ? changeInput.valueReads
+    : beforeValueProvided || afterValueProvided
+      ? { before: readSideValue(before, nodeRef), after: readSideValue(after, nodeRef) }
+      : undefined;
   const explicit = Array.isArray(changeInput.attributes) && changeInput.attributes.length > 0;
   const changes = explicit
-    ? changeInput.attributes.map(attribute => compareAttributeChange(before, after, attribute))
-    : compareObservedAttributeChanges(before, after);
+    ? changeInput.attributes.map(attribute =>
+      compareAttributeChange(beforeNode, afterNode, attribute, context, valueReads))
+    : compareObservedAttributeChanges(beforeNode, afterNode, context, valueReads);
   const source = explicit
     ? "browser-classify:compareAttributeChange"
     : "browser-classify:compareObservedAttributeChanges";
   const evidence = [{
-    before: before?.attributes ?? null,
-    after: after?.attributes ?? null,
+    before: {
+      attributes: beforeNode?.attributes ?? null,
+      inputValue: valueReads?.before.status === "observed" ? valueReads.before.value : null,
+    },
+    after: {
+      attributes: afterNode?.attributes ?? null,
+      inputValue: valueReads?.after.status === "observed" ? valueReads.after.value : null,
+    },
   }];
   for (const change of changes) {
     sections.attributeChange.push(entry(nodeRef, source, change, evidence));
@@ -256,7 +338,14 @@ function projectAttributeChange(changeInput, sections) {
  *   receipt         optional { nodeRef, input, profile } for the receipt member
  *   episode         optional SingleActionEpisodeResult from the event owner
  *   episodeNodeRef  optional explicit event subject when the episode has none
- *   attributeChange optional { nodeRef?, before, after, attributes? }
+ *   attributeChange optional {
+ *     nodeRef?, before, after, attributes?,
+ *     context?, beforeContext?, afterContext?, valueReads?
+ *   }
+ *   Each before/after side may be an ObservationNode or a fixture with a
+ *   `state` carrying the F14 control triple and a `snapshot` carrying
+ *   observation nodes plus F07 evidence. The snapshot evidence inputValue is
+ *   the explicit current value read; the HTML value attribute is never used.
  */
 export function composeBrowserF16(input = {}) {
   const sections = {

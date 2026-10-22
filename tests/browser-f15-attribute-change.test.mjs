@@ -19,10 +19,59 @@ function node(nodeRef, attributes) {
   };
 }
 
+function comparisonContext(before = {}, after = {}) {
+  return {
+    before: {
+      documentRef: "document-1",
+      scopeRef: "scope-1",
+      observationId: "observation-1",
+      revision: 1,
+      ...before,
+    },
+    after: {
+      documentRef: "document-1",
+      scopeRef: "scope-1",
+      observationId: "observation-2",
+      revision: 2,
+      ...after,
+    },
+  };
+}
+
+function valueReads(before, after) {
+  return {
+    before: { status: "observed", value: before },
+    after: { status: "observed", value: after },
+  };
+}
+
+test("comparison_context_missing throws TypeError for a missing or malformed context", () => {
+  const before = node("n1", { checked: true });
+  const after = node("n1", { checked: true });
+  // A null context is an explicit missing context, not a malformed one.
+  assert.throws(
+    () => compareAttributeChange(before, after, "checked", null),
+    error => error instanceof TypeError && error.message.includes("comparison_context_missing"),
+  );
+  // Malformed sides must throw as well.
+  assert.throws(
+    () => compareAttributeChange(before, after, "checked", { before: comparisonContext().before, after: {} }),
+    TypeError,
+  );
+  assert.throws(
+    () => compareAttributeChange(before, after, "checked", undefined),
+    error => error instanceof TypeError && error.message.includes("comparison_context_missing"),
+  );
+  assert.throws(
+    () => compareAttributeChange(before, after, "checked", { before: comparisonContext().before }),
+    TypeError,
+  );
+});
+
 test("a value that changes is reported as changed with both sides kept", () => {
   const before = node("n1", { "aria-expanded": "false" });
   const after = node("n1", { "aria-expanded": "true" });
-  const change = compareAttributeChange(before, after, "aria-expanded");
+  const change = compareAttributeChange(before, after, "aria-expanded", comparisonContext());
   assert.equal(change.state, "changed");
   assert.equal(change.before, "false");
   assert.equal(change.after, "true");
@@ -31,22 +80,74 @@ test("a value that changes is reported as changed with both sides kept", () => {
 test("the same value twice is unchanged, not unknown", () => {
   const before = node("n1", { checked: false });
   const after = node("n1", { checked: false });
-  const change = compareAttributeChange(before, after, "checked");
+  const change = compareAttributeChange(before, after, "checked", comparisonContext());
   assert.equal(change.state, "unchanged");
   assert.equal(change.unknownReason, null);
 });
 
 test("a missing posterior stays unknown instead of unchanged", () => {
   const before = node("n1", { checked: true });
-  const change = compareAttributeChange(before, null, "checked");
+  const change = compareAttributeChange(before, null, "checked", comparisonContext());
   assert.equal(change.state, "unknown");
   assert.equal(change.unknownReason, "observation_missing");
 });
 
-test("a different object is unknown even when the wording and value match", () => {
+test("same ref in another document is unknown with document_mismatch", () => {
+  const before = node("n1", { checked: true });
+  const after = node("n1", { checked: false });
+  const change = compareAttributeChange(
+    before,
+    after,
+    "checked",
+    comparisonContext({ documentRef: "document-a" }, { documentRef: "document-b" }),
+  );
+  assert.equal(change.state, "unknown");
+  assert.equal(change.unknownReason, "document_mismatch");
+});
+
+test("same ref in another scope is unknown with scope_mismatch", () => {
+  const before = node("n1", { checked: true });
+  const after = node("n1", { checked: false });
+  const change = compareAttributeChange(
+    before,
+    after,
+    "checked",
+    comparisonContext({ scopeRef: "scope-a" }, { scopeRef: "scope-b" }),
+  );
+  assert.equal(change.state, "unknown");
+  assert.equal(change.unknownReason, "scope_mismatch");
+});
+
+test("a posterior that is not newer is unknown with observation_order_invalid", () => {
+  const before = node("n1", { checked: true });
+  const after = node("n1", { checked: false });
+  const change = compareAttributeChange(
+    before,
+    after,
+    "checked",
+    comparisonContext({}, { revision: 1 }),
+  );
+  assert.equal(change.state, "unknown");
+  assert.equal(change.unknownReason, "observation_order_invalid");
+});
+
+test("two sides with the same observation id are unknown with observation_not_distinct", () => {
+  const before = node("n1", { checked: true });
+  const after = node("n1", { checked: false });
+  const change = compareAttributeChange(
+    before,
+    after,
+    "checked",
+    comparisonContext({ observationId: "same-observation" }, { observationId: "same-observation" }),
+  );
+  assert.equal(change.state, "unknown");
+  assert.equal(change.unknownReason, "observation_not_distinct");
+});
+
+test("a different object is unknown with object_mismatch even when values match", () => {
   const before = node("n1", { checked: true });
   const after = node("n2", { checked: true });
-  const change = compareAttributeChange(before, after, "checked");
+  const change = compareAttributeChange(before, after, "checked", comparisonContext());
   assert.equal(change.state, "unknown");
   assert.equal(change.unknownReason, "object_mismatch");
 });
@@ -54,19 +155,105 @@ test("a different object is unknown even when the wording and value match", () =
 test("an unobserved attribute on either side is unknown, not a value guess", () => {
   const before = node("n1", {});
   const after = node("n1", { open: true });
-  const change = compareAttributeChange(before, after, "open");
+  const change = compareAttributeChange(before, after, "open", comparisonContext());
   assert.equal(change.state, "unknown");
   assert.equal(change.unknownReason, "attribute_unobserved");
 });
 
-test("bulk compare reports only observed attributes and keeps each state", () => {
-  const before = node("n1", { disabled: false, "aria-expanded": "false", checked: true });
-  const after = node("n1", { disabled: true, "aria-expanded": "false", checked: true });
-  const changes = compareObservedAttributeChanges(before, after);
-  const byAttribute = new Map(changes.map(change => [change.attribute, change]));
-  assert.equal(byAttribute.get("disabled").state, "changed");
-  assert.equal(byAttribute.get("aria-expanded").state, "unchanged");
-  assert.equal(byAttribute.get("checked").state, "unchanged");
-  // Attributes neither side observed are not invented.
-  assert.equal(byAttribute.has("selected"), false);
+test("requesting value without explicit value reads is unknown with value_read_not_supplied", () => {
+  const before = node("n1", { value: "html-default-before" });
+  const after = node("n1", { value: "html-default-after" });
+  const change = compareAttributeChange(before, after, "value", comparisonContext());
+  assert.equal(change.state, "unknown");
+  assert.equal(change.unknownReason, "value_read_not_supplied");
+});
+
+test("explicit current values A to B are changed and A to A is unchanged", () => {
+  const before = node("n1", { value: "html-default" });
+  const after = node("n1", { value: "html-default" });
+  const changed = compareAttributeChange(
+    before,
+    after,
+    "value",
+    comparisonContext(),
+    valueReads("A", "B"),
+  );
+  assert.equal(changed.state, "changed");
+  assert.equal(changed.before, "A");
+  assert.equal(changed.after, "B");
+
+  const unchanged = compareAttributeChange(
+    before,
+    after,
+    "value",
+    comparisonContext(),
+    valueReads("A", "A"),
+  );
+  assert.equal(unchanged.state, "unchanged");
+  assert.equal(unchanged.unknownReason, null);
+});
+
+test("an unavailable current value is unknown with value_unavailable", () => {
+  const before = node("n1", {});
+  const after = node("n1", {});
+  const beforeUnavailable = compareAttributeChange(
+    before,
+    after,
+    "value",
+    comparisonContext(),
+    {
+      before: { status: "unavailable", value: null },
+      after: { status: "observed", value: "B" },
+    },
+  );
+  assert.equal(beforeUnavailable.state, "unknown");
+  assert.equal(beforeUnavailable.unknownReason, "value_unavailable");
+
+  const afterUnavailable = compareAttributeChange(
+    before,
+    after,
+    "value",
+    comparisonContext(),
+    {
+      before: { status: "observed", value: "A" },
+      after: { status: "unavailable", value: null },
+    },
+  );
+  assert.equal(afterUnavailable.state, "unknown");
+  assert.equal(afterUnavailable.unknownReason, "value_unavailable");
+});
+
+test("value comparison of different objects is unknown with object_mismatch", () => {
+  const before = node("n1", {});
+  const after = node("n2", {});
+  const change = compareAttributeChange(
+    before,
+    after,
+    "value",
+    comparisonContext(),
+    valueReads("A", "B"),
+  );
+  assert.equal(change.state, "unknown");
+  assert.equal(change.unknownReason, "object_mismatch");
+});
+
+test("bulk compare includes value only when explicit value reads are supplied", () => {
+  const before = node("n1", { value: "html-default-before", disabled: false });
+  const after = node("n1", { value: "html-default-after", disabled: true });
+
+  const withoutReads = compareObservedAttributeChanges(before, after, comparisonContext());
+  const withoutByAttribute = new Map(withoutReads.map(change => [change.attribute, change]));
+  assert.equal(withoutByAttribute.has("value"), false);
+
+  const withReads = compareObservedAttributeChanges(
+    before,
+    after,
+    comparisonContext(),
+    valueReads("A", "B"),
+  );
+  const withByAttribute = new Map(withReads.map(change => [change.attribute, change]));
+  assert.equal(withByAttribute.get("value").state, "changed");
+  assert.equal(withByAttribute.get("value").before, "A");
+  assert.equal(withByAttribute.get("value").after, "B");
+  assert.equal(withByAttribute.get("disabled").state, "changed");
 });

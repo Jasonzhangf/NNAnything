@@ -274,6 +274,34 @@ function node(nodeRef, attributes) {
   };
 }
 
+function attributeSide(nodeValue, observationId, revision, options = {}) {
+  const {
+    inputValue,
+    documentRef = "document-f16",
+    scopeRef = "scope-f16",
+    ...stateOverrides
+  } = options;
+  const side = {
+    state: {
+      documentRef,
+      scopeRef,
+      observationId,
+      revision,
+      ...stateOverrides,
+    },
+    snapshot: {
+      observation: { nodes: [nodeValue] },
+    },
+  };
+  if (Object.hasOwn(options, "inputValue")) {
+    side.snapshot.evidence = new Map([[
+      nodeValue.nodeRef,
+      { nodeRef: nodeValue.nodeRef, inputValue },
+    ]]);
+  }
+  return side;
+}
+
 function find(section, predicate) {
   const found = section.find(predicate);
   assert.ok(found, `missing entry for ${predicate}`);
@@ -397,7 +425,11 @@ test("F16.3 receipt success and unchanged attributes coexist without inference",
       input: { receipt: { ok: true } },
       profile: receiptProfile(),
     },
-    attributeChange: { before, after, attributes: ["aria-expanded"] },
+    attributeChange: {
+      before: attributeSide(before, "f16-attribute-before", 1),
+      after: attributeSide(after, "f16-attribute-after", 2),
+      attributes: ["aria-expanded"],
+    },
   });
 
   const success = find(composite.event, item =>
@@ -447,8 +479,8 @@ test("F16.5 output carries no aggregated satisfaction field", () => {
     },
     episode: eventEpisode(buttonRef, panelRef),
     attributeChange: {
-      before: node("node-1", { "aria-expanded": "true" }),
-      after: node("node-1", { "aria-expanded": "true" }),
+      before: attributeSide(node("node-1", { "aria-expanded": "true" }), "f16-before-five", 1),
+      after: attributeSide(node("node-1", { "aria-expanded": "true" }), "f16-after-five", 2),
       attributes: ["aria-expanded"],
     },
   });
@@ -478,8 +510,8 @@ test("F16.6 original facts and member outputs stay traceable", () => {
     },
     episode: eventEpisode(buttonRef, panelRef),
     attributeChange: {
-      before: node("node-1", { "aria-expanded": "false" }),
-      after: node("node-1", { "aria-expanded": "true" }),
+      before: attributeSide(node("node-1", { "aria-expanded": "false" }), "f16-before-six", 1),
+      after: attributeSide(node("node-1", { "aria-expanded": "true" }), "f16-after-six", 2),
     },
   });
 
@@ -503,4 +535,74 @@ test("F16.6 original facts and member outputs stay traceable", () => {
   const receipt = find(composite.event, item =>
     item.source === "browser-receipt:predictBrowserReceipt");
   assert.deepEqual(receipt.evidence, [{ receipt: { ok: false } }]);
+});
+
+test("F16.7 input value comes from evidence inputValue, never the value attribute", () => {
+  const before = attributeSide(
+    node("node-value", { value: "html-default-before" }),
+    "f16-value-before",
+    1,
+    { inputValue: "A" },
+  );
+  const after = attributeSide(
+    node("node-value", { value: "html-default-after" }),
+    "f16-value-after",
+    2,
+    { inputValue: "B" },
+  );
+  const composite = composeBrowserF16({
+    attributeChange: {
+      before,
+      after,
+      attributes: ["value"],
+    },
+  });
+
+  const changed = find(composite.attributeChange, item => item.fact.attribute === "value");
+  assert.equal(changed.fact.state, "changed");
+  assert.equal(changed.fact.before, "A");
+  assert.equal(changed.fact.after, "B");
+  assert.equal(changed.evidence[0].before.inputValue, "A");
+  assert.equal(changed.evidence[0].after.inputValue, "B");
+});
+
+test("F16.8 comparison context is built from fixture state and rejects another document", () => {
+  const before = attributeSide(node("node-context", { checked: true }), "f16-context-before", 1);
+  const after = attributeSide(
+    node("node-context", { checked: false }),
+    "f16-context-after",
+    2,
+    { documentRef: "document-other" },
+  );
+  const composite = composeBrowserF16({
+    attributeChange: {
+      before,
+      after,
+      attributes: ["checked"],
+    },
+  });
+
+  const change = find(composite.attributeChange, item => item.nodeRef === "node-context");
+  assert.equal(change.fact.state, "unknown");
+  assert.equal(change.fact.unknownReason, "document_mismatch");
+});
+
+test("F16.9 bulk attribute comparison includes value only when evidence supplied it", () => {
+  const before = attributeSide(
+    node("node-bulk-value", { disabled: false }),
+    "f16-bulk-value-before",
+    1,
+    { inputValue: "A" },
+  );
+  const after = attributeSide(
+    node("node-bulk-value", { disabled: false }),
+    "f16-bulk-value-after",
+    2,
+    { inputValue: "B" },
+  );
+  const composite = composeBrowserF16({ attributeChange: { before, after } });
+  const byAttribute = new Map(composite.attributeChange.map(item => [item.fact.attribute, item.fact]));
+
+  assert.equal(byAttribute.get("value").state, "changed");
+  assert.equal(byAttribute.get("disabled").state, "unchanged");
 });
