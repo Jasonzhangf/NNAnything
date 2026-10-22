@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-10-22 B1焦点保留与ignore学习修复：B1 INCOMPLETE（未产生合格候选，未采用）
+
+按docs/browser-next-milestones.md第0节A0–A5执行完毕，结论B1 INCOMPLETE，无合格候选，B未解封。完整交付见外置run `/Volumes/Intel/playground/nnanything-runs/browser-focus-repair-20261022/delivery.md`。
+
+A0复现成功：精确反例`actual-focus-native:actual-focus-candidate-112`在初始候选判`judged:ignore`，score 0.864008，ignore区间0.864008、container区间0.585537。A1/A2完成两个独立6构造×3状态family，各18/18状态实测（A我方、B独立GCM只接共同oracle合同与生产adapter）；B未进入fit、未参与选型，与prepared request的sampleId交集为0。资料准备后为438行（原420+A 18），用途261 train/177 eval，原分区用243/177与冻结e200一致。
+
+T1（200 epoch）与T2（2000 epoch，重新读同一初始权重、其余不变）两次真实拟合都有效完成（`epoch_limit`，fitTotalMs 4339.58 / 41966.41，78个可训练地址、301个稀疏地址、未选中223个0变化），但反例仍判ignore：T1 score 0.895949、T2 score 0.871745，均高于初始的0.864008，即拟合反而抬高其ignore分数。A家族12个S1/S2正确container、6个S3正确ignore，T1/T2全对；且初始权重下18行A的训练loss均非零、对`container.neutral_actual_focus`聚合梯度为−1.70715（分类正确不等于零梯度；T1/T2下该组为12行非零loss）。原420行`fixed=8 regressed=0 retained=266 unresolved=146 unassessed=0`（train 243: retained146/fixed1/unresolved96；eval 177: retained120/fixed7/unresolved50），ignore召回149/162→157/162，无逐行回归。
+
+已验证事实：反例与45条ignore训练行共享同一包装三签名，全train仅`neutral_actual_focus`与`own_focus_target`两条wire能把它与每条ignore行区分；A/B三状态是(`af=1,fc=1`)/(`af=0,fc=1`)/(`af=0,fc=0`)，没有反例的(`af=1,fc=0`，实际聚焦但不可键盘聚焦)。端点事实：反例ignore=0.864008、container上限1.0，最大可得margin=0.13599<0.15，仅抬container不可能翻成container。参数权衡（不构成收敛或预算结论）：T1终态`container.af=0.00568`下243条原train的聚合梯度为+1.64471，T2终态0.00069处为+1.52624，分桶（T1 `list|af=null` +2.3250 / `container|af=1` −0.6802；T2 +2.2152 / −0.6889）方向相反，说明抬该wire会同时抬高null缺测行、抵消收益；两次都以`epoch_limit`停止，收敛性、预算是否足够、是否必须改目标或阈值均未确认。两参数诊断`container.af=0.28, ignore.af=-0.15`能翻反例（margin 0.15153），代价是原420行中21条已正确ignore退回unknown（train 19、eval 2）。未证实的推断（不得当根因）："必须仅靠ignore.af压低ignore""现有wire必然无解""补构造或加wire必能解决""必须改minMargin或加专项约束"。固定配方+T1/T2两次预算未找到合格候选；构造覆盖缺口与端点约束成立，参数/目标权衡待验证。完整诊断证据在`train/diagnostic-full.json`（初始）、`diagnostic-t1.json`（T1）、`diagnostic-t2.json`（T2），生成入口`playground/browser/focus-ignore/diagnose.mjs`，独立Review结论见`review/conclusion.md`，父定点复核见`parent-failure-delivery-review.md`。
+
+未改gold、未手填0.13、未第三次拟合、未切objective、未用unknown/conflict冒充container恢复。两候选均uncalibrated/not_applied，未合main、未push、未部署、未采用权重，待审树保留。全仓基线5个失败（CLI固定profile、extension产物目录、bounded-planning现场）在stash基线逐名相同，属既有环境依赖；本轮新增测试31/31通过、0新增失败。下一轮最小建议：(1)在A/B合同增加`af=1,fc=0`状态（owner fixture/浏览器adapter），保留af=null对照；(2)评估一条区分“容器自身持焦点且无键聚焦能力”与“缺测焦点冗余包装”的wire（owner `lib/filters/`）；(3)是否必须改minMargin或加焦点专项约束未确认，若要试须另开有分区与预算的新实验计划（owner训练/profile），不由本轮失败推出必要性，不自动切换。B已用过，后续不得称未见。
+
+一次独立整体Review（read-only独立session）结论对交付为FAIL（无P0），但认可`B1 INCOMPLETE`本身与停止拟合。其后父owner定点复核确认原6项中3项关闭，剩2项P1+1项P2。本轮按剩余3项收口：(1)撤回"收敛/均衡/不是预算不足/必须改目标"的过度判断，收窄为两次固定配方与预算未找到合格候选+参数与缺测样本的权衡，收敛性/预算充分性/改目标必要性均标未确认；(2)`diagnose.mjs`增加numeric f32前向与公开leaf分数字段，并以initial/T1/T2三个权重各生成一份诊断（`diagnostic-full.json`/`diagnostic-t1.json`/`diagnostic-t2.json`），三份都含端点、梯度分桶、numeric f32前向和420行逐行区间；(3)§8评价命令改为两条完整可执行命令，引用已保存T1/T2候选真实路径，去掉占位符。修订后仍是B1 INCOMPLETE的失败交付，无可集成候选；本轮无训练、无构建、无产品测试、无Git写操作，未加wire/未改objective/未降minMargin。
+
+父owner对剩余三项的定点复核已通过，失败报告收口（`parent-failure-delivery-closure.md`）。B1能力仍为INCOMPLETE，无合格候选，权重未采用。该收口只关闭失败报告的证据与表述问题，不关闭焦点能力缺口，不代表browser-foundation整体通过，也不批准分区基础代码集成。下一步先补`af=1,fc=0`的真实人类鼠标/键盘构造，证明该状态能真实产生且生产adapter如实观测（缺测保持null不补false），再纳入有明确分区与预算的拟合实验；现有证据仍不足以决定是否加wire、改objective或降minMargin。该实验尚未启动。
+
 ## 2026-10-22 浏览器milestone计划具体化
 
 用户指出上一版“没有可落地的操作，需要更具体”。偏差是只有能力阶段/原则，缺少实际输入、脚本、实验配方、case和终点。已在docs/browser-next-milestones.md第0节改成A0–A5焦点修复工单、B集成准备工单、C六例输入验收；给出现存420行语料/候选/训练起点位置、待实现入口、36状态构造、T1/T2预算和逐项结果。worker提示词改为优先执行第0节，不再开放式探索。结构/引用检查只验证派单材料，实际效果待worker执行；本轮不实施/训练，也不增加全局规则或修改受管记忆。

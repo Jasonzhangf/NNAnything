@@ -106,7 +106,7 @@ A的资料/训练不占用输入模块owner。另一个worker复用现有`playgr
 | milestone | 要证明的能力 | 当前状态 | 依赖 |
 | --- | --- | --- | --- |
 | B0 基础候选交付边界收束 | 已修观测/关系能力有明确可用入口、限制及main交付状态 | 待执行集成准备；不重新开启已关闭finding | 已有候选与有效Review |
-| B1 焦点保留与ignore学习 | 真实拟合能消除已知焦点误忽略，并在独立组合和旧能力上成立 | 能力未通过；应优先启动 | 可复用当前独占候选与分类/训练入口；不必等B0全部合main |
+| B1 焦点保留与ignore学习 | 真实拟合能消除已知焦点误忽略，并在独立组合和旧能力上成立 | 首轮已执行：T1/T2两次有效拟合均未翻转反例，`B1 INCOMPLETE`；无合格候选、B未解封、未采用。证据见外置run `browser-focus-repair-20261022/delivery.md`；剩余缺口与owner见§4末 | 可复用当前独占候选与分类/训练入口；不必等B0全部合main |
 | B2 单次写入与读取反馈 | 选对当前编辑对象，输入后能观察并判定真实结果 | 现有text切片可复用，扩展/学习待验证 | 本批所用观测和目标保留合格；不要求整个L1全部完成 |
 | B3 最小搜索根目标闭环 | 写入、提交、当前查询结果关联能反向满足根Goal | 已有handwired runner起点，学习与变化样本验收未完成 | B2及必需scope/当前性能力 |
 | B4 失败解释与合法恢复 | 学会无效果/拒绝/未知的区别，并选择允许的重试或次选 | F1已有已知缺口，搜索恢复未验收 | 先修复/验证反馈基础；恢复行为依赖B2/B3 |
@@ -146,6 +146,23 @@ A的资料/训练不占用输入模块owner。另一个worker复用现有`playgr
 - 按相同逐例集对照候选与基线，列false-ignore、ignore召回、保留类准确性、unknown/conflict和unassessed；149/162仅历史有限口径，不能取代新分区评价。
 - 新鲜live先报告覆盖与预测变化；若声称语义误判率，必须给相应gold及分母。代理信号0命中不等于0误判，pointerCursor也不直接决定gold。
 - 保存/回载一致、坏源显式失败。独立Reviewer核oracle与根语义；通过后按既有采用规则评估，不因本计划默认采用。
+
+### 4.1 首轮执行结论（2026-10-22，B1 INCOMPLETE）
+
+A0–A3 已实际执行，A4 未解封：T1（200 epoch）与 T2（2000 epoch，重读同一初始权重）两次真实拟合均有效完成，反例 `actual-focus-native:actual-focus-candidate-112` 仍判 `judged:ignore`（score 0.864008 → 0.895949 / 0.871745），无合格候选。原 420 行 `regressed=0`、ignore 召回 149/162→157/162；A 家族 18/18 正确；初始权重下 18 行 A 的 loss 均非零、对 `container.neutral_actual_focus` 聚合梯度 −1.70715（分类正确不等于零梯度；T1/T2 下该组为 12 行非零 loss）。两候选 `uncalibrated/not_applied`，未合 main。证据唯一入口：外置 run `browser-focus-repair-20261022/delivery.md`；独立 Review 结论在 `review/conclusion.md`；父定点复核在 `parent-failure-delivery-review.md`；三组只读诊断在 `train/diagnostic-full.json`（初始）、`diagnostic-t1.json`、`diagnostic-t2.json`。
+
+已验证事实与待验证推断（不能把推断写成根因）：
+
+| 项 | 性质 | 事实 | owner |
+| --- | --- | --- | --- |
+| 构造覆盖 | 已证实 | A/B 三状态为 (`af=1,fc=1`)/(`af=0,fc=1`)/(`af=0,fc=0`)，不含反例的 `af=1,fc=0`（实际聚焦但不可键盘聚焦） | fixture 构造 + `lib/adapters/browser/` 观测前提 |
+| 端点约束 | 已证实 | 反例 ignore=0.864008、container 上限 1.0，最大可得 margin=0.13599<0.15，仅抬 container 不可能翻成 container | 算法门限（minMargin 0.15） |
+| 参数权衡 | 已观测，不构成收敛或预算结论 | T1 终态 `container.af=0.00568` 下 243 条原 train 聚合梯度 +1.64471（T2 终态 0.00069 处 +1.52624），分桶 `list|af=null`（T1 +2.3250 / T2 +2.2152）与 `container|af=1`（−0.6802 / −0.6889）方向相反；两次均 `epoch_limit` 停止，收敛性/预算是否足够/是否必须改目标或阈值均未确认。两参数诊断 `container.af=0.28, ignore.af=-0.15` 翻反例但 21 条旧 ignore 退回 unknown（train 19、eval 2） | 训练/profile，须另开有分区与预算的新实验计划 |
+| "现有 wire 必然无解" | 未证实 | 只穷举固定配方与一组两参数诊断 | — |
+
+下一轮不得第三次重跑本配方、不改 gold、不手填 0.13；B 已在本轮使用过，后续不得称未见。
+
+失败报告已完成两次独立定点复核并收口（`parent-failure-delivery-closure.md`）：原 6 项 finding 全部关闭。该收口只关闭失败报告的证据与表述问题，不关闭焦点能力缺口，不构成 browser-foundation 整体 Review PASS，也不批准分区基础代码集成。下一步先补 `af=1,fc=0` 的真实人类鼠标/键盘构造，证明该状态能真实产生且生产 adapter 如实观测（缺测保持 null，不补 false），再纳入有明确分区与预算的拟合实验；现有证据不足以决定是否加 wire、改 objective 或降 minMargin。该实验尚未启动。
 
 ## 5. B2：一次写入，确认写到了正确对象
 
