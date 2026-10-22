@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-21 CLI候选复核关闭与main集成准备
+
+第三轮独立OAuth gpt-6.1-sol medium只读定点复核PASS，唯一FIFO超时保护P1关闭；此前已关闭finding继续复用，全部已报告CLI finding收口。原始审查与父结论位于外置run的parent-recheck-r3-controller及parent-review-fifo-recheck-r3.md。作者全量1075/1075及真实consumer证据仍有效；本轮无代码变化，不重复全量测试。远端main刷新后无新增提交，按用户明确指令合并及推送CLI候选；最终回执记录在同一run的integration-delivery.md。
+
+已在docs/cli-foundation.md整理现有入口、可用行为、独立函数未接policy的边界及下一步顺序。建议下一批仅做显式目录内精确名称查找的只读最小闭环，再按证据扩展有界递归与内容条件；本轮不启动新功能或训练。S00–S20共21项，20项完成、S06部分完成；五项UNVERIFIED、Linux缺口、未实现写操作/realpath/links/role继续保留。共享权重未改、候选未采用，第一层不宣称全部完成。
+
 ## 2026-10-21 Shell候选第三轮定点复核（唯一剩余 P1 已修，待复核）
 
 第二轮复核：缺测元数据与计数说明关闭；读取边界还剩一处 P1——主 FIFO 反例在测试进程内等待生产 readFileRange，移除 O_NONBLOCK 会挂起而非有界失败。已修并提交 `367f180`，未合 main、未 push、未采用权重。GCM 独立复核 4 点 PASS。main 仍 `83ff464`。
