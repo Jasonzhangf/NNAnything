@@ -16,6 +16,22 @@ T1（200 epoch）与T2（2000 epoch，重新读同一初始权重、其余不变
 
 父owner对剩余三项的定点复核已通过，失败报告收口（`parent-failure-delivery-closure.md`）。B1能力仍为INCOMPLETE，无合格候选，权重未采用。该收口只关闭失败报告的证据与表述问题，不关闭焦点能力缺口，不代表browser-foundation整体通过，也不批准分区基础代码集成。下一步先补`af=1,fc=0`的真实人类鼠标/键盘构造，证明该状态能真实产生且生产adapter如实观测（缺测保持null不补false），再纳入有明确分区与预算的拟合实验；现有证据仍不足以决定是否加wire、改objective或降minMargin。该实验尚未启动。
 
+## 2026-10-22 CLI精确名称查找实施候选
+
+worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-entry-search`（branch `codex/cli-entry-search`，基线 84939e8）实现 `nnanything/cli-search` 公开入口。复用现有 `recursive-goal` 与 `cli.command-policy.v1`，未重训、未采用、未另造 selector。新增 `lib/adapters/cli/entry-search-contract.ts`、`lib/adapters/cli/entry-search-recursive.ts`、`lib/filters/cli-entry-search.ts`、`lib/cli-search.ts`、`package.json` 导出、`tests/cli-entry-search.test.mjs`、`playground/cli/entry-search/`（family-a、family-b、consumer）。
+
+行为：单目录直接子项严格名称，匹配后真实 `entry.inspect` 取类型与受信身份；partial 与受控重复名/路径不一致一律 unknown，不改写为 not_found；错误 head 保留 policy_error 零执行。E01–E14 全部通过；家族 A 8/8、家族 B 14/14；受影响回归 40/40；`npm run build` 与公开 consumer 通过。
+
+独立家族 B 由本 worker 在同一会话独立重写（不复用 A），外部 GCM/AGY 执行者因沙箱 socket 拒绝无法启动，回执保留在 run 目录 `logs/worker-gcm-attempt.log`、`logs/worker-agy-attempt.log`。S06 部分完成、五项 UNVERIFIED、Linux 限制与共享权重未变。停在可审查候选，不合 main、不 push、不采用权重、不删除待审树。
+
+首轮独立 Review（oauth gpt-6-sol，只读，`review-final.md`）判 FAIL，两项 P1：请求 target 只接受旧 `DirectoryRef` 而非已绑定受信目录引用；结果 `match`/`rootFact.ref` 只是路径摘要而非受信 `ObservedObjectRef`。附一项 advisory：E08 缺 `filesystem.read` 分支。修复在 `8509c1d`：target 接受 `bindDirectoryObject` 返回的受信目录引用并仍拒绝 `DirectoryQuery`；`match` 与 `rootFact.ref` 交付当前 `ObservedObjectRef`（kind/scenarioId/sessionId/type/identity/sourceRun/sessionRevision/absolutePath），stale 分支 `ref: null`；E08 补缺读权用例。红测 `logs/fix-r1-red.log` 记录修复前 10/15。独立复审（同角色）判 PASS，两项 P1 与 advisory 均解决，build、15/15、40/40、家族 A 8/8、家族 B 14/14、consumer 均通过。仍未合 main、未 push、未采用权重，交父编排者做最终 Review 与集成。
+
+2026-10-22 父级复核再判 FAIL（两项 P1，公开入口真实复现）：受信目录引用在桥接旧原子 `ls` 前被降成路径引用，绕过 sandbox 签发/identity/revision 校验；返回 `match`/`rootFact.ref` 由 filter 拼接而非 sandbox 签发，交回既有 `entry.inspect` 得 `binding_identity_missing`。本轮 r2 只修这两处 authority 闭合：新增公开 `sandbox.validateObservedObject` 复用既有 `validateObservedRef` 校验，`match`/`rootFact.ref` 改由 sandbox 的 `bindFile`/`bindDirectoryObject`/`bindEntry` 在真实观测后签发登记，filter 只传递；共享 policy/head/wire/权重不变，责任图拓扑不变。计划与版本说明见 run 目录 `plan-fix-r2.md`。
+
+同轮 r2 红测 `logs/fix-r2-red.log` 为 14/17，复现 forged/stale/wrong-identity/replaced 目录引用曾 achieved 及 match 复用曾 `binding_identity_missing`。修复后 build 通过，entry-search 17/17，指定四文件回归 42/42，家族 A 8/8、家族 B 14/14，原 consumer 通过；新增 `consumer-authority.mjs` 证明 search match 可交既有 `entry.inspect`，替换 inode 或推进 revision 后均以 `STALE_REFERENCE` 拒绝且 `executorInvoked=false`。证据日志为 run 目录 `logs/r2-*.log`。改动由 lead 提交为 `83642fb`。
+
+r2 定点复核（独立 oauth gpt-6-sol，可运行测试）判 PASS：两项 P1 均闭合。父级原始探针实跑 `validSearch` achieved/matched、`returnedRefReuse` succeeded、`forgedSourceSearch` rejected/rejected、`wrongRevisionSearch` rejected/rejected；entry-search 17/17、四文件 42/42、authority consumer exit 0。lead 另用独立探针确认：伪造 sourceRun、错误 identity、错误 revision、同路径目录替换均 rejected，恢复原目录后再 achieved；文件替换与 revision 推进后旧 match 均 `STALE_REFERENCE` 且 `executorInvoked=false`。仍未合 main、未 push、未采用权重、未删除待审 worktree，交父编排者最终验收与集成。
+
 ## 2026-10-22 浏览器milestone计划具体化
 
 用户指出上一版“没有可落地的操作，需要更具体”。偏差是只有能力阶段/原则，缺少实际输入、脚本、实验配方、case和终点。已在docs/browser-next-milestones.md第0节改成A0–A5焦点修复工单、B集成准备工单、C六例输入验收；给出现存420行语料/候选/训练起点位置、待实现入口、36状态构造、T1/T2预算和逐项结果。worker提示词改为优先执行第0节，不再开放式探索。结构/引用检查只验证派单材料，实际效果待worker执行；本轮不实施/训练，也不增加全局规则或修改受管记忆。

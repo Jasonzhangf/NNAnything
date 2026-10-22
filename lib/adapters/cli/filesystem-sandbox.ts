@@ -14,6 +14,7 @@ import {
 import {
   readEntrySnapshot,
   readInspectRef,
+  readObservedObjectRef,
   readPathRef,
   runEntryInspectHelper,
   type EntryKind,
@@ -222,6 +223,7 @@ export interface CliFilesystemSandbox {
   bindFile(session: SessionRef, path: string): Promise<ObservedObjectRef>;
   bindDirectoryObject(session: SessionRef, path: string): Promise<ObservedObjectRef>;
   bindDirectory(session: SessionRef, path: string): Promise<DirectoryRef>;
+  validateObservedObject(ref: ObservedObjectRef): Promise<void>;
   resolveDirectory(ref: DirectoryRef): Promise<Readonly<{
     ref: DirectoryRef;
     configuredPath: string;
@@ -1088,6 +1090,14 @@ export async function createCliFilesystemSandbox(options: {
       });
       await resolveDirectory(state, ref);
       return ref;
+    },
+    async validateObservedObject(ref: ObservedObjectRef): Promise<void> {
+      if (!state.active) throw new Error("Filesystem sandbox is closed");
+      const value = readObservedObjectRef(ref);
+      const before = snapshot(state, sessionOfRef(value));
+      const configuredPath = await physicalEntryCandidate(state, value.absolutePath);
+      const current = await readEntrySnapshot(configuredPath, false);
+      validateObservedRef(state, before, value, current);
     },
     resolveDirectory(ref: DirectoryRef) {
       return resolveDirectory(state, ref);
