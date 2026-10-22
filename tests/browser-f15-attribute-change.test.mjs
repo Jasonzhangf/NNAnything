@@ -347,7 +347,7 @@ test("a page without crypto.randomUUID still gets a unique source identity", asy
     const first = createStableNodeRefRegistry("page");
     const second = createStableNodeRefRegistry("page");
     assert.notEqual(first.registryRef, second.registryRef);
-    assert.match(first.registryRef, /^page#[0-9a-f-]{36}$/);
+    assert.match(first.registryRef, /^page#[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   } finally {
     if (original === undefined) delete globalThis.crypto;
     else Object.defineProperty(globalThis, "crypto", original);
