@@ -8,6 +8,8 @@ worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-entry-search`（br
 
 独立家族 B 由本 worker 在同一会话独立重写（不复用 A），外部 GCM/AGY 执行者因沙箱 socket 拒绝无法启动，回执保留在 run 目录 `logs/worker-gcm-attempt.log`、`logs/worker-agy-attempt.log`。S06 部分完成、五项 UNVERIFIED、Linux 限制与共享权重未变。停在可审查候选，不合 main、不 push、不采用权重、不删除待审树。
 
+首轮独立 Review（oauth gpt-6-sol，只读，`review-final.md`）判 FAIL，两项 P1：请求 target 只接受旧 `DirectoryRef` 而非已绑定受信目录引用；结果 `match`/`rootFact.ref` 只是路径摘要而非受信 `ObservedObjectRef`。附一项 advisory：E08 缺 `filesystem.read` 分支。修复在 `8509c1d`：target 接受 `bindDirectoryObject` 返回的受信目录引用并仍拒绝 `DirectoryQuery`；`match` 与 `rootFact.ref` 交付当前 `ObservedObjectRef`（kind/scenarioId/sessionId/type/identity/sourceRun/sessionRevision/absolutePath），stale 分支 `ref: null`；E08 补缺读权用例。红测 `logs/fix-r1-red.log` 记录修复前 10/15。独立复审（同角色）判 PASS，两项 P1 与 advisory 均解决，build、15/15、40/40、家族 A 8/8、家族 B 14/14、consumer 均通过。仍未合 main、未 push、未采用权重，交父编排者做最终 Review 与集成。
+
 ## 2026-10-21 CLI精确名称查找设计交付
 
 用户要求设计落盘后交worker实现。本轮仅文档和设计责任图：docs/cli-entry-search-design.md固定单个显式目录、直接子项、严格名称、regular/directory的四元素、组合matches请求、真实核验/coverage/准确错误，给Q0–Q6路径与E01–E14失败模式、逐例评价和完整候选验收；docs/cli-entry-search-worker-prompt.md为可直接派发提示词。内部图workflows/cli-entry-search.graph.json为5N4E 0.1.0-design，无五个运行算子绑定；实施必须复用现有recursive-goal 3N2E和cli-file-property 6N5E，不新增引擎或训练层序。
