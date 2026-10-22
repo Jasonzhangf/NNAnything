@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-22 浏览器下一阶段milestone规划（未启动实施）
+
+用户要求展开下一阶段能力及推进。docs/browser-next-milestones.md已落盘B0–B6路线，重点先收束基础交付边界、真实拟合修复焦点误ignore、单次写入与真实读回，再推进查询关联、失败恢复、新结果表示与使用升级。docs/browser-next-worker-prompt.md提供首批B1可直接派发提示词。第7轮报告更正PASS只关闭文档finding，不关闭能力目标或整体browser-foundation。
+
+已读现有L1/训练、operation-episode、recursive-goal与反馈图，复用既有闭合拓扑；本轮只规划，无运行图/代码/资产变更，不新建业务图，不执行浏览器操作或训练。保留历史null、已知焦点反例、F1 R5与F2原始评价限制；固定语义、变化样本及真实反馈分别验收。规划里程碑尚未执行，不编通过数。文档本地链接、diff和layout针对性检查通过，未重复运行产品测试。
+
 ## 2026-10-21 CLI精确名称查找设计交付
 
 用户要求设计落盘后交worker实现。本轮仅文档和设计责任图：docs/cli-entry-search-design.md固定单个显式目录、直接子项、严格名称、regular/directory的四元素、组合matches请求、真实核验/coverage/准确错误，给Q0–Q6路径与E01–E14失败模式、逐例评价和完整候选验收；docs/cli-entry-search-worker-prompt.md为可直接派发提示词。内部图workflows/cli-entry-search.graph.json为5N4E 0.1.0-design，无五个运行算子绑定；实施必须复用现有recursive-goal 3N2E和cli-file-property 6N5E，不新增引擎或训练层序。

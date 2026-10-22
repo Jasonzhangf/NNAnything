@@ -1,5 +1,9 @@
 # D0交付与后续浏览器项目实施计划
 
+## 2026-10-22 浏览器下一阶段milestone
+
+当前阶段路线由[browser-next-milestones.md](browser-next-milestones.md)维护：B0交付边界、B1焦点/ignore真实拟合、B2单次写入读回、B3搜索查询关联、B4失败反馈与合法恢复、B5结果表示/范围、B6使用采样和升级。近期只排B0/B1/B2，后续按依赖逐批推进；原F00–F18仍是基础工作包，不被这份路线改写为全部完成。首批B1提示词见[browser-next-worker-prompt.md](browser-next-worker-prompt.md)。本轮仅规划，不启动实现、采集或训练。
+
 ## 2026-10-21 CLI只读精确查找下一批设计
 
 已交付基础上的下一个最小组合为[单目录直接子项精确名称查找](cli-entry-search-design.md)：固定请求、四元素、准确结果/错误、5N4E内部责任图、Q0–Q6探索/实施路径、E01–E14失败模式及父Review验收。可直接交worker的完整提示词见[实施提示词](cli-entry-search-worker-prompt.md)。本轮仅设计，不实现/训练；实际调度复用既有recursive-goal和cli-file-property，保留全部原基础未验证项。
