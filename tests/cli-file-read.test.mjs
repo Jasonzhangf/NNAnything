@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 const mkfifo = path => execFileAsync('/usr/bin/mkfifo', [path]);
@@ -130,23 +131,39 @@ test('P1 open boundary: a regular file swapped to a FIFO cannot block and is ref
   const fifo = join(root, 'pipe');
   await mkfifo(fifo);
 
-  // lstat still reports the regular file, but the real open targets the FIFO
-  // with the production flags. O_NONBLOCK keeps it bounded; the opened handle
-  // is then refused by the fstat type check.
-  let seenFlags = null;
-  const startedAt = Date.now();
-  const swapped = await readFileRange(file, 0, 7, {
-    lstat: (path, options) => lstat(file, options),
-    open: (path, flags) => {
-      seenFlags = flags;
-      return open(fifo, flags);
-    },
-  });
-  const elapsedMs = Date.now() - startedAt;
-  assert.equal(swapped.ok, false);
-  assert.equal(swapped.error.code, 'READ_TYPE_DENIED');
-  assert.notEqual(seenFlags & constants.O_NONBLOCK, 0, 'production must pass O_NONBLOCK to the real open');
-  assert.ok(elapsedMs < 2000, `FIFO open must stay bounded, took ${elapsedMs}ms`);
+  // The production readFileRange runs in a child process so a regression that
+  // drops O_NONBLOCK cannot hang the test process: the parent's execFile
+  // timeout kills the child and turns the hang into a bounded test failure.
+  // The child reuses the production flags for a real open of the FIFO.
+  const distFile = fileURLToPath(new URL('../dist/adapters/cli/file-content.js', import.meta.url));
+  const childScript = `
+    const { readFileRange } = require(process.argv[1]);
+    const fs = require('node:fs/promises');
+    const file = process.argv[2];
+    const fifo = process.argv[3];
+    let seenFlags = null;
+    readFileRange(file, 0, 7, {
+      lstat: (p, o) => fs.lstat(file, o),
+      open: (p, flags) => { seenFlags = flags; return fs.open(fifo, flags); },
+    }).then(r => {
+      process.stdout.write(JSON.stringify({ ok: r.ok, code: r.ok ? null : r.error.code, seenFlags }));
+      process.exit(0);
+    }).catch(e => {
+      process.stdout.write(JSON.stringify({ thrown: String(e) }));
+      process.exit(2);
+    });
+  `;
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(process.execPath, ['-e', childScript, distFile, file, fifo], { timeout: 2000, maxBuffer: 1 << 20 }));
+  } catch (error) {
+    const reason = error.killed ? 'child killed by parent timeout (production lost O_NONBLOCK)' : String(error);
+    assert.fail(`main FIFO swap must not block the child: ${reason}`);
+  }
+  const result = JSON.parse(stdout);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'READ_TYPE_DENIED');
+  assert.notEqual(result.seenFlags & constants.O_NONBLOCK, 0, 'production must pass O_NONBLOCK to the real open');
 });
 
 test('P1 flag sensitivity: FIFO open blocks without O_NONBLOCK, so the flag is load-bearing', async t => {
