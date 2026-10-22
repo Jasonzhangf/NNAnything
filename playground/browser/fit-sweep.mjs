@@ -29,6 +29,9 @@ const learningRate = Number(args.get("--lr"));
 const anchorLambda = Number(args.get("--anchor"));
 const trainable = args.get("--trainable");
 const seed = Number(args.get("--seed") ?? "20261021");
+const objectiveMode = args.get("--objective");
+const boundarySlack = args.get("--boundary-slack");
+const stopWhen = args.get("--stop-when");
 await mkdir(outputRoot, { recursive: true });
 
 const dataset = JSON.parse(await readFile(inputPath, "utf8"));
@@ -48,8 +51,20 @@ const target = {
   taskId: BASIC_KIND_TASK_ID,
   minScore: 0.6,
   minMargin: 0.15,
-  objective: { targetScore: 0.8, rivalCeiling: 0.4, otherGap: 0.05 },
-  fit: { epochs, learningRate, anchorLambda, ...(trainable === undefined ? {} : { trainableWires: trainable.split(",") }) },
+  objective: {
+    targetScore: 0.8,
+    rivalCeiling: 0.4,
+    otherGap: 0.05,
+    ...(objectiveMode === undefined ? {} : { mode: objectiveMode }),
+    ...(boundarySlack === undefined ? {} : { boundarySlack: Number(boundarySlack) }),
+  },
+  fit: {
+    epochs,
+    learningRate,
+    anchorLambda,
+    ...(trainable === undefined ? {} : { trainableWires: trainable.split(",") }),
+    ...(stopWhen === undefined ? {} : { stopWhen }),
+  },
 };
 definition.bindings["拟合目标节点参数"] = { config: target, profileId };
 definition.bindings["比较新旧节点在相同样本的输出"] = { config: target, profileId };

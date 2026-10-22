@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-21 再配对复核与焦点缺陷定位
+
+同轮补了三组复核。再配对复核：微博 152 行按序号只有 31 行 tag 相同，按尺寸指纹 37 条 teacher-ignore 只有 8 条命中且 6 条落到同一新节点，配对无效；小红书 59 条黄金行按结构路径只有 6 条可配对。旧行不能再按序号或指纹复原，未配对项只能记 unassessed。
+
+焦点缺陷定位：`actual-focus-candidate-112` 的 31 项测量齐全，被判 ignore 0.863。忽略叶的 `own_focus_target` 训练权重只有 0.001，因为数值后端 `effectiveUpperExcess` 只对区间端点加热梯度，端点是家族与叶上限的较小者，梯度落在家族侧，而 `familyWeights.structure` 没有该 wire 地址。把该权重手设 -1 时焦点行立刻回到 unknown 且 F04 包装仍判 ignore，证明这是可学习路径缺口而不是 wire 形状缺陷；手填属禁止项，未作为候选交付。
+
+另两组配置实验都不能修好：加 `neutral_actual_focus`、`neutral_focusable_control` 为可训练后重拟合，两项权重仍停在 0.0009 与 0.108；`priority_decision_v1` 客观函数被底座拒绝，因为生产默认 profile 是 `family_leaf_v1`。锚定实验确认 anchor 0.001 最优：0.01 把语料回归从 2 降到 1 但真实页面歧义从 22 升到 284，0.03 让 F04 ignore 降到 0/4。
+
 ## 2026-10-21 旧语料再观测：真实页面留出替代不可复原的旧行
 
 用户明确观察与采集不需要授权，本轮直接采证。新增只读入口 `playground/browser/reobserve-live.mjs` 与对比脚本 `reobserve-compare.mjs`，通过 CDP 9333 附着已开标签页跑真实 `observeLiveDom`，不跳转、不滚动、不点击。采集小红书 explore（1543 节点）、知乎专栏（1104）、微博 tv/home（1489），共 4136 条完整测量。
