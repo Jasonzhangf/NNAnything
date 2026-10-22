@@ -2,15 +2,17 @@
 
 ## 2026-10-21 焦点缺陷根因定位（语义复核已更正）
 
-`actual-focus-candidate-112` 在 train split 内，但拟合学不到 `own_focus_target` 负否决。逐行梯度证明：拟合点梯度 +1.497（应减小），权重到 -0.0188 即翻号为 -6.5，稳定点在 0 附近；翻号来自缺测焦点行，负权重按区间语义 [w,0] 压低其 ignore 下界、破坏 expected=ignore 召回。
+`actual-focus-candidate-112` 在 train split 内，本次拟合配置与预算没学到 `own_focus_target` 负否决。逐行梯度证明：拟合点梯度 +1.497（应减小），权重到 -0.0188 即翻号为 -6.5，稳定点在 0 附近；翻号来自缺测焦点行，负权重按区间语义 [w,0] 压低其 ignore 下界、破坏 expected=ignore 召回。
 
-语义复核结论（用户指示先看语义、没有焦点不能伪造）：此前「缺测当无焦点、需改共享语义为 [0,0]」的结论错误，已撤回。区间语义 `null → {min:min(w,0), max:max(w,0)}` 对否决 wire（w<0）贡献 `[w,0]`：min 端点取 w、压低 ignore 下界，即按「焦点可能未测到」保守处理，没有把缺测当无焦点；真正的伪造是「缺测贡献 [0,0]」（把 null 当实测 false）。现语义正确，不改。否决学不出来的根因在语料：162 条 verified ignore 中 159 条 `own_focus_target` 为 null（旧快照未测 activeElementFocus，415/420 行缺测），负权重按正确语义压低这些行下界、损失召回，损失才拉回 0。修复在语料侧补测焦点后重拟合，不是共享语义增量。live 页面无此问题：四个 live 采集 5975 行 `own_focus_target` 缺测 0、40 行实测焦点 0 行判 ignore；缺陷行的精确 wire 签名（聚焦 + 三 wrapper 全 1）在 5975 个 live 节点里 0 次出现，live 的 5 个聚焦包装 div 只 `neutral_single_child=1`、其余两 wrapper 为 0，候选全判 container。详见 run 目录报告第 8 节。
+语义复核结论（用户指示先看语义、没有焦点不能伪造）：此前「缺测当无焦点、需改共享语义为 [0,0]」的结论错误，已撤回。区间语义 `null → {min:min(w,0), max:max(w,0)}` 对否决 wire（w<0）贡献 `[w,0]`：min 端点取 w、压低 ignore 下界，即按「焦点可能未测到」保守处理，没有把缺测当无焦点；真正的伪造是「缺测贡献 [0,0]」（把 null 当实测 false）。现语义正确，不改。否决学不出来的根因在语料：162 条 verified ignore 中 159 条 `own_focus_target` 为 null（旧快照未测 activeElementFocus，415/420 行缺测），负权重按正确语义压低这些行下界、损失召回，损失才拉回 0。补测焦点后重拟合是待验证方案，不宣称必然修好，也不是共享语义增量。live 采集 5975 行 `own_focus_target` 缺测 0、40 行实测焦点 0 行判 ignore；缺陷行的精确 wire 签名（聚焦 + 三 wrapper 全 1）在 5975 个 live 节点里 0 次出现，live 的 5 个聚焦包装 div 只 `neutral_single_child=1`、其余两 wrapper 为 0，候选全判 container。这只说明这批页面未覆盖该反例，不解除「实际可聚焦容器不得判 ignore」的硬约束。详见 run 目录报告第 8 节。
 
-## 2026-10-22 焦点缺陷修法候选：container 侧正权重可零代价修，但拟合发现不了
+## 2026-10-22 焦点缺陷修法候选：container 侧正权重在已检查口径下可修，本次拟合预算未修复
 
-在选中候选上做定点实验：给 `leafWeights.container.neutral_actual_focus` 一个正权重（≥0.13 即翻号），`actual-focus-candidate-112` 从 ignore 0.863 变为 other/conflict，满足「实际可聚焦容器不得被判 ignore」的硬规则；同时 162 条 ignore 召回仍 149/162、13 条未召回行集合与基线逐行完全一致，即零新增召回损失。语义也正确：实测焦点把节点抬向 container，缺测时正权重只抬上界 `{min:0,max:w}`、不压 ignore 下界，不构成伪造。
+在选中候选上做定点实验：给 `leafWeights.container.neutral_actual_focus` 一个正权重（≥0.13 即翻号），`actual-focus-candidate-112` 从 ignore 0.863 变为 other/conflict，不再被判 ignore；同时 162 条 ignore 召回仍 149/162、13 条未召回行集合与基线逐行完全一致。按已检查口径，这次对照没有新增 ignore 召回损失，四份现存 live 预测也没有变化；这不是整体能力零回归的证明。语义正确：实测焦点把节点抬向 container，缺测时正权重只抬上界 `{min:0,max:w}`、不压 ignore 下界，不构成伪造。
 
-但普通拟合发现不了这个修法：该权重在拟合点梯度为 -0.43（朝减小），新增一次 200 epoch、把焦点 wire 一并可训练的拟合（`/tmp/ignore-fit-r7`，summary fixed 167/regressed 2/retained 117/unresolved 134）后，该权重只到 0.0009，缺陷行仍判 ignore 0.863。结论：修法存在且正确，但需要语料或拟合目标侧支持（等价于补测焦点后重拟合），不能靠当前语料上的普通梯度下降得到。
+梯度方向按代码复核更正：优化步是 `next = w - lr * (m̂/denominator)`（`lib/training/basic-kind-numeric.ts:937`），所以负梯度的局部下降方向是增大权重。该权重在拟合点梯度为 -0.43，对应朝增大方向，与修法希望的方向一致，不是朝减小。这修正了上一版把 -0.43 写成「朝减小」的错误。
+
+但一次 200 epoch、把焦点 wire 一并可训练的拟合（`/tmp/ignore-fit-r7`，summary fixed 167/regressed 2/retained 117/unresolved 134）后，该权重只到 0.0009，缺陷行仍判 ignore 0.863。这只证明该次配置和预算没有修复它，不能证明所有普通拟合都无法得到修法。补测焦点、调整拟合目标都只是待验证方案，不宣称补测后重拟合必然修好。
 
 F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 4/4、video 4/4。
 
@@ -18,7 +20,9 @@ F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 
 
 用户提供 ego lite 浏览器（带微博登录态），指示自己采集、验收看 live 页面。用 `ego-browser nodejs` 在已打开标签页跑只读观测入口，把窗口对齐旧采集的 1101×1878（ego 默认 0.8 缩放，需设 1376 宽才得到 1101 CSS 宽），页面为登录态。重采 1839 节点 31 项测量齐全，文件在 run 目录 `ego/weibo-ego-capture-1101c.json`。
 
-候选在整页判 479 条 ignore、假 ignore 0、代价 29 条 container 变 unknown/conflict。37 条 teacher-ignore 按单调对齐加几何/结构/文字事实约束配对：26 条对齐、7 条唯一，召回 24/26（唯一口径 7/7）；2 条未命中是 38.5×14 文本图标 span（结构家族下界 0.077 未达 0.6），5 条无候选、13 条候选不唯一记 unassessed。
+候选在整页判 479 条 ignore；按所列代理信号检查，自身可见文字、焦点、href、固定交互 tag/role 命中均为 0，完整语义假 ignore 率未评估。代价 29 条 container 变 unknown/conflict。
+
+37 条 teacher-ignore 的最终处置按原始 37 个 old ref 互斥划分（逐例清单在 run 目录 `ego/teacher-ignore-disposition.json`）：对齐映射 26 条（其中 7 条唯一、19 条非唯一），无映射 11 条（`nnanything-inspector-122/457/474/475/815/832/833/854/946/951/956`）。26+11=37，口径自洽。召回只能按唯一配对口径计：7/7。对齐口径 24/26 是这 26 条选中映射的算术命中，含 19 条非唯一映射，属诊断结果而非资格确认的召回；2 条未命中（旧 399/919）均落在非唯一映射内，判 unknown。上一版「5 条无候选、13 条候选不唯一」与 26 条合计 44，超出 37，撤回。
 
 ## 2026-10-21 再配对复核与焦点缺陷定位
 
@@ -32,7 +36,7 @@ F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 
 
 用户明确观察与采集不需要授权，本轮直接采证。新增只读入口 `playground/browser/reobserve-live.mjs` 与对比脚本 `reobserve-compare.mjs`，通过 CDP 9333 附着已开标签页跑真实 `observeLiveDom`，不跳转、不滚动、不点击。采集小红书 explore（1543 节点）、知乎专栏（1104）、微博 tv/home（1489），共 4136 条完整测量。
 
-选中候选在真实页面上的表现：变 ignore 1126 条（499 条由 container 转来，627 条由 unknown 补判），其中带自身可见文字、焦点、href 或交互 tag/role 的为 0；另有 21 条 container 与 1 条 listitem 转为 unknown/conflict，占 0.53%。39 条“有直接文字”的 span 实测只含空白与格式字符（`nonFormatDirectTextPresent=false`），1 条 iframe 为 0×0 隐藏信标，均不构成假 ignore。
+选中候选在真实页面上的表现：变 ignore 1126 条（499 条由 container 转来，627 条由 unknown 补判）；按所列代理信号检查（自身可见文字、焦点、href、固定交互 tag/role）命中为 0，完整语义假 ignore 率未评估。另有 21 条 container 与 1 条 listitem 转为 unknown/conflict，占 0.53%。39 条“有直接文字”的 span 实测只含空白与格式字符（`nonFormatDirectTextPresent=false`），1 条 iframe 为 0×0 隐藏信标，都不是可读内容目标。
 
 旧黄金与微博行不能按行复原：旧快照 1222 宽、当前 1447 宽，页面已改版。小红书 snapshot-001 的 1200 条旧节点与新采集只有 186 条结构路径重合、145 条 tag 相同，59 条黄金行只有 6 条可配对；微博 detail 页未打开，存盘 18 项字段缺 16 项新测量。因此“旧黄金 0 预测变化”不能再由旧行承担，当前有效回归证据是这批真实页面留出。证据与复现见 run 目录 `browser-ignore-capability-20261021/reobserve/reobserve-report.md`。
 
@@ -44,7 +48,7 @@ F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 
 
 真实浏览器 F04 留出：默认 profile ignore 0/4，候选 4/4，audio 4/4、video 4/4 不变；两个候选结果相同。增量语料内部比较分别为 fixed 264/regressed 5、fixed 264/regressed 4、fixed 149/regressed 2，训练报告按合同拒绝该候选。
 
-两项旧语料验收未通过，原因是可复现的数据覆盖冲突而不是拟合调参：黄金 357 行每行只有 10–12 项字段，缺 19–21 项新测量。同一 same-rect 包装在完整 31 字段下 `structure=[1,1]` 判 ignore，裁到旧 12 字段后 `structure=[0.077,1]` 判 other。由此任何能让包装生效的系数都会把旧行抬成 unknown：与默认 profile 比，仅 ignore wire 候选改变 91 行、全参数候选 92 行，假 ignore 为 0；生产候选本身相对默认已改变 34 行。微博 152 行 37 条 teacher-ignore 提案中 22 条打开了 ignore 支撑 wire，但 family 停在 text 0.2 / structure [0.077,1]，召回 0/37；历史 37/37 出自专用关系特征电路，不是本 profile 经生产分类器的结果。
+两项旧语料验收未通过，原因是可复现的数据覆盖冲突而不是拟合调参：黄金 357 行每行只有 10–12 项字段，缺 19–21 项新测量。同一 same-rect 包装在完整 31 字段下 `structure=[1,1]` 判 ignore，裁到旧 12 字段后 `structure=[0.077,1]` 判 other。由此任何能让包装生效的系数都会把旧行抬成 unknown：与默认 profile 比，仅 ignore wire 候选改变 91 行、全参数候选 92 行，全部落到 unknown、新增判为 ignore 的行数为 0；生产候选本身相对默认已改变 34 行。微博 152 行 37 条 teacher-ignore 提案中 22 条打开了 ignore 支撑 wire，但 family 停在 text 0.2 / structure [0.077,1]，召回 0/37；历史 37/37 出自专用关系特征电路，不是本 profile 经生产分类器的结果。
 
 另记一个采用前必须修的真实缺陷：`actual-focus-candidate-112`（activeElementFocus=true 的容器）被候选判成 ignore 0.864，违反键盘焦点必须保留的规则。
 
