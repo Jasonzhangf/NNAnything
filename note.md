@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-21 CLI精确名称查找设计交付
+
+用户要求设计落盘后交worker实现。本轮仅文档和设计责任图：docs/cli-entry-search-design.md固定单个显式目录、直接子项、严格名称、regular/directory的四元素、组合matches请求、真实核验/coverage/准确错误，给Q0–Q6路径与E01–E14失败模式、逐例评价和完整候选验收；docs/cli-entry-search-worker-prompt.md为可直接派发提示词。内部图workflows/cli-entry-search.graph.json为5N4E 0.1.0-design，无五个运行算子绑定；实施必须复用现有recursive-goal 3N2E和cli-file-property 6N5E，不新增引擎或训练层序。
+
+领域/调用/实施计划、AGENTS和workflow清单均加唯一owner链接。已确认现有目录State只接complete，首版partial不论是否出现同名项均unknown，不放宽原子observed语义。没有实现代码、执行文件查询、生成样本、训练或采用权重。既有S06部分、五项UNVERIFIED和Linux限制不变。设计图dagpipe validate/inspect通过（5节点4边5波），diff/layout检查通过；不把静态通过当实际可运行。worker按用户分工提交完整候选，由父编排者独立Review后集成。
+
 ## 2026-10-21 CLI候选复核关闭与main集成准备
 
 第三轮独立OAuth gpt-6.1-sol medium只读定点复核PASS，唯一FIFO超时保护P1关闭；此前已关闭finding继续复用，全部已报告CLI finding收口。原始审查与父结论位于外置run的parent-recheck-r3-controller及parent-review-fifo-recheck-r3.md。作者全量1075/1075及真实consumer证据仍有效；本轮无代码变化，不重复全量测试。远端main刷新后无新增提交，按用户明确指令合并及推送CLI候选；最终回执记录在同一run的integration-delivery.md。

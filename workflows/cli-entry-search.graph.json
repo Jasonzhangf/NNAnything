@@ -1,0 +1,19 @@
+{
+  "id": "cli-entry-search-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id":"entry_search_request","schema":"Object"}],
+  "nodes": [
+    {"id":"绑定根目标和目录范围","operator":"cli.entry-search.bind","operator_version":"0.1.0-design","inputs":["entry_search_request"],"output":{"id":"entry_search_context","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"取得当前目录子项证据","operator":"cli.entry-search.observe-entries","operator_version":"0.1.0-design","inputs":["entry_search_context"],"output":{"id":"entry_search_listing","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按精确名称归并候选事实","operator":"cli.entry-search.match","operator_version":"0.1.0-design","inputs":["entry_search_listing"],"output":{"id":"entry_search_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"核验候选当前类型与引用","operator":"cli.entry-search.verify","operator_version":"0.1.0-design","inputs":["entry_search_candidate"],"output":{"id":"entry_search_evidence","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"反向评价根目标并汇总错误","operator":"cli.entry-search.report","operator_version":"0.1.0-design","inputs":["entry_search_evidence"],"output":{"id":"entry_search_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"绑定根目标和目录范围","to":"取得当前目录子项证据","arc_id":"entry_search_context"},
+    {"from":"取得当前目录子项证据","to":"按精确名称归并候选事实","arc_id":"entry_search_listing"},
+    {"from":"按精确名称归并候选事实","to":"核验候选当前类型与引用","arc_id":"entry_search_candidate"},
+    {"from":"核验候选当前类型与引用","to":"反向评价根目标并汇总错误","arc_id":"entry_search_evidence"}
+  ],
+  "outputs": ["entry_search_result"]
+}

@@ -1,5 +1,9 @@
 # D0交付与后续浏览器项目实施计划
 
+## 2026-10-21 CLI只读精确查找下一批设计
+
+已交付基础上的下一个最小组合为[单目录直接子项精确名称查找](cli-entry-search-design.md)：固定请求、四元素、准确结果/错误、5N4E内部责任图、Q0–Q6探索/实施路径、E01–E14失败模式及父Review验收。可直接交worker的完整提示词见[实施提示词](cli-entry-search-worker-prompt.md)。本轮仅设计，不实现/训练；实际调度复用既有recursive-goal和cli-file-property，保留全部原基础未验证项。
+
 ## 2026-10-21 Shell／文件系统第一层基础语义专项
 
 与浏览器分层原则相同，Shell专项由[基础语义完成计划](cli-foundation-plan.md)维护21项S00–S20和worker提示词。起点为pwd、路径、目录/文件属性，区分O/D/L；词法/physical/存在性、身份/路径、mode/实际权限、格式/用途、执行/真实达成分别隔离。编程与日常role、修改操作和命令选择属于后续组合层，仍沿file.property及唯一共享policy，不复制selector。现有0.3.0切片及训练证据先核对复用，未验证不清零。

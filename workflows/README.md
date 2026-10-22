@@ -7,6 +7,7 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
+| `cli-entry-search.graph.json` | 内部责任设计，无独立运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design`，未实现 | 单目录直接子项的精确名称查找：绑定→当前列举→名称关系→真实类型/引用核验→根评价；实施复用recursive-goal与cli-file-property，不新建五算子引擎。合同见docs/cli-entry-search-design.md |
 | `bounded-goal-planning.graph.json` | 设计责任图，无独立运行配置 | 6 节点 5 边 (6N5E SESE) | `0.2.0-design`，内部责任已接既有controller | 真实起点→有界预测或复用→路线比较→当前一步→真实结果与checkpoint→控制汇总；无六个独立绑定算子。正常复用，分叉先检备选，边界/checkpoint或无适用路时重推；唯一合同docs/bounded-goal-planning.md |
 | `recursive-goal.graph.json` | `recursive-goal.workflow.json` | 3 节点 2 边 (3N2E SESE) | `0.2.0` 已实现并通过行为验收 | `goal.recursive.bind/run/report` 唯一owner为`lib/workflow/recursive-goal/module.ts`，复用原workflow执行基座，v1行为保留，v2加入有界规划及action-boundary。finite合成域与真实cwd验证、错误/effects/预算及恢复沿docs/recursive-goal-module.md与note.md，不承诺任意语义已训练 |
 | `cli-file-property.graph.json` | `cli-file-property.workflow.json` | 6 节点 5 边 (6N5E SESE) | `0.3.0.0000` 已实现 | 图与六个`NodeDefinition`均为0.3.0.0000；保持绑定→同一策略选择→条件与固定执行→实际属性/副作用观测→满足度评价→统一结果。当前7个语义执行操作、3个控制head、30条wire和10×30矩阵已运行；执行操作含path.resolve/path.relative/path.parts/entry.inspect |

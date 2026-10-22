@@ -116,6 +116,7 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 - 操作目标与元素必要性关系（四元素推理链、训练反推链与最小实施切片）：docs/operation-goal-necessity.md；当前为未就绪设计合同，无运行入口、未训练，L1词表/wire、L2与L3图纸分别由各自owner维护。
 - 浏览器行为目录、单步意图选择及分类后元素保留结构：docs/browser-behavior-framework.md，固定为0.1.0-design；单步复用operation-episode的7N6E，接入通用递归框架。已有一次外部原生键鼠搜索合同实验，不代表项目L1/L2/operation运行验收；新结构尚非导出API。
 - 统一CLI共享命令模型与文件系统训练合同唯一owner：docs/cli-filesystem-training.md；参数简化调用合同：docs/cli-call-contract.md。
+- 单目录直接子项的精确名称查找设计、错误/覆盖边界、测试与验收：docs/cli-entry-search-design.md；worker交接：docs/cli-entry-search-worker-prompt.md。内部责任图为workflows/cli-entry-search.graph.json，当前未实现，不扩大原子policy支持域或宣称P3已训练。
 - CLI旧实现到file.property迁移的审计、完成定义、收口步骤与残留退役顺序：docs/cli-migration.md；运行形状仍由上述领域合同维护，本页不复制词表或训练规则。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 
