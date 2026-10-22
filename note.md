@@ -10,6 +10,10 @@ worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-entry-search`（br
 
 首轮独立 Review（oauth gpt-6-sol，只读，`review-final.md`）判 FAIL，两项 P1：请求 target 只接受旧 `DirectoryRef` 而非已绑定受信目录引用；结果 `match`/`rootFact.ref` 只是路径摘要而非受信 `ObservedObjectRef`。附一项 advisory：E08 缺 `filesystem.read` 分支。修复在 `8509c1d`：target 接受 `bindDirectoryObject` 返回的受信目录引用并仍拒绝 `DirectoryQuery`；`match` 与 `rootFact.ref` 交付当前 `ObservedObjectRef`（kind/scenarioId/sessionId/type/identity/sourceRun/sessionRevision/absolutePath），stale 分支 `ref: null`；E08 补缺读权用例。红测 `logs/fix-r1-red.log` 记录修复前 10/15。独立复审（同角色）判 PASS，两项 P1 与 advisory 均解决，build、15/15、40/40、家族 A 8/8、家族 B 14/14、consumer 均通过。仍未合 main、未 push、未采用权重，交父编排者做最终 Review 与集成。
 
+2026-10-22 父级复核再判 FAIL（两项 P1，公开入口真实复现）：受信目录引用在桥接旧原子 `ls` 前被降成路径引用，绕过 sandbox 签发/identity/revision 校验；返回 `match`/`rootFact.ref` 由 filter 拼接而非 sandbox 签发，交回既有 `entry.inspect` 得 `binding_identity_missing`。本轮 r2 只修这两处 authority 闭合：新增公开 `sandbox.validateObservedObject` 复用既有 `validateObservedRef` 校验，`match`/`rootFact.ref` 改由 sandbox 的 `bindFile`/`bindDirectoryObject`/`bindEntry` 在真实观测后签发登记，filter 只传递；共享 policy/head/wire/权重不变，责任图拓扑不变。计划与版本说明见 run 目录 `plan-fix-r2.md`。
+
+同轮 r2 红测 `logs/fix-r2-red.log` 为 14/17，复现 forged/stale/wrong-identity/replaced 目录引用曾 achieved 及 match 复用曾 `binding_identity_missing`。修复后 build 通过，entry-search 17/17，指定四文件回归 42/42，家族 A 8/8、家族 B 14/14，原 consumer 通过；新增 `consumer-authority.mjs` 证明 search match 可交既有 `entry.inspect`，替换 inode 或推进 revision 后均以 `STALE_REFERENCE` 拒绝且 `executorInvoked=false`。证据日志为 run 目录 `logs/r2-*.log`；当前仅是候选修复，不自称 Review PASS。常规 `git add` 因 canonical worktree 的 `index.lock` 写入被拒绝而失败，未绕过权限，改动保持未提交，需 lead 提交。
+
 ## 2026-10-21 CLI精确名称查找设计交付
 
 用户要求设计落盘后交worker实现。本轮仅文档和设计责任图：docs/cli-entry-search-design.md固定单个显式目录、直接子项、严格名称、regular/directory的四元素、组合matches请求、真实核验/coverage/准确错误，给Q0–Q6路径与E01–E14失败模式、逐例评价和完整候选验收；docs/cli-entry-search-worker-prompt.md为可直接派发提示词。内部图workflows/cli-entry-search.graph.json为5N4E 0.1.0-design，无五个运行算子绑定；实施必须复用现有recursive-goal 3N2E和cli-file-property 6N5E，不新增引擎或训练层序。

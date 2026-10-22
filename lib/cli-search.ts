@@ -74,7 +74,7 @@ export async function runCliEntrySearchGoal(
     },
     createEntrySearchDependencies(created, resources.signal),
   );
-  const domain: EntrySearchDomainProjection = projectDomain(validated, response);
+  const domain: EntrySearchDomainProjection = projectDomain(validated, response, created.issuedRef);
   return Object.freeze({
     request: validated,
     response,

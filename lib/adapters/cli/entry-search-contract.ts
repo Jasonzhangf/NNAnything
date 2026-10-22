@@ -161,7 +161,7 @@ export type EntrySearchRootFact =
       predicate: EntrySearchPredicate;
       listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
       inspect: EntrySearchInspectFact;
-      ref: ObservedObjectRef;
+      ref: ObservedObjectRef | null;
     }>
   | Readonly<{
       kind: "stale_or_unverified";

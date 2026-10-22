@@ -43,6 +43,7 @@ import type { CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { CliCommandSample, CliCommandTransition } from "../../nodes/cli-command.js";
 import type { PathRef } from "../../filters/cli-file-property.js";
 import type { CliFilesystemSandbox, DirectoryRef, SessionRef } from "./filesystem-sandbox.js";
+import type { ObservedObjectRef } from "./entry-inspection.js";
 
 export const ROOT_COMPOSITE_SKILL = "entry-search.composite";
 export const LIST_ATOMIC_SKILL = "entry-search.list";
@@ -149,6 +150,21 @@ export type EntrySearchAdapter = RecursiveGoalAdapter<
   EntrySearchReceiptPayload,
   unknown
 >;
+
+export type EntrySearchAdapterHandle = Readonly<{
+  adapter: EntrySearchAdapter;
+  issuedRef: ObservedObjectRef | null;
+  calls: Readonly<{
+    validateRequest: number;
+    supports: number;
+    evaluate: number;
+    select: number;
+    derive: number;
+    executeAtomic: number;
+    validateAtomicReceipt: number;
+    measureProgress: number;
+  }>;
+}>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -265,7 +281,10 @@ function listingKnowledge(state: EntrySearchState, name: string): {
   };
 }
 
-async function evaluateRoot(input: EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>): Promise<EvaluationReceipt> {
+async function evaluateRoot(
+  input: EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>,
+  issuedRef: ObservedObjectRef | null,
+): Promise<EvaluationReceipt> {
   const bindings = input.bindings as Readonly<{ predicate: Readonly<{ name: string; type: "regular" | "directory" }> }>;
   const evidenceRefs = stateEvidenceRefs(input.state, input.evidence);
   const decision = decideRoot(
@@ -273,6 +292,7 @@ async function evaluateRoot(input: EvaluationInput<unknown, EntrySearchState, un
     bindings.predicate.name,
     bindings.predicate.type,
     transitionsOf(input.evidence),
+    issuedRef,
   );
   if (decision.result === "satisfied") {
     return evaluation(ROOT_EVALUATOR, "satisfied", 100, evidenceRefs);
@@ -508,6 +528,9 @@ async function validateDirectoryBinding(
     predicate: Readonly<{ name: string; type: "regular" | "directory" }>;
   }>;
   const cwd = input.sandbox.getSession(bindings.session).cwd;
+  if ("absolutePath" in bindings.directory) {
+    await input.sandbox.validateObservedObject(bindings.directory);
+  }
   await input.sandbox.resolveDirectory(policyDirectoryRef(bindings.directory, cwd));
 }
 
@@ -681,6 +704,48 @@ function atomicReceipt(
   });
 }
 
+async function issueObservedRef(
+  sandbox: CliFilesystemSandbox,
+  session: SessionRef,
+  transition: CliCommandTransition,
+): Promise<ObservedObjectRef | null> {
+  const receipt = transition.execution_result.receipt;
+  if (receipt === null || receipt.execution.status !== "succeeded") return null;
+  const observation = receipt.execution.observation;
+  if (observation.kind !== "entry.inspect") return null;
+  const snapshot = observation.snapshot;
+  if (snapshot.entryExists !== true || snapshot.kind === null || snapshot.dev === null || snapshot.ino === null) {
+    return null;
+  }
+  const bind = snapshot.kind === "regular"
+    ? sandbox.bindFile
+    : snapshot.kind === "directory"
+      ? sandbox.bindDirectoryObject
+      : sandbox.bindEntry;
+  let ref: ObservedObjectRef;
+  try {
+    ref = await bind.call(sandbox, session, observation.configuredPath);
+  } catch {
+    return null;
+  }
+  const expectedKind = snapshot.kind === "regular"
+    ? "cli.file"
+    : snapshot.kind === "directory"
+      ? "cli.directory"
+      : "cli.entry";
+  if (
+    ref.kind !== expectedKind ||
+    ref.type !== snapshot.kind ||
+    ref.absolutePath !== observation.configuredPath ||
+    String(ref.identity.dev) !== String(snapshot.dev) ||
+    String(ref.identity.ino) !== String(snapshot.ino) ||
+    ref.sessionRevision !== transition.session_before.revision
+  ) {
+    return null;
+  }
+  return ref;
+}
+
 export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
   const policy = createCliCommandPolicy({
     profile: input.profile,
@@ -699,6 +764,7 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
     measureProgress: 0,
   };
   let sequence = 0;
+  let issuedRef: ObservedObjectRef | null = null;
 
   const adapter: EntrySearchAdapter = {
     async validateRequest(request: RecursiveGoalRequestEnvelope) {
@@ -759,7 +825,7 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
       const input = callback as EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>;
       const goal = input.goal as Readonly<{ property: string; requirement: Readonly<{ kind: string }> }>;
       if (goal.property === "file.property.directory.entries" && goal.requirement.kind === "matches") {
-        return evaluateRoot(input);
+        return evaluateRoot(input, issuedRef);
       }
       if (goal.property === "file.property.directory.entries" && goal.requirement.kind === "observed") {
         return evaluateList(input);
@@ -825,6 +891,9 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
           executionErrors: Object.freeze([...receipt.executionErrors, policyError]),
         });
       }
+      if (inspectSelected) {
+        issuedRef = await issueObservedRef(input.sandbox, input.session, transition);
+      }
       return atomicReceipt({
         context: callback.context,
         sequence: current,
@@ -845,7 +914,13 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
     },
   };
 
-  return Object.freeze({ adapter, calls });
+  return Object.freeze({
+    adapter,
+    get issuedRef(): ObservedObjectRef | null {
+      return issuedRef;
+    },
+    calls,
+  });
 }
 
 export function createEntrySearchDependencies(

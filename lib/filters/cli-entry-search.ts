@@ -22,28 +22,18 @@ export type ListingFacts = Readonly<{
   candidate: EntrySearchCandidate | null;
 }>;
 
-function observedRef(
-  inspect: EntrySearchInspectFact,
-  target: Readonly<{ scenarioId: string; sessionId: string }>,
-): ObservedObjectRef {
-  const kind = inspect.type === "regular"
+function issuedRefMatchesInspect(ref: ObservedObjectRef, inspect: EntrySearchInspectFact): boolean {
+  const expectedKind = inspect.type === "regular"
     ? "cli.file"
     : inspect.type === "directory"
       ? "cli.directory"
       : "cli.entry";
-  return Object.freeze({
-    kind,
-    scenarioId: target.scenarioId,
-    sessionId: target.sessionId,
-    type: inspect.type as ObservedObjectRef["type"],
-    identity: Object.freeze({
-      dev: inspect.identity.dev,
-      ino: inspect.identity.ino,
-    }),
-    sourceRun: inspect.sourceRun,
-    sessionRevision: inspect.sessionRevision,
-    absolutePath: inspect.absolutePath,
-  });
+  return ref.kind === expectedKind
+    && ref.type === inspect.type
+    && ref.absolutePath === inspect.absolutePath
+    && String(ref.identity.dev) === String(inspect.identity.dev)
+    && String(ref.identity.ino) === String(inspect.identity.ino)
+    && ref.sessionRevision === inspect.sessionRevision;
 }
 
 export type RootDecision =
@@ -233,6 +223,7 @@ export function decideRoot(
   name: string,
   predicateType: "regular" | "directory",
   transitions: readonly CliCommandTransition[],
+  issuedRef: ObservedObjectRef | null,
 ): RootDecision {
   const listing = listingFacts(cli, name, transitions);
   if (listing.coverage === null) {
@@ -259,6 +250,9 @@ export function decideRoot(
   if (inspect.type !== predicateType) {
     return Object.freeze({ result: "unsatisfied", satisfaction: 0, reason: "type_mismatch" });
   }
+  if (issuedRef === null || !issuedRefMatchesInspect(issuedRef, inspect)) {
+    return Object.freeze({ result: "unknown", satisfaction: null, reason: "unverified" });
+  }
   return Object.freeze({ result: "satisfied", satisfaction: 100 });
 }
 
@@ -267,7 +261,7 @@ export function rootFact(
   cli: ExplicitFileState,
   transitions: readonly CliCommandTransition[],
   primaryCode: string | null,
-  target: Readonly<{ scenarioId: string; sessionId: string }>,
+  issuedRef: ObservedObjectRef | null,
 ): EntrySearchRootFact {
   const listing = listingFacts(cli, predicate.name, transitions);
   if (listing.coverage === "partial") {
@@ -347,12 +341,24 @@ export function rootFact(
     });
   }
   if (inspect.type !== predicate.type) {
+    const ref = issuedRef !== null && issuedRefMatchesInspect(issuedRef, inspect)
+      ? issuedRef
+      : null;
     return Object.freeze({
       kind: "type_mismatch",
       predicate,
       listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
       inspect,
-      ref: observedRef(inspect, target),
+      ref,
+    });
+  }
+  if (issuedRef === null || !issuedRefMatchesInspect(issuedRef, inspect)) {
+    return Object.freeze({
+      kind: "stale_or_unverified",
+      predicate,
+      listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
+      inspect,
+      ref: null,
     });
   }
   return Object.freeze({
@@ -360,13 +366,14 @@ export function rootFact(
     predicate,
     listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
     inspect,
-    ref: observedRef(inspect, target),
+    ref: issuedRef,
   });
 }
 
 export function projectDomain(
   request: EntrySearchRequest,
   response: unknown,
+  issuedRef: ObservedObjectRef | null,
 ): EntrySearchDomainProjection {
   const view = transitionView(response);
   const report = view.report;
@@ -388,9 +395,9 @@ export function projectDomain(
     });
   }
 
-  const decision = decideRoot(state.cli, predicate.name, predicate.type, transitions);
+  const decision = decideRoot(state.cli, predicate.name, predicate.type, transitions, issuedRef);
   if (decision.result === "satisfied") {
-    return achieved(request, state, transitions, report);
+    return achieved(request, state, transitions, report, issuedRef);
   }
   if (decision.result === "unsatisfied") {
     const resolution = decision.reason === "type_mismatch" ? "type_mismatch" : "not_found";
@@ -400,7 +407,7 @@ export function projectDomain(
       satisfaction: 0,
       match: null,
       coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
-      rootFact: rootFact(predicate, state.cli, transitions, primaryCode, request.goal.target),
+      rootFact: rootFact(predicate, state.cli, transitions, primaryCode, issuedRef),
       preserve: preserve(view),
     });
   }
@@ -416,7 +423,7 @@ export function projectDomain(
       satisfaction: null,
       match: null,
       coverage,
-      rootFact: rootFact(predicate, state.cli, transitions, primaryCode, request.goal.target),
+      rootFact: rootFact(predicate, state.cli, transitions, primaryCode, issuedRef),
       preserve: preserve(view),
     });
   }
@@ -455,7 +462,7 @@ export function projectDomain(
     });
   }
 
-  const fact = rootFact(predicate, state.cli, transitions, primaryCode, request.goal.target);
+  const fact = rootFact(predicate, state.cli, transitions, primaryCode, issuedRef);
   const resolution =
     fact.kind === "stale_or_unverified"
       ? "stale_or_unverified"
@@ -476,11 +483,12 @@ function achieved(
   state: EntrySearchState,
   transitions: readonly CliCommandTransition[],
   report: ReportView | null,
+  issuedRef: ObservedObjectRef | null,
 ): EntrySearchDomainProjection {
   const predicate = request.goal.requirement.predicate;
   const listing = listingFacts(state.cli, predicate.name, transitions);
   const inspect = inspectFact(state.cli, listing.candidate?.path ?? null, transitions);
-  const rootFactValue = rootFact(predicate, state.cli, transitions, null, request.goal.target);
+  const rootFactValue = rootFact(predicate, state.cli, transitions, null, issuedRef);
   if (
     listing.sourceRun === null ||
     listing.physicalDirectory === null ||
@@ -488,11 +496,22 @@ function achieved(
   ) {
     throw new TypeError("satisfied entry search root lost its verified evidence");
   }
+  if (rootFactValue.kind !== "matched") {
+    return Object.freeze({
+      status: "unknown",
+      resolution: "stale_or_unverified",
+      satisfaction: null,
+      match: null,
+      coverage: "complete",
+      rootFact: rootFactValue,
+      preserve: preserveFromReport(report),
+    });
+  }
   return Object.freeze({
     status: "achieved",
     resolution: "matched",
     satisfaction: 100,
-    match: observedRef(inspect, request.goal.target),
+    match: rootFactValue.ref,
     coverage: "complete",
     rootFact: rootFactValue,
     preserve: preserveFromReport(report),

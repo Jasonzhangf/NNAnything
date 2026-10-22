@@ -115,6 +115,23 @@ function run(fixtureValue, goal, onSample, session = fixtureValue.session) {
   return runWith(fixtureValue, goal, { session, onSample });
 }
 
+function reuseRef(sandbox, ref) {
+  return sandbox.execute({
+    operation: "entry.inspect",
+    parameters: { ref, followSymlinks: false },
+  });
+}
+
+async function replaceDirectoryWithDifferentInode(path, previousIno) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await rm(path, { recursive: true, force: true });
+    await mkdir(path);
+    const stat = await lstat(path);
+    if (String(stat.ino) !== String(previousIno)) return stat;
+  }
+  throw new Error("unable to obtain a different directory inode");
+}
+
 function forcedHeadProfile(base, head) {
   const index = base.heads.indexOf(head);
   assert.notEqual(index, -1, `profile must contain head ${head}`);
@@ -203,9 +220,13 @@ test("E01 public exact-name hit returns trusted observed object references", asy
   const fileStat = await lstat(join(start, "target.txt"), { bigint: true });
   assert.equal(String(fileResult.domain.match.identity.ino), String(fileStat.ino));
   assert.equal(String(fileResult.domain.match.identity.dev), String(fileStat.dev));
-  assert.equal(fileResult.domain.match.sourceRun, fileResult.domain.rootFact.inspect.sourceRun);
+  assert.notEqual(fileResult.domain.match.sourceRun, fileResult.domain.rootFact.inspect.sourceRun);
   assert.deepEqual(fileResult.domain.rootFact.ref, fileResult.domain.match);
   assert.equal(fileResult.domain.rootFact.inspect.observedWith, "lstat");
+  const fileReuse = await reuseRef(value.sandbox, fileResult.domain.match);
+  assert.equal(fileReuse.status, "succeeded");
+  assert.equal(fileReuse.execution.executorInvoked, true);
+  assert.equal(String(fileReuse.execution.observation.snapshot.ino), String(fileStat.ino));
   assert.deepEqual(heads(fileResult.response), ["ls", "entry.inspect"]);
   assert.deepEqual(
     childSkillIds(fileResult.response),
@@ -226,8 +247,12 @@ test("E01 public exact-name hit returns trusted observed object references", asy
   assert.equal(String(directoryResult.domain.match.identity.dev), String(directoryStat.dev));
   assert.equal(directoryResult.domain.match.scenarioId, value.session.scenarioId);
   assert.equal(directoryResult.domain.match.sessionId, value.session.sessionId);
-  assert.equal(directoryResult.domain.match.sourceRun, directoryResult.domain.rootFact.inspect.sourceRun);
+  assert.notEqual(directoryResult.domain.match.sourceRun, directoryResult.domain.rootFact.inspect.sourceRun);
   assert.deepEqual(directoryResult.domain.rootFact.ref, directoryResult.domain.match);
+  const directoryReuse = await reuseRef(value.sandbox, directoryResult.domain.match);
+  assert.equal(directoryReuse.status, "succeeded");
+  assert.equal(directoryReuse.execution.executorInvoked, true);
+  assert.equal(String(directoryReuse.execution.observation.snapshot.ino), String(directoryStat.ino));
   assert.deepEqual(heads(directoryResult.response), ["ls", "entry.inspect"]);
 });
 
@@ -642,6 +667,121 @@ test("E11 foreign scope and inconsistent listings never yield a successful objec
   assert.equal(mis.domain.coverage, "partial");
   assert.match(JSON.stringify(mis.domain.rootFact.listing.errors), /path_name_mismatch/);
   assert.deepEqual(heads(mis.response), ["ls"]);
+});
+
+test("E11 authority rejects forged, stale, wrong-identity, and replaced directory refs with zero listing", async t => {
+  let listings = 0;
+  const value = await withProfile(
+    t,
+    [
+      { path: "start/scope/target.txt", kind: "file", contents: "x" },
+      { path: "start/scope", kind: "directory" },
+    ],
+    {
+      listingObserver: async input => {
+        listings += 1;
+        return observeRealListing(input);
+      },
+    },
+  );
+  const scope = await value.sandbox.bindDirectoryObject(value.session, "scope");
+
+  const forged = await run(
+    value,
+    request({ ...scope, sourceRun: "never-issued-by-sandbox" }, "target.txt", "regular"),
+  );
+  assert.equal(forged.domain.status, "rejected");
+  assert.equal(forged.domain.resolution, "rejected");
+  assert.equal(forged.domain.match, null);
+
+  const staleRevision = await run(
+    value,
+    request({ ...scope, sessionRevision: scope.sessionRevision + 1 }, "target.txt", "regular"),
+  );
+  assert.equal(staleRevision.domain.status, "rejected");
+  assert.equal(staleRevision.domain.match, null);
+
+  const wrongIdentity = await run(
+    value,
+    request({
+      ...scope,
+      identity: {
+        dev: scope.identity.dev,
+        ino: typeof scope.identity.ino === "number"
+          ? scope.identity.ino + 1
+          : String(BigInt(scope.identity.ino) + 1n),
+      },
+    }, "target.txt", "regular"),
+  );
+  assert.equal(wrongIdentity.domain.status, "rejected");
+  assert.equal(wrongIdentity.domain.match, null);
+
+  await replaceDirectoryWithDifferentInode(scope.absolutePath, scope.identity.ino);
+  const replaced = await run(value, request(scope, "target.txt", "regular"));
+  assert.equal(replaced.domain.status, "rejected");
+  assert.equal(replaced.domain.match, null);
+
+  for (const result of [forged, staleRevision, wrongIdentity, replaced]) {
+    assert.equal(result.response.kind, "request_rejected");
+    assert.equal(result.response.acceptedRoot, null);
+    assert.equal(Object.hasOwn(result.response, "report"), false);
+  }
+  assert.equal(listings, 0);
+});
+
+test("returned match is issued and rejected after same-path replacement or session revision change", async t => {
+  const value = await withProfile(
+    t,
+    [
+      { path: "start/target.txt", kind: "file", contents: "original" },
+      { path: "start/other", kind: "directory" },
+    ],
+    {
+      sessions: [
+        {
+          id: "s",
+          cwd: "start",
+          grantedEffects: ["filesystem.read", "process.exec", "session.write"],
+        },
+      ],
+    },
+  );
+  const start = value.sandbox.getSession(value.session).cwd;
+  const target = join(start, "target.txt");
+
+  const hit = await run(value, request(value.directory, "target.txt", "regular"));
+  assert.equal(hit.domain.status, "achieved");
+  const match = hit.domain.match;
+
+  const beforeReplacement = await reuseRef(value.sandbox, match);
+  assert.equal(beforeReplacement.status, "succeeded");
+  assert.equal(beforeReplacement.execution.executorInvoked, true);
+  assert.equal(String(beforeReplacement.execution.observation.snapshot.ino), String(match.identity.ino));
+
+  await rm(target, { force: true });
+  await writeFile(target, "replaced");
+  const afterReplacement = await reuseRef(value.sandbox, match);
+  assert.equal(afterReplacement.status, "failed");
+  assert.equal(afterReplacement.execution.executorInvoked, false);
+  assert.equal(afterReplacement.execution.error.code, "STALE_REFERENCE");
+
+  const freshHit = await run(value, request(value.directory, "target.txt", "regular"));
+  assert.equal(freshHit.domain.status, "achieved");
+  const freshMatch = freshHit.domain.match;
+  const beforeRevision = await reuseRef(value.sandbox, freshMatch);
+  assert.equal(beforeRevision.status, "succeeded");
+
+  const otherDirectory = await value.sandbox.bindDirectory(value.session, "other");
+  const cd = await value.sandbox.execute({
+    operation: "cwd.set",
+    parameters: { session: value.session, directory: otherDirectory },
+  });
+  assert.equal(cd.status, "succeeded");
+
+  const afterRevision = await reuseRef(value.sandbox, freshMatch);
+  assert.equal(afterRevision.status, "failed");
+  assert.equal(afterRevision.execution.executorInvoked, false);
+  assert.equal(afterRevision.execution.error.code, "STALE_REFERENCE");
 });
 
 test("E12 a wrong head is a policy error with zero execution", async t => {
