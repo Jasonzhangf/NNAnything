@@ -307,10 +307,14 @@ test("registries never share a source identity, even with the same prefix", asyn
   const second = createStableNodeRefRegistry("shared-prefix");
   assert.equal(first.prefix, second.prefix);
   assert.notEqual(first.registryRef, second.registryRef);
-  // A second copy of the module must not reuse the same source identity: two
-  // independent producers may observe the same document and different objects.
-  const moduleUrl = import.meta.resolve("nnanything/browser-classify");
-  const copy = await import(`${moduleUrl}?copy=1`);
+  // A second copy of the implementation module must not reuse the same source
+  // identity: two independent producers may observe the same document and
+  // different objects. The copy loads live-dom itself, because re-importing the
+  // package entry only re-evaluates the entry and reuses the same dependency.
+  const entryUrl = new URL(import.meta.resolve("nnanything/browser-classify"));
+  const copyUrl = new URL("adapters/browser/live-dom.js", entryUrl);
+  const copy = await import(`${copyUrl.href}?copy=1`);
+  assert.notEqual(copy.createStableNodeRefRegistry, createStableNodeRefRegistry);
   const fromCopy = copy.createStableNodeRefRegistry("shared-prefix");
   assert.notEqual(first.registryRef, fromCopy.registryRef);
   assert.notEqual(second.registryRef, fromCopy.registryRef);
