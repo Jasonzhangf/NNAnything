@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-22 CLI精确名称查找实施候选
+
+worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-entry-search`（branch `codex/cli-entry-search`，基线 84939e8）实现 `nnanything/cli-search` 公开入口。复用现有 `recursive-goal` 与 `cli.command-policy.v1`，未重训、未采用、未另造 selector。新增 `lib/adapters/cli/entry-search-contract.ts`、`lib/adapters/cli/entry-search-recursive.ts`、`lib/filters/cli-entry-search.ts`、`lib/cli-search.ts`、`package.json` 导出、`tests/cli-entry-search.test.mjs`、`playground/cli/entry-search/`（family-a、family-b、consumer）。
+
+行为：单目录直接子项严格名称，匹配后真实 `entry.inspect` 取类型与受信身份；partial 与受控重复名/路径不一致一律 unknown，不改写为 not_found；错误 head 保留 policy_error 零执行。E01–E14 全部通过；家族 A 8/8、家族 B 14/14；受影响回归 40/40；`npm run build` 与公开 consumer 通过。
+
+独立家族 B 由本 worker 在同一会话独立重写（不复用 A），外部 GCM/AGY 执行者因沙箱 socket 拒绝无法启动，回执保留在 run 目录 `logs/worker-gcm-attempt.log`、`logs/worker-agy-attempt.log`。S06 部分完成、五项 UNVERIFIED、Linux 限制与共享权重未变。停在可审查候选，不合 main、不 push、不采用权重、不删除待审树。
+
 ## 2026-10-21 CLI精确名称查找设计交付
 
 用户要求设计落盘后交worker实现。本轮仅文档和设计责任图：docs/cli-entry-search-design.md固定单个显式目录、直接子项、严格名称、regular/directory的四元素、组合matches请求、真实核验/coverage/准确错误，给Q0–Q6路径与E01–E14失败模式、逐例评价和完整候选验收；docs/cli-entry-search-worker-prompt.md为可直接派发提示词。内部图workflows/cli-entry-search.graph.json为5N4E 0.1.0-design，无五个运行算子绑定；实施必须复用现有recursive-goal 3N2E和cli-file-property 6N5E，不新增引擎或训练层序。
