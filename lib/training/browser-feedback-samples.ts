@@ -2,7 +2,77 @@ import { FEEDBACK_HEADS, type FeedbackEpisode, type FeedbackEvaluation, type Fee
 import type { SingleActionEpisodeResult } from "../adapters/browser/single-action-contract.js";
 import { readFeedbackInput, predictFeedback } from "../filters/browser-feedback.js";
 import { makeBrowserSingleActionSamples } from "./browser-single-action-samples.js";
-import { expectRecord } from "../core/schema.js";
+import { expectRecord, isRecord } from "../core/schema.js";
+
+/** One semantic field a recipe declares for a generated instance. */
+export interface RecipeCondition {
+  readonly path: string;
+  readonly expected: unknown;
+}
+
+/**
+ * F02 sample preparation declares a recipe before instantiation. This function
+ * turns its nested semantic fields into dotted paths; callers assert those
+ * paths against each generated instance before fitting. This module holds no
+ * recipe and does not derive gold from predictions.
+ */
+export function declareRecipeConditions(recipe: unknown): RecipeCondition[] {
+  const root = expectRecord(recipe, "recipe");
+  const conditions: RecipeCondition[] = [];
+  const visit = (record: Readonly<Record<string, unknown>>, prefix: string): void => {
+    for (const [key, value] of Object.entries(record)) {
+      if (key.length === 0) throw new TypeError("recipe condition path must not be empty");
+      const path = prefix.length === 0 ? key : `${prefix}.${key}`;
+      if (isRecord(value)) visit(value, path);
+      else conditions.push({ path, expected: value });
+    }
+  };
+  visit(root, "");
+  if (conditions.length === 0) throw new TypeError("recipe must declare at least one condition");
+  return conditions;
+}
+
+const MISSING_RECIPE_FIELD = Symbol("missing recipe field");
+
+function readRecipePath(instance: unknown, path: string): unknown | typeof MISSING_RECIPE_FIELD {
+  let current: unknown = instance;
+  for (const segment of path.split(".")) {
+    if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+      return MISSING_RECIPE_FIELD;
+    }
+    current = current[segment];
+  }
+  return current;
+}
+
+function formatRecipeValue(value: unknown): string {
+  const encoded = JSON.stringify(value);
+  return encoded === undefined ? String(value) : encoded;
+}
+
+/**
+ * Check declared recipe fields against one generated instance. A missing path
+ * fails with the `recipe_field_missing:<path>` prefix; a present but different
+ * value fails with `recipe_field_mismatch:<path>`. Nothing is inferred from
+ * predictions, and neither the instance nor its gold is modified.
+ */
+export function assertRecipeFields(instance: unknown, conditions: readonly RecipeCondition[]): void {
+  if (!Array.isArray(conditions)) throw new TypeError("recipe conditions must be an array");
+  for (const condition of conditions) {
+    if (!isRecord(condition) || typeof condition.path !== "string" || condition.path.length === 0) {
+      throw new TypeError("recipe condition must declare a nonempty path");
+    }
+    const actual = readRecipePath(instance, condition.path);
+    if (actual === MISSING_RECIPE_FIELD) {
+      throw new TypeError(`recipe_field_missing:${condition.path}: expected ${formatRecipeValue(condition.expected)}`);
+    }
+    if (!Object.is(actual, condition.expected)) {
+      throw new TypeError(
+        `recipe_field_mismatch:${condition.path}: expected ${formatRecipeValue(condition.expected)}, actual ${formatRecipeValue(actual)}`,
+      );
+    }
+  }
+}
 
 export function readFeedbackEpisodes(value: unknown): readonly FeedbackEpisode[] {
   if (!Array.isArray(value) || value.length === 0) throw new TypeError("Feedback episodes must be nonempty");
