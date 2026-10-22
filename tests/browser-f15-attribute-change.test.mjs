@@ -329,3 +329,38 @@ test("registries never share a source identity, even with the same prefix", asyn
   assert.equal(result.state, "unknown");
   assert.equal(result.unknownReason, "object_source_mismatch");
 });
+
+test("a page without crypto.randomUUID still gets a unique source identity", async () => {
+  // randomUUID is restricted to secure contexts, and a page served over http is
+  // not one. The identity then comes from the random bytes instead.
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  let counter = 0;
+  const stub = {
+    getRandomValues(array) {
+      counter += 1;
+      for (let index = 0; index < array.length; index += 1) array[index] = (counter + index) & 0xff;
+      return array;
+    },
+  };
+  Object.defineProperty(globalThis, "crypto", { value: stub, configurable: true, writable: true });
+  try {
+    const first = createStableNodeRefRegistry("page");
+    const second = createStableNodeRefRegistry("page");
+    assert.notEqual(first.registryRef, second.registryRef);
+    assert.match(first.registryRef, /^page#[0-9a-f-]{36}$/);
+  } finally {
+    if (original === undefined) delete globalThis.crypto;
+    else Object.defineProperty(globalThis, "crypto", original);
+  }
+  // A host without any random source fails loudly instead of colliding.
+  Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true, writable: true });
+  try {
+    assert.throws(
+      () => createStableNodeRefRegistry("page"),
+      error => error instanceof TypeError && error.message.includes("crypto random source"),
+    );
+  } finally {
+    if (original === undefined) delete globalThis.crypto;
+    else Object.defineProperty(globalThis, "crypto", original);
+  }
+});

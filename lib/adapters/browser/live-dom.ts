@@ -42,13 +42,26 @@ export interface StableNodeRefRegistry {
 // The source identity must stay unique across module instances and processes,
 // because two independent producers can observe the same document. A module
 // counter is not enough: a second copy of this module, or another process,
-// restarts it from one. A random UUID is unique per registry in every realm.
+// restarts it from one. A random value is unique per registry in every realm.
+//
+// randomUUID is restricted to secure contexts, and a page served over http is
+// not one, so the random bytes come from getRandomValues when it is absent.
 function newRegistryRef(prefix: string): string {
   const crypto = globalThis.crypto;
-  if (crypto === undefined || typeof crypto.randomUUID !== "function") {
-    throw new TypeError("registry source identity requires crypto.randomUUID");
+  if (crypto === undefined) {
+    throw new TypeError("registry source identity requires a crypto random source");
   }
-  return `${prefix}#${crypto.randomUUID()}`;
+  if (typeof crypto.randomUUID === "function") return `${prefix}#${crypto.randomUUID()}`;
+  if (typeof crypto.getRandomValues !== "function") {
+    throw new TypeError("registry source identity requires a crypto random source");
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const version = (bytes[6] ?? 0) & 0x0f;
+  const variant = (bytes[8] ?? 0) & 0x3f;
+  bytes[6] = version | 0x40;
+  bytes[8] = variant | 0x80;
+  const hex = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+  return `${prefix}#${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 export function createStableNodeRefRegistry(prefix = "node"): StableNodeRefRegistry {
   return {
