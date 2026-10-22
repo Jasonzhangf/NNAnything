@@ -43,10 +43,16 @@ function twoLegalChoices() {
   const skills=resources.dependencies.enabledSkills.filter(s=>['bounded.approve','bounded.reject'].includes(s.id));
   resources.dependencies.enabledSkills=skills;
   resources.dependencies.selectors=[{id:resources.request.rootSelectorId,skillIds:skills.map(s=>s.id)}];
-  const base=resources.dependencies.adapter.executeAtomic;
   resources.dependencies.adapter.executeAtomic=async input=>{
-    const receipt=await base(input);
-    return {...receipt,newState:{...receipt.newState,value:{...receipt.newState.value,finished:true}}};
+    // This fixture defines two genuinely successful actions. Calling the branch
+    // executor from its unobserved initial state would fail, even if finished
+    // were later forced true; that tests failure recovery rather than ranking.
+    const stateId=`${input.context.requestId}:two-choice-result:${input.state.revision+1}`;
+    return {runId:input.context.requestId,executorInvoked:true,outcome:'succeeded',
+      sourceResult:{tag:'finite.two-choices',value:{skillId:input.skill.id}},
+      newState:{id:stateId,value:{...input.state,finished:true,revision:input.state.revision+1}},
+      evidence:[{id:`${stateId}:evidence`,stateRef:stateId,validity:'valid',payload:{kind:'finite.bounded-evidence',revision:input.state.revision+1}}],
+      executionErrors:[],verificationErrors:[],effect:{knowledge:'none',confirmedEffects:[],receiptRef:null}};
   };
   resources.dependencies.adapter.evaluate=async input=>({evaluatorId:resources.request.rootEvaluatorId,result:input.state.finished?'satisfied':'unsatisfied',satisfaction:input.state.finished?100:0,necessaryConditionsMet:input.state.finished,evidenceRefs:input.state.finished ? input.evidence.filter(e=>e.validity==='valid').map(e=>e.id) : []});
   resources.dependencies.adapter.select=async input=>({kind:'selected',skillId:input.planning.expectedSkillRef.id});

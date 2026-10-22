@@ -4,6 +4,8 @@
 
 ## 1. 模型输出调用序列与显式资源信封
 
+下一批单目录精确查找的组合调用与资源边界由[精确查找设计](cli-entry-search-design.md#3-请求资源与公开入口)维护，当前为design。拟新增`nnanything/cli-search`薄入口，复用本页ls/entry.inspect及既有recursive-goal；不修改当前共享head/wire，不让原子step接收未注册根matches后隐式扫描。
+
 统一共享模型（`cli.command-policy.v1`）接收 typed `file.property` Goal 与 State，输出标准调用序列。序列首项取自命令头，是小写实际Shell命令名；后续项是机械绑定的typed位置参数引用，模型不生成自由参数文本。
 
 profile、sandbox、会话与可选采样回调在策略工厂绑定：`createCliCommandPolicy({ profile, sandbox, session: S, onSample? })`；每次调用只传`step({ goal, satisfactionThreshold, state })`。请求没有`resources`、`directories` 或独立 `directory` 字段；目标目录引用在 `goal.target`/`goal.requirement.expected` 中显式给出。模型不生成完整命令文本，不生成Shell标志位，不解释Shell语法，也不解析命令stdout/stderr正文。

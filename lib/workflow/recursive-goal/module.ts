@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import {resolvePlanningDecision} from "./decision-contracts.js";
-import {readPlanningEntryAssessment, type GoalGraphPlan, type PathCandidate, type PlanNode, type PlanEdge} from "./planning-contracts.js";
+import {readFailureAttribution, readPlanningEntryAssessment, type FailurePrior, type GoalGraphPlan, type PathCandidate, type PlanNode, type PlanEdge} from "./planning-contracts.js";
 
 import type {
   EmitOptions,
@@ -118,7 +118,7 @@ import {
 const BIND_OPERATOR = "goal.recursive.bind";
 const RUN_OPERATOR = "goal.recursive.run";
 const REPORT_OPERATOR = "goal.recursive.report";
-const OPERATOR_VERSION = "0.2.0";
+const OPERATOR_VERSION = "0.2.0.0001";
 const CONTEXT_EVENT_TYPE = "recursive-goal.context";
 const OUTCOME_EVENT_TYPE = "recursive-goal.outcome";
 const RESULT_EVENT_TYPE = "recursive-goal.result";
@@ -2157,7 +2157,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         projection.result.dispatchId,
       ]);
       this.markRootUnknownFromAtomicFailure([]);
-      this.finishAtomicFailure(
+      await this.finishAtomicFailure(
         frame,
         this.requiredDiagnostic(projection.executionErrorIds[0]),
         "unknown",
@@ -2201,7 +2201,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         projection.result.dispatchId,
       ]);
       this.markRootUnknownFromAtomicFailure([]);
-      this.finishAtomicFailure(
+      await this.finishAtomicFailure(
         frame,
         this.requiredDiagnostic(projection.executionErrorIds[0]),
         "unknown",
@@ -2265,7 +2265,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         this.synchronizeFrameConditionExecution(frame, "completed", null);
         this.stopPendingVerification(frame, primary);
       } else {
-        this.finishAtomicFailure(frame, primary, "unknown");
+        await this.finishAtomicFailure(frame, primary, "unknown");
       }
       return;
     }
@@ -2300,7 +2300,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         });
       if (original === null) this.addDiagnostic(primary);
       const stopOnly = await this.refreshFactsBeforeAtomicStop(frame, receipt, projection.result, primary);
-      this.finishAtomicFailure(frame, primary, frame.fact, stopOnly);
+      await this.finishAtomicFailure(frame, primary, frame.fact, stopOnly, receipt);
       return;
     }
 
@@ -2322,7 +2322,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.addDiagnostic(primary);
       const stopOnly = await this.refreshFactsBeforeAtomicStop(frame, receipt, projection.result, primary);
       if (!stopOnly) this.markRootUnknownFromAtomicFailure(receipt.evidence.map(item => item.id));
-      this.finishAtomicFailure(frame, primary, stopOnly ? frame.fact : "unknown", stopOnly);
+      await this.finishAtomicFailure(frame, primary, stopOnly ? frame.fact : "unknown", stopOnly);
       return;
     }
 
@@ -2347,11 +2347,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     atomic: AtomicReceipt<S, E, F, R>,
     result: AtomicExecutionResult<F, R>,
     original: RecursiveGoalErrorDiagnostic,
+    forceStop = false,
   ): Promise<boolean> {
     const stateRef = this.currentStateRecord().id;
     const plannedNode = this.planControl?.plan?.nodes.find(item => item.id === this.planControl?.cursor?.nodeRef);
     // This already has a normal evaluate/replan path; preserve its existing safe recovery.
-    if (this.planningMode && plannedNode !== undefined && atomic.effect.knowledge === "none"
+    if (!forceStop && this.planningMode && plannedNode !== undefined && atomic.effect.knowledge === "none"
       && (atomic.outcome === "failed" || atomic.outcome === "rejected")
       && result.observedStateRef === stateRef && result.verificationErrorIds.length === 0
       && ["execution_failed", "precondition_unsatisfied", "invalid_binding"].includes(original.code)) return false;
@@ -2436,35 +2437,41 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         owner: "adapter", category: "failure_fact_evaluation", effectKnowledge: atomic.effect.knowledge,
         atomicResultRefs: [result.dispatchId], cause: this.diagnostics.capturedCause(error),
       }));
+      if (this.deps.signal?.aborted === true) this.stopCancelled(failed);
     }
     return true;
   }
 
-  private finishAtomicFailure(
+  private async finishAtomicFailure(
     frame: InternalFrame<G, B, C>,
     diagnostic: RecursiveGoalErrorDiagnostic,
     conditionFact: RecursiveGoalFact = frame.fact,
     stopOnly = false,
-  ): void {
+    postReceipt?: AtomicReceipt<S, E, F, R>,
+  ): Promise<void> {
     if (this.finished) return;
     const atomic=this.atomicResults.at(-1);
     const node=this.planControl?.plan?.nodes.find(item=>item.id===this.planControl?.cursor?.nodeRef);
-    if(!stopOnly && this.planningMode && this.planControl !== null && node!==undefined && atomic!==undefined &&
+    if(!stopOnly && postReceipt !== undefined && this.planningMode && this.planControl !== null && node!==undefined && atomic!==undefined &&
       (atomic.outcome==="failed" || atomic.outcome==="rejected") && atomic.effect.knowledge==="none" &&
       atomic.observedStateRef === this.currentStateRecord().id &&
       ["execution_failed","precondition_unsatisfied","invalid_binding"].includes(diagnostic.code) && atomic.verificationErrorIds.length===0) {
       frame.execution="failed";
       frame.errorId=diagnostic.errorId;
       if(this.primaryErrorId===null) this.primaryErrorId=diagnostic.errorId;
-      const prior={id:`${atomic.dispatchId}:failure-prior`,rootRef:this.acceptedRoot.rootFrameId,obligationRef:node.obligationRef,skillRef:node.skillRef,
-        source:{kind:"verified_failure" as const,dispatchId:atomic.dispatchId,atomicResultRef:atomic.dispatchId,errorRefs:atomic.executionErrorIds},
-        scope:{bindings:frame.bindings,stateProjection:this.callbackState(),evidenceProjection:this.currentEvidence().map(item=>item.payload)},
-        preconditions:node.preconditions,conclusion:{kind:"exclude_transition" as const,transitionRefs:node.predictedResults.map(result=>result.transitionRef)},invalidation:[]};
-      this.planControl={...this.planControl,failurePriors:[...this.planControl.failurePriors,prior],recovery:{...this.planControl.recovery,phase:"checkpoint_recheck",reasonRefs:[...this.planControl.recovery.reasonRefs,diagnostic.errorId]}};
-      frame.pendingProgressCheck=true;
-      frame.phase="evaluate";
-      if(this.invocationLimit!==null && this.atomicDispatchesThisInvocation>=this.invocationLimit) this.yieldPlanningAction(frame,atomic,"evaluate_actual");
-      return;
+      const prior = this.attributeAtomicFailure(frame, node, atomic);
+      if (prior !== null) {
+        this.planControl={...this.planControl,failurePriors:[...this.planControl.failurePriors,prior],recovery:{...this.planControl.recovery,phase:"checkpoint_recheck",reasonRefs:[...this.planControl.recovery.reasonRefs,diagnostic.errorId]}};
+        frame.pendingProgressCheck=true;
+        frame.phase="evaluate";
+        if(this.invocationLimit!==null && this.atomicDispatchesThisInvocation>=this.invocationLimit) this.yieldPlanningAction(frame,atomic,"evaluate_actual");
+        return;
+      }
+      // The old planning fast path deferred evaluation to recovery. A rejected
+      // attribution cancels recovery, but must still refresh facts from this post.
+      const refreshed = await this.refreshFactsBeforeAtomicStop(frame, postReceipt, atomic, diagnostic, true);
+      if (this.finished) return;
+      conditionFact = refreshed ? frame.fact : "unknown";
     }
     frame.execution = "failed";
     frame.errorId = diagnostic.errorId;
@@ -2477,6 +2484,60 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frameId: frame.frameId,
     };
     this.finished = true;
+  }
+
+  private attributeAtomicFailure(
+    frame: InternalFrame<G, B, C>, node: PlanNode<G, B, S, E, F>, atomic: AtomicExecutionResult<F, R>,
+  ): FailurePrior<G, B, S, E> | null {
+    const capability = this.planningCapability!;
+    let category = "failure_attribution_not_configured";
+    let reason = "failure attribution is not configured; no transition exclusion is justified";
+    let cause: unknown;
+    try {
+      if (capability.attributeFailure !== undefined) {
+        const raw = capability.attributeFailure(freezeSnapshot({rootGoal: this.acceptedRoot.rootGoal,
+          bindings: frame.bindings, node, atomicResult: atomic,
+          state: this.currentStateRecord(), evidence: this.currentEvidence()}));
+        if (raw instanceof Promise) {
+          void raw.catch(() => undefined);
+          throw new TypeError("failure attribution must be synchronous");
+        }
+        const attribution = readFailureAttribution(raw, capability.guards);
+        const generated = node.predictedResults.map(result => result.transitionRef);
+        for (const ref of attribution.evidenceRefs) {
+          if (!this.currentEvidence().some(e => e.id === ref && e.validity === "valid" && e.stateRef === atomic.observedStateRef)) {
+            throw new TypeError("failure attribution evidence is not a valid current postcondition");
+          }
+        }
+        if (attribution.kind === "restricted") {
+          if (attribution.transitionRefs.some(ref => !generated.includes(ref))) throw new TypeError("failure attribution names an ungenerated transition");
+          return {id: `${atomic.dispatchId}:failure-prior`, rootRef: this.acceptedRoot.rootFrameId,
+            obligationRef: node.obligationRef, skillRef: node.skillRef,
+            source: {kind: "verified_failure", dispatchId: atomic.dispatchId, atomicResultRef: atomic.dispatchId,
+              errorRefs: atomic.executionErrorIds, attribution: {capabilityRef: capability.contract,
+                planRef: this.planControl!.plan!.planId, nodeRef: node.id, generatedTransitionRefs: generated,
+                stateRef: atomic.observedStateRef!, evidenceRefs: attribution.evidenceRefs, reason: attribution.reason}},
+            scope: {bindings: this.callbackBindings(frame.bindings), stateProjection: this.callbackState(),
+              evidenceProjection: this.currentEvidence().map(e => e.payload)},
+            preconditions: attribution.preconditions,
+            conclusion: {kind: "exclude_transition", transitionRefs: attribution.transitionRefs}, invalidation: attribution.invalidation};
+        }
+        category = "failure_attribution_unknown";
+        reason = attribution.reason;
+      }
+    } catch (error) {
+      category = "failure_attribution_contract";
+      reason = errorMessage(error);
+      cause = error;
+    }
+    this.addDiagnostic(this.diagnostics.create({
+      code: category === "failure_attribution_contract" ? "adapter_contract_invalid" : "evidence_unavailable",
+      stage: "evaluation", message: reason, owner: "adapter", category,
+      origin: {frameId: frame.frameId, skillId: frame.selectedSkillId, conditionId: frame.fulfillsConditionId},
+      effectKnowledge: atomic.effect.knowledge, atomicResultRefs: [atomic.dispatchId],
+      ...(cause === undefined ? {} : {cause: this.diagnostics.capturedCause(cause)}),
+    }));
+    return null;
   }
 
   private stopPendingVerification(

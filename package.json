@@ -30,6 +30,10 @@
       "types": "./dist/cli-goal.d.ts",
       "import": "./dist/cli-goal.js"
     },
+    "./cli-search": {
+      "types": "./dist/cli-search.d.ts",
+      "import": "./dist/cli-search.js"
+    },
     "./recursive-goal": {
       "types": "./dist/recursive-goal.d.ts",
       "import": "./dist/recursive-goal.js"

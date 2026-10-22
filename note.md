@@ -69,6 +69,128 @@ F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 
 另做了一个只改 `leafWeights.ignore`、其余系数全部回退默认的最小变体：F04 仍是 ignore 4/4，旧黄金影响从 91 行降到 28 行且只在 structure 大类内，但增量语料 162 条 ignore 只召回 2 条，说明只补叶子不足以覆盖这些行。28 行是下界并已证明：F04 包装默认被判 container 0.7，ignore 要胜出至少 0.85，同一批 null wire 上的正权重也会把旧容器行抬到约 1.0，而两者之间没有可用区分 wire，所以“F04 ignore 4/4”与“旧黄金 0 预测变化”在当前 schema 下不能同时成立。
 
 结论：能力在测量齐备域成立，旧黄金与微博语料的零变化/召回验收需要先按当前 31 字段重新观测，或由用户明确“旧语料变 unknown 不算回归”的口径；两条都待用户裁决。方法、数字、不可能性证明与复现命令见 `ignore-capability-report.md`，算法前提已补入 docs/basic-kinds-wiring.md。
+## 2026-10-22 通用反馈修复最终交付
+
+通用修复已在cbb8522集成并推送origin/main；CLI先前在a854bcc集成推送。独立整体Review及finding定点闭包已通过，主体全仓1097/1097，最后取消分支修复及主目录最终回归均21/21、0fail/skip。主目录正常npm run build通过。CLI与通用修复自有worktree已正常移除；browser-foundation含待接收成果，继续保留，不宣称浏览器整体通过。两域长程计划与启动提示词均已随main交付，尚未启动。
+
+用户另行授权将遗留pid原样移出根目录并保留，现位于`/Volumes/Intel/playground/nnanything-runs/reasoning-feedback-fix-20261022/legacy-pid`；未向其中记录的进程发送信号。此记录更新下方历史“pid未处理”状态。最终构建与回归日志为同run的main-build-final.log、main-targeted-final.log；交付回执见delivery.md。未训练、未采用权重、未部署。
+
+## 2026-10-22 通用逐步反馈修订候选与两域长程任务
+
+按用户要求修复通用推理链审查4项：失败事实不再由controller自动推断整组转移不可用；新增纯领域attributeFailure和当前post/已生成集合守卫、可复制归因凭据；未配置/unknown准确停止，非法输出保留原错。F2跨模式反应、F3经验时间边界、F4刚性L1与混合上层的唯一合同已补到既有owner。拓扑3N2E不变，bumper补实际module共享版本owner后升0.2.0.0001，未动权重、未训练。原公开入口红测和版本红测保存在外置reasoning-feedback-fix-20261022；本轮全仓1096/1096、0fail/0skip，含真实cwd/finite公开consumer。修复twoLegalChoices测试fixture原先实际返回失败却手填finished的前提问题，改为两项真正成功的synthetic回执，未放宽产品断言。独立整体Review及main交付尚待，不把作者绿测写成PASS。
+
+CLI精确查找已在a854bcc合main并push，42/42与authority公开probe闭合，旧entry-search任务树已正常移除。browser真实构造由父级接收：15条状态，native原生点击在新页面重复af=1/fc=0，81wire与旧反例逐项相等，仍ignore0.864008。fc是显式非负tabindex，不能称完整聚焦能力；探索未标gold、未fit。证据在browser-focus-human-20261022的delivery/parent-acceptance，B1仍INCOMPLETE。工具和首次失败记录保留，未重采未训练。
+
+整体独立Review首轮发现一项P1：缺归因等停止路径跳过planning旧快速分支的post根重评。已通过公开入口复现旧unsatisfied与真实post已满足不一致（review-fix-red.log），修复为归因未接受后执行既有受控纯事实重评，保留原错且不派发恢复动作；缺证据/评价失败为unknown，取消保持取消。新测试覆盖缺callback/unknown/异常/坏输出/评价失败/缺证据/取消，21项受影响回归通过；最终复核与交付另记，不复开其余已审内容。
+
+后续独立定点复核关闭旧根评价P1，并发现取消与评价reject同时发生的P2；新增cancelDuringReject公开红测复现，catch补保留取消，21项定向通过。最终独立复核findings为空、exit0；使用正式classifyReviewOutput裁决PASS，完整整体审查与finding闭包已满足。本轮主体全仓1097/1097、0fail/skip，最后单行取消修复以21项受影响回归验收，不伪称新变体另跑全仓。Review原始结果、退出码及裁决在reasoning-feedback-fix-20261022，未训练/未采用。main交付回执由该run补充，不用本条PASS代替实际集成。
+
+用户要求两域随后独立长程完成：docs/browser-next-longhorizon.md与docs/cli-next-longhorizon.md为计划，各有-prompt.md可直接派发。尚未启动这两个新目标。域owner不改共享core，过程各记外置run；基础语义刚性且训练，高层组合混合，真实验收与控制不训练。主树遗留pid未处理。
+
+## 2026-10-22 B1焦点保留与ignore学习修复：B1 INCOMPLETE（未产生合格候选，未采用）
+
+按docs/browser-next-milestones.md第0节A0–A5执行完毕，结论B1 INCOMPLETE，无合格候选，B未解封。完整交付见外置run `/Volumes/Intel/playground/nnanything-runs/browser-focus-repair-20261022/delivery.md`。
+
+A0复现成功：精确反例`actual-focus-native:actual-focus-candidate-112`在初始候选判`judged:ignore`，score 0.864008，ignore区间0.864008、container区间0.585537。A1/A2完成两个独立6构造×3状态family，各18/18状态实测（A我方、B独立GCM只接共同oracle合同与生产adapter）；B未进入fit、未参与选型，与prepared request的sampleId交集为0。资料准备后为438行（原420+A 18），用途261 train/177 eval，原分区用243/177与冻结e200一致。
+
+T1（200 epoch）与T2（2000 epoch，重新读同一初始权重、其余不变）两次真实拟合都有效完成（`epoch_limit`，fitTotalMs 4339.58 / 41966.41，78个可训练地址、301个稀疏地址、未选中223个0变化），但反例仍判ignore：T1 score 0.895949、T2 score 0.871745，均高于初始的0.864008，即拟合反而抬高其ignore分数。A家族12个S1/S2正确container、6个S3正确ignore，T1/T2全对；且初始权重下18行A的训练loss均非零、对`container.neutral_actual_focus`聚合梯度为−1.70715（分类正确不等于零梯度；T1/T2下该组为12行非零loss）。原420行`fixed=8 regressed=0 retained=266 unresolved=146 unassessed=0`（train 243: retained146/fixed1/unresolved96；eval 177: retained120/fixed7/unresolved50），ignore召回149/162→157/162，无逐行回归。
+
+已验证事实：反例与45条ignore训练行共享同一包装三签名，全train仅`neutral_actual_focus`与`own_focus_target`两条wire能把它与每条ignore行区分；A/B三状态是(`af=1,fc=1`)/(`af=0,fc=1`)/(`af=0,fc=0`)，没有反例的(`af=1,fc=0`，实际聚焦但不可键盘聚焦)。端点事实：反例ignore=0.864008、container上限1.0，最大可得margin=0.13599<0.15，仅抬container不可能翻成container。参数权衡（不构成收敛或预算结论）：T1终态`container.af=0.00568`下243条原train的聚合梯度为+1.64471，T2终态0.00069处为+1.52624，分桶（T1 `list|af=null` +2.3250 / `container|af=1` −0.6802；T2 +2.2152 / −0.6889）方向相反，说明抬该wire会同时抬高null缺测行、抵消收益；两次都以`epoch_limit`停止，收敛性、预算是否足够、是否必须改目标或阈值均未确认。两参数诊断`container.af=0.28, ignore.af=-0.15`能翻反例（margin 0.15153），代价是原420行中21条已正确ignore退回unknown（train 19、eval 2）。未证实的推断（不得当根因）："必须仅靠ignore.af压低ignore""现有wire必然无解""补构造或加wire必能解决""必须改minMargin或加专项约束"。固定配方+T1/T2两次预算未找到合格候选；构造覆盖缺口与端点约束成立，参数/目标权衡待验证。完整诊断证据在`train/diagnostic-full.json`（初始）、`diagnostic-t1.json`（T1）、`diagnostic-t2.json`（T2），生成入口`playground/browser/focus-ignore/diagnose.mjs`，独立Review结论见`review/conclusion.md`，父定点复核见`parent-failure-delivery-review.md`。
+
+未改gold、未手填0.13、未第三次拟合、未切objective、未用unknown/conflict冒充container恢复。两候选均uncalibrated/not_applied，未合main、未push、未部署、未采用权重，待审树保留。全仓基线5个失败（CLI固定profile、extension产物目录、bounded-planning现场）在stash基线逐名相同，属既有环境依赖；本轮新增测试31/31通过、0新增失败。下一轮最小建议：(1)在A/B合同增加`af=1,fc=0`状态（owner fixture/浏览器adapter），保留af=null对照；(2)评估一条区分“容器自身持焦点且无键聚焦能力”与“缺测焦点冗余包装”的wire（owner `lib/filters/`）；(3)是否必须改minMargin或加焦点专项约束未确认，若要试须另开有分区与预算的新实验计划（owner训练/profile），不由本轮失败推出必要性，不自动切换。B已用过，后续不得称未见。
+
+一次独立整体Review（read-only独立session）结论对交付为FAIL（无P0），但认可`B1 INCOMPLETE`本身与停止拟合。其后父owner定点复核确认原6项中3项关闭，剩2项P1+1项P2。本轮按剩余3项收口：(1)撤回"收敛/均衡/不是预算不足/必须改目标"的过度判断，收窄为两次固定配方与预算未找到合格候选+参数与缺测样本的权衡，收敛性/预算充分性/改目标必要性均标未确认；(2)`diagnose.mjs`增加numeric f32前向与公开leaf分数字段，并以initial/T1/T2三个权重各生成一份诊断（`diagnostic-full.json`/`diagnostic-t1.json`/`diagnostic-t2.json`），三份都含端点、梯度分桶、numeric f32前向和420行逐行区间；(3)§8评价命令改为两条完整可执行命令，引用已保存T1/T2候选真实路径，去掉占位符。修订后仍是B1 INCOMPLETE的失败交付，无可集成候选；本轮无训练、无构建、无产品测试、无Git写操作，未加wire/未改objective/未降minMargin。
+
+父owner对剩余三项的定点复核已通过，失败报告收口（`parent-failure-delivery-closure.md`）。B1能力仍为INCOMPLETE，无合格候选，权重未采用。该收口只关闭失败报告的证据与表述问题，不关闭焦点能力缺口，不代表browser-foundation整体通过，也不批准分区基础代码集成。下一步先补`af=1,fc=0`的真实人类鼠标/键盘构造，证明该状态能真实产生且生产adapter如实观测（缺测保持null不补false），再纳入有明确分区与预算的拟合实验；现有证据仍不足以决定是否加wire、改objective或降minMargin。该实验尚未启动。
+
+## 2026-10-22 CLI精确名称查找实施候选
+
+worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-entry-search`（branch `codex/cli-entry-search`，基线 84939e8）实现 `nnanything/cli-search` 公开入口。复用现有 `recursive-goal` 与 `cli.command-policy.v1`，未重训、未采用、未另造 selector。新增 `lib/adapters/cli/entry-search-contract.ts`、`lib/adapters/cli/entry-search-recursive.ts`、`lib/filters/cli-entry-search.ts`、`lib/cli-search.ts`、`package.json` 导出、`tests/cli-entry-search.test.mjs`、`playground/cli/entry-search/`（family-a、family-b、consumer）。
+
+行为：单目录直接子项严格名称，匹配后真实 `entry.inspect` 取类型与受信身份；partial 与受控重复名/路径不一致一律 unknown，不改写为 not_found；错误 head 保留 policy_error 零执行。E01–E14 全部通过；家族 A 8/8、家族 B 14/14；受影响回归 40/40；`npm run build` 与公开 consumer 通过。
+
+独立家族 B 由本 worker 在同一会话独立重写（不复用 A），外部 GCM/AGY 执行者因沙箱 socket 拒绝无法启动，回执保留在 run 目录 `logs/worker-gcm-attempt.log`、`logs/worker-agy-attempt.log`。S06 部分完成、五项 UNVERIFIED、Linux 限制与共享权重未变。停在可审查候选，不合 main、不 push、不采用权重、不删除待审树。
+
+首轮独立 Review（oauth gpt-6-sol，只读，`review-final.md`）判 FAIL，两项 P1：请求 target 只接受旧 `DirectoryRef` 而非已绑定受信目录引用；结果 `match`/`rootFact.ref` 只是路径摘要而非受信 `ObservedObjectRef`。附一项 advisory：E08 缺 `filesystem.read` 分支。修复在 `8509c1d`：target 接受 `bindDirectoryObject` 返回的受信目录引用并仍拒绝 `DirectoryQuery`；`match` 与 `rootFact.ref` 交付当前 `ObservedObjectRef`（kind/scenarioId/sessionId/type/identity/sourceRun/sessionRevision/absolutePath），stale 分支 `ref: null`；E08 补缺读权用例。红测 `logs/fix-r1-red.log` 记录修复前 10/15。独立复审（同角色）判 PASS，两项 P1 与 advisory 均解决，build、15/15、40/40、家族 A 8/8、家族 B 14/14、consumer 均通过。仍未合 main、未 push、未采用权重，交父编排者做最终 Review 与集成。
+
+2026-10-22 父级复核再判 FAIL（两项 P1，公开入口真实复现）：受信目录引用在桥接旧原子 `ls` 前被降成路径引用，绕过 sandbox 签发/identity/revision 校验；返回 `match`/`rootFact.ref` 由 filter 拼接而非 sandbox 签发，交回既有 `entry.inspect` 得 `binding_identity_missing`。本轮 r2 只修这两处 authority 闭合：新增公开 `sandbox.validateObservedObject` 复用既有 `validateObservedRef` 校验，`match`/`rootFact.ref` 改由 sandbox 的 `bindFile`/`bindDirectoryObject`/`bindEntry` 在真实观测后签发登记，filter 只传递；共享 policy/head/wire/权重不变，责任图拓扑不变。计划与版本说明见 run 目录 `plan-fix-r2.md`。
+
+同轮 r2 红测 `logs/fix-r2-red.log` 为 14/17，复现 forged/stale/wrong-identity/replaced 目录引用曾 achieved 及 match 复用曾 `binding_identity_missing`。修复后 build 通过，entry-search 17/17，指定四文件回归 42/42，家族 A 8/8、家族 B 14/14，原 consumer 通过；新增 `consumer-authority.mjs` 证明 search match 可交既有 `entry.inspect`，替换 inode 或推进 revision 后均以 `STALE_REFERENCE` 拒绝且 `executorInvoked=false`。证据日志为 run 目录 `logs/r2-*.log`。改动由 lead 提交为 `83642fb`。
+
+r2 定点复核（独立 oauth gpt-6-sol，可运行测试）判 PASS：两项 P1 均闭合。父级原始探针实跑 `validSearch` achieved/matched、`returnedRefReuse` succeeded、`forgedSourceSearch` rejected/rejected、`wrongRevisionSearch` rejected/rejected；entry-search 17/17、四文件 42/42、authority consumer exit 0。lead 另用独立探针确认：伪造 sourceRun、错误 identity、错误 revision、同路径目录替换均 rejected，恢复原目录后再 achieved；文件替换与 revision 推进后旧 match 均 `STALE_REFERENCE` 且 `executorInvoked=false`。仍未合 main、未 push、未采用权重、未删除待审 worktree，交父编排者最终验收与集成。
+
+## 2026-10-22 浏览器milestone计划具体化
+
+用户指出上一版“没有可落地的操作，需要更具体”。偏差是只有能力阶段/原则，缺少实际输入、脚本、实验配方、case和终点。已在docs/browser-next-milestones.md第0节改成A0–A5焦点修复工单、B集成准备工单、C六例输入验收；给出现存420行语料/候选/训练起点位置、待实现入口、36状态构造、T1/T2预算和逐项结果。worker提示词改为优先执行第0节，不再开放式探索。结构/引用检查只验证派单材料，实际效果待worker执行；本轮不实施/训练，也不增加全局规则或修改受管记忆。
+
+## 2026-10-22 浏览器下一阶段milestone规划（未启动实施）
+
+用户要求展开下一阶段能力及推进。docs/browser-next-milestones.md已落盘B0–B6路线，重点先收束基础交付边界、真实拟合修复焦点误ignore、单次写入与真实读回，再推进查询关联、失败恢复、新结果表示与使用升级。docs/browser-next-worker-prompt.md提供首批B1可直接派发提示词。第7轮报告更正PASS只关闭文档finding，不关闭能力目标或整体browser-foundation。
+
+已读现有L1/训练、operation-episode、recursive-goal与反馈图，复用既有闭合拓扑；本轮只规划，无运行图/代码/资产变更，不新建业务图，不执行浏览器操作或训练。保留历史null、已知焦点反例、F1 R5与F2原始评价限制；固定语义、变化样本及真实反馈分别验收。规划里程碑尚未执行，不编通过数。文档本地链接、diff和layout针对性检查通过，未重复运行产品测试。
+
+## 2026-10-21 CLI精确名称查找设计交付
+
+用户要求设计落盘后交worker实现。本轮仅文档和设计责任图：docs/cli-entry-search-design.md固定单个显式目录、直接子项、严格名称、regular/directory的四元素、组合matches请求、真实核验/coverage/准确错误，给Q0–Q6路径与E01–E14失败模式、逐例评价和完整候选验收；docs/cli-entry-search-worker-prompt.md为可直接派发提示词。内部图workflows/cli-entry-search.graph.json为5N4E 0.1.0-design，无五个运行算子绑定；实施必须复用现有recursive-goal 3N2E和cli-file-property 6N5E，不新增引擎或训练层序。
+
+领域/调用/实施计划、AGENTS和workflow清单均加唯一owner链接。已确认现有目录State只接complete，首版partial不论是否出现同名项均unknown，不放宽原子observed语义。没有实现代码、执行文件查询、生成样本、训练或采用权重。既有S06部分、五项UNVERIFIED和Linux限制不变。设计图dagpipe validate/inspect通过（5节点4边5波），diff/layout检查通过；不把静态通过当实际可运行。worker按用户分工提交完整候选，由父编排者独立Review后集成。
+
+## 2026-10-21 CLI候选复核关闭与main集成准备
+
+第三轮独立OAuth gpt-6.1-sol medium只读定点复核PASS，唯一FIFO超时保护P1关闭；此前已关闭finding继续复用，全部已报告CLI finding收口。原始审查与父结论位于外置run的parent-recheck-r3-controller及parent-review-fifo-recheck-r3.md。作者全量1075/1075及真实consumer证据仍有效；本轮无代码变化，不重复全量测试。远端main刷新后无新增提交，按用户明确指令合并及推送CLI候选；最终回执记录在同一run的integration-delivery.md。
+
+已在docs/cli-foundation.md整理现有入口、可用行为、独立函数未接policy的边界及下一步顺序。建议下一批仅做显式目录内精确名称查找的只读最小闭环，再按证据扩展有界递归与内容条件；本轮不启动新功能或训练。S00–S20共21项，20项完成、S06部分完成；五项UNVERIFIED、Linux缺口、未实现写操作/realpath/links/role继续保留。共享权重未改、候选未采用，第一层不宣称全部完成。
+
+## 2026-10-21 Shell候选第三轮定点复核（唯一剩余 P1 已修，待复核）
+
+第二轮复核：缺测元数据与计数说明关闭；读取边界还剩一处 P1——主 FIFO 反例在测试进程内等待生产 readFileRange，移除 O_NONBLOCK 会挂起而非有界失败。已修并提交 `367f180`，未合 main、未 push、未采用权重。GCM 独立复核 4 点 PASS。main 仍 `83ff464`。
+
+- 主 FIFO 反例改为在子进程运行生产 `readFileRange`，透传生产 flags 给真实 `fs.open(fifo, flags)`；父进程 `execFileAsync` 显式 2s timeout，子进程被杀转 `assert.fail`（有界失败）；父进程 `makeScene` 的 `t.after` 在子进程退出后清理 FIFO 与目录。
+- 受控回归：从构建移除 O_NONBLOCK（保留 O_NOFOLLOW）→ 主 FIFO 用例 `not ok 8`、套件 10/11、无挂起；恢复构建 → 11/11、全量 1075/1075。
+- 证据：`s10-result.md` 追加第三轮；GCM 回执 `gcm-verification-round3.md`。
+
+已关闭项不再重审：声明来源（S15）、S18 consumer、链接环归因、缺测元数据、计数说明。共享 `cli.command-policy.v1` 权重未改，候选 `35bd5ad9` 未重训未采用，仍 `uncalibrated/not_applied`、`fullyVerified=false`；5 项 UNVERIFIED、Linux 限制、S06 部分完成继续保留，不宣称第一层全部完成。交原编排者定点复核本处。
+
+## 2026-10-21 Shell候选第二轮定点复核（3 关闭，2 P1 + 1 P2 已修，待复核）
+
+原 5 项 finding 中 3 项已由独立复核关闭（声明来源/S15、S18 consumer、链接环归因）。剩余 2 项 P1 + 1 项 P2 本轮修复并提交 `ed09cb2`，未合 main、未 push、未采用权重。两个 GCM worker 独立复核 PASS。main 仍 `83ff464`。
+
+- P1#1 读取边界反例对标志敏感（S10）：seam 的 `open(path, flags)` 改为用生产函数实际传入的 path+flags 调真实 OS open（symlink/FIFO/普通文件换入均如此）；断言收到的 flags 含 O_NOFOLLOW/O_NONBLOCK。新增标志敏感性反例：去掉 O_NOFOLLOW 位后真实 open 跟随链接、读取成功；子进程无 O_NONBLOCK 打开 FIFO 阻塞、2s 超时被杀。受控回归：从构建移除两标志 → symlink 反例 not ok、FIFO 挂起至 timeout；恢复后 `tests/cli-file-read.test.mjs` 11/11。FIFO 有界执行 + makeScene 清理。
+- P1#2 缺测元数据返回 null（S17）：`cli-change.ts` sizeSame/mtimeSame 仅两侧都观测才比较，否则 null（不再两侧 null→true、单侧 null→false）；新增 `proof` 数组只列实际证明的相等维度，unchanged 判定边界到 proof。反例 6 项（两侧/单侧 size、两侧/单侧 mtime、字节同+身份同但元数据缺测→unchanged 且 sizeSame/mtimeSame null、size 不同→changed）；旧 `===` 逻辑下 5 项红，修复后 `tests/cli-change.test.mjs` 14/14。
+- P2 计数：`s20-summary.p1fix.md` 原"58/58"无出处，已按可复算口径改写：全量 1067/1067；五个受影响文件合计 36（9+4+6+9+8）；GCM 回执只跑三个修复套件合计 26/26，26 不等于 36/58。
+- 证据：`s10-result.md`、`s17-change-facts.md` 追加第二轮修正；GCM 回执存 `gcm-verification-round2.md`。
+
+全量 `node scripts/test-full.mjs` 1075 通过 / 0 失败 / 0 跳过（新增 8：file-read +2 敏感性、cli-change +6）。共享 `cli.command-policy.v1` 权重未改，候选 `35bd5ad9` 未重训未采用，仍 `uncalibrated/not_applied`、`fullyVerified=false`；5 项 UNVERIFIED 逐项保留。写操作/path.realpath/`file.property.links`/role 仍未实现。S06 部分完成；不宣称第一层全部完成。交原编排者定点复核剩余两项。
+
+## 2026-10-21 Shell基础语义候选 P1 修复（独立 review FAIL → 修复后待定点复核）
+
+原候选 `5d8bc10` 经独立只读 review FAIL，5 项 P1；已在同一独占树 `codex/cli-foundation` 修复并提交 `85ad458`，未合 main、未 push、未采用权重。独立只读复核 8/8 PASS。main 仍 `83ff464`。
+
+- P1#1 打开边界（S10）：`lib/adapters/cli/file-content.ts` 改 `O_RDONLY|O_NOFOLLOW|O_NONBLOCK` 打开，打开后 dev/ino 与 lstat 前核对（`READ_TARGET_CHANGED`），拒绝最终 symlink（ELOOP）与非普通文件（READ_TYPE_DENIED）；注入 io 缝的受控替换反例 4 项（symlink 换普通文件/FIFO 阻塞反例/普通文件替换/真实 end-to-end）。`tests/cli-file-read.test.mjs` 9/9。
+- P1#2 链接环归因（S05/S12）：旧 ENOENT 归因作废。真实闭环探针 `loop-probe.mjs`（run 目录保留）证明 cyc-a↔cyc-b 与 self 环 readlink 端点/inode 齐全、stat 与 follow=true 均 ELOOP，与 R14/P02 一致。证据 `s05-result.correction.md`；Linux 行为仍不推断。
+- P1#3 S18 consumer：对精确读取字节、EFFECT_DENIED、目录覆盖与 names、无写入后验全部断言，硬链接以 lstat dev/ino 核对同对象，断言失败非零退出。`rc=0` 通过。
+- P1#4 S17：新增 `lib/filters/cli-change.ts` `compareSnapshots`（unchanged/changed/unknown；mtime 相等从不证明字节未变；对象替换无字节覆盖 → unknown；不同引用 → unknown）+ `tests/cli-change.test.mjs` 8/8 + 真实 OS 探针 `playground/cli/foundation-s17/change-facts.mjs`（字节变但 mtime 经 utimes 恢复相同 → changed）。
+- P1#5 声明来源（S15）：`lib/filters/cli-declaration.ts` 要求 manifestPath 绝对且在 scope 内（否则 `manifest_out_of_scope` → rejected），相对引用按 manifest 目录解析，每条引用保留 source 端点。`tests/cli-declaration.test.mjs` 9/9。
+
+全量 `node scripts/test-full.mjs` 1067 通过 / 0 失败 / 0 跳过（基线 1031 + 既有 20 + 本轮新增 16）。共享 `cli.command-policy.v1` 权重未改，候选 `35bd5ad9` 未重训未采用，仍 `uncalibrated/not_applied`、`fullyVerified=false`；5 项 UNVERIFIED（character/block/other 设备、synthetic dev/ino 注入、syscall 零 I/O 追踪）逐项保留。写操作/path.realpath/`file.property.links`/role 仍未实现。S06 保持部分完成；本轮修复不宣称第一层全部完成。交原编排者定点复核。
+
+## 2026-10-21 Shell／文件系统第一层基础语义执行（候选待 review）
+
+worker 在独占树 `/Volumes/Intel/playground/nnanything/cli-foundation`（branch `codex/cli-foundation`）执行 docs/cli-foundation-plan.md 的 S00–S20，过程证据在 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-20261021/`。亲查确认当前候选 `35bd5ad9` 为 10×30=300、`uncalibrated/not_applied`、`fullyVerified=false`、`verification=not_provided`，并逐项亲读 5 项 UNVERIFIED 原始报告，不用 56/56 清零。
+
+本轮新增两类最小能力，均为 O/D，无新训练头、不改共享 `cli.command-policy.v1` 权重、候选未重训未采用：
+- `lib/adapters/cli/file-content.ts` + `read` 请求（M0 `nnanything/cli`）：普通文件显式 offset/length 只读范围，拒绝最终 symlink 与非普通文件，零长度合法且不声称 EOF。
+- `lib/filters/cli-content.ts`（签名/utf8/JSON 证据，文件名不是 gold）与 `lib/filters/cli-declaration.ts`（只从显式声明字段取引用边，越界拒绝，部分覆盖不判无引用）。
+
+其余 S03–S09、S12–S14、S16–S17 以真实 macOS 探针复用既有实现取证：词法三阶段不变而 exists 翻转、链接/断链/环行为、硬链接同 dev/ino、目录项名称保真不递归、双 session 独立、执行事实分离、mtime 相同不证明字节未变。S18 只读组合 consumer 通过且零写入；S19 补第二独立 read 家族 4/4。
+
+`node scripts/test-full.mjs` 1051 通过 / 0 失败 / 0 跳过（基线 1031 + 新增 20）；独立套件 57/57 保持原状。未实现写操作、path.realpath、`file.property.links` 与 role；character_device/block_device/other/synthetic 注入/syscall 追踪 5 项仍 UNVERIFIED；无 Linux 运行环境不推断 Linux 行为。worker 停在可审查候选，不合 main、不 push main、不部署、不采用权重、不删除待审 worktree，交原编排者独立 review。
+
+## 2026-10-21 Shell基础语义完整规划与worker交接（设计）
+
+用户要求Shell也按浏览器同样的分层隔离、最小实验与后续review方式规划。专项计划docs/cli-foundation-plan.md落盘，21项S00–S20覆盖范围/证据、最小词法与存在性隔离实验、对象/属性/内容/关系、session与执行事实、组合边界及独立OS来源。编程/日常用途和目录/文件修改列后续映射，不扩成任意Shell执行；共享cli.command-policy.v1及file.property目标不变。
+
+已读当前cli-file-property6N5E、cli-filesystem-training8N8E和curriculum7N6E，现有对象流闭合；本轮仅文档无图/算子/运行变更，不新造业务图，不执行文件操作/训练/派worker。现有fullyVerified=false及5项UNVERIFIED要求worker亲查，不用56/56改写。提示词位于专项计划第8节；worker交候选待原编排者review，不自行合main或采用权重。项目实施计划仅加入口。21项均待实际执行验收。
 
 ## 2026-10-21 浏览器基础语义完整规划与worker交接（设计）
 

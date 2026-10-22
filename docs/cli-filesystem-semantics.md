@@ -4,6 +4,8 @@
 
 ## 1. 唯一目标形式
 
+单目录直接子项精确名称查找的最小组合设计见[精确查找设计](cli-entry-search-design.md)。它细化本合同`directory.entries matches entrySelector`的组合切片，尚未实现；组合入口派生已有observed原子子Goal，不将未来P3学习型select.entry或根matches登记成当前原子policy已支持能力。
+
 ```ts
 type FilePropertyGoal = {
   kind: "file.property";

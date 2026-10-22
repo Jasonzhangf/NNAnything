@@ -4,12 +4,14 @@ import { promisify } from "node:util";
 import { expectRecord } from "../../core/schema.js";
 import { interpretCliPath, readCliPath, readPathRequest, validateCliCwd, type PathObservation, type PathRequest } from "../../filters/cli-path.js";
 import { readEntrySnapshot, type EntrySnapshot } from "./entry-inspection.js";
+import { readFileRange, type FileReadRange } from "./file-content.js";
 
 export type CliEffect = "filesystem.read" | "process.exec";
 export type CliRequest =
   | { readonly kind: "pwd" }
   | PathRequest
-  | { readonly kind: "attributes"; readonly path: string; readonly followSymlinks: boolean };
+  | { readonly kind: "attributes"; readonly path: string; readonly followSymlinks: boolean }
+  | { readonly kind: "read"; readonly path: string; readonly offset: number; readonly length: number };
 
 export interface PwdObservation {
   readonly kind: "pwd";
@@ -38,7 +40,7 @@ export interface FileAttributes {
   readonly linkTarget?: string;
 }
 
-export type CliObservation = PathObservation | PwdObservation | FileAttributes;
+export type CliObservation = PathObservation | PwdObservation | FileAttributes | FileReadRange;
 export interface CliFailure {
   readonly operation: string;
   readonly stage: "validate" | "authorize" | "observe";
@@ -55,6 +57,12 @@ export function readCliRequest(value: unknown): CliRequest {
     const path = readCliPath(request.path, "path");
     if (typeof request.followSymlinks !== "boolean") throw new TypeError("followSymlinks must be an explicit boolean");
     return { kind: "attributes", path, followSymlinks: request.followSymlinks };
+  }
+  if (request.kind === "read" && Object.keys(request).every(key => ["kind", "path", "offset", "length"].includes(key))) {
+    const path = readCliPath(request.path, "path");
+    if (!Number.isSafeInteger(request.offset) || (request.offset as number) < 0) throw new TypeError("offset must be a non-negative safe integer");
+    if (!Number.isSafeInteger(request.length) || (request.length as number) < 0) throw new TypeError("length must be a non-negative safe integer");
+    return { kind: "read", path, offset: request.offset as number, length: request.length as number };
   }
   throw new TypeError("Unsupported CLI request or extra fields");
 }
@@ -137,6 +145,11 @@ export async function observeCliRequest(cwd: string, value: unknown, grantedEffe
       return { ok: true, observation: { kind: "pwd", configuredCwd: cwd, physicalCwd, executable: "/bin/pwd", argv: ["-P"], stdout, stderr, exitCode: 0 } };
     }
     const absolutePath = interpretCliPath(cwd, { kind: "path", path: request.path }).absolute;
+    if (request.kind === "read") {
+      const result = await readFileRange(absolutePath, request.offset, request.length);
+      if (!result.ok) return failure("read", result.error.stage, result.error.code, result.error.message);
+      return { ok: true, observation: result.observation };
+    }
     const snapshot = await readEntrySnapshot(absolutePath, request.followSymlinks);
     if (snapshot.errno !== null) return failure("attributes", "observe", snapshot.errno, `Entry observation failed with ${snapshot.errno}`);
     return { ok: true, observation: m0Attributes(absolutePath, snapshot) };

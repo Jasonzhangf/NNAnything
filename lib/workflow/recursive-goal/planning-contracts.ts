@@ -1,4 +1,5 @@
 import type {PlanningDecisionBinding} from "./decision-contracts.js";
+import type {AtomicExecutionResult, EvidenceRecord, StateRecord} from "./contracts.js";
 export const BOUNDED_GOAL_PLANNING_KIND = "bounded_goal_planning.v1" as const;
 export const PLANNING_ACTION_BOUNDARY_KIND =
   "planning_action_boundary.v1" as const;
@@ -223,6 +224,7 @@ export type FailurePriorSource =
       readonly dispatchId: string;
       readonly atomicResultRef: string;
       readonly errorRefs: readonly string[];
+      readonly attribution: FailureAttributionProof;
     }
   | {
       readonly kind: "proven_unsatisfied";
@@ -237,6 +239,36 @@ export type FailurePriorConclusion =
   | {
       readonly kind: "deprioritize_transition";
       readonly transitionRefs: readonly string[];
+    };
+
+export interface FailureAttributionProof {
+  readonly capabilityRef: VersionedRef;
+  readonly planRef: string;
+  readonly nodeRef: string;
+  readonly generatedTransitionRefs: readonly string[];
+  readonly stateRef: string;
+  readonly evidenceRefs: readonly string[];
+  readonly reason: string;
+}
+
+export interface FailureAttributionInput<G, B, S, E, F> {
+  readonly rootGoal: G;
+  readonly bindings: B;
+  readonly node: PlanNode<G, B, S, E, F>;
+  readonly atomicResult: AtomicExecutionResult<F, unknown>;
+  readonly state: StateRecord<S>;
+  readonly evidence: readonly EvidenceRecord<E>[];
+}
+
+export type FailureAttributionResult<G, B, S, E> =
+  | { readonly kind: "unknown"; readonly reason: string; readonly evidenceRefs: readonly string[] }
+  | {
+      readonly kind: "restricted";
+      readonly reason: string;
+      readonly evidenceRefs: readonly string[];
+      readonly transitionRefs: readonly string[];
+      readonly preconditions: readonly TypedCondition<G, B, S, E>[];
+      readonly invalidation: readonly TypedInvalidationCondition<G, B, S, E>[];
     };
 
 export interface FailurePrior<G, B, S, E> {
@@ -596,6 +628,8 @@ export interface BoundedPlanningCapability<G, B, S, E, F, C> {
   readonly contract: VersionedRef;
   readonly resultModels: readonly ResultModelBinding<G, B, S, E, F>[];
   readonly guards: PlanningDomainGuards<G, B, S, E, F, C>;
+  /** Pure domain explanation; never authorizes retry, observation, or effects. */
+  attributeFailure?(input: FailureAttributionInput<G, B, S, E, F>): FailureAttributionResult<G, B, S, E>;
   /** Checks entry conditions and invalidation against current facts; never executes. */
   assessEntry?(input: PlanningEntryAssessmentInput<G, B, S, E, F>): PlanningApplicability;
   /** Pure validity check; no observation, execution, or hidden state. */
@@ -614,6 +648,27 @@ export interface PlanningEntryAssessmentInput<G, B, S, E, F> {
 
 export function readPlanningEntryAssessment(value: unknown): PlanningApplicability {
   return readApplicability(value, "planning entry assessment");
+}
+
+export function readFailureAttribution<G, B, S, E, F, C>(
+  value: unknown,
+  guards: PlanningDomainGuards<G, B, S, E, F, C>,
+): FailureAttributionResult<G, B, S, E> {
+  const label = "failure attribution";
+  if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
+  if (value.kind !== "unknown" && value.kind !== "restricted") throw new TypeError(`${label}.kind is invalid`);
+  assertExactKeys(value, value.kind === "unknown" ? ["kind", "reason", "evidenceRefs"]
+    : ["kind", "reason", "evidenceRefs", "transitionRefs", "preconditions", "invalidation"], [], label);
+  const reason = nonEmptyString(value.reason, `${label}.reason`);
+  const evidenceRefs = stringArray(value.evidenceRefs, `${label}.evidenceRefs`);
+  assertUnique(evidenceRefs, ref => ref, `${label}.evidenceRefs`);
+  if (value.kind === "unknown") return {kind: "unknown", reason, evidenceRefs};
+  const transitionRefs = stringArray(value.transitionRefs, `${label}.transitionRefs`);
+  assertUnique(transitionRefs, ref => ref, `${label}.transitionRefs`);
+  if (transitionRefs.length === 0 || evidenceRefs.length === 0) throw new TypeError(`${label} restriction requires transitions and evidence`);
+  return {kind: "restricted", reason, evidenceRefs, transitionRefs,
+    preconditions: readTypedConditions(value.preconditions, guards, `${label}.preconditions`),
+    invalidation: readTypedConditions(value.invalidation, guards, `${label}.invalidation`)};
 }
 
 export function assertBoundedPlanningCapabilityContract<G, B, S, E, F, C>(
@@ -1664,6 +1719,20 @@ function readVerifiedCheckpoint(
   };
 }
 
+function readFailureAttributionProof(value: unknown, label: string): FailureAttributionProof {
+  if (!isRecord(value)) throw new TypeError(`${label} must be an object`);
+  assertExactKeys(value, ["capabilityRef", "planRef", "nodeRef", "generatedTransitionRefs", "stateRef", "evidenceRefs", "reason"], [], label);
+  const generatedTransitionRefs = stringArray(value.generatedTransitionRefs, `${label}.generatedTransitionRefs`);
+  const evidenceRefs = stringArray(value.evidenceRefs, `${label}.evidenceRefs`);
+  assertUnique(generatedTransitionRefs, ref => ref, `${label}.generatedTransitionRefs`);
+  assertUnique(evidenceRefs, ref => ref, `${label}.evidenceRefs`);
+  if (generatedTransitionRefs.length === 0 || evidenceRefs.length === 0) throw new TypeError(`${label} requires generated transitions and evidence`);
+  return {capabilityRef: readVersionedRef(value.capabilityRef, `${label}.capabilityRef`),
+    planRef: nonEmptyString(value.planRef, `${label}.planRef`), nodeRef: nonEmptyString(value.nodeRef, `${label}.nodeRef`),
+    generatedTransitionRefs, stateRef: nonEmptyString(value.stateRef, `${label}.stateRef`), evidenceRefs,
+    reason: nonEmptyString(value.reason, `${label}.reason`)};
+}
+
 export function readFailurePrior<G, B, S, E, F, C>(
   value: unknown,
   guards: PlanningDomainGuards<G, B, S, E, F, C>,
@@ -1693,7 +1762,7 @@ export function readFailurePrior<G, B, S, E, F, C>(
   if (value.source.kind === "verified_failure") {
     assertExactKeys(
       value.source,
-      ["kind", "dispatchId", "atomicResultRef", "errorRefs"],
+      ["kind", "dispatchId", "atomicResultRef", "errorRefs", "attribution"],
       [],
       `${label}.source`,
     );
@@ -1708,6 +1777,7 @@ export function readFailurePrior<G, B, S, E, F, C>(
         `${label}.source.atomicResultRef`,
       ),
       errorRefs: stringArray(value.source.errorRefs, `${label}.source.errorRefs`),
+      attribution: readFailureAttributionProof(value.source.attribution, `${label}.source.attribution`),
     };
   } else if (value.source.kind === "proven_unsatisfied") {
     assertExactKeys(

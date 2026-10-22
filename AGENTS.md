@@ -91,9 +91,13 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 ## 唯一Owner与入口
 
+- 2026-10-22通用反馈修订候选：recursive-goal图/三个算子为`0.2.0.0001`，3N2E拓扑不变。失败事实与领域归因分开，`planning.attributeFailure`未配置或unknown时不创建转移排除并停止该自动恢复；合法限制须有当前post证据和已生成转移范围，续接保存归因凭据。最新行为/交付沿note.md，前述0.2.0/下述0.1.0只保留历史证据，不作为当前版本。分层刚性/混合唯一合同为docs/design.md 1.1.1；模式反应、归因、经验时间边界分别归recursive-goal-module.md 4.0、bounded-goal-planning.md 9.1、model-evolution.md 2.2。
+- 两个独立长程域任务由docs/browser-next-longhorizon.md和docs/cli-next-longhorizon.md维护，配套同名前缀的`-prompt.md`交用户派发；不因提示词落盘就启动。域owner不修改共享core，缺口交父编排者，不各自复制推理循环。旧browser-foundation尚待能力修复及整体集成；精确CLI查找已交付，不能据历史“未实现”导航忽略当前nnanything/cli-search入口。
+
 - 浏览器逐步观察义务：`lib/adapters/browser/action-observation.ts`；原子执行异常后仍读取安全后验，执行错误、观察错误、真实Goal事实与effects分离。普通text输入搜索公开入口为`nnanything/browser-search`的`runBrowserSearchGoal`，领域合同由`docs/search-page-abstraction.md`维护，节点复用operation-episode 7N6E，组合复用recursive-goal。当前显式绑定/handwired起点，未训练搜索模型；textarea/search/contenteditable、任意网页自动绑定、分页滚动筛选未接入。旧原子/F1/F2权重不变；新失败投影的F1后训练缺口沿`docs/browser-feedback-strategy.md`记录，不把旧回归全绿当新增泛化。
 
 - 人的可观察/可感知评价、已有及未来元素族与具名指标分母由docs/semantic-evaluation.md维护。身份、资格、能力、感知与目标效果分开。编码的完整milestone独立Review还须审原始逐例依据、oracle前提与评估结论合理性，不以测试全绿替代；沿本地设计Skill，不加逐节点审核。
+- 浏览器下一阶段能力milestone、依赖和验收路线由docs/browser-next-milestones.md维护；首批B1焦点修复交接为docs/browser-next-worker-prompt.md。它是增量规划，不改写原F00–F18完成状态，也不把报告更正PASS扩大为能力或整体候选PASS。
 - 基础解耦、组合重叠/覆盖/干扰及多候选偏好由docs/goal-selection-policy.md维护，当前为设计。性格只影响合法候选排序，不改根Goal/阈值/权限/基础gold，不将模型分数当满足度，也不改变当前F2同分DEFER合同。
 - 预测推理/执行推理、有界多路径、真实checkpoint、备选及失败先验恢复由docs/bounded-goal-planning.md维护，已接既有3N2E controller并验证finite合成域和真实cwd；6N5E 0.2.0-design为内部责任图，无独立六算子绑定。N步可行前缀可执行，边界/checkpoint或无适用路才重推；根保留，预测与实际分开，换图不重置budget/retry/ledger，不训练控制层序。
 - 可替换决策单元与候选热重载唯一合同为docs/bounded-planning-decision.md。统一infer/train、18wire及默认/Handwired provider已实现替换，train明确未实施。参数版本按请求capture，旧续接不偷换；失败输入多候选对照仅数值，无自动动作重放或采用。预训练/后训练及重大表示缺口才修结构的规则归docs/model-evolution.md。
@@ -116,6 +120,7 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 - 操作目标与元素必要性关系（四元素推理链、训练反推链与最小实施切片）：docs/operation-goal-necessity.md；当前为未就绪设计合同，无运行入口、未训练，L1词表/wire、L2与L3图纸分别由各自owner维护。
 - 浏览器行为目录、单步意图选择及分类后元素保留结构：docs/browser-behavior-framework.md，固定为0.1.0-design；单步复用operation-episode的7N6E，接入通用递归框架。已有一次外部原生键鼠搜索合同实验，不代表项目L1/L2/operation运行验收；新结构尚非导出API。
 - 统一CLI共享命令模型与文件系统训练合同唯一owner：docs/cli-filesystem-training.md；参数简化调用合同：docs/cli-call-contract.md。
+- 单目录直接子项的精确名称查找设计、错误/覆盖边界、测试与验收：docs/cli-entry-search-design.md；worker交接：docs/cli-entry-search-worker-prompt.md。内部责任图为workflows/cli-entry-search.graph.json，当前未实现，不扩大原子policy支持域或宣称P3已训练。
 - CLI旧实现到file.property迁移的审计、完成定义、收口步骤与残留退役顺序：docs/cli-migration.md；运行形状仍由上述领域合同维护，本页不复制词表或训练规则。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 

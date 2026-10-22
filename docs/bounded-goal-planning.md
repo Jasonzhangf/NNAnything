@@ -206,6 +206,20 @@ rank(candidates, projection, preferencePolicyRef) -> ranking | defer
 
 后续动作抵消先前成果或使引用失效时，撤销相关预测和持续条件适用性，保留历史回执。计划不能降低现有停止条件，unknown/inflight不得因换planId、次优路径或继续而重放。
 
+### 9.1 失败事实、归因与路线限制
+
+失败事实只证明该次dispatch的实际结果。`execution_failed/precondition_unsatisfied/invalid_binding`、无effects和可信后验是既有恢复入口的必要条件，不足以证明该节点全部预测转移不可用。纯领域归因分别返回原因及当前证据支持的局部结论；控制器不得自行把整组结果写成排除。缺归因能力或证据不足时不施加排除，不允许凭空重试；沿明确停止或已声明恢复合同收束。
+
+归因可由手写或权重实现，输入只能是显式动作/预测、执行事实和真实证据；输出不执行动作、不改变根/权限/预算。它必须区分环境暂态、前提已证伪、选择不适合、观察不足或原因未知，并只引用本次可关联的实际证据。允许的限制须限定到当前节点/技能/义务的已生成转移，注明作用范围、理由及失效条件；越界或坏合同显式报错，原执行错误保留。归因未知不伪装为已验证不可达。
+
+`assessPrior`仍只负责已有先验在最新State上的适用性，不替代归因，也不能将未知事实变为排除。真实失败恢复重验checkpoint后重推；这与正常分叉先检查旧图备选的路径不同，具体模式反应沿[递归模块4.0](recursive-goal-module.md#40-逐步反馈与模式反应)。checkpoint恢复不撤销任何实际副作用。
+
+接口为可选同步纯函数`attributeFailure({rootGoal,bindings,node,atomicResult,state,evidence})`。输入是隔离的只读快照，state/evidence带真实引用。输出为`unknown {reason,evidenceRefs}`或`restricted {reason,evidenceRefs,transitionRefs,preconditions,invalidation}`。restricted只允许本次节点已生成转移的非空子集，支持证据必须属于本次可信post。未配置/unknown准确停止该恢复，不换规则或自动重试；异常、异步或坏输出报合同错误并保留原错。归因正确性仍需领域反例，引用校验不证明任意领域解释正确。
+
+controller签发prior的控制引用和失败来源，持久化领域reason、capability版本、来源plan/node、已生成集合、State及证据引用。续接核对原子结果、实际状态/证据、限制集合及存在时的来源计划，缺凭据的旧自动排除先验被拒绝；新进程不能依赖隐藏memory重造归因。同一dispatch的续接不重复归因或执行。
+
+验收必须区分：临时资源忙只证明本次失败，不能无依据排除所有成功转移；typed前提被当前证据证伪时，可限制相应转移；缺归因/未知/异常/越界输出不能自动派发mutation或丢失原错误。旧finite演示中的确定失败也须由领域显式给出证明，不能依靠controller暗中造结论。实际接口和执行状态沿模块合同及实现证据维护。
+
 ## 10. Checkpoint、根结束与跨段continuation
 
 checkpoint只在绑定对象和实际条件满足后触发。触发时归还该阶段义务，丢弃旧路径剩余预测承诺，并以最新真实State生成下一段。若根未满足，跨调用滚动通过continuation；若根已满足，立即回收必要链并结束。

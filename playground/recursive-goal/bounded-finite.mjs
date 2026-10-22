@@ -5,7 +5,7 @@ import { runRecursiveGoal } from "nnanything/recursive-goal";
 
 export const BOUNDED_FINITE_CAPABILITY_REF = Object.freeze({
   id: "finite.bounded-planning-capability",
-  version: "1.0.0",
+  version: "1.0.1",
 });
 
 export const BOUNDED_FINITE_RESULT_MODEL_REF = Object.freeze({
@@ -123,6 +123,7 @@ export function createBoundedFiniteResources(options = {}) {
     operations: [],
     premise: "same",
     attemptFailed: false,
+    blockedTransition: null,
     revision: 0,
   };
   const rootGoal = {
@@ -446,6 +447,20 @@ function createPlanningCapability(config, memory) {
       });
       return applicability;
     },
+    attributeFailure(input) {
+      const blocked = input.state.value.blockedTransition;
+      const evidenceRefs = input.evidence.filter(e => e.validity === "valid" && e.stateRef === input.state.id &&
+        e.payload.blockedTransition?.skillId === input.node.skillRef.id &&
+        e.payload.blockedTransition?.premise === input.state.value.premise &&
+        e.payload.blockedTransition?.resultRef === blocked?.resultRef).map(e => e.id);
+      if (!blocked || blocked.skillId !== input.node.skillRef.id || blocked.premise !== input.state.value.premise || !evidenceRefs.length) {
+        return {kind: "unknown", reason: "no observed finite prerequisite blocks a generated result", evidenceRefs: []};
+      }
+      const transitionRefs = input.node.predictedResults.filter(r => r.resultRef === blocked.resultRef).map(r => r.transitionRef);
+      if (!transitionRefs.length) return {kind: "unknown", reason: "blocked result was not predicted at this node", evidenceRefs};
+      return {kind: "restricted", reason: "finite prerequisite blocks this result until the premise changes", evidenceRefs,
+        transitionRefs, preconditions: [], invalidation: []};
+    },
     assessPrior(input) {
       const samePremise =
         input.prior.scope.stateProjection.premise ===
@@ -693,9 +708,9 @@ function executeAtomicGoal(config, input, memory) {
   }
   if (
     (skillId === SKILL_IDS.approve || skillId === SKILL_IDS.reject) &&
-    config.failSelected &&
     skillId === SKILL_IDS.approve &&
-    memory.atomicExecutions.filter(id => id === SKILL_IDS.approve).length === 1
+    ((config.failSelected && memory.atomicExecutions.filter(id => id === SKILL_IDS.approve).length === 1) ||
+      (state.blockedTransition?.skillId === skillId && state.blockedTransition?.premise === state.premise))
   ) {
     return failedReceipt(input, "selected-branch-failed");
   }
@@ -800,6 +815,9 @@ function executeAtomicGoal(config, input, memory) {
 
 function failedReceipt(input, category) {
   const stateId=`${input.context.requestId}:failed-state:${input.state.revision+1}`;
+  const blockedTransition = category === "selected-branch-failed"
+    ? {skillId: input.skill.id, premise: input.state.premise, resultRef: "result:branch:approve:succeeded"}
+    : null;
   return {
     runId: input.context.requestId,
     executorInvoked: true,
@@ -808,8 +826,8 @@ function failedReceipt(input, category) {
       tag: "finite.bounded",
       value: { operation: "failed", category },
     },
-    newState: {id:stateId,value:{...input.state,attemptFailed:true,revision:input.state.revision+1}},
-    evidence: [{id:`${stateId}:evidence`,stateRef:stateId,validity:"valid",payload:{kind:"finite.bounded-evidence",goalId:input.goal.goalId,resultRef:"result:failed",operation:"failure-observation",revision:input.state.revision+1}}],
+    newState: {id:stateId,value:{...input.state,attemptFailed:true,blockedTransition,revision:input.state.revision+1}},
+    evidence: [{id:`${stateId}:evidence`,stateRef:stateId,validity:"valid",payload:{kind:"finite.bounded-evidence",goalId:input.goal.goalId,resultRef:"result:failed",operation:"failure-observation",blockedTransition,revision:input.state.revision+1}}],
     executionErrors: [
       {
         diagnosticId: `finite:bounded:error:${category}`,
