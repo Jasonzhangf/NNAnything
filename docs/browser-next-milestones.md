@@ -2,6 +2,89 @@
 
 日期：2026-10-22。状态：阶段规划；本轮不实现、不采集、不训练、不采用。范围是现有浏览器方向的增量推进，不启动computer use或CLI扩展。
 
+## 0. 本轮可直接派发的工单（优先于后文路线概述）
+
+用户指出上一版“没有可落地的操作，需要更具体”。以下固定第一批的资料、修改位置、实验预算、用例和交付；后文B0–B6是路线索引，不是可直接执行的派单。当前只准备这些工单，不由本次文档编辑启动实施。
+
+### 工单A：焦点反例修复，一次完整milestone
+
+输入位置（实施者开工时核对存在，不猜资产路径）：
+
+- 420行原始语料：`/Volumes/extension/code/NNAnything/training/samples/three-site-zero/wrapper-increment-request.json`。
+- 当前待修候选：`/Volumes/Intel/playground/nnanything/browser-foundation/training/weights/dom-basic-kinds/ignore-capability-20261021.weight.json`。
+- 已知反例sampleId：`actual-focus-native:actual-focus-candidate-112`，原gold=container；不得重标。
+- 原训练起点脚本：`/Volumes/Intel/playground/nnanything-runs/browser-ignore-capability-20261021/fit-sweep.mjs`。它默认从DEFAULT profile起步，不能直接拿来冒称从当前候选增量拟合，需显式改为加载指定文件的任务consumer。
+- 已有验收入口：候选树的`playground/browser/f04-live-gold.mjs`和`reobserve-compare.mjs`；前者支持输出路径和`--weight`，后者先读取实际CLI参数再使用，不凭注释猜参数。
+- 原r7资料：`/tmp/ignore-fit-r7/training/`可能被系统清理；只是历史证据，先归档可用部分，不让新任务依赖/tmp长期存在。
+
+| 工单 | 谁做/改哪里 | 执行操作 | 必交结果与结束条件 |
+| --- | --- | --- | --- |
+| A0 当前反例复现 | 执行者；新增`playground/browser/focus-ignore/evaluate.mjs`，算法不改 | 从显式文件读当前候选；用公开classifyBasicKind/extractBasicKindWires跑420行；按sampleId找反例；输出类型/status、两个焦点wire、三wrapper、container/ignore区间和margin；保存每条ignore是否召回 | 外置run的baseline.json及baseline-rows.jsonl；必须实际复现反例ignore；否则先报告输入/版本偏差，不继续训练 |
+| A1 实际DOM对照A | 执行者；`playground/browser/focus-ignore/fixture-a.html`与`capture.mjs` | 构造6种无自身独立内容的包装（子对象为button、svg、image、link、文本span、含一层额外包装的button），每种3状态；用真实adapter采集、键鼠切焦点，保存每步实际测量 | 计划18状态，缺陷三wrapper签名至少有一个实测复现；不满足构造前提的场景不能算通过，要修fixture或报告缺口 |
+| A2 独立实现B | 另一独立GCM执行者，仅负责`fixture-b.html`、对应oracle与capture | 按同一6类×3状态要求重新实现DOM/CSS，不能读A实现或复制改名；先交期望/前提，再测候选。B不得进入fit或超参选择 | 计划18状态，含独立复杂包装与焦点组合；保存独立来源。只收到共同语义合同和生产adapter，不给A代码/构造器；不得依据候选预测改gold |
+| A3 真实拟合最多两次 | 训练执行者；`playground/browser/focus-ignore/train.mjs`，复用公开training workflow | 执行下述T1/T2；从指定候选读profile，引用实际train/dev分区；只开放既有ignore支撑wire及两焦点wire，不改算法/标签/区间 | 两个独立输出目录、实际配置/计时/停止原因、保存候选；失败也交。不得边看B边调参 |
+| A4 回载与真实验收 | 独立执行者；新增`reload.mjs`/`accept.mjs`，复用已有F04/live compare | 用train/dev选定一个候选后，启动新进程回载；首次评价B；重跑受影响F04；四份已知live离线同输入对照；逐例检查旧有效能力变化 | acceptance.json和逐例差异。B失败则本milestone未通过，不把B加入本轮再训练；新的实验须另记分区与停止条件 |
+| A5 作者收口 | 原目标owner | 更新实际领域合同/代码入口说明/note；做受影响build与测试，整理完整候选 | delivery.md：反例保留约束、正确分类、独立评价、回归分别PASS/FAIL；父独立Review后才集成，不自称最终PASS |
+
+三状态的gold前提必须如下，不能把“失去当前焦点”误标成ignore：
+
+| 状态 | 实际刺激与观测 | 包装期望 |
+| --- | --- | --- |
+| S1 实际聚焦且可键盘聚焦 | 通过正常键鼠进入包装焦点，读回activeElementFocus=true与tabIndexFocus=true | container、不得ignore |
+| S2 可键盘聚焦但当前未聚焦 | 焦点移至自有其他控件，保留包装tabIndex，读回active=false、tabIndexFocus=true | container、不得ignore |
+| S3 无焦点能力的冗余包装 | 独立fixture配置移除包装可聚焦属性且无独立读取/交互/状态价值；读回两焦点事实false | ignore；子对象继续保留且分类不被父级覆盖 |
+
+S3不是把旧观测字段改成false；它是新页面状态，必须实测。fixture可声明正常HTML初态/控件，操作时用原生键鼠，不用JS focus/click作为行为验收。额外的null输入对照另作明确的“缺测投影测试”，不得算真实测量。6×3×2=36只是计划状态数，不是已取得样本数，也不足以证明任意页面泛化。
+
+T1/T2的固定配方：
+
+1. 基线A0不拟合。从当前候选显式起步，原420行及新A资料按来源组准备train/dev；保持原资料既有分区与group完整，A的同构/连续状态不跨train/dev。B独立存文件，不送fitter。prepare产物逐行登记用途，若现有partition入口不能表达，先交最小适配设计，不通过改seed反复找好分区。
+2. T1：200 epoch，lr=0.02，anchorLambda=0.001，保持现有family_leaf_v1及其兼容目标；开放原ignore支撑wire集合加neutral_actual_focus、neutral_focusable_control，阈值minScore=0.6、minMargin=0.15不变。trainableWires是跨地址配置，必须输出实际可训练地址清单，不能声称只改container一个参数。
+3. T2仅在T1于train/dev未满足声明目标时执行：仍从同一初始候选起步，数据、分区、lr、anchor、wire和objective都与T1相同，只把epoch改为2000。预算×10是一次明确的预算假设检验，不保证成功，不在本轮继续第三次fit。
+4. 候选选择只看train/dev：先满足保留约束/正确分类及必要回归，再取预算更小者；不得通过aggregate分数掩盖具体回归。选定后才交A4查看B。如果T1/T2都失败，停止并交梯度/端点/逐例诊断，目标函数改动另行设计，不能自动切objective或手填0.13。
+
+必须由独立Plan先核对上述数值及现有配置兼容性；这是本批建议固定预算，不是旧r7配方的已验证复现。发现配方/接口不兼容时写明具体字段与最小修订，不能静默换起点。
+
+A4必须逐项返回以下结果，不用一个“准确率”覆盖：
+
+- 原反例是否judged:container；若仅不再ignore但仍unknown/conflict，记部分修复。
+- 独立B中满足oracle前提的S1/S2全部不得ignore，并检查是否为正确container；S3必须仍能识别ignore。任何未测/不成立场景单列，不能剔除后宣称18/18。
+- 原420行按相同样本与用途列fixed/regressed/retained/unresolved。保留基线每条已正确ignore及已正确保留类，禁止用总数补偿丢掉某条；无法沿旧输入评价的项保留具体限制，不能补测量。
+- F04的ignore/audio/video各4例在新候选仍满足gold；已知live只报预测变化及所列代理检查，不能声称全语义误判率0。
+- 同一输入保存前后及新进程加载结果一致；坏文件显式失败；候选维持uncalibrated/not_applied。
+
+所有新入口目前待实现。建议命令接口在实现中固定如下，实际复跑回执必须提供无占位符版本：
+
+```sh
+# 在经授权复用的候选工作树内；这是工单约定，以下focus-ignore脚本尚未实现。
+node playground/browser/focus-ignore/evaluate.mjs --request /absolute/dataset.json --weight /absolute/current.weight.json --out /absolute/run/baseline.json
+node playground/browser/focus-ignore/train.mjs --request /absolute/prepared-request.json --weight /absolute/current.weight.json --recipe /absolute/t1.json --out /absolute/run/t1
+node playground/browser/focus-ignore/accept.mjs --weight /absolute/selected.weight.json --verification /absolute/family-b.json --out /absolute/run/acceptance.json
+```
+
+外置run建议`/Volumes/Intel/playground/nnanything-runs/browser-focus-repair-20261022/`。资料沿现有training目录或明确外置证据，不新建根目录。A0可先做；A1/A2在合同给定后并行；A3必须等资料/分区准备；A4等候选选定。执行者不读B的未公开gold来选择配方。
+
+### 工单B：现有浏览器候选集成准备，与A分开
+
+交给集成owner：读`browser-foundation`相对最新main的diff、最终finding复核和F18剩余项；产出一张具体文件/API/证据/未完成项表`integration-scope.md`，注明哪些已审变化可交付、哪些是未合格权重/实验，不把历史阶段笔记当最新结论。真实组合main产生的新差异才补测试。当前ignore候选不能默认采用。无新功能实现，不重新审已关闭finding；实际完整候选达到集成准入后由父完成Git合流与资源清理。没有独立可拆边界就保留原树，不能手拷文件拼装。
+
+### 工单C：单次输入验收，只做六个明确行为
+
+A的资料/训练不占用输入模块owner。另一个worker复用现有`playground/browser/search/run.mjs`及`runBrowserSearchGoal`，先只准备输入阶段公开consumer。改动限`playground/browser/search/`、相应tests及确有缺口的现有输入/后验owner，不新写搜索runner，不训练新模型。
+
+实现一个自有HTML：左侧“搜索”普通text input，右侧“备注”普通text input，独立提交按钮与结果区。请求显式绑定左侧对象；用真实键鼠输入，正常模式以原生input.value只读观察。六个case：
+
+1. 正常写入：左侧读回精确query，右侧原值不变；只有读回通过才允许提交。
+2. placeholder等于query、value为空：必须实际输入，不能NOOP。
+3. input事件后页面重置左侧值：报告未达标，不提交。
+4. 左侧readonly：零输入派发，准确拒绝；不能改填右侧。
+5. 已派发后执行器抛错：仍安全读回；分别保留执行错误与真实值，不因值已变清除错误。
+6. 读回失败：unknown并保留观察错误，零后续提交。
+
+每例记录真实输入/提交次数、前后值、目标身份、原错误、根/子结果；fixture无用户内容，测试后清理自有标签/服务。产出`input-six-cases.json`与逐例原始回执。六例通过才把页面实现B和对象自动选择学习排进下一批；本工单只证明显式绑定下执行/观察，不能报模型学会挑选输入框。
+
+当前先派A与B/C的互斥准备，不启动B3–B6。完整交付仍沿本页末尾及项目既有Review/Git规则。
+
 ## 1. 起点与总目标
 
 总目标：在固定语义合同下，让不同页面样本经过基础识别、当前对象/动作选择、真实人类操作和后验观察，递归满足根Goal；失败可准确返回，并在具备安全前提时学习恢复。固定合同不等于固定页面、布局或元素编号。
