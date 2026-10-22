@@ -218,3 +218,11 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 当前标签集合对合格输入全覆盖，不等于已证明主流网站/主流页面的经验覆盖，也不宣称 unknown 已清零。新增种类时更新 BASIC_KIND_FAMILIES、所需的允许 wire 和 profile，保持框架核心不变；复核历史 other 中属于新类的样本，再做旧类与新类的来源隔离回归。新类别不能只改标签名而继续使用缺少该类别行的旧参数。
 
 旧微博快照缺 fragments/clippedRect。沿候选链保留 605 filtered_out、528 skipped、867 unknown，零合格分类。纯函数可另做属性诊断，但不能宣称这些是 workflow 合格结果或准确率。
+
+## ignore 增量的测量覆盖前提与证据边界（2026-10-21）
+
+ignore 叶子的 16 条支撑 wire 全部依赖新测量字段（`singleChildSameRect`、`singleChildTag`、`nonFormatDirectTextPresent`、`descendantTextPresent`、`pointerCursor`、`parentPointerCursor`、`tabIndexFocus`、`activeElementFocus`、`borderPresent`、`aspectRatio`、`inSvgAncestor`、`withinControlAncestor`、`inVerifiedListParent`、`coincidentChildPairRatio`、`ownLabelPresent` 等）。缺测保持 null，区间取 `[0,w]`，所以任何非零 ignore 系数都会按权重扩大未知字段上的上界；这是缺测语义的直接结果，不是拟合缺陷。
+
+推论有两条，均已在真实拟合与公开分类器上复核。第一，`same-rect` 单子元素包装只有在 31 项测量字段齐备时才可能被判 ignore：同一节点在完整字段下 `structure` 区间为 `[1,1]`，仅保留旧 12 字段后 `structure` 为 `[0.077,1]`、判断回落 other，`structure` 无法从旧字段单独达到 `minScore=0.6`。第二，旧语料无法承担 ignore 回归：`training-m1` 黄金 357 行每行仅 10–12 项字段，任何能让包装判 ignore 的系数都会把这些行的结构上界抬高，最多使 91 行从 judged 变为 `unresolved_missing_feature` 的 unknown，而不会产生假 ignore。
+
+因此 ignore 增量当前只能证明“测量齐备域内可用”，不能证明旧语料零变化；旧黄金与微博 152 行须按当前 31 字段重新观测后，才能作为该增量的回归与召回证据。在此之前不得把旧语料的判为 other 当作 ignore 无效，也不得把旧语料零变化当作增量验收通过。

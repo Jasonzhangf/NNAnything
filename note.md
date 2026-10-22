@@ -1,5 +1,19 @@
 # 当前任务
 
+## 2026-10-21 ignore 能力缺口补齐（测量齐备域通过，旧语料验收受阻）
+
+用户要求补齐 F04 暴露的 ignore 能力缺口。独占树 `/Volumes/Intel/playground/nnanything/browser-foundation`，证据根 `/Volumes/Intel/playground/nnanything-runs/browser-ignore-capability-20261021`。主树只读，未合 main，未部署。
+
+缺口确认不是采样缺失：`three-site-zero/wrapper-increment-request.json` 已有 162 条 verified ignore 行，但从未进入拟合，默认 profile 的 `leafWeights.ignore` 仍为空。用真实 Handwired 与公开 consumer 管线起两套拟合：全参数 40/200 epoch，以及仅 16 条 ignore 支撑 wire 可训练的 200 epoch。选中后者，候选 `ignore-capability-4a60c08d-…` 存于工作树 `training/weights/dom-basic-kinds/ignore-capability-20261021.weight.json`，保持 uncalibrated/not_applied。
+
+真实浏览器 F04 留出：默认 profile ignore 0/4，候选 4/4，audio 4/4、video 4/4 不变；两个候选结果相同。增量语料内部比较分别为 fixed 264/regressed 5、fixed 264/regressed 4、fixed 149/regressed 2，训练报告按合同拒绝该候选。
+
+两项旧语料验收未通过，原因是可复现的数据覆盖冲突而不是拟合调参：黄金 357 行每行只有 10–12 项字段，缺 19–21 项新测量。同一 same-rect 包装在完整 31 字段下 `structure=[1,1]` 判 ignore，裁到旧 12 字段后 `structure=[0.077,1]` 判 other。由此任何能让包装生效的系数都会把旧行抬成 unknown：与默认 profile 比，仅 ignore wire 候选改变 91 行、全参数候选 92 行，假 ignore 为 0；生产候选本身相对默认已改变 34 行。微博 152 行 37 条 teacher-ignore 提案中 22 条打开了 ignore 支撑 wire，但 family 停在 text 0.2 / structure [0.077,1]，召回 0/37；历史 37/37 出自专用关系特征电路，不是本 profile 经生产分类器的结果。
+
+另记一个采用前必须修的真实缺陷：`actual-focus-candidate-112`（activeElementFocus=true 的容器）被候选判成 ignore 0.864，违反键盘焦点必须保留的规则。
+
+结论：能力在测量齐备域成立，旧黄金与微博语料的零变化/召回验收需要先按当前 31 字段重新观测，或由用户明确“旧语料变 unknown 不算回归”的口径；两条都待用户裁决。方法、数字与复现命令见 `ignore-capability-report.md`，算法前提已补入 docs/basic-kinds-wiring.md。
+
 ## 2026-10-21 浏览器基础语义完整规划与worker交接（设计）
 
 用户要求详细规划基础任务、落盘并提供完成提示词，由用户交worker实施后原编排者继续review。本轮仅文档，不派worker、不实现、不采新样本、不训练。唯一专项计划docs/browser-foundation-plan.md，19项F00–F18覆盖边界/评价、基础种类、属性内容、感知、局部关系、事件和跨帧事实、只读组合检查、新鲜来源及review交接；docs/implementation-plan.md仅链接入口。
