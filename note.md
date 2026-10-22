@@ -12,7 +12,9 @@
 
 另记一个采用前必须修的真实缺陷：`actual-focus-candidate-112`（activeElementFocus=true 的容器）被候选判成 ignore 0.864，违反键盘焦点必须保留的规则。
 
-结论：能力在测量齐备域成立，旧黄金与微博语料的零变化/召回验收需要先按当前 31 字段重新观测，或由用户明确“旧语料变 unknown 不算回归”的口径；两条都待用户裁决。方法、数字与复现命令见 `ignore-capability-report.md`，算法前提已补入 docs/basic-kinds-wiring.md。
+另做了一个只改 `leafWeights.ignore`、其余系数全部回退默认的最小变体：F04 仍是 ignore 4/4，旧黄金影响从 91 行降到 28 行且只在 structure 大类内，但增量语料 162 条 ignore 只召回 2 条，说明只补叶子不足以覆盖这些行。28 行是下界并已证明：F04 包装默认被判 container 0.7，ignore 要胜出至少 0.85，同一批 null wire 上的正权重也会把旧容器行抬到约 1.0，而两者之间没有可用区分 wire，所以“F04 ignore 4/4”与“旧黄金 0 预测变化”在当前 schema 下不能同时成立。
+
+结论：能力在测量齐备域成立，旧黄金与微博语料的零变化/召回验收需要先按当前 31 字段重新观测，或由用户明确“旧语料变 unknown 不算回归”的口径；两条都待用户裁决。方法、数字、不可能性证明与复现命令见 `ignore-capability-report.md`，算法前提已补入 docs/basic-kinds-wiring.md。
 
 ## 2026-10-21 浏览器基础语义完整规划与worker交接（设计）
 
