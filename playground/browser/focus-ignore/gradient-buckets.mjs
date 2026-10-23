@@ -25,7 +25,18 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
 const request = readJson(args.request);
-const usage = new Map(readJson(args.usage).map((e) => [e.sampleId, e.usage]));
+const usageEntries = (() => {
+  const raw = readJson(args.usage);
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw.explicitUsage)) return raw.explicitUsage;
+  const merged = [];
+  for (const key of ["control", "treatment", "dev"]) {
+    if (Array.isArray(raw[key])) merged.push(...raw[key]);
+  }
+  if (merged.length > 0) return merged;
+  throw new Error("usage must be an array, carry explicitUsage, or contain control/treatment/dev arrays");
+})();
+const usage = new Map(usageEntries.map((e) => [e.sampleId, e.usage]));
 const asset = parseBrowserWeightAsset(readJson(args.weight), args.weight);
 const HANDWIRED_ROOT = "/Volumes/extension/code/handwired";
 const ADDRESSES = [
@@ -41,6 +52,7 @@ const OBJECTIVES = {
 
 const sources = {
   train: request.rows.filter((r) => usage.get(r.sampleId) === "train" && !r.sampleId.startsWith("fixture-")),
+  newTrainFamily: request.rows.filter((r) => r.sampleId.startsWith("sample-repair-train:")),
   familyA: request.rows.filter((r) => r.sampleId.startsWith("fixture-a:")),
 };
 const counterexample = request.rows.find((r) => r.sampleId === "actual-focus-native:actual-focus-candidate-112");
