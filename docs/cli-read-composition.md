@@ -22,7 +22,7 @@
 | 函数 | I/O | 真实观测来源 | 授权 | 公开 consumer |
 | :--- | :--- | :--- | :--- | :--- |
 | `readFileRange`（`lib/adapters/cli/file-content.ts`） | absolutePath, offset, length → bytes(base64)/size/bytesRead/eof/identity | `lstat` + `open(O_RDONLY\|O_NOFOLLOW\|O_NONBLOCK)` + handle `fstat` | 函数本身无授权，调用方负责 | `nnanything/cli` `createCliSession().observe({kind:"read",...})`（按路径读，无受信引用/无 revision）；P1 起也是 `file.read` 的安全打开策略 |
-| `file.read`（`lib/adapters/cli/filesystem-sandbox.ts`） | observed `cli.file` ref + offset + length → bytes(base64)/size/bytesRead/eof/identity | 受信 ref 复验 + 同一安全打开策略 | `filesystem.read`；不需要 `process.exec` | `nnanything/cli-goal` 与 `nnanything/cli-search` 导出的 `sandbox.execute`；无 policy head，也无根组合公开入口 |
+| `file.read`（`lib/adapters/cli/filesystem-sandbox.ts`） | observed `cli.file` ref + offset + length → bytes(base64)/size/bytesRead/eof/identity | 受信 ref 复验 + 同一安全打开策略 | `filesystem.read`；不需要 `process.exec` | `nnanything/cli-goal` 与 `nnanything/cli-search` 导出的 `sandbox.execute`；无 policy head；作为根组合的 read 原子由 `nnanything/cli-read` 公开入口消费 |
 | `observeContentFormat` / `detectSignature` / `decodeUtf8`（`lib/filters/cli-content.ts`） | bytes+complete → 签名/UTF-8/JSON 判断 | 无 OS，纯确定性 | 无 | 无包导出、无公开 consumer、未接 sandbox；仅 `tests/cli-content-format.test.mjs` 6/6 |
 | `readDeclaredReferences`（`lib/filters/cli-declaration.ts`） | manifest path+bytes+complete+field+scope → 声明引用 | 无 OS，纯确定性 | 无 | 无包导出、无公开 consumer；仅 `tests/cli-declaration.test.mjs` 9/9 |
 | `readEntrySnapshot` / `collectDirectoryListing` | 见 `entry-inspection.ts` / `directory-listing.ts` | 真实 `lstat`/`readdir` | 由 sandbox 授权 | 被 sandbox `entry.inspect` / `directory.list` 使用，属已接能力，不是仅单测 |
@@ -116,7 +116,7 @@ type ContentBytesGoal = {
 };
 ```
 
-`name` 是单个非空名称段，拒绝 NUL、`/`、`.`、`..`，不 trim、不展开 glob/变量、不做大小写或 Unicode 折叠。`directory` 必须是受信目录引用：由 `sandbox.bindDirectoryObject` 签发的观测 `cli.directory`，或由 `sandbox.bindDirectory` 在当前 session revision 签发的目录引用。请求校验与 adapter 在列举前都会复核签发真源与当前 revision；手工构造、未签发或旧 revision 的普通 path 引用直接拒绝，零 list/inspect/read、零 open。不接受 `DirectoryQuery`、不扫描磁盘。
+`name` 是单个非空名称段，拒绝 NUL、`/`、`.`、`..`，不 trim、不展开 glob/变量、不做大小写或 Unicode 折叠。`directory` 必须是受信目录引用：由 `sandbox.bindDirectoryObject` 签发的观测 `cli.directory`，或由 `sandbox.bindDirectory` 在当前 session revision 签发的目录引用。请求解析只校验引用形状；adapter 在列举前复核签发真源与当前 session revision，手工构造、未签发或旧 revision 的普通 path 引用直接拒绝，零 list/inspect/read、零 open。不接受 `DirectoryQuery`、不扫描磁盘。
 
 ### 3.2 子步角色
 
