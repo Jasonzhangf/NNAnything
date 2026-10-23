@@ -302,3 +302,13 @@ type MultiSourceContentBytesGoal = {
 - 不写操作；不做 realpath/links/role/format；不做广义 CLI；不改共享 `cli.command-policy.v1`；不改单来源 7N6E 图与既有 consumer/家族。
 - 现有 18 wire 只表达合法候选内部的排序偏好，不能表达"名称是否在场"这类合法集判定；合法集与根判定不进入可学习范围。
 - 多来源图只覆盖本切片；不把 `cli.exact-child-sources` 扩大为任意目录数或候选名。
+
+### 8.9 实现与验收证据
+
+实现落在四个 owner：`lib/adapters/cli/read-composition-contract.ts`（多来源 target/bindings/state/cursor 的形状与校验）、`lib/adapters/cli/read-composition-recursive.ts`（multi 复合技能、根评价器与 selector、相位派发、回退与陈旧读拒绝建模）、`lib/filters/cli-read-composition.ts`（域投影 `sources` 与 `decision`）、`lib/cli-read.ts`（公开入口按 `target.kind` 分支）。多来源依赖复用单来源原子技能与评价器，只增加 multi 复合技能、根评价器与 selector，不复制第二套技能或选择器。
+
+验收：`tests/cli-read-multi-source.test.mjs` M01–M20 全绿，覆盖排序接缝、`defer`、合法候选回退、开读前替换与陈旧拒绝、双来源否定、类型不符、权限缺失、预算不足、取消、伪造/未签发/过期/重复引用；单来源 `tests/cli-read-composition.test.mjs` 21/21 零回归；`tests/cli-file-read-sandbox.test.mjs` 11/11。
+
+公开 consumer 为 `playground/cli/read-composition/multi-source.mjs`，7 个黑盒用例：首选直接匹配、类型不符回退、开读前替换回退、双来源字节不符、无 order `defer`、Handwired 权重反转、read-less 拒绝。
+
+权重 A/B 反转评估：同一请求只改 Handwired `rankOrder.value`（−1/+1），选中来源由 `source:0` 翻到 `source:1`，三个变体均为 achieved/matched/100，未选来源保持未尝试；报告与原始数据在仓库外 run 目录（`report-p4e.md`、`evidence-p4e-ab.json`）。两个手写 profile 保持 `uncalibrated/not_applied`，未训练、未采用。
