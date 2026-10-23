@@ -1,6 +1,6 @@
-import { FEEDBACK_HEADS, type FeedbackEpisode, type FeedbackEvaluation, type FeedbackProfile } from "../adapters/browser/feedback-contract.js";
+import { FEEDBACK_HEADS, type FeedbackEpisode, type FeedbackEvaluation, type FeedbackHead, type FeedbackProfile } from "../adapters/browser/feedback-contract.js";
 import type { SingleActionEpisodeResult } from "../adapters/browser/single-action-contract.js";
-import { readFeedbackInput, predictFeedback } from "../filters/browser-feedback.js";
+import { feedbackFeatures, readFeedbackInput, predictFeedback } from "../filters/browser-feedback.js";
 import { makeBrowserSingleActionSamples } from "./browser-single-action-samples.js";
 import { expectRecord, isRecord } from "../core/schema.js";
 
@@ -107,6 +107,56 @@ export function evaluateFeedbackCases(profile: FeedbackProfile, value: readonly 
     return { id: row.id, expected: row.teacher.head, actual, passed: actual === row.teacher.head };
   });
   return { count: rows.length, passed: rows.filter(row => row.passed).length, failed: rows.filter(row => !row.passed).length, rows };
+}
+
+/**
+ * Project every episode through the public 12-wire student projection and
+ * group by the complete feature vector. A group whose rows disagree on gold is
+ * a discernibility conflict: the same observable projection would require two
+ * different F1 heads, so a single linear policy cannot satisfy both without a
+ * wire, a gold change, or a hidden distinguishing input.
+ *
+ * This is the read-only gate used before any F1 fit. It never modifies an
+ * episode, gold, profile, or wire.
+ */
+export interface FeedbackProjectionAudit {
+  readonly count: number;
+  readonly projectionCount: number;
+  readonly groups: readonly {
+    readonly features: readonly number[];
+    readonly head: FeedbackHead;
+    readonly ids: readonly string[];
+  }[];
+}
+
+export function auditFeedbackProjections(value: readonly FeedbackEpisode[]): FeedbackProjectionAudit {
+  const episodes = readFeedbackEpisodes(value);
+  const groups = new Map<string, { readonly features: readonly number[]; readonly head: FeedbackHead; readonly ids: string[] }>();
+  for (const episode of episodes) {
+    const features = feedbackFeatures(episode.input);
+    const key = JSON.stringify(features);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, { features, head: episode.teacher.head, ids: [episode.id] });
+      continue;
+    }
+    if (group.head !== episode.teacher.head) {
+      throw new TypeError(
+        `Conflicting feedback labels for one student projection ${key}: ${group.head} (${group.ids.join(",")}) vs ${episode.teacher.head} (${episode.id})`,
+      );
+    }
+    group.ids.push(episode.id);
+  }
+  const entries = [...groups.values()];
+  return {
+    count: episodes.length,
+    projectionCount: entries.length,
+    groups: entries.map(entry => ({
+      features: entry.features,
+      head: entry.head,
+      ids: [...entry.ids],
+    })),
+  };
 }
 /**
  * Recipe for one generated feedback variant, declared before instantiation.

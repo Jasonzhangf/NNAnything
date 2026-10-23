@@ -84,6 +84,18 @@ F2不改权重：原train/development48/48且逐例不变；独立包仍22/24，
 
 证据根为`/Volumes/Intel/playground/nnanything-runs/f1-robustness-20261021`：三轮fit回执、finite逐例、reload-audit.json、native-summary.json、holdout/first-evaluation.json、holdout/r5-correction-evaluation.json、f2-combination.json及完整失败资料均保留。最终候选为`fitted-coverage-budget-r1/candidate.json`，继续uncalibrated/not_applied；当前默认权重及用户扩展不变。作者全仓1031/1031零skip。结论限于声明有限域、受控原生行为和组合不变性；已证实一个未见投影泛化失败，独立外站操作仍未验证。整体Review及main交付回执由note.md维护。
 
+### 2026-10-22 B-Feedback 可辨性、R5 后训练与展开域验收 runner
+
+本轮先按计划做可辨性前置，再做一次固定预算后训练，最后准备公开展开域验收 runner。可辨性检查使用公开 `feedbackFeatures` 对本轮合法交叉资料生成完整 12 维投影表：422 行、63 个投影、0 个冲突 gold、72 对变换全部保持相同投影和相同 gold。因此本轮不涉及相同投影要求冲突标签，允许对既有 36 参数 F1 做一次后训练。
+
+R5 及三个变换仍是已知回归，并入 train 后不作为新留出计分。训练从旧候选 `fitted-coverage-budget-r1/candidate.json` 初始化，目标沿用 `class_balanced_projection_coverage`，学习率0.1、固定2700 epoch，不改 head、wire、gold、门限或采用规则。候选保存在外置 run 的 `training/f1/candidate.json`，继续 `uncalibrated/not_applied`，不自动采用。新进程回载覆盖 train、development、旧有限域、既有 72 项和 R5 四行。
+
+F2 保持 20 参数不变，改用新 F1 实际输出跑当前决策。负控制单列：同一合法历史上换用明确标注的错误诊断 F1 profile 使输出 `indeterminate`，断言 F2 的反馈特征确实变化且安全恢复入口停止；该诊断不计入候选准确率。
+
+展开域验收 runner 为 `playground/browser/feedback/accept-expanded.mjs`：17 个固定实例（C01、C02、C03、C04a、C04b、C05、C06、C07、C08、C09a、C09b、C10a、C10b、C11a、C11b、C11c、C11d）在两个互不共享 renderer 的独立页面家族各执行一次，共 34 条轨迹。每段独立新进程，只走 CDP 原生鼠标事件，故障注入一律标注 `injected:`。固定续跑实例按声明段数运行，其他实例沿 continuation 自然推进；续段报告回放历史 `atomicResults`，runner 按 `dispatchId` 与错误签名去重后校验 F1 和 effects。runner 落 `rows.jsonl`、`table.md` 与逐行 episode 与错误，保存原退出码，不把非零一律当故障。真实浏览器 34 条轨迹由父编排者在宿主 shell 执行；本仓库内只跑构建与单元测试。
+
+搜索域学习恢复仍未就绪。现有 F1/F2 是 SetExpanded 合同，无法表达输入值、查询归属和搜索结果状态。本轮不伪造 SetExpanded 投影，也不扩展合同来冒充搜索学习恢复。计划引用的 `docs/recursive-goal-module.toml` 不存在，实际唯一 owner 是 `docs/recursive-goal-module.md`，本轮只读该文件，不创建 TOML 副本。
+
 ### 2026-10-20 历史验收
 
 2026-10-20逐步观察修复后的旧样本推理及新增失败判定：原子50参数旧60/60、F1 36参数旧72/72、F2 20参数train/dev48/48，逐例输出与修前一致；F2独立包仍22/24，两项既有single-candidate-defer前提缺陷保留rawFAIL，不能改gold清零。旧候选均未重新拟合、未采用。真实Chrome点击未展开后，执行回调抛transport错误，随后读回有效未达成状态，dispatch/effects仍unknown；旧F1给出execution_rejected，合同要求indeterminate。这是新增失败投影的后训练缺口。该反例已用于开发，不能再当未见留出。下一轮先检验现有12wire可辨性，再准备按来源家族分开的派发不确定、明确拒绝及观察失败对照，真实拟合、新进程回载和旧能力回归；F2在F1更新后做组合回归，本轮无独立改权重依据。

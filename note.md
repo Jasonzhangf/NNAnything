@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-22 B-Feedback 展开域失败反馈与安全有界恢复
+
+唯一执行树 `codex/browser-foundation`，证据 run 为 `/Volumes/Intel/playground/nnanything-runs/browser-longhorizon-20261022/b-feedback`，计划 `plan.md` 557 行已接受。本轮完成展开域 F1 可辨性、R5 回归处理、一次固定预算 F1 后训练、F2 消费实际 F1 预测，以及 17 实例 × 2 独立家族 = 34 条展开域轨迹的验收 runner。
+
+可辨性检查：公开 `feedbackFeatures` 生成完整 12 维投影，422 行、63 个投影、0 冲突 gold、72 对变换全部不变。R5 四个回归行作为已知回归并入 train，不作为新留出。F1 候选 `training/f1/candidate.json` 从旧候选初始化、2700 epoch、学习率0.1，train81/81、development13/13、R5 4/4，继续 `uncalibrated/not_applied`；新进程回载另存 `training/reload/`。F2 保持 20 参数，只消费 F1 实际预测，负控制 `tests/browser-strategy-unknown-effects.test.mjs` 单列。公开投影审计新增 `auditFeedbackProjections` 并在 `lib/browser-feedback.ts` 导出。
+
+验收 runner：`playground/browser/feedback/accept-expanded.mjs --family A|B|all --cdp URL --out DIR`，每段独立新进程、CDP 原生鼠标事件、故障注入标 `injected:`；固定续跑实例按声明段数运行，其他实例沿 continuation 自然推进，历史 `atomicResults` 按 `dispatchId` 去重，DEFER 从 typed `policy_deferred` 读取。两家族 `fixtures/family-a.mjs` 与 `fixtures/family-b.mjs` 互不共享 renderer。真实浏览器 34 条轨迹待父编排者在宿主 shell 用独立 headless Chrome 执行。构建通过，F1/F2/strategy/observation 相关测试 119/119 零 skip。
+
+搜索域学习恢复仍 INCOMPLETE：现有 F1/F2 是 SetExpanded 合同，无法表达输入值、查询归属与搜索结果状态，本轮不伪造投影。计划引用的 `docs/recursive-goal-module.toml` 不存在，实际 owner 是 `docs/recursive-goal-module.md`，已记材料差异。搜索域只核对现有合同与停止行为，其学习恢复不进入本轮说法。
+
 ## 2026-10-22 B-Input 单次输入公开 consumer（真实浏览器 52/52 通过）
 
 新增独立 input 合同 `lib/adapters/browser/input-contract.ts`、7N6E 节点 `lib/nodes/browser-input.ts`、公开入口 `nnanything/browser-input`（`lib/browser-input.ts`）与绑定 `workflows/browser-input.workflow.json`（复用 operation-episode 拓扑）。节点只处理显式绑定普通 `input type=text`，最多一次逻辑写入，再真实读回 `.value`；执行错误与观察错误分开，placeholder/attribute/receipt/旧 observation 不冒充后验，DOM 重建不换绑、不按 selector 或同文案恢复，textarea/search/contenteditable/password/敏感宿主明确拒绝。
@@ -1296,3 +1306,9 @@ B-Search 交付（2026-10-22）：搜索方向补「提交实例关联」与「�
 真实浏览器验收 44/44 通过（两家族各 22 行）：S=12、U=32、control error=32、原生动作 78 次。C04 迟到 A 不覆盖 B；C17 保留 `native_action_failed` 且零后继 submit；C18 两子变体分别保留 `post_observation_failed`；C19 `matched_items`/`visible_batch` 在同一内容状态下分别 satisfied/unknown；C12–C14 旁栏与 AI 不混入主集合；C20 关联缺测保持未知。验收用独立 headless Chrome（端口 9444、独立 user-data-dir），未使用日常浏览器；fixture 服务为 `127.0.0.1:4173`。
 
 执行器沙箱禁 TCP，真实路径上的 7 处缺陷由父编排者在验收中定位修正：server 缺 `fileURLToPath` 导入、`sideEffects` 断言取错对象、Enter 用 `rawKeyDown` 不触发表单隐式提交（家族 B 全部 submit 失败）、access 受限被误报为执行错误、report 级控制结算被误计为观察/执行错误、未执行条件 `not_started` 被读成 unknown、C19 未读索引落在第 2 页。搜索测试 30/30 通过，`npm run build` 通过。未训练、未改权重、未采用候选，决策仍为 handwired 显式绑定；搜索域学习恢复仍未就绪，沿 `b-feedback/plan.md` 保留该缺口。
+
+B-Feedback 真实验收（2026-10-23）：执行器交付 F1 可辨性（422 行、63 个完整 12 维投影、0 冲突 gold、72 对变换不变）、R5 已知回归并入训练、F1 最小后训练候选（`uncalibrated/not_applied`，新进程回载 holdout 24/24、train 94/94、transformations 72/72、finite 228/228、R5 4/4）、F2 不改权重只消费实际 F1 预测（含负控制）、展开域 17 实例 × 2 家族验收 runner（每段独立新进程、CDP 原生点击、故障注入标 `injected:`）。真实浏览器 34/34 通过，逐行证据 `b-feedback/acceptance/expansion`；B-Input 52/52、B-Search 44/44 同实例重跑无回归，浏览器与搜索测试 428/428。
+
+本轮在真实路径定位并修正 10 处缺陷（详见 run 目录 `b-feedback/summary.md` 末节与 `limits.md`）：`resources.registry` 先于首次 `observe()` 取空 refs；`resources` 键名 `strategyProfile` 与 `runBrowserStrategyGoal` 期望的 `profile` 不一致；家族 A/B 的 role=button 控件缺 `aria-disabled="false"` 使 `enabled` 观测为 unknown、策略全部 deferred；`grantedEffects` 缺 `filesystem.write`；续跑 `requestId` 带 `-seg<N>` 与 `acceptedRoot.requestId` 不一致；续跑段 `observe()` revision 从 0 重开导致历史比当前观测新；段结束无条件关闭自有 target；验收器在非 yield 停止后继续跑段；`retryAttempted` 用 `dispatches > 1` 把合法多次派发误判为停止后重试；`verifiedEffect` 未把 not-dispatched 显式拒绝判为 none 且 `validPost` 不认未派发导致根事实 unknown。修正后受影响测试 135 项全过，428 项浏览器与搜索测试全过。
+
+搜索域学习恢复仍未就绪：F1/F2 是 `SetExpanded` 合同，不能表达输入值、查询归属与结果状态，本轮不改合同、不伪造投影，B-Feedback 总状态保持 INCOMPLETE（展开域完成、搜索域未就绪）。无训练后自动采用、无采集闭环；全部候选权重仍 `uncalibrated/not_applied`。

@@ -235,3 +235,5 @@ NN可学习结果角色、字段owner及当前合法对象选择；取值、版�
 首批worker提示词见[browser-next-worker-prompt.md](browser-next-worker-prompt.md)。本规划不是这些milestone已立项或执行完成的证明。
 
 2026-10-22 B-Search 实施切片：搜索补「提交实例关联」与「响应归属」，新增 `submittedRequestRef`、`resultsRequestRef`、`submissionBaseline`、`collection.requestRef`/`batch`，使根 100 只能由本次提交的响应证据满足。家族 A 在既有 fixture 扩展场景；家族 B 为独立实现（自有 HTML、`<ol>/<li>` 主结果、独立旁栏、独立客户端与服务路由，不导入家族 A）。逐例验收程序 `playground/browser/search/{cases,native-io,accept}.mjs` 每行独立进程、仅 CDP 原生输入。真实浏览器 44/44 通过（两家族各 22 行；S=12、U=32、control error=32、原生动作 78），C04 迟到 A 不覆盖 B、C17/C18 错误分离、C19 两覆盖义务分列、C12–C14 旁栏不混计，材料见 run 目录 `b-search/acceptance`。验收在独立 headless Chrome 完成，搜索测试 30/30 与构建通过；本轮无训练与权重变更，决策仍 handwired。B-Feedback 仅展开域可开始，搜索域学习恢复仍未就绪。
+
+2026-10-23 B-Feedback 展开域切片：F1 可辨性（公开 feedbackFeatures 投影、0 冲突、72 变换不变）、R5 已知回归并入训练、F1 最小后训练候选（`uncalibrated/not_applied`）、F2 不改权重只消费实际 F1 预测并带负控制、展开域 17 实例 × 2 家族验收 runner（每段独立进程、CDP 原生点击、故障注入）。真实浏览器 34/34 通过（独立 headless，9444），旧能力 B-Input 52/52、B-Search 44/44 无回归。搜索域学习恢复仍未就绪：F1/F2 是 SetExpanded 合同，不表达输入值、查询归属与结果状态，本轮不改合同、不伪造投影，B-Feedback 总状态保持 INCOMPLETE。

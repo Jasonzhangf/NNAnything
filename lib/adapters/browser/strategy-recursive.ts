@@ -1122,6 +1122,13 @@ function verifiedEffect(
 ): AtomicEffectReceipt<BrowserStrategyEffect> {
   const browser = result.newState ?? input.state.browser;
   const evidenceRefs = Object.freeze(browser.evidence.map(item => item.id));
+  if (result.atomic?.dispatchState === "not_dispatched") {
+    return Object.freeze({
+      knowledge: "none",
+      confirmedEffects: Object.freeze([]),
+      receiptRef: `browser.strategy.not-dispatched:${browser.observationId}`,
+    });
+  }
   if (result.atomic?.effectKnowledge === "unknown"
     || result.atomic?.receipt?.effectKnowledge === "unknown") {
     return Object.freeze({
@@ -1213,7 +1220,10 @@ function atomicReceipt(
 > {
   const feedback = result.atomic?.observationFeedback;
   // Invalid raw observations remain in sourceResult, never in trusted root State.
-  const validPost = feedback === undefined || (feedback.status === "satisfied"
+  // A not-dispatched attempt changed nothing, so the pre-dispatch observation is
+  // still the current observation and needs no post-action freshness proof.
+  const notDispatched = result.atomic?.dispatchState === "not_dispatched";
+  const validPost = feedback === undefined || notDispatched || (feedback.status === "satisfied"
     && feedback.observationId === result.atomic?.newState?.observationId);
   const state = validPost ? newStateFromStep(input, result, strategy) : null;
   const effect = verifiedEffect(input, result, strategy);
