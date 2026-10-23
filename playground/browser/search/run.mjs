@@ -9,6 +9,18 @@ const request=JSON.parse(await readFile(resolve(args.get('--request')),'utf8'));
 const io=await import(pathToFileURL(resolve(args.get('--io'))).href);
 const resources=typeof io.createResources==='function'?await io.createResources(request):io.resources;
 if(!resources)throw Error('IO module must export resources or createResources(request)');
-const response=await runBrowserSearchGoal(request,resources);
-console.log(JSON.stringify(response,null,2));
-if(response.kind!=='run_result'||response.report.rootEvaluation.result!=='satisfied'||response.report.control.outcome!=='completed')process.exitCode=1;
+let response;
+let sideEffects=null;
+let closeErrors=[];
+try{
+  response=await runBrowserSearchGoal(request,resources);
+}finally{
+  if(typeof io.close==='function'){
+    const closed=await io.close();
+    sideEffects=closed?.sideEffects??null;
+    closeErrors=closed?.closeErrors??[];
+  }
+}
+console.log(JSON.stringify({response,sideEffects,closeErrors},null,2));
+const success=response?.kind==='run_result'&&response.report.rootEvaluation.result==='satisfied'&&response.report.control.outcome==='completed';
+if(!success||closeErrors.length>0)process.exitCode=1;

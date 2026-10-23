@@ -2,7 +2,8 @@
 const field=(role,text,extra={})=>({role,text,...extra});
 const item=(key,fields,children=[])=>({key,fields,children});
 const layout=(extra={})=>({columns:1,maxWidth:1120,cardBorder:true,fieldOrder:['title','author','time','body','image','video','source','citation','metric'],wrapperDepth:0,...extra});
-export const scenarios=['normal','delayed','empty','error','blocked','ineffective','ai-first','invalid'];
+export const scenarios=['normal','delayed','empty','error','blocked','ineffective','ai-first','invalid',
+  'same-word','same-word-stalled','race','blocked-empty','suggestion','title-only','two-matches','aside-match'];
 export const profiles=[
   {
     id:'stream',label:'社交流与旁栏',layout:layout(),input:{tag:'input',type:'text'},
@@ -79,6 +80,43 @@ profiles.push({
     item('compact-b',[field('source','装备资料组'),field('title','露营装备记录'),field('metric','记录 12 条'),field('body','按睡眠、饮水和照明整理资料。')]),
     item('compact-c',[field('author','天气记录组'),field('title','天气变化记录'),field('metric','记录 3 条')]),
   ]}],
+});
+
+// Search association cases. These are application content only; the source
+// profile and item keys never cross into the rendered page.
+profiles.push({
+  id:'search-cases',label:'搜索关联主结果',
+  layout:layout({maxWidth:1060,fieldOrder:['title','body','author','time','metric','citation','source'],wrapperDepth:0}),
+  input:{tag:'input',type:'text',placeholder:'旧推荐词：城市散步路线'},
+  groups:[
+    {label:'主结果',placement:'main',items:[
+      item('case-main-one',[field('title','露营装备清单'),field('body','按睡眠、饮水和照明分组准备露营装备。'),field('source','户外手册')]),
+      item('case-main-two',[field('title','营地准备记录'),field('body','出发前检查天气和营地规则，整理装备。'),field('source','营地记录')]),
+      item('case-main-three',[field('title','城市散步路线'),field('body','沿河岸步道经过旧街区，到公园休息。'),field('source','街区档案')]),
+    ]},
+    {label:'相关查询',placement:'related',items:[
+      item('case-related-one',[field('title','露营装备推荐'),field('body','按季节和行程核对装备。')]),
+      item('case-related-two',[field('title','营地安全提示'),field('body','查看天气和场地限制。')]),
+    ]},
+    {label:'AI 摘要',placement:'aside',items:[
+      item('case-ai',[field('body','综合资料，露营准备可先按睡眠、饮水和照明分组。'),field('citation','来源一：营地准备指南')]),
+    ]},
+  ],
+});
+
+profiles.push({
+  id:'aside-match',label:'旁栏匹配主结果不匹配',
+  layout:layout({maxWidth:1060,fieldOrder:['title','body','author','time','metric','citation','source'],wrapperDepth:0}),
+  input:{tag:'input',type:'text'},
+  groups:[
+    {label:'主结果',placement:'main',items:[
+      item('aside-main-one',[field('title','城市散步路线'),field('body','沿河岸步道经过旧街区。'),field('source','街区档案')]),
+      item('aside-main-two',[field('title','河岸公园观察'),field('body','记录沿河岸的树荫和休息点。'),field('source','自然观察')]),
+    ]},
+    {label:'AI 摘要',placement:'aside',items:[
+      item('aside-ai',[field('body','露营装备推荐：睡袋、饮水、照明和天气防护。'),field('citation','来源一：营地准备指南')]),
+    ]},
+  ],
 });
 
 // Mixed representation: waterfall main cards, an inline related-query set, and

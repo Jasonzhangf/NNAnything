@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {runBrowserSearchGoal,handwiredBrowserSearchDecision,searchPhaseFact} from 'nnanything/browser-search';
+import {runBrowserSearchGoal,handwiredBrowserSearchDecision,searchPhaseFact,captureSubmissionBaseline} from 'nnanything/browser-search';
 
 function fixture(options={}){
   let revision=0,current,input='',submitted=null,forQuery=null,request='unknown',display='none';
+  let submittedRequest=null,resultsRequest=null,batchRef=null,submissions=0,firstObservation=null;
   const actions=[],episodes=[];
   const bindings={documentRef:'search-doc',scopeRef:'search-scope',inputRef:'query',submitRef:'submit',resultScopeRef:'results',collectionRef:'main'};
   const fact=(value,id)=>value===null?{status:'unknown',reason:'not_observed'}:{status:'observed',value,evidenceRefs:[id]};
@@ -11,17 +12,25 @@ function fixture(options={}){
     const observationId=`observation-${++revision}`,id=observationId+':evidence';
     current={documentRef:bindings.documentRef,scopeRef:bindings.scopeRef,observationId,revision,
       input:{ref:'query',tag:options.tag??'input',type:options.type??'text',value:fact(input,id),editable:fact(true,id)},submitRef:'submit',
-      submittedQuery:fact(submitted,id),resultsFor:fact(forQuery,id),request,display,access:options.blocked?'login_required':'available',
-      collection:{ref:'main',scopeRef:'results',batch:fact('batch-1',id),items:submitted===null?[]:[{ref:'item-1',text:fact(options.text??'露营装备清单',id)}]},
-      evidence:[{id,source:'synthetic.search-fixture',fact:{input,submitted,forQuery}}]};return current;
+      submittedQuery:fact(submitted,id),resultsFor:fact(forQuery,id),
+      submittedRequestRef:fact(submittedRequest,id),resultsRequestRef:fact(resultsRequest,id),request,display,
+      access:options.blocked?'login_required':'available',
+      collection:{ref:'main',scopeRef:'results',requestRef:fact(resultsRequest,id),batch:fact(batchRef,id),
+        items:submitted===null?[]:[{ref:'item-1',collectionRef:'main',role:'main',text:fact(options.text??'露营装备清单',id)}]},
+      evidence:[{id,source:'synthetic.search-fixture',fact:{input,submitted,forQuery,submittedRequest,resultsRequest,batchRef}}]};
+    firstObservation??=current;
+    return current;
   };
   const resources={grantedEffects:new Set(['browser.read','browser.nativeInputText','browser.nativeSubmit','filesystem.write']),
     decision:options.decision??handwiredBrowserSearchDecision,observe,readResults:observe,currentControl:()=>current,
     nativeInputText:async invocation=>{actions.push('input');if(!options.ignoreInput)input=invocation.value;return {dispatched:true,ok:true,effectKnowledge:'known',source:'synthetic',error:null};},
-    nativeSubmit:async()=>{actions.push('submit');submitted=input;forQuery=options.oldResult?'old query':input;request=options.loading?'loading':'settled';display=options.loading?'partial':'current';return {dispatched:true,ok:true,effectKnowledge:'known',source:'synthetic',error:null};},
+    nativeSubmit:async()=>{actions.push('submit');submitted=input;submissions+=1;submittedRequest=`request-${submissions}`;
+      if(options.oldResult){forQuery='old query';resultsRequest='request-old';batchRef='batch-old';request='settled';display='current';}
+      else{forQuery=input;resultsRequest=submittedRequest;batchRef=`batch-${submissions}`;request=options.loading?'loading':'settled';display=options.loading?'partial':'current';}
+      return {dispatched:true,ok:true,effectKnowledge:'known',source:'synthetic',error:null};},
     collect:async episode=>{episodes.push(episode);if(options.collectFails)throw new Error('sink failed');},collectRoot:async()=>{},
   };
-  return {bindings,resources,actions,episodes,observe};
+  return {bindings,resources,actions,episodes,observe,initialObservation:()=>firstObservation};
 }
 function request(bindings){return {requestId:'search-test',satisfactionThreshold:100,bindings,
   goal:{kind:'BrowserSearch',query:'露营',collectionRef:'main',containsText:'装备',minimumMatches:1,coverage:'visible_batch'},maxResultReads:3};}
@@ -49,7 +58,8 @@ test('root evaluation is pure and scoped; collection failure stays separate',asy
   const f=fixture({collectFails:true});const response=await runBrowserSearchGoal(request(f.bindings),f.resources);
   assert.equal(response.report.rootEvaluation.result,'satisfied');assert.ok(f.episodes.length>0);
   const observation=await f.observe();const count=f.actions.length;
-  assert.equal(searchPhaseFact({...request(f.bindings).goal,phase:'root'},observation,observation.observationId),'satisfied');
+  const baseline=captureSubmissionBaseline(f.initialObservation());
+  assert.equal(searchPhaseFact({...request(f.bindings).goal,phase:'root'},observation,observation.observationId,baseline),'satisfied');
   assert.equal(searchPhaseFact({...request(f.bindings).goal,collectionRef:'foreign',phase:'root'},observation,observation.observationId),'unknown');
   assert.equal(f.actions.length,count);
 });
@@ -97,7 +107,8 @@ test('bounded response reads wait for current main results and stop at the decla
 test('matched_items accepts sufficient known matches while visible_batch retains unknown content',async()=>{
   for(const coverage of ['matched_items','visible_batch']){
     const f=fixture();const observe=f.resources.observe;
-    const withUnknown=async obligation=>{const o=await observe(obligation);return {...o,collection:{...o.collection,items:[...o.collection.items,{ref:'unread-neighbor',text:{status:'unknown',reason:'not_read'}}]}};};
+    const withUnknown=async obligation=>{const o=await observe(obligation);return {...o,collection:{...o.collection,
+      items:[...o.collection.items,{ref:'unread-neighbor',collectionRef:'main',role:'main',text:{status:'unknown',reason:'not_read'}}]}};};
     f.resources.observe=withUnknown;f.resources.readResults=withUnknown;
     const r=request(f.bindings);const response=await runBrowserSearchGoal({...r,goal:{...r.goal,coverage}},f.resources);
     assert.deepEqual(f.actions,['input','submit']);

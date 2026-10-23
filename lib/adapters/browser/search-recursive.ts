@@ -3,7 +3,8 @@ import {isDeepStrictEqual} from 'node:util';
 import {runRecursiveGoal} from '../../workflow/recursive-goal/module.js';
 import {readAtomicReceipt,type RecursiveGoalAdapter,type EnabledSkill,type AdapterDiagnostic} from '../../workflow/recursive-goal/contracts.js';
 import {runBrowserSearchEpisode} from '../../nodes/browser-search.js';
-import {assertSearchBindings,readBrowserSearchObservation,readBrowserSearchRequest,searchPhaseFact} from './search-observation.js';
+import {assertSearchBindings,captureSubmissionBaseline,readBrowserSearchObservation,readBrowserSearchRequest,
+  readBrowserSearchState,searchPhaseFact} from './search-observation.js';
 import type {BrowserSearchGoal,BrowserSearchState,BrowserSearchBindings,BrowserSearchResources,BrowserSearchEpisode} from './search-contract.js';
 
 const evaluator='browser.search.fact.v1',selector='browser.search.phase.v1';
@@ -25,7 +26,7 @@ export async function runBrowserSearchGoal(raw:unknown,resources:BrowserSearchRe
   const control=await resources.currentControl();
   if(control.documentRef!==initial.documentRef||control.observationId!==initial.observationId||control.revision!==initial.revision)throw Error('Initial search observation is stale');
   const rootGoal:BrowserSearchGoal={...request.goal,phase:'root'};
-  const state:BrowserSearchState={observation:initial,checkedObservationId:null};
+  const state:BrowserSearchState={observation:initial,checkedObservationId:null,submissionBaseline:captureSubmissionBaseline(initial)};
   const allowed=['browser.read','browser.nativeInputText','browser.nativeSubmit','filesystem.write'];
   const skills:EnabledSkill[]=['root','input','submitted','results'].map(phase=>({id:skillId(phase),version:'0.1.0',mode:phase==='root'?'composite':'atomic',
     capability:`browser.search.${phase}`,evaluatorId:evaluator,requiredEffects:phase==='root'?[]:phase==='input'?['browser.read','browser.nativeInputText','filesystem.write']:phase==='submitted'?['browser.read','browser.nativeSubmit','filesystem.write']:['browser.read','filesystem.write'],
@@ -36,7 +37,7 @@ export async function runBrowserSearchGoal(raw:unknown,resources:BrowserSearchRe
     supports:input=>input.goal.kind==='BrowserSearch'&&input.skill.id===skillId(input.goal.phase),
     async evaluate(input){
       const refs=input.evidence.filter(item=>item.validity==='valid'&&item.payload.observationId===input.state.observation.observationId).map(item=>item.id);
-      let fact=searchPhaseFact(input.goal,input.state.observation,input.state.checkedObservationId);
+      let fact=searchPhaseFact(input.goal,input.state.observation,input.state.checkedObservationId,input.state.submissionBaseline);
       if(refs.length===0)fact='unknown';
       if(input.goal.phase==='root'&&input.conditions.some(c=>c.fact!=='satisfied'&&c.fact!=='not_applicable'))fact='unknown';
       return {evaluatorId:evaluator,result:fact,satisfaction:fact==='unknown'?null:fact==='satisfied'?100:0,necessaryConditionsMet:fact!=='unknown',evidenceRefs:refs};
@@ -45,7 +46,8 @@ export async function runBrowserSearchGoal(raw:unknown,resources:BrowserSearchRe
     async derive(input){return {conditions:(['input','submitted','results'] as const).map((phase,index)=>({id:phase,goal:{...input.goal,phase},bindings:input.bindings,satisfactionThreshold:100,
       evaluatorId:evaluator,selectorId:selector,mode:'atomic',dependsOn:index===0?[]:[index===1?'input':'submitted'],lifetime:'stage',activation:'required',allowedEffects:allowed})),nextCursor:null,expansion:'closed'};},
     async executeAtomic(input){
-      const result=await runBrowserSearchEpisode({goal:input.goal,bindings:input.bindings,maxResultReads:request.maxResultReads??3},resources);
+      const result=await runBrowserSearchEpisode({goal:input.goal,bindings:input.bindings,maxResultReads:request.maxResultReads??3,
+        submissionBaseline:input.state.submissionBaseline},resources);
       const valid=result.observationFeedback.status==='satisfied'&&result.state!==null;
       const post=valid?{id:result.state!.observation.observationId,value:result.state!}:null;
       const diagnostic=(error:{code:string;message:string},stage:'execution'|'observation'):AdapterDiagnostic=>({diagnosticId:randomUUID(),code:stage==='execution'?'execution_failed':'evidence_unavailable',stage,
@@ -57,7 +59,7 @@ export async function runBrowserSearchGoal(raw:unknown,resources:BrowserSearchRe
         effect:{knowledge:result.effectKnowledge,confirmedEffects:result.effectKnowledge==='known'?[{action:result.action,source:result.receipt!.source}]:[],receiptRef:result.receipt===null?null:`search-native:${randomUUID()}`}};
     },
     validateAtomicReceipt:raw=>readAtomicReceipt(raw,{
-      state:value=>{const state=value as BrowserSearchState;readBrowserSearchObservation(state.observation);assertSearchBindings(state.observation,request.bindings);return state;},
+      state:value=>{const state=readBrowserSearchState(value);assertSearchBindings(state.observation,request.bindings);return state;},
       evidencePayload:value=>value as Evidence,effectFact:value=>value as Effect,receiptPayload:value=>value as BrowserSearchEpisode,
     }),
     measureProgress:({previousEvaluation,currentEvaluation})=>{const improved=currentEvaluation.result==='satisfied'&&previousEvaluation.result!=='satisfied';return {improved,reason:improved?'facts_improved':'none',comparable:true};},
@@ -70,6 +72,13 @@ export async function runBrowserSearchGoal(raw:unknown,resources:BrowserSearchRe
       comparators:{sameGoal:isDeepStrictEqual,sameBindings:isDeepStrictEqual,sameFacts:(left,right)=>isDeepStrictEqual({state:businessFacts(left.state),conditions:left.conditions.map(c=>c.fact)},{state:businessFacts(right.state),conditions:right.conditions.map(c=>c.fact)})},
       grantedEffects:resources.grantedEffects,...(resources.signal===undefined?{}:{signal:resources.signal})});
 }
-function businessFacts(state:BrowserSearchState){const o=state.observation;return {value:o.input.value.status==='observed'?o.input.value.value:null,submitted:o.submittedQuery.status==='observed'?o.submittedQuery.value:null,
-  resultsFor:o.resultsFor.status==='observed'?o.resultsFor.value:null,request:o.request,display:o.display,access:o.access,
-  items:o.collection.items.map(item=>[item.ref,item.text.status==='observed'?item.text.value:null]),checked:state.checkedObservationId===o.observationId};}
+function businessFacts(state:BrowserSearchState){const o=state.observation;return {value:o.input.value.status==='observed'?o.input.value.value:null,
+  submitted:o.submittedQuery.status==='observed'?o.submittedQuery.value:null,
+  resultsFor:o.resultsFor.status==='observed'?o.resultsFor.value:null,
+  submittedRequestRef:o.submittedRequestRef.status==='observed'?o.submittedRequestRef.value:null,
+  resultsRequestRef:o.resultsRequestRef.status==='observed'?o.resultsRequestRef.value:null,
+  collectionRequestRef:o.collection.requestRef.status==='observed'?o.collection.requestRef.value:null,
+  batch:o.collection.batch.status==='observed'?o.collection.batch.value:null,
+  baseline:state.submissionBaseline,request:o.request,display:o.display,access:o.access,
+  items:o.collection.items.map(item=>[item.ref,item.collectionRef,item.role,item.text.status==='observed'?item.text.value:null]),
+  checked:state.checkedObservationId===o.observationId};}

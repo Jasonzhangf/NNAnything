@@ -233,3 +233,5 @@ NN可学习结果角色、字段owner及当前合法对象选择；取值、版�
 实施者必须先记录运行入口、真实profile及材料位置，不能凭本规划重建资产路径或把旧worktree当新main。现有browser-foundation树归原作者且干净候选仍有独有工作，PROTECTED_HOLD；接续同任务域优先复用并明确owner，不额外开同域重试树，不删除他人资源。main集成只走标准Git合流。
 
 首批worker提示词见[browser-next-worker-prompt.md](browser-next-worker-prompt.md)。本规划不是这些milestone已立项或执行完成的证明。
+
+2026-10-22 B-Search 实施切片：搜索补「提交实例关联」与「响应归属」，新增 `submittedRequestRef`、`resultsRequestRef`、`submissionBaseline`、`collection.requestRef`/`batch`，使根 100 只能由本次提交的响应证据满足。家族 A 在既有 fixture 扩展场景；家族 B 为独立实现（自有 HTML、`<ol>/<li>` 主结果、独立旁栏、独立客户端与服务路由，不导入家族 A）。逐例验收程序 `playground/browser/search/{cases,native-io,accept}.mjs` 每行独立进程、仅 CDP 原生输入。真实浏览器 44/44 通过（两家族各 22 行；S=12、U=32、control error=32、原生动作 78），C04 迟到 A 不覆盖 B、C17/C18 错误分离、C19 两覆盖义务分列、C12–C14 旁栏不混计，材料见 run 目录 `b-search/acceptance`。验收在独立 headless Chrome 完成，搜索测试 30/30 与构建通过；本轮无训练与权重变更，决策仍 handwired。B-Feedback 仅展开域可开始，搜索域学习恢复仍未就绪。
