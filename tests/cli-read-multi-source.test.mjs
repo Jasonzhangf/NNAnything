@@ -943,3 +943,84 @@ test("M20 the existing single-source suite keeps exactly 21 tests", async () => 
   const count = text.split('test("').length - 1;
   assert.equal(count, 21, "the single-source regression suite must stay fixed at 21 tests");
 });
+
+test("M21 two definitive negatives stopped before root evaluation stay unknown", async t => {
+  const value = await fixture(t, {
+    entries: [
+      { path: "start/a/target.bin", kind: "file", contents: BAD },
+      { path: "start/b/target.bin", kind: "file", contents: WORSE },
+    ],
+  });
+  const sources = orderedSources(value.refA, value.refB, 0, 1);
+  const baseline = await runWith(
+    value,
+    multiSourceRequest(sources, "target.bin", RANGE, b64(GOOD), "m21-baseline"),
+  );
+  assertRoot(baseline, "unmet", "byte_mismatch", 0);
+  const used = baseline.response.report.budgetUsed.transitionsUsed;
+  assert.ok(Number.isInteger(used) && used > 0, "the baseline must record real transitions");
+  for (const cut of [used - 6, used - 3]) {
+    const result = await runWith(
+      value,
+      multiSourceRequest(sources, "target.bin", RANGE, b64(GOOD), `m21-budget-${cut}`),
+      {
+        limits: Object.freeze({
+          maxTransitions: cut,
+          maxDepth: 4,
+          maxDerivedGoals: 12,
+        }),
+      },
+    );
+    const root = result.response.report.rootEvaluation;
+    const completedUnsatisfied = root?.state === "evaluated" && root.result === "unsatisfied";
+    if (completedUnsatisfied) {
+      assertRoot(result, "unmet", "byte_mismatch", 0);
+    } else {
+      assertRoot(result, "unknown", "interrupted", null);
+      assert.equal(result.domain.match, null);
+      assert.notEqual(result.domain.satisfaction, 0, "an unfinished root evaluation must not score 0");
+      assert.notEqual(result.domain.satisfaction, 100);
+    }
+  }
+});
+
+test("M22 a replaced alternate directory is rejected before fallback dispatch", async t => {
+  const hooks = {};
+  let listings = 0;
+  const value = await fixture(t, {
+    entries: [
+      { path: "start/a/target.bin", kind: "file", contents: BAD },
+      { path: "start/b/target.bin", kind: "file", contents: BAD },
+      { path: "start/b-swap", kind: "directory" },
+      { path: "start/b-swap/target.bin", kind: "file", contents: GOOD },
+    ],
+    ioHooks: hooks,
+    listingObserver: async input => {
+      listings += 1;
+      return observeRealListing(input);
+    },
+  });
+  const aTarget = join(value.startAbs, "a", "target.bin");
+  let swapped = false;
+  hooks.beforeOpen = async path => {
+    if (swapped || path !== aTarget) return;
+    swapped = true;
+    await rename(join(value.startAbs, "b"), join(value.startAbs, "b-old"));
+    await rename(join(value.startAbs, "b-swap"), join(value.startAbs, "b"));
+  };
+  const result = await runWith(
+    value,
+    multiSourceRequest(
+      orderedSources(value.refA, value.refB, 0, 1),
+      "target.bin",
+      RANGE,
+      b64(GOOD),
+    ),
+  );
+  assert.equal(swapped, true, "the alternate directory must be replaced at the preferred open");
+  assertRoot(result, "rejected", "rejected", null);
+  assert.equal(result.domain.match, null);
+  assert.equal(sourceById(result, "source:1").attempt, "not_attempted");
+  assert.equal(listings, 2, "a stale alternate must not trigger another listing");
+  assert.equal(value.openCount(), 1, "the alternate source must not be opened");
+});

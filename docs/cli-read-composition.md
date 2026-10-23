@@ -1,6 +1,6 @@
 # CLI 只读组合主线 P1：能力盘点、受信范围读与最小组合合同
 
-状态：2026-10-22 实施合同，2026-10-23 增加多来源设计并于同日实现验收。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 21 用例、公开 consumer 与独立家族；共享 `cli.command-policy.v1` 不增加 head/wire/权重。第 8 节多来源组合已实现并跑通 20 例验收（另有单来源 21 例零回归），未训练、未采用，公开 consumer 与独立家族尚未交付；不改变单来源 7N6E 图与既有 consumer/家族。
+状态：2026-10-22 实施合同，2026-10-23 增加多来源设计并于同日实现验收。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 21 用例、公开 consumer 与独立家族；共享 `cli.command-policy.v1` 不增加 head/wire/权重。第 8 节多来源组合已实现并跑通 22 例验收（另有单来源 21 例零回归），未训练、未采用；公开 consumer（`multi-source.mjs`）7 例与独立家族（`multi-source-independent-family.mjs`）23 例已交付并全绿，不改变单来源 7N6E 图与既有 consumer/家族。
 
 ## 1. 实测能力盘点
 
@@ -193,7 +193,7 @@ rootBindings 只携带普通 JSON 值（session ref、directory ref、name、req
 
 ## 8. 多合法候选只读组合（设计）
 
-状态：本节的请求形状、状态、排序接缝、回退依据与根判定已实现，并通过 20 例验收（`tests/cli-read-multi-source.test.mjs`，M01–M20 全绿）；排序接缝沿用通用 `PlanningDecisionBinding`（默认 order_first，`resources.decision` 可注入 Handwired 绑定）。未训练、未采用；公开 consumer 与独立家族待后续增量。单来源 `cli.exact-child` 合同与实现保持不变。排序复用 `goal-selection-policy.md` 与 `bounded-planning-decision.md`，失败恢复语义复用 `bounded-goal-planning.md` 第 9 节；本节不复制其正文。
+状态：本节的请求形状、状态、排序接缝、回退依据与根判定已实现，并通过 22 例验收（`tests/cli-read-multi-source.test.mjs`，M01–M22 全绿）；排序接缝沿用通用 `PlanningDecisionBinding`（默认 order_first，`resources.decision` 可注入 Handwired 绑定）。未训练、未采用；公开 consumer（`multi-source.mjs`）7 例与独立家族（`multi-source-independent-family.mjs`）23 例已交付并全绿。单来源 `cli.exact-child` 合同与实现保持不变。排序复用 `goal-selection-policy.md` 与 `bounded-planning-decision.md`，失败恢复语义复用 `bounded-goal-planning.md` 第 9 节；本节不复制其正文。
 
 ### 8.1 目标与四元素
 
@@ -307,7 +307,7 @@ type MultiSourceContentBytesGoal = {
 
 实现落在四个 owner：`lib/adapters/cli/read-composition-contract.ts`（多来源 target/bindings/state/cursor 的形状与校验）、`lib/adapters/cli/read-composition-recursive.ts`（multi 复合技能、根评价器与 selector、相位派发、回退与陈旧读拒绝建模）、`lib/filters/cli-read-composition.ts`（域投影 `sources` 与 `decision`）、`lib/cli-read.ts`（公开入口按 `target.kind` 分支）。多来源依赖复用单来源原子技能与评价器，只增加 multi 复合技能、根评价器与 selector，不复制第二套技能或选择器。
 
-验收：`tests/cli-read-multi-source.test.mjs` M01–M20 全绿，覆盖排序接缝、`defer`、合法候选回退、开读前替换与陈旧拒绝、双来源否定、类型不符、权限缺失、预算不足、取消、伪造/未签发/过期/重复引用；单来源 `tests/cli-read-composition.test.mjs` 21/21 零回归；`tests/cli-file-read-sandbox.test.mjs` 11/11。
+验收：`tests/cli-read-multi-source.test.mjs` M01–M22 全绿，覆盖排序接缝、`defer`、合法候选回退、开读前替换与陈旧拒绝、双来源否定、类型不符、权限缺失、预算不足、取消、伪造/未签发/过期/重复引用、根评价前预算停止与回退前次选目录复验；单来源 `tests/cli-read-composition.test.mjs` 21/21 零回归；`tests/cli-file-read-sandbox.test.mjs` 11/11。
 
 公开 consumer 为 `playground/cli/read-composition/multi-source.mjs`，7 个黑盒用例：首选直接匹配、类型不符回退、开读前替换回退、双来源字节不符、无 order `defer`、Handwired 权重反转、read-less 拒绝。
 

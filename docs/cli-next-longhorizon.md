@@ -9,7 +9,7 @@
 - 根目录必须是 sandbox 签发且当前 revision 有效的目录引用，未签发/旧 revision 的普通 path 引用零执行拒绝。
 - 证据：组合 21 例（命中/异型/未找到/字节不符/完整与部分列举/读前替换/过期 revision/伪造 source/短读/零长度/拒权/真实 EACCES/取消/预算边界/未绑定目录/组合层竞态）、公开 consumer、独立来源家族 27 例、受影响回归 82/82、独立 Review PASS 与修复复核 PASS。外置材料在 `/Volumes/Intel/playground/nnanything-runs/cli-read-composition-20261022/`。
 
-下一增量（已实现、待补 consumer/家族）：多个合法候选的确定性排序与回退，范围是同一根 `file.property.content.bytes` 下两个已授权受信目录来源，任一来源满足即 100，未知来源不毒化已满足。设计见 `docs/cli-read-composition.md` 第 8 节，责任图见 `workflows/cli-read-multi-source.graph.json`（10N10E，设计）。它属于 S-React 的有限规则先行验证：先固定排序与回退规则成立，再评估权重能否只替换合法候选内部顺序。当前已实现并通过 20 例验收，未训练、未采用；公开 consumer 与独立家族待补，单来源 7N6E 与既有 consumer/家族不变。
+下一增量（已实现，consumer 7 例与独立家族 23 例已交付，待整体 Review/合流）：多个合法候选的确定性排序与回退，范围是同一根 `file.property.content.bytes` 下两个已授权受信目录来源，任一来源满足即 100，未知来源不毒化已满足。设计见 `docs/cli-read-composition.md` 第 8 节，责任图见 `workflows/cli-read-multi-source.graph.json`（10N10E，设计）。它属于 S-React 的有限规则先行验证：先固定排序与回退规则成立，再评估权重能否只替换合法候选内部顺序。当前已实现并通过 22 例验收，未训练、未采用；公开 consumer（`multi-source.mjs`）7 例与独立家族（`multi-source-independent-family.mjs`）23 例已交付，单来源 7N6E 与既有 consumer/家族不变。
 
 未做：第二层混合决策训练、S-Pipeline 更大组合、写操作/realpath/links/role/format 判断、Linux 设备/FIFO 实测；五项 UNVERIFIED 与 S06 部分完成保持原状。
 

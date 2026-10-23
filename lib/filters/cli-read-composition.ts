@@ -1137,6 +1137,18 @@ function multiNegativeSource(
   return state.sources.find(source => source.sourceId === fact.sourceId) ?? null;
 }
 
+function multiRejected(view: ReturnType<typeof transitionView>): boolean {
+  const frames = view.report?.frames;
+  if (!Array.isArray(frames)) return false;
+  return frames.some(frame => {
+    if (typeof frame !== "object" || frame === null) return false;
+    const cursor = (frame as { cursor?: unknown }).cursor;
+    return typeof cursor === "object"
+      && cursor !== null
+      && (cursor as { phase?: unknown }).phase === "rejected";
+  });
+}
+
 function multiRootFact(
   source: ReadCompositionSourceState | null,
   kind: "matched" | "not_found" | "type_mismatch" | "byte_mismatch" | "stale_or_unverified" | "insufficient_evidence",
@@ -1295,10 +1307,30 @@ function projectMultiReadDomain(
     });
   }
 
+  if (multiRejected(view)) {
+    return Object.freeze({
+      status: "rejected",
+      resolution: "rejected",
+      satisfaction: null,
+      match: null,
+      coverage,
+      sources,
+      decision,
+      rootFact: Object.freeze({ kind: "rejected" }),
+      preserve: preserve(view),
+    });
+  }
+
   const hasUnknown =
     facts.some(fact => fact.attempt === "unknown" || fact.attempt === "in_progress" || fact.attempt === "not_attempted")
     || decision?.kind === "defer";
-  if (!hasUnknown && facts.some(fact => fact.negative !== null) && facts.every(fact => fact.negative !== null)) {
+  if (
+    completed === true
+    && rootResult === "unsatisfied"
+    && !hasUnknown
+    && facts.some(fact => fact.negative !== null)
+    && facts.every(fact => fact.negative !== null)
+  ) {
     const priority = multiNegativePriority(facts);
     return Object.freeze({
       status: "unmet",

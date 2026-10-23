@@ -587,54 +587,6 @@ function fileRefMatchesInspect(
     && ref.sessionRevision === inspected.sessionRevision;
 }
 
-function attemptOf(source: ReadCompositionSourceState): "not_attempted" | "in_progress" | "matched" | "definitive_negative" | "unknown" {
-  const knowledge = sourceKnowledge(source, source.candidate === null ? "" : source.candidate.name);
-  if (knowledge.coverage === null) return "not_attempted";
-  if (knowledge.candidate === null) return "definitive_negative";
-  if (source.inspected === null && source.read === null) return "in_progress";
-  if (source.inspected === null) return "unknown";
-  if (source.inspected.type !== null && source.inspected.type !== "regular") return "definitive_negative";
-  if (source.read === null || source.read.bytesRead === null) return "unknown";
-  if (source.read.bytesRead < (source.read.length ?? 0)) return "unknown";
-  return "unknown";
-}
-
-function attemptedIndexOfMatch(
-  state: ReadCompositionState,
-  bindings: Readonly<{ name: string; range: Readonly<{ offset: number; length: number }>; expectedBase64: string }>,
-): number | null {
-  if (state.sources === null) return null;
-  for (let index = 0; index < state.sources.length; index += 1) {
-    const source = state.sources[index];
-    if (source === undefined) continue;
-  const knowledge = sourceKnowledge(source, bindings.name);
-  if (knowledge.candidate === null || source.inspected === null) continue;
-    if (
-      source.inspected.type !== "regular" ||
-      source.fileRef === null ||
-      source.read === null ||
-      source.read.bytes === null ||
-      source.read.bytesRead !== bindings.range.length ||
-      source.read.refSourceRun !== source.fileRef.sourceRun ||
-      !sameOsInteger(source.read.identity.dev, source.fileRef.identity.dev) ||
-      !sameOsInteger(source.read.identity.ino, source.fileRef.identity.ino)
-    ) {
-      continue;
-    }
-    let decoded: Uint8Array;
-    try {
-      decoded = Buffer.from(source.read.bytes, "base64");
-    } catch {
-      continue;
-    }
-    if (decoded.length !== bindings.range.length) continue;
-    const expected = Buffer.from(bindings.expectedBase64, "base64");
-    if (expected.length !== bindings.range.length || !bytesEqual(decoded, expected)) continue;
-    return index;
-  }
-  return null;
-}
-
 function planningInputForSources(
   bindings: Readonly<{
     sources: readonly [ReadCompositionSourceSpec, ReadCompositionSourceSpec];
@@ -737,6 +689,18 @@ function closeMultiFinal(
     conditions: Object.freeze([]),
     nextCursor: Object.freeze({
       phase: "closed",
+      chosen: null,
+      decision: null,
+    }),
+    expansion: "closed" as const,
+  });
+}
+
+function closeMultiRejected(phase: string) {
+  return Object.freeze({
+    conditions: Object.freeze([]),
+    nextCursor: Object.freeze({
+      phase: "rejected",
       chosen: null,
       decision: null,
     }),
@@ -1183,6 +1147,34 @@ function fallbackState(
   return Object.freeze({ kind: "fallback", index: alternate });
 }
 
+async function fallbackInspectCondition(
+  input: DerivationInput<unknown, ReadCompositionState, unknown, ReadCompositionEvidencePayload, unknown>,
+  sandbox: CliFilesystemSandbox,
+  bindings: Readonly<{
+    session: SessionRef;
+    sources: readonly [ReadCompositionSourceSpec, ReadCompositionSourceSpec];
+    name: string;
+    requiredType: "regular";
+    range: Readonly<{ offset: number; length: number }>;
+    expectedBase64: string;
+  }>,
+  phase: string,
+  fallback: Readonly<{ kind: "fallback"; index: 0 | 1 }>,
+  decision: ReadCompositionDecisionRecord | null,
+) {
+  try {
+    await validateFallbackSource(
+      sandbox,
+      bindings.session,
+      bindings.sources[fallback.index].directory,
+      input.state.session.grantedEffects,
+    );
+  } catch {
+    return closeMultiRejected(phase);
+  }
+  return inspectConditionFor(fallback.index, bindings, phase, decision, "inspected-alt");
+}
+
 function policyDirectoryRef(directory: DirectoryObjectRef, cwd: string): DirectoryRef {
   if ("absolutePath" in directory) {
     const path = relative(cwd, directory.absolutePath) || ".";
@@ -1246,6 +1238,7 @@ function readGoalFromBindings(bindings: unknown, ref: ObservedObjectRef): ReadCo
 async function derive(
   input: DerivationInput<unknown, ReadCompositionState, unknown, ReadCompositionEvidencePayload, unknown>,
   decisionBinding: PlanningDecisionBinding,
+  sandbox: CliFilesystemSandbox,
 ) {
   if (!isRootGoal(input.goal) && !isMultiRootGoal(input.goal)) {
     throw new TypeError("read composition composite derivation received an incompatible frame");
@@ -1317,7 +1310,7 @@ async function derive(
     });
   }
   if (input.skill.id === READ_MULTI_COMPOSITE_SKILL && isMultiRootGoal(input.goal)) {
-    return deriveMulti(input, decisionBinding);
+    return deriveMulti(input, decisionBinding, sandbox);
   }
   throw new TypeError("read composition composite derivation received an incompatible frame");
 }
@@ -1325,6 +1318,7 @@ async function derive(
 async function deriveMulti(
   input: DerivationInput<unknown, ReadCompositionState, unknown, ReadCompositionEvidencePayload, unknown>,
   decisionBinding: PlanningDecisionBinding,
+  sandbox: CliFilesystemSandbox,
 ) {
   if (input.state.sources === null) {
     throw new TypeError("multi-source composition state requires sources");
@@ -1372,8 +1366,6 @@ async function deriveMulti(
 
   const classified = classifySources(input.state, bindings);
   const legal = classified.classes.filter(item => item.kind === "legal") as Extract<SourceClass, { kind: "legal" }>[];
-  const definitive = classified.classes.filter(item => item.kind === "definitive_negative") as Extract<SourceClass, { kind: "definitive_negative" }>[];
-  const unknownClasses = classified.classes.filter(item => item.kind === "unknown");
 
   if (phase === "listed") {
     if (legal.length === 0) {
@@ -1434,13 +1426,7 @@ async function deriveMulti(
       const chain = chainStatus(input, bindings, chosen);
       const fallback = fallbackState(input, bindings, chosen, chain);
       if (fallback.kind === "fallback") {
-        return inspectConditionFor(
-          fallback.index,
-          bindings,
-          phase,
-          cursor?.decision ?? null,
-          "inspected-alt",
-        );
+        return fallbackInspectCondition(input, sandbox, bindings, phase, fallback, cursor?.decision ?? null);
       }
       return closeMultiFinal(phase, fallback);
     }
@@ -1481,8 +1467,7 @@ async function deriveMulti(
     if (chain.matched) return closeMultiMatched(phase);
     const fallback = fallbackState(input, bindings, chosen, chain);
     if (fallback.kind === "fallback") {
-      const alt = fallback.index;
-      return inspectConditionFor(alt, bindings, phase, cursor?.decision ?? null, "inspected-alt");
+      return fallbackInspectCondition(input, sandbox, bindings, phase, fallback, cursor?.decision ?? null);
     }
     return closeMultiFinal(phase, fallback);
   }
@@ -1515,6 +1500,30 @@ async function deriveMulti(
   }
 
   return closeMulti(classified, phase);
+}
+
+async function validateFallbackSource(
+  sandbox: CliFilesystemSandbox,
+  session: SessionRef,
+  directory: ReadCompositionSourceSpec["directory"],
+  recordedEffects: readonly string[],
+): Promise<void> {
+  const current = sandbox.getSession(session);
+  if (
+    !current.grantedEffects.includes("filesystem.read")
+    || current.grantedEffects.length !== recordedEffects.length
+    || current.grantedEffects.some(effect => !recordedEffects.includes(effect))
+  ) {
+    throw Object.assign(new TypeError("read composition fallback source no longer grants filesystem.read"), {
+      code: "EFFECT_DENIED",
+    });
+  }
+  if ("absolutePath" in directory) {
+    await sandbox.validateObservedObject(directory);
+  } else {
+    await sandbox.validateDirectoryRef(directory);
+  }
+  await sandbox.resolveDirectory(policyDirectoryRef(directory, current.cwd));
 }
 
 async function validateDirectoryBinding(
@@ -2249,7 +2258,7 @@ export function createReadCompositionAdapter(input: ReadCompositionAdapterInput)
       if (process.env.NN_DEBUG_READ_EVAL === "1") {
         console.error("DEBUG_DERIVE", JSON.stringify({ seq: debugSeq }));
       }
-      return derive(callback, decisionBinding);
+      return derive(callback, decisionBinding, input.sandbox);
     },
 
     async executeAtomic(callback) {

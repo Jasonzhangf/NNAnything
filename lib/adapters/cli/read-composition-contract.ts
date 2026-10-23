@@ -202,6 +202,7 @@ export type ReadCompositionPhase =
   | "inspected"
   | "read"
   | "closed"
+  | "rejected"
   | "fallback-basis"
   | "inspected-alt"
   | "read-alt";
@@ -718,7 +719,7 @@ export function readReadCompositionGoal(value: unknown): ReadCompositionRunGoal 
 export function readReadCompositionCursor(value: unknown): ReadCompositionCursor {
   const cursor = record(value, "read composition cursor");
   exactKeys(cursor, ["phase", "chosen", "decision"], "read composition cursor");
-  if (!["listed", "inspected", "read", "closed", "fallback-basis", "inspected-alt", "read-alt"].includes(String(cursor.phase))) {
+  if (!["listed", "inspected", "read", "closed", "rejected", "fallback-basis", "inspected-alt", "read-alt"].includes(String(cursor.phase))) {
     throw new TypeError("read composition cursor phase is invalid");
   }
   const chosen = cursor.chosen === null ? null : cursor.chosen;
