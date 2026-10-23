@@ -1,6 +1,15 @@
 # Shell长程目标：刚性属性语义与可组合只读任务
 
-状态：任务设计；未启动本目标实现或训练。配套[启动提示词](cli-next-longhorizon-prompt.md)。通用推理core由父编排者维护；shell编排者负责领域语义与接入，不重复实现控制器。
+状态：S-Inventory 至 S-Independent 已交付并通过独立 Review；S-React 的后续权重替换与 S-Pipeline 的更大组合边界仍是后续增量。配套[启动提示词](cli-next-longhorizon-prompt.md)。通用推理core由父编排者维护；shell编排者负责领域语义与接入，不重复实现控制器。
+
+已交付（2026-10-22，合流后提交见 main）：
+- `nnanything/cli-read` 的 `runCliReadCompositionGoal`：显式受信目录内严格名称 regular 文件的指定范围字节 equals 根目标，根 0/100、unknown null。list/inspect 走共享 `cli.command-policy.v1`，read 是确定性 `file.read` harness 观察，无新 head、未训练。
+- 受信 `file.read` 沙盒原语：observed `cli.file` 引用 + 范围，只需 `filesystem.read`，打开前后身份比对，替换返回 stale 且不返回字节。
+- 组合 state 显式携带 listing/candidate/inspected/fileRef/read 与 sourceRun/revision；根评价只在控制器根评价完成且一致时给出 0/100；预算/取消停止为 unknown/interrupted。
+- 根目录必须是 sandbox 签发且当前 revision 有效的目录引用，未签发/旧 revision 的普通 path 引用零执行拒绝。
+- 证据：组合 21 例（命中/异型/未找到/字节不符/完整与部分列举/读前替换/过期 revision/伪造 source/短读/零长度/拒权/真实 EACCES/取消/预算边界/未绑定目录/组合层竞态）、公开 consumer、独立来源家族 27 例、受影响回归 82/82、独立 Review PASS 与修复复核 PASS。外置材料在 `/Volumes/Intel/playground/nnanything-runs/cli-read-composition-20261022/`。
+
+未做：第二层混合决策训练、S-Pipeline 更大组合、写操作/realpath/links/role/format 判断、Linux 设备/FIFO 实测；五项 UNVERIFIED 与 S06 部分完成保持原状。
 
 ## 目标与已有起点
 

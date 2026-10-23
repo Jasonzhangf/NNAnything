@@ -1,0 +1,23 @@
+{
+  "id": "cli-read-composition-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id":"content_bytes_request","schema":"Object"}],
+  "nodes": [
+    {"id":"绑定根目标与目录范围","operator":"cli.read-composition.bind","operator_version":"0.1.0-design","inputs":["content_bytes_request"],"output":{"id":"content_bytes_context","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"取得目录子项证据","operator":"cli.read-composition.observe-entries","operator_version":"0.1.0-design","inputs":["content_bytes_context"],"output":{"id":"content_bytes_listing","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按精确名称归并候选","operator":"cli.read-composition.match","operator_version":"0.1.0-design","inputs":["content_bytes_listing"],"output":{"id":"content_bytes_candidate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"核验候选类型与受信引用","operator":"cli.read-composition.verify","operator_version":"0.1.0-design","inputs":["content_bytes_candidate"],"output":{"id":"content_bytes_evidence","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"读取指定范围字节","operator":"cli.read-composition.read","operator_version":"0.1.0-design","inputs":["content_bytes_evidence"],"output":{"id":"content_bytes_read","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"评价字节谓词与根事实","operator":"cli.read-composition.evaluate","operator_version":"0.1.0-design","inputs":["content_bytes_read"],"output":{"id":"content_bytes_decision","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总结果","operator":"cli.read-composition.report","operator_version":"0.1.0-design","inputs":["content_bytes_decision"],"output":{"id":"content_bytes_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"绑定根目标与目录范围","to":"取得目录子项证据","arc_id":"content_bytes_context"},
+    {"from":"取得目录子项证据","to":"按精确名称归并候选","arc_id":"content_bytes_listing"},
+    {"from":"按精确名称归并候选","to":"核验候选类型与受信引用","arc_id":"content_bytes_candidate"},
+    {"from":"核验候选类型与受信引用","to":"读取指定范围字节","arc_id":"content_bytes_evidence"},
+    {"from":"读取指定范围字节","to":"评价字节谓词与根事实","arc_id":"content_bytes_read"},
+    {"from":"评价字节谓词与根事实","to":"汇总结果","arc_id":"content_bytes_decision"}
+  ],
+  "outputs": ["content_bytes_result"]
+}

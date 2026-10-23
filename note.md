@@ -87,6 +87,15 @@ F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 
 另做了一个只改 `leafWeights.ignore`、其余系数全部回退默认的最小变体：F04 仍是 ignore 4/4，旧黄金影响从 91 行降到 28 行且只在 structure 大类内，但增量语料 162 条 ignore 只召回 2 条，说明只补叶子不足以覆盖这些行。28 行是下界并已证明：F04 包装默认被判 container 0.7，ignore 要胜出至少 0.85，同一批 null wire 上的正权重也会把旧容器行抬到约 1.0，而两者之间没有可用区分 wire，所以“F04 ignore 4/4”与“旧黄金 0 预测变化”在当前 schema 下不能同时成立。
 
 结论：能力在测量齐备域成立，旧黄金与微博语料的零变化/召回验收需要先按当前 31 字段重新观测，或由用户明确“旧语料变 unknown 不算回归”的口径；两条都待用户裁决。方法、数字、不可能性证明与复现命令见 `ignore-capability-report.md`，算法前提已补入 docs/basic-kinds-wiring.md。
+
+## 2026-10-23 父级接收Shell只读根Goal交付
+
+已接收`nnanything/cli-read`的`runCliReadCompositionGoal`：显式受信目录内严格名称regular文件，经列举、精确匹配、inspect、受信file.read范围读及根评价完成bytes equals闭环。根满足0/100，未知null；预算/取消停止不因已读到字节误报成功。file.read只需filesystem.read，打开前后核身份；替换不返回字节，未签发/过期目录引用零执行拒绝。组合证据及引用显式保存在state，未修改共享core或浏览器，未新增policy head、未训练或采用权重。
+
+父级本轮核对main五笔交付提交至fb6cc5a、远端refs/heads/main一致和工作树清理结果；亲读整体Review及finding复核，最终追加结论VERDICT PASS。复用该Review与作者有效行为证据：组合21/21、受影响回归82/82、独立来源家族27/27及公开consumer exit0，不重复全量测试。本轮只做交付接收和笔记汇总，不另称代码独立审查。7N6E责任图闭合，仍为design责任图；实际执行复用现有recursive-goal，不宣称七个独立运行算子已绑定。
+
+本次约定只读切片四阶段已交付：能力盘点、受信读原语、根组合、独立家族。后续混合决策训练、更大有限管道、写操作/realpath/links/role/format及Linux特殊文件证据未完成；S06部分完成和五项UNVERIFIED保留。确定性范围读不虚设训练。过程与原始Review在`/Volumes/Intel/playground/nnanything-runs/cli-read-composition-20261022/`，摘要domain-delivery-note.md，领域状态由docs/cli-next-longhorizon.md维护。自有cli-read-composition树/分支已关闭；浏览器他方树保留，本次不评估其进度。
+
 ## 2026-10-22 通用反馈修复最终交付
 
 通用修复已在cbb8522集成并推送origin/main；CLI先前在a854bcc集成推送。独立整体Review及finding定点闭包已通过，主体全仓1097/1097，最后取消分支修复及主目录最终回归均21/21、0fail/skip。主目录正常npm run build通过。CLI与通用修复自有worktree已正常移除；browser-foundation含待接收成果，继续保留，不宣称浏览器整体通过。两域长程计划与启动提示词均已随main交付，尚未启动。

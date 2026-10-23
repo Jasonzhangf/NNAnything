@@ -11,6 +11,7 @@ import {
   type DirectoryListObservation,
   type DirectoryListingResult,
 } from "./directory-listing.js";
+import { readFileRange, type FileReadIo } from "./file-content.js";
 import {
   readEntrySnapshot,
   readInspectRef,
@@ -19,6 +20,7 @@ import {
   runEntryInspectHelper,
   type EntryKind,
   type LegacyDirectoryRef,
+  type OsInteger,
   type ObservedEntrySnapshot,
   type ObservedObjectRef,
   type PathRef,
@@ -107,6 +109,15 @@ export type SemanticEntryInspectCall = Readonly<{
   parameters: Readonly<{ ref: PathRef | ObservedObjectRef | LegacyDirectoryRef; followSymlinks: boolean }>;
 }>;
 
+export type SemanticFileReadCall = Readonly<{
+  operation: "file.read";
+  parameters: Readonly<{
+    ref: ObservedObjectRef;
+    offset: number;
+    length: number;
+  }>;
+}>;
+
 export type SemanticCliCall =
   | SemanticCwdGetCall
   | SemanticCwdSetCall
@@ -114,7 +125,8 @@ export type SemanticCliCall =
   | SemanticPathResolveCall
   | SemanticPathRelativeCall
   | SemanticPathPartsCall
-  | SemanticEntryInspectCall;
+  | SemanticEntryInspectCall
+  | SemanticFileReadCall;
 
 export type CwdSetObservation = Readonly<{
   kind: "cwd.set";
@@ -170,6 +182,19 @@ export type EntryInspectObservation = Readonly<{
   snapshot: ObservedEntrySnapshot;
 }>;
 
+export type FileReadObservation = Readonly<{
+  kind: "file.read";
+  ref: ObservedObjectRef;
+  absolutePath: string;
+  offset: number;
+  length: number;
+  size: number; // file size at read time (bytes)
+  bytes: string; // base64 of the actual bytes read
+  bytesRead: number;
+  eof: boolean;
+  identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
+}>;
+
 export type SemanticCallReceipt = Readonly<{
   call: SemanticCliCall;
   status: "succeeded" | "failed";
@@ -187,7 +212,8 @@ export type SemanticCallReceipt = Readonly<{
           | PathResolveObservation
           | PathRelativeObservation
           | PathPartsCallObservation
-          | EntryInspectObservation;
+          | EntryInspectObservation
+          | FileReadObservation;
       }>
     | Readonly<{
         status: "failed";
@@ -223,6 +249,7 @@ export interface CliFilesystemSandbox {
   bindFile(session: SessionRef, path: string): Promise<ObservedObjectRef>;
   bindDirectoryObject(session: SessionRef, path: string): Promise<ObservedObjectRef>;
   bindDirectory(session: SessionRef, path: string): Promise<DirectoryRef>;
+  validateDirectoryRef(ref: DirectoryRef): Promise<void>;
   validateObservedObject(ref: ObservedObjectRef): Promise<void>;
   resolveDirectory(ref: DirectoryRef): Promise<Readonly<{
     ref: DirectoryRef;
@@ -241,7 +268,9 @@ type SandboxState = {
   readonly grants: readonly CliEffect[];
   readonly observation?: CliSandboxObservation;
   readonly listingObserver?: DirectoryListingObserver;
+  readonly fileReadIo?: FileReadIo;
   readonly boundRefs: Map<string, ObservedObjectRef>;
+  readonly issuedDirectoryRefs: Map<string, number>;
   active: boolean;
 };
 
@@ -457,7 +486,27 @@ export function readSemanticCliCall(value: unknown): SemanticCliCall {
       }),
     });
   }
-  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts and entry.inspect are supported");
+  if (call.operation === "file.read") {
+    const parameters = expectRecord(call.parameters, "semantic CLI parameters");
+    exactKeys(parameters, ["ref", "offset", "length"], "semantic CLI parameters");
+    const offset = parameters.offset;
+    const length = parameters.length;
+    if (!Number.isSafeInteger(offset) || (offset as number) < 0) {
+      throw new TypeError("file.read offset must be a non-negative safe integer");
+    }
+    if (!Number.isSafeInteger(length) || (length as number) < 0) {
+      throw new TypeError("file.read length must be a non-negative safe integer");
+    }
+    return Object.freeze({
+      operation: "file.read",
+      parameters: Object.freeze({
+        ref: readObservedObjectRef(parameters.ref),
+        offset: offset as number,
+        length: length as number,
+      }),
+    });
+  }
+  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts, entry.inspect and file.read are supported");
 }
 
 function snapshot(state: SandboxState, ref: SessionRef): SessionSnapshot {
@@ -492,6 +541,10 @@ async function resolveDirectory(state: SandboxState, value: unknown, rejectFinal
   const attributes = await lstat(physicalPath);
   if (!attributes.isDirectory()) throw Object.assign(new TypeError("Bound directory path is not a directory"), { code: "NOT_DIRECTORY" });
   return Object.freeze({ ref, configuredPath, physicalPath });
+}
+
+function directoryRefKey(ref: DirectoryRef): string {
+  return `${ref.scenarioId}\0${ref.sessionId}\0${ref.path}`;
 }
 
 function failureCode(error: unknown): string {
@@ -538,6 +591,15 @@ function sameObservedRef(left: ObservedObjectRef, right: ObservedObjectRef): boo
 function identityMatches(value: number | string | null, observed: bigint | null): boolean {
   if (value === null || observed === null) return false;
   return BigInt(value) === observed;
+}
+
+function sameOsInteger(left: number | string | null, right: number | string): boolean {
+  if (left === null) return false;
+  try {
+    return BigInt(left) === BigInt(right);
+  } catch {
+    return false;
+  }
 }
 
 async function physicalEntryCandidate(state: SandboxState, configuredPath: string): Promise<string> {
@@ -931,6 +993,66 @@ async function executeEntryInspect(state: SandboxState, call: SemanticEntryInspe
   });
 }
 
+async function executeFileRead(state: SandboxState, call: SemanticFileReadCall, before: SessionSnapshot): Promise<SemanticCallReceipt> {
+  const runId = randomUUID();
+  const ref = call.parameters.ref;
+  if (!sameSession(state, before, ref)) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "File reference must belong to the selected session and scenario", "validate", false);
+  }
+  const missing = (["filesystem.read"] as const)
+    .filter(effect => !before.grantedEffects.includes(effect));
+  if (missing.length) {
+    return failedReceipt(call, before, state, runId, "EFFECT_DENIED", `Missing CLI effect grant: ${missing.join(", ")}`, "authorize", false);
+  }
+  if (ref.kind !== "cli.file" || ref.type !== "regular") {
+    return failedReceipt(call, before, state, runId, "NOT_REGULAR_FILE", "file.read requires a cli.file reference to a regular file", "authorize", false);
+  }
+
+  let configuredPath: string;
+  let preflight: Awaited<ReturnType<typeof readEntrySnapshot>>;
+  try {
+    configuredPath = await physicalEntryCandidate(state, ref.absolutePath);
+    preflight = await readEntrySnapshot(configuredPath, false);
+    validateObservedRef(state, before, ref, preflight);
+  } catch (error) {
+    return failedReceipt(call, before, state, runId, failureCode(error), error instanceof Error ? error.message : String(error), "authorize", false);
+  }
+
+  const result = state.fileReadIo === undefined
+    ? await readFileRange(configuredPath, call.parameters.offset, call.parameters.length)
+    : await readFileRange(configuredPath, call.parameters.offset, call.parameters.length, state.fileReadIo);
+  if (!result.ok) {
+    return failedReceipt(call, before, state, runId, result.error.code, result.error.message, result.error.stage, result.error.stage === "observe");
+  }
+  if (!sameOsInteger(ref.identity.dev, result.observation.identity.dev)
+    || !sameOsInteger(ref.identity.ino, result.observation.identity.ino)) {
+    return failedReceipt(call, before, state, runId, "STALE_REFERENCE", "Opened file identity no longer matches the trusted reference", "observe", true);
+  }
+
+  const observation: FileReadObservation = Object.freeze({
+    kind: "file.read",
+    ref,
+    absolutePath: configuredPath,
+    offset: call.parameters.offset,
+    length: call.parameters.length,
+    size: result.observation.size,
+    bytes: result.observation.bytes,
+    bytesRead: result.observation.bytesRead,
+    eof: result.observation.eof,
+    identity: Object.freeze({
+      dev: result.observation.identity.dev as OsInteger,
+      ino: result.observation.identity.ino as OsInteger,
+    }),
+  });
+  return Object.freeze({
+    call,
+    status: "succeeded",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+  });
+}
+
 export async function executeSemanticCliCall(
   sandbox: CliFilesystemSandbox,
   value: unknown,
@@ -989,6 +1111,7 @@ export async function createCliFilesystemSandbox(options: {
   readonly ownerGrantedEffects: readonly FilesystemOwnerGrant[];
   readonly observation?: CliSandboxObservation;
   readonly listingObserver?: DirectoryListingObserver;
+  readonly fileReadIo?: FileReadIo;
 }): Promise<CliFilesystemSandbox> {
   const input = expectRecord(options, "sandbox options");
   const allowed = [
@@ -997,10 +1120,17 @@ export async function createCliFilesystemSandbox(options: {
     "ownerGrantedEffects",
     ...(Object.hasOwn(input, "observation") ? ["observation"] : []),
     ...(Object.hasOwn(input, "listingObserver") ? ["listingObserver"] : []),
+    ...(Object.hasOwn(input, "fileReadIo") ? ["fileReadIo"] : []),
   ];
   exactKeys(input, allowed, "sandbox options");
   if (Object.hasOwn(input, "observation") && typeof input.observation !== "function") throw new TypeError("sandbox observation must be a function");
   if (Object.hasOwn(input, "listingObserver") && typeof input.listingObserver !== "function") throw new TypeError("sandbox listingObserver must be a function");
+  if (Object.hasOwn(input, "fileReadIo")) {
+    const io = input.fileReadIo;
+    if (!isRecord(io) || typeof io.lstat !== "function" || typeof io.open !== "function") {
+      throw new TypeError("sandbox fileReadIo must provide lstat and open functions");
+    }
+  }
   const rootValue = nonEmpty(input.root, "sandbox root");
   if (!isAbsolute(rootValue)) throw new TypeError("sandbox root must be absolute");
   ownerGrants(input.ownerGrantedEffects);
@@ -1024,8 +1154,10 @@ export async function createCliFilesystemSandbox(options: {
     })])),
     grants: Object.freeze(recipe.sessions.flatMap(session => session.grantedEffects)),
     boundRefs: new Map(),
+    issuedDirectoryRefs: new Map(),
     ...(input.observation === undefined ? {} : { observation: input.observation as CliSandboxObservation }),
     ...(input.listingObserver === undefined ? {} : { listingObserver: input.listingObserver as DirectoryListingObserver }),
+    ...(input.fileReadIo === undefined ? {} : { fileReadIo: input.fileReadIo as FileReadIo }),
     active: true,
   };
   try {
@@ -1089,7 +1221,22 @@ export async function createCliFilesystemSandbox(options: {
         path: relativeValue,
       });
       await resolveDirectory(state, ref);
+      state.issuedDirectoryRefs.set(directoryRefKey(ref), session.revision);
       return ref;
+    },
+    async validateDirectoryRef(ref: DirectoryRef): Promise<void> {
+      if (!state.active) throw new Error("Filesystem sandbox is closed");
+      const value = readDirectoryRef(ref);
+      if (value.scenarioId !== state.scenarioId) {
+        throw Object.assign(new TypeError("Directory reference belongs to another scenario"), { code: "EINVAL" });
+      }
+      const before = snapshot(state, { kind: "cli.session", scenarioId: value.scenarioId, sessionId: value.sessionId });
+      const issuedRevision = state.issuedDirectoryRefs.get(directoryRefKey(value));
+      if (issuedRevision === undefined || issuedRevision !== before.revision) {
+        throw Object.assign(new TypeError("Directory reference was not issued by this sandbox at the current revision"), {
+          code: "binding_identity_missing",
+        });
+      }
     },
     async validateObservedObject(ref: ObservedObjectRef): Promise<void> {
       if (!state.active) throw new Error("Filesystem sandbox is closed");
@@ -1112,6 +1259,7 @@ export async function createCliFilesystemSandbox(options: {
       if (call.operation === "path.resolve") return executePathResolve(state, call, before);
       if (call.operation === "path.relative") return executePathRelative(state, call, before);
       if (call.operation === "path.parts") return executePathParts(state, call, before);
+      if (call.operation === "file.read") return executeFileRead(state, call, before);
       return executeEntryInspect(state, call, before);
     },
     async cleanup() {
