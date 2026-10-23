@@ -20,17 +20,34 @@ import type {
 import type { CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { RecursiveGoalLimits } from "../../workflow/recursive-goal/contracts.js";
 import type { DirectoryObjectRef } from "./entry-search-contract.js";
+import type { PlanningDecisionBinding } from "../../workflow/recursive-goal/decision-contracts.js";
 
 export type ReadCompositionName = string;
 
 export type ReadRange = Readonly<{ offset: number; length: number }>;
 
-export type ReadCompositionTarget = Readonly<{
+export type ReadCompositionSourceSpec = Readonly<{
+  directory: DirectoryObjectRef;
+  order: number | null;
+}>;
+
+export type ReadCompositionSingleTarget = Readonly<{
   kind: "cli.exact-child";
   directory: DirectoryObjectRef;
   name: ReadCompositionName;
   requiredType: "regular";
 }>;
+
+export type ReadCompositionMultiTarget = Readonly<{
+  kind: "cli.exact-child-sources";
+  sources: readonly [ReadCompositionSourceSpec, ReadCompositionSourceSpec];
+  name: ReadCompositionName;
+  requiredType: "regular";
+}>;
+
+export type ReadCompositionTarget =
+  | ReadCompositionSingleTarget
+  | ReadCompositionMultiTarget;
 
 export type ReadCompositionRequirement = Readonly<{
   kind: "equals";
@@ -95,6 +112,15 @@ export type ReadCompositionBindings = Readonly<{
   expectedBase64: string;
 }>;
 
+export type ReadCompositionMultiBindings = Readonly<{
+  session: SessionRef;
+  sources: readonly [ReadCompositionSourceSpec, ReadCompositionSourceSpec];
+  name: string;
+  requiredType: "regular";
+  range: ReadRange;
+  expectedBase64: string;
+}>;
+
 export type ReadCompositionListingFact = Readonly<{
   sourceRun: string | null;
   coverage: "complete" | "partial" | null;
@@ -148,6 +174,17 @@ export type ReadCompositionReadFact = Readonly<{
   identity: Readonly<{ dev: number | string | null; ino: number | string | null }>;
 }>;
 
+export type ReadCompositionSourceState = Readonly<{
+  sourceId: "source:0" | "source:1";
+  order: number | null;
+  directory: DirectoryObjectRef;
+  listing: ReadCompositionListingFact | null;
+  candidate: ReadCompositionCandidate | null;
+  inspected: ReadCompositionInspectedFact | null;
+  fileRef: ReadCompositionFileRef | null;
+  read: ReadCompositionReadFact | null;
+}>;
+
 export type ReadCompositionState = Readonly<{
   stateId: string;
   session: SessionSnapshot;
@@ -157,10 +194,29 @@ export type ReadCompositionState = Readonly<{
   inspected: ReadCompositionInspectedFact | null;
   fileRef: ReadCompositionFileRef | null;
   read: ReadCompositionReadFact | null;
+  sources: readonly [ReadCompositionSourceState, ReadCompositionSourceState] | null;
 }>;
 
-export type ReadCompositionPhase = "listed" | "inspected" | "read" | "closed";
-export type ReadCompositionCursor = Readonly<{ phase: ReadCompositionPhase }>;
+export type ReadCompositionPhase =
+  | "listed"
+  | "inspected"
+  | "read"
+  | "closed"
+  | "fallback-basis"
+  | "inspected-alt"
+  | "read-alt";
+
+export type ReadCompositionDecisionRecord = Readonly<{
+  kind: "ranked" | "defer";
+  chosen: "source:0" | "source:1" | null;
+  missingKeys: readonly string[];
+}>;
+
+export type ReadCompositionCursor = Readonly<{
+  phase: ReadCompositionPhase;
+  chosen: 0 | 1 | null;
+  decision: ReadCompositionDecisionRecord | null;
+}>;
 
 export type ReadCompositionEvidencePayload =
   | Readonly<{
@@ -250,6 +306,16 @@ export type ReadCompositionDomainProjection = Readonly<{
   satisfaction: number | null;
   match: ReadCompositionFileRef | null;
   coverage: "complete" | "partial" | null;
+  sources: readonly Readonly<{
+    sourceId: "source:0" | "source:1";
+    attempt: "not_attempted" | "in_progress" | "matched" | "definitive_negative" | "unknown";
+    negative: "not_found" | "type_mismatch" | "byte_mismatch" | null;
+  }>[];
+  decision: Readonly<{
+    kind: "ranked" | "defer";
+    chosen: "source:0" | "source:1" | null;
+    missingKeys: readonly string[];
+  }> | null;
   rootFact: ReadCompositionRootFact | null;
   preserve: Readonly<{
     rootEvaluation: unknown;
@@ -270,6 +336,7 @@ export type ReadCompositionResources = Readonly<{
   limits: RecursiveGoalLimits;
   signal?: AbortSignal;
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
+  decision?: PlanningDecisionBinding;
 }>;
 
 export type ReadCompositionRunResult = Readonly<{
@@ -430,13 +497,10 @@ export function validateReadCompositionGoal(value: unknown): ReadCompositionGoal
     throw new TypeError("read composition goal must be a file.property.content.bytes goal");
   }
   const target = record(goal.target, "read composition goal target");
-  exactKeys(target, ["kind", "directory", "name", "requiredType"], "read composition goal target");
-  if (target.kind !== "cli.exact-child") {
-    throw new TypeError("read composition goal target.kind must be cli.exact-child");
-  }
   if (target.requiredType !== "regular") {
     throw new TypeError("read composition goal target.requiredType must be regular");
   }
+  const name = validateReadCompositionName(target.name, "read composition goal target.name");
   const requirement = record(goal.requirement, "read composition goal requirement");
   exactKeys(requirement, ["kind", "range", "expectedBase64"], "read composition goal requirement");
   if (requirement.kind !== "equals") {
@@ -451,26 +515,85 @@ export function validateReadCompositionGoal(value: unknown): ReadCompositionGoal
   if (expectedBytes.length !== length) {
     throw new TypeError("read composition goal expectedBase64 decoded length must equal range.length");
   }
-  return Object.freeze({
-    kind: "file.property",
-    property: "file.property.content.bytes",
-    target: Object.freeze({
-      kind: "cli.exact-child",
-      directory: directoryObjectRef(target.directory, "read composition goal target.directory"),
-      name: validateReadCompositionName(target.name, "read composition goal target.name"),
-      requiredType: "regular",
-    }),
-    requirement: Object.freeze({
-      kind: "equals",
-      range: Object.freeze({ offset, length }),
-      expectedBase64,
-    }),
+  const requirementValue = Object.freeze({
+    kind: "equals",
+    range: Object.freeze({ offset, length }),
+    expectedBase64,
   });
+
+  if (target.kind === "cli.exact-child") {
+    exactKeys(target, ["kind", "directory", "name", "requiredType"], "read composition goal target");
+    return Object.freeze({
+      kind: "file.property",
+      property: "file.property.content.bytes",
+      target: Object.freeze({
+        kind: "cli.exact-child",
+        directory: directoryObjectRef(target.directory, "read composition goal target.directory"),
+        name,
+        requiredType: "regular",
+      }),
+      requirement: requirementValue,
+    });
+  }
+
+  if (target.kind === "cli.exact-child-sources") {
+    exactKeys(target, ["kind", "sources", "name", "requiredType"], "read composition goal target");
+    if (!Array.isArray(target.sources) || target.sources.length !== 2) {
+      throw new TypeError("read composition goal target.sources must contain exactly two sources");
+    }
+    const parsedSources = target.sources.map((entry, index) => {
+      const source = record(entry, `read composition goal target.sources[${index}]`);
+      if (
+        !Object.hasOwn(source, "directory") ||
+        (Object.hasOwn(source, "order") && Object.keys(source).length !== 2) ||
+        (!Object.hasOwn(source, "order") && Object.keys(source).length !== 1)
+      ) {
+        throw new TypeError(`read composition goal target.sources[${index}] must contain directory and optional order`);
+      }
+      const order = Object.hasOwn(source, "order") && source.order !== null
+        ? nonnegativeInteger(source.order, `read composition goal target.sources[${index}].order`)
+        : null;
+      return Object.freeze({
+        directory: directoryObjectRef(source.directory, `read composition goal target.sources[${index}].directory`),
+        order,
+      });
+    });
+    const sources = Object.freeze([
+      parsedSources[0] as ReadCompositionSourceSpec,
+      parsedSources[1] as ReadCompositionSourceSpec,
+    ] as const);
+    const presentOrders = sources.filter(source => source.order !== null);
+    const firstOrder = presentOrders[0] === undefined ? null : presentOrders[0].order;
+    const secondOrder = presentOrders[1] === undefined ? null : presentOrders[1].order;
+    if (firstOrder !== null && secondOrder !== null && firstOrder === secondOrder) {
+      throw new TypeError("read composition goal target.sources orders must differ when both are provided");
+    }
+    return Object.freeze({
+      kind: "file.property",
+      property: "file.property.content.bytes",
+      target: Object.freeze({
+        kind: "cli.exact-child-sources",
+        sources,
+        name,
+        requiredType: "regular",
+      }),
+      requirement: requirementValue,
+    });
+  }
+
+  throw new TypeError("read composition goal target.kind must be cli.exact-child or cli.exact-child-sources");
+}
+
+export function readCompositionDirectoryKey(ref: DirectoryObjectRef): string {
+  if ("absolutePath" in ref) {
+    return `${ref.scenarioId}\0${ref.sessionId}\0${ref.absolutePath}`;
+  }
+  return `${ref.scenarioId}\0${ref.sessionId}\0${ref.path}`;
 }
 
 export function validateReadCompositionRequest(
   value: unknown,
-  session: SessionRef,
+  _session: SessionRef,
 ): ReadCompositionRequest {
   const request = record(value, "read composition request");
   exactKeys(request, ["requestId", "goal", "satisfactionThreshold"], "read composition request");
@@ -478,10 +601,6 @@ export function validateReadCompositionRequest(
     throw new TypeError("read composition satisfactionThreshold must be exactly 100");
   }
   const goal = validateReadCompositionGoal(request.goal);
-  if (goal.target.directory.scenarioId !== session.scenarioId
-    || goal.target.directory.sessionId !== session.sessionId) {
-    throw new TypeError("read composition goal target must belong to the bound session and scenario");
-  }
   return Object.freeze({
     requestId: nonEmpty(request.requestId, "requestId"),
     goal,
@@ -598,11 +717,40 @@ export function readReadCompositionGoal(value: unknown): ReadCompositionRunGoal 
 
 export function readReadCompositionCursor(value: unknown): ReadCompositionCursor {
   const cursor = record(value, "read composition cursor");
-  exactKeys(cursor, ["phase"], "read composition cursor");
-  if (!["listed", "inspected", "read", "closed"].includes(String(cursor.phase))) {
+  exactKeys(cursor, ["phase", "chosen", "decision"], "read composition cursor");
+  if (!["listed", "inspected", "read", "closed", "fallback-basis", "inspected-alt", "read-alt"].includes(String(cursor.phase))) {
     throw new TypeError("read composition cursor phase is invalid");
   }
-  return Object.freeze({ phase: cursor.phase as ReadCompositionPhase });
+  const chosen = cursor.chosen === null ? null : cursor.chosen;
+  if (chosen !== null && chosen !== 0 && chosen !== 1) {
+    throw new TypeError("read composition cursor chosen must be 0, 1, or null");
+  }
+  const decision = cursor.decision === null ? null : readDecisionRecord(cursor.decision);
+  return Object.freeze({
+    phase: cursor.phase as ReadCompositionPhase,
+    chosen: chosen as 0 | 1 | null,
+    decision,
+  });
+}
+
+function readDecisionRecord(value: unknown): ReadCompositionDecisionRecord {
+  const decision = record(value, "read composition cursor decision");
+  exactKeys(decision, ["kind", "chosen", "missingKeys"], "read composition cursor decision");
+  if (decision.kind !== "ranked" && decision.kind !== "defer") {
+    throw new TypeError("read composition cursor decision.kind must be ranked or defer");
+  }
+  const chosen = decision.chosen;
+  if (chosen !== null && chosen !== "source:0" && chosen !== "source:1") {
+    throw new TypeError("read composition cursor decision.chosen must be source:0, source:1, or null");
+  }
+  if (!Array.isArray(decision.missingKeys) || decision.missingKeys.some(key => typeof key !== "string")) {
+    throw new TypeError("read composition cursor decision.missingKeys must be a string array");
+  }
+  return Object.freeze({
+    kind: decision.kind,
+    chosen: chosen as "source:0" | "source:1" | null,
+    missingKeys: Object.freeze([...(decision.missingKeys as string[])]),
+  });
 }
 
 export function readReadCompositionEvidencePayload(value: unknown): ReadCompositionEvidencePayload {
@@ -658,7 +806,14 @@ export function readReadCompositionReceiptPayload(value: unknown): ReadCompositi
 
 export function readReadCompositionState(value: unknown): ReadCompositionState {
   const state = record(value, "read composition state");
-  exactKeys(state, ["stateId", "session", "cli", "listing", "candidate", "inspected", "fileRef", "read"], "read composition state");
+  const requiredKeys = ["stateId", "session", "cli", "listing", "candidate", "inspected", "fileRef", "read"];
+  const allowedKeys = new Set([...requiredKeys, "sources"]);
+  if (
+    requiredKeys.some(key => !Object.hasOwn(state, key)) ||
+    Object.keys(state).some(key => !allowedKeys.has(key))
+  ) {
+    throw new TypeError("read composition state keys are invalid");
+  }
   return Object.freeze({
     stateId: nonEmpty(state.stateId, "read composition state stateId"),
     session: sessionSnapshot(state.session, "read composition state session"),
@@ -668,6 +823,39 @@ export function readReadCompositionState(value: unknown): ReadCompositionState {
     inspected: state.inspected === null ? null : readInspectedFact(state.inspected),
     fileRef: state.fileRef === null ? null : readFileRef(state.fileRef),
     read: state.read === null ? null : readReadFact(state.read),
+    sources: state.sources === undefined || state.sources === null
+      ? null
+      : readSourceStates(state.sources),
+  });
+}
+
+function readSourceStates(
+  value: unknown,
+): readonly [ReadCompositionSourceState, ReadCompositionSourceState] {
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new TypeError("read composition state.sources must contain exactly two sources");
+  }
+  return Object.freeze([
+    readSourceState(value[0], "read composition state.sources[0]"),
+    readSourceState(value[1], "read composition state.sources[1]"),
+  ]);
+}
+
+function readSourceState(value: unknown, label: string): ReadCompositionSourceState {
+  const source = record(value, label);
+  exactKeys(source, ["sourceId", "order", "directory", "listing", "candidate", "inspected", "fileRef", "read"], label);
+  if (source.sourceId !== "source:0" && source.sourceId !== "source:1") {
+    throw new TypeError(`${label}.sourceId must be source:0 or source:1`);
+  }
+  return Object.freeze({
+    sourceId: source.sourceId,
+    order: source.order === null ? null : nonnegativeInteger(source.order, `${label}.order`),
+    directory: directoryObjectRef(source.directory, `${label}.directory`),
+    listing: source.listing === null ? null : readListingFact(source.listing),
+    candidate: source.candidate === null ? null : readCandidate(source.candidate),
+    inspected: source.inspected === null ? null : readInspectedFact(source.inspected),
+    fileRef: source.fileRef === null ? null : readFileRef(source.fileRef, `${label}.fileRef`),
+    read: source.read === null ? null : readReadFact(source.read),
   });
 }
 

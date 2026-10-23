@@ -1,6 +1,6 @@
 # CLI 只读组合主线 P1：能力盘点、受信范围读与最小组合合同
 
-状态：2026-10-22 实施合同，2026-10-23 增加多来源设计。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 21 用例、公开 consumer 与独立家族；共享 `cli.command-policy.v1` 不增加 head/wire/权重。第 8 节多来源组合仍为设计，未实现、未验收，不改变单来源 7N6E 图与既有 consumer/家族。
+状态：2026-10-22 实施合同，2026-10-23 增加多来源设计并于同日实现验收。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 21 用例、公开 consumer 与独立家族；共享 `cli.command-policy.v1` 不增加 head/wire/权重。第 8 节多来源组合已实现并跑通 20 例验收（另有单来源 21 例零回归），未训练、未采用，公开 consumer 与独立家族尚未交付；不改变单来源 7N6E 图与既有 consumer/家族。
 
 ## 1. 实测能力盘点
 
@@ -193,7 +193,7 @@ rootBindings 只携带普通 JSON 值（session ref、directory ref、name、req
 
 ## 8. 多合法候选只读组合（设计）
 
-状态：本节的请求形状、状态、排序接缝、回退依据与根判定均为设计，未实现、未训练、未验收。单来源 `cli.exact-child` 合同与实现保持不变。排序复用 `goal-selection-policy.md` 与 `bounded-planning-decision.md`，失败恢复语义复用 `bounded-goal-planning.md` 第 9 节；本节不复制其正文。
+状态：本节的请求形状、状态、排序接缝、回退依据与根判定已实现，并通过 20 例验收（`tests/cli-read-multi-source.test.mjs`，M01–M20 全绿）；排序接缝沿用通用 `PlanningDecisionBinding`（默认 order_first，`resources.decision` 可注入 Handwired 绑定）。未训练、未采用；公开 consumer 与独立家族待后续增量。单来源 `cli.exact-child` 合同与实现保持不变。排序复用 `goal-selection-policy.md` 与 `bounded-planning-decision.md`，失败恢复语义复用 `bounded-goal-planning.md` 第 9 节；本节不复制其正文。
 
 ### 8.1 目标与四元素
 
