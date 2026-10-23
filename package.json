@@ -54,6 +54,10 @@
       "types": "./dist/browser-search.d.ts",
       "import": "./dist/browser-search.js"
     },
+    "./browser-input": {
+      "types": "./dist/browser-input.d.ts",
+      "import": "./dist/browser-input.js"
+    },
     "./browser-receipt": {
       "types": "./dist/browser-receipt.d.ts",
       "import": "./dist/browser-receipt.js"

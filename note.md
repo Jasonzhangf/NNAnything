@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-22 B-Input 单次输入公开 consumer（真实浏览器 52/52 通过）
+
+新增独立 input 合同 `lib/adapters/browser/input-contract.ts`、7N6E 节点 `lib/nodes/browser-input.ts`、公开入口 `nnanything/browser-input`（`lib/browser-input.ts`）与绑定 `workflows/browser-input.workflow.json`（复用 operation-episode 拓扑）。节点只处理显式绑定普通 `input type=text`，最多一次逻辑写入，再真实读回 `.value`；执行错误与观察错误分开，placeholder/attribute/receipt/旧 observation 不冒充后验，DOM 重建不换绑、不按 selector 或同文案恢复，textarea/search/contenteditable/password/敏感宿主明确拒绝。
+
+新进程 runner 与原生 CDP IO 在 `playground/browser/input/`：家族 A 复用 search-fixture 普通文本页，家族 B 为独立资料编辑 HTML 模板与独立脚本，不共用 renderer。26 个逐例契约覆盖 I01–I24，两家族共 52 例。`tests/browser-input-workflow.test.mjs` 18 项红→绿；`npm run build` 通过；`node --test tests/browser-input-workflow.test.mjs tests/browser-search-workflow.test.mjs` 33/33。证据在 `/Volumes/Intel/playground/nnanything-runs/browser-longhorizon-20261022/b-input`。
+
+真实浏览器 52 例已在独立 headless Chrome 上跑通 52/52（端口 9444、独立 `user-data-dir`，不与使用者日常浏览器共用）。分布：S=10、N=22、U=20、拒绝=32、执行错误=34、观察错误=6；每例同时核对一次逻辑写入、无 Enter、无提交、邻框值未变。executor 会话沙箱禁止 TCP，真实浏览器验收由编排者在宿主 shell 执行；复验发现并修正三处真实缺陷：`live-entry.ts` 误把注册表内部 ref 当逻辑绑定 ref（导致每次观察抛错）、`cdp-io.mjs` 的 macOS 全选失效（文本被追加）、节点对派发前拒绝仍强制后验（伪造观察错误）。逐例表 `acceptance/table.md`、明细 `acceptance/rows.jsonl`、边界 `limits.md`。
+
 ## 2026-10-22 第7轮四项证据口径更正：定点复核 PASS（报告更正工作收口）
 
 提交 `e71eeb1` 对应的四项 P1 全部关闭，findings 为空。独立 Reviewer（OAuth gpt-6.1-sol，medium，只读）核验了两份仓库文档及直接依赖外置资料：梯度方向已更正（负梯度局部下降方向是增大权重，一次 200 epoch 只证明本配置/预算未修复）；37 条 teacher-ignore 逐引用核对无遗漏/重复（7 唯一 + 19 非唯一 + 11 无映射 = 37，24/26 仅映射诊断，唯一子集 7/7）；假 ignore 已限定为所列代理信号 0 命中、完整语义误判率未评估；焦点硬约束继续保留真实反例与「能力目标未完整验收」状态，不再用 live 未覆盖解除约束。原始结果在 run 目录 `parent-r7-four-recheck-controller/review/browser-ignore-r7-four-recheck/review.final.md`，汇总 `parent-r7-four-recheck.md`。
