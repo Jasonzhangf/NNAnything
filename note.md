@@ -1,5 +1,9 @@
 # 当前任务
 
+## 2026-10-23 焦点样本改进设计（待用户派发执行）
+
+用户要求父owner先改善样本构建，再交worker观察效果。docs/browser-focus-sample-repair.md及-prompt.md已定义：三个新实现来源先分区；每家族六个container四态加三个冗余包装两态，30行/9对象，原生实测af=1/fc=0；失焦不把有独立价值的对象改gold为ignore，null消融与真实数据分开。旧438行未包含后来的human反例构造，补样本收益仍未知。固定原T1配方，以旧train和旧train+新家族作配对对照，不改变生产adapter/wire/门限/损失；dev仅判断验证解封，不调参。原始反例、真实回载、旧能力及独立家族和公开保留consumer共同验收；失败仍B1 INCOMPLETE。复用闭合project-design/node-training图，本轮只有文档，无新采集/代码/训练/采用，尚未启动worker。
+
 ## 2026-10-22 B-Feedback 展开域失败反馈与安全有界恢复
 
 唯一执行树 `codex/browser-foundation`，证据 run 为 `/Volumes/Intel/playground/nnanything-runs/browser-longhorizon-20261022/b-feedback`，计划 `plan.md` 557 行已接受。本轮完成展开域 F1 可辨性、R5 回归处理、一次固定预算 F1 后训练、F2 消费实际 F1 预测，以及 17 实例 × 2 独立家族 = 34 条展开域轨迹的验收 runner。
