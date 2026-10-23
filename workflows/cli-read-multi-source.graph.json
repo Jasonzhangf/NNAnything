@@ -1,0 +1,30 @@
+{
+  "id": "cli-read-multi-source-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id":"multi_source_request","schema":"Object"}],
+  "nodes": [
+    {"id":"校验来源引用与请求形状","operator":"cli.read-multi-source.bind","operator_version":"0.1.0-design","inputs":["multi_source_request"],"output":{"id":"multi_source_context","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"列举第一个来源的直接子项","operator":"cli.read-multi-source.list","operator_version":"0.1.0-design","inputs":["multi_source_context"],"output":{"id":"multi_source_listing_a","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"列举第二个来源的直接子项","operator":"cli.read-multi-source.list","operator_version":"0.1.0-design","inputs":["multi_source_context"],"output":{"id":"multi_source_listing_b","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按精确名称判定合法候选集","operator":"cli.read-multi-source.legal-set","operator_version":"0.1.0-design","inputs":["multi_source_listing_a","multi_source_listing_b"],"output":{"id":"multi_source_legal_set","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"排序合法候选并记录决策","operator":"cli.read-multi-source.order","operator_version":"0.1.0-design","inputs":["multi_source_legal_set"],"output":{"id":"multi_source_decision","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"核验并读取首选来源","operator":"cli.read-multi-source.chain","operator_version":"0.1.0-design","inputs":["multi_source_decision"],"output":{"id":"multi_source_preferred","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"判定次选链回退依据","operator":"cli.read-multi-source.fallback-basis","operator_version":"0.1.0-design","inputs":["multi_source_preferred"],"output":{"id":"multi_source_fallback","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"核验并读取次选来源","operator":"cli.read-multi-source.chain","operator_version":"0.1.0-design","inputs":["multi_source_fallback"],"output":{"id":"multi_source_alternate","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"按来源聚合评价根事实","operator":"cli.read-multi-source.evaluate","operator_version":"0.1.0-design","inputs":["multi_source_alternate"],"output":{"id":"multi_source_decision_fact","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"汇总结果与决策记录","operator":"cli.read-multi-source.report","operator_version":"0.1.0-design","inputs":["multi_source_decision_fact"],"output":{"id":"multi_source_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"校验来源引用与请求形状","to":"列举第一个来源的直接子项","arc_id":"multi_source_context"},
+    {"from":"校验来源引用与请求形状","to":"列举第二个来源的直接子项","arc_id":"multi_source_context"},
+    {"from":"列举第一个来源的直接子项","to":"按精确名称判定合法候选集","arc_id":"multi_source_listing_a"},
+    {"from":"列举第二个来源的直接子项","to":"按精确名称判定合法候选集","arc_id":"multi_source_listing_b"},
+    {"from":"按精确名称判定合法候选集","to":"排序合法候选并记录决策","arc_id":"multi_source_legal_set"},
+    {"from":"排序合法候选并记录决策","to":"核验并读取首选来源","arc_id":"multi_source_decision"},
+    {"from":"核验并读取首选来源","to":"判定次选链回退依据","arc_id":"multi_source_preferred"},
+    {"from":"判定次选链回退依据","to":"核验并读取次选来源","arc_id":"multi_source_fallback"},
+    {"from":"核验并读取次选来源","to":"按来源聚合评价根事实","arc_id":"multi_source_alternate"},
+    {"from":"按来源聚合评价根事实","to":"汇总结果与决策记录","arc_id":"multi_source_decision_fact"}
+  ],
+  "outputs": ["multi_source_result"]
+}

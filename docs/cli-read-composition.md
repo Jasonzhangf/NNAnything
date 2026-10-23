@@ -1,6 +1,6 @@
 # CLI 只读组合主线 P1：能力盘点、受信范围读与最小组合合同
 
-状态：2026-10-22 实施合同。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 21 用例、公开 consumer 与独立家族；共享 `cli.command-policy.v1` 不增加 head/wire/权重。
+状态：2026-10-22 实施合同，2026-10-23 增加多来源设计。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 21 用例、公开 consumer 与独立家族；共享 `cli.command-policy.v1` 不增加 head/wire/权重。第 8 节多来源组合仍为设计，未实现、未验收，不改变单来源 7N6E 图与既有 consumer/家族。
 
 ## 1. 实测能力盘点
 
@@ -190,3 +190,115 @@ rootBindings 只携带普通 JSON 值（session ref、directory ref、name、req
 - 用例：`tests/cli-read-composition.test.mjs` 21/21 通过（R01–R05、S-React-1–5、R09–R19；编号沿用当前运行切片）。
 - 公开 consumer：`playground/cli/read-composition/consumer.mjs`，逐例 JSON + `exitCode: 0`，覆盖 matched / not_found / type_mismatch / byte_mismatch / zero-length / short-read / stale_or_unverified；独立家族 `playground/cli/read-composition/independent-family.mjs` 27/27，`exitCode: 0`。
 - 组合状态：`file.property.content.bytes` 现在有运行入口；`content.format`、`role`、`links`、`path.physical`、`operation.applicability` 与写操作仍为设计，不因 P2 冒称完成。
+
+## 8. 多合法候选只读组合（设计）
+
+状态：本节的请求形状、状态、排序接缝、回退依据与根判定均为设计，未实现、未训练、未验收。单来源 `cli.exact-child` 合同与实现保持不变。排序复用 `goal-selection-policy.md` 与 `bounded-planning-decision.md`，失败恢复语义复用 `bounded-goal-planning.md` 第 9 节；本节不复制其正文。
+
+### 8.1 目标与四元素
+
+Goal：同一根 `file.property.content.bytes` 目标下，存在两个已授权、受信的目录来源（同名、同类型、同范围、同期望字节），任一来源完整满足即根达成。
+
+| 元素 | 内容 |
+| :--- | :--- |
+| Goal | 两个已授权受信目录来源中任一来源满足 `file.property.content.bytes`；同名、regular、同 range、同 `expectedBase64` |
+| satisfactionThreshold | 固定 100；不定义部分满足尺度 |
+| State | `sources[]` 每来源独立携带 `listing/candidate/inspected/fileRef/read/attempt/negative`，加 `decision` 排序决策记录与既有 session/cli/root 字段 |
+| Action | 只选 `directory.list`、`entry.inspect`、`file.read` 及纯决策/评价；无写操作 |
+
+每个来源的 `attempt` 取 `not_attempted|in_progress|matched|definitive_negative|unknown`，`negative` 取 `not_found|type_mismatch|byte_mismatch|null`。`decision` 记录 `bindingRef`、`ranked|defer`、`order`、`chosen`、`missingKeys` 与 `reason`。根评价只消费真实回执，不把子步成功、排序结果或预测写成根达成。
+
+### 8.2 请求形状与责任图
+
+```ts
+type MultiSourceContentBytesGoal = {
+  kind: "file.property";
+  property: "file.property.content.bytes";
+  target: {
+    kind: "cli.exact-child-sources";
+    sources: [
+      { directory: TrustedDirectoryRef; order?: number },
+      { directory: TrustedDirectoryRef; order?: number }
+    ]; // 恰好 2 个
+    name: string;
+    requiredType: "regular";
+  };
+  requirement: { kind: "equals"; range: { offset: number; length: number }; expectedBase64: string };
+  satisfactionThreshold: 100;
+};
+```
+
+- `sources` 恰好 2 个；两个 `directory` 互不相同，且都是本 sandbox 当前 revision 签发/登记的受信目录引用。任一伪造、未签发或旧 revision 在执行前返回 `request_rejected`，零 list/inspect/read、零 open。
+- `order` 可省略；两个都给出时必须互不相同，作为 `rankOrder`。名称、类型、范围与 `expectedBase64` 的校验沿第 3.1 节。
+- 旧 `cli.exact-child` 形状与单来源行为不变。
+
+责任图是 `workflows/cli-read-multi-source.graph.json`（`0.1.0-design`，10N10E，单入口单出口，9 波，无环无回边）。节点顺序为：校验来源引用→分别列举两个来源（两个独立真实 OS 节点）→合法候选集→排序决策→首选链→回退依据→次选链→根评价→汇总。两个列举节点并列分叉、在合法候选集汇合。次选链边写作普通弧，图本身不承载条件；本合同的语义是该链仅当 8.5 回退依据成立时执行。静态图通过只证明拓扑，不替代真实运行证据。
+
+### 8.3 合法候选集
+
+对每个来源，列举结果分三类：
+
+| 列举事实 | 判定 |
+| :--- | :--- |
+| 完整列举且含精确名称 | 合法候选，进入候选集 |
+| 完整列举且不含名称 | 确定否定 `not_found` |
+| partial / 出错 | 未知，不进入候选集 |
+
+合法候选集只含第一类且 `coverage` 为 covered。未知来源不补成否定，也不进入候选集；未被选中的否定或未知来源不产生失败义务。完整列举、精确名称与 coverage 的定义沿第 3.2 节与 `cli-entry-search-design.md`。
+
+### 8.4 排序决策接缝
+
+排序复用 `docs/goal-selection-policy.md` 的路径投影和 `docs/bounded-planning-decision.md` 的决策单元，不新增第二套选择器：
+
+- 输入用 `PlanningDecisionInput`：每个合法候选一条 `{pathId, rankOrder, projection, attemptOrder}`，`projection = {terminalSatisfaction:null, riskLevels:[], maximumCost:2, costUnit:"step", unknownRefs:[], coverage:"covered"}`；`attemptOrder` 用该来源 inspect/read 的引用占位；`unknown` 收集 partial 来源引用；`priorInfluences` 保留但本次为空。
+- `preference` 固定 `order_first`；默认绑定是 `createDefaultPlanningDecisionBinding()`，输出既有 `PathRanking = ranked|defer`。
+- 只有一个合法候选时直接选它，不调用决策单元。
+- 两个合法候选都缺 `order` 时返回 `defer`；其余缺键（如仅一个候选缺 `order`、coverage 未覆盖）或同分同样按既有 `rankPlanningPaths` 返回 `defer`。`defer` 时根保持 unknown，零 inspect/read，`missingKeys` 与原因写入决策记录。
+- 显式提供 `decision` 资源时使用该 `PlanningDecisionBinding`；资源或 profile 损坏准确报错，不静默回退默认规则。
+
+排序只决定合法候选的检查顺序，不改根、权限、预算、回退依据或重试控制。`ranked` 与 `defer` 是两个合法输出，`ranked` 不表示根达成。
+
+### 8.5 回退依据
+
+首选链结束后，同时满足下列全部条件才尝试次选（依据 `docs/bounded-goal-planning.md` 第 9 节）：
+
+1. 根尚未满足（聚合事实不是 matched）；
+2. 还有另一个合法候选未尝试；
+3. 次选来源目录引用在当前 revision 重新校验通过，权限仍覆盖 `filesystem.read`，effects 未变；
+4. 本次预算还剩至少一次 inspect+read；
+5. 首选结束类别不是 `rejected`/`failed`/`interrupted`。
+
+在该前提下：
+
+- 首选为确定否定（`not_found`/`type_mismatch`/`byte_mismatch`）→ 尝试次选。
+- 首选为未知（partial、短读、stale/替换）→ 也尝试次选；首选的未知事实保留，不被次选成功掩盖。
+- 同一候选最多尝试一次，不自动重试，unknown effects 不重放。
+
+失败事实、归因和路线限制仍由第 9 节及其 9.1 维护；本增量不进入有界规划模式，也不把一次失败写成全部转移不可用。
+
+### 8.6 根判定矩阵
+
+根是"任一来源满足"的存在性目标，聚合矩阵如下（与计划文档 4.6 一致）：
+
+| 聚合事实 | status | resolution | satisfaction |
+| :--- | :--- | :--- | :--- |
+| 任一来源完成完整链：完整列举+精确同名+regular+受信引用+全范围读取+字节相等 | achieved | matched | 100 |
+| 无 match；所有合法候选已尝试且均为确定否定；其余来源均为"完整列举且不含名称"；无未知来源 | unmet | byte_mismatch > type_mismatch > not_found | 0 |
+| 无 match；存在未知来源（partial 列举、短读、stale/替换、unverified）或排序 defer | unknown | stale_or_unverified > insufficient_evidence | null |
+| 任何来源引用伪造/未签发/旧 revision（执行前） | rejected | rejected | null |
+| 真实执行失败（errno，如 EACCES） | failed | failed | null |
+| 预算/取消在根评价完成前停止 | unknown | interrupted | null |
+
+0 需要全部合法候选确定否定且无未知来源：未知来源不能补成否定，部分列举不返回 `not_found`。短读不返回 `byte_mismatch`；读到字节不等于根满足；不产生部分满足分数。执行错误、观察事实与根满足度分别保留。
+
+### 8.7 权限与预算
+
+- `directory.list` 需 `filesystem.read`+`process.exec`；`entry.inspect` 沿用其现有授权；`file.read` 只需 `filesystem.read`。本切片无写操作。
+- 预算上限以实测最小转换数为准：实现后用真实最小转换数测量再定测试 limits。预算不足时以 `interrupted` 停止并保留已完成事实，不出现 0 或 100。
+
+### 8.8 限制与不做
+
+- 排序可替换不等于已学会选择：默认规则、合法集过滤、根评价、权限、预算、回退依据与重试控制保持确定性；本增量不训练、不采用权重、不新增 policy head。
+- 不写操作；不做 realpath/links/role/format；不做广义 CLI；不改共享 `cli.command-policy.v1`；不改单来源 7N6E 图与既有 consumer/家族。
+- 现有 18 wire 只表达合法候选内部的排序偏好，不能表达"名称是否在场"这类合法集判定；合法集与根判定不进入可学习范围。
+- 多来源图只覆盖本切片；不把 `cli.exact-child-sources` 扩大为任意目录数或候选名。
