@@ -312,3 +312,5 @@ type MultiSourceContentBytesGoal = {
 公开 consumer 为 `playground/cli/read-composition/multi-source.mjs`，7 个黑盒用例：首选直接匹配、类型不符回退、开读前替换回退、双来源字节不符、无 order `defer`、Handwired 权重反转、read-less 拒绝。
 
 权重 A/B 反转评估：同一请求只改 Handwired `rankOrder.value`（−1/+1），选中来源由 `source:0` 翻到 `source:1`，三个变体均为 achieved/matched/100，未选来源保持未尝试；报告与原始数据在仓库外 run 目录（`report-p4e.md`、`evidence-p4e-ab.json`）。两个手写 profile 保持 `uncalibrated/not_applied`，未训练、未采用。
+
+独立家族 `playground/cli/read-composition/multi-source-independent-family.mjs` 用真实文件系统与 `node:fs` 交叉核对跑 23 例：首选匹配、字节/类型/缺失否定、双否定优先级、声明 order、无 order `defer`、开读前替换与陈旧拒绝、伪造/重复引用、read-less、预算不足、取消、单合法候选、短读回退、Handwired 权重反转。其中一侧 partial 列举（另一侧完整且匹配）按第 8.6 节第 3 行与单来源 R05 合同收束为 unknown/insufficient_evidence，零 inspect/read；这是继承自单来源的既有边界，不改写为 achieved。
