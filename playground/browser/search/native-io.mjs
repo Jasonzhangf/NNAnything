@@ -225,6 +225,7 @@ export async function createResources() {
     first: null,
     latest: null,
     dispatched: false,
+    submitted: false,
     preludeReceipts: [],
     mutationReceipts: [],
     targetId: target.id,
@@ -276,6 +277,7 @@ export async function createResources() {
 
     const observe = async () => {
       if (config.projection.observeFailAfterDispatch && state.dispatched) throw new Error('injected post-action read failure');
+      if (config.projection.observeFailAfterSubmit && state.submitted) throw new Error('injected: post-submit read failure');
       state.revision += 1;
       const raw = await evaluate(`(${observeFn.toString()})(${JSON.stringify(config)})`);
       const observation = buildObservation(raw, state.revision);
@@ -300,6 +302,9 @@ export async function createResources() {
       return observe();
     };
     const nativeInputText = async (invocation) => {
+      if (config.projection.rejectInputWithoutBody) {
+        return { dispatched: false, ok: false, effectKnowledge: 'none', source: 'cdp.Input', error: null };
+      }
       const receipt = await performInput(invocation.value);
       state.mutationReceipts.push({ action: 'input', dispatchState: 'dispatched', ...receipt });
       state.dispatched = true;
@@ -310,6 +315,8 @@ export async function createResources() {
       const receipt = await performSubmit();
       state.mutationReceipts.push({ action: 'submit', dispatchState: 'dispatched', ...receipt });
       state.dispatched = true;
+      state.submitted = true;
+      if (config.projection.throwAfterSubmit) throw new Error('injected: transport error after native submit dispatch');
       return receipt;
     };
 

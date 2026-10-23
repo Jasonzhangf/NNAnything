@@ -4,10 +4,10 @@ export function verificationErrors(output) {
 
 export function evidenceFor({ segments }) {
   const dispatches = segments.reduce((sum, segment) => sum + (segment.output?.clicks?.length ?? 0), 0);
-  // A retry means a new native dispatch after a segment that already stopped
-  // for a stop condition. Legal same-goal recovery across yields keeps its own
-  // expected dispatch count and is not a retry.
-  const retryAttempted = segments.some((segment, index) => {
+  // Dispatch after a segment that already stopped for a stop condition. Legal
+  // same-goal recovery across yields keeps its own expected dispatch count and
+  // is not a dispatch after a stop.
+  const dispatchedAfterStop = segments.some((segment, index) => {
     const previous = segments[index - 1]?.output ?? null;
     if (index === 0 || previous === null) return false;
     if (previous.outcome === 'yielded') return false;
@@ -59,7 +59,8 @@ export function evidenceFor({ segments }) {
     effectKnowledge,
     executionErrors,
     observationErrors,
-    retryAttempted,
+    dispatchedAfterStop,
+    retryAttempted: dispatchedAfterStop,
     deferReason,
     rejected,
     segments: segments.length,

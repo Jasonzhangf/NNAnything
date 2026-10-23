@@ -1220,9 +1220,15 @@ function atomicReceipt(
 > {
   const feedback = result.atomic?.observationFeedback;
   // Invalid raw observations remain in sourceResult, never in trusted root State.
-  // A not-dispatched attempt changed nothing, so the pre-dispatch observation is
-  // still the current observation and needs no post-action freshness proof.
-  const notDispatched = result.atomic?.dispatchState === "not_dispatched";
+  // A typed native rejection that returned a receipt was decided after the live
+  // control recheck, so nothing was dispatched and the pre-dispatch observation
+  // is still current. Rejections that could not confirm the live control
+  // (stale_reference, control_unavailable) carry no receipt and must keep their
+  // own unknown state instead of promoting an unverified observation.
+  const rejectionReceipt = result.atomic?.receipt ?? null;
+  const notDispatched = result.atomic?.dispatchState === "not_dispatched"
+    && rejectionReceipt !== null
+    && rejectionReceipt.effectKnowledge === "none";
   const validPost = feedback === undefined || notDispatched || (feedback.status === "satisfied"
     && feedback.observationId === result.atomic?.newState?.observationId);
   const state = validPost ? newStateFromStep(input, result, strategy) : null;
