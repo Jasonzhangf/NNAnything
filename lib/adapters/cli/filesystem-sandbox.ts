@@ -249,6 +249,7 @@ export interface CliFilesystemSandbox {
   bindFile(session: SessionRef, path: string): Promise<ObservedObjectRef>;
   bindDirectoryObject(session: SessionRef, path: string): Promise<ObservedObjectRef>;
   bindDirectory(session: SessionRef, path: string): Promise<DirectoryRef>;
+  validateDirectoryRef(ref: DirectoryRef): Promise<void>;
   validateObservedObject(ref: ObservedObjectRef): Promise<void>;
   resolveDirectory(ref: DirectoryRef): Promise<Readonly<{
     ref: DirectoryRef;
@@ -269,6 +270,7 @@ type SandboxState = {
   readonly listingObserver?: DirectoryListingObserver;
   readonly fileReadIo?: FileReadIo;
   readonly boundRefs: Map<string, ObservedObjectRef>;
+  readonly issuedDirectoryRefs: Map<string, number>;
   active: boolean;
 };
 
@@ -539,6 +541,10 @@ async function resolveDirectory(state: SandboxState, value: unknown, rejectFinal
   const attributes = await lstat(physicalPath);
   if (!attributes.isDirectory()) throw Object.assign(new TypeError("Bound directory path is not a directory"), { code: "NOT_DIRECTORY" });
   return Object.freeze({ ref, configuredPath, physicalPath });
+}
+
+function directoryRefKey(ref: DirectoryRef): string {
+  return `${ref.scenarioId}\0${ref.sessionId}\0${ref.path}`;
 }
 
 function failureCode(error: unknown): string {
@@ -1148,6 +1154,7 @@ export async function createCliFilesystemSandbox(options: {
     })])),
     grants: Object.freeze(recipe.sessions.flatMap(session => session.grantedEffects)),
     boundRefs: new Map(),
+    issuedDirectoryRefs: new Map(),
     ...(input.observation === undefined ? {} : { observation: input.observation as CliSandboxObservation }),
     ...(input.listingObserver === undefined ? {} : { listingObserver: input.listingObserver as DirectoryListingObserver }),
     ...(input.fileReadIo === undefined ? {} : { fileReadIo: input.fileReadIo as FileReadIo }),
@@ -1214,7 +1221,22 @@ export async function createCliFilesystemSandbox(options: {
         path: relativeValue,
       });
       await resolveDirectory(state, ref);
+      state.issuedDirectoryRefs.set(directoryRefKey(ref), session.revision);
       return ref;
+    },
+    async validateDirectoryRef(ref: DirectoryRef): Promise<void> {
+      if (!state.active) throw new Error("Filesystem sandbox is closed");
+      const value = readDirectoryRef(ref);
+      if (value.scenarioId !== state.scenarioId) {
+        throw Object.assign(new TypeError("Directory reference belongs to another scenario"), { code: "EINVAL" });
+      }
+      const before = snapshot(state, { kind: "cli.session", scenarioId: value.scenarioId, sessionId: value.sessionId });
+      const issuedRevision = state.issuedDirectoryRefs.get(directoryRefKey(value));
+      if (issuedRevision === undefined || issuedRevision !== before.revision) {
+        throw Object.assign(new TypeError("Directory reference was not issued by this sandbox at the current revision"), {
+          code: "binding_identity_missing",
+        });
+      }
     },
     async validateObservedObject(ref: ObservedObjectRef): Promise<void> {
       if (!state.active) throw new Error("Filesystem sandbox is closed");

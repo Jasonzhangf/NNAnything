@@ -663,6 +663,36 @@ function preserveFromReport(report: ReportView | null): ReadCompositionDomainPro
   });
 }
 
+function rootEvaluationCompleted(report: ReportView | null): boolean {
+  return report !== null
+    && report.rootEvaluation !== null
+    && report.rootEvaluation.state === "evaluated";
+}
+
+function readAtomicNativeError(report: ReportView | null, nativeCode: string): boolean {
+  if (report === null) return false;
+  for (const result of report.atomicResults) {
+    const source = result.sourceResult as { tag?: unknown; value?: unknown } | null;
+    if (source === null || typeof source !== "object" || source.tag !== "cli.file.read.receipt.v1") {
+      continue;
+    }
+    const receipt = (source.value as { receipt?: unknown } | null)?.receipt;
+    if (typeof receipt !== "object" || receipt === null) continue;
+    const execution = (receipt as { execution?: unknown }).execution;
+    if (typeof execution !== "object" || execution === null) continue;
+    if ((execution as { status?: unknown }).status !== "failed") continue;
+    const error = (execution as { error?: unknown }).error;
+    if (
+      typeof error === "object"
+      && error !== null
+      && (error as { code?: unknown }).code === nativeCode
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function projectReadDomain(
   request: ReadCompositionRequest,
   response: unknown,
@@ -691,10 +721,12 @@ export function projectReadDomain(
   const listing = readListingFacts(state, name, transitions);
   const decision = decideReadRoot(state, name, Buffer.from(request.goal.requirement.expectedBase64, "base64"), range, transitions);
   const coverage = listing.coverage;
-  if (decision.result === "satisfied") {
+  const completed = rootEvaluationCompleted(report);
+  const rootResult = completed ? report?.rootEvaluation?.result ?? null : null;
+  if (decision.result === "satisfied" && rootResult === "satisfied") {
     return achieved(request, state, transitions, report);
   }
-  if (decision.result === "unsatisfied") {
+  if (decision.result === "unsatisfied" && rootResult === "unsatisfied") {
     return Object.freeze({
       status: "unmet",
       resolution:
@@ -724,6 +756,20 @@ export function projectReadDomain(
   }
 
   const read = state.read;
+  const staleRead =
+    readAtomicNativeError(report, "STALE_REFERENCE")
+    || (read !== null && nativeErrors(view).includes("STALE_REFERENCE"));
+  if (staleRead) {
+    return Object.freeze({
+      status: "unknown",
+      resolution: "stale_or_unverified",
+      satisfaction: null,
+      match: null,
+      coverage,
+      rootFact: readRootFact(request, state, transitions, primaryCode),
+      preserve: preserve(view),
+    });
+  }
   if (read !== null && read.bytesRead !== null && read.bytesRead < (read.length ?? 0)) {
     return Object.freeze({
       status: "unknown",
@@ -735,18 +781,12 @@ export function projectReadDomain(
       preserve: preserve(view),
     });
   }
-  if (read !== null && nativeErrors(view).includes("STALE_REFERENCE")) {
-    return Object.freeze({
-      status: "unknown",
-      resolution: "stale_or_unverified",
-      satisfaction: null,
-      match: null,
-      coverage,
-      rootFact: readRootFact(request, state, transitions, primaryCode),
-      preserve: preserve(view),
-    });
-  }
-  if (primaryCode === "budget_exceeded" || primaryCode === "cancelled" || primaryCode === "no_progress") {
+  if (
+    primaryCode === "budget_exceeded"
+    || primaryCode === "cancelled"
+    || primaryCode === "no_progress"
+    || primaryCode === "stalled"
+  ) {
     return Object.freeze({
       status: "unknown",
       resolution: "interrupted",

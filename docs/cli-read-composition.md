@@ -1,6 +1,6 @@
 # CLI 只读组合主线 P1：能力盘点、受信范围读与最小组合合同
 
-状态：2026-10-22 实施合同。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 18 用例与公开 consumer；共享 `cli.command-policy.v1` 不增加 head/wire/权重。
+状态：2026-10-22 实施合同。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 21 用例、公开 consumer 与独立家族；共享 `cli.command-policy.v1` 不增加 head/wire/权重。
 
 ## 1. 实测能力盘点
 
@@ -33,7 +33,6 @@
 
 | 合同项 | I/O | 真实观测来源 | 授权 | 公开 consumer |
 | :--- | :--- | :--- | :--- | :--- |
-| `file.property.content.bytes` 根组合 | 合同定义显式 directory ref + name + regular + range + `equals(base64)`；P1 只有底层 `file.read` 原语 | P2 仍需 list → inspect → read；当前没有根组合运行路径 | 计划需要 `filesystem.read`；list/inspect 还需要 `process.exec` | 无；仅 P1 `sandbox.execute({operation:"file.read"})`，根组合不在 P2 前 |
 | `file.property.content.format` | 无可调用 I/O；合同只定义 format 属性与显式 parser 边界 | 无运行观测路径 | 无 | 无 |
 | `file.property.role` | 无可调用 I/O；合同只定义 role/scope 关系与独立模型边界 | 无运行观测路径 | 无 | 无 |
 | `file.property.links` | 无可调用 I/O；合同只定义硬链接关系缺口 | 无运行观测路径 | 无 | 无 |
@@ -43,7 +42,7 @@
 
 ### 1.4 与 lead 盘点的差异
 
-- lead 记录的“sandbox 无 `file.read` 操作”在 P1 实现前准确；P1 后新增受信 `file.read` 语义调用，但共享 policy 仍无 content head，根组合仍无公开入口。这是增量状态变化，不是对原先测量的纠正。
+- lead 记录的“sandbox 无 `file.read` 操作”在 P1 实现前准确；P1 后新增受信 `file.read` 语义调用，共享 policy 仍无 content head。P2 完成 `nnanything/cli-read` 根组合公开入口；这是增量状态变化，不是对原先测量的纠正。
 - lead 已确认 `readFileRange` 只有 `nnanything/cli` 按路径入口；P1 后它同时成为 `file.read` 的安全打开原语，并增加向后兼容的 identity 字段。
 - 其余 head 顺序、30 wire、300 参数、`observeContentFormat`/`readDeclaredReferences` 无包导出、`readEntrySnapshot`/`collectDirectoryListing` 已接 sandbox，均与源码一致，无纠正。
 
@@ -103,25 +102,21 @@ type ContentBytesGoal = {
   kind: "file.property";
   property: "file.property.content.bytes";
   target: {
-    kind: "cli.file-query";
-    directory: ObservedDirectoryRef; // 显式已绑定目录引用
+    kind: "cli.exact-child";
+    directory: TrustedDirectoryRef;  // 受信目录引用，必须是本 sandbox 签发
     name: string;                    // 严格单个名称段
-    type: "regular";                 // 要求类型，不是已观测真值
+    requiredType: "regular";         // 要求类型，不是已观测真值
   };
   requirement: {
-    kind: "matches";
-    predicate: {
-      kind: "equals";
-      offset: number;
-      length: number;
-      expectedBase64: string;        // 规范 base64
-    };
+    kind: "equals";
+    range: { offset: number; length: number };
+    expectedBase64: string;          // 规范 base64
   };
   satisfactionThreshold: 100;
 };
 ```
 
-`name` 是单个非空名称段，拒绝 NUL、`/`、`.`、`..`，不 trim、不展开 glob/变量、不做大小写或 Unicode 折叠。`directory` 是显式绑定目录，不接受 `DirectoryQuery`、不扫描磁盘。
+`name` 是单个非空名称段，拒绝 NUL、`/`、`.`、`..`，不 trim、不展开 glob/变量、不做大小写或 Unicode 折叠。`directory` 必须是受信目录引用：由 `sandbox.bindDirectoryObject` 签发的观测 `cli.directory`，或由 `sandbox.bindDirectory` 在当前 session revision 签发的目录引用。请求校验与 adapter 在列举前都会复核签发真源与当前 revision；手工构造、未签发或旧 revision 的普通 path 引用直接拒绝，零 list/inspect/read、零 open。不接受 `DirectoryQuery`、不扫描磁盘。
 
 ### 3.2 子步角色
 
@@ -144,7 +139,7 @@ type ContentBytesGoal = {
 | helper/protocol/策略错误或必需操作真实失败 | failed | null | failed |
 | budget/cancel/stalled 提前停止且根无真实判定 | unknown | null | interrupted |
 
-0 与 100 是二元目标的全部合法 satisfaction；null 表示证据不足。短读不冒充 `byte_mismatch`，也绝不产生部分满足分数。
+0 与 100 是二元目标的全部合法 satisfaction；null 表示证据不足。短读不冒充 `byte_mismatch`，也绝不产生部分满足分数。achieved/100 与 unmet/0 都必须同时具备已完成且结果一致的根评价；只有 read 回执成功、控制器在根评价完成前 budget/cancel/stalled 停止时，一律保持 unknown/null。
 
 ## 4. 有限组合边界
 
@@ -165,7 +160,7 @@ type ContentBytesGoal = {
 - Linux 限制：本机 macOS/POSIX 验证 `O_NOFOLLOW`/`O_NONBLOCK`；无 Linux 运行环境，不推断 Linux 设备/FIFO/socket 行为，不提供 mount/ACL/xattr。
 - 读出字节不等于根满足：还必须名称、归属、类型、身份、范围、当前证据全部成立。
 - 不定义部分满足尺度，不造进度分；根 satisfaction 只取 0/100/null。
-- `file.read` 不增加 policy head，不训练，不改共享 `cli.command-policy.v1` 或权重；根组合入口属 P2。
+- `file.read` 不增加 policy head，不训练，不改共享 `cli.command-policy.v1` 或权重；根组合入口属 P2，现已实现。
 
 ## 6. P1 证据
 
@@ -183,7 +178,7 @@ type ContentBytesGoal = {
 - `sandbox`：`createCliFilesystemSandbox` 创建、已授予 `filesystem.write` 的沙箱；
 - `session`：`bindSession` 绑定的会话；
 - `profile`：`cli.command-policy.v1` 候选 JSON（未采用，仅选择 ls/entry.inspect）；
-- `limits`：实测必需 `{ maxTransitions: 23, maxDepth: 4, maxDerivedGoals: 8 }`；`maxTransitions` 低于 23 会在根评价前 `budget_exceeded`；
+- `limits`：实测必需 `{ maxTransitions: 23, maxDepth: 4, maxDerivedGoals: 8 }`；`maxTransitions` 低于 23 会在根评价完成前 `budget_exceeded`，投影为 `unknown/interrupted/null` 并保留已形成的 read 事实，不再投影 achieved；
 - 可选 `onSample` 与 `signal`。
 
 rootBindings 只携带普通 JSON 值（session ref、directory ref、name、requiredType、range、expectedBase64），不携带 Buffer 或非 JSON 对象。共享 policy 不新增 head，`file.read` 原子结果没有 `selectedHead`。
@@ -192,6 +187,6 @@ rootBindings 只携带普通 JSON 值（session ref、directory ref、name、req
 
 - 实现：`lib/cli-read.ts`、`lib/adapters/cli/read-composition-recursive.ts`、`lib/filters/cli-read-composition.ts`、`lib/adapters/cli/read-composition-contract.ts`。
 - 责任图：`workflows/cli-read-composition.graph.json`。
-- 用例：`tests/cli-read-composition.test.mjs` 18/18 通过（R01–R05、S-React-1–5、R09–R16；编号沿用当前运行切片）。
-- 公开 consumer：`playground/cli/read-composition/consumer.mjs`，逐例 JSON + `exitCode: 0`，覆盖 matched / not_found / type_mismatch / byte_mismatch / zero-length / short-read / stale_or_unverified。
+- 用例：`tests/cli-read-composition.test.mjs` 21/21 通过（R01–R05、S-React-1–5、R09–R19；编号沿用当前运行切片）。
+- 公开 consumer：`playground/cli/read-composition/consumer.mjs`，逐例 JSON + `exitCode: 0`，覆盖 matched / not_found / type_mismatch / byte_mismatch / zero-length / short-read / stale_or_unverified；独立家族 `playground/cli/read-composition/independent-family.mjs` 27/27，`exitCode: 0`。
 - 组合状态：`file.property.content.bytes` 现在有运行入口；`content.format`、`role`、`links`、`path.physical`、`operation.applicability` 与写操作仍为设计，不因 P2 冒称完成。

@@ -642,10 +642,12 @@ async function validateDirectoryBinding(
     session: SessionRef;
     directory: DirectoryObjectRef;
   }>;
-  const cwd = input.sandbox.getSession(bindings.session).cwd;
   if ("absolutePath" in bindings.directory) {
     await input.sandbox.validateObservedObject(bindings.directory);
+  } else {
+    await input.sandbox.validateDirectoryRef(bindings.directory);
   }
+  const cwd = input.sandbox.getSession(bindings.session).cwd;
   await input.sandbox.resolveDirectory(policyDirectoryRef(bindings.directory, cwd));
 }
 

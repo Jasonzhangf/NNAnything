@@ -10,12 +10,13 @@ import {
   readFile,
   readdir,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -733,4 +734,135 @@ test("R16 unsupported typed requests are rejected with stable codes and zero exe
     await assert.rejects(runWith(value, requestValue), TypeError, `${label} must be rejected`);
   }
   assert.equal(value.openCount(), 0);
+});
+
+test("R17 budget stops before a completed root evaluation are interrupted with the read fact preserved", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.bin", kind: "file", contents: "abcdef" },
+  ]);
+  const expectedBase64 = b64("abcdef");
+
+  for (const maxTransitions of [20, 21, 22]) {
+    const result = await runWith(
+      value,
+      readRequest(
+        value.directory,
+        "target.bin",
+        { offset: 0, length: 6 },
+        expectedBase64,
+        `budget-${maxTransitions}`,
+      ),
+      { limits: Object.freeze({ maxTransitions, maxDepth: 4, maxDerivedGoals: 8 }) },
+    );
+    assert.equal(result.domain.status, "unknown", `budget ${maxTransitions} status`);
+    assert.equal(result.domain.resolution, "interrupted", `budget ${maxTransitions} resolution`);
+    assert.equal(result.domain.satisfaction, null, `budget ${maxTransitions} satisfaction`);
+    assert.equal(result.domain.match, null, `budget ${maxTransitions} match`);
+    assert.equal(result.response.report.control.outcome, "exceeded", `budget ${maxTransitions} control outcome`);
+    assert.equal(result.response.report.control.stopReason, "budget", `budget ${maxTransitions} stop reason`);
+    assert.notEqual(
+      result.response.report.rootEvaluation.result,
+      "satisfied",
+      `budget ${maxTransitions} root evaluation must not claim satisfaction`,
+    );
+
+    const readFacts = readFactsOf(result.response);
+    assert.equal(readFacts.length, 1, `budget ${maxTransitions} keeps the real read fact`);
+    assert.equal(readFacts[0].bytes, expectedBase64, `budget ${maxTransitions} keeps the real bytes`);
+    const readReceipts = result.domain.preserve.atomicResults.filter(
+      item => item.sourceResult?.tag === "cli.file.read.receipt.v1",
+    );
+    assert.equal(readReceipts.length, 1, `budget ${maxTransitions} keeps the read receipt`);
+    assert.equal(
+      readReceipts[0].sourceResult.value.receipt.execution.status,
+      "succeeded",
+      `budget ${maxTransitions} read execution fact`,
+    );
+  }
+
+  const complete = await runWith(
+    value,
+    readRequest(value.directory, "target.bin", { offset: 0, length: 6 }, expectedBase64, "budget-23"),
+  );
+  assert.equal(complete.domain.status, "achieved");
+  assert.equal(complete.domain.resolution, "matched");
+  assert.equal(complete.domain.satisfaction, 100);
+  assert.equal(complete.response.report.control.outcome, "completed");
+  assert.equal(complete.response.report.rootEvaluation.state, "evaluated");
+  assert.equal(complete.response.report.rootEvaluation.result, "satisfied");
+  assert.equal(complete.response.report.rootEvaluation.satisfaction, 100);
+});
+
+test("R18 an unissued plain directory reference is rejected with zero execution", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.bin", kind: "file", contents: "payload" },
+  ]);
+  const plainDirectory = {
+    kind: "cli.directory",
+    scenarioId: value.session.scenarioId,
+    sessionId: value.session.sessionId,
+    path: ".",
+  };
+  const result = await runWith(
+    value,
+    readRequest(plainDirectory, "target.bin", { offset: 0, length: 7 }, b64("payload")),
+  );
+  assert.equal(result.response.kind, "request_rejected");
+  assert.equal(result.domain.status, "rejected");
+  assert.equal(result.domain.resolution, "rejected");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.match, null);
+  const atomicResults = result.response.report?.atomicResults ?? [];
+  assert.equal(atomicResults.length, 0, "no atomic step may run");
+  assert.equal(value.openCount(), 0, "no read open may happen");
+});
+
+test("R19 a public fileReadIo race before open yields stale_or_unverified without replacement bytes", async t => {
+  const race = { swapped: false, opens: 0 };
+  const raceIo = {
+    lstat: async (path, options) => {
+      if (!race.swapped && basename(path) === "target.bin") {
+        race.swapped = true;
+        const directory = dirname(path);
+        await rename(join(directory, "target.bin"), join(directory, "original.bin"));
+        await rename(join(directory, "swap.bin"), join(directory, "target.bin"));
+      }
+      return lstat(path, options);
+    },
+    open: async (path, flags) => {
+      race.opens += 1;
+      return open(path, flags);
+    },
+  };
+  const value = await withProfile(
+    t,
+    [
+      { path: "start/target.bin", kind: "file", contents: "original" },
+      { path: "start/swap.bin", kind: "file", contents: "replaced" },
+    ],
+    { fileReadIo: raceIo },
+  );
+  const result = await runWith(
+    value,
+    readRequest(value.directory, "target.bin", { offset: 0, length: 8 }, b64("original")),
+  );
+  assert.equal(race.swapped, true, "the public fileReadIo seam performed the swap");
+  assert.equal(race.opens, 1, "the race caused exactly one open");
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "stale_or_unverified");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.match, null);
+  assert.equal(result.domain.rootFact.kind, "stale_or_unverified");
+  assert.equal(result.domain.rootFact.read, null, "no stale read fact may be reused as evidence");
+  assert.equal(
+    JSON.stringify(result.domain).includes(b64("replaced")),
+    false,
+    "replacement bytes must not be returned",
+  );
+  const failedReads = result.domain.preserve.atomicResults
+    .filter(item => item.sourceResult?.tag === "cli.file.read.receipt.v1")
+    .map(item => item.sourceResult.value.receipt)
+    .filter(receipt => receipt.execution.status === "failed");
+  assert.equal(failedReads.length, 1);
+  assert.equal(failedReads[0].execution.error.code, "STALE_REFERENCE");
 });
