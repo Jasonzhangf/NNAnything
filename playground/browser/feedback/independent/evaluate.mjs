@@ -139,6 +139,9 @@ const safetyPassed = rows.filter(row => row.f2.safetyPass).length;
 const safetyFailed = rows.length - safetyPassed;
 
 const summary = {
+  // True only for the first evaluation of these cases by the fixed candidates.
+  // A later rerun of the same material is not a first evaluation, and this flag
+  // must not be read as "this execution was the first".
   firstEvaluation: true,
   fitted: false,
   processId: process.pid,
@@ -215,12 +218,17 @@ if (checkOnly) {
   await writeFile(tablePath, `${lines.join("\n")}\n`);
   const casesStat = await stat(casesPath);
   const rowsStat = await stat(rowsPath);
+  // The mtime pair only records the write order of the serialized artifacts, so
+  // it cannot prove on its own that the case source existed before the first
+  // evaluation. That claim rests on the dispatcher keeping the case files on
+  // disk and on the first evaluation output matching every later rerun.
   console.log(JSON.stringify({
     outDir,
     count: rows.length,
+    firstEvaluation: summary.firstEvaluation,
+    casesWrittenBeforeRows: casesStat.mtimeMs <= rowsStat.mtimeMs,
     casesMtimeMs: casesStat.mtimeMs,
     rowsMtimeMs: rowsStat.mtimeMs,
-    casesBeforeRows: casesStat.mtimeMs <= rowsStat.mtimeMs,
     f1: summary.f1,
     f2: summary.f2,
     projections: summary.projections,
