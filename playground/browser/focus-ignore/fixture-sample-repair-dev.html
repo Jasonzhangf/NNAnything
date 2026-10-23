@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus sample repair / dev family rack</title>
+<style>
+  :root {
+    color-scheme: light;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #1d2735;
+    background-color: #eef3f7;
+  }
+  .bench {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    height: 56px;
+    padding: 0 18px;
+    background-color: #ffffff;
+    border-bottom: 1px solid #c5d1df;
+  }
+  .bench-title {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-right: auto;
+  }
+  .bench-kicker {
+    font-size: 10px;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    color: #5f6f86;
+  }
+  .bench-name {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .bench-hint {
+    font-size: 11px;
+    color: #5f6f86;
+  }
+  .parking {
+    min-width: 136px;
+    padding: 7px 12px;
+    border: 1px solid #2f5d9a;
+    border-radius: 4px;
+    background-color: #2f5d9a;
+    color: #ffffff;
+    font: inherit;
+    cursor: default;
+  }
+  .rack {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 10px;
+    height: calc(100vh - 56px);
+    padding: 10px 14px 14px;
+  }
+  .slot {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    padding: 9px 10px 8px;
+    background-color: #ffffff;
+    border: 1px solid #cbd7e4;
+  }
+  .slot-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-height: 16px;
+  }
+  .slot-id {
+    font-size: 12px;
+    font-weight: 600;
+    color: #2c4a72;
+  }
+  .slot-note {
+    font-size: 10px;
+    color: #6b7a90;
+  }
+  .probe {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 142px;
+    margin: 6px 0;
+    padding: 26px;
+    border: 1px solid #94a6bd;
+    background-color: #f8fbff;
+    cursor: default;
+  }
+  .probe:focus {
+    outline: 2px solid #2f5d9a;
+    outline-offset: 1px;
+  }
+  .mini {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 104px;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid #b9c7d8;
+    background-color: #e7eef8;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .probe-w1 {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .probe-w2 {
+    padding: 38px 30px;
+  }
+  .probe-w2 .mini {
+    position: absolute;
+    left: 88px;
+    bottom: 26px;
+  }
+  .probe-w3 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  .mini-button {
+    min-width: 104px;
+    height: 32px;
+    padding: 0 10px;
+    border: 1px solid #7d93ad;
+    border-radius: 3px;
+    background-color: #ffffff;
+    color: #22344c;
+    font: inherit;
+    cursor: default;
+  }
+  .probe-w2 .mini-button {
+    position: absolute;
+    left: 88px;
+    bottom: 26px;
+  }
+  .slot-caption {
+    margin: 0;
+    font-size: 10px;
+    color: #718096;
+  }
+</style>
+</head>
+<body>
+<header class="bench">
+  <div class="bench-title">
+    <span class="bench-kicker">focus sample repair</span>
+    <span class="bench-name">dev family inspection rack</span>
+  </div>
+  <span class="bench-hint">native click probes across three rails</span>
+  <button type="button" class="parking" data-dev-target="parking" data-dev-own-control="true">Parking control</button>
+</header>
+<main class="rack">
+  <section class="slot" data-dev-case="positive-w1-neg1" data-dev-construction="W1" data-dev-kind="positive" data-dev-states="initial,focused,blurred,refocused">
+    <div class="slot-head">
+      <span class="slot-id">W1 / -1</span>
+      <span class="slot-note">single child, blank rail</span>
+    </div>
+    <div class="probe probe-w1" data-dev-target="container" data-dev-own-control="true" data-dev-tabindex="-1" tabindex="-1">
+      <span class="mini" data-dev-target="child">w1 n</span>
+    </div>
+    <p class="slot-caption">blank rail keeps a container hit point</p>
+  </section>
+
+  <section class="slot" data-dev-case="positive-w1-zero" data-dev-construction="W1" data-dev-kind="positive" data-dev-states="initial,focused,blurred,refocused">
+    <div class="slot-head">
+      <span class="slot-id">W1 / 0</span>
+      <span class="slot-note">single child, blank rail</span>
+    </div>
+    <div class="probe probe-w1" data-dev-target="container" data-dev-own-control="true" data-dev-tabindex="0" tabindex="0">
+      <span class="mini" data-dev-target="child">w1 0</span>
+    </div>
+    <p class="slot-caption">explicit non-negative tabindex variant</p>
+  </section>
+
+  <section class="slot" data-dev-case="positive-w2-neg1" data-dev-construction="W2" data-dev-kind="positive" data-dev-states="initial,focused,blurred,refocused">
+    <div class="slot-head">
+      <span class="slot-id">W2 / -1</span>
+      <span class="slot-note">offset child geometry</span>
+    </div>
+    <div class="probe probe-w2" data-dev-target="container" data-dev-own-control="true" data-dev-tabindex="-1" tabindex="-1">
+      <span class="mini" data-dev-target="child">w2 n</span>
+    </div>
+    <p class="slot-caption">child sits below and left of the blank area</p>
+  </section>
+
+  <section class="slot" data-dev-case="positive-w2-zero" data-dev-construction="W2" data-dev-kind="positive" data-dev-states="initial,focused,blurred,refocused">
+    <div class="slot-head">
+      <span class="slot-id">W2 / 0</span>
+      <span class="slot-note">offset child geometry</span>
+    </div>
+    <div class="probe probe-w2" data-dev-target="container" data-dev-own-control="true" data-dev-tabindex="0" tabindex="0">
+      <span class="mini" data-dev-target="child">w2 0</span>
+    </div>
+    <p class="slot-caption">same independent layout, explicit tabindex</p>
+  </section>
+
+  <section class="slot" data-dev-case="positive-w3-neg1" data-dev-construction="W3" data-dev-kind="positive" data-dev-states="initial,focused,blurred,refocused">
+    <div class="slot-head">
+      <span class="slot-id">W3 / -1</span>
+      <span class="slot-note">two direct children</span>
+    </div>
+    <div class="probe probe-w3" data-dev-target="container" data-dev-own-control="true" data-dev-tabindex="-1" tabindex="-1">
+      <span class="mini" data-dev-target="child">w3 a</span>
+      <span class="mini" data-dev-target="child">w3 b</span>
+    </div>
+    <p class="slot-caption">middle gap belongs to the container</p>
+  </section>
+
+  <section class="slot" data-dev-case="positive-w3-zero" data-dev-construction="W3" data-dev-kind="positive" data-dev-states="initial,focused,blurred,refocused">
+    <div class="slot-head">
+      <span class="slot-id">W3 / 0</span>
+      <span class="slot-note">two direct children</span>
+    </div>
+    <div class="probe probe-w3" data-dev-target="container" data-dev-own-control="true" data-dev-tabindex="0" tabindex="0">
+      <span class="mini" data-dev-target="child">w3 c</span>
+      <span class="mini" data-dev-target="child">w3 d</span>
+    </div>
+    <p class="slot-caption">multi child relation with explicit tabindex</p>
+  </section>
+
+  <section class="slot" data-dev-case="ignore-w1" data-dev-construction="W1" data-dev-kind="ignore" data-dev-states="descendant-initial,descendant-focused">
+    <div class="slot-head">
+      <span class="slot-id">W1 / ignore</span>
+      <span class="slot-note">redundant wrapper</span>
+    </div>
+    <div class="probe probe-w1" data-dev-target="container">
+      <button type="button" class="mini-button" data-dev-target="descendant" data-dev-focus-descendant="true">Refresh</button>
+    </div>
+    <p class="slot-caption">the action target is the child button</p>
+  </section>
+
+  <section class="slot" data-dev-case="ignore-w2" data-dev-construction="W2" data-dev-kind="ignore" data-dev-states="descendant-initial,descendant-focused">
+    <div class="slot-head">
+      <span class="slot-id">W2 / ignore</span>
+      <span class="slot-note">offset redundant wrapper</span>
+    </div>
+    <div class="probe probe-w2" data-dev-target="container">
+      <button type="button" class="mini-button" data-dev-target="descendant" data-dev-focus-descendant="true">Sort</button>
+    </div>
+    <p class="slot-caption">wrapper adds no separate action surface</p>
+  </section>
+
+  <section class="slot" data-dev-case="ignore-w3" data-dev-construction="W3" data-dev-kind="ignore" data-dev-states="descendant-initial,descendant-focused">
+    <div class="slot-head">
+      <span class="slot-id">W3 / ignore</span>
+      <span class="slot-note">multi child redundant wrapper</span>
+    </div>
+    <div class="probe probe-w3" data-dev-target="container">
+      <button type="button" class="mini-button" data-dev-target="descendant">Apply</button>
+      <button type="button" class="mini-button" data-dev-target="descendant" data-dev-focus-descendant="true">Reset</button>
+    </div>
+    <p class="slot-caption">only the child buttons carry actions</p>
+  </section>
+</main>
+</body>
+</html>

@@ -3,15 +3,36 @@
 // real adapter and classifier, then closes only that tab.
 import { build } from "esbuild";
 import { writeFile, mkdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 import { DEFAULT_BASIC_KIND_PROFILE, loadBrowserWeightAsset } from "nnanything/browser-classify";
 
-const repo = "/Volumes/Intel/playground/nnanything/browser-foundation";
-const out = process.argv[2] ?? resolve("f04-live-gold.json");
-const weightFile = process.argv.includes("--weight")
-  ? process.argv[process.argv.indexOf("--weight") + 1]
-  : "/Volumes/extension/code/NNAnything/training/weights/dom-basic-kinds/incremental-map-d5f655f7-1d16-486c-87ee-c0760b8f55e0.weight.json";
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+function parseArgs(argv) {
+  const positional = [];
+  const values = { out: null, weight: null, profile: null };
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index];
+    if (flag === "--weight" || flag === "--profile" || flag === "--out") {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--")) throw new Error(`missing value for ${flag}`);
+      values[flag.slice(2)] = value;
+      index += 1;
+      continue;
+    }
+    if (flag.startsWith("--")) throw new Error(`unknown argument ${flag}`);
+    positional.push(flag);
+  }
+  return { out: values.out ?? positional[0] ?? null, weight: values.weight, profile: values.profile };
+}
+const args = parseArgs(process.argv.slice(2));
+const out = args.out === null ? resolve("f04-live-gold.json") : resolve(args.out);
+const useDefault = args.profile === "default";
+const weightFile = args.weight;
+if (args.weight === null && !useDefault) {
+  throw new Error("--weight <candidate weight json> is required unless --profile default is passed");
+}
 const cdp = "http://127.0.0.1:9333";
 
 // Teacher construction labels: the expected label follows from how the element
@@ -54,7 +75,6 @@ const page = `<!doctype html><html><head><meta charset="utf-8"><title>f04</title
 <div class="same-rect" id="ignore-wrap-link"><a href="/detail/1">详情</a></div>
 </body></html>`;
 
-const useDefault = process.argv.includes("--profile") && process.argv[process.argv.indexOf("--profile") + 1] === "default";
 const asset = useDefault
   ? { profile: DEFAULT_BASIC_KIND_PROFILE, config: { taskId: "dom.basic-kinds.v1", minScore: 0.6, minMargin: 0.15 }, sourceLabel: "default profile" }
   : await loadBrowserWeightAsset({ weightFile: { sourceLabel: weightFile, readText: () => readFile(weightFile, "utf8") } });

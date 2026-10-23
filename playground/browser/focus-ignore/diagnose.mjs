@@ -44,8 +44,18 @@ const args = parseArgs(process.argv.slice(2));
 const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
 
 const request = readJson(args.request);
-const usageRaw = readJson(args.usage);
-const usage = Array.isArray(usageRaw) ? usageRaw : usageRaw.explicitUsage;
+const usageEntries = (() => {
+  const raw = readJson(args.usage);
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw.explicitUsage)) return raw.explicitUsage;
+  const merged = [];
+  for (const key of ["control", "treatment", "dev"]) {
+    if (Array.isArray(raw[key])) merged.push(...raw[key]);
+  }
+  if (merged.length > 0) return merged;
+  throw new Error("usage must be an array, carry explicitUsage, or contain control/treatment/dev arrays");
+})();
+const usage = usageEntries;
 const usageById = new Map(usage.map((e) => [e.sampleId, e.usage]));
 const asset = parseBrowserWeightAsset(readJson(args.weight), args.weight);
 const profile = asset.profile;
@@ -64,9 +74,15 @@ const config = {
   fit: { epochs: 1, learningRate: 0.01, anchorLambda: 0 },
 };
 
-const trainRows = request.rows.filter((r) => usageById.get(r.sampleId) === "train" && !r.sampleId.startsWith("fixture-"));
-const allOriginal = request.rows.filter((r) => !r.sampleId.startsWith("fixture-"));
+const EXPERIMENT_FAMILY_PREFIXES = ["sample-repair-train:", "sample-repair-dev:", "sample-repair-verification:"];
+const isExperimentFamily = (sampleId) => EXPERIMENT_FAMILY_PREFIXES.some(prefix => sampleId.startsWith(prefix));
+const isLegacyFixture = (sampleId) => sampleId.startsWith("fixture-a:") || sampleId.startsWith("fixture-b:");
+const trainRows = request.rows.filter((r) => usageById.get(r.sampleId) === "train" && !isExperimentFamily(r.sampleId) && !isLegacyFixture(r.sampleId));
+const allOriginal = request.rows.filter((r) => !isLegacyFixture(r.sampleId) && !isExperimentFamily(r.sampleId));
 const aRows = request.rows.filter((r) => r.sampleId.startsWith("fixture-a:"));
+const newTrainFamilyRows = request.rows.filter((r) => r.sampleId.startsWith("sample-repair-train:"));
+
+const allTrainRows = request.rows.filter((r) => usageById.get(r.sampleId) === "train" && !isLegacyFixture(r.sampleId));
 
 // 1) 精确反例的端点、区间与 wire 事实
 const cex = request.rows.find((r) => r.sampleId === COUNTEREXAMPLE);
@@ -102,6 +118,33 @@ for (const wire of FOCUS) {
       trainRowCount: trainRows.length,
       gradientSum: sum,
       gradientMean: sum / trainRows.length,
+      nonzeroRows: nonzero,
+      bucketsByGoldAndWireValue: Object.fromEntries(Object.entries(buckets).sort(([a], [b]) => a.localeCompare(b))),
+    };
+  }
+}
+
+const newTrainAggregate = {};
+for (const wire of FOCUS) {
+  for (const leaf of ["container", "ignore"]) {
+    const key = `${leaf}.${wire}`;
+    let sum = 0, nonzero = 0;
+    const buckets = {};
+    for (const row of newTrainFamilyRows) {
+      const insp = await inspectBasicKindNumericSample({
+        handwiredRoot: HANDWIRED_ROOT, properties: row.properties, expectedLabel: row.review.expectedLabel, profile, config,
+      });
+      const g = insp.leafGradients?.[leaf]?.[wire] ?? 0;
+      if (g !== 0) nonzero += 1;
+      sum += g;
+      const value = extractBasicKindWires(row.properties)[wire];
+      const bucket = `${row.review.expectedLabel}|${wire}=${value === null ? "null" : value}`;
+      buckets[bucket] = (buckets[bucket] ?? 0) + g;
+    }
+    newTrainAggregate[key] = {
+      trainRowCount: newTrainFamilyRows.length,
+      gradientSum: sum,
+      gradientMean: newTrainFamilyRows.length === 0 ? null : sum / newTrainFamilyRows.length,
       nonzeroRows: nonzero,
       bucketsByGoldAndWireValue: Object.fromEntries(Object.entries(buckets).sort(([a], [b]) => a.localeCompare(b))),
     };
@@ -186,6 +229,8 @@ const out = {
     note: "Endpoint fact only: it does not by itself prove no joint parameter setting exists.",
   },
   observedFocusGradientSummary: aggregate,
+  newTrainFamilyFocusGradientSummary: newTrainAggregate,
+  trainUsageRowCount: allTrainRows.length,
   aFamilyLossAndGradient: aFamily,
   aFamilyNonZeroLossCount: aFamily.filter((r) => r.loss > 0).length,
   perRowIntervals,
@@ -201,4 +246,6 @@ console.log(JSON.stringify({
   endpoint: out.endpointFacts.maxAchievableMarginIfOnlyContainerRises,
   containerAfGradientSum: aggregate["container.neutral_actual_focus"].gradientSum,
   ignoreAfGradientSum: aggregate["ignore.neutral_actual_focus"].gradientSum,
+  newTrainFamilyContainerAfGradientSum: newTrainAggregate["container.neutral_actual_focus"].gradientSum,
+  newTrainFamilyIgnoreAfGradientSum: newTrainAggregate["ignore.neutral_actual_focus"].gradientSum,
 }));
