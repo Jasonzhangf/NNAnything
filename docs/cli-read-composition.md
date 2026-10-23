@@ -1,6 +1,6 @@
 # CLI 只读组合主线 P1：能力盘点、受信范围读与最小组合合同
 
-状态：2026-10-22 实施合同。本文是 P1 增量的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P1 只交付盘点文档、责任图与 `file.read` 受信范围读原语；根组合 `file.property.content.bytes` 的运行入口属于 P2，本文只给合同与责任图，不宣称根目标已实现。
+状态：2026-10-22 实施合同。本文是 P1/P2 增量（盘点、受信范围读与只读组合公开入口）的唯一 owner；领域合同仍由 `cli-filesystem-semantics.md`、`cli-call-contract.md`、`cli-semantic-operations.md` 与 `cli-entry-search-design.md` 维护，本文不复制其表格。P2 公开入口 `nnanything/cli-read` 已实现并跑通 18 用例与公开 consumer；共享 `cli.command-policy.v1` 不增加 head/wire/权重。
 
 ## 1. 实测能力盘点
 
@@ -173,3 +173,25 @@ type ContentBytesGoal = {
 - 红测日志：外置 run `logs/p1-red.log`。
 - 新测试：`tests/cli-file-read-sandbox.test.mjs`，11 个具名测试。
 - 责任图：`workflows/cli-read-composition.graph.json`，`dagpipe graph validate` 通过（7 节点 6 边 7 波）。
+
+## 7. P2 公开组合入口
+
+### 7.1 入口与资源信封
+
+公开入口是 `nnanything/cli-read` 的 `runCliReadCompositionGoal(request, resources)`。resources 显式包含：
+
+- `sandbox`：`createCliFilesystemSandbox` 创建、已授予 `filesystem.write` 的沙箱；
+- `session`：`bindSession` 绑定的会话；
+- `profile`：`cli.command-policy.v1` 候选 JSON（未采用，仅选择 ls/entry.inspect）；
+- `limits`：实测必需 `{ maxTransitions: 23, maxDepth: 4, maxDerivedGoals: 8 }`；`maxTransitions` 低于 23 会在根评价前 `budget_exceeded`；
+- 可选 `onSample` 与 `signal`。
+
+rootBindings 只携带普通 JSON 值（session ref、directory ref、name、requiredType、range、expectedBase64），不携带 Buffer 或非 JSON 对象。共享 policy 不新增 head，`file.read` 原子结果没有 `selectedHead`。
+
+### 7.2 实现与验收
+
+- 实现：`lib/cli-read.ts`、`lib/adapters/cli/read-composition-recursive.ts`、`lib/filters/cli-read-composition.ts`、`lib/adapters/cli/read-composition-contract.ts`。
+- 责任图：`workflows/cli-read-composition.graph.json`。
+- 用例：`tests/cli-read-composition.test.mjs` 18/18 通过（R01–R05、S-React-1–5、R09–R16；编号沿用当前运行切片）。
+- 公开 consumer：`playground/cli/read-composition/consumer.mjs`，逐例 JSON + `exitCode: 0`，覆盖 matched / not_found / type_mismatch / byte_mismatch / zero-length / short-read / stale_or_unverified。
+- 组合状态：`file.property.content.bytes` 现在有运行入口；`content.format`、`role`、`links`、`path.physical`、`operation.applicability` 与写操作仍为设计，不因 P2 冒称完成。

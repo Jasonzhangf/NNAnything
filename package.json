@@ -34,6 +34,10 @@
       "types": "./dist/cli-search.d.ts",
       "import": "./dist/cli-search.js"
     },
+    "./cli-read": {
+      "types": "./dist/cli-read.d.ts",
+      "import": "./dist/cli-read.js"
+    },
     "./recursive-goal": {
       "types": "./dist/recursive-goal.d.ts",
       "import": "./dist/recursive-goal.js"
