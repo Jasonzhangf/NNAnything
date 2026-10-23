@@ -215,6 +215,15 @@ function handwrittenWrongDiagnosticFeedbackProfile() {
   return feedbackPolicy.validateFeedbackProfile({ ...zero, weights });
 }
 
+// Handwritten negative control only. It forces an indeterminate explanation so
+// the test can prove F2 consumes the actual F1 prediction instead of a teacher.
+function handwrittenIndeterminateDiagnosticFeedbackProfile() {
+  const zero = feedbackPolicy.createZeroFeedbackProfile();
+  const weights = zero.weights.map(row => [...row]);
+  weights[2][zero.wires.indexOf("bias")] = 1;
+  return feedbackPolicy.validateFeedbackProfile({ ...zero, weights });
+}
+
 function controlOf(state) {
   return {
     documentRef: state.documentRef,
@@ -265,6 +274,12 @@ function goalResources({
     atomicProfile: atomicProfile(),
     feedbackProfile,
     registry: registry(),
+    selection: {
+      eligibleSkillIds: [NATIVE_SKILL, ROLE_SKILL],
+      lockedSkillId: null,
+      exhaustedSkillIds: [],
+      remainingAtomicAttempts: 2,
+    },
     grantedEffects: new Set(["browser.nativeClick", "filesystem.write"]),
     observe: async () => {
       const next = queue.shift();
@@ -283,6 +298,7 @@ function goalResources({
         error: null,
       };
     },
+    observationSatisfied: true,
     collectAtomic: async () => {},
     collectStep: async () => {},
     proveNoEffect: input => {
@@ -499,4 +515,91 @@ test("known no-effect receipts with a valid proof still take the existing safe r
       { skillId: ROLE_SKILL, failures: 0 },
     ],
   );
+});
+
+test("F2 consumes the actual F1 prediction and a wrong diagnostic head stops recovery", async () => {
+  const multiRun = async (requestId, feedbackProfile) => {
+    const initial = snapshot({ observationId: `${requestId}-initial`, revision: 1 });
+    const resources = goalResources({
+      initial,
+      observations: [
+        snapshot({ observationId: `${requestId}-preflight`, revision: 2 }),
+        snapshot({ observationId: `${requestId}-pre`, revision: 3 }),
+        snapshot({ observationId: `${requestId}-post`, revision: 4 }),
+        snapshot({ observationId: `${requestId}-preflight2`, revision: 5 }),
+        snapshot({ observationId: `${requestId}-pre2`, revision: 6 }),
+        snapshot({ observationId: `${requestId}-post2`, revision: 7 }),
+      ],
+      feedbackProfile,
+      nativeEffectKnowledge: "none",
+    });
+    const base = goalRequest({ requestId, initial });
+    const segments = [];
+    let request = base;
+    let secondRequest = null;
+    for (let index = 0; index < 2; index += 1) {
+      const response = await strategyGoal.runBrowserStrategyGoal(request, resources);
+      assert.equal(response.kind, "run_result", JSON.stringify(response.error ?? response.fault));
+      const report = response.report;
+      segments.push(report);
+      if (report.control.outcome !== "yielded" || report.continuation === null) break;
+      const last = report.states.at(-1).value;
+      const { initialObservation: _initialObservation, ...rest } = request;
+      request = { ...rest, state: last, continuation: report.continuation };
+      secondRequest = {
+        request: {
+          goal: { kind: "SetExpanded", regionRef: "region-main", desired: true },
+          satisfactionThreshold: 100,
+          state: last.browser,
+        },
+        history: last.history,
+      };
+    }
+    return { segments, resources, secondRequest };
+  };
+  const normal = await multiRun("actual-f1-normal", normalFeedbackProfile());
+  const diagnostic = await multiRun(
+    "actual-f1-diagnostic",
+    handwrittenIndeterminateDiagnosticFeedbackProfile(),
+  );
+  assert.equal(normal.segments[0].atomicResults[0].sourceResult.value.feedback.head, "completed_without_goal");
+  assert.equal(diagnostic.segments[0].atomicResults[0].sourceResult.value.feedback.head, "indeterminate");
+  assert.equal(diagnostic.segments.length, 1, "a wrong F1 head must stop before a second dispatch");
+  assert.equal(diagnostic.segments[0].control.outcome, "error");
+  assert.equal(diagnostic.resources.clicks.length, 1);
+  assert.ok(diagnostic.segments[0].errors.some(
+    error => error.source.category === "retry_assessment:unsupported_retry",
+  ), JSON.stringify(diagnostic.segments[0].errors));
+
+  const normalSecond = normal.segments[1];
+  assert.ok(normalSecond !== undefined, "the correct F1 head must allow a second segment");
+  assert.equal(
+    normalSecond.atomicResults.length,
+    2,
+    "continuation reports must retain prior atomic results for audit",
+  );
+  assert.notEqual(
+    normalSecond.atomicResults[0].dispatchId,
+    normalSecond.atomicResults[1].dispatchId,
+    "continuation history must have unique dispatch ids",
+  );
+  const strategyWires = strategyPolicy.createZeroBrowserStrategyProfile().wires;
+  const nativeCandidate = normalSecond.atomicResults.at(-1).sourceResult.value.decision.candidates
+    .find(candidate => candidate.feedback !== null);
+  assert.ok(nativeCandidate, "the second decision must carry an F1-backed history");
+  assert.equal(nativeCandidate.feedback.head, "completed_without_goal");
+  assert.equal(nativeCandidate.features[strategyWires.indexOf("feedback.completedWithoutGoal")], 1);
+  assert.equal(nativeCandidate.features[strategyWires.indexOf("feedback.indeterminate")], 0);
+
+  const diagnosticDecision = strategyPolicy.predictBrowserStrategy(normal.secondRequest, {
+    ...normal.resources,
+    feedbackProfile: handwrittenIndeterminateDiagnosticFeedbackProfile(),
+  });
+  const diagnosticCandidate = diagnosticDecision.candidates.find(candidate => candidate.feedback !== null);
+  assert.ok(diagnosticCandidate, "the negative control must still expose feedback features");
+  assert.equal(diagnosticCandidate.feedback.head, "indeterminate");
+  assert.equal(diagnosticCandidate.features[strategyWires.indexOf("feedback.completedWithoutGoal")], 0);
+  assert.equal(diagnosticCandidate.features[strategyWires.indexOf("feedback.indeterminate")], 1);
+  assert.notDeepEqual(nativeCandidate.features, diagnosticCandidate.features);
+  assert.equal(normalSecond.rootEvaluation.result, "unsatisfied");
 });

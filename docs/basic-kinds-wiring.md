@@ -218,3 +218,19 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 当前标签集合对合格输入全覆盖，不等于已证明主流网站/主流页面的经验覆盖，也不宣称 unknown 已清零。新增种类时更新 BASIC_KIND_FAMILIES、所需的允许 wire 和 profile，保持框架核心不变；复核历史 other 中属于新类的样本，再做旧类与新类的来源隔离回归。新类别不能只改标签名而继续使用缺少该类别行的旧参数。
 
 旧微博快照缺 fragments/clippedRect。沿候选链保留 605 filtered_out、528 skipped、867 unknown，零合格分类。纯函数可另做属性诊断，但不能宣称这些是 workflow 合格结果或准确率。
+
+## ignore 增量的测量覆盖前提与证据边界（2026-10-21）
+
+ignore 叶子的 16 条支撑 wire 全部依赖新测量字段（`singleChildSameRect`、`singleChildTag`、`nonFormatDirectTextPresent`、`descendantTextPresent`、`pointerCursor`、`parentPointerCursor`、`tabIndexFocus`、`activeElementFocus`、`borderPresent`、`aspectRatio`、`inSvgAncestor`、`withinControlAncestor`、`inVerifiedListParent`、`coincidentChildPairRatio`、`ownLabelPresent` 等）。缺测保持 null，区间取 `[0,w]`，所以任何非零 ignore 系数都会按权重扩大未知字段上的上界；这是缺测语义的直接结果，不是拟合缺陷。
+
+推论有两条，均已在真实拟合与公开分类器上复核。第一，`same-rect` 单子元素包装只有在 31 项测量字段齐备时才可能被判 ignore：同一节点在完整字段下 `structure` 区间为 `[1,1]`，仅保留旧 12 字段后 `structure` 为 `[0.077,1]`、判断回落 other，`structure` 无法从旧字段单独达到 `minScore=0.6`。第二，旧语料无法承担 ignore 回归：`training-m1` 黄金 357 行每行仅 10–12 项字段，任何能让包装判 ignore 的系数都会把这些行的结构上界抬高，最多使 91 行从 judged 变为 `unresolved_missing_feature` 的 unknown；这些行不会变成 ignore。
+
+因此 ignore 增量当前只能证明“测量齐备域内可用”，不能证明旧语料零变化；旧黄金与微博 152 行须按当前 31 字段重新观测后，才能作为该增量的回归与召回证据。在此之前不得把旧语料的判为 other 当作 ignore 无效，也不得把旧语料零变化当作增量验收通过。
+
+真实页面再观测（2026-10-21）复核了上述前提。用只读入口 `playground/browser/reobserve-live.mjs` 在登录态浏览器上跑真实 `observeLiveDom`，采集小红书 explore 1543 个节点、知乎专栏 1104 个、微博 tv/home 1489 个，共 4136 条完整测量。选中候选在其中判出 1126 条 ignore；按所列代理信号检查（自身可见文字、焦点、href、固定交互 tag/role）命中为 0，完整语义假 ignore 率未评估；代价是有 22 条原本判 container/listitem 的节点变成 unknown/conflict。旧快照页面已改版且视口不同，59 条小红书黄金行只有 6 条能按结构路径配对，因此旧行不能复原为同一批节点，旧黄金的“0 预测变化”不能由旧行承担；真实页面留出是该增量的有效回归证据。
+
+ego 浏览器重采（2026-10-21）追加了微博登录态 live 样本：窗口对齐旧采集 1101×1878 后 1839 个节点、31 项测量齐备。候选判出 479 条 ignore；按所列代理信号检查（自身可见文字、焦点、href、固定交互 tag/role）命中为 0，完整语义假 ignore 率未评估。
+
+37 条 teacher-ignore 的最终处置按原始 37 个 old ref 互斥划分（逐例清单在 run 目录 `ego/teacher-ignore-disposition.json`）：对齐映射 26 条（7 条唯一、19 条非唯一）+ 无映射 11 条（`nnanything-inspector-122/457/474/475/815/832/833/854/946/951/956`）= 37。召回按唯一配对口径为 7/7；对齐口径 24/26 是这 26 条选中映射的算术命中（含 19 条非唯一映射），属诊断结果，不是资格确认的召回。此前文中「5 条无候选、13 条候选不唯一记 unassessed」与 26 条合计 44、超出 37，已撤回。
+
+键盘焦点否决的根因也已定位并复核语义。梯度方向按代码更正：优化步是 `next = w - lr * (m̂/denominator)`（`lib/training/basic-kind-numeric.ts:937`），负梯度的局部下降方向是增大权重；`own_focus_target` 在拟合点梯度 +1.497（正号对应朝减小），而负权重会按区间语义 `[w,0]` 压低缺测焦点行的 ignore 下界、破坏 expected=ignore 召回，损失把权重拉回 0 附近。该区间语义对否决 wire 是正确的（缺测按「焦点可能未测到」保守处理，未把缺测当无焦点；把 null 当实测 false 的 `[0,0]` 才是伪造）。否决学不出来的原因是语料缺测焦点（162 条 verified ignore 中 159 条 `own_focus_target` 为 null），属标签与键盘焦点保留规则的冲突。补测焦点后重拟合、调整拟合目标是待验证方案，当前只证明本次配置与预算未修复，不宣称补测后必然修好；不需要改共享语义。

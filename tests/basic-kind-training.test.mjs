@@ -358,6 +358,107 @@ test("source closure combines snapshots, posts and assets and never fakes indepe
   assert.equal(diagnostic.partitions.sourceClusters.length, 1);
 });
 
+test("source_group_holdout default partition is unchanged when explicit usage is absent", () => {
+  const samples = prepareBasicKindSamples(request([
+    row("s0", { snapshot: "snap-0" }),
+    row("s1", { snapshot: "snap-1" }),
+    row("s2", { snapshot: "snap-2" }),
+    row("s3", { snapshot: "snap-3" }),
+  ]), prepareConfig);
+  const result = partitionBasicKindSamples(samples, partitionConfig());
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.partitions.trainIndices, [0, 3]);
+  assert.deepEqual(result.partitions.evalIndices, [1, 2]);
+  assert.equal(result.partitions.evaluationMode, "source_group_holdout");
+});
+
+test("explicit usage preserves prior eval rows and appends one source group as train", () => {
+  const samples = prepareBasicKindSamples(request([
+    row("old-train", { snapshot: "old-train" }),
+    row("old-eval", { snapshot: "old-eval" }),
+    row("a-1", { snapshot: "a-family", snapshotRefs: ["a-family"], assetRefs: ["a-asset"] }),
+    row("a-2", { snapshot: "a-family", snapshotRefs: ["a-family"], assetRefs: ["a-asset"] }),
+  ]), prepareConfig);
+  const result = partitionBasicKindSamples(samples, partitionConfig({
+    explicitUsage: [
+      { sampleId: "old-train", usage: "train" },
+      { sampleId: "old-eval", usage: "eval" },
+      { sampleId: "a-1", usage: "train" },
+      { sampleId: "a-2", usage: "train" },
+    ],
+  }));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.partitions.trainIndices, [0, 2, 3]);
+  assert.deepEqual(result.partitions.evalIndices, [1]);
+  assert.deepEqual(result.partitions.sourceClusters.map(cluster => cluster.usage), ["train", "eval", "train"]);
+  assert.equal(result.partitions.evaluationMode, "source_group_holdout");
+  assert.equal(result.partitions.independentEvaluation, true);
+  assert.deepEqual(result.partitions.rows.map(item => item.sampleId), ["old-train", "old-eval", "a-1", "a-2"]);
+});
+
+test("explicit usage rejects missing, unknown, duplicate and cross-source assignments", () => {
+  const samples = prepareBasicKindSamples(request([
+    row("shared-a", { snapshot: "shared", snapshotRefs: ["shared"] }),
+    row("shared-b", { snapshot: "shared", snapshotRefs: ["shared"] }),
+    row("separate", { snapshot: "separate" }),
+  ]), prepareConfig);
+
+  const missing = partitionBasicKindSamples(samples, partitionConfig({
+    explicitUsage: [
+      { sampleId: "shared-a", usage: "train" },
+      { sampleId: "shared-b", usage: "train" },
+    ],
+  }));
+  assert.equal(missing.ok, false);
+  assert.equal(missing.reason, "explicit_usage_missing_sample");
+
+  const unknown = partitionBasicKindSamples(samples, partitionConfig({
+    explicitUsage: [
+      { sampleId: "shared-a", usage: "train" },
+      { sampleId: "shared-b", usage: "train" },
+      { sampleId: "separate", usage: "eval" },
+      { sampleId: "not-present", usage: "train" },
+    ],
+  }));
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.reason, "explicit_usage_unknown_sample");
+
+  const crossSource = partitionBasicKindSamples(samples, partitionConfig({
+    explicitUsage: [
+      { sampleId: "shared-a", usage: "train" },
+      { sampleId: "shared-b", usage: "eval" },
+      { sampleId: "separate", usage: "train" },
+    ],
+  }));
+  assert.equal(crossSource.ok, false);
+  assert.equal(crossSource.reason, "explicit_usage_cross_source_cluster");
+
+  assert.throws(
+    () => partitionBasicKindSamples(samples, partitionConfig({
+      explicitUsage: [
+        { sampleId: "shared-a", usage: "train" },
+        { sampleId: "shared-a", usage: "eval" },
+        { sampleId: "shared-b", usage: "train" },
+        { sampleId: "separate", usage: "eval" },
+      ],
+    })),
+    /duplicate sampleId/,
+  );
+});
+
+test("explicit usage cannot be combined with development-only in-sample evaluation", () => {
+  const samples = prepareBasicKindSamples(request([
+    row("only", { snapshot: "only" }),
+  ]), prepareConfig);
+  assert.throws(
+    () => partitionBasicKindSamples(samples, partitionConfig({
+      mode: "development_only",
+      explicitUsage: [{ sampleId: "only", usage: "train" }],
+    })),
+    /requires source_group_holdout/,
+  );
+});
+
 test("paired comparison reports exact old/new transitions and nullable class metrics", () => {
   const rows = [
     row("train-button", {

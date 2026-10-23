@@ -273,6 +273,15 @@ teacher 的 attributes 支持字符串、有限数值、布尔与 null；显式�
 对应 `workflows/browser-visual-overlay.graph.json`（4N3E）和 `workflows/browser-capture.graph.json`（1N0E），本增量拓扑不变。节点不训练；采集只收合格候选。`collect_unresolved` 收集 qualified unknown 与 conflict，legacy `collect_unknown` 保持 unknown-only。未复核、待定和仅标错样本保留空黄金字段；用户明确确认具体类别后才可被现有 training.prepare 接纳。`other` 需理由。数组导出重排 index，证据与学生属性分开，class/id/正文不进入学生。ignore 默认不画框但可在图例查看，节点、子节点和关系仍保留。失效 Focus 返回不可采集状态，不扩大范围。iframe/shadow 内部保持未评估，不标 other。
 
 公开 workflow consumer、2501 条导出及复核隔离测试：`tests/browser-overlay-foundation.test.mjs`。真实浏览器入口、安装及覆盖限制见 `extension/README.md` 和 `docs/browser-overlay-m1.md`。
+### 4.6 回执三态知识节点（`lib/nodes/browser-receipt.ts`，0.1.0.0000）
+
+公开入口 `nnanything/browser-receipt`。`runBrowserReceiptInference(input, { profilePath })` 每次调用显式读取候选文件，经 `compileWorkflow` + 1N0E `browser-receipt` 图执行；缺文件、坏 JSON、坏 schema/heads/wires/weights 或状态非 `uncalibrated/not_applied` 显式拒绝，不落入语义 `unknown`，不复用旧内存 profile 或内嵌默认权重。
+
+| 算子 | 输入 → 输出 | 显式配置/资源 | effects |
+| --- | --- | --- | --- |
+| `browser.receipt.infer` | receipt_request（显式 receipt 字段）→ receipt_result（回执知识预测+原输入） | 显式 `profilePath`，每次调用读取 | 无 |
+
+typed 合同由 `lib/adapters/browser/receipt-contract.ts` 维护：head `explicit_failure/explicit_success/unknown`，wire `bias/receipt.present/receipt.ok`，3×3 共 9 参数，schema `receipt-knowledge.experimental.v1`。合法投影仅 `[1,1,0]`、`[1,1,1]`、`[1,0,0]`；`receipt:null` 是语义 `unknown`。成员预测 `satisfaction` 恒为 null，不评价 Goal、不解释失败原因、不授权重试。候选文件留在原外置 run，不复制到源码、不提交默认权重；训练仍复用外置 `receiptUnit.infer/train` 与既有拟合证据。语义与公开接入登记在 `docs/browser-feedback-strategy.md`「回执结果知识」小节。
 ## 探索输入扩展
 
 实时观测节点资源可提供 `excludeRoots` 及 `excludeRootIds`；默认排除已知工具注释根，自己的 overlay 宿主继续由 `excludeHost` 提供。观测后在 adapter 边界调用共享纯呈现整形；`browser.qualify_live` 承载候选预处理，分类节点不重复整形。五项 nullable 呈现参数与十项关系/几何测量穿过采集、读取和 prepare；新增 wire 以显式 0 接入既有训练地址。完整算法与迁移由 `docs/basic-kinds-wiring.md` 维护，训练 I/O 由 `docs/training-workflow.md` 维护。

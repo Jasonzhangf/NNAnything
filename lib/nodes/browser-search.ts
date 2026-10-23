@@ -6,10 +6,12 @@ import {createWorkflowInputEvent} from '../core/events.js';
 import {loadWorkflow} from '../workflow/loader.js';
 import {compileWorkflow} from '../workflow/compiler.js';
 import {runWorkflow} from '../workflow/runner.js';
-import type {BrowserSearchBindings, BrowserSearchGoal, BrowserSearchResources, BrowserSearchEpisode, BrowserSearchObservation} from '../adapters/browser/search-contract.js';
-import {assertSearchBindings,knownEqual,readBrowserSearchObservation,searchContentFact} from '../adapters/browser/search-observation.js';
+import type {BrowserSearchBindings, BrowserSearchGoal, BrowserSearchResources, BrowserSearchEpisode,
+  BrowserSearchObservation, BrowserSearchSubmissionBaseline} from '../adapters/browser/search-contract.js';
+import {assertSearchBindings,captureSubmissionBaseline,knownEqual,readBrowserSearchObservation,searchContentFact} from '../adapters/browser/search-observation.js';
 
-interface Input {goal:BrowserSearchGoal;bindings:BrowserSearchBindings;maxResultReads:number}
+interface Input {goal:BrowserSearchGoal;bindings:BrowserSearchBindings;maxResultReads:number;
+  submissionBaseline?:BrowserSearchSubmissionBaseline|null}
 interface Stage extends BrowserSearchEpisode {input:Input;before:BrowserSearchObservation|null}
 const message=(error:unknown)=>error instanceof Error?error.message:String(error);
 const ports=['request','observed','recognized','decision','receipt','reobserved','verified','ended'].map(name=>({
@@ -26,7 +28,9 @@ export async function runBrowserSearchEpisode(input:Input,resources:BrowserSearc
   const action=input.goal.phase==='input'?'input':input.goal.phase==='submitted'?'submit':'read';
   const obligation={conditionRef:input.goal.phase,method:action==='input'?'input-value':action==='submit'?'submitted-query':'result-content',
     subjectRef:action==='input'?input.bindings.inputRef:action==='submit'?input.bindings.submitRef:input.bindings.collectionRef,
-    scopeRef:action==='read'?input.bindings.resultScopeRef:input.bindings.scopeRef,requiredFacts:action==='input'?['value','editable']:action==='submit'?['submittedQuery']:['resultsFor','content','batch'],freshness:'after_action' as const};
+    scopeRef:action==='read'?input.bindings.resultScopeRef:input.bindings.scopeRef,
+    requiredFacts:action==='input'?['value','editable']:action==='submit'?['submittedQuery','submittedRequestRef']:
+      ['resultsFor','submittedRequestRef','resultsRequestRef','collection.requestRef','content','batch'],freshness:'after_action' as const};
   const definitions:NodeDefinition[]=names.map((operator,index)=>({operator,version:'0.1.0-design',inputPorts:[ports[index]!],outputPort:ports[index+1]!,
     effects:index===0||index===4?['browser.read']:index===3?[action==='input'?'browser.nativeInputText':action==='submit'?'browser.nativeSubmit':'browser.read']:index===6?['filesystem.write']:[],
     acceptNonOkInputs:true,
@@ -35,18 +39,20 @@ export async function runBrowserSearchEpisode(input:Input,resources:BrowserSearc
       if(index===0){
         s={input,before:null,action,decisionSource:{id:resources.decision.id,source:resources.decision.source},decision:null,invocation:null,receipt:null,
           dispatchState:'not_dispatched',effectKnowledge:'none',state:null,executionErrors:[],collectionError:null,
+          submissionBaseline:input.submissionBaseline??null,
           observationFeedback:{obligation,status:'incomplete',observationId:null,evidenceRefs:[],unmetFacts:obligation.requiredFacts,errors:[]}};
         try {const before=readBrowserSearchObservation(await resources.observe({...obligation,freshness:'current'}));assertSearchBindings(before,input.bindings);
           if(!sameControl(before,await resources.currentControl()))throw Error('Initial search reference is stale');
-          s={...s,before};
+          s={...s,before,submissionBaseline:input.submissionBaseline===undefined?captureSubmissionBaseline(before):input.submissionBaseline};
         }catch(error){s=observationFailure(s,'observation_failed',message(error));}
       }else if(index===1&&s.before!==null){
         const host=s.before.input;
         if(host.tag!=='input'||host.type!=='text')s=failed(s,'unsupported_host','Only ordinary text input is enabled');
-        else if(s.before.access!=='available')s=failed(s,'access_unavailable',`Search access is ${s.before.access}`);
+        else if(action!=='read'&&s.before.access!=='available')s=failed(s,'precondition_unsatisfied',`Search access is ${s.before.access}`);
         else if(action!=='read'&&(host.editable.status!=='observed'||host.editable.value!==true))s=failed(s,'precondition_unsatisfied','Input editability is not confirmed');
       }else if(index===2&&s.before!==null&&s.executionErrors.length===0){
-        try{const decision=await resources.decision.select({goal:input.goal,state:{observation:s.before,checkedObservationId:null},bindings:input.bindings});
+        try{const decision=await resources.decision.select({goal:input.goal,state:{observation:s.before,checkedObservationId:null,
+          submissionBaseline:s.submissionBaseline},bindings:input.bindings});
           s={...s,decision};
           if(!decision||decision.kind!=='selected'||decision.action!==action)s=failed(s,'policy_deferred','Decision did not select the enabled current action');
           else if(action==='submit'&&!knownEqual(s.before!.input.value,input.goal.query))s=failed(s,'precondition_unsatisfied','Fresh input value differs from query; submit denied');
@@ -79,14 +85,20 @@ export async function runBrowserSearchEpisode(input:Input,resources:BrowserSearc
               if(!sameControl(post,await resources.currentControl())||post.revision<=s.before.revision||post.observationId===s.before.observationId)throw Error('Post-action observation is stale');
               if(!shouldRead||post.request!=='loading')break;
             }
-            s={...s,state:{observation:post!,checkedObservationId:shouldRead?post!.observationId:null}};
+            s={...s,state:{observation:post!,checkedObservationId:shouldRead?post!.observationId:null,
+              submissionBaseline:s.submissionBaseline}};
           }catch(error){s=observationFailure(s,'post_observation_failed',message(error));}
         }
       }else if(index===5&&s.state!==null){
         const post=s.state.observation;
         const unmet=action==='input'?['value','editable'].filter(key=>post.input[key as 'value'|'editable'].status!=='observed'):
-          action==='submit'?(post.submittedQuery.status==='observed'?[]:['submittedQuery']):
-          [...(post.resultsFor.status==='observed'?[]:['resultsFor']),...(post.collection.batch.status==='observed'?[]:['batch']),
+          action==='submit'?[...(post.submittedQuery.status==='observed'?[]:['submittedQuery']),
+            ...(post.submittedRequestRef.status==='observed'?[]:['submittedRequestRef'])]:
+          [...(post.resultsFor.status==='observed'?[]:['resultsFor']),
+            ...(post.submittedRequestRef.status==='observed'?[]:['submittedRequestRef']),
+            ...(post.resultsRequestRef.status==='observed'?[]:['resultsRequestRef']),
+            ...(post.collection.requestRef.status==='observed'?[]:['collection.requestRef']),
+            ...(post.collection.batch.status==='observed'?[]:['batch']),
             ...(searchContentFact(input.goal,post)==='unknown'?['content']:[])];
         s={...s,observationFeedback:{...s.observationFeedback,status:unmet.length?'incomplete':'satisfied',observationId:post.observationId,
           evidenceRefs:post.evidence.map(item=>item.id),unmetFacts:unmet,errors:[]}};

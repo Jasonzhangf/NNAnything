@@ -3,6 +3,7 @@ import type {BrowserObservationError, BrowserObservationFeedback, BrowserObserva
 import type {RecursiveGoalLimits} from '../../workflow/recursive-goal/contracts.js';
 
 export type BrowserSearchPhase = 'root' | 'input' | 'submitted' | 'results';
+export type BrowserSearchItemRole = 'main' | 'auxiliary' | 'unknown';
 export interface BrowserSearchGoal {
   readonly kind: 'BrowserSearch';
   readonly query: string;
@@ -32,20 +33,35 @@ export interface BrowserSearchObservation extends SingleActionControl {
   readonly submitRef: string;
   readonly submittedQuery: ActionObservation<string>;
   readonly resultsFor: ActionObservation<string>;
+  readonly submittedRequestRef: ActionObservation<string>;
+  readonly resultsRequestRef: ActionObservation<string>;
   readonly request: 'loading' | 'settled' | 'error' | 'unknown';
   readonly display: 'none' | 'old' | 'current' | 'empty' | 'partial' | 'unknown';
   readonly access: 'available' | 'login_required' | 'challenge' | 'unknown';
   readonly collection: {
     readonly ref: string;
     readonly scopeRef: string;
-    readonly items: readonly {readonly ref: string; readonly text: ActionObservation<string>}[];
+    readonly requestRef: ActionObservation<string>;
+    readonly items: readonly {
+      readonly ref: string;
+      readonly collectionRef: string;
+      readonly role: BrowserSearchItemRole;
+      readonly text: ActionObservation<string>;
+    }[];
     readonly batch: ActionObservation<string>;
   };
   readonly evidence: readonly {readonly id: string; readonly source: string; readonly fact: unknown}[];
 }
+export interface BrowserSearchSubmissionBaseline {
+  readonly submittedRequestRef: string | null;
+  readonly resultsRequestRef: string | null;
+  readonly batchRef: string | null;
+  readonly observedSubmission: boolean | null;
+}
 export interface BrowserSearchState {
   readonly observation: BrowserSearchObservation;
   readonly checkedObservationId: string | null;
+  readonly submissionBaseline: BrowserSearchSubmissionBaseline | null;
 }
 export interface BrowserSearchRequest {
   readonly requestId: string;
@@ -86,6 +102,7 @@ export interface BrowserSearchEpisode {
   readonly receipt: BrowserSearchNativeReceipt | null;
   readonly dispatchState: 'not_dispatched' | 'dispatched' | 'unknown';
   readonly effectKnowledge: 'none' | 'known' | 'unknown';
+  readonly submissionBaseline: BrowserSearchSubmissionBaseline | null;
   readonly state: BrowserSearchState | null;
   readonly observationFeedback: BrowserObservationFeedback;
   readonly executionErrors: readonly BrowserObservationError[];

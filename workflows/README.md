@@ -29,6 +29,7 @@
 | `browser-single-action-training.graph.json` | `browser-single-action-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 独立50参数关系/能力profile；准备、family分区、Handwired拟合、比较、评价、保存；候选未采用，沿浏览器单次训练合同 |
 | `browser-feedback.graph.json` | `browser-feedback.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0.0000`，已实现 | 解释上次真实执行及后验；原事实/错误保留，诊断不替代目标验收 |
 | `browser-feedback-training.graph.json` | `browser-feedback-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合 | 3×12独立反馈参数已完成拟合与回载；F1候选未采用，不改原子50参数或独立F2策略20参数 |
+| `browser-receipt.graph.json` | `browser-receipt.workflow.json` | 1 节点 0 边 (1N0E SESE) | `0.1.0.0000`，已实现，候选未采用 | 回执三态知识公开入口：显式候选文件 → browser.receipt.infer → 回执知识；公开入口 `nnanything/browser-receipt`；9参数候选沿用外置run，不重训 |
 | `browser-strategy-step.graph.json` | `browser-strategy-step.workflow.json` | 5 节点 4 边 (5N4E SESE) | `0.1.0.0000`，已实现并完成限定原生行为验收 | 当前策略与候选自身反馈→一次原子执行→真实回执；多轮仅由既有递归runner管理 |
 | `browser-strategy-training.graph.json` | `browser-strategy-training.workflow.json` | 6 节点 6 边 (6N6E SESE) | `0.1.0.0000`，已实现并真实拟合；候选未采用 | 20参数共享候选竞争，原子/F1固定，当前步监督不训练n与继续；原oracle失败与前提裁决沿F2合同保留 |
 
@@ -145,6 +146,8 @@ flowchart TD
 ## 实时网页标注与采集
 
 `browser-search.workflow.json`为普通text输入搜索原子步的持久绑定，复用`operation-episode.graph.json`闭合7N6E，operator版本仍为`0.1.0-design`，不修改既有设计图版本。领域运行实现由`lib/nodes/browser-search.ts`提供；多步条件由既有recursive-goal 3N2E控制，纯评价不触发观察。公开入口`nnanything/browser-search`及consumer见[搜索说明](../playground/browser/search/README.md)。设计版本图的可执行领域切片不代表该图所有浏览器行为均已实现。
+
+`browser-input.workflow.json`是B2单次文本输入的独立持久绑定，同样引用`operation-episode.graph.json`（7N6E），不新建拓扑。领域运行实现由`lib/nodes/browser-input.ts`提供，公开入口`nnanything/browser-input`，新进程consumer见[输入说明](../playground/browser/input/README.md)。它只做显式绑定普通`input type=text`的一次写入与真实读回，不含搜索的提交、结果集合或组合语义；真实浏览器52例验收状态以项目`note.md`为准，静态绑定不替代行为证据。
 
 `browser-visual-overlay.graph.json` 是 4N3E 实际绑定图：`browser.observe_live` → `browser.qualify_live` → `browser.classify_live` → `overlay.present`。`browser-capture.graph.json` 为 1N0E 的 `browser.capture`。版本均为 0.1.0，使用同一 compiler/runner 与 Flowed 浏览器构建。滚动、页面变化和 Focus 变更触发新运行，不添加回边。图在构建时明确传入，Document、profile、Focus、present/download 与采集会话由 consumer 注入。
 

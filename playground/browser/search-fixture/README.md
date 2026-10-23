@@ -35,6 +35,20 @@ node playground/browser/search-fixture/server.mjs --port 4173
 - `http://127.0.0.1:4173/?profile=mixed&scenario=ai-first`
 - `http://127.0.0.1:4173/?profile=mixed&scenario=invalid`
 
+独立家族 B 入口：
+
+```sh
+node playground/browser/search-fixture/server.mjs --port 4173
+```
+
+- `http://127.0.0.1:4173/family-b/`
+- `http://127.0.0.1:4173/family-b/?scenario=race`
+- `http://127.0.0.1:4173/family-b/?scenario=two-matches`
+
+家族 B 使用独立 HTML、独立 `client.js`、`<ol>/<li>` 主结果和 `<aside>` 旁栏，
+不导入家族 A 的 renderer 或客户端状态机。它只与家族 A 共用 case 清单、验收合同
+和只读观测工具。
+
 事件行为（输入读回、重置、AI/主列表异步与迟到隔离）需要真实键鼠在页面操作；HTTP静态内容只证明配置与场景可被同一renderer渲染。
 
 真实浏览器验收及交付证据由项目[note.md](../../../../note.md)维护。训练、回载、真实跨站评价和采用继续沿既有领域合同；本环境支持textarea/search宿主不表示旧InputTextValue运行能力已扩展。
