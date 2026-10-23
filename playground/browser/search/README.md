@@ -8,4 +8,26 @@ The IO module exports `resources` or `createResources(request)`. Resources provi
 
 `runBrowserSearchGoal` retains the root and derives input, submission and result-check conditions through the existing recursive controller. Each current step runs the existing 7N6E operation workflow. Input is read back before a later submission. Submission rechecks the current actual input. Results must belong to the current query and declared collection and satisfy the content condition. Bounded result reads can wait for loading; exhaustion cannot imply completion. Collection errors remain separate from observed facts.
 
+The current search slice records `submittedRequestRef`, `resultsRequestRef`, and a submission baseline. A submitted result requires a new observable submission instance relative to the baseline. Results additionally require the current response and collection batch to point at that same instance. When the page does not expose these application-observable relations, the fact stays `unknown`; equal query text is never a fallback to satisfaction.
+
 Only ordinary `input type=text` is enabled. Textarea, search input and contenteditable are explicitly unsupported in this slice. Pagination, scrolling, filters, arbitrary semantic relevance and multi-site learned binding remain future capabilities. The injected decision provider is replaceable; an invalid selection is rejected and never corrected into an unrequested action. This release uses a handwired initial decision, with no search training or adopted search weights.
+
+## Two-family acceptance
+
+Start the fixture service on the host, then run the bounded acceptance entry against an
+authorized CDP endpoint:
+
+```sh
+node playground/browser/search/accept.mjs \
+  --family all \
+  --cdp http://127.0.0.1:9444 \
+  --origin http://127.0.0.1:4173 \
+  --out /absolute/b-search-acceptance
+```
+
+The runner creates one new CDP target and one public consumer process per row. It
+keeps its original exit code, writes request/case/stdout/stderr/episode/error evidence
+under each case directory, and writes `rows.jsonl` plus `table.md`. Expected and actual
+values are compared only after the consumer process exits. A non-zero behavioral result
+is normal when the row expects failure, uncertainty, or an execution/observation error.
+`verify.mjs` is a compatibility entry for the same implementation.

@@ -1122,6 +1122,13 @@ function verifiedEffect(
 ): AtomicEffectReceipt<BrowserStrategyEffect> {
   const browser = result.newState ?? input.state.browser;
   const evidenceRefs = Object.freeze(browser.evidence.map(item => item.id));
+  if (result.atomic?.dispatchState === "not_dispatched") {
+    return Object.freeze({
+      knowledge: "none",
+      confirmedEffects: Object.freeze([]),
+      receiptRef: `browser.strategy.not-dispatched:${browser.observationId}`,
+    });
+  }
   if (result.atomic?.effectKnowledge === "unknown"
     || result.atomic?.receipt?.effectKnowledge === "unknown") {
     return Object.freeze({
@@ -1213,7 +1220,16 @@ function atomicReceipt(
 > {
   const feedback = result.atomic?.observationFeedback;
   // Invalid raw observations remain in sourceResult, never in trusted root State.
-  const validPost = feedback === undefined || (feedback.status === "satisfied"
+  // A typed native rejection that returned a receipt was decided after the live
+  // control recheck, so nothing was dispatched and the pre-dispatch observation
+  // is still current. Rejections that could not confirm the live control
+  // (stale_reference, control_unavailable) carry no receipt and must keep their
+  // own unknown state instead of promoting an unverified observation.
+  const rejectionReceipt = result.atomic?.receipt ?? null;
+  const notDispatched = result.atomic?.dispatchState === "not_dispatched"
+    && rejectionReceipt !== null
+    && rejectionReceipt.effectKnowledge === "none";
+  const validPost = feedback === undefined || notDispatched || (feedback.status === "satisfied"
     && feedback.observationId === result.atomic?.newState?.observationId);
   const state = validPost ? newStateFromStep(input, result, strategy) : null;
   const effect = verifiedEffect(input, result, strategy);

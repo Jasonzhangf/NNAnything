@@ -16,13 +16,13 @@
 
 ## 四元素与对象结构
 
-Goal是在显式范围内获取属于已提交查询、满足内容及覆盖条件的结果。精确子目标满足度为100，明确不满足为0，证据不足为null；根目标沿实际任务阈值和必要条件判断，不将子分数相加。State包含输入草稿、已提交查询、结果所属查询、加载/错误/阻断、当前批次及覆盖、文档/观测版本与关系证据。Action为当前输入、提交、读取、翻页、展开或重试。每步New State须重新观测，动作已发出不等于目标达成。
+Goal是在显式范围内获取属于已提交查询、满足内容及覆盖条件的结果。精确子目标满足度为100，明确不满足为0，证据不足为null；根目标沿实际任务阈值和必要条件判断，不将子分数相加。State包含输入草稿、已提交查询、结果所属查询、提交实例引用、响应批次引用、加载/错误/阻断、当前批次及覆盖、文档/观测版本与关系证据。Action为当前输入、提交、读取、翻页、展开或重试。每步New State须重新观测，动作已发出不等于目标达成。
 
 | 对象 | 稳定结构 | 关键边界 |
 | --- | --- | --- |
 | SearchScope | 编辑宿主、提交/过滤控制、结果集合及关联 | 旁边的评论框或备注不是查询宿主 |
-| QueryState | draft、submitted、resultsFor、requestRevision，以及请求/显示/访问状态 | 输入相等不证明提交，旧结果不能归新查询；空文案可与登录阻断并存 |
-| Collection | 集合引用、当前批次、顺序、hasMore、可见/已检查范围 | 当前批次完成不等于全部覆盖；条数不是全量完成证明 |
+| QueryState | draft、submitted、resultsFor、submittedRequestRef、resultsRequestRef、requestRevision，以及请求/显示/访问状态 | 输入相等不证明提交，旧结果不能归新查询；空文案可与登录阻断并存；提交实例和当前响应必须可辨 |
+| Collection | 集合引用、批次引用、批次归属、顺序、hasMore、可见/已检查范围 | 当前批次完成不等于全部覆盖；条数不是全量完成证明；集合成员必须有明确归属 |
 | ResultItem | 可独立读取的内容实体、可选字段和嵌套对象 | 不固定为某站帖子或标题摘要链接三元组 |
 | ContentField | title/body/source/author/time/media/metric等可选槽位 | 正文可以没有标题；头像不等于正文图片；缺失不等于未观测 |
 | Relation | owned、nested、citation、control，以及查询/集合关联 | DOM包含不是归属真值，引用来源不重复算搜索结果 |
@@ -89,6 +89,16 @@ fixture的字段role、item key和结构属于应用源/teacher，不能作为�
 
 观察条件是必需下限。模型若未选择足够观察项，harness返回未完成的观察义务，不替模型猜测对象，也不能继续依赖它的动作。观测成功但未变化、观测不足/失败、执行拒绝、发生其他效果、目标达成是不同反馈。静态或未变化页面也要执行必要的读回；超时不是“无效果”的证明。反馈引起只读补证或重新选择时仍受现有预算、权限与effects控制。
 
+### 提交实例、响应批次与集合归属（2026-10-22 B-Search 补正）
+
+根请求初次观察保存`submissionBaseline`，记录当时可观察的`submittedRequestRef`、`resultsRequestRef`和`collection.batch`，以及当时是否存在已提交实例。后续`submitted`事实必须同时满足：`submittedRequestRef`已观察、与基线不是同一提交实例、`submittedQuery`与根查询精确相等。基线缺失或初次提交是否存在不明时，只能返回unknown。
+
+`results`事实必须同时满足：当前`resultsRequestRef`与本次`submittedRequestRef`相同；`collection.requestRef`也指向同一提交；`collection.batch`已观察；`resultsFor`与根查询精确相等；当前主集合成员已按声明覆盖读取。缺少任一关联返回unknown。旧响应、迟到响应、错误批次或不同集合批次与本次提交明确冲突时，不得满足。响应文本与查询相同、URL/标题变化、observationId或revision更新、fixture scenario名称都不能替代提交实例和响应关联。
+
+若提交基线中已存在响应批次，当前批次仍与其相同也属于旧批次冲突，返回unsatisfied；基线没有批次时只要求批次可观察且与本次提交关联。
+
+主集合成员带有集合引用与角色。只有`collectionRef`等于根绑定集合且角色为main的独立条目可参与匹配计数；aside、AI、相关查询和引用角色不计数。角色或集合归属未知时，unknown不计为负例，也不能补成主集合匹配。批次只证明本次已读取的响应范围，不证明分页全量或全网覆盖。
+
 ### 学习拆分与逐步样本
 
 保留既有四类slot，按责任拆小任务，不另造单一“搜索成功”分类头。固定的观察义务、精确值比较、证据当前性和循环控制不训练。以下学习任务统一infer/train生命周期，尚未有数值wire、样本集、拟合或运行绑定；在可辨输入与独立评价完成前保持未就绪。
@@ -120,7 +130,7 @@ fixture的字段role、item key和结构属于应用源/teacher，不能作为�
 
 ## 本轮最小运行接入合同
 
-实施先交普通text input的精确搜索切片：调用者显式绑定输入/提交/结果范围和证据，提供原生IO、观察方式、固定内容条件、已显示范围的覆盖要求及预算。公开`nnanything/browser-search`入口`runBrowserSearchGoal`在现有recursive-goal内推进，每个原子步复用7N6E，持久绑定配置为`workflows/browser-search.workflow.json`；不新增控制循环或站点解析分支。实现/验收状态以note.md与本轮回执为准，不从本段推断已完成。
+实施先交普通text input的精确搜索切片：调用者显式绑定输入/提交/结果范围和证据，提供原生IO、观察方式、固定内容条件、已显示范围的覆盖要求及预算。公开`nnanything/browser-search`入口`runBrowserSearchGoal`在现有recursive-goal内推进，每个原子步复用7N6E，持久绑定配置为`workflows/browser-search.workflow.json`；不新增控制循环或站点解析分支。本轮补正`submittedRequestRef`、`resultsRequestRef`、`submissionBaseline`、`collection.requestRef`与`collection.batch`的最小typed表达。实现/验收状态以note.md与本轮回执为准，不从本段推断已完成。
 
 决策资源显式为手写起点，可替换兼容provider；只选择当前已启用动作，guard只拒绝非法输出，不能替错选模型补成正确动作。原子50/F1 36/F2 20参数profile只用于其原合同回归，不承接搜索或输入新语义。此轮不拟合新模型；先用同输入/同候选新进程回放，分开报告采集修复、参数退化及新语义尚未训练。新输入、连线或监督需要真实训练时，沿既有单元升级流程，不以延长epoch或改gold掩盖缺口。
 

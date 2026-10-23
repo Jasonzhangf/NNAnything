@@ -32,12 +32,45 @@ import {
 
 export interface StableNodeRefRegistry {
   readonly refByElement: WeakMap<Element, string>;
+  // Source identity of this ref namespace. Observations carry it so a later
+  // comparison can tell the same source from a different one.
+  readonly registryRef: string;
   readonly elementByRef: Map<string, WeakRef<Element>>;
   readonly nextSequence: { value: number };
   readonly prefix: string;
 }
+// The source identity must stay unique across module instances and processes,
+// because two independent producers can observe the same document. A module
+// counter is not enough: a second copy of this module, or another process,
+// restarts it from one. A random value is unique per registry in every realm.
+//
+// randomUUID is restricted to secure contexts, and a page served over http is
+// not one, so the random bytes come from getRandomValues when it is absent.
+function newRegistryRef(prefix: string): string {
+  const crypto = globalThis.crypto;
+  if (crypto === undefined) {
+    throw new TypeError("registry source identity requires a crypto random source");
+  }
+  if (typeof crypto.randomUUID === "function") return `${prefix}#${crypto.randomUUID()}`;
+  if (typeof crypto.getRandomValues !== "function") {
+    throw new TypeError("registry source identity requires a crypto random source");
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const version = (bytes[6] ?? 0) & 0x0f;
+  const variant = (bytes[8] ?? 0) & 0x3f;
+  bytes[6] = version | 0x40;
+  bytes[8] = variant | 0x80;
+  const hex = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+  return `${prefix}#${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 export function createStableNodeRefRegistry(prefix = "node"): StableNodeRefRegistry {
-  return { prefix, refByElement: new WeakMap(), elementByRef: new Map(), nextSequence: { value: 0 } };
+  return {
+    prefix,
+    registryRef: newRegistryRef(prefix),
+    refByElement: new WeakMap(),
+    elementByRef: new Map(),
+    nextSequence: { value: 0 },
+  };
 }
 export function stableNodeRefFor(registry: StableNodeRefRegistry, element: Element): string {
   let ref = registry.refByElement.get(element);
@@ -65,6 +98,8 @@ export interface LiveCaptureCoverage {
   readonly unassessedOpenShadowRootCount: number;
   readonly closedShadowRootDetection: "not_available";
 }
+export type AccessibleNameCoverage = "complete" | "truncated" | "unavailable";
+export type ReadonlyState = "readonly" | "editable" | "conflict";
 export interface LiveDomEvidence {
   readonly nodeRef: string;
   readonly tag: string;
@@ -72,6 +107,24 @@ export interface LiveDomEvidence {
   readonly classList: readonly string[];
   readonly textSummary: string | null;
   readonly linkPathname: string | null;
+  readonly inputValue: string | null;
+  readonly placeholder: string | null;
+  readonly mediaSrc: string | null;
+  readonly mediaType: "video" | "audio" | null;
+  readonly accessibleName: string | null;
+  readonly accessibleNameSource: "aria-labelledby" | "aria-label" | "title" | null;
+  // A name is not a summary: textSummary stops at 180 characters, so a name built
+  // from a long label reports its own coverage instead of silently truncating.
+  readonly accessibleNameCoverage: AccessibleNameCoverage | null;
+  readonly labelledByRefs: readonly string[];
+  readonly labelledByUnresolved: boolean;
+  // readOnly keeps the native and declared sources apart. A native input that
+  // only carries aria-readonly="true" stays editable, so the two facts are
+  // reported separately and a disagreement is an explicit conflict.
+  readonly readonlyState: ReadonlyState | null;
+  // The selected attribute is only the default declaration; the live choice is
+  // the selected property. Both are reported so they cannot be confused.
+  readonly selectedDeclaration: boolean | null;
   readonly rect: Rect | null;
   readonly clippedRect: Rect | null;
   readonly parentTags: readonly string[];
@@ -133,6 +186,50 @@ function safeText(root: Element): string | null {
     else if (node.nodeType === 1 && !["INPUT", "TEXTAREA", "SCRIPT", "STYLE"].includes((node as Element).tagName)) stack.push(...Array.from(node.childNodes).reverse());
   }
   return text.trim() || null;
+}
+// A name is not a summary. textSummary stops at 180 characters for display, so
+// name resolution reads the full text up to an explicit supported limit and
+// reports truncation instead of silently cutting the name.
+const NAME_TEXT_LIMIT = 1024;
+// readOnly applies to textarea and to text-like input types. These listed types
+// carry a readonly attribute without a native readonly constraint. An absent or
+// unrecognised type is text-like per HTML, so it stays applicable.
+// The authored type attribute is the source of truth; a live input also
+// normalises it into the type property, so either source answers the same
+// question. An absent or unrecognised type is text-like per HTML.
+function inputTypesOf(element: Element): readonly string[] {
+  const attribute = element.getAttribute("type");
+  const property = (element as HTMLInputElement).type;
+  const types = [attribute, property].filter((value): value is string => typeof value === "string" && value !== "");
+  return types.map(value => value.toLowerCase());
+}
+
+function inputTypeOf(element: Element): string {
+  return inputTypesOf(element)[0] ?? "";
+}
+
+const READONLY_INAPPLICABLE_INPUT_TYPES: ReadonlySet<string> = new Set([
+  "checkbox", "radio", "range", "color", "file", "submit", "reset", "button",
+  "image", "hidden",
+]);
+function fullText(element: Element, limit: number): { text: string; truncated: boolean } {
+  let text = "";
+  const stack: Node[] = [element];
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (node.nodeType === 3) {
+      text += node.textContent ?? "";
+      if (text.length >= limit) return { text: text.slice(0, limit), truncated: true };
+    } else if (node.nodeType === 1 && !["INPUT", "TEXTAREA", "SCRIPT", "STYLE"].includes((node as Element).tagName)) {
+      stack.push(...Array.from(node.childNodes).reverse());
+    }
+  }
+  return { text, truncated: false };
+}
+function boundedNameText(text: string): { text: string; coverage: AccessibleNameCoverage } {
+  const trimmed = text.trim();
+  if (trimmed.length <= NAME_TEXT_LIMIT) return { text: trimmed, coverage: "complete" };
+  return { text: trimmed.slice(0, NAME_TEXT_LIMIT), coverage: "truncated" };
 }
 function readableActiveElement(document: Document): Element | null {
   let candidate: unknown;
@@ -2299,6 +2396,9 @@ export function observeLiveDom(input: {
   document: Document; window: Window; registry: StableNodeRefRegistry; excludeRoot: Element | null;
   excludeRoots?: readonly (Element | null)[]; excludeRootIds?: readonly string[];
   snapshotRef: string; documentRef: string;
+  // Ordinary content reads are explicit. Classification capture and the overlay
+  // path never read form values, so a password field can never reach a bundle.
+  readContent?: boolean;
   maxRelationHops?: number;
   diagnostic?: {
     selectedRefs: ReadonlySet<string>;
@@ -2309,6 +2409,7 @@ export function observeLiveDom(input: {
   const { document, window, registry } = input;
   const nodes: ObservationNode[] = [], itemObservations: ({ nodeRef: string } & BasicKindMeasurements)[] = [];
   const properties = new Map<string, BasicKindProperties>(), evidence = new Map<string, LiveDomEvidence>();
+  const pendingAccessibleNames: { nodeRef: string; targets: { token: string; element: Element | null }[] }[] = [];
   const elementByRef = new Map<string, Element>(), participating = new Map<Element, PaintParticipation>();
   const styleByElement = new Map<Element, CSSStyleDeclaration>();
   const ancestryByElement = new Map<Element, Element | null>();
@@ -2365,13 +2466,48 @@ export function observeLiveDom(input: {
     const fragments = visible ? Array.from(element.getClientRects(), rectOf) : [];
     const clippedRect = clippedBox(element, window, rect, fragments, document, ancestryByElement, readClippedBoxCss);
     const attributes: Record<string, string | boolean> = {};
-    for (const key of ["aria-disabled", "aria-expanded", "aria-hidden", "aria-selected", "contenteditable", "disabled", "hidden", "tabindex"]) {
+    for (const key of ["aria-disabled", "aria-expanded", "aria-hidden", "aria-selected", "aria-checked", "aria-readonly", "contenteditable", "disabled", "hidden", "readonly", "open", "selected", "tabindex"]) {
       const value = element.getAttribute(key);
       if (value !== null && isSafeRuleAttribute(key)) attributes[key] = value;
     }
     // Complete live DOM observation makes absent HTML boolean attributes known false.
     attributes.disabled = element.hasAttribute("disabled");
     attributes.hidden = element.hasAttribute("hidden");
+    // readOnly is a native constraint on editable hosts. A declared
+    // aria-readonly is a separate fact: an input with only that declaration can
+    // still be editable, so the native state and the declaration never merge.
+    // Applicability is part of the fact: readOnly does not apply to checkbox,
+    // radio, range, color, file or the button types, so a readonly attribute
+    // there is a declaration without a native constraint and stays out of the
+    // state.
+    const readonlyHostTypes = tag === "input" ? inputTypesOf(element) : [];
+    const readonlyApplies = tag === "textarea"
+      || (tag === "input" && !readonlyHostTypes.some(value => READONLY_INAPPLICABLE_INPUT_TYPES.has(value)));
+    const nativeReadonly = readonlyApplies ? element.hasAttribute("readonly") : null;
+    if (nativeReadonly !== null) attributes.readonly = nativeReadonly;
+    const declaredReadonlyAttribute = element.getAttribute("aria-readonly");
+    const declaredReadonly = declaredReadonlyAttribute === "true" ? true : declaredReadonlyAttribute === "false" ? false : null;
+    // Two sources that disagree are a conflict in either direction; a single
+    // source decides the state and silence means editable.
+    const readonlyState: ReadonlyState | null = nativeReadonly === null
+      ? null
+      : declaredReadonly === null || declaredReadonly === nativeReadonly
+        ? nativeReadonly ? "readonly" : "editable"
+        : "conflict";
+    // Checked is a live choice state, not an attribute; only choice inputs carry it.
+    if (tag === "input" && ["checkbox", "radio"].includes((element as HTMLInputElement).type)) attributes.checked = (element as HTMLInputElement).checked;
+    // Expanded declared state: details open attribute is the native declaration.
+    if (tag === "details") attributes.open = element.hasAttribute("open");
+    // Selected is the current choice, not the default declaration. The selected
+    // attribute records the initial default and does not follow user changes,
+    // so only the live HTMLOptionElement.selected property is read. The default
+    // declaration is kept apart in evidence below.
+    let selectedDeclaration: boolean | null = null;
+    if (tag === "option") {
+      const currentSelected = (element as HTMLOptionElement).selected;
+      if (typeof currentSelected === "boolean") attributes.selected = currentSelected;
+      selectedDeclaration = element.hasAttribute("selected");
+    }
     const role = element.getAttribute("role");
     const positiveAreaChildren = children.filter(child => { const r = child.getBoundingClientRect(); return r.width > 0 && r.height > 0; });
     const rawDirectText = Array.from(element.childNodes).filter(node => node.nodeType === 3).map(node => node.textContent ?? "").join("");
@@ -2464,7 +2600,91 @@ export function observeLiveDom(input: {
     if (tag === "iframe") { frames++; unassessedChildContent.push("iframe"); }
     if (tag === "object") { objects++; unassessedChildContent.push("object_content"); }
     if (element.shadowRoot) { shadows++; unassessedChildContent.push("shadow_root"); }
-    evidence.set(nodeRef, { nodeRef, tag, id: element.id || null, classList: Array.from(element.classList), textSummary: safeText(element), linkPathname, rect, clippedRect, parentTags: parents, unassessedChildContent });
+    const inputElement = element as HTMLInputElement;
+    const isInputHost = tag === "input" || tag === "textarea" || tag === "select";
+    // Values are only read when the caller asks for ordinary content
+    // explicitly. Sensitive hosts are refused even then: a password or file
+    // field value never leaves the page through this adapter, readContent or
+    // not. Plain text-like inputs, textarea and select stay readable.
+    // Either source can name the type, and a sensitive type in either source is
+    // enough to refuse the read.
+    const inputTypes = tag === "input" ? inputTypesOf(element) : [];
+    const sensitiveInput = inputTypes.some(value => value === "password" || value === "file");
+    const inputValue = input.readContent === true && isInputHost && !sensitiveInput
+      ? (inputElement.value !== undefined ? inputElement.value : null)
+      : null;
+    const placeholder = tag === "input" || tag === "textarea" ? (element.getAttribute("placeholder") ?? null) : null;
+    const mediaElement = element as HTMLMediaElement;
+    const mediaSrc = tag === "video" || tag === "audio" ? (mediaElement.currentSrc !== undefined && mediaElement.currentSrc !== "" ? mediaElement.currentSrc : (element.getAttribute("src") ?? null)) : null;
+    const mediaType = tag === "video" ? "video" : tag === "audio" ? "audio" : null;
+    // F09: accessible name is a separate value from the display text. Resolve
+    // aria-labelledby to node refs (never to matching text), so two objects with
+    // the same wording never cross-bind. References are bound after the whole
+    // traversal, so a forward reference is not mistaken for a missing one.
+    let labelledByUnresolved = false;
+    let accessibleName: string | null = null;
+    let accessibleNameSource: LiveDomEvidence["accessibleNameSource"] = null;
+    let accessibleNameCoverage: AccessibleNameCoverage | null = null;
+    let nameTargets: { token: string; element: Element | null }[] = [];
+    if (!svgTarget) {
+      const labelledBy = element.getAttribute("aria-labelledby");
+      if (labelledBy !== null) {
+        accessibleNameSource = "aria-labelledby";
+        // A repeated token names the same target once. Keeping duplicates would
+        // repeat the same wording in the name and the same ref in the list.
+        const tokens = [...new Set(labelledBy.split(/\s+/).filter(Boolean))];
+        nameTargets = tokens.map(token => ({
+          token,
+          element: typeof document.getElementById === "function" ? document.getElementById(token) : null,
+        }));
+        pendingAccessibleNames.push({ nodeRef, targets: nameTargets });
+      } else {
+        const ariaLabel = element.getAttribute("aria-label");
+        const title = element.getAttribute("title");
+        const declared = hasNonFormatDirectText(ariaLabel) === true ? { text: ariaLabel!, source: "aria-label" as const }
+          : hasNonFormatDirectText(title) === true ? { text: title!, source: "title" as const }
+            : null;
+        if (declared !== null) {
+          const read = boundedNameText(declared.text);
+          accessibleName = read.text;
+          accessibleNameSource = declared.source;
+          accessibleNameCoverage = read.coverage;
+        }
+      }
+    }
+    const labelledByRefs: string[] = [];
+    evidence.set(nodeRef, { nodeRef, tag, id: element.id || null, classList: Array.from(element.classList), textSummary: safeText(element), linkPathname, inputValue, placeholder, mediaSrc, mediaType, accessibleName, accessibleNameSource, accessibleNameCoverage, labelledByRefs, labelledByUnresolved, readonlyState, selectedDeclaration, rect, clippedRect, parentTags: parents, unassessedChildContent });
+  }
+  // Resolve labelledby names after the traversal so a forward reference sees
+  // its target. Reference targets bind by nodeRef; identical wording in two
+  // different nodes never cross-binds. A long label reports truncated coverage
+  // instead of passing a summary off as a complete name.
+  for (const pending of pendingAccessibleNames) {
+    const current = evidence.get(pending.nodeRef);
+    if (!current) continue;
+    const refs: string[] = [];
+    const parts: string[] = [];
+    let unresolved = false, truncated = false, budget = NAME_TEXT_LIMIT;
+    const boundRefs = new Set<string>();
+    for (const target of pending.targets) {
+      if (target.element === null) { unresolved = true; continue; }
+      const ref = registry.refByElement.get(target.element);
+      if (ref === undefined || !elementByRef.has(ref)) { unresolved = true; continue; }
+      // Different tokens can resolve to one element. A target names itself once.
+      if (boundRefs.has(ref)) continue;
+      boundRefs.add(ref);
+      refs.push(ref);
+      const read = fullText(target.element, budget);
+      if (read.truncated) truncated = true;
+      const piece = read.text.trim();
+      if (piece !== "") { parts.push(piece); budget = Math.max(0, budget - piece.length - 1); }
+    }
+    const name = parts.join(" ").trim();
+    const coverage: AccessibleNameCoverage = truncated ? "truncated" : refs.length === 0 ? "unavailable" : "complete";
+    evidence.set(pending.nodeRef, {
+      ...current, accessibleName: name === "" ? null : name, accessibleNameCoverage: coverage,
+      labelledByRefs: refs, labelledByUnresolved: unresolved,
+    });
   }
   // Focus is a single-document fact. A readable observed active element gives
   // true for its node and false for every other observed node; a missing or

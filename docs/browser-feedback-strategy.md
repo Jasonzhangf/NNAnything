@@ -48,6 +48,14 @@ F2的候选评分和原子显式策略接入、递归控制扩展须在F1通过�
 
 结论：在可信typed回执的三状态域内，隔离的基础语义可真实训练、回载，并与独立effects/Goal事实组合而不相互污染。三种学生特征全部在train出现；54项只证明未训练信封组合及输入隔离，不是未见特征泛化。历史8项不是本轮新操作或外站验收。新成员处理R5正确不修复旧F1，也不改变旧F1的23/24失败记录。候选继续uncalibrated/not_applied，自动采集/采用未接入。完整Review及main交付沿note.md；下一语义本轮不启动。
 
+### F12 公开接入（2026-10-21）
+
+按 docs/browser-foundation-plan.md 的 F12，本小节登记回执三态知识单元的公开入口，不重训、不改 head/wire/投影/矩阵/监督。公开入口为 `nnanything/browser-receipt`：`runBrowserReceiptInference(input, { profilePath })` 每次调用显式读取候选文件，经 `compileWorkflow` + 1N0E `browser-receipt` 图执行；缺文件、坏 JSON、坏 schema、坏 heads/wires/weights 或状态非 `uncalibrated/not_applied` 显式拒绝，不落入语义 `unknown`，也不复用旧内存 profile 或内嵌默认权重。
+
+typed 合同由 `lib/adapters/browser/receipt-contract.ts` 维护：head 为 `explicit_failure/explicit_success/unknown`，wire 为 `bias/receipt.present/receipt.ok`，3×3 共 9 参数，schema 为 `receipt-knowledge.experimental.v1`。合法投影仅 `[1,1,0]`、`[1,1,1]`、`[1,0,0]`；`receipt:null` 是语义 `unknown`，不表示观察到失败。成员预测 `satisfaction` 恒为 null，不评价 Goal、不解释失败原因、不授权重试。
+
+图与绑定为 `workflows/browser-receipt.graph.json` + `browser-receipt.workflow.json`，版本 `0.1.0.0000`，唯一算子 `browser.receipt.infer`。原始信封由 consumer 保留，不进入数值投影。候选文件留在原外置 run，不复制到源码、不提交默认权重。训练仍复用外置 `receiptUnit.infer/train` 与既有拟合证据；本次不新增生产训练入口。F12 作者验收与 review 状态沿 note.md 记录。
+
 ## F1结果与限制
 
 ### 2026-10-21 有限域后训练与有界鲁棒性验证
@@ -75,6 +83,18 @@ F2的候选评分和原子显式策略接入、递归控制扩展须在F1通过�
 F2不改权重：原train/development48/48且逐例不变；独立包仍22/24，两个既有single-candidate-defer前提问题保留rawFAIL。新增公开递归consumer的6类边界、7种变体7/7，覆盖不确定effects停止、已知其他effects不授权重试、明确拒绝、达成且报错、失效后验及空权限；其中一个故意错分的诊断profile验证F1标签不能越过控制边界，不计候选准确率。
 
 证据根为`/Volumes/Intel/playground/nnanything-runs/f1-robustness-20261021`：三轮fit回执、finite逐例、reload-audit.json、native-summary.json、holdout/first-evaluation.json、holdout/r5-correction-evaluation.json、f2-combination.json及完整失败资料均保留。最终候选为`fitted-coverage-budget-r1/candidate.json`，继续uncalibrated/not_applied；当前默认权重及用户扩展不变。作者全仓1031/1031零skip。结论限于声明有限域、受控原生行为和组合不变性；已证实一个未见投影泛化失败，独立外站操作仍未验证。整体Review及main交付回执由note.md维护。
+
+### 2026-10-22 B-Feedback 可辨性、R5 后训练与展开域验收 runner
+
+本轮先按计划做可辨性前置，再做一次固定预算后训练，最后准备公开展开域验收 runner。可辨性检查使用公开 `feedbackFeatures` 对本轮合法交叉资料生成完整 12 维投影表：422 行、63 个投影、0 个冲突 gold、72 对变换全部保持相同投影和相同 gold。因此本轮不涉及相同投影要求冲突标签，允许对既有 36 参数 F1 做一次后训练。
+
+R5 及三个变换仍是已知回归，并入 train 后不作为新留出计分。训练从旧候选 `fitted-coverage-budget-r1/candidate.json` 初始化，目标沿用 `class_balanced_projection_coverage`，学习率0.1、固定2700 epoch，不改 head、wire、gold、门限或采用规则。候选保存在外置 run 的 `training/f1/candidate.json`，继续 `uncalibrated/not_applied`，不自动采用。新进程回载覆盖 train、development、旧有限域、既有 72 项和 R5 四行。
+
+F2 保持 20 参数不变，改用新 F1 实际输出跑当前决策。负控制单列：同一合法历史上换用明确标注的错误诊断 F1 profile 使输出 `indeterminate`，断言 F2 的反馈特征确实变化且安全恢复入口停止；该诊断不计入候选准确率。
+
+展开域验收 runner 为 `playground/browser/feedback/accept-expanded.mjs`：17 个固定实例（C01、C02、C03、C04a、C04b、C05、C06、C07、C08、C09a、C09b、C10a、C10b、C11a、C11b、C11c、C11d）在两个互不共享 renderer 的独立页面家族各执行一次，共 34 条轨迹。每段独立新进程，只走 CDP 原生鼠标事件，故障注入一律标注 `injected:`。固定续跑实例按声明段数运行，其他实例沿 continuation 自然推进；续段报告回放历史 `atomicResults`，runner 按 `dispatchId` 与错误签名去重后校验 F1 和 effects。runner 落 `rows.jsonl`、`table.md` 与逐行 episode 与错误，保存原退出码，不把非零一律当故障。真实浏览器 34 条轨迹由父编排者在宿主 shell 执行；本仓库内只跑构建与单元测试。
+
+搜索域学习恢复仍未就绪。现有 F1/F2 是 SetExpanded 合同，无法表达输入值、查询归属和搜索结果状态。本轮不伪造 SetExpanded 投影，也不扩展合同来冒充搜索学习恢复。计划引用的 `docs/recursive-goal-module.toml` 不存在，实际唯一 owner 是 `docs/recursive-goal-module.md`，本轮只读该文件，不创建 TOML 副本。
 
 ### 2026-10-20 历史验收
 

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sample repair train focus fixture</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #eef1f6;
+      color: #172033;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 10px;
+    }
+    .app-shell {
+      max-width: 1360px;
+      margin: 0 auto;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      background: #ffffff;
+      border: 1px solid #c6d0e0;
+      border-radius: 5px;
+    }
+    .toolbar-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .parking {
+      margin-left: auto;
+      padding: 6px 14px;
+      border: 1px solid #2b5db8;
+      border-radius: 4px;
+      background: #2b5db8;
+      color: #ffffff;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .panel {
+      padding: 8px;
+      background: #ffffff;
+      border: 1px solid #c6d0e0;
+      border-radius: 5px;
+    }
+    .panel-title {
+      margin: 0 0 6px;
+      font-size: 12px;
+      font-weight: 650;
+      color: #33415a;
+    }
+    .panel-note {
+      margin: 0 0 8px;
+      font-size: 11px;
+      color: #596780;
+    }
+    .focus-row {
+      padding: 4px;
+      background: #ffffff;
+      border: 1px solid #d5dbe6;
+    }
+    .focus-row-caption {
+      margin: 0 0 4px;
+      font-size: 10px;
+      color: #5a6a84;
+    }
+    .focus-line {
+      min-height: 52px;
+    }
+    .focus-line.w1 {
+      padding: 8px;
+      background: #fafbfd;
+    }
+    .focus-line.w1 > span {
+      display: inline-block;
+      padding: 4px 8px;
+      background: #f2f5fb;
+    }
+    .focus-line.w2 {
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      min-height: 118px;
+      padding: 18px 14px 10px 14px;
+      background: #fafbfd;
+    }
+    .focus-line.w2 > span {
+      display: block;
+      max-width: 210px;
+      padding: 10px 14px;
+      background: #f2f5fb;
+      border-left: 6px solid #d7deea;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .focus-line.w3 {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 58px;
+      padding: 9px 10px;
+      background: #fafbfd;
+    }
+    .focus-line.w3 > span {
+      display: inline-block;
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 6px 8px;
+      background: #f2f5fb;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .ignore-row {
+      border-top: 1px solid #e2e7ef;
+      margin-top: 8px;
+      padding-top: 6px;
+    }
+    .ignore-caption {
+      margin: 0 0 4px;
+      font-size: 10px;
+      color: #6a7991;
+    }
+    .ignore-wrap {
+      min-height: 44px;
+      background: #fafbfd;
+      border: 1px dashed #d3dae6;
+    }
+    .ignore-wrap.w1 {
+      padding: 6px 8px;
+    }
+    .ignore-wrap.w2 {
+      display: flex;
+      align-items: flex-end;
+      justify-content: flex-end;
+      min-height: 96px;
+      padding: 14px;
+    }
+    .ignore-wrap.w3 {
+      display: flex;
+      gap: 6px;
+      padding: 8px;
+    }
+    .ignore-button {
+      display: inline-block;
+      padding: 4px 10px;
+      border: 1px solid #8fa0ba;
+      border-radius: 3px;
+      background: #eaf0f9;
+      color: #1d2c47;
+      font: inherit;
+      font-size: 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="toolbar">
+      <p class="toolbar-title">Focus container repair train fixture</p>
+      <button id="train-parking" class="parking" type="button" data-train-role="parking" data-train-key="train-parking">Park focus here</button>
+      <span class="panel-note">Real mouse only. No script focus.</span>
+    </div>
+
+    <div class="row">
+      <section class="panel" data-train-panel="w1-n1">
+        <p class="panel-title">W1 single child</p>
+        <div class="focus-row">
+          <p class="focus-row-caption">tabindex -1 positive</p>
+          <div class="focus-line w1" data-train-family="sample-repair-train" data-train-key="positive-w1-neg1" data-train-object="positive-w1-neg1" data-train-role="target" data-wrapper-type="W1" tabindex="-1">
+            <span data-train-child="1">Field label A</span>
+          </div>
+        </div>
+        <div class="ignore-row">
+          <p class="ignore-caption">W1 ignore control</p>
+          <div class="ignore-wrap w1" data-train-family="sample-repair-train" data-train-key="ignore-w1" data-train-object="ignore-w1" data-train-role="ignore-wrapper" data-wrapper-type="W1">
+            <button class="ignore-button" type="button" data-train-key="ignore-w1-action" data-train-role="action-child">Act</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-train-panel="w1-zero">
+        <p class="panel-title">W1 single child</p>
+        <div class="focus-row">
+          <p class="focus-row-caption">tabindex 0 positive</p>
+          <div class="focus-line w1" data-train-family="sample-repair-train" data-train-key="positive-w1-zero" data-train-object="positive-w1-zero" data-train-role="target" data-wrapper-type="W1" tabindex="0">
+            <span data-train-child="1">Field label B</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="row">
+      <section class="panel" data-train-panel="w2-n1">
+        <p class="panel-title">W2 single child, distinct geometry</p>
+        <div class="focus-row">
+          <p class="focus-row-caption">tabindex -1 positive</p>
+          <div class="focus-line w2" data-train-family="sample-repair-train" data-train-key="positive-w2-neg1" data-train-object="positive-w2-neg1" data-train-role="target" data-wrapper-type="W2" tabindex="-1">
+            <span data-train-child="1">Status panel note C</span>
+          </div>
+        </div>
+        <div class="ignore-row">
+          <p class="ignore-caption">W2 ignore control</p>
+          <div class="ignore-wrap w2" data-train-family="sample-repair-train" data-train-key="ignore-w2" data-train-object="ignore-w2" data-train-role="ignore-wrapper" data-wrapper-type="W2">
+            <button class="ignore-button" type="button" data-train-key="ignore-w2-action" data-train-role="action-child">Save</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-train-panel="w2-zero">
+        <p class="panel-title">W2 single child, distinct geometry</p>
+        <div class="focus-row">
+          <p class="focus-row-caption">tabindex 0 positive</p>
+          <div class="focus-line w2" data-train-family="sample-repair-train" data-train-key="positive-w2-zero" data-train-object="positive-w2-zero" data-train-role="target" data-wrapper-type="W2" tabindex="0">
+            <span data-train-child="1">Status panel note D</span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="row">
+      <section class="panel" data-train-panel="w3-n1">
+        <p class="panel-title">W3 multiple children</p>
+        <div class="focus-row">
+          <p class="focus-row-caption">tabindex -1 positive</p>
+          <div class="focus-line w3" data-train-family="sample-repair-train" data-train-key="positive-w3-neg1" data-train-object="positive-w3-neg1" data-train-role="target" data-wrapper-type="W3" tabindex="-1">
+            <span data-train-child="1">Signal A</span>
+            <span data-train-child="2">Signal B</span>
+          </div>
+        </div>
+        <div class="ignore-row">
+          <p class="ignore-caption">W3 ignore control</p>
+          <div class="ignore-wrap w3" data-train-family="sample-repair-train" data-train-key="ignore-w3" data-train-object="ignore-w3" data-train-role="ignore-wrapper" data-wrapper-type="W3">
+            <button class="ignore-button" type="button" data-train-key="ignore-w3-action" data-train-role="action-child">One</button>
+            <button class="ignore-button" type="button" data-train-key="ignore-w3-action-b" data-train-role="action-child">Two</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-train-panel="w3-zero">
+        <p class="panel-title">W3 multiple children</p>
+        <div class="focus-row">
+          <p class="focus-row-caption">tabindex 0 positive</p>
+          <div class="focus-line w3" data-train-family="sample-repair-train" data-train-key="positive-w3-zero" data-train-object="positive-w3-zero" data-train-role="target" data-wrapper-type="W3" tabindex="0">
+            <span data-train-child="1">Signal C</span>
+            <span data-train-child="2">Signal D</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,8 +1,79 @@
-import { FEEDBACK_HEADS, type FeedbackEpisode, type FeedbackEvaluation, type FeedbackProfile } from "../adapters/browser/feedback-contract.js";
+import { FEEDBACK_HEADS, type FeedbackEpisode, type FeedbackEvaluation, type FeedbackHead, type FeedbackProfile } from "../adapters/browser/feedback-contract.js";
 import type { SingleActionEpisodeResult } from "../adapters/browser/single-action-contract.js";
-import { readFeedbackInput, predictFeedback } from "../filters/browser-feedback.js";
+import { feedbackFeatures, readFeedbackInput, predictFeedback } from "../filters/browser-feedback.js";
 import { makeBrowserSingleActionSamples } from "./browser-single-action-samples.js";
-import { expectRecord } from "../core/schema.js";
+import { expectRecord, isRecord } from "../core/schema.js";
+
+/** One semantic field a recipe declares for a generated instance. */
+export interface RecipeCondition {
+  readonly path: string;
+  readonly expected: unknown;
+}
+
+/**
+ * F02 sample preparation declares a recipe before instantiation. This function
+ * turns its nested semantic fields into dotted paths; callers assert those
+ * paths against each generated instance before fitting. This module holds no
+ * recipe and does not derive gold from predictions.
+ */
+export function declareRecipeConditions(recipe: unknown): RecipeCondition[] {
+  const root = expectRecord(recipe, "recipe");
+  const conditions: RecipeCondition[] = [];
+  const visit = (record: Readonly<Record<string, unknown>>, prefix: string): void => {
+    for (const [key, value] of Object.entries(record)) {
+      if (key.length === 0) throw new TypeError("recipe condition path must not be empty");
+      const path = prefix.length === 0 ? key : `${prefix}.${key}`;
+      if (isRecord(value)) visit(value, path);
+      else conditions.push({ path, expected: value });
+    }
+  };
+  visit(root, "");
+  if (conditions.length === 0) throw new TypeError("recipe must declare at least one condition");
+  return conditions;
+}
+
+const MISSING_RECIPE_FIELD = Symbol("missing recipe field");
+
+function readRecipePath(instance: unknown, path: string): unknown | typeof MISSING_RECIPE_FIELD {
+  let current: unknown = instance;
+  for (const segment of path.split(".")) {
+    if (!isRecord(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+      return MISSING_RECIPE_FIELD;
+    }
+    current = current[segment];
+  }
+  return current;
+}
+
+function formatRecipeValue(value: unknown): string {
+  const encoded = JSON.stringify(value);
+  return encoded === undefined ? String(value) : encoded;
+}
+
+/**
+ * Check declared recipe fields against one generated instance. A missing path
+ * fails with the `recipe_field_missing:<path>` prefix; a present but different
+ * value fails with `recipe_field_mismatch:<path>`. Nothing is inferred from
+ * predictions, and neither the instance nor its gold is modified.
+ */
+export function assertRecipeFields(instance: unknown, conditions: readonly RecipeCondition[]): void {
+  if (!Array.isArray(conditions)) throw new TypeError("recipe conditions must be an array");
+  if (conditions.length === 0) throw new TypeError("recipe conditions must not be empty");
+  for (const condition of conditions) {
+    if (!isRecord(condition) || typeof condition.path !== "string" || condition.path.length === 0) {
+      throw new TypeError("recipe condition must declare a nonempty path");
+    }
+    const actual = readRecipePath(instance, condition.path);
+    if (actual === MISSING_RECIPE_FIELD) {
+      throw new TypeError(`recipe_field_missing:${condition.path}: expected ${formatRecipeValue(condition.expected)}`);
+    }
+    if (!Object.is(actual, condition.expected)) {
+      throw new TypeError(
+        `recipe_field_mismatch:${condition.path}: expected ${formatRecipeValue(condition.expected)}, actual ${formatRecipeValue(actual)}`,
+      );
+    }
+  }
+}
 
 export function readFeedbackEpisodes(value: unknown): readonly FeedbackEpisode[] {
   if (!Array.isArray(value) || value.length === 0) throw new TypeError("Feedback episodes must be nonempty");
@@ -37,6 +108,93 @@ export function evaluateFeedbackCases(profile: FeedbackProfile, value: readonly 
   });
   return { count: rows.length, passed: rows.filter(row => row.passed).length, failed: rows.filter(row => !row.passed).length, rows };
 }
+
+/**
+ * Project every episode through the public 12-wire student projection and
+ * group by the complete feature vector. A group whose rows disagree on gold is
+ * a discernibility conflict: the same observable projection would require two
+ * different F1 heads, so a single linear policy cannot satisfy both without a
+ * wire, a gold change, or a hidden distinguishing input.
+ *
+ * This is the read-only gate used before any F1 fit. It never modifies an
+ * episode, gold, profile, or wire.
+ */
+export interface FeedbackProjectionAudit {
+  readonly count: number;
+  readonly projectionCount: number;
+  readonly groups: readonly {
+    readonly features: readonly number[];
+    readonly head: FeedbackHead;
+    readonly ids: readonly string[];
+  }[];
+}
+
+export function auditFeedbackProjections(value: readonly FeedbackEpisode[]): FeedbackProjectionAudit {
+  const episodes = readFeedbackEpisodes(value);
+  const groups = new Map<string, { readonly features: readonly number[]; readonly head: FeedbackHead; readonly ids: string[] }>();
+  for (const episode of episodes) {
+    const features = feedbackFeatures(episode.input);
+    const key = JSON.stringify(features);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, { features, head: episode.teacher.head, ids: [episode.id] });
+      continue;
+    }
+    if (group.head !== episode.teacher.head) {
+      throw new TypeError(
+        `Conflicting feedback labels for one student projection ${key}: ${group.head} (${group.ids.join(",")}) vs ${episode.teacher.head} (${episode.id})`,
+      );
+    }
+    group.ids.push(episode.id);
+  }
+  const entries = [...groups.values()];
+  return {
+    count: episodes.length,
+    projectionCount: entries.length,
+    groups: entries.map(entry => ({
+      features: entry.features,
+      head: entry.head,
+      ids: [...entry.ids],
+    })),
+  };
+}
+/**
+ * Recipe for one generated feedback variant, declared before instantiation.
+ * The variant decides which receipt/effect facts the instance must carry, so
+ * the recipe is written first and the generated instance is asserted against
+ * it. R5 is the historical counterexample: a dispatched, explicitly rejected
+ * action with unknown effects. An instance that fills those fields with
+ * "known" is rejected instead of reaching fitting.
+ */
+export function declareFeedbackVariantRecipe(variant: number): RecipeCondition[] {
+  const dispatched = (effectKnowledge: "known" | "unknown", ok: boolean): RecipeCondition[] => [
+    { path: "input.result.dispatchState", expected: "dispatched" },
+    { path: "input.result.effectKnowledge", expected: effectKnowledge },
+    { path: "input.result.receipt.dispatched", expected: true },
+    { path: "input.result.receipt.ok", expected: ok },
+    { path: "input.result.receipt.effectKnowledge", expected: effectKnowledge },
+  ];
+  const notDispatched: RecipeCondition[] = [
+    { path: "input.result.dispatchState", expected: "not_dispatched" },
+    { path: "input.result.effectKnowledge", expected: "none" },
+    { path: "input.result.receipt.dispatched", expected: false },
+    { path: "input.result.receipt.ok", expected: false },
+    { path: "input.result.receipt.effectKnowledge", expected: "none" },
+  ];
+  if (variant <= 3) return dispatched("known", true);
+  if (variant === 4 || variant === 6) return notDispatched;
+  // A dispatched action that was explicitly rejected leaves its effects
+  // unknown: the rejection says nothing about what the page did.
+  if (variant === 5 || variant === 7) return dispatched("unknown", false);
+  if (variant === 8) return dispatched("unknown", true);
+  if (variant === 9 || variant === 10) return dispatched("known", true);
+  return [
+    { path: "input.result.dispatchState", expected: "unknown" },
+    { path: "input.result.effectKnowledge", expected: "unknown" },
+    { path: "input.result.receipt", expected: null },
+  ];
+}
+
 export function makeFeedbackSamples(): readonly FeedbackEpisode[] {
   const base = makeBrowserSingleActionSamples()[0]!;
   const episodes: FeedbackEpisode[] = [];
@@ -67,7 +225,9 @@ export function makeFeedbackSamples(): readonly FeedbackEpisode[] {
           dispatchState: "not_dispatched", effectKnowledge: "none", newState: null, satisfaction: null };
         controlAtCompletion = null;
         if (variant === 5 || variant === 7) {
-          result = { ...result, receipt: { ...result.receipt!, dispatched: true, effectKnowledge: "known" }, dispatchState: "dispatched", effectKnowledge: "known", newState };
+          // The recipe for this variant is dispatched with unknown effects; an
+          // explicit rejection does not tell us what the page changed.
+          result = { ...result, receipt: { ...result.receipt!, dispatched: true, effectKnowledge: "unknown" }, dispatchState: "dispatched", effectKnowledge: "unknown", newState };
           controlAtCompletion = { documentRef: newState.documentRef, observationId: newState.observationId, revision: newState.revision };
         }
       } else if (variant >= 8) {
@@ -78,8 +238,12 @@ export function makeFeedbackSamples(): readonly FeedbackEpisode[] {
         if (variant === 11) { result = { ...result, dispatchState: "unknown", effectKnowledge: "unknown", receipt: null, newState: null, satisfaction: null,
           error: { code: "native_click_failed", message: "Synthetic uncertain dispatch" } }; controlAtCompletion = null; }
       }
-      episodes.push({ id, family: `feedback.${family}`, partition: familyIndex === 3 ? "development" : "train", input: { request, result, controlAtCompletion },
-        teacher: { head, source: "synthetic_projection", evidenceRefs: [request.state.evidence[0]!.id], note: "Explicit synthetic receipt/posterior projection; not a real browser effect." } });
+      const episode: FeedbackEpisode = { id, family: `feedback.${family}`, partition: familyIndex === 3 ? "development" : "train", input: { request, result, controlAtCompletion },
+        teacher: { head, source: "synthetic_projection", evidenceRefs: [request.state.evidence[0]!.id], note: "Explicit synthetic receipt/posterior projection; not a real browser effect." } };
+      // Declared recipe first, instance second: a mismatch throws instead of
+      // silently generating a sample that contradicts its own recipe.
+      assertRecipeFields(episode, declareFeedbackVariantRecipe(variant));
+      episodes.push(episode);
     }
   }
   return readFeedbackEpisodes(episodes);

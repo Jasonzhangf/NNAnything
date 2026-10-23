@@ -1,5 +1,7 @@
 # 浏览器下一阶段：能力milestone与验证路线
 
+2026-10-23当前下一实验：按[焦点样本修订与配对实验](browser-focus-sample-repair.md)及其[执行提示词](browser-focus-sample-repair-prompt.md)推进；下方旧A0–A5不再作为本次启动指令。已合流浏览器执行切片不关闭B1、F1新交叉评价或搜索学习恢复缺口。本次只设计，未启动采集/拟合。
+
 日期：2026-10-22。状态：阶段规划；本轮不实现、不采集、不训练、不采用。范围是现有浏览器方向的增量推进，不启动computer use或CLI扩展。
 
 ## 0. 本轮可直接派发的工单（优先于后文路线概述）
@@ -176,6 +178,8 @@ A0–A3 已实际执行，A4 未解封：T1（200 epoch）与 T2（2000 epoch，
 
 完成标准：新进程公开入口在两种独立页面实现上，对已确认目标执行正确并从真实读回判定；不触碰相邻对象；缺观察不能继续提交。失败、未知与实际达标准确返回。普通text通过后，textarea/search/contenteditable每次新增一种，先补合同和单次实验，不一次宣称全部编辑宿主支持。
 
+2026-10-22 B-Input 实施切片：`nnanything/browser-input` 公开入口、7N6E 独立绑定（`workflows/browser-input.workflow.json`）、CDP 原生 IO 和家族 A/B 各 26 例材料已就位；确定性合同测试 18 项与搜索回归一起绿。真实浏览器 52 例已在独立 headless Chrome（端口 9444、独立 user-data-dir，不占用使用者日常浏览器）按逐例契约跑通 52/52，分布 S=10、N=22、U=20、拒绝=32、执行错误=34、观察错误=6。真实路径此前不可用，本轮复验定位并修正三处缺陷（绑定 ref 映射、macOS 原生全选、派发前后验门禁），逐例材料见 run 目录 `b-input/acceptance`。B3 搜索组合继续按本路线执行。
+
 ## 6. B3：最小搜索组合，不把输入成功当搜索成功
 
 沿用`runBrowserSearchGoal`及已有fixture；先在已绑定scope内做查询写入→读回→提交→结果观察。根Goal保留，原子子Goal成功不自动使父成功。对象绑定的学习验收与显式绑定的执行验收分别报告。
@@ -231,3 +235,9 @@ NN可学习结果角色、字段owner及当前合法对象选择；取值、版�
 实施者必须先记录运行入口、真实profile及材料位置，不能凭本规划重建资产路径或把旧worktree当新main。现有browser-foundation树归原作者且干净候选仍有独有工作，PROTECTED_HOLD；接续同任务域优先复用并明确owner，不额外开同域重试树，不删除他人资源。main集成只走标准Git合流。
 
 首批worker提示词见[browser-next-worker-prompt.md](browser-next-worker-prompt.md)。本规划不是这些milestone已立项或执行完成的证明。
+
+2026-10-22 B-Search 实施切片：搜索补「提交实例关联」与「响应归属」，新增 `submittedRequestRef`、`resultsRequestRef`、`submissionBaseline`、`collection.requestRef`/`batch`，使根 100 只能由本次提交的响应证据满足。家族 A 在既有 fixture 扩展场景；家族 B 为独立实现（自有 HTML、`<ol>/<li>` 主结果、独立旁栏、独立客户端与服务路由，不导入家族 A）。逐例验收程序 `playground/browser/search/{cases,native-io,accept}.mjs` 每行独立进程、仅 CDP 原生输入。真实浏览器 44/44 通过（两家族各 22 行；S=12、U=32、control error=32、原生动作 78），C04 迟到 A 不覆盖 B、C17/C18 错误分离、C19 两覆盖义务分列、C12–C14 旁栏不混计，材料见 run 目录 `b-search/acceptance`。验收在独立 headless Chrome 完成，搜索测试 30/30 与构建通过；本轮无训练与权重变更，决策仍 handwired。B-Feedback 仅展开域可开始，搜索域学习恢复仍未就绪。
+
+2026-10-23 B-Feedback 展开域切片：F1 可辨性（公开 feedbackFeatures 投影、0 冲突、72 变换不变）、R5 已知回归并入训练、F1 最小后训练候选（`uncalibrated/not_applied`）、F2 不改权重只消费实际 F1 预测并带负控制、展开域 17 实例 × 2 家族验收 runner（每段独立进程、CDP 原生点击、故障注入）。真实浏览器 34/34 通过（独立 headless，9444），旧能力 B-Input 52/52、B-Search 44/44 无回归。搜索域学习恢复仍未就绪：F1/F2 是 SetExpanded 合同，不表达输入值、查询归属与结果状态，本轮不改合同、不伪造投影，B-Feedback 总状态保持 INCOMPLETE。
+
+2026-10-23 B-Generalize 整体 Review 闭包：独立只读 Review 对候选判 FAIL（2×P1、1×P2、1 advisory），已逐项修复（提交 be61b84）。状态可信性：`validPost` 收紧为只允许「typed 拒绝回执 + effectKnowledge=none」的零派发复用派发前观测，其余保持 unknown 与原始错误，红测覆盖放宽与收紧两侧。泛化验收：新增两个新来源家族（`inspect-table`、`sheet-audit`）各 12 例共 24 例、6 个投影未入训练、0 冲突，固定候选首次评价 F1 23/24、F2 政策层 24/24（安全边界 22/24）；1 例 F1 缺口如实保留，方案 §9 的「24 例全部正确」未达成，新泛化验收维持未通过。搜索合同迁移：plan §8 八项停止行为义务逐项映射现有 B-Search 行，补 SM02/SM04/SM05 三项最小注入，8 项 × 2 家族 = 16 条真实轨迹 16/16；只验证停止行为，不改 wire 与合同语义。真实浏览器复验展开域 34/34、B-Search 44/44、搜索迁移 16/16，浏览器与搜索测试 449/449。搜索域学习恢复仍未就绪；候选保持 `uncalibrated/not_applied`，无训练、无权重变更。

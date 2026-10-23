@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B focus and wrapper fixture</title>
+<style>
+  :root {
+    color-scheme: light;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: #172033;
+    background-color: #eef2f7;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 8px 14px;
+    background-color: #ffffff;
+    border-bottom: 1px solid #c7d2e1;
+  }
+  header strong {
+    font-size: 14px;
+  }
+  #b-parking {
+    padding: 6px 12px;
+    border: 1px solid #2b5db8;
+    border-radius: 4px;
+    background-color: #2b5db8;
+    color: #ffffff;
+    font: inherit;
+    cursor: pointer;
+  }
+  .b-note {
+    font-size: 12px;
+    color: #5b6b85;
+  }
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 12px;
+  }
+  .b-group {
+    display: grid;
+    grid-template-columns: 150px repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    align-items: start;
+    padding: 8px;
+    background-color: #ffffff;
+    border: 1px solid #c7d2e1;
+    border-radius: 6px;
+  }
+  .b-group-title {
+    margin: 0;
+    padding: 4px 2px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: #3b4a63;
+  }
+  .b-state-cell {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+  }
+  .b-state-label {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.2;
+    color: #5b6b85;
+  }
+  .b-wrapper {
+    display: block;
+    min-height: 56px;
+    padding: 12px;
+    border: 1px solid #9aa9bf;
+    border-radius: 4px;
+    background-color: #f8fafc;
+    cursor: auto;
+  }
+  .b-wrapper[data-b-state="s1"] {
+    border-color: #2b5db8;
+  }
+  .b-wrapper[data-b-state="s2"] {
+    border-color: #6f7d94;
+  }
+  .b-wrapper[data-b-state="s3"] {
+    border-color: #c47a2c;
+  }
+  .b-child {
+    display: inline-block;
+    vertical-align: middle;
+    max-width: 100%;
+  }
+  .b-native-button {
+    padding: 6px 10px;
+    font: inherit;
+  }
+  .b-link {
+    color: #1b4fa0;
+    font: inherit;
+  }
+  .b-text {
+    padding: 2px 4px;
+  }
+  .b-svg {
+    width: 40px;
+    height: 32px;
+  }
+  .b-image {
+    width: 40px;
+    height: 40px;
+  }
+  .b-middle {
+    display: inline-block;
+    padding: 6px;
+    border: 1px dashed #7a8aa3;
+  }
+</style>
+</head>
+<body>
+<header>
+  <strong>B focus and wrapper fixture</strong>
+  <button id="b-parking" type="button" data-b-key="b-parking" data-b-role="parking-control">Park focus here</button>
+  <span class="b-note">Real mouse only. No script focus or click.</span>
+</header>
+<main>
+  <section class="b-group" data-b-construction="button">
+    <h2 class="b-group-title">1. Native button child</h2>
+    <div class="b-state-cell">
+      <p class="b-state-label">S1: focused wrapper</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-button-s1" data-b-role="wrapper" data-b-construction="button" data-b-state="s1" tabindex="0">
+        <button type="button" class="b-child b-native-button" data-b-key="b-child-button-s1" data-b-role="child">Open panel</button>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S2: focusable, not focused</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-button-s2" data-b-role="wrapper" data-b-construction="button" data-b-state="s2" tabindex="0">
+        <button type="button" class="b-child b-native-button" data-b-key="b-child-button-s2" data-b-role="child">Open panel</button>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S3: no tabindex</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-button-s3" data-b-role="wrapper" data-b-construction="button" data-b-state="s3">
+        <button type="button" class="b-child b-native-button" data-b-key="b-child-button-s3" data-b-role="child">Open panel</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="b-group" data-b-construction="svg">
+    <h2 class="b-group-title">2. Inline SVG child</h2>
+    <div class="b-state-cell">
+      <p class="b-state-label">S1: focused wrapper</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-svg-s1" data-b-role="wrapper" data-b-construction="svg" data-b-state="s1" tabindex="0">
+        <svg class="b-child b-svg" viewBox="0 0 40 32" role="img" aria-label="Blue mark" data-b-key="b-child-svg-s1" data-b-role="child">
+          <rect x="0" y="0" width="40" height="32" rx="4" fill="#dce8fb"></rect>
+          <circle cx="20" cy="16" r="9" fill="#2b5db8"></circle>
+        </svg>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S2: focusable, not focused</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-svg-s2" data-b-role="wrapper" data-b-construction="svg" data-b-state="s2" tabindex="0">
+        <svg class="b-child b-svg" viewBox="0 0 40 32" role="img" aria-label="Blue mark" data-b-key="b-child-svg-s2" data-b-role="child">
+          <rect x="0" y="0" width="40" height="32" rx="4" fill="#dce8fb"></rect>
+          <circle cx="20" cy="16" r="9" fill="#2b5db8"></circle>
+        </svg>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S3: no tabindex</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-svg-s3" data-b-role="wrapper" data-b-construction="svg" data-b-state="s3">
+        <svg class="b-child b-svg" viewBox="0 0 40 32" role="img" aria-label="Blue mark" data-b-key="b-child-svg-s3" data-b-role="child">
+          <rect x="0" y="0" width="40" height="32" rx="4" fill="#dce8fb"></rect>
+          <circle cx="20" cy="16" r="9" fill="#2b5db8"></circle>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <section class="b-group" data-b-construction="image">
+    <h2 class="b-group-title">3. Image child</h2>
+    <div class="b-state-cell">
+      <p class="b-state-label">S1: focused wrapper</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-image-s1" data-b-role="wrapper" data-b-construction="image" data-b-state="s1" tabindex="0">
+        <img class="b-child b-image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' rx='5' fill='%23d14b3f'/%3E%3Ccircle cx='20' cy='20' r='9' fill='%23fff4e8'/%3E%3C/svg%3E" width="40" height="40" alt="Red swatch" data-b-key="b-child-image-s1" data-b-role="child">
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S2: focusable, not focused</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-image-s2" data-b-role="wrapper" data-b-construction="image" data-b-state="s2" tabindex="0">
+        <img class="b-child b-image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' rx='5' fill='%23d14b3f'/%3E%3Ccircle cx='20' cy='20' r='9' fill='%23fff4e8'/%3E%3C/svg%3E" width="40" height="40" alt="Red swatch" data-b-key="b-child-image-s2" data-b-role="child">
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S3: no tabindex</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-image-s3" data-b-role="wrapper" data-b-construction="image" data-b-state="s3">
+        <img class="b-child b-image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' rx='5' fill='%23d14b3f'/%3E%3Ccircle cx='20' cy='20' r='9' fill='%23fff4e8'/%3E%3C/svg%3E" width="40" height="40" alt="Red swatch" data-b-key="b-child-image-s3" data-b-role="child">
+      </div>
+    </div>
+  </section>
+
+  <section class="b-group" data-b-construction="link">
+    <h2 class="b-group-title">4. Link child</h2>
+    <div class="b-state-cell">
+      <p class="b-state-label">S1: focused wrapper</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-link-s1" data-b-role="wrapper" data-b-construction="link" data-b-state="s1" tabindex="0">
+        <a class="b-child b-link" href="#b-link-target" data-b-key="b-child-link-s1" data-b-role="child">Read the note</a>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S2: focusable, not focused</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-link-s2" data-b-role="wrapper" data-b-construction="link" data-b-state="s2" tabindex="0">
+        <a class="b-child b-link" href="#b-link-target" data-b-key="b-child-link-s2" data-b-role="child">Read the note</a>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S3: no tabindex</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-link-s3" data-b-role="wrapper" data-b-construction="link" data-b-state="s3">
+        <a class="b-child b-link" href="#b-link-target" data-b-key="b-child-link-s3" data-b-role="child">Read the note</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="b-group" data-b-construction="text-span">
+    <h2 class="b-group-title">5. Text span child</h2>
+    <div class="b-state-cell">
+      <p class="b-state-label">S1: focused wrapper</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-text-span-s1" data-b-role="wrapper" data-b-construction="text-span" data-b-state="s1" tabindex="0">
+        <span class="b-child b-text" data-b-key="b-child-text-span-s1" data-b-role="child">Field note</span>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S2: focusable, not focused</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-text-span-s2" data-b-role="wrapper" data-b-construction="text-span" data-b-state="s2" tabindex="0">
+        <span class="b-child b-text" data-b-key="b-child-text-span-s2" data-b-role="child">Field note</span>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S3: no tabindex</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-text-span-s3" data-b-role="wrapper" data-b-construction="text-span" data-b-state="s3">
+        <span class="b-child b-text" data-b-key="b-child-text-span-s3" data-b-role="child">Field note</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="b-group" data-b-construction="nested-button">
+    <h2 class="b-group-title">6. Middle wrapper and button child</h2>
+    <div class="b-state-cell">
+      <p class="b-state-label">S1: focused wrapper</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-nested-button-s1" data-b-role="wrapper" data-b-construction="nested-button" data-b-state="s1" tabindex="0">
+        <div class="b-child b-middle" data-b-key="b-middle-nested-button-s1" data-b-role="middle-wrapper">
+          <button type="button" class="b-native-button" data-b-key="b-child-nested-button-s1" data-b-role="child">Open nested panel</button>
+        </div>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S2: focusable, not focused</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-nested-button-s2" data-b-role="wrapper" data-b-construction="nested-button" data-b-state="s2" tabindex="0">
+        <div class="b-child b-middle" data-b-key="b-middle-nested-button-s2" data-b-role="middle-wrapper">
+          <button type="button" class="b-native-button" data-b-key="b-child-nested-button-s2" data-b-role="child">Open nested panel</button>
+        </div>
+      </div>
+    </div>
+    <div class="b-state-cell">
+      <p class="b-state-label">S3: no tabindex</p>
+      <div class="b-wrapper" data-b-key="b-wrapper-nested-button-s3" data-b-role="wrapper" data-b-construction="nested-button" data-b-state="s3">
+        <div class="b-child b-middle" data-b-key="b-middle-nested-button-s3" data-b-role="middle-wrapper">
+          <button type="button" class="b-native-button" data-b-key="b-child-nested-button-s3" data-b-role="child">Open nested panel</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

@@ -1,5 +1,97 @@
 # 当前任务
 
+## 2026-10-23 焦点样本改进设计（待用户派发执行）
+
+用户要求父owner先改善样本构建，再交worker观察效果。docs/browser-focus-sample-repair.md及-prompt.md已定义：三个新实现来源先分区；每家族六个container四态加三个冗余包装两态，30行/9对象，原生实测af=1/fc=0；失焦不把有独立价值的对象改gold为ignore，null消融与真实数据分开。旧438行未包含后来的human反例构造，补样本收益仍未知。固定原T1配方，以旧train和旧train+新家族作配对对照，不改变生产adapter/wire/门限/损失；dev仅判断验证解封，不调参。原始反例、真实回载、旧能力及独立家族和公开保留consumer共同验收；失败仍B1 INCOMPLETE。复用闭合project-design/node-training图，本轮只有文档，无新采集/代码/训练/采用，尚未启动worker。
+
+## 2026-10-22 B-Feedback 展开域失败反馈与安全有界恢复
+
+唯一执行树 `codex/browser-foundation`，证据 run 为 `/Volumes/Intel/playground/nnanything-runs/browser-longhorizon-20261022/b-feedback`，计划 `plan.md` 557 行已接受。本轮完成展开域 F1 可辨性、R5 回归处理、一次固定预算 F1 后训练、F2 消费实际 F1 预测，以及 17 实例 × 2 独立家族 = 34 条展开域轨迹的验收 runner。
+
+可辨性检查：公开 `feedbackFeatures` 生成完整 12 维投影，422 行、63 个投影、0 冲突 gold、72 对变换全部不变。R5 四个回归行作为已知回归并入 train，不作为新留出。F1 候选 `training/f1/candidate.json` 从旧候选初始化、2700 epoch、学习率0.1，train81/81、development13/13、R5 4/4，继续 `uncalibrated/not_applied`；新进程回载另存 `training/reload/`。F2 保持 20 参数，只消费 F1 实际预测，负控制 `tests/browser-strategy-unknown-effects.test.mjs` 单列。公开投影审计新增 `auditFeedbackProjections` 并在 `lib/browser-feedback.ts` 导出。
+
+验收 runner：`playground/browser/feedback/accept-expanded.mjs --family A|B|all --cdp URL --out DIR`，每段独立新进程、CDP 原生鼠标事件、故障注入标 `injected:`；固定续跑实例按声明段数运行，其他实例沿 continuation 自然推进，历史 `atomicResults` 按 `dispatchId` 去重，DEFER 从 typed `policy_deferred` 读取。两家族 `fixtures/family-a.mjs` 与 `fixtures/family-b.mjs` 互不共享 renderer。真实浏览器 34 条轨迹待父编排者在宿主 shell 用独立 headless Chrome 执行。构建通过，F1/F2/strategy/observation 相关测试 119/119 零 skip。
+
+搜索域学习恢复仍 INCOMPLETE：现有 F1/F2 是 SetExpanded 合同，无法表达输入值、查询归属与搜索结果状态，本轮不伪造投影。计划引用的 `docs/recursive-goal-module.toml` 不存在，实际 owner 是 `docs/recursive-goal-module.md`，已记材料差异。搜索域只核对现有合同与停止行为，其学习恢复不进入本轮说法。
+
+## 2026-10-22 B-Input 单次输入公开 consumer（真实浏览器 52/52 通过）
+
+新增独立 input 合同 `lib/adapters/browser/input-contract.ts`、7N6E 节点 `lib/nodes/browser-input.ts`、公开入口 `nnanything/browser-input`（`lib/browser-input.ts`）与绑定 `workflows/browser-input.workflow.json`（复用 operation-episode 拓扑）。节点只处理显式绑定普通 `input type=text`，最多一次逻辑写入，再真实读回 `.value`；执行错误与观察错误分开，placeholder/attribute/receipt/旧 observation 不冒充后验，DOM 重建不换绑、不按 selector 或同文案恢复，textarea/search/contenteditable/password/敏感宿主明确拒绝。
+
+新进程 runner 与原生 CDP IO 在 `playground/browser/input/`：家族 A 复用 search-fixture 普通文本页，家族 B 为独立资料编辑 HTML 模板与独立脚本，不共用 renderer。26 个逐例契约覆盖 I01–I24，两家族共 52 例。`tests/browser-input-workflow.test.mjs` 18 项红→绿；`npm run build` 通过；`node --test tests/browser-input-workflow.test.mjs tests/browser-search-workflow.test.mjs` 33/33。证据在 `/Volumes/Intel/playground/nnanything-runs/browser-longhorizon-20261022/b-input`。
+
+真实浏览器 52 例已在独立 headless Chrome 上跑通 52/52（端口 9444、独立 `user-data-dir`，不与使用者日常浏览器共用）。分布：S=10、N=22、U=20、拒绝=32、执行错误=34、观察错误=6；每例同时核对一次逻辑写入、无 Enter、无提交、邻框值未变。executor 会话沙箱禁止 TCP，真实浏览器验收由编排者在宿主 shell 执行；复验发现并修正三处真实缺陷：`live-entry.ts` 误把注册表内部 ref 当逻辑绑定 ref（导致每次观察抛错）、`cdp-io.mjs` 的 macOS 全选失效（文本被追加）、节点对派发前拒绝仍强制后验（伪造观察错误）。逐例表 `acceptance/table.md`、明细 `acceptance/rows.jsonl`、边界 `limits.md`。
+
+## 2026-10-22 第7轮四项证据口径更正：定点复核 PASS（报告更正工作收口）
+
+提交 `e71eeb1` 对应的四项 P1 全部关闭，findings 为空。独立 Reviewer（OAuth gpt-6.1-sol，medium，只读）核验了两份仓库文档及直接依赖外置资料：梯度方向已更正（负梯度局部下降方向是增大权重，一次 200 epoch 只证明本配置/预算未修复）；37 条 teacher-ignore 逐引用核对无遗漏/重复（7 唯一 + 19 非唯一 + 11 无映射 = 37，24/26 仅映射诊断，唯一子集 7/7）；假 ignore 已限定为所列代理信号 0 命中、完整语义误判率未评估；焦点硬约束继续保留真实反例与「能力目标未完整验收」状态，不再用 live 未覆盖解除约束。原始结果在 run 目录 `parent-r7-four-recheck-controller/review/browser-ignore-r7-four-recheck/review.final.md`，汇总 `parent-r7-four-recheck.md`。
+
+本次收口的是报告更正工作，不关闭 ignore 能力目标，也不是整个 browser-foundation 的 Review PASS。本轮无训练、采集、合并、部署或采用权重。
+
+## 下一项能力修复的固定目标与边界（尚未立项，待启动）
+
+目标：通过真实拟合得到候选，使已知焦点反例 `actual-focus-candidate-112` 不再判 ignore，并验证独立场景与受影响旧能力。
+
+探索顺序：先保留现有区间语义与根评价，固定焦点反例、ignore 对照和独立组合，再分别验证语料覆盖、拟合预算、目标函数的单因素影响。
+
+硬边界：历史快照缺失的焦点不能事后补成 false；只能对能确认对应关系的对象补测，或采集新的有来源样本；无法配对的旧行继续保留 null。手动设置 container 焦点权重 0.13 仍只作诊断依据，不能作为训练完成。只有真实拟合、保存回载、独立评价和受影响回归通过的候选才具备后续采用审查依据。
+
+## 2026-10-21 焦点缺陷根因定位（语义复核已更正）
+
+`actual-focus-candidate-112` 在 train split 内，本次拟合配置与预算没学到 `own_focus_target` 负否决。逐行梯度证明：拟合点梯度 +1.497（应减小），权重到 -0.0188 即翻号为 -6.5，稳定点在 0 附近；翻号来自缺测焦点行，负权重按区间语义 [w,0] 压低其 ignore 下界、破坏 expected=ignore 召回。
+
+语义复核结论（用户指示先看语义、没有焦点不能伪造）：此前「缺测当无焦点、需改共享语义为 [0,0]」的结论错误，已撤回。区间语义 `null → {min:min(w,0), max:max(w,0)}` 对否决 wire（w<0）贡献 `[w,0]`：min 端点取 w、压低 ignore 下界，即按「焦点可能未测到」保守处理，没有把缺测当无焦点；真正的伪造是「缺测贡献 [0,0]」（把 null 当实测 false）。现语义正确，不改。否决学不出来的根因在语料：162 条 verified ignore 中 159 条 `own_focus_target` 为 null（旧快照未测 activeElementFocus，415/420 行缺测），负权重按正确语义压低这些行下界、损失召回，损失才拉回 0。补测焦点后重拟合是待验证方案，不宣称必然修好，也不是共享语义增量。live 采集 5975 行 `own_focus_target` 缺测 0、40 行实测焦点 0 行判 ignore；缺陷行的精确 wire 签名（聚焦 + 三 wrapper 全 1）在 5975 个 live 节点里 0 次出现，live 的 5 个聚焦包装 div 只 `neutral_single_child=1`、其余两 wrapper 为 0，候选全判 container。这只说明这批页面未覆盖该反例，不解除「实际可聚焦容器不得判 ignore」的硬约束。详见 run 目录报告第 8 节。
+
+## 2026-10-22 焦点缺陷修法候选：container 侧正权重在已检查口径下可修，本次拟合预算未修复
+
+在选中候选上做定点实验：给 `leafWeights.container.neutral_actual_focus` 一个正权重（≥0.13 即翻号），`actual-focus-candidate-112` 从 ignore 0.863 变为 other/conflict，不再被判 ignore；同时 162 条 ignore 召回仍 149/162、13 条未召回行集合与基线逐行完全一致。按已检查口径，这次对照没有新增 ignore 召回损失，四份现存 live 预测也没有变化；这不是整体能力零回归的证明。语义正确：实测焦点把节点抬向 container，缺测时正权重只抬上界 `{min:0,max:w}`、不压 ignore 下界，不构成伪造。
+
+梯度方向按代码复核更正：优化步是 `next = w - lr * (m̂/denominator)`（`lib/training/basic-kind-numeric.ts:937`），所以负梯度的局部下降方向是增大权重。该权重在拟合点梯度为 -0.43，对应朝增大方向，与修法希望的方向一致，不是朝减小。这修正了上一版把 -0.43 写成「朝减小」的错误。
+
+但一次 200 epoch、把焦点 wire 一并可训练的拟合（`/tmp/ignore-fit-r7`，summary fixed 167/regressed 2/retained 117/unresolved 134）后，该权重只到 0.0009，缺陷行仍判 ignore 0.863。这只证明该次配置和预算没有修复它，不能证明所有普通拟合都无法得到修法。补测焦点、调整拟合目标都只是待验证方案，不宣称补测后重拟合必然修好。
+
+F04 矩阵同轮在真实浏览器重跑复核：ignore 4/4（0.8629）、audio 4/4、video 4/4。
+
+## 2026-10-21 ego 浏览器微博重采：live 召回 24/26
+
+用户提供 ego lite 浏览器（带微博登录态），指示自己采集、验收看 live 页面。用 `ego-browser nodejs` 在已打开标签页跑只读观测入口，把窗口对齐旧采集的 1101×1878（ego 默认 0.8 缩放，需设 1376 宽才得到 1101 CSS 宽），页面为登录态。重采 1839 节点 31 项测量齐全，文件在 run 目录 `ego/weibo-ego-capture-1101c.json`。
+
+候选在整页判 479 条 ignore；按所列代理信号检查，自身可见文字、焦点、href、固定交互 tag/role 命中均为 0，完整语义假 ignore 率未评估。代价 29 条 container 变 unknown/conflict。
+
+37 条 teacher-ignore 的最终处置按原始 37 个 old ref 互斥划分（逐例清单在 run 目录 `ego/teacher-ignore-disposition.json`）：对齐映射 26 条（其中 7 条唯一、19 条非唯一），无映射 11 条（`nnanything-inspector-122/457/474/475/815/832/833/854/946/951/956`）。26+11=37，口径自洽。召回只能按唯一配对口径计：7/7。对齐口径 24/26 是这 26 条选中映射的算术命中，含 19 条非唯一映射，属诊断结果而非资格确认的召回；2 条未命中（旧 399/919）均落在非唯一映射内，判 unknown。上一版「5 条无候选、13 条候选不唯一」与 26 条合计 44，超出 37，撤回。
+
+## 2026-10-21 再配对复核与焦点缺陷定位
+
+同轮补了三组复核。再配对复核：微博 152 行按序号只有 31 行 tag 相同，按尺寸指纹 37 条 teacher-ignore 只有 8 条命中且 6 条落到同一新节点，配对无效；小红书 59 条黄金行按结构路径只有 6 条可配对。旧行不能再按序号或指纹复原，未配对项只能记 unassessed。
+
+焦点缺陷定位：`actual-focus-candidate-112` 的 31 项测量齐全，被判 ignore 0.863。忽略叶的 `own_focus_target` 训练权重只有 0.001，因为数值后端 `effectiveUpperExcess` 只对区间端点加热梯度，端点是家族与叶上限的较小者，梯度落在家族侧，而 `familyWeights.structure` 没有该 wire 地址。把该权重手设 -1 时焦点行立刻回到 unknown 且 F04 包装仍判 ignore，证明这是可学习路径缺口而不是 wire 形状缺陷；手填属禁止项，未作为候选交付。
+
+另两组配置实验都不能修好：加 `neutral_actual_focus`、`neutral_focusable_control` 为可训练后重拟合，两项权重仍停在 0.0009 与 0.108；`priority_decision_v1` 客观函数被底座拒绝，因为生产默认 profile 是 `family_leaf_v1`。锚定实验确认 anchor 0.001 最优：0.01 把语料回归从 2 降到 1 但真实页面歧义从 22 升到 284，0.03 让 F04 ignore 降到 0/4。
+
+## 2026-10-21 旧语料再观测：真实页面留出替代不可复原的旧行
+
+用户明确观察与采集不需要授权，本轮直接采证。新增只读入口 `playground/browser/reobserve-live.mjs` 与对比脚本 `reobserve-compare.mjs`，通过 CDP 9333 附着已开标签页跑真实 `observeLiveDom`，不跳转、不滚动、不点击。采集小红书 explore（1543 节点）、知乎专栏（1104）、微博 tv/home（1489），共 4136 条完整测量。
+
+选中候选在真实页面上的表现：变 ignore 1126 条（499 条由 container 转来，627 条由 unknown 补判）；按所列代理信号检查（自身可见文字、焦点、href、固定交互 tag/role）命中为 0，完整语义假 ignore 率未评估。另有 21 条 container 与 1 条 listitem 转为 unknown/conflict，占 0.53%。39 条“有直接文字”的 span 实测只含空白与格式字符（`nonFormatDirectTextPresent=false`），1 条 iframe 为 0×0 隐藏信标，都不是可读内容目标。
+
+旧黄金与微博行不能按行复原：旧快照 1222 宽、当前 1447 宽，页面已改版。小红书 snapshot-001 的 1200 条旧节点与新采集只有 186 条结构路径重合、145 条 tag 相同，59 条黄金行只有 6 条可配对；微博 detail 页未打开，存盘 18 项字段缺 16 项新测量。因此“旧黄金 0 预测变化”不能再由旧行承担，当前有效回归证据是这批真实页面留出。证据与复现见 run 目录 `browser-ignore-capability-20261021/reobserve/reobserve-report.md`。
+
+## 2026-10-21 ignore 能力缺口补齐（测量齐备域通过，旧语料验收受阻）
+
+用户要求补齐 F04 暴露的 ignore 能力缺口。独占树 `/Volumes/Intel/playground/nnanything/browser-foundation`，证据根 `/Volumes/Intel/playground/nnanything-runs/browser-ignore-capability-20261021`。主树只读，未合 main，未部署。
+
+缺口确认不是采样缺失：`three-site-zero/wrapper-increment-request.json` 已有 162 条 verified ignore 行，但从未进入拟合，默认 profile 的 `leafWeights.ignore` 仍为空。用真实 Handwired 与公开 consumer 管线起两套拟合：全参数 40/200 epoch，以及仅 16 条 ignore 支撑 wire 可训练的 200 epoch。选中后者，候选 `ignore-capability-4a60c08d-…` 存于工作树 `training/weights/dom-basic-kinds/ignore-capability-20261021.weight.json`，保持 uncalibrated/not_applied。
+
+真实浏览器 F04 留出：默认 profile ignore 0/4，候选 4/4，audio 4/4、video 4/4 不变；两个候选结果相同。增量语料内部比较分别为 fixed 264/regressed 5、fixed 264/regressed 4、fixed 149/regressed 2，训练报告按合同拒绝该候选。
+
+两项旧语料验收未通过，原因是可复现的数据覆盖冲突而不是拟合调参：黄金 357 行每行只有 10–12 项字段，缺 19–21 项新测量。同一 same-rect 包装在完整 31 字段下 `structure=[1,1]` 判 ignore，裁到旧 12 字段后 `structure=[0.077,1]` 判 other。由此任何能让包装生效的系数都会把旧行抬成 unknown：与默认 profile 比，仅 ignore wire 候选改变 91 行、全参数候选 92 行，全部落到 unknown、新增判为 ignore 的行数为 0；生产候选本身相对默认已改变 34 行。微博 152 行 37 条 teacher-ignore 提案中 22 条打开了 ignore 支撑 wire，但 family 停在 text 0.2 / structure [0.077,1]，召回 0/37；历史 37/37 出自专用关系特征电路，不是本 profile 经生产分类器的结果。
+
+另记一个采用前必须修的真实缺陷：`actual-focus-candidate-112`（activeElementFocus=true 的容器）被候选判成 ignore 0.864，违反键盘焦点必须保留的规则。
+
+另做了一个只改 `leafWeights.ignore`、其余系数全部回退默认的最小变体：F04 仍是 ignore 4/4，旧黄金影响从 91 行降到 28 行且只在 structure 大类内，但增量语料 162 条 ignore 只召回 2 条，说明只补叶子不足以覆盖这些行。28 行是下界并已证明：F04 包装默认被判 container 0.7，ignore 要胜出至少 0.85，同一批 null wire 上的正权重也会把旧容器行抬到约 1.0，而两者之间没有可用区分 wire，所以“F04 ignore 4/4”与“旧黄金 0 预测变化”在当前 schema 下不能同时成立。
+
+结论：能力在测量齐备域成立，旧黄金与微博语料的零变化/召回验收需要先按当前 31 字段重新观测，或由用户明确“旧语料变 unknown 不算回归”的口径；两条都待用户裁决。方法、数字、不可能性证明与复现命令见 `ignore-capability-report.md`，算法前提已补入 docs/basic-kinds-wiring.md。
+
 ## 2026-10-23 父级接收Shell只读根Goal交付
 
 已接收`nnanything/cli-read`的`runCliReadCompositionGoal`：显式受信目录内严格名称regular文件，经列举、精确匹配、inspect、受信file.read范围读及根评价完成bytes equals闭环。根满足0/100，未知null；预算/取消停止不因已读到字节误报成功。file.read只需filesystem.read，打开前后核身份；替换不返回字节，未签发/过期目录引用零执行拒绝。组合证据及引用显式保存在state，未修改共享core或浏览器，未新增policy head、未训练或采用权重。
@@ -1183,3 +1275,59 @@ Opus 5.5 medium 实际因配额耗尽失败；按既定路由改为 Gemini 4 Arg
 设计判定为未就绪，列出八项缺口及各自 owner 与恢复条件：typed 目标/条件/结果 schema 未成为正式合同；展开状态已可测但无学生消费路径；控制关联无法观测；条件当前性无承载；新关系 wire、参数与损失未定稿；缺真实操作监督集与来源分区；L3 浏览器固定操作和重观测能力未实现；关系训练 adapter 与演进接线未实现。作者核对了观测能力，把初稿混在一起的「展开状态不可用」拆成两项：`aria-expanded` 已在 `lib/adapters/browser/observation.ts` 的 `SAFE_ATTRIBUTE_NAMES` 采集，但不在 `BasicKindMeasurements` 白名单、`basic-kinds.ts` 只消费 `aria-hidden`/`aria-disabled`，故属缺消费 wire（owner 为 `lib/filters/`）；`aria-controls` 不在采集白名单，才属观测缺口（owner 为 browser adapter）。下一轮应先闭合一个展开／状态观测切片的正式合同与可辨观测；若两个真实用途仍映射为同一许可输入，先停该关系训练。L1 使用不受影响。
 
 依据边界：`docs/operation-goal-necessity.md` 为本文唯一 owner，已在 `AGENTS.md` 唯一 Owner 表登记；L1 词表与 wire 仍由 `docs/basic-kinds-wiring.md` 维护，L2/L3 图纸仍由 `workflows/dom-recognition.graph.json`、`workflows/operation-episode.graph.json` 维护。本轮未改图，故未跑 DAGpipe；SESE 结论来自读取既有拓扑。`node scripts/check-layout.mjs` 通过。
+
+2026-10-21 浏览器第一层基础语义补全（docs/browser-foundation-plan.md F00–F18）已按顺序完成可实施切片，候选分支 `codex/browser-foundation` 停在待父编排者 review 状态。本轮不合 main、不推送、不部署、不采用权重。逐项状态与证据在 run 目录 `/Volumes/Intel/playground/nnanything-runs/browser-foundation-20261021/f18-delivery.md`；过程材料同目录。
+
+交付内容：F04 逐类证据与隔离测试；F05 自身状态属性（readonly/checked/open/selected）进观测与回载；F06 感知事实作者验收记录；F07 内容读取（input value、placeholder、media src/type）；F08 结构包含事实；F09 accessible name 按 ref 绑定 aria-labelledby 并与显示文字分开；F10 既有 controls 黑盒验收；F11 确定性 owned/direct scope 边界 filter；F12 回执三态公开入口 `nnanything/browser-receipt`（72 回执训练/回载、99 隔离、36 自身语义）；F13 dispatch 错误分离验收；F14 顶层文档后验当前性（换 scope、DOM 重建、iframe 计数黑盒）；F15 属性变化比较 filter；F16 只读组合 consumer（身份/资格/关系/事件/属性变化五段，不求和、不推断用途）；F17 两个独立实现家族逐项评价（13 pass / 0 fail / 1 unverified）。
+
+证据：受影响测试 355 项全过、0 跳过（含 `NN_HANDWIRED_ROOT=/Volumes/extension/code/handwired`）；13 个 workflow 图 dagpipe validate 全部 exit 0；`npm run build`（tsc + check-layout）exit 0。新增公开入口只在 `nnanything/browser-classify` 下追加，无旧入口改名或删除。
+
+诚实缺口（不写成已完成）：F04 audio=0、ignore=0、video=1 黄金样本不足，未用其他类别凑数；F06 `currentView.activeElementFocus` 对非 div/object/svg 元素缺失（properties/itemObservations 路径仍保留焦点事实）；F06 未在真实浏览器端到端跑；F14 缺同名异对象后验配对测试；F16 不训练二层；F17 family B 无原生 select 保持 unverified，真实外站证据复用 2026-10-20 的 c1 观测，本轮无新外站导航观测；全部候选权重保持 uncalibrated / not_applied。父编排者独立 review 尚未进行，不声称 review PASS。
+
+补充（同日）：F14 补了同名同文本不同对象的配对比较黑盒测试（`tests/browser-f14-posterior-currentness.test.mjs`），同 id 同文本重建后 ref 不同、比较为 `unknown/object_mismatch`，不再借用下层测试代替。F06 补了同一对象四态连续切换黑盒测试（`tests/browser-f06-perception-states.test.mjs`），同 registry 内可见、离屏、部分露出、完全遮挡的 ref 不变，并确认 button 的 `properties.activeElementFocus=true` 而 `currentView` 无记录。新发现：`lib/adapters/browser/live-dom.ts:2627-2633` 把无正面积可见片段一律写成 `visible` 加 `exposedRects: []`，完全离视口的元素也被标成 `visible`；候选链先用几何过滤，故不影响候选结果，本轮不改三值 `ForegroundState` 语义，交 review 决定。证据：受影响测试 358 项全过、0 跳过；`npm run build` exit 0。
+
+F17 补充（同日）：新增 2026-10-21 新鲜只读真实观测，`playground` 外的 run 脚本 `f17/f17-live-observation.mjs` 通过 CDP 9333 读取已打开的微博/小红书/知乎标签页，只统计结构与属性存在性，不保存页面文字、id、class 或完整 URL，未导航、未点击、未滚动。结果见 `f17/f17-combined.json`：合成两家族 13 pass / 0 fail / 1 unverified；真实页 13 项有实例。三个页面都没有 `aria-labelledby` 与 `aria-controls` 实例，故 F09 ref 绑定标签与 F10 controls 关系在真实页本轮无实例证据，只有合成 fixture 证据。select 在合成 family B 无原生实现保持 unverified，真实页只统计到知乎 1 个原生 select 存在。
+
+父级 review 修正（2026-10-21）：父编排者对 `codex/browser-foundation4bc61c9` 判 FAIL、10 项 P1，逐项证据在 run 目录 `parent-review.md`。本轮在既有 worktree 的唯一 owner 处修复，未重训无关模型、未重跑全部未变能力、未合 main、未采用权重、未触碰 CLI 工作树；原始失败与首次评价保留。逐项根因、红测、绿测、真实浏览器输出在 `fix-report-p1.md`。
+
+修复要点：`live-dom.ts` 把 input value 读取改为显式 `readContent`（默认不读），`capture-bundle.ts` 的 `CaptureEvidence` 用 `Omit<LiveDomEvidence,"inputValue">`，侧车结构上无法装值；`aria-labelledby` 改为遍历后按完整已观测集合绑定，前向与混合顺序都能解出；`option` 读原生 `selected` 并把默认声明另存 `selectedDeclaration`；`readonly` 只记原生态，另加 `readonlyState` 区分 `readonly/editable/conflict`；accessibleName 改读完整文本并按 1024 上限给出 `accessibleNameCoverage`。`scope-boundary.ts` 用前序 DFS 与 `relativeHops` 重建祖先栈，嵌套 scope 整棵子树排除，边序不一致返回 `unknown`。`attribute-change.ts` 要求显式 `ComparisonContext`（文档/范围/观测/修订），新增伪属性 `value` 只从显式值读取取值。`browser-feedback-samples.ts` 实现 `declareRecipeConditions` 与 `assertRecipeFields`，R5「配方要求 unknown、实例 known」真实反例已被拒绝。
+
+证据：受影响测试 391 项全过、0 失败、0 跳过（含 `NN_HANDWIRED_ROOT=/Volumes/extension/code/handwired`）；`npm run build` exit 0；F17 仍 13 pass / 0 fail / 1 unverified。新增受控真实浏览器端到端：esbuild 打包 adapter 入口后经 CDP 注入独立标签页，实测前向名称、option 当前态与声明、ARIA 只读冲突、880/1600 字标签覆盖、默认不读值与显式读值、aria-controls 范围内 `observed` 与范围外 `unknown(aria_controls_target_outside_scope)`；原始输出 `f06-live-e2e/f06-live-e2e.json`，用户标签页未导航、未关闭。
+
+仍未完成（不写成完成）：F04 的 audio 与 ignore 黄金样本为 0、video 仅 1 条且无独立留出；F09/F10 外部站点实例仍为 0，本轮补的是受控实例；`currentView` 焦点投影缺口与离视口元素标 `visible` 的既有偏差未改；全部候选权重仍 `uncalibrated/not_applied`。全仓 `npm test` 有 4 项与本改动无导入关系的失败（CLI 外部依赖、缺 `artifacts/chrome-extension`、缺已保存命令 profile），日志 `full-test-after-p1-fixes.log`。父编排者的 scoped finding recheck 尚未进行，不声称 review PASS。
+
+F04 补证（2026-10-21，续）：父级 review 指出 audio/ignore 零黄金、video 无独立留出、357 条全为 properties_offline。新增受控真实浏览器逐类矩阵 `playground/browser/f04-live-gold.mjs` 与 `playground/browser/f04-live-gold-entry.ts`：esbuild 打包入口后经 CDP 注入新建受控标签页，调用真实 `observeLiveDom` 取真实几何，再用 `classifyBasicKind` 打分；期望标签由构造决定，元素从未参与拟合，故整组按构造即为留出；跑完只关闭该受控标签页。结果：audio 4/4、video 4/4 判对，MAP 候选与默认 profile 一致；ignore 两套 profile 均判不出（MAP 给 unknown/other，默认判 container 0.7）。原因有实据：MAP 权重 `leafWeights.ignore` 为空对象，与 `docs/basic-kinds-wiring.md` 第 160、214 行一致，属能力缺口而非采样缺口，补它需显式训练并采用带 ignore 系数的候选，超出本轮授权。F04 仍为部分完成；真实站点 audio/ignore 人工黄金仍为 0。原始输出 `f04/f04-live-gold.json`、`f04/f04-live-gold-default.json`。
+
+F06 补证（2026-10-21，续）：父级 review 指出 F06 没有真实浏览器证据。新增两套受控真实浏览器证据，均只关闭自建标签页。其一 `playground/browser/f06-live-e2e-entry.ts` 经 CDP 注入后调用真实 `observeLiveDom` 与真实 `observeBrowserSingleAction`：前向 labelledby 解出、option 当前态与声明分离、仅 ARIA 只读报 conflict、880/1600 字标签给出 complete/truncated、默认路径不读值、`aria-controls` 范围内 observed 与范围外 `unknown(aria_controls_target_outside_scope)`。其二 `playground/browser/f06-capture-live-entry.ts` 在受控页跑完整公开链（观测 → 候选链 → 基础种类 → `BrowserCaptureSession` 导出），`collected=1`、`sidecarOwnsInputValue=false`、`serializedContainsSecret=false`，证明真实浏览器观测到的密码值没有进入导出包与侧车。原始输出 `f06-live-e2e/f06-live-e2e.json`、`f06-live-e2e/f06-capture-live.json`。覆盖限制单列：受控页面不是用户站点，真实站点 labelledby/controls 实例仍为 0，浏览器 chrome 与第三方遮挡层无证据。
+
+提交与复核（2026-10-21）：10 项 P1 修复共 7 笔提交，候选 HEAD `5c525d1`，重新提交说明见 run 目录 `resubmit-p1.md`，逐项证据 `fix-report-p1.md`。已派出独立只读复核（fresh OAuth gpt-6.1-sol medium）做 scoped finding recheck，复核输出在 `recheck-p1/`。未合 main、未推送、未部署、未采用权重，worktree 保留。
+
+独立复核与第二轮修复（2026-10-21）：对候选 `5c525d1` 的 fresh 只读复核判 FAIL，3 项通过（P1#3/#5/#6）、7 项未过。第二轮在 `9f8601f` 逐项修复：`readContent` 对 password/file 一律不读；`aria-labelledby` 重复 token 去重；readonly 按输入类型定适用性且两个方向不一致都记 conflict；比较上下文增加 `registryRef` 观测来源并要求两侧一致，否则 `object_source_mismatch`；observed 值读必须带值（null 属 unavailable）；`makeFeedbackSamples` 按变体声明配方并在生成后断言，R5 两变体按配方改为 unknown，历史 known 形状由同一配方拒绝；F18 完成声明改为「3 项经复核通过、7 项修复待复核」。F16 接线 `registryRef`，F06 采集证据改为直接选密码框（`capturedSensitiveHost=true`，导出仍无值）。受影响测试 399 项全过、0 失败、0 跳过。复核记录 `recheck-p1/`，逐项证据 `fix-report-p1.md` 第 12 节，重新提交说明 `resubmit-p1.md`。
+
+第三轮修复（2026-10-21）：第二轮复核把 10 项收敛到 3 项未关闭。`e404b4d` 修复：敏感判定取 `type` 属性与实时 `.type` 的并集（伪装成 text 的 password/file 也不读值，getter 零调用）；`aria-labelledby` 改为按解析后的目标 ref 去重（两个别名指向同一元素时名称与 ref 各一次）；registry 实例生成唯一 `registryRef` 并经 `observeBrowserSingleAction` snapshot 贯通到 F16，跨来源比较返回 `unknown/object_source_mismatch`，真实 producer 路径不再抛 TypeError。新增两组测试，受影响 401 项全过。真实浏览器证据按新代码重跑：F06 观测/采集、F04 两套 profile 矩阵结果不变（audio 4/4、video 4/4、ignore 0/4）。
+
+第四轮修复（2026-10-21）：第三轮复核确认 P1#1、P1#2 通过，P1#7 仍有一个真实缺口——来源标识用模块内计数器，独立模块实例或独立进程都从 1 重开，两个不同 producer 因此共享来源。`4d73767` 改用 `crypto.randomUUID()` 生成来源标识，跨模块、跨进程唯一；新增测试加载第二个模块实例并断言两个工厂来源不同、跨来源比较返回 `object_source_mismatch`。复核脚本四组反例（P1#1 120 组矩阵、P1#2 15 组、P1#7 真实 producer、P1#7 跨模块）全部通过。受影响测试 401 项全过。
+
+第四轮（最终）复核 PASS（2026-10-21）：独立只读复核对 `e404b4d..c0b8d94` 判定 PASS，10 项 P1 全部通过。P1#7 的证据为：同进程两个实现模块、`live-dom.js?copy=N` 32 份、两个独立子进程，来源均不同，相同 nodeRef 的不同 Element 一律返回 `unknown/object_source_mismatch`；无 `crypto.randomUUID` 时显式抛 TypeError，不静默回退计数器。复核另指出新增隔离测试给入口加查询参数只重估入口、底层 `live-dom` 仍复用，两个工厂实为同一函数；`02a7401` 改为直接加载 `live-dom.js?copy=1` 并先断言工厂不同。最终受影响测试 401 pass / 0 fail / 0 skipped，构建 exit 0，F17 13 pass / 0 fail / 1 unverified。该 PASS 只覆盖 finding 复核，不代表 F00–F18 整体完成，权重仍为 `uncalibrated/not_applied`。
+
+第五轮（真实浏览器回归）修复（2026-10-21）：第四轮复核 PASS 后在最终 HEAD 重跑真实浏览器证据，F06 采集与 F04 矩阵全部抛 `TypeError: registry source identity requires crypto.randomUUID`。根因是真缺陷：`crypto.randomUUID()` 只在安全上下文可用，http 页面 `isSecureContext=false` 时缺失，而 `crypto.getRandomValues` 存在（实测 `{"secure":false,"uuid":"undefined","gv":"function"}`），因此真实页面上的观测与采集会直接失败，而单元测试全绿。`1f114c8` 改为优先 `randomUUID`、缺失时用 `getRandomValues` 16 字节按 UUID v4 排版，仅完全无随机源时显式抛 TypeError。修复后真实证据全部复现：F06 采集 `capturedSensitiveHost=true`、`serializedContainsSecret=false`；F06 观测 12 项分离保持；F04 audio 4/4、video 4/4、ignore 0/4（MAP 为 unknown、默认 profile 为 wrong）。受影响测试 402 项全过。
+
+第五轮（定案）复核 PASS（2026-10-21）：独立只读复核审查 `c0b8d94..1f114c8` 的来源标识降级修复，判 PASS。证据：隐藏 `randomUUID` 用原生 `getRandomValues` 连续创建 100,000 次无重复且全部符合严格 UUID v4；降级分支 32 个独立实现模块与四个独立进程的来源互不相同，跨来源比较一律 `object_source_mismatch`；`crypto` 缺失、空对象、两方法均缺失三种情况显式抛 TypeError；两方法都在时优先 `randomUUID`；真实浏览器 CDP 页面主上下文的原生路径与局部隐藏 `randomUUID` 的降级路径均完成观测、分类与内存采集，侧车不含 `inputValue`。复核指出的格式断言偏宽已由 `f949f64` 收紧为严格 UUID v4。最终受影响测试 402 pass / 0 fail / 0 skipped，构建 exit 0。10 项 P1 至此全部获独立复核 PASS；该结论只覆盖 finding 复核，F04 ignore 能力缺口、真实站点黄金缺失、离视口与非 div 焦点限制仍未完成，权重保持 `uncalibrated/not_applied`。
+
+B-Search 交付（2026-10-22）：搜索方向补「提交实例关联」与「响应归属」，使根 100 只能由本次提交的响应证据满足。合同新增 `submittedRequestRef`、`resultsRequestRef`、提交基线 `submissionBaseline`、集合 `collection.requestRef` 与 `collection.batch`，唯一 owner 是 `docs/search-page-abstraction.md` 与 `lib/adapters/browser/search-{contract,observation,recursive}.ts`、`lib/nodes/browser-search.ts`。家族 A 在既有 fixture 内扩展场景；家族 B 为 `playground/browser/search-fixture/family-b/` 独立实现（自有 HTML、`<ol>/<li>` 主结果、独立旁栏、独立客户端与服务路由，不导入家族 A）。逐例验收程序 `playground/browser/search/{cases,native-io,accept}.mjs` 每行独立进程，只走 CDP 原生鼠标/键盘与 `Input.insertText`，保存原退出码。
+
+真实浏览器验收 44/44 通过（两家族各 22 行）：S=12、U=32、control error=32、原生动作 78 次。C04 迟到 A 不覆盖 B；C17 保留 `native_action_failed` 且零后继 submit；C18 两子变体分别保留 `post_observation_failed`；C19 `matched_items`/`visible_batch` 在同一内容状态下分别 satisfied/unknown；C12–C14 旁栏与 AI 不混入主集合；C20 关联缺测保持未知。验收用独立 headless Chrome（端口 9444、独立 user-data-dir），未使用日常浏览器；fixture 服务为 `127.0.0.1:4173`。
+
+执行器沙箱禁 TCP，真实路径上的 7 处缺陷由父编排者在验收中定位修正：server 缺 `fileURLToPath` 导入、`sideEffects` 断言取错对象、Enter 用 `rawKeyDown` 不触发表单隐式提交（家族 B 全部 submit 失败）、access 受限被误报为执行错误、report 级控制结算被误计为观察/执行错误、未执行条件 `not_started` 被读成 unknown、C19 未读索引落在第 2 页。搜索测试 30/30 通过，`npm run build` 通过。未训练、未改权重、未采用候选，决策仍为 handwired 显式绑定；搜索域学习恢复仍未就绪，沿 `b-feedback/plan.md` 保留该缺口。
+
+B-Feedback 真实验收（2026-10-23）：执行器交付 F1 可辨性（422 行、63 个完整 12 维投影、0 冲突 gold、72 对变换不变）、R5 已知回归并入训练、F1 最小后训练候选（`uncalibrated/not_applied`，新进程回载 holdout 24/24、train 94/94、transformations 72/72、finite 228/228、R5 4/4）、F2 不改权重只消费实际 F1 预测（含负控制）、展开域 17 实例 × 2 家族验收 runner（每段独立新进程、CDP 原生点击、故障注入标 `injected:`）。真实浏览器 34/34 通过，逐行证据 `b-feedback/acceptance/expansion`；B-Input 52/52、B-Search 44/44 同实例重跑无回归，浏览器与搜索测试 428/428。
+
+本轮在真实路径定位并修正 10 处缺陷（详见 run 目录 `b-feedback/summary.md` 末节与 `limits.md`）：`resources.registry` 先于首次 `observe()` 取空 refs；`resources` 键名 `strategyProfile` 与 `runBrowserStrategyGoal` 期望的 `profile` 不一致；家族 A/B 的 role=button 控件缺 `aria-disabled="false"` 使 `enabled` 观测为 unknown、策略全部 deferred；`grantedEffects` 缺 `filesystem.write`；续跑 `requestId` 带 `-seg<N>` 与 `acceptedRoot.requestId` 不一致；续跑段 `observe()` revision 从 0 重开导致历史比当前观测新；段结束无条件关闭自有 target；验收器在非 yield 停止后继续跑段；`retryAttempted` 用 `dispatches > 1` 把合法多次派发误判为停止后重试；`verifiedEffect` 未把 not-dispatched 显式拒绝判为 none 且 `validPost` 不认未派发导致根事实 unknown。修正后受影响测试 135 项全过，428 项浏览器与搜索测试全过。
+
+搜索域学习恢复仍未就绪：F1/F2 是 `SetExpanded` 合同，不能表达输入值、查询归属与结果状态，本轮不改合同、不伪造投影，B-Feedback 总状态保持 INCOMPLETE（展开域完成、搜索域未就绪）。无训练后自动采用、无采集闭环；全部候选权重仍 `uncalibrated/not_applied`。
+
+B-Generalize 整体 Review 闭包（2026-10-23，提交 be61b84）：独立只读 Review 判 FAIL，2×P1、1×P2、1 advisory。P1 状态可信性：`validPost` 只允许「typed 拒绝回执 + effectKnowledge=none」的零派发复用派发前观测，`stale_reference`/`control_unavailable` 等无回执路径保持 unknown 与原始错误，新增红测 `zero-dispatch stale control never promotes the old observation to a current root fact`（放宽版本失败、收紧后通过）。P1 泛化验收：新增两个新来源家族 `inspect-table`、`sheet-audit` 各 12 例共 24 例（6 个投影未入训练、0 冲突），固定候选首次评价 F1 23/24（1 例真实缺口 `inspect-table:rejected-after-unknown-effects`：派发已发生、回执失败、effects 未知被判 indeterminate）、F2 政策层 24/24（安全边界 22/24，两例 `completed-known-effects` 因策略投影不携带 effects 知识而 SELECT）；未调参、未换候选，本批资料转为已知证据，`verification/independent/`。P2 搜索合同迁移：plan §8 的 8 项停止行为义务逐项映射 B-Search 行，缺口 SM02（明确输入拒绝无正文）、SM04（提交后 throw）、SM05（提交后验缺失）补最小注入（`injected:` 前缀），8 项 × 2 家族 = 16 条真实浏览器轨迹 16/16 通过，专用 runner `playground/browser/feedback/search-migration.mjs`，证据 `b-feedback/acceptance/search-migration/`，只验证停止行为、不改 wire/合同语义。advisory：`retryAttempted` 改名 `dispatchedAfterStop`（直述含义，原判定字段值保留）。真实浏览器复验：展开域 34/34、B-Search 44/44、搜索迁移 16/16，浏览器与搜索测试 449/449。
+
+范围结论：F1 新独立交叉分类未达 plan §9 的 24 例全对（23/24），该缺口为真实未见投影泛化缺口，B-Feedback 的「新泛化」验收保持未通过；搜索域学习恢复仍未就绪。整体 Review finding 已逐项闭合，候选仍 `uncalibrated/not_applied`，无训练、无权重改动。
+
+browser-focus-sample-repair 实验（2026-10-23，提交 5986dc6）：NNAnything 焦点样本修订实验执行完成并独立复核 PASS。三家族（family_leaf_v1、targetScore=0.8、rivalCeiling=0.4、otherGap=0.05、epochs=200、lr=0.02、anchorLambda=0.001、18 trainableWires/78 地址）各 30 状态行/9 对象，共 90 行真实原生采集（CDP 键鼠），P4 独立监督复核 90/90 PASS。control（旧 261 train）与 treatment（旧 261+新 30）同固定 T1 配方、同起点（frozen-e200 `4a60c08d`）、各自新进程拟合与回载。500 行同行集配对：treatment 反例 112 从 judged:ignore 变 conflict/other（不再误判 ignore 但未达 container），新 train 30 对 16→12、新 dev 16→12、旧 original 274→261、family-a 18→13、旧 ignore 155→137。解封四门两臂均 unseal=false；verification 保持 NOT_EVALUATED；B1 保持 INCOMPLETE。诊断：projection-145（W1/W2 -1 未聚焦态 af=0 与 ignore 包装 81 维同投影异 gold）为表示不可分，非标注错误；梯度方向与期望一致（更新为 weights−lr·grad，container.af 负梯度推高权重），不宣称已定位优化根因。公开 consumer：F04 live control 12/12、treatment 8/12；f04-retention control parentIgnoreDescendantIndependent 2/2、treatment 0/2（后代仍独立可寻址）。新增/修复：prepare-request 输出完整请求信封、diagnose 括号缺陷、projection-audit 对完整 train 集合检冲突、evaluate human 门只计已确认正例、f04-retention 汇总要求全部预期用例。全量测试 1315 pass/0 fail/1 skip，构建通过。候选权重均 uncalibrated/not_applied；实验证据与报告在 run 目录 browser-focus-samples-20261023/（experiments/experiment-report.md、unseal-record.md、domain-delivery-note.md、tasks/final-review-2-report.md）。

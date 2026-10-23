@@ -63,9 +63,15 @@ const SAFE_ATTRIBUTE_NAMES = new Set([
   "aria-expanded",
   "aria-hidden",
   "aria-selected",
+  "aria-checked",
+  "aria-readonly",
   "contenteditable",
   "disabled",
   "hidden",
+  "readonly",
+  "open",
+  "checked",
+  "selected",
   "tabindex",
 ]);
 

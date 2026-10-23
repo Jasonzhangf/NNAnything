@@ -242,15 +242,24 @@ function readRegion(value: unknown, label: string): SingleActionRegion {
 
 export function readSingleActionSnapshot(value: unknown): SingleActionSnapshot {
   const input = record(value, "single-action snapshot");
-  exactKeys(input, [
+  // registryRef is optional in the data contract: older snapshots stay valid,
+  // while an observation produced by the real adapter always carries it.
+  const snapshotKeys = new Set([
     "documentRef",
     "observationId",
     "revision",
     "scopeRef",
+    "registryRef",
     "regions",
     "elements",
     "evidence",
-  ], "single-action snapshot");
+  ]);
+  for (const key of Object.keys(input)) {
+    if (!snapshotKeys.has(key)) throw new TypeError(`single-action snapshot has unsupported field ${key}`);
+  }
+  for (const key of ["documentRef", "observationId", "revision", "scopeRef", "regions", "elements", "evidence"]) {
+    if (!Object.hasOwn(input, key)) throw new TypeError(`single-action snapshot.${key} is required`);
+  }
   const documentRef = nonEmptyString(input.documentRef, "snapshot.documentRef");
   const observationId = nonEmptyString(input.observationId, "snapshot.observationId");
   const revision = nonnegativeInteger(input.revision, "snapshot.revision");
@@ -332,11 +341,15 @@ export function readSingleActionSnapshot(value: unknown): SingleActionSnapshot {
     readObservation(region.expanded, `region ${region.ref}.expanded`);
     readObservation(region.rendered, `region ${region.ref}.rendered`);
   }
+  const registryRef = input.registryRef === undefined
+    ? undefined
+    : nonEmptyString(input.registryRef, "snapshot.registryRef");
   return {
     documentRef,
     observationId,
     revision,
     scopeRef,
+    ...(registryRef === undefined ? {} : { registryRef }),
     regions,
     elements,
     evidence,
@@ -1039,6 +1052,7 @@ export function observeBrowserSingleAction(input: ObserveBrowserSingleActionInpu
     observationId,
     revision,
     scopeRef,
+    registryRef: input.registry.registryRef,
     regions: regionResults,
     elements: elements.map(item => item.element),
     evidence,

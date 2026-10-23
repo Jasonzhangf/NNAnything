@@ -41,7 +41,10 @@ export type BrowserCaptureAnnotation =
   | { readonly kind: "wrong"; readonly correctedLabel?: BasicKindLabel; readonly otherReason?: string }
   | { readonly kind: "unsure" };
 export interface BrowserCaptureContext { readonly contextRef: string; readonly profileId: string; readonly focusSpec: FocusSpec }
-type CaptureEvidence = LiveDomEvidence & { readonly provenanceRef: string; readonly evidenceRef: string; readonly contextRef: string };
+// Capture evidence deliberately has no input value. The overlay contract keeps
+// classification capture away from form content, so a password field can never
+// be copied into an exportable bundle.
+type CaptureEvidence = Omit<LiveDomEvidence, "inputValue"> & { readonly provenanceRef: string; readonly evidenceRef: string; readonly contextRef: string };
 export interface BrowserCaptureBundleV1 {
   readonly kind: "nnanything.browser-capture-bundle.v1";
   readonly sessionId: string;
@@ -125,7 +128,10 @@ export class BrowserCaptureSession {
     this.rows.set(key, row);
     this.sidecar.set(provenanceRef, {
       nodeRef: evidence.nodeRef, tag: evidence.tag, id: evidence.id, classList: [...evidence.classList], textSummary: evidence.textSummary,
-      linkPathname: evidence.linkPathname, rect: evidence.rect ? { ...evidence.rect } : null, clippedRect: evidence.clippedRect ? { ...evidence.clippedRect } : null,
+      linkPathname: evidence.linkPathname, placeholder: evidence.placeholder, mediaSrc: evidence.mediaSrc, mediaType: evidence.mediaType,
+      accessibleName: evidence.accessibleName, accessibleNameSource: evidence.accessibleNameSource, accessibleNameCoverage: evidence.accessibleNameCoverage,
+      labelledByRefs: [...evidence.labelledByRefs], labelledByUnresolved: evidence.labelledByUnresolved, readonlyState: evidence.readonlyState, selectedDeclaration: evidence.selectedDeclaration,
+      rect: evidence.rect ? { ...evidence.rect } : null, clippedRect: evidence.clippedRect ? { ...evidence.clippedRect } : null,
       parentTags: [...evidence.parentTags], ...(evidence.unassessedChildContent ? { unassessedChildContent: [...evidence.unassessedChildContent] } : {}),
       provenanceRef, evidenceRef: provenanceRef, contextRef: context.contextRef,
     });

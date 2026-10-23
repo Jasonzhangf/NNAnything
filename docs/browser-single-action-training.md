@@ -99,3 +99,7 @@ NOOP须有有效真实展开证据且零输入。输入成功但后验仍折叠�
 作者测试41/41，完整回归860/860且零skip。首次全量因隔离树缺少扩展构建产物失败，补正式构建后通过；未改断言或旧L1/CLI权重。完整独立Review及集成回执随后由note.md记录。
 
 整体独立Review发现后验当前性、透明输入拦截、fieldset继承禁用三项问题。已新增红测并修复：后验必须更新且匹配currentControl；可执行点须由最上层目标或后代接收；原生禁用沿`:disabled`测量并保留legend例外。修复后48/48浏览器测试、867/867全量零skip；透明拦截与fieldset实页零输入，legend实页原生点击后达100。原模型、wire与权重未改。此增量仅修基础事实，不宣称已经训练“失败后重试/次选”。
+
+### 2026-10-22 展开域失败反馈与安全有界恢复验收
+
+失败反馈 F1 与策略 F2 的展开域验收复用本切片的原子公开入口和真实原生点击，不改变 50 参数或既有证据。`playground/browser/feedback/accept-expanded.mjs` 对 17 个固定实例在两个独立页面家族各跑一次，共 34 条轨迹；每段独立新进程，只走 CDP 原生鼠标事件，不脚本写值或 `.click()`，故障注入标注 `injected:`。续段报告回放历史原子结果，runner 按 `dispatchId` 去重；目标达成记录 `goal_achieved`。安全恢复仍沿既有最窄合同：succeeded、无执行/验证错误、明确 unsatisfied、effects 证明 none、权限与绑定有效、F1 预测 `completed_without_goal`、`assessRetry` 同类失败且预算有余量；拒绝、异常、派发不确定、effects unknown 或观察无效一律停止。真实浏览器轨迹由父编排者在宿主 shell 执行，本仓库内只跑构建与单元测试。

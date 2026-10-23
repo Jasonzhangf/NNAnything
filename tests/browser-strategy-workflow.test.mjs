@@ -667,6 +667,46 @@ test("mock root preserves a nested atomic DEFER diagnostic without fallback inpu
   assert.equal(clicks.length, 0);
 });
 
+test("zero-dispatch stale control never promotes the old observation to a current root fact", async () => {
+  const initial = snapshot({ observationId: "stale-root-initial", revision: 1 });
+  const { resources, clicks } = goalResources({
+    initial,
+    observations: [
+      snapshot({ observationId: "stale-root-preflight", revision: 2 }),
+      snapshot({ observationId: "stale-root-pre", revision: 3 }),
+    ],
+  });
+  const live = resources.currentControl;
+  let calls = 0;
+  resources.currentControl = () => {
+    calls += 1;
+    const control = live();
+    // The page moves on between the observation and the dispatch attempt.
+    return calls >= 2 ? { ...control, revision: control.revision + 7 } : control;
+  };
+
+  const result = await strategyGoal.runBrowserStrategyGoal(
+    goalRequest({ requestId: "browser-strategy-stale-root", initial }),
+    resources,
+  );
+
+  assert.equal(result.kind, "run_result");
+  assert.equal(clicks.length, 0);
+  assert.notEqual(result.report.rootResult, "satisfied");
+  assert.equal(
+    result.report.errors.some(error => error.code === "invalid_binding"),
+    true,
+    JSON.stringify(result.report.errors),
+  );
+  assert.equal(
+    result.report.atomicResults.length,
+    1,
+    JSON.stringify(result.report.atomicResults),
+  );
+  assert.equal(result.report.atomicResults[0].observedStateRef, null);
+  assert.equal(result.report.atomicResults[0].effect.knowledge, "none");
+});
+
 test("mock core selection mismatch fails before the atomic workflow", async () => {
   const preflight = snapshot({ observationId: "mismatch-preflight", revision: 1 });
   const resources = stepResources({
