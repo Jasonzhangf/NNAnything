@@ -30,4 +30,7 @@ training/weights/**
 .mcp.json
 .agent-collab/
 
+# AppSDK governance runtime state written by the owning agent session
+.appsdk-control/
+
 !**/.gitkeep

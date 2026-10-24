@@ -495,6 +495,15 @@ const measurementNames = [
   "ownLabelPresent", "graphicDescendantPresent", "explicitTabIndexKind",
 ] as const;
 const EXPLICIT_TAB_INDEX_KINDS = ["absent", "negative", "nonnegative", "invalid"] as const;
+// Single owner for the declared-attribute interpretation. The adapter, capture
+// tooling and offline derivation all call this so production and training read
+// the same fact; it never claims the browser can actually focus the element.
+export function declaredTabIndexKind(attribute: string | null): ExplicitTabIndexKind {
+  if (attribute === null) return "absent";
+  if (!/^[+-]?\d+$/.test(attribute.trim())) return "invalid";
+  const number = Number(attribute);
+  return Number.isFinite(number) ? number < 0 ? "negative" : "nonnegative" : "invalid";
+}
 function explicitTabIndexKind(value: unknown): ExplicitTabIndexKind | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string" || !(EXPLICIT_TAB_INDEX_KINDS as readonly string[]).includes(value)) {

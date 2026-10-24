@@ -1,4 +1,4 @@
-import { hasNonFormatDirectText, shapeAppearanceMeasurements, type BasicKindMeasurements, type BasicKindProperties } from "../../filters/basic-kinds.js";
+import { declaredTabIndexKind, hasNonFormatDirectText, shapeAppearanceMeasurements, type BasicKindMeasurements, type BasicKindProperties } from "../../filters/basic-kinds.js";
 import { isSafeRuleAttribute, type ForegroundState, type ObservationCurrentView, type ObservationNode, type PageObservation, type Rect } from "./observation.js";
 import { buildExplorationInputs, type ExplorationInputV1, type UnassessedInteriorKind } from "./exploration-input.js";
 import { deriveBasicKindContentRelations } from "./content-relations.js";
@@ -2536,11 +2536,7 @@ export function observeLiveDom(input: {
     const tabIndex = element.getAttribute("tabindex");
     const tabIndexNumber = tabIndex === null || !/^[+-]?\d+$/.test(tabIndex.trim()) ? null : Number(tabIndex);
     const tabIndexFocus = tabIndex === null ? false : tabIndexNumber === null || !Number.isFinite(tabIndexNumber) ? null : tabIndexNumber >= 0;
-    // Declared attribute only: absent/legal-negative/legal-nonnegative/invalid;
-    // unreadable stays null and never implies false or a guessed focusability.
-    const explicitTabIndexKind = tabIndex === null ? "absent"
-      : tabIndexNumber === null ? "invalid"
-        : tabIndexNumber < 0 ? "negative" : "nonnegative";
+    const explicitTabIndexKind = declaredTabIndexKind(tabIndex);
     const exactOneChild = allChildren.length === 1;
     const soleChild = exactOneChild ? allChildren[0]! : null;
     const soleChildRect = soleChild?.getBoundingClientRect();

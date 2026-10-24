@@ -54,10 +54,13 @@ node_modules
 .codex
 .mcp.json
 .agent-collab
+.appsdk-control
 ```
 <!-- root-layout:end -->
 
 `.claude`、`.codex`、`.mcp.json` 与 `.agent-collab` 是 collab 多 agent 协作在本机与本项目的接入与运行时状态：`.claude` 与 `.codex` 承载宿主侧 collab MCP 接入与权限声明，`.mcp.json` 声明 collab MCP server，`.agent-collab` 是 collab 的本地 journal/mailbox 状态目录（由用户管理的全局 collab daemon 维护）。它们不是业务源码、训练资产或交付产物，不在 Git 跟踪范围；agent 不手工编辑其中的状态，也不因协作需要而新建其他根级目录。collab 的使用边界见 `docs/collab.md`。
+
+`.appsdk-control` 是 AppSDK 治理在本机运行时写入的 goal 控制状态，由使用 AppSDK 的 agent 会话维护，不是业务源码或交付产物，不在 Git 跟踪范围。未使用该链路的任务不读取、不修改其中的状态；它出现在根级只表示对应会话正在运行，不代表本项目已初始化 AppSDK 或已产生受管交付。
 
 ## 本地设计与训练Skill
 

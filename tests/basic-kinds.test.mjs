@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { compileWorkflow, createWorkflowInputEvent, loadWorkflow, runWorkflow } from "nnanything";
 import { readBasicKindTrainingRequest } from "nnanything/training";
-import { BASIC_KIND_FAMILIES, BASIC_KIND_WIRE_NAMES, LEAF_SUPPORT_WIRES, PRIORITY_BASIC_KIND_INITIAL_PROFILE, classifyBasicKind, classifyBasicKindBatch, computeBasicKindStageRawIntervals, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
+import { BASIC_KIND_FAMILIES, BASIC_KIND_WIRE_NAMES, LEAF_SUPPORT_WIRES, PRIORITY_BASIC_KIND_INITIAL_PROFILE, classifyBasicKind, classifyBasicKindBatch, computeBasicKindStageRawIntervals, declaredTabIndexKind, domBasicKindsNode, extractBasicKindWires, hasNonFormatDirectText, migrateBasicKindProfile, shapeAppearanceMeasurements, validateBasicKindProfile, validateBasicKindProperties, LEGACY_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_PROFILE, DEFAULT_BASIC_KIND_CONFIG, observeCandidates, validateCandidateRequest } from "nnanything/browser";
 
 const complete = { contentEditable: false, directTextPresent: false, childElementCount: 0, positiveAreaChildCount: 0, repeatedChildGeometry: false, inVerifiedListParent: false, svgGraphicChildren: false };
 const classify = (tag, fields = {}, profile) => classifyBasicKind({ tag, role: null, ...complete, ...fields }, DEFAULT_BASIC_KIND_CONFIG, profile);
@@ -1533,4 +1533,19 @@ test("explicit_negative_tabindex zero migration keeps recorded shapes judged unc
     );
   }
   assert.equal(classifyBasicKind(cases[0][1], DEFAULT_BASIC_KIND_CONFIG, migrated).evidence.wires.explicit_negative_tabindex, 1);
+});
+
+test("declaredTabIndexKind is the single owner for the declared attribute interpretation", () => {
+  assert.equal(declaredTabIndexKind(null), "absent");
+  assert.equal(declaredTabIndexKind("-1"), "negative");
+  assert.equal(declaredTabIndexKind("-2"), "negative");
+  assert.equal(declaredTabIndexKind("+5"), "nonnegative");
+  assert.equal(declaredTabIndexKind("0"), "nonnegative");
+  assert.equal(declaredTabIndexKind(" 3 "), "nonnegative");
+  assert.equal(declaredTabIndexKind("abc"), "invalid");
+  assert.equal(declaredTabIndexKind(""), "invalid");
+  assert.equal(declaredTabIndexKind("1.5"), "invalid");
+  assert.equal(declaredTabIndexKind("1e3"), "invalid");
+  // Non-finite digit strings stay invalid instead of becoming a legal value.
+  assert.equal(declaredTabIndexKind("9".repeat(400)), "invalid");
 });
