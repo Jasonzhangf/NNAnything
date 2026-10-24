@@ -403,6 +403,12 @@ export interface SearchInputHostTrainingFit {
   readonly excludedRows: readonly SearchInputHostExcludedTrainingRow[];
   readonly worstMarginViolation: number | null;
   readonly stopEpoch: number | null;
+  /**
+   * Wires whose unclamped step crossed the ±8 optimisation box. The bound is an
+   * optimisation constraint, not a failure: a finite parameter may sit on it.
+   * Recorded so a caller can see it; the stop metric decides acceptance.
+   */
+  readonly boundHitWires: readonly string[];
   readonly epochs: number;
   readonly learningRate: number;
   readonly margin: number;
@@ -658,13 +664,18 @@ function fitAbsoluteSupervision(
   let learnable = initialWeights.slice();
   let stopEpoch: number | null = null;
   let worstMarginViolation: number | null = null;
+  const boundHitWires = new Set<number>();
   for (let epoch = 1; epoch <= epochs; epoch += 1) {
     const evaluated = absoluteLossAndGradient(learnable, rows, margin);
     learnable = learnable.map((weight, index) => {
       const next = weight - learningRate * evaluated.gradient[index]!;
       if (!Number.isFinite(next)) throw new Error("non-finite search input host parameter during fit");
-      if (Math.abs(next) >= WEIGHT_BOUND) throw new Error("search input host parameter reached the weight bound during fit");
-      return next;
+      // The bound is an optimisation box, not a failure signal: a finite
+      // parameter may legitimately sit at ±8. Touching it is recorded as an
+      // observable statistic and the stop metric still decides success.
+      const clamped = Math.max(-WEIGHT_BOUND, Math.min(WEIGHT_BOUND, next));
+      if (Math.abs(next) > WEIGHT_BOUND) boundHitWires.add(index);
+      return clamped;
     });
     if (epoch % ABSOLUTE_CHECKPOINT_INTERVAL === 0) {
       const checkpoint = absoluteLossAndGradient(learnable, rows, margin);
@@ -675,11 +686,13 @@ function fitAbsoluteSupervision(
       }
     }
   }
-  if (stopEpoch === null) {
-    throw new Error("absolute supervision did not satisfy the fitted-set margin within the epoch budget");
-  }
-
+  // An unmet stop metric is reported, not thrown. The caller decides acceptance
+  // from the reported number; a parameter resting on the optimisation bound is
+  // likewise a number, not an error.
   const lossAfter = absoluteLossAndGradient(learnable, rows, margin).loss;
+  const worstMarginViolationFinal = stopEpoch === null
+    ? absoluteLossAndGradient(learnable, rows, margin).worstViolation
+    : worstMarginViolation!;
 
   const weights = SEARCH_INPUT_HOST_WIRES.map(() => 0);
   for (let index = 0; index < USAGE_EVIDENCE_INDEX.length; index += 1) {
@@ -717,8 +730,9 @@ function fitAbsoluteSupervision(
       negativeRowCount,
       unknownRowCount,
       excludedRows: Object.freeze(excludedRows.map(row => Object.freeze(row))),
-      worstMarginViolation,
+      worstMarginViolation: worstMarginViolationFinal,
       stopEpoch,
+      boundHitWires: Object.freeze([...boundHitWires].map(index => USAGE_EVIDENCE_WIRES[index]!)),
       epochs,
       learningRate,
       margin,
@@ -844,6 +858,7 @@ export function trainSearchInputHostBinder(
       excludedRows: Object.freeze([]),
       worstMarginViolation: null,
       stopEpoch: null,
+      boundHitWires: Object.freeze([]),
       epochs,
       learningRate,
       margin,

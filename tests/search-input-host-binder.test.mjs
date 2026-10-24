@@ -560,20 +560,39 @@ test("absolute: an all-zero-evidence negative is reported excluded, never silent
   }
 });
 
-test("absolute: the stop metric is reported and the budget bound throws", async () => {
+test("absolute: the stop metric is reported as a number the caller can judge", async () => {
   const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
   const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
   assert.equal(typeof result.fit.stopEpoch, "number");
   assert.ok(result.fit.stopEpoch > 0 && result.fit.stopEpoch <= 400);
   assert.ok(result.fit.worstMarginViolation <= 0, "the reported stop metric is the fitted-set maximum");
+  assert.deepEqual([...result.fit.boundHitWires], [], "this budget never crosses the optimisation box");
 });
 
-test("absolute: a learning rate that drives a weight to the bound throws instead of clamping", async () => {
+test("absolute: touching the weight bound is an observable statistic, not an error", async () => {
+  // The ±8 box is an optimisation constraint. A finite parameter may sit on it;
+  // only a non-finite parameter is an error. Alice ruling 2026-10-24.
   const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
-  assert.throws(
-    () => trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", learningRate: 100 }),
-    /weight bound/,
-  );
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", learningRate: 100 });
+  assert.equal(result.profile.weights.length, 34);
+  assert.equal(result.profile.calibration, "uncalibrated");
+  assert.ok(result.fit.boundHitWires.length > 0, "the crossed box must be observable in the result");
+  for (const weight of result.profile.weights) {
+    assert.ok(Math.abs(weight) <= 8, "bounded optimisation keeps every parameter inside the box");
+    assert.ok(Number.isFinite(weight));
+  }
+});
+
+test("absolute: an unmet stop metric is reported, not thrown", async () => {
+  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
+  // One step is far too few for the fitted set to reach its margin.
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", epochs: 50 });
+  assert.equal(result.fit.stopEpoch, 50);
+  assert.ok(result.fit.worstMarginViolation <= 0);
+  const short = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", epochs: 1 });
+  assert.equal(short.fit.stopEpoch, null, "no checkpoint was reached, so no stop epoch exists");
+  assert.equal(typeof short.fit.worstMarginViolation, "number", "the unmet metric is still reported");
+  assert.ok(short.fit.worstMarginViolation > 0);
 });
 
 test("absolute: an unknown objective selector throws instead of falling back to pairwise", async () => {
