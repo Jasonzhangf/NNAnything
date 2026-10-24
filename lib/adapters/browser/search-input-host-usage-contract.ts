@@ -152,7 +152,12 @@ function lower(value: string): string {
 function firstIndex(text: string, tokens: readonly string[]): number {
   let best = -1;
   for (const token of tokens) {
-    const at = text.indexOf(lower(token));
+    const needle = lower(token);
+    // An empty needle matches at offset 0 forever. The declared table is
+    // validated, but the extractor accepts any table, so an empty entry must be
+    // skipped rather than allowed to fabricate a match or loop.
+    if (needle.length === 0) continue;
+    const at = text.indexOf(needle);
     if (at !== -1 && (best === -1 || at < best)) best = at;
   }
   return best;
@@ -162,6 +167,7 @@ function anyIndex(text: string, tokens: readonly string[]): readonly number[] {
   const found: number[] = [];
   for (const token of tokens) {
     const needle = lower(token);
+    if (needle.length === 0) continue;
     let from = 0;
     for (;;) {
       const at = text.indexOf(needle, from);
@@ -218,6 +224,7 @@ function channelFeatures(
   const inQuery = new Array<boolean>(lowered.length).fill(false);
   for (const token of tokens.query) {
     const needle = lower(token);
+    if (needle.length === 0) continue;
     let from = 0;
     for (;;) {
       const at = lowered.indexOf(needle, from);
@@ -226,12 +233,22 @@ function channelFeatures(
       from = at + needle.length;
     }
   }
-  let firstQuery = -1;
-  let lastQueryEnd = -1;
+  // Every match is kept: the facts below are existential over matches, so one
+  // sandwiched occurrence is enough. Collapsing to the first/last query and the
+  // first/last other character would report two false facts for a text like
+  // 搜索备注搜索, where text sits after the first query and before the last.
+  let minQueryEnd = -1;
+  let lastQueryStart = -1;
   for (let index = 0; index < lowered.length; index += 1) {
     if (!inQuery[index]) continue;
-    if (firstQuery === -1) firstQuery = index;
-    lastQueryEnd = index;
+    if (index === 0 || !inQuery[index - 1]) lastQueryStart = index;
+  }
+  for (let index = 0; index < lowered.length; index += 1) {
+    if (!inQuery[index]) continue;
+    if (index + 1 < lowered.length && inQuery[index + 1]) continue;
+    // This index ends some query span; the smallest end is the one a following
+    // other character can sit after.
+    if (minQueryEnd === -1 || index < minQueryEnd) minQueryEnd = index;
   }
   let firstOther = -1;
   let lastOther = -1;
@@ -241,11 +258,11 @@ function channelFeatures(
     if (firstOther === -1) firstOther = index;
     lastOther = index;
   }
-  // A query token preceded other text when some non-query text sits after it;
-  // it followed other text when some non-query text sits before it.
-  const queryTokenBeforeText = present && lastOther > lastQueryEnd;
-  const queryTokenAfterText = present && firstOther !== -1 && firstOther < firstQuery;
-  const firstField = firstIndex(lowered, tokens.field);
+  // "Query before text" holds when some query occurrence is followed by other
+  // text; "query after text" holds when some occurrence is preceded by it.
+  const queryTokenBeforeText = present && lastOther > minQueryEnd;
+  const queryTokenAfterText = present && firstOther !== -1 && firstOther < lastQueryStart;
+  const fieldHits = anyIndex(lowered, tokens.field);
   const negationHits = anyIndex(lowered, tokens.negation);
   const queryInsideParens = insidePair(text, "(", ")").concat(insidePair(text, "（", "）"))
     .some(inner => firstIndex(lower(inner), tokens.query) !== -1);
@@ -258,9 +275,11 @@ function channelFeatures(
     queryTokenAfterText,
     queryInsideParens,
     queryInsideQuotes,
-    present && negationHits.some(at => firstQuery !== -1 && at < firstQuery),
-    firstField !== -1,
-    present && firstField !== -1 && firstQuery !== -1 && firstField > firstQuery,
+    // Some negation precedes some query occurrence.
+    present && minQueryEnd !== -1 && negationHits.some(at => at < lastQueryStart),
+    fieldHits.length > 0,
+    // Some field occurrence follows some query occurrence.
+    present && minQueryEnd !== -1 && fieldHits.some(at => at > minQueryEnd),
   ];
 }
 
@@ -274,10 +293,14 @@ export function extractUsageFormFeatures(
   observation: UsageObservation,
   tokens: UsageTokenTable,
 ): UsageFormFeatures {
-  const labelText = observation.labels === null || observation.labels.length === 0
-    ? ""
-    : observation.labels.join(" ");
-  const labelCoverage: UsageChannelCoverage = observation.labelCoverage;
+  // A null label list means the labels were not readable, whatever the coverage
+  // field claims. Folding it to "" would emit eight confident false facts.
+  const labelText = observation.labels === null
+    ? null
+    : observation.labels.length === 0 ? "" : observation.labels.join(" ");
+  const labelCoverage: UsageChannelCoverage = observation.labels === null
+    ? "unmeasured"
+    : observation.labelCoverage;
   const placeholderCoverage = observation.placeholderCoverage;
   const accessibleCoverage = observation.accessibleNameCoverage;
 
@@ -294,14 +317,21 @@ export function extractUsageFormFeatures(
     // A declared empty evidence set is measured: no submit control exists.
     ownedQuery = false;
     ownedWrite = false;
+    let unreadable = false;
     for (const submit of observation.ownedSubmits) {
       if (submit.caption === null || submit.captionCoverage === "unmeasured") {
-        ownedQuery = null;
-        ownedWrite = null;
-        break;
+        // One unreadable caption makes the ABSENCE of a token unknown. It must
+        // not erase a hit another control already proved: a definite hit is real
+        // evidence regardless of what the unreadable control says.
+        unreadable = true;
+        continue;
       }
       if (firstIndex(lower(submit.caption), tokens.query) !== -1) ownedQuery = true;
       if (firstIndex(lower(submit.caption), tokens.writeSubmit) !== -1) ownedWrite = true;
+    }
+    if (unreadable) {
+      if (ownedQuery === false) ownedQuery = null;
+      if (ownedWrite === false) ownedWrite = null;
     }
   }
 

@@ -77,10 +77,29 @@ function resolveFormOwner(
   element: Element,
   scopeRoot: Element,
 ): { form: Element | null; resolved: boolean; dangling: boolean } {
-  const closest = typeof element.closest === "function" ? element.closest("form") : null;
-  if (closest !== null) return { form: closest, resolved: true, dangling: false };
-  const reference = element.getAttribute("form");
-  if (reference === null || reference.trim() === "") return { form: null, resolved: true, dangling: false };
+  // The HTML form owner algorithm is explicit about precedence: when the form
+  // attribute is present it decides ownership, and an explicit reference that
+  // does not resolve leaves the control without a form owner. The nearest
+  // ancestor form is only the fallback when the attribute is absent. Checking
+  // the ancestor first would hand a control to the wrong form whenever both
+  // exist.
+  const reference = typeof element.getAttribute === "function" ? element.getAttribute("form") : null;
+  if (reference !== null && reference.trim() === "") {
+    // An explicitly empty reference is a measured "no form owner", not a miss.
+    return { form: null, resolved: true, dangling: false };
+  }
+  if (reference === null) {
+    if (typeof element.closest !== "function") {
+      // Neither the ancestor relation nor a form reference could be read, so the
+      // ownership is unknown. Reporting "no form" here would turn an unread
+      // relation into a confident absence.
+      return { form: null, resolved: false, dangling: true };
+    }
+    const closest = element.closest("form");
+    return closest === null
+      ? { form: null, resolved: true, dangling: false }
+      : { form: closest, resolved: true, dangling: false };
+  }
   const id = reference.trim();
   // Resolve inside the allowed scope first so an out-of-scope form is never
   // adopted, then fall back to the document (the real form owner algorithm is
@@ -119,6 +138,12 @@ function accessibleNameOf(
     // A truncated name is a partial read. It is kept but never reported as a
     // complete name, so the extractor refuses to score it.
     return { name: raw, coverage: declared === "complete" ? "complete" : "truncated" };
+  }
+  if (declared === "complete") {
+    // Every declared source resolved and carried no text. That is a measured
+    // absence of a name, so the channel scores eight false facts; downgrading it
+    // to "unavailable" would turn a measured empty into an unfinished read.
+    return { name: "", coverage: "complete" };
   }
   if (declared === "unavailable") {
     // aria-labelledby existed but resolved to nothing. An unresolved reference
@@ -170,11 +195,13 @@ function ownedSubmitsOf(form: Element | null, resolved: boolean): {
   // listed through `form="id"` is owned by the form without being a DOM
   // descendant, so a descendant query alone would report "no submit" for a form
   // that really has one. `elements` is the same collection the browser uses for
-  // submission, so it is the authority here, not a heuristic.
+  // submission, so it is the authority here, not a heuristic — and when it is
+  // unavailable the association is unread rather than guessed.
   const collection = (form as HTMLFormElement).elements;
-  const candidates = collection !== null && collection !== undefined && typeof (collection as ArrayLike<Element>).length === "number"
-    ? Array.from(collection as ArrayLike<Element>)
-    : typeof form.querySelectorAll === "function" ? Array.from(form.querySelectorAll("button, input")) : [];
+  if (collection === null || collection === undefined || typeof (collection as ArrayLike<Element>).length !== "number") {
+    return { submits: [], coverage: "unmeasured" };
+  }
+  const candidates = Array.from(collection as ArrayLike<Element>);
   for (const element of candidates) {
     if (!isSubmitControl(element)) continue;
     const caption = captionOf(element);
@@ -213,7 +240,9 @@ export function observeUsageRelation(input: UsageObserveInput): UsageObservation
     placeholderCoverage: placeholder.coverage,
     accessibleName: accessible.name,
     accessibleNameCoverage: accessible.coverage,
-    ownedSubmits: owner.dangling ? null : submits.submits,
+    // An unmeasured association keeps its control list null. An empty array
+    // beside an "unmeasured" coverage would read as "measured: no submit".
+    ownedSubmits: owner.dangling || submits.coverage === "unmeasured" ? null : submits.submits,
     associationCoverage: owner.dangling ? "unmeasured" : submits.coverage,
     formResolved: owner.resolved,
     access: input.access,

@@ -112,8 +112,11 @@ test("unreadable labels stay null (unmeasured), never an empty array", () => {
 });
 
 test("external form owner via the form attribute is resolved, not missed by closest", () => {
+  // A real HTMLFormElement always exposes `elements`; that collection is what
+  // the browser submits, so it is the authority for owned controls.
   const externalForm = element({
     tagName: "FORM",
+    elements: [],
     querySelectorAll: () => [],
   });
   const input = element({
@@ -165,6 +168,7 @@ test("same-form multiple submit controls all enter ownedSubmits with their capti
   });
   const form = element({
     tagName: "FORM",
+    elements: [submitButton, submitInput],
     querySelectorAll: () => [submitButton, submitInput],
   });
   const input = element({ closest: () => form });
@@ -493,4 +497,113 @@ test("a channel is all-or-nothing: never a half-measured eight-bit group", () =>
     assert.ok(nullCount === 0 || nullCount === 8,
       `${channel} must be entirely null or entirely measured, got ${nullCount}/8 null`);
   }
+});
+
+test("a form owner that cannot be read stays unmeasured, never an empty form", () => {
+  // If the host exposes no closest(), the ancestor relation was not read at all.
+  // Reporting "complete + no form" would claim a measured absence we never saw,
+  // and it would make both owned-submit bits a confident false.
+  const input = element({ closest: undefined, getAttribute: () => null });
+  const observation = observeUsageRelation({ ...observationBase, nodeRef: "c1", element: input });
+  assert.equal(observation.associationCoverage, "unmeasured");
+  assert.equal(observation.formResolved, false);
+  assert.equal(observation.ownedSubmits, null);
+});
+
+test("an unreadable form control collection is unmeasured, not guessed from descendants", () => {
+  // form.elements is what the browser submits. A descendant query is a different
+  // relation: it misses controls bound with form="id" and can pick up a
+  // descendant whose real owner is another form. Guessing is worse than null.
+  const submit = element({ tagName: "BUTTON", textContent: "搜索", getAttribute: () => "submit" });
+  const form = element({ tagName: "FORM", elements: undefined, querySelectorAll: () => [submit] });
+  const input = element({ closest: () => form });
+  const observation = observeUsageRelation({ ...observationBase, nodeRef: "c1", element: input });
+  assert.equal(observation.associationCoverage, "unmeasured");
+  assert.equal(observation.ownedSubmits, null);
+});
+
+test("an explicit form attribute wins over an ancestor form, as the HTML form owner algorithm requires", () => {
+  // HTML: the form attribute decides ownership; the ancestor is only the fallback.
+  // A control inside form A that declares form="b" belongs to B, so B's submit
+  // controls are the ones that own it.
+  const submitB = element({ tagName: "BUTTON", textContent: "搜索B", getAttribute: () => "submit" });
+  const formB = element({ tagName: "FORM", elements: [submitB] });
+  const submitA = element({ tagName: "BUTTON", textContent: "保存A", getAttribute: () => "submit" });
+  const formA = element({ tagName: "FORM", elements: [submitA] });
+  const scopeRoot = element({ tagName: "FORM", querySelector: selector => selector === '[id="b"]' ? formB : null });
+  const input = element({
+    closest: () => formA,
+    getAttribute: name => (name === "form" ? "b" : null),
+  });
+  const observation = observeUsageRelation({ ...observationBase, scopeRoot, nodeRef: "c1", element: input });
+  assert.equal(observation.formResolved, true);
+  assert.deepEqual(observation.ownedSubmits?.map(entry => entry.caption), ["搜索B"]);
+});
+
+test("multi-match order facts keep every match instead of the outermost pair", () => {
+  const featuresOf = text => extractUsageFormFeatures(
+    featureObservation({ labels: [text], labelCoverage: "complete" }),
+    tokens,
+  );
+  // 搜索备注搜索: text follows the first query and precedes the last, so BOTH
+  // order facts hold. Comparing only the last query end with the last other
+  // character reports two false facts here.
+  const sandwich = featuresOf("搜索备注搜索");
+  assert.equal(sandwich["label.queryTokenBeforeText"], true);
+  assert.equal(sandwich["label.queryTokenAfterText"], true);
+  // 备注搜索备注: a field token also follows the query even though the first
+  // field token precedes it.
+  const fieldBothSides = featuresOf("备注搜索备注");
+  assert.equal(fieldBothSides["label.fieldTokenAfterQuery"], true);
+  assert.equal(fieldBothSides["label.fieldTokenPresent"], true);
+  // 搜索禁止搜索: the negation precedes the second query even though it follows
+  // the first.
+  const negationSandwich = featuresOf("搜索禁止搜索");
+  assert.equal(negationSandwich["label.negationTokenBeforeQuery"], true);
+});
+
+test("a definite owned-submit hit is not erased by another unreadable caption", () => {
+  const observation = featureObservation({
+    ownedSubmits: [
+      { caption: "搜索", association: "same_form_owner", captionCoverage: "complete" },
+      { caption: null, association: "same_form_owner", captionCoverage: "unmeasured" },
+    ],
+  });
+  const features = extractUsageFormFeatures(observation, tokens);
+  // A read hit is real evidence; an unrelated unreadable caption only makes the
+  // ABSENCE of a write token unknown.
+  assert.equal(features["ownedSubmit.queryTokenPresent"], true);
+  assert.equal(features["ownedSubmit.writeTokenPresent"], null);
+});
+
+test("labels null stays unmeasured even when the coverage field claims complete", () => {
+  // The observation layer never emits this pair, but the exported extractor must
+  // not turn an unreadable label list into eight confident false facts.
+  const observation = featureObservation({ labels: null, labelCoverage: "complete" });
+  const vector = usageFormFeatureVector(observation, tokens);
+  assert.deepEqual(vector.slice(0, 8), [null, null, null, null, null, null, null, null]);
+});
+
+test("a resolved-but-empty accessible name is measured empty, not an unfinished read", () => {
+  // live-dom reports name null + coverage complete when every aria-labelledby
+  // reference resolves but carries no text. That is a measured absence: eight
+  // false facts, not eight nulls.
+  const observation = observeUsageRelation({
+    ...observationBase,
+    nodeRef: "c1",
+    element: element({ getAttribute: () => null }),
+    evidence: { accessibleName: null, accessibleNameCoverage: "complete", labelledByUnresolved: false },
+  });
+  assert.equal(observation.accessibleName, "");
+  assert.equal(observation.accessibleNameCoverage, "complete");
+});
+
+test("an empty token in the table cannot hang the extractor", () => {
+  // validateUsageTokenTable rejects empty tokens, but the extractor takes any
+  // table. An empty needle makes indexOf return the same offset forever.
+  const unsafe = { query: [""], field: ["备注"], negation: ["禁止"], writeSubmit: ["添加"] };
+  const observation = featureObservation({ labels: ["搜索备注"], labelCoverage: "complete" });
+  const features = extractUsageFormFeatures(observation, unsafe);
+  assert.equal(features["label.queryTokenPresent"], false);
+  assert.equal(features["label.fieldTokenPresent"], true);
 });
