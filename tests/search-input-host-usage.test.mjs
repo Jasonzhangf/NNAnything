@@ -459,3 +459,25 @@ test("an unavailable channel is unmeasured even when the other channel carries a
   assert.equal(features["label.queryTokenPresent"], null);
   assert.equal(features["label.fieldTokenPresent"], null);
 });
+
+test("a channel is all-or-nothing: never a half-measured eight-bit group", () => {
+  // 每个通道八位共享一个 coverage。若某通道是 unmeasured，八位必须全 null；
+  // 若已测，八位必须全为布尔。半通道混用说明有人在位级别各自判断覆盖，
+  // 那会把「这一位读不到」和「这一位测到为空」混起来。
+  const cases = [
+    { observation: featureObservation({ labelCoverage: "unmeasured", labels: null }), channel: "label" },
+    { observation: featureObservation({ labelCoverage: "truncated", labels: ["搜索"] }), channel: "label" },
+    { observation: featureObservation({ placeholderCoverage: "unavailable", placeholder: "搜索" }), channel: "placeholder" },
+    { observation: featureObservation({ accessibleNameCoverage: "unmeasured", accessibleName: null }), channel: "accessibleName" },
+    { observation: featureObservation({ labels: ["搜索"] }), channel: "label" },
+  ];
+  for (const { observation, channel } of cases) {
+    const bits = USAGE_FORM_FEATURE_NAMES
+      .filter(name => name.startsWith(`${channel}.`))
+      .map(name => extractUsageFormFeatures(observation, tokens)[name]);
+    assert.equal(bits.length, 8, `${channel} must have exactly eight bits`);
+    const nullCount = bits.filter(bit => bit === null).length;
+    assert.ok(nullCount === 0 || nullCount === 8,
+      `${channel} must be entirely null or entirely measured, got ${nullCount}/8 null`);
+  }
+});
