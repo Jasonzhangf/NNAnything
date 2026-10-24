@@ -20,6 +20,12 @@ Bob 继续：生产 train/dev 新采集直接带 `explicitTabIndexKind`，公开
 
 B1 保持 INCOMPLETE，候选 uncalibrated/not_applied，无训练、无解封。上一段“该建议尚未实施”的措辞已被 a862df9/6ac727b 落地与本段取代。
 
+R1 逐例核对（只读，证据在 run 根 `r1-evidence.md`/`r1-table.json`）：四条旧 ignore 行同期原始属性均可恢复，不是 null——114 为 `tabindex="-1"`（negative→新维1），fixture-a button/link/text_span S3 为 absent（→新维0）。按恢复值重算可见行 82 维分组，仍有 1 组硬碰撞：114(gold=ignore) 与 train/dev 的 W1/W2 负 tabindex 未聚焦正例(gold=container) 共 9 行 81/82 维全同、gold 相反，任何权重都无法同时判对。新维修掉的是 fixture-a S3/ignore-w1/w2(0) 对负 tabindex 正例(1) 的碰撞。此前原型“82 维冲突消除”是旧行按 null 算的结果，已更正（prototype/b-diagnosis.md 追加第 5 节）。已按 Alice 要求将硬不相容提交 Jenny/用户裁决（不改 gold/删回归/放门槛），未裁决前不拟合。
+
+已保存候选按名迁移前向相等证明（只读，prototype/verify-candidate-migration.mjs → candidate-migration-report.json）：treatment/control 两个保存候选按 wire 名迁移补零三地址后，对 498 行（treatment/control/dev 请求并集）在 asPrepared 与 withMeasuredKinds 两种取值下逐例判定、分数、margin、叶子区间全部相等（0 diff），即旧行为不因新增测量而变。
+
+B-A1 只读设计草案已落 run 根 `b-a1-relation-design.md`（普通 text 搜索的 Goal→对象关系 I/O、监督、独立页面与缺口）；未实现未训练，显式绑定 consumer 继续作基线。
+
 ## 2026-10-23 B1 表示层演进：显式负 tabindex 声明测量与 wire（进行中，未训练未解封）
 
 Alice（designer peer）对 B1 失败诊断的结论：projection-145 是一组完整 81 维同输入却含 container/ignore 两种确认 gold 的确定性冲突，现有表示必然无法全对。她批准的最小第一动作是保留 `tabIndexFocus` 原语义，新增按显式 HTML `tabindex` 属性解释的 nullable 测量 `explicitTabIndexKind`（absent/negative/nonnegative/invalid，读取失败 null），派生学生 wire `explicit_negative_tabindex`（负值 1、缺属性/合法非负值 0、invalid/未测 null），只登记 `structure` family、`container` leaf、`ignore` counter-address 三个按名补零地址，不加入任何 leaf 支撑门。见 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/analysis.md`。
