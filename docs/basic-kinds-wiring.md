@@ -91,7 +91,7 @@ flowchart TD
 
 公开节点接收现有 CandidateBatch，可在同一个对象增加 `itemObservations` 数组。既有候选链的输出可直接输入；未提供补充观测时，相关测量保持 null。补充项用 nodeRef 关联，不能覆盖 tag/role 或候选资格。tag/role 来自 batch.observation.nodes，几何与父子关系也只读取这份显式快照。引用不作为数值特征。
 
-补充观测只允许 nodeRef 及 `BasicKindMeasurements` 已声明字段。除输入类型、链接、可编辑、直接文本、CSS 存在性、子计数、重复几何、列表父级与 SVG 图形子元素外，新增十二项可选 nullable 测量：`pointerCursor`、`parentPointerCursor`、`tabIndexFocus`、`activeElementFocus`、`borderPresent`、`aspectRatio`、`descendantTextPresent`、`singleChildTag`、`singleChildSameRect`、`withinControlAncestor`、`inSvgAncestor`、`directListChildPresent`。省略或 null 表示未测；false 和 0 表示明确测到不存在。计数只能来自完整的直接子元素观测，不能把截断快照中的条数当作完整数目。旧离线样本缺少新字段时，验证和训练投影统一补为 null。
+补充观测只允许 nodeRef 及 `BasicKindMeasurements` 已声明字段。除输入类型、链接、可编辑、直接文本、CSS 存在性、子计数、重复几何、列表父级与 SVG 图形子元素外，新增十三项可选 nullable 测量：`pointerCursor`、`parentPointerCursor`、`tabIndexFocus`、`activeElementFocus`、`explicitTabIndexKind`、`borderPresent`、`aspectRatio`、`descendantTextPresent`、`singleChildTag`、`singleChildSameRect`、`withinControlAncestor`、`inSvgAncestor`、`directListChildPresent`。省略或 null 表示未测；false 和 0 表示明确测到不存在。计数只能来自完整的直接子元素观测，不能把截断快照中的条数当作完整数目。旧离线样本缺少新字段时，验证和训练投影统一补为 null。
 
 - inputType 是采集器读取的 input.type 规范值；未读取为 null。浏览器默认 text 应显式提供 text。空字符串保持未知。
 - hrefPresent 表示 href 属性存在，空 href 也为 true；不接受原始 URL。
@@ -130,6 +130,10 @@ upper(c) = clamp(sum(w*x for observed x) + sum(max(w,0) for missing x), 0, 1)
 `neutral_focusable_control` 组合中性容器与明确可聚焦属性，补充非手形光标控件的评分路径。`neutral_list_choice` 组合中性容器、手形光标、直接选项列表与后代文本，区分选择控件和普通动作按钮。两条 wire 均为可训练贡献；新地址迁移补零，不硬定类、不修改阈值。
 
 `neutral_actual_focus` 组合中性容器与本帧实际持有焦点的 `activeElementFocus`，为键盘或程序焦点目标提供独立评分路径。它不改变 `tabIndexFocus` 原含义，负 tabindex 单独不构成焦点证明；缺测、不可读或不可映射保持 null，不补 false。它只提供可训练贡献，新地址迁移补零，不硬定类、不降阈值、不替代前景或指针事实。
+
+`explicitTabIndexKind` 是从显式 HTML `tabindex` 属性读取的 nullable 四值测量：`absent`（无该属性）、`negative`（合法整数且小于 0）、`nonnegative`（合法整数且不小于 0）、`invalid`（属性存在但不是合法整数）。读取失败或未测为 null，不补 false，也不从 gold、对象名或事后交互结果补出。它只表示属性声明，不表示浏览器实际可聚焦性；hidden、disabled、inert 等语境不由该位覆盖。`tabIndexFocus` 原含义不变，仍只表示显式非负值，不改成“任意 tabindex 均 true”。
+
+`explicit_negative_tabindex` 由 `explicitTabIndexKind` 派生：`negative` 为 1；`absent` 与 `nonnegative` 为 0；`invalid` 或未测为 null。它只提供可训练贡献，不加入任何 leaf 支撑门，不硬定类、不降阈值、不改变已有 wire 或门限。按名迁移只登记 `structure` family、`container` leaf 与 `ignore` counter-address 三个零系数地址；迁移后旧权重前向是否逐例不变须以实际对照证明，不能凭补零口头保证。负值只证明元素声明了程序可聚焦能力，不能单独证明实际可聚焦、可点击或应判为 container。
 
 `neutral_presentation_leaf` 为无意义的呈现叶节点提供评分路径。它组合中性容器、零个正面积直接子元素、无自身非格式文字、无后代文字、不可聚焦、无独立手形光标边界，以及明确不存在 before/after 内容、背景图片和 mask 的观测。该呈现叶准入还接受 `role=null`、`contentEditable=false` 的空 `<i>`；它仍须通过零自身直接文字、零直接子元素及无伪元素或图片外观的门禁，且不会放宽 `neutralContainer`、结构、焦点或多子元素 wire。隐藏子元素不阻止该条件，格式字符不算有效文字；边框缺测不等于这些 CSS 内容缺测。真实文字、可见子元素、CSS 图像或伪元素图标、明确控件和独立焦点目标都是反例。该 wire 只提供可训练贡献，不直接过滤元素；新权重仍从零迁移，原始槽位与后代保留。
 

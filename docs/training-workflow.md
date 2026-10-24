@@ -329,6 +329,8 @@ ReLU 在零点采用零次梯度。一个初值为零且一直缺测的 wire，�
 
 本轮呈现六条新wire与四十二个目标地址、关系与连续几何 wire 及 ignore 叶子地址初始为显式0，由既有 Handwired sparse cells 拟合。输入、连线和迁移唯一合同见 `docs/basic-kinds-wiring.md`。exploration 相对节点摘要与 measurementCoverage 保留五项新特征；旧导出缺新项时分别为 null 及 unmeasured，旧必需项维持原合同。
 
+声明式焦点测量 `explicitTabIndexKind`（`absent`／`negative`／`nonnegative`／`invalid`，读取失败为 null）随每项观测导出并按原规则进入学生属性；旧样本省略该字段时回载为 null，不补 `absent`、不补 false。派生 wire 为 `explicit_negative_tabindex`：已测合法负值为 1，缺属性或合法非负值为 0，invalid／未测为 null。它只登记 `structure` family、`container` leaf 与 `ignore` counter-address 三个按名迁移的零系数地址，不加入任何 leaf 支撑门，不加门限或类别否决。旧 profile 经 `migrateBasicKindProfile` 按名补这三个零后，前向是否逐例不变须以实际对照而不是补零声明证明；`tabIndexFocus` 与 `activeElementFocus` 原语义不变，声明事实不替代实际焦点或可点击证据。
+
 relation／类别条件关系已按显式 wire 进入两阶段数值电路；布局包装的 `structure/ignore` 是同一电路中的可训练叶子，不是独立头或硬过滤。当前新增关系、连续几何与 ignore 系数仍为迁移/默认 0，没有已激活的候选新权重。真实 Handwired 拟合与公开 workflow 是采用前必需证据；现有 357 条黄金评估只能用于旧黄金回归，永不进入拟合。合成训练证明系数可学习，不证明三站未知已准确标注。候选保持 not_applied、uncalibrated，新页面与来源留出不参与本轮调参。
 
 后续消融固定相同来源分组与留出，依次比较仅节点属性、加直接父子、加跨层包含、再加两端类别。类别预测须来自独立或out-of-fold推理，不能用测试真值当输入。报告目标分类与保留/忽略错误、内容丢失和关系边错误，不能只比unknown数；实际实验等标定后进行。忽略仅影响语义视图，不剪掉后代或把包装变基础负例。真实浏览器fixture为`playground/exploration/`；本次验收输入链路，不宣称完成语义消融。

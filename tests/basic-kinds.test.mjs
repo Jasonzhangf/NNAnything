@@ -1246,10 +1246,10 @@ test("neutral_multi_child_shape follows the bounded neutral-multi-child formula"
 });
 
 test("neutral_multi_child_shape completes the public schema without a support gate", () => {
-  assert.equal(BASIC_KIND_WIRE_NAMES.length, 81);
-  assert.equal(new Set(BASIC_KIND_WIRE_NAMES).size, 81);
+  assert.equal(BASIC_KIND_WIRE_NAMES.length, 82);
+  assert.equal(new Set(BASIC_KIND_WIRE_NAMES).size, 82);
   assert.equal(LEAF_SUPPORT_WIRES.list.includes(neutralMultiChildShapeWire), false);
-  assert.equal(profileCellMap(fullWarmLayout()).size, 308);
+  assert.equal(profileCellMap(fullWarmLayout()).size, 311);
 });
 
 test("neutral_multi_child_shape migration adds exactly one list zero and preserves old coefficients", () => {
@@ -1444,4 +1444,93 @@ test("svg focus representation keeps zero migration output equal for recorded sh
   const negative = classifyBasicKind(cases[0][1], DEFAULT_BASIC_KIND_CONFIG, migrated);
   assert.equal(negative.evidence.wires.independent_graphic_content, 1);
   assert.notEqual(negative.basicKind, "image");
+});
+
+test("explicit_negative_tabindex truth table derives from the declared attribute only", () => {
+  const wire = kind => focusWires("div", kind === undefined ? {} : { explicitTabIndexKind: kind }).explicit_negative_tabindex;
+  assert.equal(wire("negative"), 1);
+  assert.equal(wire("absent"), 0);
+  assert.equal(wire("nonnegative"), 0);
+  assert.equal(wire("invalid"), null);
+  assert.equal(wire(undefined), null);
+  assert.equal(wire(null), null);
+  // tabIndexFocus keeps its original semantics; the new measurement does not change it.
+  assert.equal(focusWires("div", { explicitTabIndexKind: "negative" }).neutral_focusable_control, 0);
+  assert.equal(focusWires("div", { explicitTabIndexKind: "negative" }).own_focus_target, 0);
+  assert.equal(focusWires("div", { explicitTabIndexKind: "nonnegative", tabIndexFocus: true }).neutral_focusable_control, 1);
+});
+
+test("explicit_negative_tabindex rejects unknown kind values", () => {
+  assert.throws(() => validateBasicKindProperties({ tag: "div", role: null, explicitTabIndexKind: "positive" }), /explicitTabIndexKind/);
+  assert.throws(() => validateBasicKindProperties({ tag: "div", role: null, explicitTabIndexKind: true }), /explicitTabIndexKind/);
+});
+
+test("explicit_negative_tabindex never opens a leaf support gate or hard-classifies", () => {
+  for (const [label, wires] of Object.entries(LEAF_SUPPORT_WIRES)) {
+    assert.equal(wires.includes("explicit_negative_tabindex"), false, label);
+  }
+  // Same prior measurement state (unfocused, no nonnegative tabindex), different declaration.
+  const declared = { tag: "div", role: null, ...focusComplete, childElementCount: 1, positiveAreaChildCount: 1, explicitTabIndexKind: "negative" };
+  const undeclared = { tag: "div", role: null, ...focusComplete, childElementCount: 1, positiveAreaChildCount: 1, explicitTabIndexKind: "absent" };
+  const declaredWires = extractBasicKindWires(validateBasicKindProperties(declared));
+  const undeclaredWires = extractBasicKindWires(validateBasicKindProperties(undeclared));
+  assert.equal(declaredWires.explicit_negative_tabindex, 1);
+  assert.equal(undeclaredWires.explicit_negative_tabindex, 0);
+  // Every pre-existing wire stays equal: the new fact is the only difference.
+  for (const wire of BASIC_KIND_WIRE_NAMES) {
+    if (wire === "explicit_negative_tabindex") continue;
+    assert.deepEqual(declaredWires[wire], undeclaredWires[wire], wire);
+  }
+  // Zero-migrated weights keep the old judgment for both shapes.
+  assert.equal(classifyBasicKind(declared, DEFAULT_BASIC_KIND_CONFIG, PRIORITY_BASIC_KIND_INITIAL_PROFILE).basicKind,
+    classifyBasicKind(undeclared, DEFAULT_BASIC_KIND_CONFIG, PRIORITY_BASIC_KIND_INITIAL_PROFILE).basicKind);
+});
+
+test("explicit_negative_tabindex migration adds exactly three zero addresses and preserves old coefficients", () => {
+  const addresses = [
+    ["familyWeights", "structure", "explicit_negative_tabindex"],
+    ["leafWeights", "container", "explicit_negative_tabindex"],
+    ["leafWeights", "ignore", "explicit_negative_tabindex"],
+  ];
+  const source = structuredClone(PRIORITY_BASIC_KIND_INITIAL_PROFILE);
+  source.id = "explicit-tabindex-migration";
+  source.familyWeights.structure.nat_div = 0.27;
+  source.leafWeights.container.div_single_child = 0.31;
+  source.leafWeights.ignore.neutral_single_child = -0.19;
+  for (const [group, target, wire] of addresses) delete source[group][target][wire];
+  const before = profileCellMap(source), snapshot = structuredClone(source);
+
+  const migrated = migrateBasicKindProfile(source);
+  assert.deepEqual(source, snapshot);
+  assert.equal(migrated.familyWeights.structure.nat_div, 0.27);
+  assert.equal(migrated.leafWeights.container.div_single_child, 0.31);
+  assert.equal(migrated.leafWeights.ignore.neutral_single_child, -0.19);
+  for (const [group, target, wire] of addresses) assert.equal(migrated[group][target][wire], 0, `${group}.${target}.${wire}`);
+  const added = [...profileCellMap(migrated).keys()].filter(address => !before.has(address)).sort();
+  assert.deepEqual(added, addresses.map(([group, target, wire]) => `${group}.${target}.${wire}`).sort());
+});
+
+test("explicit_negative_tabindex zero migration keeps recorded shapes judged unchanged", () => {
+  const addresses = [
+    ["familyWeights", "structure", "explicit_negative_tabindex"],
+    ["leafWeights", "container", "explicit_negative_tabindex"],
+    ["leafWeights", "ignore", "explicit_negative_tabindex"],
+  ];
+  const before = structuredClone(PRIORITY_BASIC_KIND_INITIAL_PROFILE);
+  for (const [group, target, wire] of addresses) delete before[group][target][wire];
+  const migrated = migrateBasicKindProfile(before);
+  const cases = [
+    ["declared wrapper", { tag: "div", role: null, ...focusComplete, childElementCount: 1, positiveAreaChildCount: 1, explicitTabIndexKind: "negative" }],
+    ["undeclared wrapper", { tag: "div", role: null, ...focusComplete, childElementCount: 1, positiveAreaChildCount: 1, explicitTabIndexKind: "absent" }],
+    ["invalid declaration", { tag: "div", role: null, ...focusComplete, childElementCount: 1, positiveAreaChildCount: 1, explicitTabIndexKind: "invalid" }],
+    ["declared multi child", { tag: "div", role: null, ...focusComplete, childElementCount: 3, positiveAreaChildCount: 3, explicitTabIndexKind: "negative" }],
+  ];
+  for (const [name, properties] of cases) {
+    assert.deepEqual(
+      classifyBasicKind(properties, DEFAULT_BASIC_KIND_CONFIG, migrated),
+      classifyBasicKind(properties, DEFAULT_BASIC_KIND_CONFIG, before),
+      name,
+    );
+  }
+  assert.equal(classifyBasicKind(cases[0][1], DEFAULT_BASIC_KIND_CONFIG, migrated).evidence.wires.explicit_negative_tabindex, 1);
 });

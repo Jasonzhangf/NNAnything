@@ -258,6 +258,7 @@ test("training rows roundtrip nullable appearance fields without reconstructing 
     coincidentChildPairRatio: null,
     ownLabelPresent: null,
     graphicDescendantPresent: null,
+    explicitTabIndexKind: null,
   };
   assert.deepEqual(parsed.properties, projectedFreshProperties);
   const prepared = prepareBasicKindSamples(readBasicKindTrainingRequest(request([fresh])), prepareConfig);

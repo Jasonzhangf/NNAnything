@@ -15,9 +15,12 @@
 ```text
 own_focus_target = nullableOR(activeElementFocus, tabIndexFocus)
 independent_graphic_content = nullableAND(selfGraphicEvidence, nullableOR(own_focus_target, ownLabelPresent))
+explicit_negative_tabindex = declaredTabIndexKind(negative→1, absent/nonnegative→0, invalid/未测→null)
 ```
 
 `own_focus_target` 是通用独立焦点证据，登记 ignore 的反向贡献 support 路径。焦点不打开 direct_interaction 的 button/input/select/link，也不打开 meaningful_structure 的 container/list/listitem。`independent_graphic_content` 加入 image 的正向 support，并和 `own_focus_target` 一起登记 ignore 的反向贡献地址；该节点自身呈现图形且有独立目标价值时不落入 redundant_ignore。资源定义、SVG `text`、非图形 tag 和缺测操作数不取得正证据。阶段顺序、门限、margin、标签和 profile 结构不变；具体有限适用集合与零迁移地址沿 [基础种类连线](basic-kinds-wiring.md)。
+
+`explicit_negative_tabindex` 是显式 `tabindex` 属性的声明事实：合法负值为 1，无属性或合法非负值为 0，非法值与未测为 null。它不打开任何支撑门，只登记 `structure` family、`container` leaf 与 `ignore` counter-address 三个零系数贡献地址。负值不证明元素实际可聚焦或可点击，也不能单独判为 container；阶段归属、门限和类别证据仍需原有 wire 支撑。
 
 
 ```mermaid

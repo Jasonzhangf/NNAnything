@@ -1,5 +1,19 @@
 # 当前任务
 
+## 2026-10-23 B1 表示层演进：显式负 tabindex 声明测量与 wire（进行中，未训练未解封）
+
+Alice（designer peer）对 B1 失败诊断的结论：projection-145 是一组完整 81 维同输入却含 container/ignore 两种确认 gold 的确定性冲突，现有表示必然无法全对。她批准的最小第一动作是保留 `tabIndexFocus` 原语义，新增按显式 HTML `tabindex` 属性解释的 nullable 测量 `explicitTabIndexKind`（absent/negative/nonnegative/invalid，读取失败 null），派生学生 wire `explicit_negative_tabindex`（负值 1、缺属性/合法非负值 0、invalid/未测 null），只登记 `structure` family、`container` leaf、`ignore` counter-address 三个按名补零地址，不加入任何 leaf 支撑门。见 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/analysis.md`。
+
+已按图纸顺序落地（本轮只表示设计与公开投影原型，不训练、不解封 verification、不改门限/损失/gold）：
+
+- 算法合同 `docs/basic-kinds-wiring.md`：新测量与 wire 真值表、缺测、不硬定类、迁移零地址；`docs/training-workflow.md` 与 `docs/priority-classifier.md` 同步；`lib/nodes/README.md` 补充项表列更新为十二项。
+- 实现：`lib/filters/basic-kinds.ts` 新增 `ExplicitTabIndexKind` 类型、测量解析、`explicit_negative_tabindex` wire 派生与三个 `NEW_BASIC_KIND_WIRE_TARGETS` 零迁移地址；`lib/adapters/browser/live-dom.ts` 从 `getAttribute("tabindex")` 派生四值；`lib/adapters/browser/exploration-input.ts` 加入 coverage 字段；`lib/training/basic-kind-samples.ts` PROPERTY_KEYS 加入。
+- 红测：`tests/basic-kinds.test.mjs` 真值表、拒绝非法值、不打开支撑门、迁移三地址零、零迁移逐例不变；wire 数 81→82、全热 profile 单元 308→311。`tests/basic-kind-training.test.mjs` 旧样本缺字段回载为 null。
+- 领域原型 `/Volumes/Intel/playground/nnanything-runs/browser-focus-samples-20261023/prototype/projection-82-report.json` 判 PASS：projection-145 的 12 行旧 81 维投影仍完全相等（1 个变体），新 wire 把 container 全部分到 1、ignore 分到 0/未测 null（旧 4 行无属性保持 null，不补 false）；同一对象聚焦/失焦四态声明值一致；缺测=null、absent/negative/nonnegative/invalid 四值可辨；`migrateBasicKindProfile` 零迁移后 DEFAULT 手写 profile 对全部 64 行判定逐例不变。
+- 全量基线 `npm run test:full` 1342 pass / 0 fail / 1 skip（`NN_HANDWIRED_ROOT` 等真实资产已配），`npm run build`（含 check-layout）通过。
+
+待 Alice 复核该步后决定下一动作；B 问题（af=1/fc=0 聚焦反例为何仍不到 container）仍未定位，不因该 wire 通过就宣称可修复 B1。B1 保持 INCOMPLETE，候选 uncalibrated/not_applied，verification NOT_EVALUATED。
+
 ## 2026-10-23 焦点样本改进设计（待用户派发执行）
 
 用户要求父owner先改善样本构建，再交worker观察效果。docs/browser-focus-sample-repair.md及-prompt.md已定义：三个新实现来源先分区；每家族六个container四态加三个冗余包装两态，30行/9对象，原生实测af=1/fc=0；失焦不把有独立价值的对象改gold为ignore，null消融与真实数据分开。旧438行未包含后来的human反例构造，补样本收益仍未知。固定原T1配方，以旧train和旧train+新家族作配对对照，不改变生产adapter/wire/门限/损失；dev仅判断验证解封，不调参。原始反例、真实回载、旧能力及独立家族和公开保留consumer共同验收；失败仍B1 INCOMPLETE。复用闭合project-design/node-training图，本轮只有文档，无新采集/代码/训练/采用，尚未启动worker。

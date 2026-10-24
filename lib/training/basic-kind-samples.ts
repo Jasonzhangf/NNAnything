@@ -125,6 +125,7 @@ const PROPERTY_KEYS = [
   "singleChildSameRect",
   "withinControlAncestor",
   "inSvgAncestor",
+  "explicitTabIndexKind",
 ] as const;
 
 function onlyKeys(value: Record<string, unknown>, keys: readonly string[], field: string): void {

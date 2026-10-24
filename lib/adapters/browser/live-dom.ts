@@ -2536,6 +2536,11 @@ export function observeLiveDom(input: {
     const tabIndex = element.getAttribute("tabindex");
     const tabIndexNumber = tabIndex === null || !/^[+-]?\d+$/.test(tabIndex.trim()) ? null : Number(tabIndex);
     const tabIndexFocus = tabIndex === null ? false : tabIndexNumber === null || !Number.isFinite(tabIndexNumber) ? null : tabIndexNumber >= 0;
+    // Declared attribute only: absent/legal-negative/legal-nonnegative/invalid;
+    // unreadable stays null and never implies false or a guessed focusability.
+    const explicitTabIndexKind = tabIndex === null ? "absent"
+      : tabIndexNumber === null ? "invalid"
+        : tabIndexNumber < 0 ? "negative" : "nonnegative";
     const exactOneChild = allChildren.length === 1;
     const soleChild = exactOneChild ? allChildren[0]! : null;
     const soleChildRect = soleChild?.getBoundingClientRect();
@@ -2578,6 +2583,7 @@ export function observeLiveDom(input: {
       pointerCursor: style.cursor ? style.cursor === "pointer" : null,
       parentPointerCursor: element.parentElement ? (parentCursor ? parentCursor === "pointer" : null) : false,
       tabIndexFocus,
+      explicitTabIndexKind,
       borderPresent: visibleBorder(style),
       aspectRatio: area > 0 && rect.width > 0 && rect.height > 0 ? Math.min(rect.width, rect.height) / Math.max(rect.width, rect.height) : null,
       descendantTextPresent: descendantTextPresent(element, excludedRoots, excludedIds),

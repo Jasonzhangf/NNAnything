@@ -17,6 +17,7 @@ export type BasicKindLabel = SpecificBasicKindLabel | "other";
 export type BasicKindStatus = "judged" | "unknown" | "conflict" | "excluded";
 export type BasicKindTopology = "family_leaf_v1" | "priority_staged_v1";
 export type BasicKindWireValue = number | null;
+export type ExplicitTabIndexKind = "absent" | "negative" | "nonnegative" | "invalid";
 export const PRIORITY_BASIC_KIND_STAGES = Object.freeze([
   Object.freeze({ id: "direct_interaction" as const, labels: Object.freeze(["input", "select", "button", "link"] as const) }),
   Object.freeze({ id: "own_content" as const, labels: Object.freeze(["text", "image", "video", "audio"] as const) }),
@@ -43,6 +44,7 @@ export interface BasicKindMeasurements {
   readonly pointerCursor?: boolean | null;
   readonly parentPointerCursor?: boolean | null;
   readonly tabIndexFocus?: boolean | null;
+  readonly explicitTabIndexKind?: ExplicitTabIndexKind | null;
   readonly activeElementFocus?: boolean | null;
   readonly borderPresent?: boolean | null;
   readonly aspectRatio?: number | null;
@@ -140,7 +142,7 @@ const typeSets = {
   input_type_hidden: ["hidden"],
 } as const;
 const localWireNames = ["attr_editable", "anchor_href", "span_leaf", "span_direct_text", "div_multi_child", "div_repeated_children", "div_repeated_child_extent", "div_in_list", "svg_graphic_children", "div_single_child", "div_leaf", "div_direct_text", "direct_non_format_text", "css_before_content", "css_after_content", "css_background_image", "css_mask_image", "state_disabled", "state_hidden",
-  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_multi_child_shape", "neutral_single_child", "neutral_focusable_control", "neutral_actual_focus", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "search_region_group", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_named_graphic_owner", "anchor_pointer_boundary", "neutral_child_multiplicity", "own_focus_target", "independent_graphic_content"] as const;
+  "editable_non_input", "input_text_combobox", "listitem_role_select", "nat_inline_format_text", "neutral_multi_child", "neutral_multi_child_shape", "neutral_single_child", "neutral_focusable_control", "neutral_actual_focus", "neutral_list_choice", "neutral_same_rect_wrapper", "composite_descendant_text", "neutral_presentation_leaf", "neutral_inherited_pointer_wrapper", "neutral_single_element_wrapper", "noninteractive_hidden_leaf", "search_region_group", "own_pointer_boundary", "single_child_div", "svg_internal_part", "empty_pointer_extent", "empty_border_extent", "nat_document_root", "neutral_structural_peers", "neutral_structural_heterogeneity", "neutral_single_positive_wrapper", "neutral_coincident_layer_wrapper", "neutral_named_graphic_owner", "anchor_pointer_boundary", "neutral_child_multiplicity", "own_focus_target", "independent_graphic_content", "explicit_negative_tabindex"] as const;
 export type BasicKindWireName = keyof typeof tagSets | keyof typeof roleSets | keyof typeof typeSets | typeof localWireNames[number];
 export const BASIC_KIND_WIRE_NAMES: readonly BasicKindWireName[] = [
   ...Object.keys(tagSets) as (keyof typeof tagSets)[],
@@ -361,6 +363,9 @@ const NEW_BASIC_KIND_WIRE_TARGETS = [
   ["leafWeights", "image", "independent_graphic_content"],
   ["leafWeights", "ignore", "independent_graphic_content"],
   ["leafWeights", "ignore", "own_focus_target"],
+  ["familyWeights", "structure", "explicit_negative_tabindex"],
+  ["leafWeights", "container", "explicit_negative_tabindex"],
+  ["leafWeights", "ignore", "explicit_negative_tabindex"],
 ] as const;
 
 function freezeProfile(profile: BasicKindProfile): BasicKindProfile {
@@ -487,8 +492,16 @@ const measurementNames = [
   "svgGraphicChildren", "pointerCursor", "parentPointerCursor", "tabIndexFocus", "activeElementFocus", "borderPresent",
   "aspectRatio", "descendantTextPresent", "directListChildPresent", "singleChildTag", "singleChildSameRect", "withinControlAncestor", "inSvgAncestor",
   "shallowStructuralPeerRatio", "coincidentChildPairRatio",
-  "ownLabelPresent", "graphicDescendantPresent",
+  "ownLabelPresent", "graphicDescendantPresent", "explicitTabIndexKind",
 ] as const;
+const EXPLICIT_TAB_INDEX_KINDS = ["absent", "negative", "nonnegative", "invalid"] as const;
+function explicitTabIndexKind(value: unknown): ExplicitTabIndexKind | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || !(EXPLICIT_TAB_INDEX_KINDS as readonly string[]).includes(value)) {
+    throw new TypeError("explicitTabIndexKind must be absent, negative, nonnegative, invalid or null");
+  }
+  return value as ExplicitTabIndexKind;
+}
 function measurements(value: Record<string, unknown>): BasicKindMeasurements {
   const inputType = value.inputType === "" ? "" : optionalText(value.inputType, "inputType");
   const bool = (key: string) => optionalBoolean(value[key], key);
@@ -523,6 +536,7 @@ function measurements(value: Record<string, unknown>): BasicKindMeasurements {
     withinControlAncestor: bool("withinControlAncestor"), inSvgAncestor: bool("inSvgAncestor"),
     shallowStructuralPeerRatio: ratio("shallowStructuralPeerRatio"), coincidentChildPairRatio: ratio("coincidentChildPairRatio"),
     ownLabelPresent: bool("ownLabelPresent"), graphicDescendantPresent: bool("graphicDescendantPresent"),
+    explicitTabIndexKind: explicitTabIndexKind(value.explicitTabIndexKind),
   };
 }
 export function validateBasicKindProperties(value: unknown): BasicKindProperties {
@@ -795,6 +809,12 @@ export function extractBasicKindWires(input: BasicKindProperties): Readonly<Reco
         )
         : svgSelfGraphicEvidence;
   wires.own_focus_target = or(bool(input.activeElementFocus), bool(input.tabIndexFocus));
+  // Declared-only evidence: a legal negative tabindex is 1, absent or legal
+  // nonnegative is 0, invalid or unmeasured stays null. This never claims the
+  // browser can actually focus the element.
+  wires.explicit_negative_tabindex = input.explicitTabIndexKind === "negative" ? 1
+    : input.explicitTabIndexKind === "absent" || input.explicitTabIndexKind === "nonnegative" ? 0
+      : null;
   wires.independent_graphic_content = and(
     selfGraphicEvidence,
     or(wires.own_focus_target, bool(input.ownLabelPresent)),

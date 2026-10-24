@@ -24,4 +24,10 @@ training/results/**
 training/weights/**
 !training/**/README.md
 
+# Collab multi-agent integration and runtime state (user-managed global daemon)
+.claude/
+.codex/
+.mcp.json
+.agent-collab/
+
 !**/.gitkeep
