@@ -455,3 +455,98 @@ test("T13 re-reading an already proven negative counts as a duplicate", async t 
   assert.equal(d.duplicateReads, 1);
   assert.equal(d.negatives.length, 1);
 });
+
+function genericRoot(result) {
+  const report = result.response?.report;
+  const evaluation = report?.rootEvaluation;
+  return {
+    evaluated: evaluation?.state === "evaluated" ? evaluation.result : evaluation?.state,
+    satisfaction: evaluation?.state === "evaluated" ? evaluation.satisfaction : null,
+    outcome: report?.control?.outcome,
+    stopReason: report?.control?.stopReason,
+  };
+}
+
+test("T14 a completed hit whose root evaluation is unfinished stays interrupted", async t => {
+  const value = await fixture(t, {
+    scenarioId: "m1-test-budget-hit",
+    entries: [
+      { path: "src/ingest.ts", kind: "file", contents: INGEST },
+    ],
+  });
+  value.profile = await profile();
+  const directory = await value.sandbox.bindDirectory(value.session, ".");
+  const result = await run(value, directory, request(directory, "traceToken", "T14"), {
+    limits: { ...LIMITS, maxTransitions: 20 },
+  });
+  const d = result.domain;
+  assert.deepEqual(genericRoot(result), {
+    evaluated: "unknown",
+    satisfaction: null,
+    outcome: "exceeded",
+    stopReason: "budget",
+  });
+  assert.equal(d.status, "unknown");
+  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.satisfaction, null);
+  assert.equal(d.rootFact.kind, "interrupted");
+  assert.equal(d.matches.length, 1);
+  assert.equal(d.matches[0].path, join(value.sandbox.getSession(value.session).cwd, "ingest.ts"));
+  assert.equal(d.matches[0].needle, "traceToken");
+  assert.equal(d.bytesReadTotal, 85);
+});
+
+test("T15 the same search with a finished root evaluation reports achieved and matches the controller", async t => {
+  const value = await fixture(t, {
+    scenarioId: "m1-test-budget-hit",
+    entries: [
+      { path: "src/ingest.ts", kind: "file", contents: INGEST },
+    ],
+  });
+  value.profile = await profile();
+  const directory = await value.sandbox.bindDirectory(value.session, ".");
+  const result = await run(value, directory, request(directory, "traceToken", "T15"), {
+    limits: { ...LIMITS, maxTransitions: 24 },
+  });
+  const d = result.domain;
+  assert.deepEqual(genericRoot(result), {
+    evaluated: "satisfied",
+    satisfaction: 100,
+    outcome: "completed",
+    stopReason: "root_evaluation",
+  });
+  assert.equal(d.status, "achieved");
+  assert.equal(d.resolution, "matched");
+  assert.equal(d.satisfaction, 100);
+  assert.equal(d.rootFact.kind, "matched");
+  assert.equal(d.rootFact.match.path, join(value.sandbox.getSession(value.session).cwd, "ingest.ts"));
+});
+
+test("T16 the last proven negative whose root evaluation is unfinished stays interrupted", async t => {
+  const value = await fixture(t, {
+    scenarioId: "m1-test-budget-negative",
+    entries: [
+      { path: "src/capture.ts", kind: "file", contents: `export const captureMode = "raw";\n` },
+    ],
+  });
+  value.profile = await profile();
+  const directory = await value.sandbox.bindDirectory(value.session, ".");
+  const result = await run(value, directory, request(directory, "traceToken", "T16"), {
+    limits: { ...LIMITS, maxTransitions: 20 },
+  });
+  const d = result.domain;
+  assert.deepEqual(genericRoot(result), {
+    evaluated: "unknown",
+    satisfaction: null,
+    outcome: "exceeded",
+    stopReason: "budget",
+  });
+  assert.equal(d.status, "unknown");
+  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.satisfaction, null);
+  assert.equal(d.rootFact.kind, "interrupted");
+  assert.equal(d.matches.length, 0);
+  assert.equal(d.negatives.length, 1);
+  assert.equal(d.negatives[0].path, join(value.sandbox.getSession(value.session).cwd, "capture.ts"));
+  assert.equal(d.negatives[0].reason, "complete_read_no_match");
+});

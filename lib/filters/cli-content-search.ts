@@ -250,12 +250,16 @@ export function coverageOf(
 
 export function buildRootFact(
   state: ContentSearchState,
-  decision: ContentSearchRootDecision,
+  status: Readonly<{
+    status: ContentSearchDomainProjection["status"];
+    resolution: ContentSearchDomainProjection["resolution"];
+    satisfaction: number | null;
+  }>,
   primaryCode: string | null,
   needle: string,
 ): ContentSearchRootFact {
   const listing = state.listing;
-  if (decision.result === "satisfied") {
+  if (status.status === "achieved" && status.resolution === "matched") {
     const match = state.candidates.find(candidate => candidate.outcome === "matched");
     if (match !== undefined && match.byteSpan !== null && match.fileRef !== null &&
       match.read !== null && match.line !== null && match.column !== null) {
@@ -277,7 +281,7 @@ export function buildRootFact(
       });
     }
   }
-  if (decision.result === "unsatisfied") {
+  if (status.status === "unmet" && status.resolution === "not_found") {
     return Object.freeze({
       kind: "not_found",
       needle,
@@ -286,20 +290,19 @@ export function buildRootFact(
       candidateNames: Object.freeze(state.candidates.map(candidate => candidate.name)),
     });
   }
-  if (primaryCode === "budget_exceeded" || primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
+  if (status.status === "unknown" && status.resolution === "interrupted") {
     return Object.freeze({ kind: "interrupted" });
   }
-  if (primaryCode === "invalid_request" || primaryCode === "invalid_binding" || primaryCode === "effect_denied" ||
-    primaryCode === "capability_missing" || primaryCode === "policy_error" || primaryCode === "policy_deferred") {
+  if (status.status === "rejected") {
     return Object.freeze({ kind: "rejected" });
   }
-  if (primaryCode === "execution_failed") {
+  if (status.status === "failed") {
     const failures = state.candidates
       .filter(candidate => candidate.failureCode !== null)
       .map(candidate => Object.freeze({ path: candidate.path, code: candidate.failureCode ?? "EIO" }));
     return Object.freeze({
       kind: "failed",
-      errors: failures.length > 0 ? failures : Object.freeze([Object.freeze({ path: null, code: "execution_failed" })]),
+      errors: failures.length > 0 ? failures : Object.freeze([Object.freeze({ path: null, code: primaryCode ?? "execution_failed" })]),
     });
   }
   return Object.freeze({

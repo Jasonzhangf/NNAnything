@@ -23,7 +23,6 @@ import {
   buildRootFact,
   contains,
   coverageOf,
-  decideContentSearchRoot,
   deliberateSuboptimal,
   initialCandidates,
   inspectedFactFromTransition,
@@ -272,26 +271,76 @@ function telemetry(
   });
 }
 
+type AuthoritativeRoot =
+  | Readonly<{ kind: "evaluated"; result: "satisfied" | "unsatisfied" | "unknown"; satisfaction: number | null }>
+  | Readonly<{ kind: "not_evaluated" }>;
+
+const INTERRUPT_CODES = new Set(["budget_exceeded", "cancelled", "no_progress", "stalled"]);
+const REJECT_CODES = new Set([
+  "invalid_request", "invalid_binding", "effect_denied",
+  "capability_missing", "policy_error", "policy_deferred",
+]);
+
+function authoritativeRoot(response: unknown): Readonly<{
+  root: AuthoritativeRoot;
+  interrupted: boolean;
+}> {
+  const report = (response as {
+    report?: {
+      rootEvaluation?: { state?: unknown; result?: unknown; satisfaction?: unknown } | null;
+      control?: { outcome?: unknown; stopReason?: unknown } | null;
+    } | null;
+  } | null)?.report;
+  const interrupted = report?.control?.outcome === "exceeded" ||
+    report?.control?.outcome === "cancelled" ||
+    report?.control?.outcome === "stalled" ||
+    report?.control?.stopReason === "budget" ||
+    report?.control?.stopReason === "cancel" ||
+    report?.control?.stopReason === "no_progress";
+  const evaluation = report?.rootEvaluation;
+  if (evaluation === null || evaluation === undefined || evaluation.state !== "evaluated") {
+    return Object.freeze({ root: Object.freeze({ kind: "not_evaluated" as const }), interrupted });
+  }
+  const result = evaluation.result;
+  if (result !== "satisfied" && result !== "unsatisfied" && result !== "unknown") {
+    return Object.freeze({ root: Object.freeze({ kind: "not_evaluated" as const }), interrupted });
+  }
+  const satisfaction = typeof evaluation.satisfaction === "number" ? evaluation.satisfaction : null;
+  return Object.freeze({
+    root: Object.freeze({ kind: "evaluated" as const, result, satisfaction }),
+    interrupted,
+  });
+}
+
 function projectionStatus(
-  decision: ReturnType<typeof decideContentSearchRoot>,
+  root: AuthoritativeRoot,
+  interrupted: boolean,
   primaryCode: string | null,
 ): Readonly<{
   status: ContentSearchDomainProjection["status"];
   resolution: ContentSearchDomainProjection["resolution"];
   satisfaction: number | null;
 }> {
-  if (primaryCode === "budget_exceeded" || primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
-    return Object.freeze({ status: "unknown", resolution: "interrupted", satisfaction: null });
-  }
-  if (primaryCode === "invalid_request" || primaryCode === "invalid_binding" || primaryCode === "effect_denied" ||
-    primaryCode === "capability_missing" || primaryCode === "policy_error" || primaryCode === "policy_deferred") {
+  if (primaryCode !== null && REJECT_CODES.has(primaryCode)) {
     return Object.freeze({ status: "rejected", resolution: "rejected", satisfaction: null });
   }
   if (primaryCode === "execution_failed") {
     return Object.freeze({ status: "failed", resolution: "failed", satisfaction: null });
   }
-  if (decision.result === "satisfied") return Object.freeze({ status: "achieved", resolution: "matched", satisfaction: 100 });
-  if (decision.result === "unsatisfied") return Object.freeze({ status: "unmet", resolution: "not_found", satisfaction: 0 });
+  if (interrupted) {
+    return Object.freeze({ status: "unknown", resolution: "interrupted", satisfaction: null });
+  }
+  if (primaryCode !== null && INTERRUPT_CODES.has(primaryCode)) {
+    return Object.freeze({ status: "unknown", resolution: "interrupted", satisfaction: null });
+  }
+  if (root.kind === "evaluated") {
+    if (root.result === "satisfied") {
+      return Object.freeze({ status: "achieved", resolution: "matched", satisfaction: root.satisfaction ?? 100 });
+    }
+    if (root.result === "unsatisfied") {
+      return Object.freeze({ status: "unmet", resolution: "not_found", satisfaction: root.satisfaction ?? 0 });
+    }
+  }
   return Object.freeze({ status: "unknown", resolution: "insufficient_evidence", satisfaction: null });
 }
 
@@ -406,8 +455,8 @@ export async function runCliContentSearchGoal(
     candidates: replayed.candidates,
     duplicateReads: replayed.duplicateReads,
   });
-  const decision = decideContentSearchRoot(synthesized);
-  const status = projectionStatus(decision, primaryCode);
+  const authoritative = authoritativeRoot(response);
+  const status = projectionStatus(authoritative.root, authoritative.interrupted, primaryCode);
   const metrics = telemetry((response as { report?: unknown } | null)?.report ?? null);
   const needle = validated.goal.requirement.predicate.needle;
   return Object.freeze({
@@ -427,7 +476,7 @@ export async function runCliContentSearchGoal(
       bytesReadTotal: metrics.bytesReadTotal,
       duplicateReads: replayed.duplicateReads,
       budgetUsed: budgetUsed(response),
-      rootFact: buildRootFact(synthesized, decision, primaryCode, needle),
+      rootFact: buildRootFact(synthesized, status, primaryCode, needle),
       preserve: preserve(response),
     }),
   });
