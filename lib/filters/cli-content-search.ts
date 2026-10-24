@@ -48,17 +48,42 @@ export function lineColumnOfFirstMatch(
   readOffset: number,
   absoluteStart: number,
 ): Readonly<{ line: number; column: number }> {
-  const prefixNewlines = previous?.prefixNewlines ?? 0;
-  let lastNewlineAbs = previous?.lastNewlineAbs ?? -1;
-  const endInChunk = Math.max(0, Math.min(currentBytes.length, absoluteStart - readOffset));
-  let newlinesBeforeHit = 0;
-  for (let index = 0; index < endInChunk; index += 1) {
-    if (currentBytes[index] === 0x0a) {
-      newlinesBeforeHit += 1;
-      lastNewlineAbs = readOffset + index;
+  if (previous === null) {
+    let line = 1;
+    let lineStartAbs = 0;
+    const endInChunk = Math.max(0, Math.min(currentBytes.length, absoluteStart - readOffset));
+    for (let index = 0; index < endInChunk; index += 1) {
+      if (currentBytes[index] === 0x0a) {
+        line += 1;
+        lineStartAbs = readOffset + index + 1;
+      }
     }
+    return Object.freeze({ line, column: absoluteStart - lineStartAbs + 1 });
   }
-  return Object.freeze({ line: prefixNewlines + newlinesBeforeHit + 1, column: absoluteStart - lastNewlineAbs });
+  if (absoluteStart >= readOffset) {
+    let line = previous.prefixNewlines + 1;
+    let lineStartAbs = previous.lastNewlineAbs + 1;
+    const endInChunk = Math.max(0, Math.min(currentBytes.length, absoluteStart - readOffset));
+    for (let index = 0; index < endInChunk; index += 1) {
+      if (currentBytes[index] === 0x0a) {
+        line += 1;
+        lineStartAbs = readOffset + index + 1;
+      }
+    }
+    return Object.freeze({ line, column: absoluteStart - lineStartAbs + 1 });
+  }
+  const carry = Buffer.from(previous.carry, "base64");
+  const carryStartAbs = readOffset - carry.length;
+  const localStart = Math.max(0, absoluteStart - carryStartAbs);
+  let line = previous.prefixNewlines + 1;
+  let lineStartAbs = previous.carryLineStartAbs;
+  for (let index = localStart; index < carry.length; index += 1) {
+    if (carry[index] === 0x0a) line -= 1;
+  }
+  for (let index = 0; index < localStart; index += 1) {
+    if (carry[index] === 0x0a) lineStartAbs = carryStartAbs + index + 1;
+  }
+  return Object.freeze({ line, column: absoluteStart - lineStartAbs + 1 });
 }
 
 export function lineColumn(
@@ -568,9 +593,13 @@ export function applyReadToScan(
   if (match.found && match.start + needle.length > carryLength) {
     found = true;
     if (firstMatch === null) {
+      const start = read.offset - carryLength + match.start;
+      const location = lineColumnOfFirstMatch(scan, currentBytes, read.offset, start);
       firstMatch = Object.freeze({
-        start: read.offset - carryLength + match.start,
-        end: read.offset - carryLength + match.start + needle.length,
+        start,
+        end: start + needle.length,
+        line: location.line,
+        column: location.column,
       });
     }
   }
@@ -584,9 +613,14 @@ export function applyReadToScan(
       lastNewlineAbs = read.offset + index;
     }
   }
+  const nextOffset = read.offset + read.bytesRead;
+  const carryBytes = Buffer.from(window.subarray(Math.max(0, window.length - (needle.length - 1))));
+  const carryStartAbs = nextOffset - carryBytes.length;
+  const carryLocation = lineColumnOfFirstMatch(scan, currentBytes, read.offset, carryStartAbs);
   return Object.freeze({
-    nextOffset: read.offset + read.bytesRead,
-    carry: Buffer.from(window.subarray(Math.max(0, window.length - (needle.length - 1)))).toString("base64"),
+    nextOffset,
+    carry: carryBytes.toString("base64"),
+    carryLineStartAbs: carryStartAbs - carryLocation.column + 1,
     found,
     firstMatch,
     complete: read.offset + read.bytesRead >= read.size && !(read.eof && read.offset + read.bytesRead < read.size) && !scan?.shortRead,

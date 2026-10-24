@@ -179,8 +179,9 @@ export type ContentSearchIdentityKey = Readonly<{
 export type ContentSearchScanFact = Readonly<{
   nextOffset: number;
   carry: string;
+  carryLineStartAbs: number;
   found: boolean;
-  firstMatch: Readonly<{ start: number; end: number }> | null;
+  firstMatch: Readonly<{ start: number; end: number; line: number; column: number }> | null;
   complete: boolean;
   bytesRead: number;
   chunks: number;
@@ -244,6 +245,7 @@ export type ContentSearchState = Readonly<{
   provenNegatives: readonly ContentSearchNegativeFact[];
   typeMismatches: readonly ContentSearchMismatchFact[];
   duplicateReads: number;
+  bytesReadTotal: number;
 }>;
 
 export type ContentSearchPhase = "listed" | "descend" | "choose" | "inspected" | "read" | "reconcile" | "closed";
@@ -1068,19 +1070,25 @@ function readIdentityKey(value: unknown, label: string): ContentSearchIdentityKe
 
 function readScanFact(value: unknown, label: string): ContentSearchScanFact {
   const input = record(value, label);
-  exactKeys(input, ["nextOffset", "carry", "found", "firstMatch", "complete", "bytesRead", "chunks", "sizeAtStart", "identityAtStart", "firstReadSourceRun", "lastReadSourceRun", "lastEndObserved", "shortRead", "prefixNewlines", "lastNewlineAbs"], label);
+  exactKeys(input, ["nextOffset", "carry", "carryLineStartAbs", "found", "firstMatch", "complete", "bytesRead", "chunks", "sizeAtStart", "identityAtStart", "firstReadSourceRun", "lastReadSourceRun", "lastEndObserved", "shortRead", "prefixNewlines", "lastNewlineAbs"], label);
   if (typeof input.found !== "boolean" || typeof input.complete !== "boolean" ||
       typeof input.lastEndObserved !== "boolean" || typeof input.shortRead !== "boolean") {
     throw new TypeError(`${label} boolean fields are invalid`);
   }
   const firstMatch = input.firstMatch === null ? null : (() => {
     const span = record(input.firstMatch, `${label}.firstMatch`);
-    exactKeys(span, ["start", "end"], `${label}.firstMatch`);
-    return Object.freeze({ start: nonnegativeInteger(span.start, `${label}.firstMatch.start`), end: nonnegativeInteger(span.end, `${label}.firstMatch.end`) });
+    exactKeys(span, ["start", "end", "line", "column"], `${label}.firstMatch`);
+    return Object.freeze({
+      start: nonnegativeInteger(span.start, `${label}.firstMatch.start`),
+      end: nonnegativeInteger(span.end, `${label}.firstMatch.end`),
+      line: positiveInteger(span.line, `${label}.firstMatch.line`),
+      column: positiveInteger(span.column, `${label}.firstMatch.column`),
+    });
   })();
   return Object.freeze({
     nextOffset: nonnegativeInteger(input.nextOffset, `${label}.nextOffset`),
     carry: typeof input.carry === "string" ? input.carry : (() => { throw new TypeError(`${label}.carry must be a string`); })(),
+    carryLineStartAbs: nonnegativeInteger(input.carryLineStartAbs, `${label}.carryLineStartAbs`),
     found: input.found,
     firstMatch,
     complete: input.complete,
@@ -1205,7 +1213,7 @@ function readNegative(value: unknown, label: string): ContentSearchNegativeFact 
 
 export function readContentSearchState(value: unknown): ContentSearchState {
   const state = record(value, "content search state");
-  exactKeys(state, ["stateId", "session", "cli", "listing", "cardinality", "recursion", "maxDirectoryDepth", "maxStaleRetries", "directories", "pendingDirectories", "candidates", "provenNegatives", "typeMismatches", "duplicateReads"], "content search state");
+  exactKeys(state, ["stateId", "session", "cli", "listing", "cardinality", "recursion", "maxDirectoryDepth", "maxStaleRetries", "directories", "pendingDirectories", "candidates", "provenNegatives", "typeMismatches", "duplicateReads", "bytesReadTotal"], "content search state");
   if (!Array.isArray(state.candidates)) throw new TypeError("content search state.candidates must be an array");
   if (!Array.isArray(state.directories)) throw new TypeError("content search state.directories must be an array");
   if (!Array.isArray(state.pendingDirectories)) throw new TypeError("content search state.pendingDirectories must be an array");
@@ -1257,6 +1265,7 @@ export function readContentSearchState(value: unknown): ContentSearchState {
     })),
     typeMismatches: Object.freeze(typeMismatches),
     duplicateReads: nonnegativeInteger(state.duplicateReads, "content search state duplicateReads"),
+    bytesReadTotal: nonnegativeInteger(state.bytesReadTotal, "content search state bytesReadTotal"),
   });
 }
 

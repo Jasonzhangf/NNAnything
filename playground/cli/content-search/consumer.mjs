@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  appendFile,
+  lstat,
+  mkdtemp,
+  open,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -25,6 +35,12 @@ const LIMITS_SIX = Object.freeze({ maxTransitions: 30, maxDepth: 8, maxDerivedGo
 const LIMITS_PARTIAL_LISTING = Object.freeze({ maxTransitions: 26, maxDepth: 8, maxDerivedGoals: 3 });
 const LIMITS_T12_FIRST = Object.freeze({ maxTransitions: 26, maxDepth: 8, maxDerivedGoals: 4 });
 const LIMITS_T12_SECOND = Object.freeze({ maxTransitions: 31, maxDepth: 8, maxDerivedGoals: 4 });
+const LIMITS_CHUNK_TERMINAL = Object.freeze({ maxTransitions: 33, maxDepth: 8, maxDerivedGoals: 4 });
+const LIMITS_STALE_RESCAN = Object.freeze({ maxTransitions: 54, maxDepth: 8, maxDerivedGoals: 7 });
+const LIMITS_DEPTH_ONE = Object.freeze({ maxTransitions: 47, maxDepth: 8, maxDerivedGoals: 6 });
+const LIMITS_FIVE = Object.freeze({ maxTransitions: 65, maxDepth: 8, maxDerivedGoals: 11 });
+const LIMITS_FIVE_NO_HIT = Object.freeze({ maxTransitions: 68, maxDepth: 8, maxDerivedGoals: 9 });
+const LIMITS_SINGLE_TERMINAL = Object.freeze({ maxTransitions: 26, maxDepth: 8, maxDerivedGoals: 3 });
 const LIMITS_P1 = Object.freeze({ maxTransitions: 64, maxDepth: 4, maxDerivedGoals: 16 });
 
 function scan(depth = 0, chunkSize = 65536) {
@@ -171,6 +187,7 @@ async function freshScenario(options, body) {
       sessions: [SESSION],
     },
     ...(options.listingObserver === undefined ? {} : { listingObserver: options.listingObserver }),
+    ...(options.fileReadIo === undefined ? {} : { fileReadIo: options.fileReadIo }),
   });
   try {
     const session = sandbox.bindSession("s");
@@ -228,6 +245,39 @@ async function assertReadOnly(context, before, domains) {
   };
 }
 
+async function assertReadOnlyWithChanges(context, before, domains, contentChanges) {
+  assert.equal(process.cwd(), before.processCwd);
+  assert.equal(context.sandbox.getSession(context.session).cwd, before.sessionCwd);
+  const after = await snapshotTree(context.scenarioRoot);
+  const expected = { ...before.tree };
+  for (const [relative, contents] of Object.entries(contentChanges)) {
+    assert.ok(relative in expected, `content change target ${relative} must exist in the baseline tree`);
+    expected[relative] = Buffer.from(contents, "utf8").toString("base64");
+  }
+  assert.deepEqual(after, expected);
+  const granted = [...context.sandbox.getSession(context.session).grantedEffects].sort();
+  assert.deepEqual(granted, ["filesystem.read", "process.exec"]);
+  for (const domain of domains) {
+    const records = domain.preserve.effects;
+    assert.ok(Array.isArray(records), "preserve.effects must be an array");
+    for (const record of records) {
+      assert.ok(
+        ["content-search.list", "content-search.inspect", "content-search.read"].includes(record.skillId),
+        `unexpected effect skill ${String(record.skillId)}`,
+      );
+      for (const effect of record.confirmedEffects ?? []) {
+        assert.equal(effect.kind, "cli.content-search.observation");
+      }
+    }
+  }
+  return {
+    cwdUnchanged: true,
+    entriesUnchanged: true,
+    contentsUnchangedExcludingHarnessInjected: Object.keys(contentChanges),
+    readOnlyEffects: true,
+  };
+}
+
 function assertMatches(domain, oracle) {
   assert.deepEqual([...domain.matches].map(match => match.path).sort(), oracle.matchPaths);
   for (const match of domain.matches) {
@@ -260,6 +310,7 @@ function summary(domain) {
     observationCount: domain.observationCount,
     bytesReadTotal: domain.bytesReadTotal,
     duplicateReads: domain.duplicateReads,
+    budgetUsed: domain.budgetUsed,
     denominators: domain.denominators,
     matches: domain.matches.map(match => ({
       path: match.path,
@@ -720,6 +771,547 @@ async function scenarioT12() {
   });
 }
 
+async function scenarioT3() {
+  const entries = [
+    { path: "scan", kind: "directory" },
+    { path: "scan/first.ts", kind: "file", contents: `export const quarryMark = "first-3";\n` },
+    { path: "scan/second.ts", kind: "file", contents: `export const secondState = "idle";\n` },
+    { path: "scan/third.ts", kind: "file", contents: `export const thirdState = "idle";\n` },
+  ];
+  const one = await freshScenario({ scenarioId: "m2-test-quartz-t3", entries }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "quarryMark" });
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t3-one",
+      directory,
+      needle: "quarryMark",
+      cardinality: "one",
+      recursion: "flat",
+    }), { limits: LIMITS_ONE, scan: scan(0) });
+    const domain = result.domain;
+    assert.equal(domain.status, "achieved");
+    assert.equal(domain.cardinality, "one");
+    assert.equal(domain.invocationCount, 3);
+    assert.equal(domain.bytesReadTotal, 37);
+    assert.deepEqual(denominators(domain), [1, 1, 3, 1, 1, 0, 2]);
+    assertMatches(domain, oracle);
+    assert.equal(domain.matches[0].scanComplete, true);
+    assert.deepEqual(domain.negatives, []);
+    const readOnly = await assertReadOnly(context, before, [domain]);
+    return {
+      scenario: "P2-T3-one",
+      oracle: { candidates: oracle.candidates, bytesTotal: oracle.bytesTotal },
+      result: summary(domain),
+      readOnly,
+    };
+  });
+
+  const all = await freshScenario({ scenarioId: "m2-test-quartz-t3", entries }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "quarryMark" });
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t3-all",
+      directory,
+      needle: "quarryMark",
+      cardinality: "all",
+      recursion: "flat",
+    }), { limits: LIMITS_THREE, scan: scan(0) });
+    const domain = result.domain;
+    assert.equal(domain.status, "achieved");
+    assert.equal(domain.cardinality, "all");
+    assert.equal(domain.coverage, "complete");
+    assert.equal(domain.invocationCount, 7);
+    assert.equal(domain.bytesReadTotal, 106);
+    assert.equal(domain.bytesReadTotal, oracle.bytesTotal);
+    assert.deepEqual(denominators(domain), [1, 1, 3, 3, 1, 2, 0]);
+    assertMatches(domain, oracle);
+    assert.deepEqual(domain.negatives.map(negative => negative.path), oracle.negativePaths);
+    const readOnly = await assertReadOnly(context, before, [domain]);
+    return {
+      scenario: "P2-T3-all",
+      oracle: { candidates: oracle.candidates, bytesTotal: oracle.bytesTotal },
+      result: summary(domain),
+      readOnly,
+    };
+  });
+  assert.ok(one.result.invocationCount < all.result.invocationCount);
+  assert.ok(one.result.bytesReadTotal < all.result.bytesReadTotal);
+  return { scenario: "P2-T3", one, all };
+}
+
+async function scenarioT10a() {
+  const entries = [
+    { path: "scan", kind: "directory" },
+    { path: "scan/boundary.ts", kind: "file", contents: "abcdxxxx" },
+  ];
+  return freshScenario({ scenarioId: "m2-test-quartz-t10a", entries }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "dcd" });
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t10a-all",
+      directory,
+      needle: "dcd",
+      cardinality: "all",
+      recursion: "flat",
+    }), { limits: LIMITS_CHUNK_TERMINAL, scan: scan(0, 4) });
+    const domain = result.domain;
+    assert.equal(domain.status, "unmet");
+    assert.equal(domain.resolution, "not_found");
+    assert.equal(domain.bytesReadTotal, 8);
+    assert.deepEqual(denominators(domain), [1, 1, 1, 1, 0, 1, 0]);
+    assert.deepEqual(domain.matches, []);
+    assert.deepEqual(domain.negatives.map(negative => negative.path), oracle.negativePaths);
+    assert.equal(stateCandidate(result, "boundary.ts")?.scan?.chunks, 2);
+    assert.equal(stateCandidate(result, "boundary.ts")?.scan?.firstMatch, null);
+    const readOnly = await assertReadOnly(context, before, [domain]);
+    return {
+      scenario: "P2-T10a",
+      oracle: { candidates: oracle.candidates, bytesTotal: oracle.bytesTotal },
+      result: summary(domain),
+      chunks: stateCandidate(result, "boundary.ts")?.scan?.chunks ?? null,
+      readOnly,
+    };
+  });
+}
+
+async function scenarioT10c() {
+  let listingCalls = 0;
+  const entries = [
+    { path: "scan", kind: "directory" },
+    { path: "scan/byte.ts", kind: "file", contents: "abcdef" },
+  ];
+  return freshScenario({
+    scenarioId: "m2-test-quartz-t10c",
+    entries,
+    listingObserver: async input => {
+      listingCalls += 1;
+      const { runDirectoryListHelper } = await import("../../../dist/adapters/cli/directory-listing.js");
+      return runDirectoryListHelper(input);
+    },
+  }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const before = await captureReadOnly(context);
+    await assert.rejects(
+      runSearch(context, request({
+        requestId: "p2-t10c-reject",
+        directory,
+        needle: "\u00e9X",
+        cardinality: "all",
+        recursion: "flat",
+      }), { limits: LIMITS_ONE, scan: scan(0, 2) }),
+      TypeError,
+    );
+    assert.equal(listingCalls, 0);
+    assert.equal(process.cwd(), before.processCwd);
+    assert.equal(context.sandbox.getSession(context.session).cwd, before.sessionCwd);
+    assert.deepEqual(await snapshotTree(context.scenarioRoot), before.tree);
+    assert.deepEqual(
+      [...context.sandbox.getSession(context.session).grantedEffects].sort(),
+      ["filesystem.read", "process.exec"],
+    );
+    return {
+      scenario: "P2-T10c",
+      rejected: "TypeError",
+      listingCalls,
+      readOnly: {
+        cwdUnchanged: true,
+        entriesUnchanged: true,
+        contentsUnchanged: true,
+        readOnlyEffects: true,
+      },
+    };
+  });
+}
+
+async function scenarioT11() {
+  let lstatCalls = 0;
+  const entries = [
+    { path: "scan", kind: "directory" },
+    { path: "scan/shift.ts", kind: "file", contents: "x".repeat(10) + "quarryMark" + "y".repeat(20) },
+  ];
+  return freshScenario({
+    scenarioId: "m2-test-quartz-t11",
+    entries,
+    fileReadIo: {
+      lstat: async (path, options) => {
+        const stats = await lstat(path, options);
+        lstatCalls += 1;
+        if (lstatCalls === 1) await appendFile(path, "z".repeat(20));
+        return stats;
+      },
+      open: (path, flags) => open(path, flags),
+    },
+  }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t11-all",
+      directory,
+      needle: "quarryMark",
+      cardinality: "all",
+      recursion: "flat",
+    }), { limits: LIMITS_THREE, scan: scan(0, 4096) });
+    const domain = result.domain;
+    assert.equal(domain.status, "achieved");
+    assert.equal(domain.resolution, "matched");
+    assert.equal(domain.invocationCount, 5);
+    assert.equal(domain.observationCount, 5);
+    assert.equal(domain.bytesReadTotal, 100);
+    assert.equal(domain.duplicateReads, 0);
+    assert.equal(domain.matches.length, 1);
+    assert.equal(domain.matches[0].size, 60);
+    assert.equal(domain.matches[0].bytesRead, 60);
+    assert.equal(domain.matches[0].scanComplete, true);
+    assert.equal(domain.historicalMatches.length, 1);
+    assert.equal(domain.historicalMatches[0].size, 40);
+    assert.equal(domain.historicalMatches[0].bytesRead, 40);
+    assert.equal(domain.historicalMatches[0].invalidation.kind, "size_changed");
+    assert.equal(domain.historicalMatches[0].invalidation.code, null);
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "quarryMark" });
+    assertMatches(domain, oracle);
+    const readOnly = await assertReadOnlyWithChanges(
+      context,
+      before,
+      [domain],
+      {
+        "scan/shift.ts": "x".repeat(10) + "quarryMark" + "y".repeat(20) + "z".repeat(20),
+      },
+    );
+    return {
+      scenario: "P2-T11",
+      oracle: { candidates: oracle.candidates, bytesTotal: oracle.bytesTotal },
+      result: summary(domain),
+      historicalMatches: domain.historicalMatches.map(match => ({
+        byteSpan: match.byteSpan,
+        size: match.size,
+        bytesRead: match.bytesRead,
+        invalidation: match.invalidation,
+      })),
+      readOnly,
+    };
+  });
+}
+
+async function scenarioT11a() {
+  const current = await freshScenario({
+    scenarioId: "m2-test-quartz-t11a-current",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/a.ts", kind: "file", contents: "x".repeat(30) },
+    ],
+    fileReadIo: {
+      lstat: async (path, options) => {
+        const stats = await lstat(path, options);
+        if (path.endsWith("a.ts")) {
+          const handle = await open(path, "r+");
+          await handle.write("w".repeat(20) + "quarryMark", 0, "utf8");
+          await handle.close();
+        }
+        return stats;
+      },
+      open: (path, flags) => open(path, flags),
+    },
+  }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t11a-current",
+      directory,
+      needle: "quarryMark",
+      cardinality: "all",
+      recursion: "flat",
+    }), { limits: LIMITS_ONE, scan: scan(0) });
+    const domain = result.domain;
+    assert.equal(domain.status, "achieved");
+    assert.equal(domain.invocationCount, 3);
+    assert.equal(domain.bytesReadTotal, 30);
+    assert.equal(domain.historicalMatches.length, 0);
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "quarryMark" });
+    assertMatches(domain, oracle);
+    assert.equal(domain.matches[0].byteSpan.start, 20);
+    assert.equal(domain.matches[0].scanComplete, true);
+    const readOnly = await assertReadOnlyWithChanges(
+      context,
+      before,
+      [domain],
+      {
+        "scan/a.ts": "w".repeat(20) + "quarryMark",
+      },
+    );
+    return {
+      scenario: "P2-T11a-current",
+      oracle: { candidates: oracle.candidates, bytesTotal: oracle.bytesTotal },
+      result: summary(domain),
+      readOnly,
+    };
+  });
+
+  let readCalls = 0;
+  const stale = await freshScenario({
+    scenarioId: "m2-test-quartz-t11a-stale",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/a.ts", kind: "file", contents: "a".repeat(6) + "quarryMark" + "b".repeat(14) },
+    ],
+    fileReadIo: {
+      lstat: (path, options) => lstat(path, options),
+      open: async (path, flags) => {
+        const handle = await open(path, flags);
+        return {
+          stat: opts => handle.stat(opts),
+          read: async (buffer, offset, length, position) => {
+            readCalls += 1;
+            if (readCalls === 1) {
+              const result = await handle.read(buffer, offset, length, position);
+              return { bytesRead: result.bytesRead };
+            }
+            if (readCalls === 2) {
+              const rewrite = await open(path, "r+");
+              await rewrite.write("c".repeat(30), 0, "utf8");
+              await rewrite.close();
+              const error = new Error("changed");
+              error.code = "READ_TARGET_CHANGED";
+              throw error;
+            }
+            const result = await handle.read(buffer, offset, length, position);
+            return { bytesRead: result.bytesRead };
+          },
+          close: () => handle.close(),
+        };
+      },
+    },
+  }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t11a-stale",
+      directory,
+      needle: "quarryMark",
+      cardinality: "all",
+      recursion: "flat",
+    }), { limits: LIMITS_STALE_RESCAN, scan: scan(0, 16) });
+    const domain = result.domain;
+    assert.equal(domain.status, "unmet");
+    assert.equal(domain.resolution, "not_found");
+    assert.equal(domain.invocationCount, 7);
+    assert.equal(domain.observationCount, 6);
+    assert.equal(domain.bytesReadTotal, 46);
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "quarryMark" });
+    assert.deepEqual(domain.negatives.map(negative => negative.path), oracle.negativePaths);
+    assert.equal(domain.historicalMatches.length, 1);
+    assert.equal(domain.historicalMatches[0].invalidation.kind, "read_stale");
+    assert.equal(domain.historicalMatches[0].invalidation.code, "READ_TARGET_CHANGED");
+    const readOnly = await assertReadOnlyWithChanges(
+      context,
+      before,
+      [domain],
+      {
+        "scan/a.ts": "c".repeat(30),
+      },
+    );
+    return {
+      scenario: "P2-T11a-stale",
+      oracle: { candidates: oracle.candidates, bytesTotal: oracle.bytesTotal },
+      result: summary(domain),
+      historicalMatches: domain.historicalMatches.map(match => ({
+        byteSpan: match.byteSpan,
+        size: match.size,
+        bytesRead: match.bytesRead,
+        invalidation: match.invalidation,
+      })),
+      readOnly,
+    };
+  });
+  return { scenario: "P2-T11a", current, stale };
+}
+
+async function depthResult(label, scenarioId, depth, hit, limits) {
+  const entries = [
+    { path: "scan", kind: "directory" },
+    {
+      path: "scan/file.ts",
+      kind: "file",
+      contents: hit ? `export const quarryMark = "r14";\n` : `export const rootState = "idle";\n`,
+    },
+    { path: "scan/a", kind: "directory" },
+    { path: "scan/a/file.ts", kind: "file", contents: `export const branchState = "idle";\n` },
+    { path: "scan/a/b", kind: "directory" },
+    {
+      path: "scan/a/b/floor.ts",
+      kind: "file",
+      contents: hit ? `export const quarryMark = "f14";\n` : `export const floorState = "idle";\n`,
+    },
+  ];
+  return freshScenario({ scenarioId, entries }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const oracle = await oracleScan({
+      scenarioRoot: context.scenarioRoot,
+      scope: "scan",
+      maxDepth: depth,
+      needle: "quarryMark",
+    });
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: label === "T14a" ? "p2-t14a-all" : label === "T14b" ? "p2-t14b-all" : "p2-t14c-all",
+      directory,
+      needle: "quarryMark",
+      cardinality: "all",
+      recursion: "nested",
+    }), { limits, scan: scan(depth) });
+    const domain = result.domain;
+    const expectedResolution = depth === 2
+      ? hit ? "matched" : "not_found"
+      : hit ? "partial" : "insufficient_evidence";
+    assert.equal(domain.resolution, expectedResolution);
+    assert.equal(domain.coverage, depth === 2 ? "complete" : "partial");
+    assert.equal(domain.denominators.listedDirectories, depth + 1);
+    assert.equal(domain.denominators.directoriesUncovered, depth === 2 ? 0 : 1);
+    assertMatches(domain, oracle);
+    assert.deepEqual(domain.negatives.map(negative => negative.path), oracle.negativePaths);
+    const readOnly = await assertReadOnly(context, before, [domain]);
+    return {
+      scenario: `${label}-${hit ? "hit" : "no-hit"}`,
+      depth,
+      oracle: {
+        directories: oracle.directories,
+        candidates: oracle.candidates,
+        matchPaths: oracle.matchPaths,
+        negativePaths: oracle.negativePaths,
+        bytesTotal: oracle.bytesTotal,
+      },
+      result: summary(domain),
+      readOnly,
+    };
+  });
+}
+
+async function scenarioT14() {
+  return {
+    scenario: "P2-T14",
+    aHit: await depthResult("T14a", "m2-test-quartz-t14a", 0, true, LIMITS_SINGLE_TERMINAL),
+    aNoHit: await depthResult("T14a", "m2-test-quartz-t14a-nohit", 0, false, LIMITS_SINGLE_TERMINAL),
+    bHit: await depthResult("T14b", "m2-test-quartz-t14b", 1, true, LIMITS_DEPTH_ONE),
+    bNoHit: await depthResult("T14b", "m2-test-quartz-t14b-nohit", 1, false, LIMITS_DEPTH_ONE),
+    cHit: await depthResult("T14c", "m2-test-quartz-t14c", 2, true, LIMITS_FIVE),
+    cNoHit: await depthResult("T14c", "m2-test-quartz-t14c-nohit", 2, false, LIMITS_FIVE_NO_HIT),
+  };
+}
+
+async function scenarioT15() {
+  const entries = [
+    { path: "scan", kind: "directory" },
+    { path: "scan/mica.ts", kind: "file", contents: "abzqwmkl" },
+  ];
+  return freshScenario({ scenarioId: "m2-test-quartz-t15a", entries }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "zmq" });
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t15-budget-a",
+      directory,
+      needle: "zmq",
+      cardinality: "all",
+      recursion: "flat",
+    }), {
+      limits: { maxTransitions: 24, maxDepth: 8, maxDerivedGoals: 4 },
+      scan: { ...scan(0, 4), maxTotalBytes: 0 },
+    });
+    const domain = result.domain;
+    assert.equal(domain.status, "unknown");
+    assert.equal(domain.resolution, "interrupted");
+    assert.equal(domain.rootFact.kind, "interrupted");
+    assert.equal(domain.coverage, "partial");
+    assert.equal(domain.bytesReadTotal, 0);
+    assert.deepEqual(domain.matches, []);
+    assert.deepEqual(domain.negatives, []);
+    assert.deepEqual(domain.denominators, {
+      listedDirectories: 1,
+      directoriesComplete: 1,
+      directoriesUncovered: 0,
+      candidatesTotal: 1,
+      candidatesScanned: 0,
+      candidatesMatched: 0,
+      candidatesNegative: 0,
+      candidatesUnresolved: 1,
+      typeMismatches: 0,
+    });
+    assert.equal(stateCandidate(result, "mica.ts")?.scan, null);
+    const readOnly = await assertReadOnly(context, before, [domain]);
+    return {
+      scenario: "P2-T15-zero-budget",
+      oracle: { candidates: oracle.candidates, bytesTotal: oracle.bytesTotal },
+      result: summary(domain),
+      readOnly,
+    };
+  });
+}
+
+async function scenarioT16() {
+  const a = await freshScenario({
+    scenarioId: "m2-test-quartz-t16a",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/apex.ts", kind: "file", contents: "abc\ndef\n" },
+    ],
+  }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "abc" });
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t16-locus-a",
+      directory,
+      needle: "abc",
+      cardinality: "all",
+      recursion: "flat",
+    }), { limits: LIMITS_SIX, scan: scan(0, 4) });
+    const domain = result.domain;
+    assert.equal(domain.status, "achieved");
+    assert.deepEqual(domain.matches[0].byteSpan, { start: 0, end: 3 });
+    assert.equal(domain.matches[0].line, 1);
+    assert.equal(domain.matches[0].column, 1);
+    assert.equal(domain.matches[0].scanComplete, true);
+    assert.equal(domain.bytesReadTotal, 8);
+    assertMatches(domain, oracle);
+    assert.equal(stateCandidate(result, "apex.ts")?.scan?.chunks, 2);
+    const readOnly = await assertReadOnly(context, before, [domain]);
+    return { scenario: "P2-T16a", result: summary(domain), readOnly };
+  });
+
+  const b = await freshScenario({
+    scenarioId: "m2-test-quartz-t16b",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/ruby.ts", kind: "file", contents: "a\nb\nx\n" },
+    ],
+  }, async context => {
+    const directory = await context.sandbox.bindDirectory(context.session, "scan");
+    const oracle = await oracleScan({ scenarioRoot: context.scenarioRoot, scope: "scan", maxDepth: 0, needle: "\nx" });
+    const before = await captureReadOnly(context);
+    const result = await runSearch(context, request({
+      requestId: "p2-t16-locus-b",
+      directory,
+      needle: "\nx",
+      cardinality: "all",
+      recursion: "flat",
+    }), { limits: LIMITS_SIX, scan: scan(0, 4) });
+    const domain = result.domain;
+    assert.equal(domain.status, "achieved");
+    assert.deepEqual(domain.matches[0].byteSpan, { start: 3, end: 5 });
+    assert.equal(domain.matches[0].line, 2);
+    assert.equal(domain.matches[0].column, 2);
+    assert.equal(domain.matches[0].scanComplete, true);
+    assert.equal(domain.bytesReadTotal, 6);
+    assertMatches(domain, oracle);
+    assert.equal(stateCandidate(result, "ruby.ts")?.scan?.chunks, 2);
+    const readOnly = await assertReadOnly(context, before, [domain]);
+    return { scenario: "P2-T16b", result: summary(domain), readOnly };
+  });
+  return { scenario: "P2-T16", a, b };
+}
+
 const payload = {
   consumer: "public",
   entry: "nnanything/cli-content-search",
@@ -732,10 +1324,18 @@ const payload = {
 const scenarios = [
   ["P1", scenarioP1],
   ["T1", scenarioT1],
+  ["T3", scenarioT3],
   ["T5", scenarioT5],
   ["T8", scenarioT8],
+  ["T10a", scenarioT10a],
   ["T10b", scenarioT10b],
+  ["T10c", scenarioT10c],
+  ["T11", scenarioT11],
+  ["T11a", scenarioT11a],
   ["T12", scenarioT12],
+  ["T14", scenarioT14],
+  ["T15", scenarioT15],
+  ["T16", scenarioT16],
   // T3a runs last so the other public scenarios still record evidence if the
   // frozen one-cardinality denominator row is inconsistent with the contract.
   ["T3a", scenarioT3a],
@@ -759,7 +1359,7 @@ try {
   process.stdout.write(`${JSON.stringify({
     consumer: "public",
     exitCode: 0,
-    scenarios: ["P1", "T1", "T3a-one", "T3a-all", "T5", "T8", "T10b", "T12"],
+    scenarios: ["P1", "T1", "T3-one", "T3-all", "T5", "T8", "T10a", "T10b", "T10c", "T11", "T11a-current", "T11a-stale", "T12", "T14", "T15-zero-budget", "T16a", "T16b", "T3a-one", "T3a-all"],
     output: RESULT_PATH,
     readOnly: true,
   })}\n`);

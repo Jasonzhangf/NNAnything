@@ -945,3 +945,190 @@ test("T14c depth 2 with an extra unlisted child stays partial", async t => {
   assert.equal(d.invocationCount, 9);
   assert.equal(d.bytesReadTotal, 101);
 });
+
+test("F1 T15a zero byte budget dispatches no positive read", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-quartz-t15a",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/mica.ts", kind: "file", contents: "abzqwmkl" },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const result = await run(fx, request(directory, "zmq", "p2-t15-budget-a", "all", "flat"), {
+    limits: { maxTransitions: 24, maxDepth: 8, maxDerivedGoals: 4 },
+    scan: { ...defaultScan(0), maxTotalBytes: 0, chunkSize: 4 },
+  });
+  const d = result.domain;
+  assert.equal(d.status, "unknown");
+  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.satisfaction, null);
+  assert.equal(d.coverage, "partial");
+  assert.equal(d.rootFact.kind, "interrupted");
+  assert.equal(d.invocationCount, 2);
+  assert.equal(d.observationCount, 2);
+  assert.equal(d.bytesReadTotal, 0);
+  assert.equal(d.duplicateReads, 0);
+  assert.deepEqual(d.matches, []);
+  assert.deepEqual(d.negatives, []);
+  assert.deepEqual(denoms(d.denominators), {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 0,
+    candidatesTotal: 1,
+    candidatesScanned: 0,
+    candidatesMatched: 0,
+    candidatesNegative: 0,
+    candidatesUnresolved: 1,
+    typeMismatches: 0,
+  });
+});
+
+test("F1 T15b cross-candidate byte exhaustion never reads the second candidate", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-quartz-t15b",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/nova.ts", kind: "file", contents: "efghijmn" },
+      { path: "scan/vega.ts", kind: "file", contents: "zmqkxwvu" },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const result = await run(fx, request(directory, "zmq", "p2-t15-budget-b", "all", "flat"), {
+    limits: { maxTransitions: 37, maxDepth: 8, maxDerivedGoals: 7 },
+    scan: { ...defaultScan(0), maxTotalBytes: 8, chunkSize: 4 },
+  });
+  const d = result.domain;
+  assert.equal(d.status, "unknown");
+  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.rootFact.kind, "interrupted");
+  assert.equal(d.coverage, "partial");
+  assert.equal(d.invocationCount, 5);
+  assert.equal(d.observationCount, 5);
+  assert.equal(d.bytesReadTotal, 8);
+  assert.equal(d.duplicateReads, 0);
+  assert.deepEqual(d.matches, []);
+  assert.equal(d.negatives.length, 1);
+  assert.equal(d.negatives[0].path.endsWith("nova.ts"), true);
+  assert.deepEqual(denoms(d.denominators), {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 0,
+    candidatesTotal: 2,
+    candidatesScanned: 1,
+    candidatesMatched: 0,
+    candidatesNegative: 1,
+    candidatesUnresolved: 1,
+    typeMismatches: 0,
+  });
+  const state = result.response?.report?.states?.at(-1)?.value;
+  const vega = state?.candidates?.find(item => item.path.endsWith("vega.ts"));
+  assert.equal(vega?.scan, null);
+});
+
+test("F1 T15c continuation keeps consumed bytes and does not replay", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-quartz-t15c",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/nova.ts", kind: "file", contents: "efghijmn" },
+      { path: "scan/vega.ts", kind: "file", contents: "zmqkxwvu" },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const first = await run(fx, request(directory, "zmq", "p2-t15-budget-b", "all", "flat"), {
+    limits: { maxTransitions: 37, maxDepth: 8, maxDerivedGoals: 7 },
+    scan: { ...defaultScan(0), maxTotalBytes: 8, chunkSize: 4 },
+  });
+  assert.equal(first.domain.bytesReadTotal, 8);
+  assert.equal(first.domain.resolution, "interrupted");
+  assert.ok(first.domain.preserve.continuation !== null);
+
+  const second = await run(fx, request(directory, "zmq", "p2-t15-budget-b", "all", "flat"), {
+    limits: { maxTransitions: 51, maxDepth: 8, maxDerivedGoals: 9 },
+    scan: { ...defaultScan(0), maxTotalBytes: 16, chunkSize: 4 },
+    continuation: first.domain.preserve.continuation,
+  });
+  const d = second.domain;
+  assert.equal(d.status, "achieved");
+  assert.equal(d.resolution, "matched");
+  assert.equal(d.coverage, "complete");
+  assert.equal(d.invocationCount, 7);
+  assert.equal(d.observationCount, 7);
+  assert.equal(d.bytesReadTotal, 16);
+  assert.equal(d.duplicateReads, 0);
+  assert.ok(d.bytesReadTotal > first.domain.bytesReadTotal);
+  assert.equal(d.matches.length, 1);
+  assert.equal(d.matches[0].byteSpan.start, 0);
+  assert.equal(d.matches[0].byteSpan.end, 3);
+  assert.equal(d.matches[0].scanComplete, true);
+  assert.equal(d.negatives.length, 1);
+  assert.deepEqual(denoms(d.denominators), {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 0,
+    candidatesTotal: 2,
+    candidatesScanned: 2,
+    candidatesMatched: 1,
+    candidatesNegative: 1,
+    candidatesUnresolved: 0,
+    typeMismatches: 0,
+  });
+});
+
+test("F2 T16a first hit stays L1C1 across chunks", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-quartz-t16a",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/apex.ts", kind: "file", contents: "abc\ndef\n" },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const result = await run(fx, request(directory, "abc", "p2-t16-locus-a", "all", "flat"), {
+    limits: { maxTransitions: 30, maxDepth: 8, maxDerivedGoals: 6 },
+    scan: { ...defaultScan(0), chunkSize: 4 },
+  });
+  const d = result.domain;
+  assert.equal(d.status, "achieved");
+  assert.equal(d.resolution, "matched");
+  assert.equal(d.bytesReadTotal, 8);
+  assert.deepEqual(d.matches[0].byteSpan, { start: 0, end: 3 });
+  assert.equal(d.matches[0].line, 1);
+  assert.equal(d.matches[0].column, 1);
+  assert.equal(d.matches[0].scanComplete, true);
+  const state = result.response?.report?.states?.at(-1)?.value;
+  const candidate = state?.candidates?.find(item => item.path.endsWith("apex.ts"));
+  assert.equal(candidate?.scan?.chunks, 2);
+});
+
+test("F2 T16b cross-block newline needle uses prefix-before-hit only", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-quartz-t16b",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/ruby.ts", kind: "file", contents: "a\nb\nx\n" },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const result = await run(fx, request(directory, "\nx", "p2-t16-locus-b", "all", "flat"), {
+    limits: { maxTransitions: 30, maxDepth: 8, maxDerivedGoals: 6 },
+    scan: { ...defaultScan(0), chunkSize: 4 },
+  });
+  const d = result.domain;
+  assert.equal(d.status, "achieved");
+  assert.equal(d.resolution, "matched");
+  assert.equal(d.bytesReadTotal, 6);
+  assert.deepEqual(d.matches[0].byteSpan, { start: 3, end: 5 });
+  assert.equal(d.matches[0].line, 2);
+  assert.equal(d.matches[0].column, 2);
+  assert.equal(d.matches[0].scanComplete, true);
+  const state = result.response?.report?.states?.at(-1)?.value;
+  const candidate = state?.candidates?.find(item => item.path.endsWith("ruby.ts"));
+  assert.equal(candidate?.scan?.chunks, 2);
+});

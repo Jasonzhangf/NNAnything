@@ -75,6 +75,7 @@ function initialState(
     provenNegatives: Object.freeze([]),
     typeMismatches: Object.freeze([]),
     duplicateReads: 0,
+    bytesReadTotal: 0,
   });
 }
 
@@ -551,6 +552,7 @@ export async function runCliContentSearchGoal(
     provenNegatives: Object.freeze([]),
     typeMismatches: Object.freeze([]),
     duplicateReads: replayed.duplicateReads,
+    bytesReadTotal: 0,
   });
   const authoritative = authoritativeRoot(response);
   const needle = validated.goal.requirement.predicate.needle;

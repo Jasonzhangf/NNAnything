@@ -62,7 +62,6 @@ import {
   type ContentSearchReceiptPayload,
   type ContentSearchRequest,
   type ContentSearchScan,
-  type ContentSearchScanFact,
   type ContentSearchState,
 } from "./content-search-contract.js";
 import {
@@ -75,7 +74,6 @@ import {
   inspectedFactFromTransition,
   isStaleReadCode,
   lineColumn,
-  lineColumnOfFirstMatch,
   readFactEndObserved,
   listingFactFromTransition,
 } from "../../filters/cli-content-search.js";
@@ -458,8 +456,18 @@ function supports(input: SupportsInput<unknown, unknown>): boolean {
 
 async function select(
   input: SelectionInput<unknown, ContentSearchState, unknown, ContentSearchEvidencePayload>,
+  scan: ContentSearchScan,
 ) {
   const first = input.candidates[0];
+  if (
+    first?.id === CONTENT_READ_ATOMIC_SKILL &&
+    input.state.bytesReadTotal >= scan.maxTotalBytes
+  ) {
+    return {
+      kind: "defer" as const,
+      reason: "content_search_byte_budget_exhausted",
+    };
+  }
   return first === undefined
     ? { kind: "no_capability" as const, searchedSkillIds: [] }
     : { kind: "selected" as const, skillId: first.id };
@@ -626,7 +634,10 @@ function nextAction(
   if (inProgress !== undefined) {
     return Object.freeze({ kind: "read", candidate: inProgress, duplicate: false });
   }
-  const inProgressPending = state.candidates.find(candidate => needsRead(candidate) && candidate.outcome === "pending");
+  const inProgressPending = state.candidates.find(candidate =>
+    needsRead(candidate) &&
+    (candidate.outcome === "pending" || candidate.outcome === "unknown"),
+  );
   if (inProgressPending !== undefined) {
     return Object.freeze({ kind: "read", candidate: inProgressPending, duplicate: false });
   }
@@ -745,9 +756,11 @@ async function derive(
     }
     const attempt = action.duplicate ? (action.candidate.read?.attempt ?? 0) + 1 : 1;
     const offset = action.duplicate ? 0 : (action.candidate.scan?.nextOffset ?? 0);
-    const length = action.duplicate
-      ? size
-      : Math.max(0, Math.min(scan.chunkSize, size - offset));
+    const remainingBytes = Math.max(0, scan.maxTotalBytes - input.state.bytesReadTotal);
+    const length = Math.max(
+      0,
+      Math.min(action.duplicate ? size : scan.chunkSize, size - offset, remainingBytes),
+    );
     return Object.freeze({
       conditions: Object.freeze([
         condition(`read-${action.candidate.name}:attempt-${attempt}:offset-${offset}:${ordinal}`,
@@ -1037,15 +1050,6 @@ function historicalHitFrom(
   ]);
 }
 
-function lineColumnFromScan(
-  previous: ContentSearchScanFact | null,
-  currentBytes: Buffer,
-  readOffset: number,
-  firstMatch: Readonly<{ start: number; end: number }>,
-): Readonly<{ line: number; column: number }> {
-  return lineColumnOfFirstMatch(previous, currentBytes, readOffset, firstMatch.start);
-}
-
 function updateCandidate(
   state: ContentSearchState,
   path: string,
@@ -1248,7 +1252,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
 
     async select(callback) {
       calls.select += 1;
-      return select(callback);
+      return select(callback, input.scan);
     },
 
     async derive(callback) {
@@ -1439,7 +1443,6 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
       let nextState = stateWithCli(callback.state, callback.state.cli, callback.state.session);
       if (candidate !== undefined) {
         if (read !== null && read.bytesRead !== null) {
-          const bytes = Buffer.from(read.bytes, "base64");
           const duplicate = candidate.outcome === "negative" && !candidate.duplicateRead;
           const previousScan = candidate.scan ?? null;
           const endObserved = readFactEndObserved(read);
@@ -1536,7 +1539,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
             const firstMatch = scan.firstMatch;
             const lineColumnValue = firstMatch === null
               ? null
-              : lineColumnFromScan(previousScan, bytes, read.offset, firstMatch);
+              : Object.freeze({ line: firstMatch.line, column: firstMatch.column });
             nextState = updateCandidate(nextState, candidate.path, {
               read,
               contains: shortRead ? null : matched ? true : negative ? false : null,
@@ -1552,6 +1555,10 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
           if (duplicate) {
             nextState = Object.freeze({ ...nextState, duplicateReads: nextState.duplicateReads + 1 });
           }
+          nextState = Object.freeze({
+            ...nextState,
+            bytesReadTotal: nextState.bytesReadTotal + read.bytesRead,
+          });
         } else {
           const staleFailure = failure !== null && isStaleReadCode(failure.code);
           const historical = staleFailure
