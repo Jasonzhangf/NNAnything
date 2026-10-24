@@ -607,3 +607,27 @@ test("an empty token in the table cannot hang the extractor", () => {
   assert.equal(features["label.queryTokenPresent"], false);
   assert.equal(features["label.fieldTokenPresent"], true);
 });
+
+test("a submit caption that reads as empty text is unmeasured, not a measured empty caption", () => {
+  // An empty textContent can be an icon button whose caption is visual, and an
+  // input whose value attribute is absent shows a browser default label we
+  // cannot read. Reporting either as "measured: no token" would fabricate
+  // evidence that no query/write token exists. Honest reading is: unmeasured.
+  const iconButton = element({
+    tagName: "BUTTON",
+    textContent: "",
+    getAttribute: name => (name === "type" ? "submit" : null),
+  });
+  const form = element({ tagName: "FORM", elements: [iconButton] });
+  const input = element({ closest: () => form, getAttribute: () => null });
+  const observation = observeUsageRelation({ ...observationBase, nodeRef: "c1", element: input });
+  assert.deepEqual(observation.ownedSubmits, [
+    { caption: null, association: "same_form_owner", captionCoverage: "unmeasured" },
+  ]);
+  assert.equal(observation.associationCoverage, "complete");
+
+  // The extractor must keep the channel unknown rather than confidently false.
+  const features = extractUsageFormFeatures(observation, tokens);
+  assert.equal(features["ownedSubmit.queryTokenPresent"], null);
+  assert.equal(features["ownedSubmit.writeTokenPresent"], null);
+});
