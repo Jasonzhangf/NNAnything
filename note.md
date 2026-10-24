@@ -26,6 +26,8 @@ R1 逐例核对（只读，证据在 run 根 `r1-evidence.md`/`r1-table.json`）
 
 B-A1 只读设计草案已落 run 根 `b-a1-relation-design.md`（普通 text 搜索的 Goal→对象关系 I/O、监督、独立页面与缺口）；未实现未训练，显式绑定 consumer 继续作基线。
 
+按 Alice `br-step2-response.md` 修正只读诊断（`prototype/b-diagnosis-v2.{mjs,md,json}`）：不做 support 门（当前 family_leaf 无门），用生产区间语义与真实 classifyBasicKind，非 trainable 冻结、每组一个完整 profile 见证。结果：112 真实判定为 ignore（score 0.8959、margin 0.4361），此前 0.932 作废；W3-neg1 四态 unknown、W3-zero 四态 container、ignore-w3 unknown。可表达性方面 112 单独、W3 八个正例、新 train 去掉 ignore-w3 的 28 行都找到合法见证并经真实入口 judged；W3 组含 ignore-w3、新 train 30 行未找到（只记 not_found）。更关键的是 114 与新 W1/W2 未聚焦正例的硬冲突有严格证明：按恢复的 negative=1 时两者 82 维全同；按 null 时用区间不等式相加得 0≥0.30 矛盾，对任意 [-1,1] 权重都无解。所以 B1 当前验收（155 ignore 保留 + 新 train/dev 全符合 gold）不可同时满足，须 Jenny/用户改政策或复核 114 语义，R1 已提交。trainable 审计：18 条 wire 选 78 单元，按名迁移后加新 wire 选 81 单元且只新增三个零迁移地址，训练按 wire 名过滤不会波及别的 target，但必须显式改配方集合。
+
 ## 2026-10-23 B1 表示层演进：显式负 tabindex 声明测量与 wire（进行中，未训练未解封）
 
 Alice（designer peer）对 B1 失败诊断的结论：projection-145 是一组完整 81 维同输入却含 container/ignore 两种确认 gold 的确定性冲突，现有表示必然无法全对。她批准的最小第一动作是保留 `tabIndexFocus` 原语义，新增按显式 HTML `tabindex` 属性解释的 nullable 测量 `explicitTabIndexKind`（absent/negative/nonnegative/invalid，读取失败 null），派生学生 wire `explicit_negative_tabindex`（负值 1、缺属性/合法非负值 0、invalid/未测 null），只登记 `structure` family、`container` leaf、`ignore` counter-address 三个按名补零地址，不加入任何 leaf 支撑门。见 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/analysis.md`。
