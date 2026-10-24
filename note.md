@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-23 B1 step2 诊断复核：先修 topology 与生产等价见证，暂不开拟合
+
+Alice（designer）复核 Bob 的 `prototype/b-diagnosis.{mjs,json,md}`，裁决暂停拟合与新增 support。证据 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/br-step2-response.md`，Jenny 独立核对源码一致。
+
+三项 finding：1) 当前 profile 是 family_leaf_v1，`computeBasicKindStageRawIntervals` 只在 priority_staged_v1 应用 support gate；诊断脚本无条件加 gate，因此“W3 支撑门关闭即不可达”不成立。2) reachable 跳过 null、删非 trainable 系数、无 family 竞争与阈值、逐行独立换权重，0.932/0→1 不是生产 margin 或可表达证明；可表达须给完整合法参数见证并经真实 `classifyBasicKind` 与资产 config/topology 判定，找不到只记 not_found，不得称无解。3) 新 wire 一旦被学成非零，旧 null 行区间会扩大，不能断言 112 只能靠 af。
+
+下一动作（owner Bob）：先修只读诊断到 family_leaf 真实路径；核实 `EXPECTED_TRAINABLE_WIRES` 与稀疏 target 生成，列出旧 78 地址与新三地址是否实际可更新；先交 R1 四旧行逐例表（来源、是否必须 judged:ignore、同期原始属性能否恢复 `explicitTabIndexKind`，不能猜 absent/0）。三地址锁 0 对启用对照待上述准入与独立 Plan 后再做。B-A1 可按总路线并行准备。B1 保持 INCOMPLETE，候选 uncalibrated/not_applied，无训练、无解封。
+
 ## 2026-10-23 B1 表示步骤设计复核 ACCEPT 与 R1 拟合准入
 
 Alice（designer）对 B1 表示步骤完成限定设计复核：a862df9 的声明测量与 wire，以及 main 补充 6ac727b 把 tabindex 属性解释收敛到单一 `declaredTabIndexKind`。结论为 ACCEPT，仅限“新增声明事实与 82 维投影原型”，不等同 B1 PASS、冲突全消或可直接拟合。五问完整答复、证据与停止条件在 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/br-step-review.md`。
