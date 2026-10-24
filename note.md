@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-23 B1 表示步骤设计复核 ACCEPT 与 R1 拟合准入
+
+Alice（designer）对 B1 表示步骤完成限定设计复核：a862df9 的声明测量与 wire，以及 main 补充 6ac727b 把 tabindex 属性解释收敛到单一 `declaredTabIndexKind`。结论为 ACCEPT，仅限“新增声明事实与 82 维投影原型”，不等同 B1 PASS、冲突全消或可直接拟合。五问完整答复、证据与停止条件在 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/br-step-review.md`。
+
+6ac727b 已合入并同步 origin/main。本会话只读复核 `node --test tests/basic-kinds.test.mjs` 48/48、`npm run build` 与 root-layout 检查通过；作者全量 `npm run test:full` 1342 pass / 0 fail / 1 skip 是作者证据，本设计复核未重跑全量。
+
+R1 拟合准入（下一阶段，owner Bob）：projection-145 的 4 条旧 ignore 行在新 wire 仍为 null，null 不是实测 0。拟合前先逐例给出这四条旧行的来源、是否必须保持 judged:ignore、有无同期原始属性能恢复新字段；不可恢复就保留 null，不能猜 absent/0。若强类别验收与新正例要求确不相容，提交 Jenny/用户决定如何取得新证据或修订“证据不足允许 unknown”的验收政策；不得私改 gold、删除回归或放宽门槛。
+
+Bob 继续：生产 train/dev 新采集直接带 `explicitTabIndexKind`，公开 adapter→样本→wire 一致，原生动作证明实际焦点；只读 B 诊断并行；verification 保持封存。处理完 R1 后再做三地址锁 0 对启用的同配方对照，不能让新 wire 留在未训练集合却称训练过新表示。af=1/fc=0 聚焦反例 112 仍独立。B-A1 的 Goal→对象关系 I/O、监督与独立页面构造可并行，最终运行依赖可靠保留、真实 IO 与关系训练验收。当前无 CLI/core 变更依赖，无共享 infer/train 缺口；若真发现缺口再交最小公开复现。
+
+B1 保持 INCOMPLETE，候选 uncalibrated/not_applied，无训练、无解封。上一段“该建议尚未实施”的措辞已被 a862df9/6ac727b 落地与本段取代。
+
 ## 2026-10-23 B1 表示层演进：显式负 tabindex 声明测量与 wire（进行中，未训练未解封）
 
 Alice（designer peer）对 B1 失败诊断的结论：projection-145 是一组完整 81 维同输入却含 container/ignore 两种确认 gold 的确定性冲突，现有表示必然无法全对。她批准的最小第一动作是保留 `tabIndexFocus` 原语义，新增按显式 HTML `tabindex` 属性解释的 nullable 测量 `explicitTabIndexKind`（absent/negative/nonnegative/invalid，读取失败 null），派生学生 wire `explicit_negative_tabindex`（负值 1、缺属性/合法非负值 0、invalid/未测 null），只登记 `structure` family、`container` leaf、`ignore` counter-address 三个按名补零地址，不加入任何 leaf 支撑门。见 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/analysis.md`。
