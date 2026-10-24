@@ -252,6 +252,133 @@ test("fitting decreases the pairwise loss and changes neutral weights", async ()
   assert.ok(result.profile.weights.some(weight => weight !== 0));
 });
 
+// ---------------------------------------------------------------------------
+// G1 (Alice ruling 2026-10-24): being outside the viewport cannot prove the role
+// is absent. Structural existence, perceivability and current operability are
+// different facts, and only the last one gates the current action.
+// ---------------------------------------------------------------------------
+
+test("G1 viewport-only: an off-viewport eligible host is insufficient, never none", () => {
+  // The control exists and could carry typed input, but it sits below the fold.
+  // It has not been assessed, so the scope is not proven to lack the role.
+  const onlyOffscreen = inferSearchInputHostBinding(
+    requestFor([searchCandidate({ ref: "below-fold", intersectsViewport: false })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(onlyOffscreen.state, "insufficient_observation");
+  assert.equal(onlyOffscreen.rejection, "unassessed_scope_content");
+  assert.equal(onlyOffscreen.selectedRef, null);
+  assert.deepEqual(onlyOffscreen.evidenceRefs, ["below-fold"]);
+
+  // Same answer when the off-viewport host is a plain input with no cues at all:
+  // the reason is "not assessed", not "no evidence of search usage".
+  const offscreenPlain = inferSearchInputHostBinding(
+    requestFor([baseCandidate({ ref: "plain-offscreen", intersectsViewport: false })]),
+    { profile: neutralSearchInputHostProfile() },
+  );
+  assert.equal(offscreenPlain.state, "insufficient_observation");
+  assert.equal(offscreenPlain.rejection, "unassessed_scope_content");
+});
+
+test("G1 no-candidates: a scope with no structurally eligible host is none", () => {
+  // Structurally ineligible controls are an operational fact, so their presence
+  // IS positive structural evidence that the role cannot exist in this scope.
+  const empty = inferSearchInputHostBinding(requestFor([]), { profile: selectionProfile });
+  assert.equal(empty.state, "none");
+  assert.deepEqual(empty.evidenceRefs, []);
+
+  const onlyCheckbox = inferSearchInputHostBinding(
+    requestFor([baseCandidate({ ref: "check", type: "other", host: "input" })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(onlyCheckbox.state, "none");
+
+  // Disabled/readOnly/hidden are operational exclusions too, not "unassessed".
+  const onlyDisabled = inferSearchInputHostBinding(
+    requestFor([searchCandidate({ ref: "disabled", disabled: true })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(onlyDisabled.state, "none");
+
+  const onlyHidden = inferSearchInputHostBinding(
+    requestFor([searchCandidate({ ref: "hidden", cssHidden: true })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(onlyHidden.state, "none");
+});
+
+test("G1 explicit non-search: every operable host carries a non-search usage fact", () => {
+  const confirmed = inferSearchInputHostBinding(
+    requestFor([memoCandidate({ ref: "memo-a" }), memoCandidate({ ref: "memo-b" })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(confirmed.state, "none");
+  assert.deepEqual([...confirmed.evidenceRefs].sort(), ["memo-a", "memo-b"]);
+
+  // A single host without an explicit non-search fact breaks the proof.
+  const mixed = inferSearchInputHostBinding(
+    requestFor([memoCandidate({ ref: "memo-a" }), baseCandidate({ ref: "plain" })]),
+    { profile: selectionProfile },
+  );
+  assert.notEqual(mixed.state, "none");
+});
+
+test("G1 operable search: an in-viewport host with search evidence is selected", () => {
+  const operable = inferSearchInputHostBinding(
+    requestFor([searchCandidate({ ref: "search", intersectsViewport: true })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(operable.state, "selected");
+  assert.equal(operable.selectedRef, "search");
+});
+
+test("G1 coverage unknown: unassessed scope content is insufficient, never none", () => {
+  for (const field of ["unassessedIframeCount", "unassessedObjectCount", "unassessedOpenShadowRootCount"]) {
+    const coverage = {
+      scopeRef: "scope-1",
+      observedCandidateCount: 0,
+      unassessedIframeCount: 0,
+      unassessedObjectCount: 0,
+      unassessedOpenShadowRootCount: 0,
+      excluded: [],
+      [field]: 1,
+    };
+    const result = inferSearchInputHostBinding(
+      requestFor([], { coverage }),
+      { profile: selectionProfile },
+    );
+    assert.equal(result.state, "insufficient_observation", `${field} must be insufficient`);
+    assert.equal(result.rejection, "unassessed_scope_content");
+  }
+});
+
+test("G1 preserves the original failure: off-viewport hosts used to read as none", () => {
+  // Regression guard for the indep-4 defect. Before G1 the guard dropped
+  // off-viewport hosts from applicability, so `applied` was empty and the scope
+  // reported `none` with an empty evidenceRefs. That silently converted
+  // "unassessed" into "absent". The evidenceRefs check below is what separates
+  // the two `none` exits: structural absence returns [], the usage-evidence exit
+  // returns the applicable refs.
+  const offscreen = inferSearchInputHostBinding(
+    requestFor([
+      baseCandidate({ ref: "indep-4-107", intersectsViewport: false }),
+      baseCandidate({ ref: "indep-4-108", host: "textarea", type: "other", intersectsViewport: false }),
+    ]),
+    { profile: neutralSearchInputHostProfile() },
+  );
+  assert.equal(offscreen.state, "insufficient_observation");
+  assert.deepEqual([...offscreen.evidenceRefs].sort(), ["indep-4-107", "indep-4-108"]);
+
+  // The usage-evidence `none` exit keeps returning the applicable refs, so the
+  // two exits stay distinguishable in the result contract.
+  const usageNone = inferSearchInputHostBinding(
+    requestFor([memoCandidate({ ref: "memo" })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(usageNone.state, "none");
+  assert.deepEqual(usageNone.evidenceRefs, ["memo"]);
+});
+
 test("adopted or calibrated profiles are rejected", () => {
   const neutral = neutralSearchInputHostProfile();
   assert.throws(() => validateSearchInputHostProfile({ ...neutral, adoption: "applied" }));

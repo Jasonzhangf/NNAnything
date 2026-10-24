@@ -99,21 +99,40 @@ const TEXT_ENTRY_TYPES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Deterministic applicability guard.
+ * Structural eligibility: can this control carry typed input at all?
  *
+ * This is an operational fact about what the control is (text-entry input,
+ * textarea or contenteditable), independent of where it sits on the page.
  * Type is an operational applicability fact: a checkbox, radio, submit or file
- * control cannot carry the search-input role regardless of its usage cues. Only
- * text-entry inputs, textareas and contenteditable hosts are applicable.
- * Usage evidence stays learnable; this guard only decides what can be a host.
+ * control cannot carry the search-input role regardless of its usage cues.
+ *
+ * Viewport intersection is deliberately NOT part of structural eligibility.
+ * A control below the fold is unassessed for current operation, not evidence
+ * that the role is absent (G1, Alice ruling 2026-10-24: "视口外不能证明角色
+ * 不存在"). `none` may only be concluded with contract-sufficient coverage AND
+ * supporting evidence; an unassessed host keeps the scope insufficient.
  */
-function isApplicable(candidate: MeasuredSearchInputHostCandidate): boolean {
+function isStructurallyEligible(candidate: MeasuredSearchInputHostCandidate): boolean {
   if (candidate.editable !== true) return false;
   if (candidate.disabled === true) return false;
   if (candidate.readOnly === true) return false;
   if (candidate.cssHidden === true) return false;
-  if (candidate.intersectsViewport !== true) return false;
   if (candidate.host === "textarea" || candidate.host === "contenteditable") return true;
   return TEXT_ENTRY_TYPES.includes(candidate.type);
+}
+
+/**
+ * Current-operation applicability: the guard that decides whether a measured
+ * host is a live candidate for the role right now.
+ *
+ * Distinct from structural eligibility: a structurally eligible host that is
+ * outside the viewport is NOT applicable for the current action (Alice ruling
+ * 2026-10-24: "当前动作资格仍要求在视口和真实可操作"), but its mere presence
+ * means the scope is NOT proven to lack the role. Usage evidence stays
+ * learnable; this guard only decides what can be acted on now.
+ */
+function isApplicable(candidate: MeasuredSearchInputHostCandidate): boolean {
+  return isStructurallyEligible(candidate) && candidate.intersectsViewport === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,14 +208,29 @@ export function inferSearchInputHostBinding(
   const measured = candidates as readonly MeasuredSearchInputHostCandidate[];
   const applied = measured.filter(isApplicable);
   if (applied.length === 0) {
-    // No control in scope can carry the role at all. That is positive structural
-    // evidence that the role is absent, so `none` is justified here.
-    return Object.freeze({
-      state: "none",
-      selectedRef: null,
-      evidenceRefs: Object.freeze([]),
+    // No in-viewport host can be acted on now. Whether the role is absent is a
+    // different question: a structurally eligible host that simply sits outside
+    // the viewport has not been assessed, so it is NOT positive evidence of
+    // absence (G1, Alice ruling 2026-10-24). Only a scope with no structurally
+    // eligible host at all justifies `none`.
+    const structurallyEligible = measured.filter(isStructurallyEligible);
+    if (structurallyEligible.length === 0) {
+      // No control in scope can carry the role at all. That is positive
+      // structural evidence that the role is absent, so `none` is justified.
+      return Object.freeze({
+        state: "none",
+        selectedRef: null,
+        evidenceRefs: Object.freeze([]),
+        observedRevision,
+      });
+    }
+    // Structurally eligible hosts exist but none is currently operable: the
+    // scope has unassessed content, so the safe answer is insufficient.
+    return reject(
+      "unassessed_scope_content",
       observedRevision,
-    });
+      structurallyEligible.map(candidate => candidate.ref),
+    );
   }
 
   // `none` requires positive usage evidence that no applicable host carries the
