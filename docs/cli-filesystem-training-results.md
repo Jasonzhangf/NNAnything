@@ -34,6 +34,28 @@
 
 上述历史正式资产已复制到项目主目录的同名本地training路径，历史临时路径字段保留原始证据，不事后改写。独立验证样本单独位于`training/samples/filesystem/verification/shared-cli-20261019/samples.json`，含4份独立家族、16条正常题及16项失败探针清单。它未进入历史拟合入口。最终候选的results目录另存独立报告、独立日志和正式训练日志。
 
+## P3 增量 B 候选偏好拟合（2026-10-24 本轮）
+
+增量 B 只拟合 `entry.inspect × search.nameNeedleSegment` 一个参数，来源为旧 10×30 候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 的显式按名迁移。三沙盒配方按 P3 Plan §6.3 生成式落地，样本、配对与拟合回执位于 `training/samples/filesystem/p3-content-search/inc-b-20261024-01/` 与 `training/results/p3-content-search/inc-b-20261024-01/`；本页只写结论，命令见 `playground/cli/content-search/collect-p3.mjs` 与 `fit-p3.mjs`。
+
+| 项 | 结果 |
+| --- | ---: |
+| 采集 arm 数 | 112（train 24 + development 8 + verification A 12 + B 12，natural+forced 两条件） |
+| 决策样本数 | 326 |
+| 有效训练配对 | 18，全部 `delta=1`，`delta=0` 为 0 |
+| t0 成本对照 | development N/S/P 与 Plan §6.3.4 表一致；E 条件为真实 failed/EIO，受共享 core 阻断 |
+| 参数矩阵 | 10×31 = 310；可训练参数 1，冻结参数 309 |
+| 训练代数与学习率 | 200 epochs / lr 0.1，全批 SGD |
+| 零初始化梯度 | -0.5 |
+| 损失前后 | 0.693147 → 0.053456 |
+| 参数前后 | 0 → 2.902054 |
+| 冻结参数最大偏移 | 0 |
+| 新进程回载 | 独立进程 `validateCliCommandProfile` 通过：10 head、31 wire、10×31 |
+| 候选 | `39f1570f-be11-48a4-94cb-3b071982922b/candidate.json`，`uncalibrated/not_applied` |
+| 训练报告 | `fullyVerified=false` |
+
+短读与 partial 恢复按配方保留真实事实：S 的 slot 0 为 8-byte short_read/unknown、不写证负；P 的 one 可满足、all 不 complete。EIO 后合法次选推进被 `lib/workflow/recursive-goal/module.ts` 的失败原子语义终止，最小复现见 `playground/cli/content-search/p3-eio-core-repro.mjs`，按 Plan §10 保留为 Jenny 缺口，本轮不宣称 E 恢复通过。
+
 ## 当前file.property单候选结果（2026-10-19本轮）
 
 本轮输入起点是历史最终共享候选`d7c4a3e5-4111-4e09-857f-5f20f4fa18c0/candidate.json`，经显式按名迁移扩展到`unsupported,DEFER,NOOP,pwd,cd,ls`六个head和14条有序wire，共84参数，然后一次真实拟合。运行时只接typed `file.property`请求，旧Goal kind和旧4×4对象被运行入口拒绝。

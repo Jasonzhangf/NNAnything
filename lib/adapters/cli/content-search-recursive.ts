@@ -27,7 +27,7 @@ import type {
   CliCommandSample,
   CliCommandTransition,
 } from "../../nodes/cli-command.js";
-import type { CliCommandProfile } from "../../filters/cli-command-policy.js";
+import { cliCandidateFeatures, type CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { PathRef } from "../../filters/cli-file-property.js";
 import type {
   CliFilesystemSandbox,
@@ -49,6 +49,7 @@ import {
   type ContentSearchDirectoryFact,
   type ContentSearchEffectFact,
   type ContentSearchEvidencePayload,
+  type ContentSearchDecisionObservation,
   type ContentSearchFileRef,
   type ContentSearchGoal,
   type ContentSearchHistoricalHitFact,
@@ -200,6 +201,7 @@ export type ContentSearchAdapterInput = Readonly<{
   order: ContentSearchOrder;
   duplicateReadProbe?: readonly string[];
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
+  onDecision?: (decision: ContentSearchDecisionObservation) => void;
 }>;
 
 export type ContentSearchAdapter = RecursiveGoalAdapter<
@@ -612,15 +614,37 @@ function chooseUnstarted(
   candidates: readonly ContentSearchCandidateFact[],
   score: (candidate: ContentSearchCandidateFact) => number,
   order: ContentSearchOrder,
+  needle: string,
+  onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
 ): ContentSearchCandidateFact | undefined {
   const eligible = candidates.filter(needsInspect);
   if (eligible.length === 0) return undefined;
+  const observed = () => Object.freeze(eligible.map(candidate => Object.freeze({
+    name: candidate.name,
+    path: candidate.path,
+    features: cliCandidateFeatures(candidate.name, needle),
+  })));
+  const emitDecision = (selected: ContentSearchCandidateFact, forced: boolean) => {
+    if (onDecision === undefined) return;
+    const snapshot = observed();
+    onDecision(Object.freeze({
+      phase: "unstarted" as const,
+      forced,
+      candidates: snapshot,
+      selected: snapshot.find(candidate => candidate.path === selected.path)!,
+    }));
+  };
+  let forced = false;
   // injected-first is a one-shot experiment condition: the named candidate is
   // selected without scoring on the first choice, then the learned order takes
   // over for the remaining unstarted candidates.
   if (order.kind === "injected-first") {
-    const forced = eligible.find(candidate => candidate.name === order.name);
-    if (forced !== undefined) return forced;
+    const forcedCandidate = eligible.find(candidate => candidate.name === order.name);
+    if (forcedCandidate !== undefined) {
+      forced = true;
+      emitDecision(forcedCandidate, forced);
+      return forcedCandidate;
+    }
   }
   let selected = eligible[0]!;
   let selectedScore = score(selected);
@@ -632,6 +656,7 @@ function chooseUnstarted(
       selectedScore = candidateScore;
     }
   }
+  emitDecision(selected, forced);
   return selected;
 }
 
@@ -642,6 +667,8 @@ function nextAction(
   duplicateReadProbe: readonly string[],
   candidateScore?: (candidate: ContentSearchCandidateFact) => number,
   order?: ContentSearchOrder,
+  needle?: string,
+  onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
 ): NextAction {
   if (state.directories.length === 0 && state.listing === null) {
     return Object.freeze({ kind: "list" });
@@ -693,7 +720,13 @@ function nextAction(
 
   const toInspect = candidateScore === undefined
     ? state.candidates.find(candidate => needsInspect(candidate))
-    : chooseUnstarted(state.candidates, candidateScore, order ?? { kind: "lexicographic" });
+    : chooseUnstarted(
+        state.candidates,
+        candidateScore,
+        order ?? { kind: "lexicographic" },
+        needle ?? "",
+        onDecision,
+      );
   if (toInspect !== undefined) {
     return Object.freeze({ kind: "inspect", candidate: toInspect });
   }
@@ -728,6 +761,7 @@ async function derive(
   duplicateReadProbe: readonly string[],
   profile: CliCommandProfile,
   order: ContentSearchOrder,
+  onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
 ) {
   if (!isRootGoal(input.goal) || input.skill.id !== CONTENT_ROOT_COMPOSITE_SKILL) {
     throw new TypeError("content search composite derivation received an incompatible frame");
@@ -737,7 +771,7 @@ async function derive(
   const action = cursor === null
     ? Object.freeze({ kind: "list" as const })
     : nextAction(input.state, cursor.phase, scan, duplicateReadProbe,
-        candidate => cliCandidateUtility(profile, candidate.name, needle), order);
+        candidate => cliCandidateUtility(profile, candidate.name, needle), order, needle, onDecision);
   const ordinal = input.conditions.length;
   if (action.kind === "list") {
     return Object.freeze({
@@ -1232,6 +1266,13 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
     measureProgress: 0,
   };
   let sequence = 0;
+  let decisionOrdinal = 0;
+  const onDecision = input.onDecision === undefined
+    ? undefined
+    : (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => {
+        decisionOrdinal += 1;
+        input.onDecision!(Object.freeze({ ordinal: decisionOrdinal, ...decision }));
+      };
 
   const adapter: ContentSearchAdapter = {
     async validateRequest(request: RecursiveGoalRequestEnvelope) {
@@ -1297,7 +1338,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
 
     async derive(callback) {
       calls.derive += 1;
-      return derive(callback, input.scan, input.duplicateReadProbe ?? [], profile, input.order);
+      return derive(callback, input.scan, input.duplicateReadProbe ?? [], profile, input.order, onDecision);
     },
 
     async executeAtomic(callback) {

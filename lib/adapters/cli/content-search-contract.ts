@@ -464,6 +464,21 @@ export type ContentSearchResources = Readonly<{
   duplicateReadProbe?: readonly string[];
   signal?: AbortSignal;
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
+  onDecision?: (decision: ContentSearchDecisionObservation) => void;
+}>;
+
+export type ContentSearchCandidateObservation = Readonly<{
+  name: string;
+  path: string;
+  features: readonly number[];
+}>;
+
+export type ContentSearchDecisionObservation = Readonly<{
+  ordinal: number;
+  phase: "unstarted";
+  forced: boolean;
+  candidates: readonly ContentSearchCandidateObservation[];
+  selected: ContentSearchCandidateObservation;
 }>;
 
 export type ContentSearchRunResult = Readonly<{

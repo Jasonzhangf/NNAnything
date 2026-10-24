@@ -504,6 +504,7 @@ export async function runCliContentSearchGoal(
     order,
     ...(resources.duplicateReadProbe === undefined ? {} : { duplicateReadProbe: resources.duplicateReadProbe }),
     ...(resources.onSample === undefined ? {} : { onSample: resources.onSample }),
+    ...(resources.onDecision === undefined ? {} : { onDecision: resources.onDecision }),
   });
   const state = initialState(
     resources.sandbox,

@@ -79,6 +79,7 @@ export * from "./filters/cli-file-property.js";
 export * from "./filters/cli-state.js";
 export * from "./training/cli-command-numeric.js";
 export * from "./training/cli-command-samples.js";
+export * from "./training/cli-candidate-preference.js";
 export type { CliCommandTrainingReceipt, CliCommandTrainingRequest, CliCommandTrainingResources } from "./nodes/cli-command-training.js";
 export type {
   CliCommandAction,
