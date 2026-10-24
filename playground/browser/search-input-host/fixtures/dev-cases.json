@@ -1,0 +1,391 @@
+{
+  "cases": [
+    {
+      "id": "dev-selected",
+      "request": {
+        "goal": { "requestedRole": "search-input-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 2,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 0,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": [
+          {
+            "ref": "s-dev-1",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "search",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": true,
+            "formRoleSearch": true,
+            "nearbySubmit": true,
+            "depthBand": "middle",
+            "hasLabel": false,
+            "hasPlaceholder": true,
+            "hasAria": false,
+            "markerHit": true,
+            "nonSearchMarker": false,
+            "textLenBand": 1,
+            "access": "available"
+          },
+          {
+            "ref": "m-dev-1",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "text",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": true,
+            "formRoleSearch": false,
+            "nearbySubmit": true,
+            "depthBand": "middle",
+            "hasLabel": true,
+            "hasPlaceholder": false,
+            "hasAria": false,
+            "markerHit": false,
+            "nonSearchMarker": true,
+            "textLenBand": 1,
+            "access": "available"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dev-none",
+      "request": {
+        "goal": { "requestedRole": "search-input-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 0,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 0,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": []
+      }
+    },
+    {
+      "id": "dev-ambiguous",
+      "request": {
+        "goal": { "requestedRole": "search-input-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 2,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 0,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": [
+          {
+            "ref": "s-dev-2a",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "search",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": true,
+            "formRoleSearch": true,
+            "nearbySubmit": true,
+            "depthBand": "middle",
+            "hasLabel": false,
+            "hasPlaceholder": true,
+            "hasAria": false,
+            "markerHit": true,
+            "nonSearchMarker": false,
+            "textLenBand": 1,
+            "access": "available"
+          },
+          {
+            "ref": "s-dev-2b",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "search",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": true,
+            "formRoleSearch": true,
+            "nearbySubmit": true,
+            "depthBand": "middle",
+            "hasLabel": false,
+            "hasPlaceholder": true,
+            "hasAria": false,
+            "markerHit": true,
+            "nonSearchMarker": false,
+            "textLenBand": 1,
+            "access": "available"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dev-insufficient-missing",
+      "request": {
+        "goal": { "requestedRole": "search-input-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 1,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 0,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": [
+          {
+            "ref": "u-dev-1",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "text",
+            "contentEditable": false,
+            "editable": null,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": false,
+            "formRoleSearch": false,
+            "nearbySubmit": false,
+            "depthBand": "shallow",
+            "hasLabel": false,
+            "hasPlaceholder": false,
+            "hasAria": false,
+            "markerHit": false,
+            "nonSearchMarker": false,
+            "textLenBand": 0,
+            "access": "available"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dev-insufficient-coverage",
+      "request": {
+        "goal": { "requestedRole": "search-input-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 1,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 1,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": [
+          {
+            "ref": "s-dev-3",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "search",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": true,
+            "formRoleSearch": true,
+            "nearbySubmit": true,
+            "depthBand": "middle",
+            "hasLabel": false,
+            "hasPlaceholder": true,
+            "hasAria": false,
+            "markerHit": true,
+            "nonSearchMarker": false,
+            "textLenBand": 1,
+            "access": "available"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dev-insufficient-threshold",
+      "request": {
+        "goal": { "requestedRole": "search-input-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 1,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 0,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": [
+          {
+            "ref": "p-dev-1",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "text",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": false,
+            "formRoleSearch": false,
+            "nearbySubmit": false,
+            "depthBand": "shallow",
+            "hasLabel": false,
+            "hasPlaceholder": false,
+            "hasAria": false,
+            "markerHit": false,
+            "nonSearchMarker": false,
+            "textLenBand": 0,
+            "access": "available"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dev-role-rejected",
+      "request": {
+        "goal": { "requestedRole": "search-result-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 1,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 0,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": [
+          {
+            "ref": "s-dev-4",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 3,
+            "host": "input",
+            "type": "search",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": true,
+            "formRoleSearch": true,
+            "nearbySubmit": true,
+            "depthBand": "middle",
+            "hasLabel": false,
+            "hasPlaceholder": true,
+            "hasAria": false,
+            "markerHit": true,
+            "nonSearchMarker": false,
+            "textLenBand": 1,
+            "access": "available"
+          }
+        ]
+      }
+    },
+    {
+      "id": "dev-stale",
+      "request": {
+        "goal": { "requestedRole": "search-input-host", "allowedScopeRef": "scope-dev" },
+        "coverage": {
+          "scopeRef": "scope-dev",
+          "observedCandidateCount": 1,
+          "unassessedIframeCount": 0,
+          "unassessedObjectCount": 0,
+          "unassessedOpenShadowRootCount": 0,
+          "excluded": []
+        },
+        "currentControl": { "documentRef": "doc-dev", "observationId": "obs-dev", "revision": 3 },
+        "candidates": [
+          {
+            "ref": "s-dev-5",
+            "scopeRef": "scope-dev",
+            "documentRef": "doc-dev",
+            "observationId": "obs-dev",
+            "revision": 2,
+            "host": "input",
+            "type": "search",
+            "contentEditable": false,
+            "editable": true,
+            "disabled": false,
+            "readOnly": false,
+            "cssHidden": false,
+            "intersectsViewport": true,
+            "explicitTabIndexKind": "absent",
+            "tabIndexFocus": false,
+            "inForm": true,
+            "formRoleSearch": true,
+            "nearbySubmit": true,
+            "depthBand": "middle",
+            "hasLabel": false,
+            "hasPlaceholder": true,
+            "hasAria": false,
+            "markerHit": true,
+            "nonSearchMarker": false,
+            "textLenBand": 1,
+            "access": "available"
+          }
+        ]
+      }
+    }
+  ]
+}

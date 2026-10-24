@@ -62,6 +62,10 @@
       "types": "./dist/browser-search.d.ts",
       "import": "./dist/browser-search.js"
     },
+    "./search-input-host": {
+      "types": "./dist/search-input-host.d.ts",
+      "import": "./dist/search-input-host.js"
+    },
     "./browser-input": {
       "types": "./dist/browser-input.d.ts",
       "import": "./dist/browser-input.js"
