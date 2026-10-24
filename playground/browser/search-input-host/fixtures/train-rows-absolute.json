@@ -1,0 +1,588 @@
+{
+ "batches": [
+  {
+   "id": "batch-s1a",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s1a-10",
+     "scopeRef": "scope-s1a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s1a-19",
+     "scopeRef": "scope-s1a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "textarea",
+     "type": "other",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": false,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": false,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s1a-10",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s1a-19",
+     "polarity": "negative"
+    }
+   ]
+  },
+  {
+   "id": "batch-s1b",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s1b-9",
+     "scopeRef": "scope-s1b",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s1b-18",
+     "scopeRef": "scope-s1b",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": false,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": false,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s1b-9",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s1b-18",
+     "polarity": "negative"
+    }
+   ]
+  },
+  {
+   "id": "batch-s2a",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s2a-9",
+     "scopeRef": "scope-s2a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s2a-15",
+     "scopeRef": "scope-s2a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": false,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": false,
+     "hasAria": false,
+     "markerHit": false,
+     "nonSearchMarker": true,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s2a-9",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s2a-15",
+     "polarity": "negative"
+    }
+   ]
+  },
+  {
+   "id": "batch-s2b",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s2b-9",
+     "scopeRef": "scope-s2b",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s2b-15",
+     "scopeRef": "scope-s2b",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": false,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": false,
+     "hasAria": false,
+     "markerHit": false,
+     "nonSearchMarker": true,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s2b-9",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s2b-15",
+     "polarity": "negative"
+    }
+   ]
+  },
+  {
+   "id": "batch-s3a",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s3a-9",
+     "scopeRef": "scope-s3a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s3a-16",
+     "scopeRef": "scope-s3a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": false,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": false,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": true,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s3a-9",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s3a-16",
+     "polarity": "negative"
+    }
+   ]
+  },
+  {
+   "id": "batch-s5a",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s5a-8",
+     "scopeRef": "scope-s5a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": false,
+     "formRoleSearch": false,
+     "nearbySubmit": false,
+     "depthBand": "shallow",
+     "hasLabel": false,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s5a-18",
+     "scopeRef": "scope-s5a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": false,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": false,
+     "hasAria": false,
+     "markerHit": false,
+     "nonSearchMarker": true,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s5a-8",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s5a-18",
+     "polarity": "negative"
+    }
+   ]
+  },
+  {
+   "id": "batch-s6a",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s6a-9",
+     "scopeRef": "scope-s6a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s6a-11",
+     "scopeRef": "scope-s6a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": false,
+     "hasAria": false,
+     "markerHit": false,
+     "nonSearchMarker": true,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s6a-9",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s6a-11",
+     "polarity": "negative"
+    }
+   ]
+  },
+  {
+   "id": "batch-s7a",
+   "partition": "train",
+   "targetRef": null,
+   "candidates": [
+    {
+     "ref": "scope-s7a-9",
+     "scopeRef": "scope-s7a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": true,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": false,
+     "textLenBand": 1,
+     "access": "available"
+    },
+    {
+     "ref": "scope-s7a-11",
+     "scopeRef": "scope-s7a",
+     "documentRef": "doc",
+     "observationId": "obs",
+     "revision": 1,
+     "host": "input",
+     "type": "text",
+     "contentEditable": false,
+     "editable": true,
+     "disabled": false,
+     "readOnly": false,
+     "cssHidden": false,
+     "intersectsViewport": true,
+     "explicitTabIndexKind": "absent",
+     "tabIndexFocus": false,
+     "inForm": true,
+     "formRoleSearch": true,
+     "nearbySubmit": true,
+     "depthBand": "shallow",
+     "hasLabel": true,
+     "hasPlaceholder": false,
+     "hasAria": false,
+     "markerHit": true,
+     "nonSearchMarker": true,
+     "textLenBand": 1,
+     "access": "available"
+    }
+   ],
+   "labels": [
+    {
+     "ref": "scope-s7a-9",
+     "polarity": "positive"
+    },
+    {
+     "ref": "scope-s7a-11",
+     "polarity": "negative"
+    }
+   ]
+  }
+ ]
+}

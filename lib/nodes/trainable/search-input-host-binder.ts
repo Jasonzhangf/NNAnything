@@ -5,9 +5,16 @@
 // deterministic: applicability, missing-measurement detection, coverage,
 //             access gating, currentness, threshold/uniqueness aggregation.
 //
-// The fitter uses pairwise ranking within a batch: the target candidate's
-// roleMatch must exceed every other applicable candidate by a margin. Batches
-// without a target participate in no ranking loss and only prove `none`.
+// The fitter supports two objectives, selected explicitly by the caller:
+//
+//   "pairwise" (default): the target candidate's roleMatch must exceed every
+//     other applicable candidate by a margin. Batches without a target
+//     participate in no ranking loss and only prove `none`.
+//   "absolute": every labelled candidate carries its own margin anchored on the
+//     inference threshold, and only the usage-evidence wires are learnable. A
+//     labelled negative whose measured usage evidence is all zero contributes
+//     no gradient under any weight vector, so it is reported as excluded rather
+//     than given a margin it cannot meet. Contract: m1-new-experiment-contract.md.
 
 import type { TrainableSemanticUnit } from "../../core/trainable-unit.js";
 import { expectRecord } from "../../core/schema.js";
@@ -31,6 +38,30 @@ import {
 
 /** Weights are bounded so a single saturated row cannot dominate the ranking. */
 const WEIGHT_BOUND = 8;
+
+/**
+ * Usage-evidence wires. These are the only wires the absolute objective learns;
+ * every other wire stays exactly zero, so a candidate with no measured cue
+ * scores identically zero and falls below θ instead of drifting to a default.
+ */
+const USAGE_EVIDENCE_WIRES = Object.freeze([
+  "markerHit",
+  "nonSearchMarker",
+  "formRoleSearch",
+] as const);
+
+const USAGE_EVIDENCE_INDEX = Object.freeze(
+  USAGE_EVIDENCE_WIRES.map(wire => SEARCH_INPUT_HOST_WIRES.indexOf(wire as SearchInputHostWire)),
+);
+
+/** Absolute objective margin, anchored on the inference threshold. */
+const ABSOLUTE_MARGIN = 1;
+
+/** Inference boundary: tanh(z) ≥ θ ⟺ z ≥ b. */
+const ABSOLUTE_BOUNDARY = Math.atanh(SEARCH_INPUT_HOST_THRESHOLD);
+
+/** Checkpoints are where the stop condition is evaluated, mirroring the contract budget. */
+const ABSOLUTE_CHECKPOINT_INTERVAL = 50;
 
 // ---------------------------------------------------------------------------
 // Features (§3): one feature vector per measured candidate, all values 0 or 1.
@@ -314,11 +345,25 @@ export function inferSearchInputHostBinding(
 // Training: pairwise ranking within each batch.
 // ---------------------------------------------------------------------------
 
+export type SearchInputHostTrainingObjective = "pairwise" | "absolute";
+
+/**
+ * Supervision polarity for one measured candidate. Polarity is deliberately kept
+ * off `SearchInputHostCandidate`: the candidate validator runs with `exactKeys`
+ * for live inference too, and a gold label is not a property of an observed
+ * control.
+ */
+export interface SearchInputHostTrainingLabel {
+  readonly ref: string;
+  readonly polarity: "positive" | "negative" | "unknown";
+}
+
 export interface SearchInputHostTrainingBatch {
   readonly id: string;
   readonly partition: "train" | "dev";
   readonly targetRef: string | null;
   readonly candidates: readonly SearchInputHostCandidate[];
+  readonly labels?: readonly SearchInputHostTrainingLabel[] | undefined;
 }
 
 export interface SearchInputHostTrainingInput {
@@ -329,6 +374,7 @@ export interface SearchInputHostTrainingResources {
   readonly epochs?: number;
   readonly learningRate?: number;
   readonly margin?: number;
+  readonly objective?: SearchInputHostTrainingObjective;
 }
 
 export interface SearchInputHostChangedWeight {
@@ -337,22 +383,38 @@ export interface SearchInputHostChangedWeight {
   readonly after: number;
 }
 
+export interface SearchInputHostExcludedTrainingRow {
+  readonly ref: string;
+  readonly reason: "zero-usage-evidence";
+  readonly roleMatch: number;
+}
+
+export interface SearchInputHostTrainingFit {
+  readonly objective: SearchInputHostTrainingObjective;
+  readonly trainBatchCount: number;
+  readonly devBatchCount: number;
+  readonly rankedBatchCount: number;
+  readonly skippedNoTargetCount: number;
+  readonly pairCount: number;
+  readonly fittedRowCount: number;
+  readonly positiveRowCount: number;
+  readonly negativeRowCount: number;
+  readonly unknownRowCount: number;
+  readonly excludedRows: readonly SearchInputHostExcludedTrainingRow[];
+  readonly worstMarginViolation: number | null;
+  readonly stopEpoch: number | null;
+  readonly epochs: number;
+  readonly learningRate: number;
+  readonly margin: number;
+  readonly lossBefore: number;
+  readonly lossAfter: number;
+  readonly changedWeightCount: number;
+  readonly changedWeights: readonly SearchInputHostChangedWeight[];
+}
+
 export interface SearchInputHostTrainingResult {
   readonly profile: SearchInputHostProfile;
-  readonly fit: {
-    readonly trainBatchCount: number;
-    readonly devBatchCount: number;
-    readonly rankedBatchCount: number;
-    readonly skippedNoTargetCount: number;
-    readonly pairCount: number;
-    readonly epochs: number;
-    readonly learningRate: number;
-    readonly margin: number;
-    readonly lossBefore: number;
-    readonly lossAfter: number;
-    readonly changedWeightCount: number;
-    readonly changedWeights: readonly SearchInputHostChangedWeight[];
-  };
+  readonly fit: SearchInputHostTrainingFit;
 }
 
 interface Pair {
@@ -374,6 +436,17 @@ function readPositiveNumber(value: unknown, fallback: number, label: string): nu
     throw new TypeError(`${label} must be positive and finite`);
   }
   return value;
+}
+
+/**
+ * The objective must be named explicitly. An unknown or misspelled value throws
+ * instead of falling back to pairwise, so a caller can never believe it asked
+ * for absolute supervision and silently get a different objective.
+ */
+function readObjective(value: unknown): SearchInputHostTrainingObjective {
+  if (value === undefined) return "pairwise";
+  if (value === "pairwise" || value === "absolute") return value;
+  throw new TypeError("objective must be pairwise or absolute");
 }
 
 function softplus(value: number): number {
@@ -410,6 +483,10 @@ function pairwiseLossAndGradient(
 
 function validateTrainingBatch(value: unknown, label: string): SearchInputHostTrainingBatch {
   const batch = expectRecord(value, label);
+  const allowed = new Set(["id", "partition", "targetRef", "candidates", "labels"]);
+  for (const key of Object.keys(batch)) {
+    if (!allowed.has(key)) throw new TypeError(`${label} has unknown field ${key}`);
+  }
   if (typeof batch.id !== "string" || batch.id.length === 0) throw new TypeError(`${label}.id must be a non-empty string`);
   if (batch.partition !== "train" && batch.partition !== "dev") {
     throw new TypeError(`${label}.partition must be train or dev`);
@@ -430,6 +507,226 @@ function validateTrainingBatch(value: unknown, label: string): SearchInputHostTr
     partition: batch.partition,
     targetRef: batch.targetRef,
     candidates: Object.freeze(candidates),
+    labels: batch.labels === undefined ? undefined : validateTrainingLabels(batch.labels, refs, `${label}.labels`),
+  });
+}
+
+function validateTrainingLabels(
+  value: unknown,
+  candidateRefs: ReadonlySet<string>,
+  label: string,
+): readonly SearchInputHostTrainingLabel[] {
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be an array`);
+  const seen = new Set<string>();
+  return Object.freeze(value.map((raw: unknown, index: number) => {
+    const entry = expectRecord(raw, `${label}[${index}]`);
+    for (const key of Object.keys(entry)) {
+      if (key !== "ref" && key !== "polarity") throw new TypeError(`${label}[${index}] has unknown field ${key}`);
+    }
+    if (typeof entry.ref !== "string" || entry.ref.length === 0) {
+      throw new TypeError(`${label}[${index}].ref must be a non-empty string`);
+    }
+    if (!candidateRefs.has(entry.ref)) {
+      throw new TypeError(`${label}[${index}].ref ${entry.ref} is absent from the batch candidates`);
+    }
+    if (seen.has(entry.ref)) throw new TypeError(`${label} contains ${entry.ref} twice`);
+    seen.add(entry.ref);
+    if (entry.polarity !== "positive" && entry.polarity !== "negative" && entry.polarity !== "unknown") {
+      throw new TypeError(`${label}[${index}].polarity must be positive, negative or unknown`);
+    }
+    return Object.freeze({ ref: entry.ref, polarity: entry.polarity });
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Absolute objective (m1-new-experiment-contract.md).
+//
+// Every fitted row carries its own margin anchored on the inference boundary b,
+// so a negative is pushed below b−m and a positive above b+m. Only the usage
+// evidence wires are learnable, so a candidate with no measured cue scores
+// exactly zero for every weight vector. Such a negative contributes zero
+// gradient and can never satisfy a negative margin; it is therefore reported as
+// an excluded row rather than silently given a margin it cannot meet.
+// ---------------------------------------------------------------------------
+
+interface AbsoluteRow {
+  readonly ref: string;
+  readonly polarity: 1 | -1;
+  readonly evidence: readonly number[];
+}
+
+function usageEvidenceOf(candidate: MeasuredSearchInputHostCandidate): readonly number[] {
+  const features = searchInputHostFeatures(candidate);
+  return Object.freeze(USAGE_EVIDENCE_INDEX.map(index => features[index]!));
+}
+
+function absoluteLossAndGradient(
+  learnable: readonly number[],
+  rows: readonly AbsoluteRow[],
+  margin: number,
+): { readonly loss: number; readonly gradient: Float64Array; readonly worstViolation: number } {
+  const gradient = new Float64Array(learnable.length);
+  const positives = rows.filter(row => row.polarity === 1);
+  const negatives = rows.filter(row => row.polarity === -1);
+  let positiveLoss = 0;
+  let negativeLoss = 0;
+  let worstViolation = Number.NEGATIVE_INFINITY;
+  for (const row of positives) {
+    const z = dot(learnable, row.evidence);
+    const violation = margin + (ABSOLUTE_BOUNDARY - z);
+    worstViolation = Math.max(worstViolation, violation);
+    positiveLoss += softplus(violation);
+    const factor = -sigmoid(violation) / positives.length;
+    for (let index = 0; index < learnable.length; index += 1) {
+      gradient[index] = gradient[index]! + factor * row.evidence[index]!;
+    }
+  }
+  for (const row of negatives) {
+    const z = dot(learnable, row.evidence);
+    const violation = margin + (z - ABSOLUTE_BOUNDARY);
+    worstViolation = Math.max(worstViolation, violation);
+    negativeLoss += softplus(violation);
+    const factor = sigmoid(violation) / negatives.length;
+    for (let index = 0; index < learnable.length; index += 1) {
+      gradient[index] = gradient[index]! + factor * row.evidence[index]!;
+    }
+  }
+  const positiveMean = positives.length === 0 ? 0 : positiveLoss / positives.length;
+  const negativeMean = negatives.length === 0 ? 0 : negativeLoss / negatives.length;
+  return { loss: positiveMean + negativeMean, gradient, worstViolation };
+}
+
+function fitAbsoluteSupervision(
+  batches: readonly SearchInputHostTrainingBatch[],
+  epochs: number,
+  learningRate: number,
+  margin: number,
+): SearchInputHostTrainingResult {
+  const rows: AbsoluteRow[] = [];
+  const excludedRows: SearchInputHostExcludedTrainingRow[] = [];
+  let trainBatchCount = 0;
+  let devBatchCount = 0;
+  let unknownRowCount = 0;
+
+  for (const batch of batches) {
+    if (batch.partition === "dev") {
+      devBatchCount += 1;
+      continue;
+    }
+    trainBatchCount += 1;
+    if (batch.labels === undefined) {
+      throw new TypeError(`training batch ${batch.id} has no labels; the absolute objective needs a polarity per candidate`);
+    }
+    const labelled = new Set(batch.labels.map(label => label.ref));
+    for (const candidate of batch.candidates) {
+      if (!labelled.has(candidate.ref)) {
+        throw new TypeError(`training batch ${batch.id} candidate ${candidate.ref} has no label`);
+      }
+    }
+    const measured = new Map<string, MeasuredSearchInputHostCandidate>();
+    for (const candidate of batch.candidates) {
+      if (!isMeasuredSearchInputHostCandidate(candidate)) {
+        throw new TypeError(`training batch ${batch.id} contains an unmeasured candidate; do not fit on missing measurements`);
+      }
+      measured.set(candidate.ref, candidate);
+    }
+    for (const label of batch.labels) {
+      if (label.polarity === "unknown") {
+        unknownRowCount += 1;
+        continue;
+      }
+      const candidate = measured.get(label.ref)!;
+      const evidence = usageEvidenceOf(candidate);
+      const polarity = label.polarity === "positive" ? 1 : -1;
+      if (polarity === -1 && evidence.every(value => value === 0)) {
+        excludedRows.push(Object.freeze({ ref: label.ref, reason: "zero-usage-evidence", roleMatch: 0 }));
+        continue;
+      }
+      rows.push({ ref: label.ref, polarity, evidence });
+    }
+  }
+
+  if (trainBatchCount === 0) throw new TypeError("search input host training requires at least one train batch");
+  const positiveRowCount = rows.filter(row => row.polarity === 1).length;
+  const negativeRowCount = rows.length - positiveRowCount;
+  if (positiveRowCount === 0) throw new TypeError("absolute supervision requires at least one fitted positive row");
+  if (negativeRowCount === 0) throw new TypeError("absolute supervision requires at least one fitted negative row");
+
+  const initialWeights = USAGE_EVIDENCE_INDEX.map(() => 0);
+  const lossBefore = absoluteLossAndGradient(initialWeights, rows, margin).loss;
+
+  let learnable = initialWeights.slice();
+  let stopEpoch: number | null = null;
+  let worstMarginViolation: number | null = null;
+  for (let epoch = 1; epoch <= epochs; epoch += 1) {
+    const evaluated = absoluteLossAndGradient(learnable, rows, margin);
+    learnable = learnable.map((weight, index) => {
+      const next = weight - learningRate * evaluated.gradient[index]!;
+      if (!Number.isFinite(next)) throw new Error("non-finite search input host parameter during fit");
+      if (Math.abs(next) >= WEIGHT_BOUND) throw new Error("search input host parameter reached the weight bound during fit");
+      return next;
+    });
+    if (epoch % ABSOLUTE_CHECKPOINT_INTERVAL === 0) {
+      const checkpoint = absoluteLossAndGradient(learnable, rows, margin);
+      if (checkpoint.worstViolation <= 0) {
+        stopEpoch = epoch;
+        worstMarginViolation = checkpoint.worstViolation;
+        break;
+      }
+    }
+  }
+  if (stopEpoch === null) {
+    throw new Error("absolute supervision did not satisfy the fitted-set margin within the epoch budget");
+  }
+
+  const lossAfter = absoluteLossAndGradient(learnable, rows, margin).loss;
+
+  const weights = SEARCH_INPUT_HOST_WIRES.map(() => 0);
+  for (let index = 0; index < USAGE_EVIDENCE_INDEX.length; index += 1) {
+    weights[USAGE_EVIDENCE_INDEX[index]!] = learnable[index]!;
+  }
+
+  const changedWeights: SearchInputHostChangedWeight[] = [];
+  for (let index = 0; index < weights.length; index += 1) {
+    if (Math.abs(weights[index]!) > 1e-9) {
+      changedWeights.push({ wire: SEARCH_INPUT_HOST_WIRES[index]!, before: 0, after: weights[index]! });
+    }
+  }
+
+  const profile = validateSearchInputHostProfile({
+    contract: SEARCH_INPUT_HOST_CONTRACT,
+    role: SEARCH_INPUT_HOST_ROLE,
+    wires: [...SEARCH_INPUT_HOST_WIRES],
+    weights,
+    threshold: SEARCH_INPUT_HOST_THRESHOLD,
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  });
+
+  return Object.freeze({
+    profile,
+    fit: Object.freeze({
+      objective: "absolute" as const,
+      trainBatchCount,
+      devBatchCount,
+      rankedBatchCount: 0,
+      skippedNoTargetCount: 0,
+      pairCount: 0,
+      fittedRowCount: rows.length,
+      positiveRowCount,
+      negativeRowCount,
+      unknownRowCount,
+      excludedRows: Object.freeze(excludedRows.map(row => Object.freeze(row))),
+      worstMarginViolation,
+      stopEpoch,
+      epochs,
+      learningRate,
+      margin,
+      lossBefore,
+      lossAfter,
+      changedWeightCount: changedWeights.length,
+      changedWeights: Object.freeze(changedWeights.map(change => Object.freeze(change))),
+    }),
   });
 }
 
@@ -440,6 +737,18 @@ export function trainSearchInputHostBinder(
   const value = expectRecord(input, "search input host training input");
   if (!Array.isArray(value.batches)) throw new TypeError("search input host training input.batches must be an array");
   const batches = value.batches.map((raw, index) => validateTrainingBatch(raw, `search input host training input.batches[${index}]`));
+
+  const objective = readObjective(resources.objective);
+  const allowedResources = new Set(["epochs", "learningRate", "margin", "objective"]);
+  for (const key of Object.keys(resources)) {
+    if (!allowedResources.has(key)) throw new TypeError(`training resources has unknown field ${key}`);
+  }
+  if (objective === "absolute") {
+    const absoluteEpochs = readBudget(resources.epochs, 400, "epochs");
+    const absoluteLearningRate = readPositiveNumber(resources.learningRate, 0.5, "learningRate");
+    const absoluteMargin = readPositiveNumber(resources.margin, ABSOLUTE_MARGIN, "margin");
+    return fitAbsoluteSupervision(batches, absoluteEpochs, absoluteLearningRate, absoluteMargin);
+  }
 
   const epochs = readBudget(resources.epochs, 40, "epochs");
   const learningRate = readPositiveNumber(resources.learningRate, 0.5, "learningRate");
@@ -522,11 +831,19 @@ export function trainSearchInputHostBinder(
   return Object.freeze({
     profile,
     fit: Object.freeze({
+      objective: "pairwise" as const,
       trainBatchCount,
       devBatchCount,
       rankedBatchCount,
       skippedNoTargetCount,
       pairCount: pairs.length,
+      fittedRowCount: 0,
+      positiveRowCount: 0,
+      negativeRowCount: 0,
+      unknownRowCount: 0,
+      excludedRows: Object.freeze([]),
+      worstMarginViolation: null,
+      stopEpoch: null,
       epochs,
       learningRate,
       margin,

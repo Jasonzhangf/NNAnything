@@ -12,6 +12,7 @@ import {
 //
 //   --mode infer   --request FILE [--profile FILE]
 //   --mode train   --rows FILE --weights FILE [--epochs N] [--learning-rate X] [--margin M]
+//                  [--objective pairwise|absolute]
 //   --mode observe --profile FILE --cases FILE
 //
 // The unit never writes weights itself. `train` writes only to the explicit
@@ -75,6 +76,7 @@ if (mode === "infer") {
   if (args.has("--epochs")) resources.epochs = Number(args.get("--epochs"));
   if (args.has("--learning-rate")) resources.learningRate = Number(args.get("--learning-rate"));
   if (args.has("--margin")) resources.margin = Number(args.get("--margin"));
+  if (args.has("--objective")) resources.objective = args.get("--objective");
   const result = trainSearchInputHostBinder({ batches }, resources);
   await writeFile(output, `${JSON.stringify({ profile: result.profile, fit: result.fit }, null, 2)}\n`);
   console.log(JSON.stringify({
@@ -85,6 +87,8 @@ if (mode === "infer") {
     calibration: result.profile.calibration,
     adoption: result.profile.adoption,
     theta: result.profile.threshold,
+    objective: result.fit.objective,
+    weights: result.profile.weights,
     fit: result.fit,
   }, null, 2));
 } else if (mode === "observe") {

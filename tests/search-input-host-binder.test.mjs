@@ -494,3 +494,100 @@ test("consumer train saves an uncalibrated candidate and a new process reproduce
   // The saved file is the candidate, never a production weight.
   assert.equal(saved.fit.changedWeightCount, trained.fit.changedWeightCount);
 });
+
+// ---------------------------------------------------------------------------
+// Absolute supervision (m1-new-experiment-contract.md, Alice 2026-10-24).
+//
+// The shipped pairwise objective cannot express an absolute margin, so a
+// labelled negative only ever appears as a rival of some target and its own
+// crossing of θ is never evaluated. The absolute objective learns only the
+// usage-evidence wires and reports what it excluded.
+// ---------------------------------------------------------------------------
+
+const TRAIN_ABSOLUTE_PATH = resolve(repoRoot, "playground/browser/search-input-host/fixtures/train-rows-absolute.json");
+
+const label = (ref, polarity) => ({ ref, polarity });
+
+test("absolute: only usage-evidence wires change; the other 31 stay exactly zero", async () => {
+  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  assert.equal(result.fit.objective, "absolute");
+  for (let index = 0; index < SEARCH_INPUT_HOST_WIRES.length; index += 1) {
+    const wire = SEARCH_INPUT_HOST_WIRES[index];
+    if (wire !== "markerHit" && wire !== "nonSearchMarker" && wire !== "formRoleSearch") {
+      assert.equal(result.profile.weights[index], 0, `carrier wire ${wire} must stay frozen at zero`);
+    }
+  }
+  assert.equal(result.profile.weights.length, 34);
+  assert.ok(result.profile.weights.some(weight => weight !== 0));
+  assert.equal(result.profile.calibration, "uncalibrated");
+  assert.equal(result.profile.adoption, "not_applied");
+});
+
+test("absolute: a memo field inside a role=search form is not selected after fitting", async () => {
+  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  const batch = rows.batches.find(entry => entry.id === "batch-s7a");
+  const memo = batch.candidates.find(candidate => candidate.ref === "scope-s7a-11");
+  const scopeRef = batch.candidates[0].scopeRef;
+  const first = batch.candidates[0];
+  const request = requestFor(batch.candidates, {
+    goal: { requestedRole: "search-input-host", allowedScopeRef: scopeRef },
+    coverage: {
+      scopeRef,
+      observedCandidateCount: batch.candidates.length,
+      unassessedIframeCount: 0,
+      unassessedObjectCount: 0,
+      unassessedOpenShadowRootCount: 0,
+      excluded: [],
+    },
+    currentControl: { documentRef: first.documentRef, observationId: first.observationId, revision: first.revision },
+  });
+  const outcome = inferSearchInputHostBinding(request, { profile: result.profile });
+  assert.equal(outcome.selectedRef, "scope-s7a-9", "the query field must win inside the same role=search form");
+  assert.notEqual(outcome.selectedRef, memo.ref, "the search-form memo must not be selected");
+});
+
+test("absolute: an all-zero-evidence negative is reported excluded, never silently given a margin", async () => {
+  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  assert.equal(result.fit.fittedRowCount, 14, "the two unlearnable rows must not enter the fitted set");
+  const excluded = result.fit.excludedRows.map(row => row.ref);
+  assert.deepEqual([...excluded].sort(), ["scope-s1a-19", "scope-s1b-18"]);
+  for (const row of result.fit.excludedRows) {
+    assert.equal(row.reason, "zero-usage-evidence");
+    assert.equal(row.roleMatch, 0, "below theta by construction, not recognised as non-search");
+  }
+});
+
+test("absolute: the stop metric is reported and the budget bound throws", async () => {
+  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  assert.equal(typeof result.fit.stopEpoch, "number");
+  assert.ok(result.fit.stopEpoch > 0 && result.fit.stopEpoch <= 400);
+  assert.ok(result.fit.worstMarginViolation <= 0, "the reported stop metric is the fitted-set maximum");
+});
+
+test("absolute: a learning rate that drives a weight to the bound throws instead of clamping", async () => {
+  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
+  assert.throws(
+    () => trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", learningRate: 100 }),
+    /weight bound/,
+  );
+});
+
+test("absolute: an unknown objective selector throws instead of falling back to pairwise", async () => {
+  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
+  assert.throws(
+    () => trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolut" }),
+    /objective must be pairwise or absolute/,
+  );
+});
+
+test("absolute: the pairwise objective stays the default and is unchanged", async () => {
+  const rows = JSON.parse(await readFile(trainRowsPath, "utf8"));
+  const result = trainSearchInputHostBinder({ batches: rows.batches });
+  assert.equal(result.fit.objective, "pairwise");
+  assert.ok(result.fit.pairCount > 0);
+  assert.equal(result.fit.fittedRowCount, 0);
+});
