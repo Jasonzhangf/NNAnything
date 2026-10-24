@@ -1,5 +1,19 @@
 # 当前任务
 
+## 2026-10-24 C-A1 集成前控制器边界 P1 定点转派
+
+Alice 通过 `m1792829557273-12` 报告 C-A1 集成阻断 P1：`content.bytes` 自写 list-inspect-read，绕过 `runRecursiveGoal`；公开入口实测 `maxTransitions=NaN` 仍 satisfied 且 3 次执行，`maxDepth/maxDerivedGoals` 未参与控制，另造 `cli.autonomous.content-bytes.result.v1`。完整分析在 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/ca1-controller-boundary-review.md`。
+
+Jenny 已把定点修复要求转给 Carol（`m1792829609307-14`，durable，`dsh-wake-enqueued`）：接入既有 `runRecursiveGoal` 与领域技能/评价器，复用已交付 cli-read 身份/范围读/根证据，共享 `cli.command-policy.v1`；先公开 consumer 固定 NaN 无效预算红测，再补有效预算耗尽、零执行、根评价与证据保留；cwd 与 content 返回同一通用控制结果合同，不能只加 NaN 校验保留旁路。仅对此 finding 做独立定点复核，之前 Review/finding PASS 复用。关闭前暂缓 C-A1 集成；C-G1 与 B-A1 继续。
+
+Carol 已正式接单 C-A1/C-G1，board 显示 C-A1 revision 8 working、C-G1 revision 7 working；由于任务 owner 已是 Carol，master 不能代为更新 lifecycle，已通过 durable 消息传递。本轮无产品代码、gold、权重、门槛或 verification 改动，无 commit/merge/push。
+
+## 2026-10-24 C-A1/C-G1 审计修复验收与重新邀请
+
+Carol 在 `m1792829162999-7` 报告 C-A1 与 C-G1 修复完成：C-A1 两轮独立增量复核第二轮 `VERDICT: PASS`（原 5 条 finding 与审计 4 条阻断闭合，新增 F6 已修并补 CA1-P9/atomic-path-lexical，initialState 缺 authority 显式 `untrusted`），C-G1 F1-F9 已按审计修完；她本地跑 build、目标测试 35/35、全仓 1378/0/1、consumer 12 例退出 0，并因 recipient rebound 报 `BOARD_STALE_INVITATION`，请求撤回重发。
+
+Jenny 已独立核对证据：`fix-audit-ca1-report.md`、`fix-audit-cg1-report.md`、`review-ca1-recheck2.md` 均存在且内容一致；worktree `/Volumes/Intel/playground/nnanything/cli-autonomous` 仍 `codex/cli-autonomous`、baseline `2684104`、behind origin/main 59，未 commit/merge/push，C-A1 改动与 C-G1 静态资产已从树内隔离。按 `BOARD_STALE_INVITATION` 指示撤回并重发：C-A1 现 revision 7 invited、C-G1 现 revision 6 invited，均已 durable enqueue，并已发确认消息引导 Carol 按新 revision `respond --accept`。reviewer 仍固定 Alice，完整 milestone 再整体 Review；不新增训练、不 commit/merge/push、不 apply 候选。
+
 ## 2026-10-24 B-A1 独立来源返工、C-A1/C-G1 审计转派与 goal 续订
 
 Jenny 已消费 `m1792828254111-120`（Alice 的 B-A1 独立来源反馈）与 `m1792828342538-123`（goal deadline）。Alice 的完整意见在 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/ba1-independent-source-feedback.md`。已把 B-A1 返工要求转给 Bob（`m1792828323602-122`，durable，`dsh-wake-enqueued`，尚未证明消费）：独立新上下文页面执行者、独立 gold 监督者；当前 15 例与同作者 4 页归开发，首次资格来源固定候选后评价；holdout-1 的语义是评论输入/无搜索目标，词表遗漏是能力不足，不能把真实 gold 改成 insufficient；语义 gold、可得投影、预期安全决策分开；coverage 要接生产 scope/未读 frame-shadow/排除依据，raw count 相等只证自洽。
@@ -1491,3 +1505,6 @@ B-A1 M1 phase 1 原型已就绪（m1-prototype-report.md，只读、未训练、
 B-A1 M1 原型按 Alice 三项偏差修正为修订 2。一、无用途证据不再判 none：scope 内没有适用 text 宿主才是 none，有宿主但拿不到用途证据是 insufficient_observation，只有每个候选都有明确反向证据（备注/昵称等且无任何搜索线索）才判 none。二、不复用自造测量器：explicitTabIndexKind 改用生产的 declaredTabIndexKind，tabIndexFocus 按 live-dom.ts:2538 语义（属性缺失为 false、无法解析为 null），可见性改成 CSS 未隐藏且与 viewport 相交并显式标注未检查遮挡。三、当前性校验候选自身的 documentRef/observationId/revision，校验 scope 成员、未知角色显式拒绝、选中 ref 非空，且不采信调用方的 complete 标记——候选计数必须与实际批次一致。修订后开发集 15/15、留出集 4/4，但已明确记录三项不可误读：gold 在修订中改过（循环风险，需独立复核）、开发集全绿不是能力证据、判别力仍来自手写词表且未接线真实 episode。
 B-A1 M1 修订 3：一、纠正 gold 叙述。上一版把 holdout-1（评论页）的 gold 从 none 改成 insufficient 是错的——该页有可见「发表评论/说点什么/发送」，语义事实是评论输入、无搜索目标；词表没覆盖评论是当前投影能力不足，不是事实变了。改为每例分记 semanticRoleGold、permittedEvidence、expectedSafeDecision/abstentionReason 三项；修订后留出集语义识别 2/4、安全决策 4/4，两栏分报不合成总绿。二、coverage 不再靠自洽计数：改为消费生产 LiveCaptureCoverage 的未读 iframe/object/开放 shadow root 事实，任一未读即判 insufficient，自洽计数降为必要条件；新增 3 个针对性用例，开发集 17/17。三、来源分区改正：现有 15 例与同作者 4 页全部归开发/回归，不再当资格留出；已派两个独立新上下文执行者——binder-indep-source 独立设计新页面（只给合同/状态/允许证据/生产 adapter，不给词表阈值实现开发页预测），binder-gold-supervisor 按原始页面与证据复核 gold，三项分开、不依据代码输出反改事实。
 B-A1 M1 生产接线与基线回归已拿到真实证据。一、生产 adapter 接线：用 dist 真实 observeLiveDom 取候选替换原型复刻投影，family A 与 family B 两页均得 selected，且选中的生产 nodeRef 通过真实 assertSearchBindings。这轮直接验证了 Alice 的批评——生产 tabIndexFocus 对无显式 tabindex 的输入返回 false，我原复刻会给 true，改用生产测量才对。二、既有搜索验收套件真实浏览器跑通 44/44（S=12、U=32、原生动作 78 次），显式绑定基线无回归。三、仍未完成：数值设计仍是草案未拟合；独立来源与 gold 监督两个新上下文执行者仍在跑。
+
+2026-10-24 master 处理 C-A1 新增控制器边界 P1（Alice m1792829557273-12）：独立只读复核确认 `lib/cli-goal.ts` 的 content 分支仍调用 `runContentBytesEqualsChain`，以 `policy.step` 自行执行 list->inspect->bind->read，未走 `runRecursiveGoal`；预算只读 `maxTransitions`，`steps.length >= NaN` 为 false 故 NaN 未被拒绝，`maxDepth`/`maxDerivedGoals` 未参与，结果仍是私有 `cli.autonomous.content-bytes.result.v1`。C-A1 集成暂缓；已发 Carol `m1792829808730-21`，要求同一独占树复用 `runRecursiveGoal`/`cli-read`，先补无效预算、零执行、预算耗尽与共享根结果/control/ledger 红测，修复后由 owner 回写 board 并交 Alice 仅对本 finding 定点复核。C-G1 与 B-A1 并行继续。goal 重新武装为 `sub-m1792829861254-24`（armed，10m）；`/Volumes/Intel/playground/nnanything/cli-autonomous` 与 `cg1-tool-adaptation` 均为他人 active dirty worktree，保持 PROTECTED_HOLD，未改动。
+B-A1 M1 生产测量扩展到 9 页：2 个 fixture 家族页 + 3 个难例 + 4 个原留出页，全部改用真实 observeLiveDom 测量。状态与期望一致 9/9，selected 且通过真实 assertSearchBindings 5/5，生产属性齐全 9/9。逐例 family A/B selected、hard-form-memo none、hard-search-noform selected、hard-two-forms selected、holdout-1 insufficient（安全拒识）、holdout-2 selected、holdout-3 insufficient、holdout-4 ambiguous。这批仍是作者自写开发证据不是资格留出，价值在于消掉「复刻投影」风险：同一批页面在生产测量下结论不变。独立来源仍在等 binder-indep-source 落盘。
