@@ -34,7 +34,7 @@ Alice（designer peer）对 B1 失败诊断的结论：projection-145 是一组�
 
 生产前向一致：用真实 headless Chrome 跑现网采集，train/dev 各 30 状态全部 complete，生产 `observeLiveDom` 直接产出 `explicitTabIndexKind`（-1 组 12 行 negative、0 组 12 行 nonnegative、ignore 6 行 absent），与离线推导逐值一致。派生逻辑抽成唯一纯函数 `declaredTabIndexKind`，adapter、采集与离线共用。
 
-只读 B 诊断（证据在 run 根 `prototype/b-diagnosis.{mjs,json,md}`）把三层分开：可辨层 81 维下 train 8 / dev 12 / 旧行 4 行不可辨，82 维全部 0，投影冲突已消除；可表达层按权重盒 [-1,1] 加支撑门搜索，当前 18 条 trainable wire 下 train/dev 各 4 行不可达（W3 负 tabindex 未聚焦 container 行、W3 冗余包装 ignore 行），加入新 wire 后前者可达（0.000→1.000），后者仍不可达因其 16 条 ignore 支撑 wire 全为 0、支撑门关闭；可优化层新 leaf 地址在负 tabindex 行有正确方向非零梯度（-0.600/-0.545/-0.447），但 `train.mjs` 的 trainable 集合是硬编码 18 条，不含该 wire，梯度被冻结，零迁移只证明旧行为不变。反例 112 可辨且可表达、af 梯度方向正确，其新 wire 为 null（旧快照无 tabindex），不补值。
+只读 B 诊断（证据在 run 根 `prototype/b-diagnosis.{mjs,json,md}`）把三层分开：可辨层 81 维下 train 8 / dev 12 / 旧行 4 行不可辨；82 维在旧行按 null 参与时为 0，但 R1 核对同期原始证据后旧行属性可恢复（114 为 `tabindex="-1"` → negative，fixture-a S3 为 absent），用恢复值重算后 82 维仍有 1 组硬碰撞（114 对 train/dev 的 W1/W2 未聚焦正例，81/82 维全同而 gold 相反），可辨只解决了一部分；可表达层按权重盒 [-1,1] 加支撑门搜索，当前 18 条 trainable wire 下 train/dev 各 4 行不可达（W3 负 tabindex 未聚焦 container 行、W3 冗余包装 ignore 行），加入新 wire 后前者可达（0.000→1.000），后者仍不可达因其 16 条 ignore 支撑 wire 全为 0、支撑门关闭；可优化层新 leaf 地址在负 tabindex 行有正确方向非零梯度（-0.600/-0.545/-0.447），但 `train.mjs` 的 trainable 集合是硬编码 18 条，不含该 wire，梯度被冻结，零迁移只证明旧行为不变。反例 112 可辨且可表达、af 梯度方向正确，其新 wire 为 null（旧快照无 tabindex），不补值。
 
 下一动作待 Alice 裁定：是否把新 wire 纳入 trainable 后做同数据同起点同配置的 control/treatment 对照；W3 ignore 支撑门缺口是否先出只读支撑门审计。B1 保持 INCOMPLETE，候选 uncalibrated/not_applied，verification NOT_EVALUATED。
 
