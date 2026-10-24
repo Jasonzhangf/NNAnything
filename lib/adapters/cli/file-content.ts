@@ -29,7 +29,8 @@ export type FileReadRange = Readonly<{
   size: number; // file size at read time (bytes)
   bytes: string; // base64 of the actual bytes read
   bytesRead: number;
-  eof: boolean;
+  eof: boolean; // short-read flag: bytesRead < length; NOT a real file-end signal
+  end_observed: boolean; // real file end reached: offset + bytesRead >= size (empty file: true)
   observedRange: Readonly<{ offset: number; length: number }>;
   identity: Readonly<{ dev: number | string; ino: number | string }>;
 }>;
@@ -116,12 +117,14 @@ export async function readFileRange(
     }
     if (length === 0) {
       // Legal zero-length read. The target was opened and identity checked.
-      return { ok: true, observation: { kind: "read", absolutePath, offset, length, size: Number(after.size), bytes: "", bytesRead: 0, eof: false, observedRange: { offset, length }, identity: identityOf(after) } };
+      const size = Number(after.size);
+      return { ok: true, observation: { kind: "read", absolutePath, offset, length, size, bytes: "", bytesRead: 0, eof: false, end_observed: offset >= size, observedRange: { offset, length }, identity: identityOf(after) } };
     }
     const buffer = Buffer.allocUnsafe(length);
     const { bytesRead } = await handle.read(buffer, 0, length, offset);
     const bytes = bytesRead > 0 ? buffer.subarray(0, bytesRead) : Buffer.alloc(0);
-    return { ok: true, observation: { kind: "read", absolutePath, offset, length, size: Number(after.size), bytes: bytes.toString("base64"), bytesRead, eof: bytesRead < length, observedRange: { offset, length }, identity: identityOf(after) } };
+    const size = Number(after.size);
+    return { ok: true, observation: { kind: "read", absolutePath, offset, length, size, bytes: bytes.toString("base64"), bytesRead, eof: bytesRead < length, end_observed: offset + bytesRead >= size, observedRange: { offset, length }, identity: identityOf(after) } };
   } catch (error) {
     const code = errorCode(error) ?? "EIO";
     return failure("observe", code, error instanceof Error ? error.message : String(error));
