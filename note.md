@@ -24,7 +24,11 @@ Alice（designer peer）对 B1 失败诊断的结论：projection-145 是一组�
 - 领域原型 `/Volumes/Intel/playground/nnanything-runs/browser-focus-samples-20261023/prototype/projection-82-report.json` 判 PASS：projection-145 的 12 行旧 81 维投影仍完全相等（1 个变体），新 wire 把 container 全部分到 1、ignore 分到 0/未测 null（旧 4 行无属性保持 null，不补 false）；同一对象聚焦/失焦四态声明值一致；缺测=null、absent/negative/nonnegative/invalid 四值可辨；`migrateBasicKindProfile` 零迁移后 DEFAULT 手写 profile 对全部 64 行判定逐例不变。
 - 全量基线 `npm run test:full` 1342 pass / 0 fail / 1 skip（`NN_HANDWIRED_ROOT` 等真实资产已配），`npm run build`（含 check-layout）通过。
 
-待 Alice 复核该步后决定下一动作；B 问题（af=1/fc=0 聚焦反例为何仍不到 container）仍未定位，不因该 wire 通过就宣称可修复 B1。B1 保持 INCOMPLETE，候选 uncalibrated/not_applied，verification NOT_EVALUATED。
+生产前向一致：用真实 headless Chrome 跑现网采集，train/dev 各 30 状态全部 complete，生产 `observeLiveDom` 直接产出 `explicitTabIndexKind`（-1 组 12 行 negative、0 组 12 行 nonnegative、ignore 6 行 absent），与离线推导逐值一致。派生逻辑抽成唯一纯函数 `declaredTabIndexKind`，adapter、采集与离线共用。
+
+只读 B 诊断（证据在 run 根 `prototype/b-diagnosis.{mjs,json,md}`）把三层分开：可辨层 81 维下 train 8 / dev 12 / 旧行 4 行不可辨，82 维全部 0，投影冲突已消除；可表达层按权重盒 [-1,1] 加支撑门搜索，当前 18 条 trainable wire 下 train/dev 各 4 行不可达（W3 负 tabindex 未聚焦 container 行、W3 冗余包装 ignore 行），加入新 wire 后前者可达（0.000→1.000），后者仍不可达因其 16 条 ignore 支撑 wire 全为 0、支撑门关闭；可优化层新 leaf 地址在负 tabindex 行有正确方向非零梯度（-0.600/-0.545/-0.447），但 `train.mjs` 的 trainable 集合是硬编码 18 条，不含该 wire，梯度被冻结，零迁移只证明旧行为不变。反例 112 可辨且可表达、af 梯度方向正确，其新 wire 为 null（旧快照无 tabindex），不补值。
+
+下一动作待 Alice 裁定：是否把新 wire 纳入 trainable 后做同数据同起点同配置的 control/treatment 对照；W3 ignore 支撑门缺口是否先出只读支撑门审计。B1 保持 INCOMPLETE，候选 uncalibrated/not_applied，verification NOT_EVALUATED。
 
 ## 2026-10-23 焦点样本改进设计（待用户派发执行）
 
