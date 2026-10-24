@@ -19,12 +19,13 @@ const SEVEN_PREDICATES = [
   'predicate.observe.inspect', 'predicate.observe.sessionCwd', 'predicate.equals.sessionCwd',
   'predicate.observe.entries',
 ];
-const THIRTY_WIRES = [
+const THIRTY_ONE_WIRES = [
   'bias', 'goalObserveCwd', 'goalSetCwd', 'goalListDirectory',
   ...TEN_PROPERTIES,
   ...SEVEN_PREDICATES,
   'state.hasFreshEvidence', 'state.knownValue', 'state.requiredConditionHolds',
-  'state.hasDestinationRef', 'state.requiredConditionHolds*state.hasFreshEvidence',
+  'state.hasDestinationRef', 'search.nameNeedleSegment',
+  'state.requiredConditionHolds*state.hasFreshEvidence',
 ];
 const LEGACY_HEADS = ['unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls'];
 const LEGACY_PROPERTIES = ['property.directory.entries', 'property.relation.sessionCwd'];
@@ -69,12 +70,12 @@ test('shared command profile expands named weights without reinterpreting old ro
   assert.deepEqual(extended.heads, TEN_HEADS);
   assert.deepEqual(extended.properties, TEN_PROPERTIES);
   assert.deepEqual(extended.predicates, SEVEN_PREDICATES);
-  assert.deepEqual(extended.wires, THIRTY_WIRES);
+  assert.deepEqual(extended.wires, THIRTY_ONE_WIRES);
   assert.equal(extended.weights.length, 10);
-  assert.equal(extended.weights.every(row => row.length === 30), true);
-  assert.equal(extended.weights.flat().length, 300);
+  assert.equal(extended.weights.every(row => row.length === 31), true);
+  assert.equal(extended.weights.flat().length, 310);
   for (const [rowIndex, head] of TEN_HEADS.entries()) {
-    for (const [columnIndex, wire] of THIRTY_WIRES.entries()) {
+    for (const [columnIndex, wire] of THIRTY_ONE_WIRES.entries()) {
       const legacyRow = LEGACY_HEADS.indexOf(head);
       const legacyColumn = LEGACY_WIRES.indexOf(wire);
       const expected = legacyRow < 0 || legacyColumn < 0 ? 0 : legacy.weights[legacyRow][legacyColumn];

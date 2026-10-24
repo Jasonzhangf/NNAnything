@@ -44,7 +44,7 @@ try {
   const legacy = JSON.parse(await readFile(initialSource, "utf8"));
   const initial = migrateCliCommandProfileV6(legacy);
   assert.equal(initial.heads.length, 10);
-  assert.equal(initial.wires.length, 30);
+  assert.equal(initial.wires.length, 31);
 
   const { dataset } = await makeCliCommandFixture({ root: ownerRoot, extended: true });
   assert.equal(dataset.version, 3);
@@ -86,7 +86,7 @@ try {
   assert.equal(reload.unverified, 0);
   assert.equal(reload.failed, 0);
   assert.equal(reload.schema.heads, 10);
-  assert.equal(reload.schema.wires, 30);
+  assert.equal(reload.schema.wires, 31);
   assert.equal(reload.profileMatchesSavedFile, true);
 
   console.log(JSON.stringify({

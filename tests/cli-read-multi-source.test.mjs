@@ -117,7 +117,10 @@ async function fixture(t, options = {}) {
   const refA = await bindDirectoryObject(bindingSession, "a");
   const refB = await bindDirectoryObject(bindingSession, "b");
 
-  const profile = JSON.parse(await readFile(env.commandProfile, "utf8"));
+  const rawProfile = JSON.parse(await readFile(env.commandProfile, "utf8"));
+  const profile = rawProfile.wires?.length === 30
+    ? (await import("nnanything/cli-goal")).migrateCliCommandProfileV10x30(rawProfile)
+    : rawProfile;
   const startAbs = sandbox.getSession(session).cwd;
   const startEntries = await readdir(startAbs);
   return {

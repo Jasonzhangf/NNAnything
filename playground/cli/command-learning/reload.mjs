@@ -18,10 +18,10 @@ const profile = validateCliCommandProfile(JSON.parse(await readFile(profilePath,
 const dataset = prepareCliCommandDataset(JSON.parse(await readFile(datasetPath, "utf8")), ["train", "development"]);
 const report = JSON.parse(await readFile(reportPath, "utf8"));
 assert.equal(profile.heads.length, 10);
-assert.equal(profile.wires.length, 30);
+assert.equal(profile.wires.length, 31);
 assert.equal(profile.weights.length, 10);
-assert.equal(profile.weights.every(row => row.length === 30), true);
-assert.equal(profile.weights.flat().length, 300);
+assert.equal(profile.weights.every(row => row.length === 31), true);
+assert.equal(profile.weights.flat().length, 310);
 assert.deepEqual(report.profile, profile);
 
 const evidenceRoot = await mkdtemp(join(tmpdir(), "nn-shared-reload-evidence-"));

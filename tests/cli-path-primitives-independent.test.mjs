@@ -22,14 +22,17 @@ const api = await import('nnanything/cli-goal');
 const execFileAsync = promisify(execFile);
 const profilePath = process.env.NN_CLI_COMMAND_PROFILE;
 if (!profilePath) throw new Error('NN_CLI_COMMAND_PROFILE is required; no candidate default is allowed');
-const candidate = JSON.parse(await readFile(profilePath, 'utf8'));
+const rawCandidate = JSON.parse(await readFile(profilePath, 'utf8'));
+const candidate = rawCandidate.wires?.length === 30
+  ? api.migrateCliCommandProfileV10x30(rawCandidate)
+  : rawCandidate;
 assert.deepEqual(candidate.heads, [
   'unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls',
   'path.resolve', 'path.relative', 'path.parts', 'entry.inspect',
 ]);
-assert.equal(candidate.wires.length, 30);
+assert.equal(candidate.wires.length, 31);
 assert.equal(candidate.weights.length, 10);
-assert.ok(candidate.weights.every(row => row.length === 30));
+assert.ok(candidate.weights.every(row => row.length === 31));
 assert.equal(candidate.calibration, 'uncalibrated');
 assert.equal(candidate.adoption, 'not_applied');
 

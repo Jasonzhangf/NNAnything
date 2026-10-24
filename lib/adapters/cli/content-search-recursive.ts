@@ -77,6 +77,10 @@ import {
   readFactEndObserved,
   listingFactFromTransition,
 } from "../../filters/cli-content-search.js";
+import {
+  cliCandidateUtility,
+  validateCliCommandProfile,
+} from "../../filters/cli-command-policy.js";
 
 export const CONTENT_ROOT_COMPOSITE_SKILL = "content-search.composite";
 export const CONTENT_LIST_ATOMIC_SKILL = "content-search.list";
@@ -604,11 +608,40 @@ function needsRead(candidate: ContentSearchCandidateFact): boolean {
   return false;
 }
 
+function chooseUnstarted(
+  candidates: readonly ContentSearchCandidateFact[],
+  score: (candidate: ContentSearchCandidateFact) => number,
+  order: ContentSearchOrder,
+): ContentSearchCandidateFact | undefined {
+  const eligible = candidates.filter(needsInspect);
+  if (eligible.length === 0) return undefined;
+  // injected-first is a one-shot experiment condition: the named candidate is
+  // selected without scoring on the first choice, then the learned order takes
+  // over for the remaining unstarted candidates.
+  if (order.kind === "injected-first") {
+    const forced = eligible.find(candidate => candidate.name === order.name);
+    if (forced !== undefined) return forced;
+  }
+  let selected = eligible[0]!;
+  let selectedScore = score(selected);
+  for (let index = 1; index < eligible.length; index += 1) {
+    const candidate = eligible[index]!;
+    const candidateScore = score(candidate);
+    if (candidateScore > selectedScore) {
+      selected = candidate;
+      selectedScore = candidateScore;
+    }
+  }
+  return selected;
+}
+
 function nextAction(
   state: ContentSearchState,
   phase: ContentSearchCursor["phase"] | null,
   scan: ContentSearchScan,
   duplicateReadProbe: readonly string[],
+  candidateScore?: (candidate: ContentSearchCandidateFact) => number,
+  order?: ContentSearchOrder,
 ): NextAction {
   if (state.directories.length === 0 && state.listing === null) {
     return Object.freeze({ kind: "list" });
@@ -658,7 +691,9 @@ function nextAction(
     return Object.freeze({ kind: "read", candidate: duplicate, duplicate: true });
   }
 
-  const toInspect = state.candidates.find(candidate => needsInspect(candidate));
+  const toInspect = candidateScore === undefined
+    ? state.candidates.find(candidate => needsInspect(candidate))
+    : chooseUnstarted(state.candidates, candidateScore, order ?? { kind: "lexicographic" });
   if (toInspect !== undefined) {
     return Object.freeze({ kind: "inspect", candidate: toInspect });
   }
@@ -691,14 +726,18 @@ async function derive(
   input: DerivationInput<unknown, ContentSearchState, unknown, ContentSearchEvidencePayload, unknown>,
   scan: ContentSearchScan,
   duplicateReadProbe: readonly string[],
+  profile: CliCommandProfile,
+  order: ContentSearchOrder,
 ) {
   if (!isRootGoal(input.goal) || input.skill.id !== CONTENT_ROOT_COMPOSITE_SKILL) {
     throw new TypeError("content search composite derivation received an incompatible frame");
   }
   const cursor = input.cursor as ContentSearchCursor | null;
+  const needle = (input.bindings as ContentSearchBindings).needle;
   const action = cursor === null
     ? Object.freeze({ kind: "list" as const })
-    : nextAction(input.state, cursor.phase, scan, duplicateReadProbe);
+    : nextAction(input.state, cursor.phase, scan, duplicateReadProbe,
+        candidate => cliCandidateUtility(profile, candidate.name, needle), order);
   const ordinal = input.conditions.length;
   if (action.kind === "list") {
     return Object.freeze({
@@ -1175,8 +1214,9 @@ function readAtomicReceiptFromSandbox(
 }
 
 export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
+  const profile = validateCliCommandProfile(input.profile);
   const policy = createCliCommandPolicy({
-    profile: input.profile,
+    profile,
     sandbox: input.sandbox,
     session: input.session,
     ...(input.onSample === undefined ? {} : { onSample: input.onSample }),
@@ -1257,7 +1297,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
 
     async derive(callback) {
       calls.derive += 1;
-      return derive(callback, input.scan, input.duplicateReadProbe ?? []);
+      return derive(callback, input.scan, input.duplicateReadProbe ?? [], profile, input.order);
     },
 
     async executeAtomic(callback) {

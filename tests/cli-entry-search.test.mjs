@@ -36,7 +36,12 @@ async function api() {
 }
 
 async function profile() {
-  return JSON.parse(await readFile(profilePath(), "utf8"));
+  const raw = JSON.parse(await readFile(profilePath(), "utf8"));
+  if (raw.wires?.length === 30) {
+    const { migrateCliCommandProfileV10x30 } = await import("nnanything/cli-goal");
+    return migrateCliCommandProfileV10x30(raw);
+  }
+  return raw;
 }
 
 async function fixture(t, options) {
