@@ -10,13 +10,16 @@ import {
   validateContentSearchRequest,
   validateContentSearchScan,
   type ContentSearchCandidateFact,
+  type ContentSearchCardinality,
   type ContentSearchDomainProjection,
   type ContentSearchFileRef,
   type ContentSearchListingFact,
   type ContentSearchOrder,
+  type ContentSearchRecursion,
   type ContentSearchRequest,
   type ContentSearchResources,
   type ContentSearchRunResult,
+  type ContentSearchScan,
   type ContentSearchState,
 } from "./adapters/cli/content-search-contract.js";
 import {
@@ -24,6 +27,8 @@ import {
   contains,
   coverageOf,
   deliberateSuboptimal,
+  denominatorsOf,
+  historicalMatchesOf,
   initialCandidates,
   inspectedFactFromTransition,
   isStaleReadCode,
@@ -41,6 +46,9 @@ function initialState(
   sandbox: CliFilesystemSandbox,
   session: SessionRef,
   stateId: string,
+  cardinality: ContentSearchCardinality,
+  recursion: ContentSearchRecursion,
+  scan: ContentSearchScan,
 ): ContentSearchState {
   const snapshot: SessionSnapshot = sandbox.getSession(session);
   return Object.freeze({
@@ -57,7 +65,15 @@ function initialState(
       directoryListing: null,
     }),
     listing: null,
+    cardinality,
+    recursion,
+    maxDirectoryDepth: scan.maxDirectoryDepth,
+    maxStaleRetries: scan.maxStaleRetries,
+    directories: Object.freeze([]),
+    pendingDirectories: Object.freeze([]),
     candidates: Object.freeze([]),
+    provenNegatives: Object.freeze([]),
+    typeMismatches: Object.freeze([]),
     duplicateReads: 0,
   });
 }
@@ -276,6 +292,13 @@ type AuthoritativeRoot =
   | Readonly<{ kind: "not_evaluated" }>;
 
 const INTERRUPT_CODES = new Set(["budget_exceeded", "cancelled", "no_progress", "stalled"]);
+const PARTIAL_CODES = new Set([
+  "evidence_unavailable",
+  "precondition_unsatisfied",
+  "effect_outcome_unknown",
+  "derivation_cycle",
+  "adapter_contract_invalid",
+]);
 const REJECT_CODES = new Set([
   "invalid_request", "invalid_binding", "effect_denied",
   "capability_missing", "policy_error", "policy_deferred",
@@ -316,17 +339,12 @@ function projectionStatus(
   root: AuthoritativeRoot,
   interrupted: boolean,
   primaryCode: string | null,
+  hasMatches: boolean,
 ): Readonly<{
   status: ContentSearchDomainProjection["status"];
   resolution: ContentSearchDomainProjection["resolution"];
   satisfaction: number | null;
 }> {
-  if (primaryCode !== null && REJECT_CODES.has(primaryCode)) {
-    return Object.freeze({ status: "rejected", resolution: "rejected", satisfaction: null });
-  }
-  if (primaryCode === "execution_failed") {
-    return Object.freeze({ status: "failed", resolution: "failed", satisfaction: null });
-  }
   if (interrupted) {
     return Object.freeze({ status: "unknown", resolution: "interrupted", satisfaction: null });
   }
@@ -341,6 +359,18 @@ function projectionStatus(
       return Object.freeze({ status: "unmet", resolution: "not_found", satisfaction: root.satisfaction ?? 0 });
     }
   }
+  if (primaryCode !== null && REJECT_CODES.has(primaryCode)) {
+    return Object.freeze({ status: "rejected", resolution: "rejected", satisfaction: null });
+  }
+  if (primaryCode === "execution_failed") {
+    return Object.freeze({ status: "failed", resolution: "failed", satisfaction: null });
+  }
+  if (primaryCode !== null && PARTIAL_CODES.has(primaryCode)) {
+    return Object.freeze({ status: "unknown", resolution: hasMatches ? "partial" : "insufficient_evidence", satisfaction: null });
+  }
+  if (hasMatches) {
+    return Object.freeze({ status: "unknown", resolution: "partial", satisfaction: null });
+  }
   return Object.freeze({ status: "unknown", resolution: "insufficient_evidence", satisfaction: null });
 }
 
@@ -353,11 +383,35 @@ function budgetUsed(response: unknown): ContentSearchDomainProjection["budgetUse
   });
 }
 
+function emptyDenominators(): ContentSearchDomainProjection["denominators"] {
+  return Object.freeze({
+    listedDirectories: 0,
+    directoriesComplete: 0,
+    directoriesUncovered: 0,
+    candidatesTotal: 0,
+    candidatesScanned: 0,
+    candidatesMatched: 0,
+    candidatesNegative: 0,
+    candidatesUnresolved: 0,
+    typeMismatches: 0,
+  });
+}
+
+function observationBoundary(): ContentSearchDomainProjection["observationBoundary"] {
+  return Object.freeze({
+    directoryListing: "per_list_dispatch",
+    fileBytes: "per_read_range",
+    atomicTreeSnapshot: false,
+    atomicFileSnapshot: false,
+  });
+}
+
 function preserve(response: unknown): ContentSearchDomainProjection["preserve"] {
   const input = response as {
     report?: {
       rootEvaluation?: unknown; control?: unknown; frames?: unknown; atomicResults?: unknown;
       effects?: unknown; errors?: unknown; primaryErrorId?: unknown; budgetUsed?: unknown;
+      continuation?: unknown;
     } | null;
   } | null;
   const report = input?.report;
@@ -370,6 +424,7 @@ function preserve(response: unknown): ContentSearchDomainProjection["preserve"] 
     errors: report?.errors ?? null,
     primaryErrorId: typeof report?.primaryErrorId === "string" ? report.primaryErrorId : null,
     budgetUsed: report?.budgetUsed ?? null,
+    continuation: report?.continuation ?? null,
   });
 }
 
@@ -390,9 +445,18 @@ export async function runCliContentSearchGoal(
         status: "rejected",
         resolution: "rejected",
         satisfaction: null,
+        cardinality: ((request as Readonly<{goal?: Readonly<{target?: Readonly<{cardinality?: unknown}>}>}> | null)?.goal?.target?.cardinality === "all")
+          ? "all" as const
+          : "one" as const,
+        recursion: ((request as Readonly<{goal?: Readonly<{target?: Readonly<{recursion?: unknown}>}>}> | null)?.goal?.target?.recursion === "nested")
+          ? "nested" as const
+          : "flat" as const,
         matches: Object.freeze([]),
+        historicalMatches: Object.freeze([]),
         negatives: Object.freeze([]),
         coverage: null,
+        denominators: emptyDenominators(),
+        observationBoundary: observationBoundary(),
         ordering: order,
         deliberateSuboptimal: false,
         invocationCount: 0,
@@ -410,10 +474,26 @@ export async function runCliContentSearchGoal(
           errors: null,
           primaryErrorId: null,
           budgetUsed: null,
+          continuation: null,
         }),
       }),
     });
   }
+
+  const needleBytes = Buffer.byteLength(validated.goal.requirement.predicate.needle, "utf8");
+  if (needleBytes > scan.chunkSize) {
+    throw new TypeError("content search needle byte length must not exceed scan.chunkSize");
+  }
+  const rawScan = resources.scan as Readonly<Record<string, unknown>> | undefined;
+  const rawRecursion = (request as Readonly<{ goal?: Readonly<{ target?: Readonly<{ recursion?: unknown }> }> }> | null)
+    ?.goal?.target?.recursion;
+  if (validated.goal.target.recursion === "flat" &&
+      rawScan !== undefined &&
+      Object.hasOwn(rawScan, "maxDirectoryDepth") &&
+      scan.maxDirectoryDepth !== 0) {
+    throw new TypeError("content search flat recursion requires scan.maxDirectoryDepth to be 0");
+  }
+  void rawRecursion;
 
   const created = createContentSearchAdapter({
     sandbox: resources.sandbox,
@@ -424,7 +504,14 @@ export async function runCliContentSearchGoal(
     ...(resources.duplicateReadProbe === undefined ? {} : { duplicateReadProbe: resources.duplicateReadProbe }),
     ...(resources.onSample === undefined ? {} : { onSample: resources.onSample }),
   });
-  const state = initialState(resources.sandbox, resources.session, `${validated.requestId}:state:initial`);
+  const state = initialState(
+    resources.sandbox,
+    resources.session,
+    `${validated.requestId}:state:initial`,
+    validated.goal.target.cardinality,
+    validated.goal.target.recursion,
+    scan,
+  );
   const response = await runRecursiveGoal(
     {
       schema: RECURSIVE_REQUEST_SCHEMA,
@@ -435,30 +522,41 @@ export async function runCliContentSearchGoal(
         session: resources.session,
         directory: validated.goal.target.directory,
         fileCondition: validated.goal.target.fileCondition,
-        cardinality: "one",
+        cardinality: validated.goal.target.cardinality,
+        recursion: validated.goal.target.recursion,
         needle: validated.goal.requirement.predicate.needle,
       }),
       state,
       rootEvaluatorId: CONTENT_ROOT_EVALUATOR,
       rootSelectorId: CONTENT_ROOT_SELECTOR,
       limits: resources.limits,
+      ...(resources.continuation === undefined ? {} : { continuation: resources.continuation }),
     },
     createContentSearchDependencies(created, resources.signal),
   );
   const primaryCode = primaryErrorCode(response);
   const replayed = replay(validated, response, order);
-  const synthesized: ContentSearchState = Object.freeze({
+  const synthesized: ContentSearchState = latestState((response as { report?: unknown } | null)?.report) ?? Object.freeze({
     stateId: state.stateId,
     session: state.session,
     cli: state.cli,
     listing: replayed.listing,
+    cardinality: state.cardinality,
+    recursion: state.recursion,
+    maxDirectoryDepth: state.maxDirectoryDepth,
+    maxStaleRetries: state.maxStaleRetries,
+    directories: Object.freeze([]),
+    pendingDirectories: Object.freeze([]),
     candidates: replayed.candidates,
+    provenNegatives: Object.freeze([]),
+    typeMismatches: Object.freeze([]),
     duplicateReads: replayed.duplicateReads,
   });
   const authoritative = authoritativeRoot(response);
-  const status = projectionStatus(authoritative.root, authoritative.interrupted, primaryCode);
-  const metrics = telemetry((response as { report?: unknown } | null)?.report ?? null);
   const needle = validated.goal.requirement.predicate.needle;
+  const currentMatches = matchesOf(synthesized, needle);
+  const status = projectionStatus(authoritative.root, authoritative.interrupted, primaryCode, currentMatches.length > 0);
+  const metrics = telemetry((response as { report?: unknown } | null)?.report ?? null);
   return Object.freeze({
     request: validated,
     response,
@@ -466,9 +564,14 @@ export async function runCliContentSearchGoal(
       status: status.status,
       resolution: status.resolution,
       satisfaction: status.satisfaction,
+      cardinality: state.cardinality,
+      recursion: state.recursion,
       matches: matchesOf(synthesized, needle),
+      historicalMatches: historicalMatchesOf(synthesized),
       negatives: negativesOf(synthesized, needle),
       coverage: coverageOf(synthesized, status.status, status.resolution),
+      denominators: denominatorsOf(synthesized, needle),
+      observationBoundary: observationBoundary(),
       ordering: order,
       deliberateSuboptimal: deliberateSuboptimal(synthesized, order),
       invocationCount: metrics.invocationCount,
