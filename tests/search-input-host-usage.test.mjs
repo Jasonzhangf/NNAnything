@@ -15,11 +15,24 @@ import {
   validateUsageTokenTable,
 } from "../dist/search-input-host.js";
 
-const tokens = validateUsageTokenTable({
+// 这一张必须与交付观测里声明的词表逐项一致（见 r1-usage-observation.json 的
+// declaredTokens，共 19 个词元：query 5、field 7、negation 3、writeSubmit 4）。词元表是外部注入的，模块里没有默认表，所以测试里
+// 少写一个词就会让红测在「和交付不同的配置」上通过——那等于没测。
+// 注意 field 含「评论」「回复」：Alice 裁定 1 不批准把这两个词当作**无条件非搜索**的
+// 判决依据，但它们作为可学位的词法证据是允许的。二者区别见 token-table-contract-draft.md。
+const DECLARED_TOKENS = {
   query: ["搜索", "查询", "检索", "search", "query"],
-  field: ["备注", "简介", "昵称", "密码", "note"],
+  field: ["备注", "简介", "昵称", "密码", "note", "评论", "回复"],
   negation: ["禁止", "不要", "无需"],
   writeSubmit: ["添加", "保存", "提交", "发送"],
+};
+const tokens = validateUsageTokenTable(DECLARED_TOKENS);
+
+test("the test token table matches the delivered declared table token for token", () => {
+  const total = Object.values(DECLARED_TOKENS).reduce((sum, list) => sum + list.length, 0);
+  assert.equal(total, 19, "declared table must carry 19 tokens, matching r1-usage-observation.json");
+  assert.deepEqual(validateUsageTokenTable(DECLARED_TOKENS).query, DECLARED_TOKENS.query);
+  assert.deepEqual(validateUsageTokenTable(DECLARED_TOKENS).field, DECLARED_TOKENS.field);
 });
 
 function element(overrides = {}) {
