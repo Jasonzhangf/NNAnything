@@ -21,13 +21,15 @@
 
 | 函数 | I/O | 真实观测来源 | 授权 | 公开 consumer |
 | :--- | :--- | :--- | :--- | :--- |
-| `readFileRange`（`lib/adapters/cli/file-content.ts`） | absolutePath, offset, length → bytes(base64)/size/bytesRead/eof/identity | `lstat` + `open(O_RDONLY\|O_NOFOLLOW\|O_NONBLOCK)` + handle `fstat` | 函数本身无授权，调用方负责 | `nnanything/cli` `createCliSession().observe({kind:"read",...})`（按路径读，无受信引用/无 revision）；P1 起也是 `file.read` 的安全打开策略 |
-| `file.read`（`lib/adapters/cli/filesystem-sandbox.ts`） | observed `cli.file` ref + offset + length → bytes(base64)/size/bytesRead/eof/identity | 受信 ref 复验 + 同一安全打开策略 | `filesystem.read`；不需要 `process.exec` | `nnanything/cli-goal` 与 `nnanything/cli-search` 导出的 `sandbox.execute`；无 policy head；作为根组合的 read 原子由 `nnanything/cli-read` 公开入口消费 |
+| `readFileRange`（`lib/adapters/cli/file-content.ts`） | absolutePath, offset, length → bytes(base64)/size/bytesRead/eof/end_observed/identity | `lstat` + `open(O_RDONLY\|O_NOFOLLOW\|O_NONBLOCK)` + handle `fstat` | 函数本身无授权，调用方负责 | `nnanything/cli` `createCliSession().observe({kind:"read",...})`（按路径读，无受信引用/无 revision）；P1 起也是 `file.read` 的安全打开策略 |
+| `file.read`（`lib/adapters/cli/filesystem-sandbox.ts`） | observed `cli.file` ref + offset + length → bytes(base64)/size/bytesRead/eof/end_observed/identity | 受信 ref 复验 + 同一安全打开策略 | `filesystem.read`；不需要 `process.exec` | `nnanything/cli-goal` 与 `nnanything/cli-search` 导出的 `sandbox.execute`；无 policy head；作为根组合的 read 原子由 `nnanything/cli-read` 公开入口消费 |
 | `observeContentFormat` / `detectSignature` / `decodeUtf8`（`lib/filters/cli-content.ts`） | bytes+complete → 签名/UTF-8/JSON 判断 | 无 OS，纯确定性 | 无 | 无包导出、无公开 consumer、未接 sandbox；仅 `tests/cli-content-format.test.mjs` 6/6 |
 | `readDeclaredReferences`（`lib/filters/cli-declaration.ts`） | manifest path+bytes+complete+field+scope → 声明引用 | 无 OS，纯确定性 | 无 | 无包导出、无公开 consumer；仅 `tests/cli-declaration.test.mjs` 9/9 |
 | `readEntrySnapshot` / `collectDirectoryListing` | 见 `entry-inspection.ts` / `directory-listing.ts` | 真实 `lstat`/`readdir` | 由 sandbox 授权 | 被 sandbox `entry.inspect` / `directory.list` 使用，属已接能力，不是仅单测 |
 
 `readFileRange` 的旧公开路径是 `nnanything/cli` 的按路径 `observe({kind:"read"})`，它不查 `boundRefs`、不查 session revision，不能当受信组合能力。P1 只复用它的安全打开策略，不改旧路径语义；新增 `identity` 字段为向后兼容扩展。
+
+2026-10-24 增补 `end_observed`：`eof` 一直是「短读布尔」（`bytesRead < length`），不是文件真实结束；真实结束由新增的 `end_observed` 表达，公式 `offset + bytesRead >= size`。这是向后兼容的加字段，`eof` 语义不变，理由与反例见第 2 节「`eof` 与 `end_observed` 裁决」。
 
 ### 1.3 仅合同/设计，无运行入口
 
@@ -78,7 +80,7 @@ type FileReadCall = {
 {
   kind: "file.read",
   ref, absolutePath, offset, length, size,
-  bytes /* base64 */, bytesRead, eof,
+  bytes /* base64 */, bytesRead, eof, end_observed,
   identity: { dev, ino } /* post-open */
 }
 ```
@@ -89,6 +91,30 @@ type FileReadCall = {
 
 - 零长度合法，仍通过 open + 身份核对；零长度不声称 EOF（`eof:false`）。
 - 短读：`bytesRead < length`、`eof:true`，不冒充完整；二进制用 base64 保真，不解码、不 trim。
+- `eof` 只表示短读，不表示文件结束；真实结束看 `end_observed`（见下）。
+
+### 2.1 `eof` 与 `end_observed` 裁决（2026-10-24，CLI 域 owner）
+
+David 用真实沙箱复跑 14 例反例，证据 `nnanything-runs/cli-read-feedback-plan-20261024/facts/file-read-eof-facts.json`：
+8 字节文件 `offset=4,length=4` 读到端点但 `eof=false`；空文件 `length=0` 时 `eof=false`；4 字节文件读满 `eof=false`。
+反例确认 `eof` 的实现就是 `bytesRead < length`，与「文件真实结束」不是同一件事。
+
+裁决：保留 `eof` 的短读语义（既有 21 例读组合与 22 例多来源均按它判定短读/未知，改语义会静默改变这些结论），
+另加显式 `end_observed` 表达真实结束：
+
+```text
+end_observed = offset + bytesRead >= size        // size 为 open 后 fstat 的真实大小
+零长读：end_observed = offset >= size            // 空文件 offset=0,size=0 → true
+```
+
+- 空文件读 0 字节：`eof` 由「短读」定义得 false，`end_observed` 为 true——两者本来就不同。
+- 读到文件末尾：`eof=false`（读满了请求长度）、`end_observed=true`。
+- 只读前半段：`eof=false`、`end_observed=false`。
+- 越过末尾的读：`bytesRead` 少于 `length`，`eof=true`，`end_observed=true`。
+
+完整读的判据用 `end_observed`（或等价算术 `offset===0 && length===size && bytesRead===size`），不要用 `eof`。
+`eof` 与 `end_observed` 都是观察事实，不是满足度；读到字节、看到结束都不等于根目标满足。
+`read-composition` 与多来源的 state/projection 继续只携带 `eof`，形状与结论不变；需要真实结束的调用方读原始 observation 或回执的 `end_observed`。
 - symlink / FIFO / socket / 设备均拒绝：它们无法成为受信 `cli.file` 引用，`readFileRange` 的类型检查也拒绝非 regular；`bindFile` 对非 regular 返回 `NOT_REGULAR_FILE`。
 - errno 保真：真实读取失败（如 `EACCES`）返回 failed，`executorInvoked:true`，保留真实 errno。
 - `file.read` 不改变 session revision 或 cwd；旧 revision 引用在 session 推进后返回 `STALE_REFERENCE`。

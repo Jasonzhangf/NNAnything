@@ -191,7 +191,8 @@ export type FileReadObservation = Readonly<{
   size: number; // file size at read time (bytes)
   bytes: string; // base64 of the actual bytes read
   bytesRead: number;
-  eof: boolean;
+  eof: boolean; // short-read flag: bytesRead < length; NOT a real file-end signal
+  end_observed: boolean; // real file end: offset + bytesRead >= size (empty file: true)
   identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
 }>;
 
@@ -1039,6 +1040,7 @@ async function executeFileRead(state: SandboxState, call: SemanticFileReadCall, 
     bytes: result.observation.bytes,
     bytesRead: result.observation.bytesRead,
     eof: result.observation.eof,
+    end_observed: result.observation.end_observed,
     identity: Object.freeze({
       dev: result.observation.identity.dev as OsInteger,
       ino: result.observation.identity.ino as OsInteger,
