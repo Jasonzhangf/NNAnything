@@ -113,12 +113,17 @@ test("none: an empty applicable set is none", () => {
   assert.equal(empty.selectedRef, null);
   assert.equal(empty.observedRevision, 1);
 
+  // A read-only search control is still a search host. Only the smallest
+  // "currently operable" set is empty; that is NOT a whole-scope absence claim
+  // (Alice ruling 2026-10-24: "disabled/readOnly 同样不能泛称角色消失").
   const allReadOnly = inferSearchInputHostBinding(
     requestFor([searchCandidate({ ref: "readonly", readOnly: true })]),
     { profile: selectionProfile },
   );
-  assert.equal(allReadOnly.state, "none");
+  assert.equal(allReadOnly.state, "insufficient_observation");
+  assert.equal(allReadOnly.rejection, "unassessed_scope_content");
   assert.equal(allReadOnly.selectedRef, null);
+  assert.deepEqual(allReadOnly.evidenceRefs, ["readonly"]);
 });
 
 test("none requires positive non-search evidence, not just a low score", () => {
@@ -293,18 +298,24 @@ test("G1 no-candidates: a scope with no structurally eligible host is none", () 
   );
   assert.equal(onlyCheckbox.state, "none");
 
-  // Disabled/readOnly/hidden are operational exclusions too, not "unassessed".
-  const onlyDisabled = inferSearchInputHostBinding(
-    requestFor([searchCandidate({ ref: "disabled", disabled: true })]),
-    { profile: selectionProfile },
-  );
-  assert.equal(onlyDisabled.state, "none");
-
-  const onlyHidden = inferSearchInputHostBinding(
-    requestFor([searchCandidate({ ref: "hidden", cssHidden: true })]),
-    { profile: selectionProfile },
-  );
-  assert.equal(onlyHidden.state, "none");
+  // Disabled / read-only / hidden / off-viewport hosts are all of an eligible
+  // KIND. None of them can justify `none`: the role is unassessed for current
+  // operation, not absent (Alice ruling 2026-10-24).
+  for (const [ref, override] of [
+    ["disabled", { disabled: true }],
+    ["readonly", { readOnly: true }],
+    ["hidden", { cssHidden: true }],
+    ["offscreen", { intersectsViewport: false }],
+    ["not-editable", { editable: false }],
+  ]) {
+    const result = inferSearchInputHostBinding(
+      requestFor([searchCandidate({ ref, ...override })]),
+      { profile: selectionProfile },
+    );
+    assert.equal(result.state, "insufficient_observation", `${ref} must be insufficient`);
+    assert.equal(result.rejection, "unassessed_scope_content", `${ref} rejection`);
+    assert.deepEqual(result.evidenceRefs, [ref], `${ref} evidenceRefs`);
+  }
 });
 
 test("G1 explicit non-search: every operable host carries a non-search usage fact", () => {
@@ -350,6 +361,37 @@ test("G1 coverage unknown: unassessed scope content is insufficient, never none"
     assert.equal(result.state, "insufficient_observation", `${field} must be insufficient`);
     assert.equal(result.rejection, "unassessed_scope_content");
   }
+});
+
+test("G1 mixed scope: an in-viewport non-search host plus an off-viewport unassessed host is insufficient", () => {
+  // The defect this guards: `confirmedNonSearch` used to iterate only `applied`
+  // (in-viewport hosts). With one in-viewport memo field plus one off-viewport
+  // unassessed input, every applied host looked non-search, so the whole scope
+  // was reported `none` while a host had never been assessed. Unassessed coverage
+  // is not absence.
+  const mixed = inferSearchInputHostBinding(
+    requestFor([
+      memoCandidate({ ref: "memo-visible" }),
+      baseCandidate({ ref: "below-fold-unknown", intersectsViewport: false }),
+    ]),
+    { profile: selectionProfile },
+  );
+  assert.equal(mixed.state, "insufficient_observation");
+  assert.equal(mixed.rejection, "unassessed_scope_content");
+  assert.equal(mixed.selectedRef, null);
+  assert.deepEqual(mixed.evidenceRefs, ["below-fold-unknown"]);
+
+  // Once the off-viewport host is assessed and also carries a non-search fact,
+  // the same scope is a justified `none`.
+  const bothAssessed = inferSearchInputHostBinding(
+    requestFor([
+      memoCandidate({ ref: "memo-visible" }),
+      memoCandidate({ ref: "memo-below-fold" }),
+    ]),
+    { profile: selectionProfile },
+  );
+  assert.equal(bothAssessed.state, "none");
+  assert.deepEqual([...bothAssessed.evidenceRefs].sort(), ["memo-below-fold", "memo-visible"]);
 });
 
 test("G1 preserves the original failure: off-viewport hosts used to read as none", () => {

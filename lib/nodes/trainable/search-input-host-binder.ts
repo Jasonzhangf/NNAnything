@@ -99,40 +99,49 @@ const TEXT_ENTRY_TYPES: readonly string[] = Object.freeze([
 ]);
 
 /**
- * Structural eligibility: can this control carry typed input at all?
+ * Layer 1, structural kind: could a control of this kind ever carry typed input?
  *
- * This is an operational fact about what the control is (text-entry input,
- * textarea or contenteditable), independent of where it sits on the page.
- * Type is an operational applicability fact: a checkbox, radio, submit or file
- * control cannot carry the search-input role regardless of its usage cues.
+ * This is a fact about the element kind (text-entry input, textarea or
+ * contenteditable), not about its state. A checkbox, radio, submit or file
+ * control cannot carry the search-input role regardless of usage cues.
  *
- * Viewport intersection is deliberately NOT part of structural eligibility.
- * A control below the fold is unassessed for current operation, not evidence
- * that the role is absent (G1, Alice ruling 2026-10-24: "视口外不能证明角色
- * 不存在"). `none` may only be concluded with contract-sufficient coverage AND
- * supporting evidence; an unassessed host keeps the scope insufficient.
+ * Deliberately excludes every state fact: editable, disabled, readOnly,
+ * cssHidden and intersectsViewport. Alice ruling 2026-10-24: "disabled/readOnly
+ * 同样不能泛称角色消失，none 须限定当前可执行宿主合同并有覆盖，别扩成语义不存在."
+ * A disabled search box is still a search host; it is just not executable now.
+ * Only kind-level inability justifies a whole-scope `none`.
  */
 function isStructurallyEligible(candidate: MeasuredSearchInputHostCandidate): boolean {
-  if (candidate.editable !== true) return false;
-  if (candidate.disabled === true) return false;
-  if (candidate.readOnly === true) return false;
-  if (candidate.cssHidden === true) return false;
   if (candidate.host === "textarea" || candidate.host === "contenteditable") return true;
   return TEXT_ENTRY_TYPES.includes(candidate.type);
 }
 
 /**
- * Current-operation applicability: the guard that decides whether a measured
- * host is a live candidate for the role right now.
+ * Layer 2, perceivability: is the control displayed at all?
  *
- * Distinct from structural eligibility: a structurally eligible host that is
- * outside the viewport is NOT applicable for the current action (Alice ruling
- * 2026-10-24: "当前动作资格仍要求在视口和真实可操作"), but its mere presence
- * means the scope is NOT proven to lack the role. Usage evidence stays
- * learnable; this guard only decides what can be acted on now.
+ * Distinct from kind and from operability: a CSS-hidden input is still that kind
+ * of control. Being hidden means it cannot be perceived now, not that it is
+ * absent.
+ */
+function isPerceivable(candidate: MeasuredSearchInputHostCandidate): boolean {
+  return candidate.cssHidden !== true;
+}
+
+/**
+ * Layer 3, current action eligibility: can the control be acted on right now?
+ *
+ * Requires the input to be enabled, editable, not read-only, perceivable and
+ * inside the viewport. Alice ruling 2026-10-24: "当前动作资格仍要求在视口和真实可
+ * 操作", while "结构合格不证明已可感知，css可显示不证明在视口或未遮挡". Failure here
+ * means unassessed for current operation, never absence of the role.
  */
 function isApplicable(candidate: MeasuredSearchInputHostCandidate): boolean {
-  return isStructurallyEligible(candidate) && candidate.intersectsViewport === true;
+  return isStructurallyEligible(candidate)
+    && candidate.editable === true
+    && candidate.disabled !== true
+    && candidate.readOnly !== true
+    && isPerceivable(candidate)
+    && candidate.intersectsViewport === true;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,26 +215,25 @@ export function inferSearchInputHostBinding(
   }
 
   const measured = candidates as readonly MeasuredSearchInputHostCandidate[];
-  const applied = measured.filter(isApplicable);
+  const structurallyEligible = measured.filter(isStructurallyEligible);
+  if (structurallyEligible.length === 0) {
+    // No control of an input-carrying kind exists in scope. That is the only
+    // whole-scope absence claim this unit may make; it is about kinds, not about
+    // states (a disabled or hidden host of an eligible kind still blocks it).
+    return Object.freeze({
+      state: "none",
+      selectedRef: null,
+      evidenceRefs: Object.freeze([]),
+      observedRevision,
+    });
+  }
+
+  const applied = structurallyEligible.filter(isApplicable);
   if (applied.length === 0) {
-    // No in-viewport host can be acted on now. Whether the role is absent is a
-    // different question: a structurally eligible host that simply sits outside
-    // the viewport has not been assessed, so it is NOT positive evidence of
-    // absence (G1, Alice ruling 2026-10-24). Only a scope with no structurally
-    // eligible host at all justifies `none`.
-    const structurallyEligible = measured.filter(isStructurallyEligible);
-    if (structurallyEligible.length === 0) {
-      // No control in scope can carry the role at all. That is positive
-      // structural evidence that the role is absent, so `none` is justified.
-      return Object.freeze({
-        state: "none",
-        selectedRef: null,
-        evidenceRefs: Object.freeze([]),
-        observedRevision,
-      });
-    }
-    // Structurally eligible hosts exist but none is currently operable: the
-    // scope has unassessed content, so the safe answer is insufficient.
+    // Structurally able hosts exist but none can be perceived and acted on now.
+    // Such a host has not been assessed for the role, so it is NOT positive
+    // evidence of absence (G1, Alice ruling 2026-10-24). The scope has unassessed
+    // content, so the safe answer is insufficient.
     return reject(
       "unassessed_scope_content",
       observedRevision,
@@ -243,6 +251,18 @@ export function inferSearchInputHostBinding(
     && candidate.markerHit === false
     && candidate.formRoleSearch === false);
   if (confirmedNonSearch) {
+    // Even when every applicable host looks non-search, a structurally able host
+    // that is not perceivable or not in the viewport has not been assessed for
+    // its usage, so a whole-scope `none` is not justified (G1 mixed-scope case,
+    // Alice ruling 2026-10-24). Unassessed coverage is a gap, not absence.
+    const unassessedEligible = structurallyEligible.filter(candidate => isApplicable(candidate) === false);
+    if (unassessedEligible.length > 0) {
+      return reject(
+        "unassessed_scope_content",
+        observedRevision,
+        unassessedEligible.map(candidate => candidate.ref),
+      );
+    }
     return Object.freeze({
       state: "none",
       selectedRef: null,
