@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-24 master 巡检与独立核验（C-A1/C-G1 候选未验收）
+
+Jenny 本机恢复后消费 deadline `m1792820495482-50`（`collab msg` 显示 read，`recv` 只返回 receive-id recovery）。C-A1 revision 4、C-G1 revision 3、B-A1 M1 revision 3 均仍 invited，等待 Carol/Bob 正式 board accept。Carol/Bob 的 DSH endpoint 持续 `DSH_ENDPOINT_REJECTED: unknown-runtime`，master 新消息 `m1792821056307-57` 已 durable enqueue 但 notification 未发送，按错误契约不重试，待接收方 `collab recv`。
+
+Carol 的 C-A1 三批与 C-G1 fixture/sample 证据在 `/Volumes/Intel/playground/nnanything-runs/cli-autonomous-20261023/`；工作树 `/Volumes/Intel/playground/nnanything/cli-autonomous`（分支 `codex/cli-autonomous`，base `2684104`，落后 origin/main 27 且 dirty）按 PROTECTED_HOLD 保留。master 已派两个独立只读 GCM 观察 worker 分别审计 C-A1 与 C-G1 未提交候选，run 目录 `/Volumes/Intel/playground/nnanything-runs/ca1-cg1-audit-20261024/`；未验收前不 commit/merge/review，不宣称任务完成。本仓本轮无代码/gold/权重/门槛/verification 改动。
+
 ## 2026-10-23 B1 step2 诊断复核：先修 topology 与生产等价见证，暂不开拟合
 
 Alice（designer）复核 Bob 的 `prototype/b-diagnosis.{mjs,json,md}`，裁决暂停拟合与新增 support。证据 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/br-step2-response.md`，Jenny 独立核对源码一致。
@@ -1436,3 +1442,4 @@ R1 证据表 r1-supervision-table.json 已补：114 行加 correctedGold=contain
 补第四条安全性质：见证在 ent 缺测时不产生任何错误类别，只退化 other。284 行旧 gold 中 container 46 行有 45 保持正确、1 退 other、0 误判 ignore；ignore 154 行有 124 保持正确、30 退 other、0 误判 container。方向与 filter「未知不能补 0 也不能硬判」一致，也说明它不会因缺测而漏判焦点目标。残余风险人口 24 行全部是 session-...:nnanything-inspector-* 的装饰性元素（1–2 像素分隔/描边、hover mask 等），若真实值 tabindex=-1 落点仍是 other 24/24、不会变 container，但仍属未测量，须补测。证据 prototype/witness-failure-direction.mjs、residual-risk-population.mjs。
 限定 6 单元格见证的归属：这 6 个单元格部署默认 profile 一个都没有（默认 ignore 叶只有 role_presentational/input_type_hidden/state_disabled/state_hidden 四个 0 权重单元格），只在实验/迁移 profile 里存在，所以该见证是迁移单元格集内的见证，不是「部署默认 184 单元格集上重新配权」；实测把同样 6 个单元格加到默认 profile 上 train 仍 26/30（默认 container 叶的 nat_div=0.25、div_single_child=0.45 等正分把两条 ignore 正例压成 container）。归属决定路径：ignore.neutral_multi_child 既不在 78 可训地址也不在 3 新 wire 地址，纳入训练变量集须显式改地址表；container.explicit_negative_tabindex 在新 wire 地址；其余 4 个在可训地址。又核对了 dev 侧 gold 来源：生产 prepare-request.mjs 按 kind ignore/positive 映射 gold，我的核对与之一致，非自行推断。证据 prototype/witness-baseline-cellset-compare.mjs、witness-cell-membership.mjs。
 最终矩阵（判对行数）：迁移/实验单元格集上，基线→见证→见证+测量 = 现采 train 16→30→30、dev 16→30→30、284 旧 gold 283→253→284、468 带标签 308→273→309；即见证+测量在四个数据集上无一退步（旧 gold 与 468 的 +1 是同一行 114）。见证单独用会在旧 gold 与 468 上退步（253、273），退步全部来自缺测展宽、补测后消失，所以「见证必须配测量」是前提不是选项。部署默认单元格集上见证不适用（129/284、142/468），因为那套 profile 没有这些单元格。证据 prototype/witness-final-matrix.mjs。
+补做此前推迟的 partition 层只读核对（dist/training/basic-kind-training.js 有 partitionBasicKindSamples，源码 lib/training/basic-kind-training.ts:436）：468 行 prepared 样本以 source_group_holdout / seed 7 / evalFraction 0.25 分区得 71 个来源簇、train 417 / eval 51，independentEvaluation=true；显式 usage 模式约束比预期严格——必须覆盖全部 included 样本、同来源簇不得跨用法、train 与 eval 两侧都要非空，否则显式报 explicit_usage_missing_sample / cross_source_cluster / requires_both_uses。这条对下一步「用现采资产重建请求资产后如何分区」有直接约束。
