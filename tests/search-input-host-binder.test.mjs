@@ -121,6 +121,43 @@ test("none: an empty applicable set is none", () => {
   assert.equal(allReadOnly.selectedRef, null);
 });
 
+test("none requires positive non-search evidence, not just a low score", () => {
+  // An applicable host with no search cue and no non-search cue is simply
+  // unclassified. That is insufficient evidence, never `none`.
+  const unclassified = inferSearchInputHostBinding(
+    requestFor([baseCandidate({ ref: "plain" })]),
+    { profile: neutralSearchInputHostProfile() },
+  );
+  assert.equal(unclassified.state, "insufficient_observation");
+
+  // The same host becomes `none` only once a non-search usage fact is measured on
+  // every applicable host.
+  const confirmed = inferSearchInputHostBinding(
+    requestFor([baseCandidate({ ref: "plain", nonSearchMarker: true })]),
+    { profile: neutralSearchInputHostProfile() },
+  );
+  assert.equal(confirmed.state, "none");
+});
+
+test("type is an operational guard: a non-text-entry control is not applicable", () => {
+  // A checkbox cannot carry typed input, so it can never be a search-input host
+  // no matter how strong its usage cues are.
+  const checkbox = inferSearchInputHostBinding(
+    requestFor([searchCandidate({ ref: "check", type: "other", host: "input" })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(checkbox.state, "none");
+  assert.equal(checkbox.selectedRef, null);
+
+  // A contenteditable host has no input type at all and stays applicable.
+  const editableHost = inferSearchInputHostBinding(
+    requestFor([searchCandidate({ ref: "ce", type: "other", host: "contenteditable" })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(editableHost.state, "selected");
+  assert.equal(editableHost.selectedRef, "ce");
+});
+
 test("ambiguous: tied top scores are ambiguous", () => {
   const result = inferSearchInputHostBinding(
     requestFor([

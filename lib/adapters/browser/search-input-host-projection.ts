@@ -70,6 +70,13 @@ function textLenBandOf(text: string): 0 | 1 | 2 {
 
 export interface SearchInputHostProjectionInput {
   readonly scopeRef: string;
+  /**
+   * Identity is supplied by the caller. snapshotRef and documentRef are fields of
+   * the full LiveDomSnapshot (lib/adapters/browser/live-dom.ts:133), not of its
+   * observation sub-object, which only carries viewport/nodes/coverage. revision
+   * is owned by the existing input/search IO contract: pass the observation's
+   * current control revision, never a constant.
+   */
   readonly documentRef: string;
   readonly observationId: string;
   readonly revision: number;

@@ -91,9 +91,20 @@ function roleMatchOf(candidate: MeasuredSearchInputHostCandidate, profile: Searc
 }
 
 /**
- * Deterministic applicability guard. Type is a learned feature, not a filter:
- * an editable, visible host of any input type can be a candidate and scores
- * from its features. Only editability and visibility exclude a candidate.
+ * Input types that can carry typed input. This is an operational fact about what
+ * the control does, so it is a deterministic guard, not a learned preference.
+ */
+const TEXT_ENTRY_TYPES: readonly string[] = Object.freeze([
+  "text", "search", "tel", "email", "url", "number",
+]);
+
+/**
+ * Deterministic applicability guard.
+ *
+ * Type is an operational applicability fact: a checkbox, radio, submit or file
+ * control cannot carry the search-input role regardless of its usage cues. Only
+ * text-entry inputs, textareas and contenteditable hosts are applicable.
+ * Usage evidence stays learnable; this guard only decides what can be a host.
  */
 function isApplicable(candidate: MeasuredSearchInputHostCandidate): boolean {
   if (candidate.editable !== true) return false;
@@ -101,7 +112,8 @@ function isApplicable(candidate: MeasuredSearchInputHostCandidate): boolean {
   if (candidate.readOnly === true) return false;
   if (candidate.cssHidden === true) return false;
   if (candidate.intersectsViewport !== true) return false;
-  return true;
+  if (candidate.host === "textarea" || candidate.host === "contenteditable") return true;
+  return TEXT_ENTRY_TYPES.includes(candidate.type);
 }
 
 // ---------------------------------------------------------------------------
@@ -177,10 +189,30 @@ export function inferSearchInputHostBinding(
   const measured = candidates as readonly MeasuredSearchInputHostCandidate[];
   const applied = measured.filter(isApplicable);
   if (applied.length === 0) {
+    // No control in scope can carry the role at all. That is positive structural
+    // evidence that the role is absent, so `none` is justified here.
     return Object.freeze({
       state: "none",
       selectedRef: null,
       evidenceRefs: Object.freeze([]),
+      observedRevision,
+    });
+  }
+
+  // `none` requires positive usage evidence that no applicable host carries the
+  // role. A low score, a missing cue hit or an unknown purpose is not evidence of
+  // absence: non-search inputs are allowed to exist inside an eligible scope, so
+  // every applicable host must carry an explicit non-search usage fact and no
+  // search cue for `none` to be justified.
+  const confirmedNonSearch = applied.every(candidate =>
+    candidate.nonSearchMarker === true
+    && candidate.markerHit === false
+    && candidate.formRoleSearch === false);
+  if (confirmedNonSearch) {
+    return Object.freeze({
+      state: "none",
+      selectedRef: null,
+      evidenceRefs: Object.freeze(applied.map(candidate => candidate.ref)),
       observedRevision,
     });
   }
