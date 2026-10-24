@@ -1,5 +1,9 @@
 # 当前任务
 
+## 2026-10-24 B-A1 有限安全子 milestone 已集成 main
+
+Alice 对 Bob 的生产受限训练/回载与 G1 修复完成整体审查（`ba1-safety-milestone-review.md`，本人 28/28），随后 Bob 正式 deliver、Alice `task review --accept`。Jenny 在最新 `origin/main` 上以 `f6b2a1c` 非快进合并 7 个已审提交，改动仅限 `search-input-host` 数值绑定、生产投影、fixtures、公开 consumer 与测试。合并态全量 `npm run test:full` 为 1430 例、1429 通过、0 失败、1 跳过；`collab task integrated` 已记录 `f6b2a1c`。范围只含该有限 milestone：离线 profile 保持 `uncalibrated/not_applied`、不会因本集成采用；完整 B-A1 none 语义、V2/indep-2 安全弃权转 none 能力、焦点 ignore 与全网页自主绑定/恢复仍未完成，任务按后续能力保留，不被本 PASS 关闭。
+
 ## 2026-10-24 C-A1 CLI 编程搜索 M1 已集成 main
 
 Alice 对原根事实 P1 定点复核 ACCEPT 后（报告 `/Volumes/Intel/playground/nnanything-runs/training-direction-audit-20261024/cli-search-p1-recheck.md`），Jenny 核对候选分支仅含 C-A1 M1 的 4 个已审提交，在最新 `origin/main` 上以 `6beabed` 非快进合并。合并态 `npm run test:full` 为 1402 例、1401 通过、0 失败、1 跳过；`workflows/cli-content-search.graph.json` 经 DAGpipe validate/inspect 通过（7 节点、6 边、7 波）。本次只收口 P1 one 切片：single file、contains、固定预算、真实反馈恢复与准确停止；all、递归、同名、partial、stale、取消、效率训练和权重采用仍不在已完成范围。
