@@ -2,6 +2,8 @@
 
 2026-10-23用户明确的两域总方向与当前可执行增量见[自主目标执行与未知场景泛化总路线](autonomous-capability-roadmap.md)：CLI自主使用已训练集合并扩展未知CLI；浏览器自主完成训练目标并跨网页泛化。下方历史“本轮只做设计／后置”不构成永久范围禁令，实际运行仍按各合同与证据判断。Carol负责CLI增量，Bob负责浏览器增量，Jenny协调共享owner，Alice负责设计与疑难分析。
 
+2026-10-24短期优先级：CLI先在独立训练/测试沙盒中完成[编程搜索M1](cli-programming-search-m1.md)；浏览器与CLI均按“真实反馈纠错→预算内根达成→多次类似任务提效”评价，不要求首选次次正确。容许可恢复策略错误不放宽权限、事实真值或根评价。实现交接见[CLI peer提示词](cli-programming-search-m1-prompt.md)，未知工具适配和编程修改/测试随后按依赖推进。
+
 ## 2026-10-22 浏览器下一阶段milestone
 
 当前阶段路线由[browser-next-milestones.md](browser-next-milestones.md)维护：B0交付边界、B1焦点/ignore真实拟合、B2单次写入读回、B3搜索查询关联、B4失败反馈与合法恢复、B5结果表示/范围、B6使用采样和升级。近期只排B0/B1/B2，后续按依赖逐批推进；原F00–F18仍是基础工作包，不被这份路线改写为全部完成。首批B1提示词见[browser-next-worker-prompt.md](browser-next-worker-prompt.md)。本轮仅规划，不启动实现、采集或训练。
