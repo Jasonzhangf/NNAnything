@@ -99,11 +99,17 @@ const TEXT_CHANNELS = ["label", "placeholder", "accessibleName"] as const;
 type UsageTextChannel = (typeof TEXT_CHANNELS)[number];
 
 /**
- * The 26 formal features, in declared order.
+ * The 27 formal features, in declared order.
  *
- * Eight per text channel plus two owned-submit existence bits. A feature is
+ * Eight per text channel plus three owned-submit existence bits. A feature is
  * null exactly when its channel is unmeasured; an empty string is measured
  * empty evidence, not a missing value.
+ *
+ * `ownedSubmit.fieldTokenPresent` was appended by ruling 1 (2026-10-24). It
+ * records one measured lexical fact — the owned caption contains a declared
+ * field token — and nothing about what the button or the field is for. The
+ * first 26 keep their delivered order, so an old 26-dim profile migrates by
+ * name and gains a zero coefficient, never by position.
  */
 export const USAGE_FORM_FEATURE_NAMES = Object.freeze([
   ...TEXT_CHANNELS.flatMap(channel => [
@@ -118,6 +124,7 @@ export const USAGE_FORM_FEATURE_NAMES = Object.freeze([
   ]),
   "ownedSubmit.queryTokenPresent",
   "ownedSubmit.writeTokenPresent",
+  "ownedSubmit.fieldTokenPresent",
 ] as const);
 
 export type UsageFormFeatureName = (typeof USAGE_FORM_FEATURE_NAMES)[number];
@@ -310,13 +317,16 @@ export function extractUsageFormFeatures(
 
   let ownedQuery: boolean | null = null;
   let ownedWrite: boolean | null = null;
+  let ownedField: boolean | null = null;
   if (observation.ownedSubmits === null || observation.associationCoverage === "unmeasured") {
     ownedQuery = null;
     ownedWrite = null;
+    ownedField = null;
   } else {
     // A declared empty evidence set is measured: no submit control exists.
     ownedQuery = false;
     ownedWrite = false;
+    ownedField = false;
     let unreadable = false;
     for (const submit of observation.ownedSubmits) {
       if (submit.caption === null || submit.captionCoverage === "unmeasured") {
@@ -326,16 +336,22 @@ export function extractUsageFormFeatures(
         unreadable = true;
         continue;
       }
-      if (firstIndex(lower(submit.caption), tokens.query) !== -1) ownedQuery = true;
-      if (firstIndex(lower(submit.caption), tokens.writeSubmit) !== -1) ownedWrite = true;
+      const caption = lower(submit.caption);
+      if (firstIndex(caption, tokens.query) !== -1) ownedQuery = true;
+      if (firstIndex(caption, tokens.writeSubmit) !== -1) ownedWrite = true;
+      // Ruling 4: the token tables match independently. A caption carrying a
+      // field token beside a query or write token keeps all of those facts;
+      // no table may claim the word and drop the others.
+      if (firstIndex(caption, tokens.field) !== -1) ownedField = true;
     }
     if (unreadable) {
       if (ownedQuery === false) ownedQuery = null;
       if (ownedWrite === false) ownedWrite = null;
+      if (ownedField === false) ownedField = null;
     }
   }
 
-  const values = [...label, ...placeholder, ...accessible, ownedQuery, ownedWrite];
+  const values = [...label, ...placeholder, ...accessible, ownedQuery, ownedWrite, ownedField];
   const features = {} as Record<UsageFormFeatureName, boolean | null>;
   USAGE_FORM_FEATURE_NAMES.forEach((name, index) => {
     features[name] = values[index] ?? null;
@@ -344,7 +360,7 @@ export function extractUsageFormFeatures(
 }
 
 /**
- * The 26-dim vector as a plain array in the declared order.
+ * The 27-dim vector as a plain array in the declared order.
  *
  * Null entries are kept as null so a consumer cannot read "unmeasured" as zero.
  */

@@ -1,5 +1,5 @@
 // B-A1 m2 R1 red tests for the usage-relation observation projection and the
-// 26-dim formal feature extractor.
+// 27-dim formal feature extractor.
 //
 // Each test is bound to one concrete failure mode. These are white-box unit
 // tests for the new read-only layer; they do not replace the real browser
@@ -197,11 +197,11 @@ test("no form owner is measured empty evidence, not unmeasured", () => {
   assert.equal(observation.formResolved, true);
 });
 
-test("the 26-dim vector is empty-false for a measured no-signal observation, and null only for unmeasured channels", () => {
+test("the 27-dim vector is empty-false for a measured no-signal observation, and null only for unmeasured channels", () => {
   const measured = featureObservation({});
   const vector = usageFormFeatureVector(measured, tokens);
-  assert.equal(vector.length, 26);
-  assert.equal(USAGE_FORM_FEATURE_NAMES.length, 26);
+  assert.equal(vector.length, 27);
+  assert.equal(USAGE_FORM_FEATURE_NAMES.length, 27);
   // measured empty evidence: no null anywhere, every fact is false
   assert.deepEqual(vector, USAGE_FORM_FEATURE_NAMES.map(() => false));
 
@@ -426,7 +426,7 @@ test("the same order facts hold independently on the placeholder channel", () =>
   assert.equal(features["label.queryTokenPresent"], false);
 });
 
-test("identity fields never enter the numeric vector: changing every ref keeps all 26 bits identical", () => {
+test("identity fields never enter the numeric vector: changing every ref keeps all 27 bits identical", () => {
   const base = featureObservation({
     labels: ["搜索备注"],
     labelCoverage: "complete",
@@ -630,4 +630,110 @@ test("a submit caption that reads as empty text is unmeasured, not a measured em
   const features = extractUsageFormFeatures(observation, tokens);
   assert.equal(features["ownedSubmit.queryTokenPresent"], null);
   assert.equal(features["ownedSubmit.writeTokenPresent"], null);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 1: `ownedSubmit.fieldTokenPresent` is the 27th bit.
+//
+// Failure mode this guards: the delivered button bits only recorded query and
+// write tokens, so a real, measured fact — the caption literally contains a
+// declared field token — was dropped before it could ever reach a head. The
+// ruling admits that fact as a learnable bit; it does not make the word mean
+// "not a search box" (that stays the supervised relation's job).
+// ---------------------------------------------------------------------------
+
+test("the declared feature table carries ownedSubmit.fieldTokenPresent as the 27th bit", () => {
+  assert.equal(USAGE_FORM_FEATURE_NAMES.length, 27);
+  assert.equal(USAGE_FORM_FEATURE_NAMES[26], "ownedSubmit.fieldTokenPresent");
+  // The first 26 keep their delivered order; only an append is allowed.
+  assert.deepEqual(USAGE_FORM_FEATURE_NAMES.slice(24, 26), [
+    "ownedSubmit.queryTokenPresent",
+    "ownedSubmit.writeTokenPresent",
+  ]);
+});
+
+test("a field token in an owned submit caption sets the field bit", () => {
+  const observed = featureObservation({
+    ownedSubmits: [
+      { caption: "发表评论", association: "same_form_owner", captionCoverage: "complete" },
+    ],
+  });
+  const features = extractUsageFormFeatures(observed, tokens);
+  assert.equal(features["ownedSubmit.fieldTokenPresent"], true);
+  // 「评论」 is a field token only; it is not a declared query or write token.
+  assert.equal(features["ownedSubmit.queryTokenPresent"], false);
+  assert.equal(features["ownedSubmit.writeTokenPresent"], false);
+});
+
+test("query, write and field button bits are independent and may all be true", () => {
+  // Isolation debt: a caption can carry a query token, a write token and a
+  // field token at once. Ruling 4 says the tables do not exclude each other, so
+  // the extractor must not "claim" the word for one table and drop the others.
+  const observed = featureObservation({
+    ownedSubmits: [
+      { caption: "搜索并添加备注", association: "same_form_owner", captionCoverage: "complete" },
+    ],
+  });
+  const features = extractUsageFormFeatures(observed, tokens);
+  assert.equal(features["ownedSubmit.queryTokenPresent"], true);
+  assert.equal(features["ownedSubmit.writeTokenPresent"], true);
+  assert.equal(features["ownedSubmit.fieldTokenPresent"], true);
+});
+
+test("an unreadable caption makes the field bit unknown but never erases a proven hit", () => {
+  // Same all-or-nothing rule the other two bits already follow: one unreadable
+  // caption means the ABSENCE of a field token is unknown; it says nothing
+  // against a hit another control already proved.
+  const readable = featureObservation({
+    ownedSubmits: [
+      { caption: "备注", association: "same_form_owner", captionCoverage: "complete" },
+    ],
+  });
+  assert.equal(extractUsageFormFeatures(readable, tokens)["ownedSubmit.fieldTokenPresent"], true);
+
+  const mixed = featureObservation({
+    ownedSubmits: [
+      { caption: "备注", association: "same_form_owner", captionCoverage: "complete" },
+      { caption: null, association: "same_form_owner", captionCoverage: "unmeasured" },
+    ],
+  });
+  // The hit stands: unreadable evidence cannot retract measured evidence.
+  assert.equal(extractUsageFormFeatures(mixed, tokens)["ownedSubmit.fieldTokenPresent"], true);
+
+  const onlyUnreadable = featureObservation({
+    ownedSubmits: [
+      { caption: null, association: "same_form_owner", captionCoverage: "unmeasured" },
+    ],
+  });
+  // No proven hit and one unreadable caption: absence is unknown, not false.
+  assert.equal(extractUsageFormFeatures(onlyUnreadable, tokens)["ownedSubmit.fieldTokenPresent"], null);
+});
+
+test("the field bit is null when the submit association itself is unmeasured", () => {
+  for (const observed of [
+    featureObservation({ ownedSubmits: null }),
+    featureObservation({
+      ownedSubmits: [{ caption: "发表评论", association: "same_form_owner", captionCoverage: "complete" }],
+      associationCoverage: "unmeasured",
+    }),
+  ]) {
+    const features = extractUsageFormFeatures(observed, tokens);
+    assert.equal(features["ownedSubmit.fieldTokenPresent"], null);
+    // A measured absence is still distinguishable from unmeasured.
+    assert.notEqual(features["ownedSubmit.fieldTokenPresent"], false);
+  }
+});
+
+test("the vector stays positional: 27 entries and the field bit sits at index 26", () => {
+  const observed = featureObservation({
+    ownedSubmits: [
+      { caption: "发表评论", association: "same_form_owner", captionCoverage: "complete" },
+    ],
+  });
+  const vector = usageFormFeatureVector(observed, tokens);
+  assert.equal(vector.length, 27);
+  assert.equal(vector[26], true);
+  // Nothing else moved: a caption with only a field token leaves 24 and 25 false.
+  assert.equal(vector[24], false);
+  assert.equal(vector[25], false);
 });
