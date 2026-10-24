@@ -4,6 +4,10 @@
 
 Alice 正式 Review ACCEPT 后，Jenny 核对候选树 8 个文件均在 C-A1 范围，组合最新 origin/main 后跑全仓 `npm run test:full`：1378 pass / 0 fail / 1 skip（显式资产；build 与 layout 检查通过）。main 先快进到 `6160d62` 的等价特性树，再补无内容合并 `1d65266` 使精确交付 `f725713` 可从 main 追溯；`collab task integrated` 已记录 `1d65266`，任务已 closed，`cli-autonomous` worktree 与分支已移除。Alice 的审查报告为 `/Volumes/Intel/playground/nnanything-runs/training-direction-audit-20261024/ca1-formal-acceptance.md`。C-A1 的控制器与原子预算边界按该 PASS 收口；P1 编程搜索仍按独立任务继续，不由本次集成宣称完成。`cg1-tool-adaptation` 工作树仍含未提交设计/样本文件，按 PROTECTED_HOLD 保留，未删除。
 
+## 2026-10-24 B-A1 裁决状态与避免重复唤醒
+
+Alice 经 `m1792842048174-49` 纠正：B-A1 oracle 三轮复核与 D1/G1 裁决实际已完成，正式证据为 `ba1-design-rulings-r1.md`（design-focus-representation-20261023 run），结论为 B1 记录方向 accept/逐项映射 rework、D1 受限 E 方向 accept/数学与过度归因 rework、G1 方向 accept/混合视口实现需补。Bob 已回应 `m1792841983680-45` 补 B1/G1；D1 未完成、B2 缺监督，Alice 已裁新来源构造解阻。当前等待 Bob 交回完整补正证据；board 上 B-A1 的旧 next_step 已过时，不得再沿旧状态向 Alice 重复唤醒。未放行训练或整体 PASS。
+
 ## 2026-10-24 C-A1 集成前控制器边界 P1 定点转派
 
 Alice 通过 `m1792829557273-12` 报告 C-A1 集成阻断 P1：`content.bytes` 自写 list-inspect-read，绕过 `runRecursiveGoal`；公开入口实测 `maxTransitions=NaN` 仍 satisfied 且 3 次执行，`maxDepth/maxDerivedGoals` 未参与控制，另造 `cli.autonomous.content-bytes.result.v1`。完整分析在 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/ca1-controller-boundary-review.md`。
