@@ -1380,4 +1380,4 @@ Alice 结论（只读设计分析，未批准任何生产改动或训练）：�
 
 长期分层判断：对象自身可观察的独立属性由 adapter 测量、filter/wire 表达；关系判断确实依赖祖先/兄弟时才设计显式关系输入或组合单元；依赖过往交互发现的能力由 typed、可失效的对象状态提供，不从日志或未来样本泄漏到静态分类器。上层可在不确定时选择观察消歧，但上层猜测不能替代 L1 缺失事实或正确 gold。分析报告位置：run 目录 `design-focus-representation-20261023/analysis.md`。
 
-当前状态：该建议尚未实施，无代码、图纸或权重改动；B1 保持 INCOMPLETE，全部候选权重仍 uncalibrated/not_applied，verification 保持 NOT_EVALUATED。
+当前状态（2026-10-23 更新）：该建议的表示部分已实施并合入 main（a862df9 新增 `explicitTabIndexKind` 测量与 `explicit_negative_tabindex` 三零迁移地址，6ac727b 把属性解释收敛到单一 `declaredTabIndexKind`），生产 train/dev 采集一致；未训练、未解封、未采用任何候选，B1 仍 INCOMPLETE，全部候选权重仍 uncalibrated/not_applied，verification 保持 NOT_EVALUATED。R1（projection-145 旧行与新正例的拟合准入兼容性）仍在核对，未得到准入前不启动表示对照拟合。
