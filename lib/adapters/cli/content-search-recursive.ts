@@ -46,12 +46,16 @@ import {
   type ContentSearchBindings,
   type ContentSearchCandidateFact,
   type ContentSearchCursor,
+  type ContentSearchDirectoryFact,
   type ContentSearchEffectFact,
   type ContentSearchEvidencePayload,
   type ContentSearchFileRef,
   type ContentSearchGoal,
+  type ContentSearchHistoricalHitFact,
+  type ContentSearchIdentityKey,
   type ContentSearchInspectGoal,
   type ContentSearchListGoal,
+  type ContentSearchMismatchFact,
   type ContentSearchOrder,
   type ContentSearchReadFact,
   type ContentSearchReadGoal,
@@ -61,12 +65,16 @@ import {
   type ContentSearchState,
 } from "./content-search-contract.js";
 import {
+  applyReadToScan,
+  candidatesFromListings,
   contains,
   decideContentSearchRoot,
+  identityKeyOfRef,
   initialCandidates,
   inspectedFactFromTransition,
   isStaleReadCode,
   lineColumn,
+  readFactEndObserved,
   listingFactFromTransition,
 } from "../../filters/cli-content-search.js";
 
@@ -250,8 +258,16 @@ function readGoal(value: unknown): unknown {
 
 function readBindings(value: unknown): unknown {
   if (!isRecord(value)) throw new TypeError("content search bindings must be an object");
-  exactKeys(value, ["session", "directory", "fileCondition", "cardinality", "needle"], "content search bindings");
-  return Object.freeze({ ...value });
+  for (const key of ["session", "directory", "fileCondition", "cardinality", "needle"]) {
+    if (!Object.hasOwn(value, key)) throw new TypeError(`content search bindings.${key} is required`);
+  }
+  if (Object.keys(value).some(key => !["session", "directory", "fileCondition", "cardinality", "needle", "recursion"].includes(key))) {
+    throw new TypeError("content search bindings contains unsupported fields");
+  }
+  return Object.freeze({
+    ...value,
+    recursion: Object.hasOwn(value, "recursion") ? value.recursion : "flat",
+  });
 }
 
 function readState(value: unknown): ContentSearchState {
@@ -311,8 +327,17 @@ async function evaluateRoot(
 async function evaluateList(
   input: EvaluationInput<unknown, ContentSearchState, unknown, ContentSearchEvidencePayload>,
 ): Promise<EvaluationReceipt> {
-  const listing = input.state.listing;
-  if (listing !== null && listing.coverage === "complete" && listing.errors.length === 0 && listing.sourceRun !== null) {
+  const goal = input.goal as ContentSearchListGoal;
+  const target = goal.target;
+  const cwd = input.state.session.cwd;
+  const absoluteTarget = target.path === "." || target.path === "" || target.path.startsWith("/")
+    ? (target.path === "." ? cwd : target.path)
+    : `${cwd}/${target.path}`;
+  const directory = input.state.directories.find(candidate =>
+    candidate.path === absoluteTarget,
+  );
+  const listing = directory?.listing ?? null;
+  if (listing !== null && listing.sourceRun !== null) {
     return evaluation(CONTENT_LIST_EVALUATOR, "satisfied", 100, stateEvidenceRefs(input.state, input.evidence));
   }
   return evaluation(CONTENT_LIST_EVALUATOR, "unknown", null, []);
@@ -323,7 +348,13 @@ async function evaluateInspect(
 ): Promise<EvaluationReceipt> {
   const goal = input.goal as ContentSearchInspectGoal;
   const knowledge = input.state.cli.entryKnowledge;
+  const candidate = input.state.candidates.find(item =>
+    item.path === goal.target.ref.path &&
+    item.inspected !== null &&
+    item.outcome !== "stale",
+  );
   if (
+    candidate !== undefined &&
     knowledge !== null &&
     knowledge !== undefined &&
     knowledge.kind === "entry.inspect" &&
@@ -355,6 +386,8 @@ async function evaluateRead(
   const read = candidate?.read ?? null;
   const staleRefused = read === null && input.evidence.some(item =>
     item.payload.kind === "cli.content-search.read.v1" &&
+    item.payload.ref.sourceRun === goal.target.ref.sourceRun &&
+    item.payload.ref.absolutePath === goal.target.ref.absolutePath &&
     item.payload.receipt.execution.status === "failed" &&
     isStaleReadCode(item.payload.receipt.execution.error.code),
   );
@@ -423,8 +456,18 @@ function supports(input: SupportsInput<unknown, unknown>): boolean {
 
 async function select(
   input: SelectionInput<unknown, ContentSearchState, unknown, ContentSearchEvidencePayload>,
+  scan: ContentSearchScan,
 ) {
   const first = input.candidates[0];
+  if (
+    first?.id === CONTENT_READ_ATOMIC_SKILL &&
+    input.state.bytesReadTotal >= scan.maxTotalBytes
+  ) {
+    return {
+      kind: "defer" as const,
+      reason: "content_search_byte_budget_exhausted",
+    };
+  }
   return first === undefined
     ? { kind: "no_capability" as const, searchedSkillIds: [] }
     : { kind: "selected" as const, skillId: first.id };
@@ -505,15 +548,61 @@ function readGoalAtAttempt(ref: ContentSearchFileRef, size: number, attempt: num
   });
 }
 
+function chunkReadGoalAtAttempt(
+  ref: ContentSearchFileRef,
+  offset: number,
+  length: number,
+  attempt: number,
+): ContentSearchReadGoal {
+  return Object.freeze({
+    kind: "file.property",
+    property: "file.property.content.bytes",
+    target: Object.freeze({ kind: "cli.file", ref, requiredType: "regular" }),
+    requirement: Object.freeze({
+      kind: "observed",
+      range: Object.freeze({ offset, length }),
+      attempt,
+    }),
+  });
+}
+
 function inputSession(bindings: unknown): SessionRef {
   return (bindings as ContentSearchBindings).session;
 }
 
 type NextAction =
   | Readonly<{ kind: "list" }>
+  | Readonly<{ kind: "descend"; directory: Readonly<{ path: string; depth: number }> }>
   | Readonly<{ kind: "inspect"; candidate: ContentSearchCandidateFact }>
   | Readonly<{ kind: "read"; candidate: ContentSearchCandidateFact; duplicate: boolean }>
+  | Readonly<{ kind: "reconcile"; candidate: ContentSearchCandidateFact }>
   | Readonly<{ kind: "close" }>;
+
+function pendingDirectoriesOf(
+  state: ContentSearchState,
+): readonly Readonly<{ path: string; depth: number }>[] {
+  return state.pendingDirectories;
+}
+
+function isNegativeComplete(candidate: ContentSearchCandidateFact): boolean {
+  return candidate.outcome === "negative";
+}
+
+function needsInspect(candidate: ContentSearchCandidateFact): boolean {
+  return candidate.inspected === null &&
+    (candidate.outcome === "pending" || candidate.outcome === "stale");
+}
+
+function needsRead(candidate: ContentSearchCandidateFact): boolean {
+  if (candidate.inspected === null || candidate.fileRef === null) return false;
+  if (candidate.scan === null) return candidate.outcome === "pending";
+  if (candidate.scan.complete || candidate.scan.shortRead) return false;
+  if (candidate.outcome === "pending" || candidate.outcome === "unknown") return true;
+  if (candidate.outcome === "matched") {
+    return true;
+  }
+  return false;
+}
 
 function nextAction(
   state: ContentSearchState,
@@ -521,23 +610,80 @@ function nextAction(
   scan: ContentSearchScan,
   duplicateReadProbe: readonly string[],
 ): NextAction {
-  if (state.listing === null) return Object.freeze({ kind: "list" });
-  if (phase === "inspected") {
-    const inspected = state.candidates.find(candidate => candidate.inspected !== null && candidate.outcome === "pending");
-    if (inspected !== undefined) return Object.freeze({ kind: "read", candidate: inspected, duplicate: false });
+  if (state.directories.length === 0 && state.listing === null) {
+    return Object.freeze({ kind: "list" });
   }
+
+  // Recursive descent is only entered when no unresolved regular candidate can
+  // make forward progress, and it always keeps one directory.list in flight.
+  const pending = pendingDirectoriesOf(state);
+  const firstPending = pending[0];
+  void phase;
+
+  // A stale candidate must be re-inspected before any further read.
+  const stale = state.candidates.find(candidate =>
+    candidate.outcome === "stale" &&
+    candidate.staleRetries < scan.maxStaleRetries,
+  );
+  if (stale !== undefined) {
+    return Object.freeze({ kind: "inspect", candidate: stale });
+  }
+
+  // Continue an unfinished chunk scan before selecting another candidate.
+  const inProgress = state.candidates.find(candidate => needsRead(candidate) && candidate.outcome === "matched");
+  if (inProgress !== undefined) {
+    return Object.freeze({ kind: "read", candidate: inProgress, duplicate: false });
+  }
+  const inProgressPending = state.candidates.find(candidate =>
+    needsRead(candidate) &&
+    (candidate.outcome === "pending" || candidate.outcome === "unknown"),
+  );
+  if (inProgressPending !== undefined) {
+    return Object.freeze({ kind: "read", candidate: inProgressPending, duplicate: false });
+  }
+
+  // one can stop after a hit; all continues every unresolved candidate.
+  const currentMatches = state.candidates.filter(candidate => candidate.outcome === "matched");
+  if (state.cardinality === "one" && currentMatches.length > 0) {
+    return Object.freeze({ kind: "close" });
+  }
+
   const duplicate = state.candidates.find(candidate =>
-    candidate.outcome === "negative" &&
+    isNegativeComplete(candidate) &&
     !candidate.duplicateRead &&
     duplicateReadProbe.includes(candidate.name) &&
     candidate.fileRef !== null,
   );
-  if (duplicate !== undefined) return Object.freeze({ kind: "read", candidate: duplicate, duplicate: true });
-  const uninspected = state.candidates.find(candidate => candidate.inspected === null && candidate.outcome === "pending");
-  if (uninspected !== undefined) return Object.freeze({ kind: "inspect", candidate: uninspected });
-  const toRead = state.candidates.find(candidate => candidate.inspected !== null && candidate.outcome === "pending");
-  if (toRead !== undefined) return Object.freeze({ kind: "read", candidate: toRead, duplicate: false });
-  void scan;
+  if (duplicate !== undefined) {
+    return Object.freeze({ kind: "read", candidate: duplicate, duplicate: true });
+  }
+
+  const toInspect = state.candidates.find(candidate => needsInspect(candidate));
+  if (toInspect !== undefined) {
+    return Object.freeze({ kind: "inspect", candidate: toInspect });
+  }
+
+  const toRead = state.candidates.find(candidate => needsRead(candidate));
+  if (toRead !== undefined) {
+    return Object.freeze({ kind: "read", candidate: toRead, duplicate: false });
+  }
+
+  if (phase === "listed" && firstPending !== undefined) {
+    return Object.freeze({ kind: "descend", directory: firstPending });
+  }
+
+  // No more regular candidate work. If a child directory remains, list it.
+  if (firstPending !== undefined) {
+    return Object.freeze({ kind: "descend", directory: firstPending });
+  }
+
+  const unresolved = state.candidates.find(candidate =>
+    candidate.outcome === "unknown" || candidate.outcome === "read_error" || candidate.outcome === "stale",
+  );
+  if (unresolved !== undefined) {
+    return Object.freeze({ kind: "reconcile", candidate: unresolved });
+  }
+
   return Object.freeze({ kind: "close" });
 }
 
@@ -553,20 +699,45 @@ async function derive(
   const action = cursor === null
     ? Object.freeze({ kind: "list" as const })
     : nextAction(input.state, cursor.phase, scan, duplicateReadProbe);
+  const ordinal = input.conditions.length;
   if (action.kind === "list") {
     return Object.freeze({
       conditions: Object.freeze([
-        condition("observe-direct-entries", listGoal(input.bindings, input.state.session.cwd), input.bindings,
+        condition(`observe-direct-entries:${ordinal}`, listGoal(input.bindings, input.state.session.cwd), input.bindings,
           CONTENT_LIST_SELECTOR, CONTENT_LIST_EVALUATOR, EFFECTS),
       ]),
       nextCursor: Object.freeze({ phase: "listed" }),
       expansion: "more",
     });
   }
+  if (action.kind === "descend") {
+    const cwd = input.state.session.cwd;
+    const relativePath = relative(cwd, action.directory.path) || ".";
+    const target = Object.freeze({
+      kind: "cli.directory",
+      scenarioId: (input.bindings as ContentSearchBindings).directory.scenarioId,
+      sessionId: (input.bindings as ContentSearchBindings).directory.sessionId,
+      path: relativePath,
+    });
+    return Object.freeze({
+      conditions: Object.freeze([
+        condition(`descend-${action.directory.path}:${ordinal}`, listGoal(
+          Object.freeze({ ...(input.bindings as ContentSearchBindings), directory: target }),
+          input.state.session.cwd,
+        ), input.bindings,
+        CONTENT_LIST_SELECTOR, CONTENT_LIST_EVALUATOR, EFFECTS),
+      ]),
+      nextCursor: Object.freeze({ phase: "descend" }),
+      expansion: "more",
+    });
+  }
   if (action.kind === "inspect") {
     return Object.freeze({
       conditions: Object.freeze([
-        condition(`verify-${action.candidate.name}`, inspectGoal(input.bindings, action.candidate.path), input.bindings,
+        condition(
+          `verify-${action.candidate.name}:${ordinal}`,
+          inspectGoal(input.bindings, action.candidate.path),
+          input.bindings,
           CONTENT_INSPECT_SELECTOR, CONTENT_INSPECT_EVALUATOR, EFFECTS),
       ]),
       nextCursor: Object.freeze({ phase: "inspected" }),
@@ -584,14 +755,27 @@ async function derive(
       });
     }
     const attempt = action.duplicate ? (action.candidate.read?.attempt ?? 0) + 1 : 1;
+    const offset = action.duplicate ? 0 : (action.candidate.scan?.nextOffset ?? 0);
+    const remainingBytes = Math.max(0, scan.maxTotalBytes - input.state.bytesReadTotal);
+    const length = Math.max(
+      0,
+      Math.min(action.duplicate ? size : scan.chunkSize, size - offset, remainingBytes),
+    );
     return Object.freeze({
       conditions: Object.freeze([
-        condition(`read-${action.candidate.name}:attempt-${attempt}`,
-          readGoalAtAttempt(ref, size, attempt), input.bindings,
+        condition(`read-${action.candidate.name}:attempt-${attempt}:offset-${offset}:${ordinal}`,
+          chunkReadGoalAtAttempt(ref, offset, length, attempt), input.bindings,
           CONTENT_READ_SELECTOR, CONTENT_READ_EVALUATOR, ["filesystem.read"]),
       ]),
       nextCursor: Object.freeze({ phase: "read" }),
       expansion: "more",
+    });
+  }
+  if (action.kind === "reconcile") {
+    return Object.freeze({
+      conditions: Object.freeze([]),
+      nextCursor: Object.freeze({ phase: "closed" }),
+      expansion: "closed",
     });
   }
   return Object.freeze({
@@ -654,6 +838,20 @@ function evidenceId(requestId: string, sequence: number): string {
   return `${requestId}:evidence-${sequence}`;
 }
 
+function restoredSequence(
+  continuation: Readonly<{ states: readonly Readonly<{ id: string }>[] }> | null,
+): number {
+  if (continuation === null) return 0;
+  let maximum = 0;
+  for (const state of continuation.states) {
+    const match = /:state-(\d+)$/.exec(state.id);
+    if (match === null) continue;
+    const value = Number(match[1]);
+    if (Number.isSafeInteger(value) && value > maximum) maximum = value;
+  }
+  return maximum;
+}
+
 function transitionDiagnostics(transition: CliCommandTransition, id: string): {
   executionErrors: readonly AdapterDiagnostic[];
   verificationErrors: readonly AdapterDiagnostic[];
@@ -689,6 +887,7 @@ function transitionDiagnostics(transition: CliCommandTransition, id: string): {
 }
 
 function outcomeOf(transition: CliCommandTransition): "succeeded" | "failed" | "rejected" | "unknown" {
+  if (transition.execution_result.receipt?.execution.status === "succeeded") return "succeeded";
   if (transition.status === "achieved") return "succeeded";
   if (transition.status === "unknown") return "unknown";
   if (transition.status === "rejected") return "rejected";
@@ -808,6 +1007,49 @@ function readFactFromReceipt(
   });
 }
 
+function candidateIdentityStable(candidate: ContentSearchCandidateFact, read: ContentSearchReadFact): boolean {
+  if (candidate.fileRef === null) return false;
+  const ref = candidate.fileRef;
+  return String(ref.identity.dev) === String(read.identity.dev) &&
+    String(ref.identity.ino) === String(read.identity.ino) &&
+    ref.sessionRevision === read.revision &&
+    ref.sourceRun === read.refSourceRun &&
+    ref.scenarioId === read.ref.scenarioId &&
+    ref.sessionId === read.ref.sessionId;
+}
+
+function candidateSizeStable(candidate: ContentSearchCandidateFact, read: ContentSearchReadFact): boolean {
+  return candidate.inspected !== null && candidate.inspected.size === read.size;
+}
+
+function historicalHitFrom(
+  candidate: ContentSearchCandidateFact,
+  needle: string,
+  invalidation: ContentSearchHistoricalHitFact["invalidation"],
+): readonly ContentSearchHistoricalHitFact[] {
+  if (candidate.scan === null || candidate.fileRef === null || candidate.scan.found === false ||
+      candidate.scan.firstMatch === null) {
+    return Object.freeze([]);
+  }
+  return Object.freeze([
+    Object.freeze({
+      kind: "historical_stale_hit" as const,
+      historical: true as const,
+      identityKey: identityKeyOfRef(candidate.fileRef),
+      fileRef: candidate.fileRef,
+      sourceRun: candidate.fileRef.sourceRun,
+      path: candidate.path,
+      needle,
+      byteSpan: Object.freeze({ start: candidate.scan.firstMatch.start, end: candidate.scan.firstMatch.end }),
+      line: candidate.line ?? 1,
+      column: candidate.column ?? 1,
+      size: Number(candidate.inspected?.size ?? candidate.scan.sizeAtStart),
+      bytesRead: candidate.scan.bytesRead,
+      invalidation,
+    }),
+  ]);
+}
+
 function updateCandidate(
   state: ContentSearchState,
   path: string,
@@ -816,18 +1058,57 @@ function updateCandidate(
   const candidates = state.candidates.map(candidate => candidate.path === path
     ? Object.freeze({ ...candidate, ...patch })
     : candidate);
+  return Object.freeze({ ...state, candidates: Object.freeze(candidates) });
+}
+
+function updateDirectories(
+  state: ContentSearchState,
+  patch: readonly ContentSearchDirectoryFact[],
+  pendingDirectories: readonly Readonly<{ path: string; depth: number }>[],
+): ContentSearchState {
   return Object.freeze({
-    stateId: state.stateId,
-    session: state.session,
-    cli: state.cli,
-    listing: state.listing,
-    candidates: Object.freeze(candidates),
-    duplicateReads: state.duplicateReads,
+    ...state,
+    directories: Object.freeze(patch),
+    pendingDirectories: Object.freeze(pendingDirectories),
+    listing: patch[0]?.listing ?? state.listing,
   });
+}
+
+function typeMismatchFacts(
+  candidates: readonly ContentSearchCandidateFact[],
+): readonly ContentSearchMismatchFact[] {
+  return Object.freeze(candidates
+    .filter(candidate => candidate.outcome === "type_mismatch")
+    .map(candidate => Object.freeze({ name: candidate.name, path: candidate.path })));
 }
 
 function stateWithCli(state: ContentSearchState, cli: ContentSearchState["cli"], session: ContentSearchState["session"]): ContentSearchState {
   return Object.freeze({ ...state, cli, session });
+}
+
+function progressFingerprint(state: ContentSearchState): string {
+  const directories = state.directories.map(directory => [
+    directory.path,
+    directory.listed,
+    directory.observedAtSourceRun,
+    directory.listing?.coverage ?? null,
+    directory.listing?.sourceRun ?? null,
+    directory.uncoveredReason,
+    directory.listing?.entries.length ?? 0,
+  ]);
+  const candidates = state.candidates.map(candidate => [
+    candidate.path,
+    candidate.outcome,
+    candidate.contains,
+    candidate.scan?.bytesRead ?? 0,
+    candidate.scan?.chunks ?? 0,
+    candidate.scan?.complete ?? false,
+    candidate.inspected?.sourceRun ?? null,
+    candidate.fileRef?.sourceRun ?? null,
+    candidate.history.length,
+    candidate.failureCode ?? null,
+  ]);
+  return JSON.stringify({ directories, candidates, duplicateReads: state.duplicateReads });
 }
 
 function readAtomicReceiptFromSandbox(
@@ -923,15 +1204,15 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
       if (root.kind !== "file.property" || root.property !== "file.property.content.bytes" || root.requirement.kind !== "contains") {
         throw new TypeError("content search root goal must be a content.bytes contains goal");
       }
-      if (root.target.cardinality !== "one") {
-        throw new TypeError("content search P1 supports only cardinality one");
-      }
       if (request.rootEvaluatorId !== CONTENT_ROOT_EVALUATOR || request.rootSelectorId !== CONTENT_ROOT_SELECTOR) {
         throw new TypeError("content search request evaluator or selector is unsupported");
       }
       const continuation = request.continuation === undefined || request.continuation === null
         ? null
         : readRecursiveGoalContinuation(request.continuation, DOMAIN_GUARDS);
+      if (continuation !== null) {
+        sequence = Math.max(sequence, restoredSequence(continuation));
+      }
       return Object.freeze({
         requestId: request.requestId,
         rootGoal: rootGoal as unknown,
@@ -971,7 +1252,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
 
     async select(callback) {
       calls.select += 1;
-      return select(callback);
+      return select(callback, input.scan);
     },
 
     async derive(callback) {
@@ -1006,16 +1287,75 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
           });
         }
         const listing = listingFactFromTransition(transition);
-        const nextState = listing === null
-          ? callback.state
-          : Object.freeze({
-              stateId: stateId(callback.context.requestId, current),
-              session: transition.session_after,
-              cli: transition.observed_state_after,
-              listing,
-              candidates: initialCandidates(listing, bindings.fileCondition, order),
-              duplicateReads: callback.state.duplicateReads,
-            });
+        let nextState = callback.state;
+        if (listing !== null) {
+          const existing = callback.state.directories.find(directory => directory.path === listing.physicalDirectory);
+          const depth = existing?.depth ?? 0;
+          const currentDirectory: ContentSearchDirectoryFact = Object.freeze({
+            path: listing.physicalDirectory ?? "",
+            depth,
+            listing,
+            observedAtSourceRun: listing.sourceRun,
+            listed: true,
+            descendable: callback.state.recursion === "nested" &&
+              depth < callback.state.maxDirectoryDepth &&
+              listing.coverage === "complete",
+            uncoveredReason: listing.coverage === "complete" ? null : "listing_partial",
+          });
+          const directories = existing === undefined
+            ? [currentDirectory]
+            : callback.state.directories.map(directory => directory.path === currentDirectory.path ? currentDirectory : directory);
+          const childDepth = depth + 1;
+          const childEntries = listing.entries.filter(entry => entry.type === "directory");
+          const addedFacts: ContentSearchDirectoryFact[] = [];
+          const addedPending: Readonly<{ path: string; depth: number }>[] = [];
+          for (const child of childEntries) {
+            if (callback.state.recursion !== "nested") continue;
+            const already = directories.some(directory => directory.path === child.path);
+            if (already) continue;
+            if (childDepth <= callback.state.maxDirectoryDepth) {
+              addedFacts.push(Object.freeze({
+                path: child.path,
+                depth: childDepth,
+                listing: null,
+                observedAtSourceRun: null,
+                listed: false,
+                descendable: false,
+                uncoveredReason: null,
+              }));
+              addedPending.push(Object.freeze({ path: child.path, depth: childDepth }));
+            } else {
+              addedFacts.push(Object.freeze({
+                path: child.path,
+                depth: childDepth,
+                listing: null,
+                observedAtSourceRun: null,
+                listed: false,
+                descendable: false,
+                uncoveredReason: "depth_limit",
+              }));
+            }
+          }
+          const mergedDirectories = Object.freeze([...directories, ...addedFacts]);
+          const pendingDirectories = Object.freeze([
+            ...callback.state.pendingDirectories.filter(pending => pending.path !== currentDirectory.path),
+            ...addedPending,
+          ]);
+          const mergedCandidates = candidatesFromListings(mergedDirectories, bindings.fileCondition, order)
+            .map(fresh => callback.state.candidates.find(existing => existing.path === fresh.path) ?? fresh);
+          nextState = Object.freeze({
+            ...callback.state,
+            stateId: stateId(callback.context.requestId, current),
+            session: transition.session_after,
+            cli: transition.observed_state_after,
+            listing: mergedDirectories[0]?.listing ?? callback.state.listing,
+            directories: mergedDirectories,
+            pendingDirectories,
+            candidates: Object.freeze(mergedCandidates),
+            provenNegatives: callback.state.provenNegatives,
+            typeMismatches: typeMismatchFacts(mergedCandidates),
+          });
+        }
         return atomicReceiptForTransition({
           context: callback.context, sequence: current, transition, expectedHead,
           session: input.session, state: callback.state, nextState,
@@ -1049,6 +1389,10 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
                 inspected.size > input.scan.maxBytesPerFile)
               ? ("unknown" as const)
               : ("pending" as const);
+          const existing = callback.state.candidates.find(candidate => candidate.path === goal.target.ref.path);
+          const wasStale = existing?.outcome === "stale";
+          const staleRetries = (existing?.staleRetries ?? 0) + (wasStale ? 1 : 0);
+          const retainedHistory = existing?.history ?? Object.freeze([]);
           nextState = updateCandidate(nextState, goal.target.ref.path, {
             inspected: Object.freeze({
               sourceRun: transition.execution_result.receipt?.execution.runId ?? null,
@@ -1060,8 +1404,25 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               errno: inspected.errno,
             }),
             fileRef,
+            scan: null,
+            contains: null,
             outcome,
-            reason: outcome === "unknown" ? "size_exceeds_limit" : outcome === "type_mismatch" ? "type_mismatch" : null,
+            byteSpan: null,
+            line: null,
+            column: null,
+            reason: outcome === "unknown"
+              ? "size_exceeds_limit"
+              : outcome === "type_mismatch"
+                ? "type_mismatch"
+                : null,
+            failureCode: null,
+            duplicateRead: false,
+            history: retainedHistory,
+            staleRetries,
+          });
+          nextState = Object.freeze({
+            ...nextState,
+            typeMismatches: typeMismatchFacts(nextState.candidates),
           });
         }
         return atomicReceiptForTransition({
@@ -1075,37 +1436,151 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
       const needle = Buffer.from(bindings.needle, "utf8");
       const candidate = callback.state.candidates.find(item => item.fileRef?.absolutePath === goal.target.ref.absolutePath);
       const ref = goal.target.ref;
+      const failure = sandboxReceipt.execution.status === "failed" ? sandboxReceipt.execution.error : null;
       const read = sandboxReceipt.status === "succeeded"
         ? readFactFromReceipt(sandboxReceipt, ref, sandboxReceipt.session_before.revision, goal.requirement.attempt)
         : null;
       let nextState = stateWithCli(callback.state, callback.state.cli, callback.state.session);
       if (candidate !== undefined) {
         if (read !== null && read.bytesRead !== null) {
-          const bytes = Buffer.from(read.bytes, "base64");
-          const full = read.offset === 0 && read.length === read.size && read.bytesRead === read.size;
-          const match = full ? contains(bytes, needle) : { found: false, start: -1, end: -1 };
           const duplicate = candidate.outcome === "negative" && !candidate.duplicateRead;
-          nextState = updateCandidate(nextState, candidate.path, {
-            read,
-            contains: match.found ? true : (full ? false : null),
-            outcome: match.found ? "matched" : (full ? "negative" : "unknown"),
-            byteSpan: match.found ? Object.freeze({ start: match.start, end: match.end }) : null,
-            line: match.found ? lineColumn(bytes, match.start).line : null,
-            column: match.found ? lineColumn(bytes, match.start).column : null,
-            reason: match.found ? null : (full ? "no_match" : "short_read"),
-            duplicateRead: duplicate,
-          });
+          const previousScan = candidate.scan ?? null;
+          const endObserved = readFactEndObserved(read);
+          const shortRead = read.eof && !endObserved;
+          const identityStable = candidateIdentityStable(candidate, read);
+          const sizeStable = candidateSizeStable(candidate, read);
+
+          if (previousScan !== null && (!identityStable || !sizeStable)) {
+            // An identity or size change observed mid-scan invalidates the
+            // accumulated scan and any first hit it produced.
+            const temporaryScan = applyReadToScan(previousScan, candidate, read, needle);
+            const temporaryCandidate = Object.freeze({ ...candidate, scan: temporaryScan });
+            const invalidationKind = !identityStable ? "identity_changed" : "size_changed";
+            const historical = historicalHitFrom(temporaryCandidate, bindings.needle, Object.freeze({
+              kind: invalidationKind as ContentSearchHistoricalHitFact["invalidation"]["kind"],
+              observedAtSourceRun: read.sourceRun,
+              code: null,
+            }));
+            nextState = updateCandidate(nextState, candidate.path, {
+              read,
+              inspected: null,
+              fileRef: candidate.fileRef,
+              scan: null,
+              contains: null,
+              outcome: "stale",
+              byteSpan: null,
+              line: null,
+              column: null,
+              reason: invalidationKind,
+              failureCode: null,
+              duplicateRead: duplicate,
+              history: Object.freeze([...candidate.history, ...historical]),
+            });
+          } else if (candidate.inspected !== null && candidate.fileRef !== null && !identityStable) {
+            // First read after a stale inspect: no scan baseline yet.
+            const temporaryScan = applyReadToScan(null, candidate, read, needle);
+            const temporaryCandidate = Object.freeze({ ...candidate, scan: temporaryScan });
+            const historical = historicalHitFrom(temporaryCandidate, bindings.needle, Object.freeze({
+              kind: "identity_changed" as const,
+              observedAtSourceRun: read.sourceRun,
+              code: null,
+            }));
+            nextState = updateCandidate(nextState, candidate.path, {
+              read,
+              inspected: null,
+              fileRef: candidate.fileRef,
+              scan: null,
+              contains: null,
+              outcome: "stale",
+              byteSpan: null,
+              line: null,
+              column: null,
+              reason: "identity_changed",
+              failureCode: null,
+              history: Object.freeze([...candidate.history, ...historical]),
+            });
+          } else if (candidate.inspected !== null && candidate.fileRef !== null && !sizeStable) {
+            const temporaryScan = applyReadToScan(null, candidate, read, needle);
+            const temporaryCandidate = Object.freeze({ ...candidate, scan: temporaryScan });
+            const historical = historicalHitFrom(temporaryCandidate, bindings.needle, Object.freeze({
+              kind: "size_changed" as const,
+              observedAtSourceRun: read.sourceRun,
+              code: null,
+            }));
+            nextState = updateCandidate(nextState, candidate.path, {
+              read,
+              inspected: null,
+              fileRef: candidate.fileRef,
+              scan: null,
+              contains: null,
+              outcome: "stale",
+              byteSpan: null,
+              line: null,
+              column: null,
+              reason: "size_changed",
+              failureCode: null,
+              history: Object.freeze([...candidate.history, ...historical]),
+            });
+          } else {
+            const scan = applyReadToScan(previousScan, candidate, read, needle);
+            const matched = scan.found && !scan.shortRead;
+            const negative = scan.complete && !matched && !scan.shortRead;
+            const shortRead = scan.shortRead;
+            const outcome: ContentSearchCandidateFact["outcome"] =
+              shortRead
+                ? "unknown"
+                : matched
+                  ? "matched"
+                  : negative
+                    ? "negative"
+                    : scan.complete
+                      ? "negative"
+                      : "unknown";
+            const firstMatch = scan.firstMatch;
+            const lineColumnValue = firstMatch === null
+              ? null
+              : Object.freeze({ line: firstMatch.line, column: firstMatch.column });
+            nextState = updateCandidate(nextState, candidate.path, {
+              read,
+              contains: shortRead ? null : matched ? true : negative ? false : null,
+              outcome,
+              scan,
+              byteSpan: shortRead || firstMatch === null ? null : Object.freeze({ start: firstMatch.start, end: firstMatch.end }),
+              line: shortRead || lineColumnValue === null ? null : lineColumnValue.line,
+              column: shortRead || lineColumnValue === null ? null : lineColumnValue.column,
+              reason: shortRead ? "short_read" : matched ? null : negative ? "no_match" : "read_partial",
+              duplicateRead: duplicate,
+            });
+          }
           if (duplicate) {
             nextState = Object.freeze({ ...nextState, duplicateReads: nextState.duplicateReads + 1 });
           }
+          nextState = Object.freeze({
+            ...nextState,
+            bytesReadTotal: nextState.bytesReadTotal + read.bytesRead,
+          });
         } else {
-          const failure = sandboxReceipt.execution.status === "failed" ? sandboxReceipt.execution.error : null;
+          const staleFailure = failure !== null && isStaleReadCode(failure.code);
+          const historical = staleFailure
+            ? historicalHitFrom(candidate, bindings.needle, Object.freeze({
+                kind: "read_stale" as const,
+                observedAtSourceRun: candidate.scan?.lastReadSourceRun ?? sandboxReceipt.execution.runId,
+                code: failure?.code ?? null,
+              }))
+            : Object.freeze([]);
           nextState = updateCandidate(nextState, candidate.path, {
             read: null,
+            inspected: staleFailure ? null : candidate.inspected,
+            fileRef: staleFailure ? null : candidate.fileRef,
+            scan: staleFailure ? null : candidate.scan,
             contains: null,
-            outcome: failure !== null && isStaleReadCode(failure.code) ? "stale" : "read_error",
+            outcome: staleFailure ? "stale" : "read_error",
+            byteSpan: staleFailure ? null : candidate.byteSpan,
+            line: staleFailure ? null : candidate.line,
+            column: staleFailure ? null : candidate.column,
             reason: failure?.code ?? "read_failed",
             failureCode: failure?.code ?? "EIO",
+            history: Object.freeze([...candidate.history, ...historical]),
           });
         }
       }
@@ -1120,9 +1595,12 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
       return readAtomicReceipt(raw, DOMAIN_GUARDS);
     },
 
-    measureProgress() {
+    measureProgress(input) {
       calls.measureProgress += 1;
-      return { improved: false, reason: "none" as const, comparable: true };
+      const before = input.before as ContentSearchState;
+      const after = input.after as ContentSearchState;
+      const improved = progressFingerprint(before) !== progressFingerprint(after);
+      return { improved, reason: improved ? "facts_improved" as const : "none" as const, comparable: true };
     },
   };
 
