@@ -395,14 +395,14 @@ function stateEvidenceRefs(state: ReadExpectationState, evidence: readonly { id:
 function rootSatisfied(
   state: ReadExpectationState,
   requirement: ReadRequest,
-  admitted: boolean,
   context: ReadContext,
 ): boolean | null {
   const last = state.attempts.at(-1);
   if (last === undefined) return null;
   if (last.failure !== null) return false;
   const attempt = attemptOf(last, priorOf(state), requirement);
-  const quantity = measureQuantity(attempt, declaredContext(admitted, context));
+  // Only coverage/quantity facts are read here; retry facts never change it.
+  const quantity = measureQuantity(attempt, context);
   if (quantity.known === 0) return null;
   return quantity.qtyMet === 1;
 }
@@ -441,18 +441,35 @@ function priorOf(state: ReadExpectationState): readonly CoverageInterval[] {
 }
 
 /**
- * Retry facts come from the declared retry policy only. The controller owns how
- * many repeats actually happen; the domain never keeps its own copy.
+ * Retry facts for the model input. They come from two real sources only: the
+ * failure that actually happened, and the remaining attempt budget the
+ * controller reports in its typed retry view. The domain never keeps its own
+ * retry counter; the controller still owns how many repeats happen.
  */
-function declaredContext(admitted: boolean, context: ReadContext): ReadContext {
-  return Object.freeze({
+function contextFor(
+  context: ReadContext,
+  record: ReadExpectationAttemptRecord | null,
+  attemptsLeftAfterThis: number | null,
+): ReadContext {
+  const neutral = Object.freeze({
     target: context.target,
     bindingReissuable: context.bindingReissuable,
-    retryEligible: admitted,
-    retryBudgetLeft: admitted ? 1 : 0,
-    retryExhausted: !admitted,
+    retryEligible: false,
+    retryBudgetLeft: 0,
+    retryExhausted: false,
     skills: context.skills,
   });
+  if (record === null || record.failure === null) return neutral;
+  const transient = TRANSIENT_CODES.has(record.failure.code);
+  if (!transient) {
+    // A terminal error is not retryable even when a retry budget exists.
+    return neutral;
+  }
+  const left = attemptsLeftAfterThis === null ? 1 : Math.max(0, attemptsLeftAfterThis);
+  if (left <= 0) {
+    return Object.freeze({ ...neutral, retryExhausted: true });
+  }
+  return Object.freeze({ ...neutral, retryEligible: true, retryBudgetLeft: Math.min(left, 1) });
 }
 
 function nextGap(state: ReadExpectationState, requirement: ReadRequest): Readonly<{ offset: number; length: number }> | null {
@@ -544,15 +561,44 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
     });
   }
 
-  function computeDecision(record: ReadExpectationAttemptRecord, prior: readonly CoverageInterval[], requirement: ReadRequest) {
+  /**
+   * How many same-failure repeats the request's declared retry budget still
+   * allows after `record`. The count comes from the real failure receipts kept
+   * in State, never from controller internals; the controller still enforces its
+   * own typed sameFailureLimit and atomic attempt budget before a repeat runs.
+   */
+  function attemptsLeftAfter(record: ReadExpectationAttemptRecord): number {
+    const failure = record.failure;
+    if (failure === null) return 0;
+    const attempts = state?.attempts ?? [];
+    const index = attempts.findIndex(item => item.attemptId === record.attemptId);
+    const before = index === -1 ? attempts : attempts.slice(0, index);
+    const repeatsUsed = before.filter(item => item.failure !== null && item.failure.code === failure.code).length;
+    return Math.max(0, input.retryBudget - repeatsUsed);
+  }
+
+  function decide(record: ReadExpectationAttemptRecord, prior: readonly CoverageInterval[], requirement: ReadRequest) {
     const attempt = attemptOf(record, prior, requirement);
+    const context = contextFor(input.context, record, attemptsLeftAfter(record));
     const baseVector: BaseVector = measureBase(attempt);
     const basePrediction = input.unit.inferBase(baseVector);
-    const context = declaredContext(input.retryBudget > 0, input.context);
     const vector: ReasoningVector = measureReasoning(basePrediction, attempt, context);
     const prediction = input.unit.inferReasoning(vector);
     const oracle = superviseReasoning(attempt, context);
     return { prediction, allowed: oracle.allowed, basePrediction, legal: oracle.allowed.includes(prediction) };
+  }
+
+  /** One decision per real attempt, recorded with the oracle's own allowed set. */
+  function recordDecision(record: ReadExpectationAttemptRecord, decided: ReturnType<typeof decide>): void {
+    if (decisions.some(item => item.attemptId === record.attemptId)) return;
+    decisions.push(Object.freeze({
+      attemptId: record.attemptId,
+      range: record.range,
+      basePrediction: decided.basePrediction,
+      prediction: decided.prediction,
+      allowed: decided.allowed,
+      legal: decided.legal,
+    }));
   }
 
   const adapter: RecursiveGoalAdapter<
@@ -600,7 +646,7 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
       const evidenceRefs = stateEvidenceRefs(callback.state, callback.evidence);
       if (isRootGoal(callback.goal)) {
         const goal = callback.goal as ReadExpectationRootGoal;
-        const satisfied = rootSatisfied(callback.state, goal.requirement, input.retryBudget > 0, input.context);
+        const satisfied = rootSatisfied(callback.state, goal.requirement, input.context);
         if (satisfied === true) return evaluation(READ_EXPECTATION_ROOT_EVALUATOR, "satisfied", 100, evidenceRefs);
         if (satisfied === false) return evaluation(READ_EXPECTATION_ROOT_EVALUATOR, "unsatisfied", 0, evidenceRefs);
         return evaluation(READ_EXPECTATION_ROOT_EVALUATOR, "unknown", null, []);
@@ -656,15 +702,8 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
           expansion: "more" as const,
         });
       }
-      const decided = computeDecision(last, prior, required);
-      decisions.push(Object.freeze({
-        attemptId: last.attemptId,
-        range: last.range,
-        basePrediction: decided.basePrediction,
-        prediction: decided.prediction,
-        allowed: decided.allowed,
-        legal: decided.legal,
-      }));
+      const decided = decide(last, prior, required);
+      recordDecision(last, decided);
       if (!decided.legal) {
         // Wrong model output stops the chain here: no illegal operation follows.
         throw new TypeError(
@@ -769,9 +808,9 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
           ? (receipt as { execution: { runId: string } }).execution.runId
           : null,
         executorInvoked: (receipt as { execution?: { executorInvoked?: unknown } }).execution?.executorInvoked === true,
-        // A retryable read error completed as a no-effect step, so the controller
-        // may repeat it under its own bounded retry policy. A terminal error
-        // stays a real failure and stops the run. No receipt at all is unknown.
+        // A read that produced a definite receipt is a completed no-effect step.
+        // Terminal or transient, the evaluator and the retry assessment consume
+        // the real error; only a missing receipt stays unknown.
         outcome: outcomeOf(observation, failure),
         sourceResult: Object.freeze({
           tag: "file.read",
@@ -805,18 +844,39 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
       >(raw, DOMAIN_GUARDS);
     },
 
+    /**
+     * The domain error-feedback boundary. The controller calls this before it
+     * repeats a completed no-effect step, so the model must consume the real
+     * failure here and record its decision with the oracle's own allowed set.
+     * The prediction is only a necessary condition: the controller keeps its
+     * typed counting and decides whether a repeat actually runs.
+     */
     assessRetry(callback) {
-      const payload = callback.atomicResult.sourceResult;
-      const value = payload === null ? null : (payload as { value?: unknown }).value;
-      const code = isRecord(value) && typeof value.code === "string" ? value.code : null;
+      const current = state ?? callback.state;
+      const last = current.attempts.at(-1);
       const evidenceRefs = callback.evaluation.evidenceRefs;
-      if (code === null || evidenceRefs.length === 0) {
+      if (last === undefined || last.failure === null || evidenceRefs.length === 0) {
         return Object.freeze({ kind: "stop" as const, reason: "evidence_insufficient" as const });
       }
-      if (!TRANSIENT_CODES.has(code)) {
+      const failure = last.failure;
+      if (input.policy === "baseline") {
+        // The baseline has no learned units: it may repeat only a transient code.
+        return TRANSIENT_CODES.has(failure.code)
+          ? Object.freeze({ kind: "safe_same_failure" as const, failureKey: `file.read:${failure.code}`, evidenceRefs: Object.freeze([evidenceRefs[0]!]) })
+          : Object.freeze({ kind: "stop" as const, reason: "unsupported_retry" as const });
+      }
+      const decided = decide(last, priorOf(current), input.requirement);
+      recordDecision(last, decided);
+      if (!decided.legal) {
+        // Wrong model output stops the chain before any repeat runs.
+        throw new TypeError(
+          `read expectation model predicted ${decided.prediction} outside the oracle allowed set [${decided.allowed.join(", ")}]`,
+        );
+      }
+      if (decided.prediction !== "retry_current_read") {
         return Object.freeze({ kind: "stop" as const, reason: "unsupported_retry" as const });
       }
-      return Object.freeze({ kind: "safe_same_failure" as const, failureKey: `file.read:${code}`, evidenceRefs: Object.freeze([evidenceRefs[0]!]) });
+      return Object.freeze({ kind: "safe_same_failure" as const, failureKey: `file.read:${failure.code}`, evidenceRefs: Object.freeze([evidenceRefs[0]!]) });
     },
 
     measureProgress(callback) {
@@ -847,10 +907,15 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
   });
 }
 
+/**
+ * A read that produced a definite receipt (data or an error) is a completed step
+ * that crossed no effect boundary. Whether it met the goal is the evaluator's
+ * job, and the error is exactly what the retry assessment must consume. Only a
+ * missing receipt is unknown.
+ */
 function outcomeOf(observation: ReadObservation | null, failure: ReadFailure | null): "succeeded" | "failed" | "unknown" {
-  if (observation !== null) return "succeeded";
-  if (failure === null) return "unknown";
-  return TRANSIENT_CODES.has(failure.code) ? "succeeded" : "failed";
+  if (observation !== null || failure !== null) return "succeeded";
+  return "unknown";
 }
 
 function readObservationOf(receipt: unknown): ReadObservation {
@@ -904,11 +969,10 @@ export function createReadExpectationDependencies(
 export type ReadExpectationGoalResources = Readonly<{
   sandbox: CliFilesystemSandbox;
   session: SessionRef;
-  fileRef: ObservedObjectRef;
+  /** Optional: when given it must describe the binding of the requested path. */
+  fileRef?: ObservedObjectRef;
   unit: ReadFeedbackUnit;
   context: ReadContext;
-  request: ReadRequest;
-  path: string;
   maxReadBytes?: number;
   policy?: ReadExpectationPolicy;
   limits?: RecursiveGoalLimits;
@@ -916,43 +980,76 @@ export type ReadExpectationGoalResources = Readonly<{
   signal?: AbortSignal;
 }>;
 
+function sameObservedTarget(left: ObservedObjectRef, right: ObservedObjectRef): boolean {
+  // Identity (dev/ino) is deliberately not compared: a stale reference to the
+  // same path must still reach the domain's rebind decision instead of being
+  // rejected here. What may never differ is the scenario, session, and the
+  // physical path the request names.
+  return left.kind === "cli.file"
+    && right.kind === "cli.file"
+    && left.scenarioId === right.scenarioId
+    && left.sessionId === right.sessionId
+    && left.absolutePath === right.absolutePath;
+}
+
 /**
  * The single public entry for both consumers: the model's current requirement
  * binds a child Goal, runRecursiveGoal executes it, and the root is evaluated
  * from real coverage.
+ *
+ * The request argument is the only source of the requested meaning. Execution
+ * resources may not repeat or override the requirement or the path, and the read
+ * target is re-bound from the requested path so a supplied reference cannot
+ * point somewhere else.
  */
 export async function runCliReadExpectationGoal(
   rawRequest: Readonly<{ requestId: string; requirement: ReadRequest; path: string }>,
   resources: ReadExpectationGoalResources,
 ): Promise<ReadExpectationRunResult> {
+  for (const forbidden of ["request", "path"] as const) {
+    if (Object.prototype.hasOwnProperty.call(resources, forbidden)) {
+      throw new TypeError(
+        `read expectation resources must not carry ${forbidden}; the request is the only source for requirement and path`,
+      );
+    }
+  }
+  const requestId = nonEmpty(rawRequest.requestId, "rawRequest.requestId");
+  const requirement = readRequest(rawRequest.requirement);
+  const path = nonEmpty(rawRequest.path, "rawRequest.path");
+  const bound = await resources.sandbox.bindFile(resources.session, path);
+  if (resources.fileRef !== undefined && !sameObservedTarget(resources.fileRef, bound)) {
+    throw new TypeError("read expectation fileRef does not correspond to the requested path and session");
+  }
+  const retryBudget = resources.retryBudget ?? 0;
+  const limits = resources.limits ?? Object.freeze({ maxTransitions: 60, maxDepth: 5, maxDerivedGoals: 12 });
   const created = createReadExpectationAdapter({
     sandbox: resources.sandbox,
     session: resources.session,
     unit: resources.unit,
     context: resources.context,
-    requirement: resources.request,
-    path: resources.path,
-    fileRef: resources.fileRef,
-    retryBudget: resources.retryBudget ?? 0,
+    requirement,
+    path,
+    fileRef: bound,
+    retryBudget,
     maxReadBytes: resources.maxReadBytes ?? Number.MAX_SAFE_INTEGER,
     policy: resources.policy ?? "learned",
   });
-  const state = created.initialState(rawRequest.requestId);
+  const state = created.initialState(requestId);
   created.setState(state);
   const rootGoal: ReadExpectationRootGoal = Object.freeze({
     kind: "cli.read-expectation.cover",
-    path: resources.path,
-    requirement: resources.request,
+    path,
+    requirement,
   });
   const bindings: ReadExpectationBindings = Object.freeze({
     session: resources.session,
-    fileRef: resources.fileRef,
-    requirement: resources.request,
+    fileRef: bound,
+    requirement,
   });
   const response = await runRecursiveGoal(
     {
       schema: REQUEST_SCHEMA,
-      requestId: rawRequest.requestId,
+      requestId,
       rootGoal,
       satisfactionThreshold: 100,
       rootBindings: bindings,
@@ -961,20 +1058,18 @@ export async function runCliReadExpectationGoal(
       rootSelectorId: READ_EXPECTATION_ROOT_SELECTOR,
       // One bounded read costs several controller transitions; the default cap
       // covers the trajectories this domain actually runs.
-      limits: resources.limits ?? Object.freeze({ maxTransitions: 60, maxDepth: 5, maxDerivedGoals: 12 }),
-      ...(resources.retryBudget !== undefined && resources.retryBudget > 0
-        ? {
-            retryPolicy: {
-              kind: "bounded_strategy_retry.v1" as const,
-              selectorId: READ_EXPECTATION_READ_SELECTOR,
-              strategySkillIds: [READ_EXPECTATION_READ_SKILL],
-              // The controller marks a strategy exhausted once the failure count
-              // reaches the limit, so one admitted repeat needs room for two.
-              sameFailureLimit: resources.retryBudget + 1,
-              maxAtomicAttempts: resources.retryBudget + 2,
-            },
-          }
-        : {}),
+      limits,
+      // The read skill always goes through the controller's typed retry gate, so
+      // every real error reaches the domain assessment boundary. The gate still
+      // owns the counting and needs room for one count per admitted repeat.
+      retryPolicy: {
+        kind: "bounded_strategy_retry.v1" as const,
+        selectorId: READ_EXPECTATION_READ_SELECTOR,
+        strategySkillIds: [READ_EXPECTATION_READ_SKILL],
+        sameFailureLimit: retryBudget + 1,
+        // One atomic attempt per derived read, plus the declared retry budget.
+        maxAtomicAttempts: (limits.maxDerivedGoals ?? 12) + retryBudget + 1,
+      },
     },
     createReadExpectationDependencies(created, resources.signal),
   );

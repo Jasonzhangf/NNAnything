@@ -61,7 +61,6 @@ for (const task of TASKS) {
       { requestId: `online-${task.id}-${policy}`, requirement: task.request, path: "file.txt" },
       {
         sandbox: w.sandbox, session: w.session, fileRef: w.fileRef, unit, context,
-        request: task.request, path: "file.txt",
         maxReadBytes: MAX_READ_BYTES, retryBudget: 0, policy,
       },
     );

@@ -26,13 +26,20 @@ Outputs default to `playground/cli/read-feedback/out` (`NN_OUT_DIR` overrides).
 | `prepare.mjs` | Measures the real sandbox cases and writes samples plus real per-label counts |
 | `train.mjs` | Fits the base unit, then fits the reasoning unit on the base unit's infer output, writes both profiles |
 | `reload.mjs` | New process: rebuilds the units from disk and scores the verification partition |
-| `verify.mjs` | Four real trajectories through `runCliReadExpectationGoal` (segmented, transient recovery, denial stop, budget truncation) plus a zeroed-profile sensitivity control |
+| `verify.mjs` | Eight real trajectories through `runCliReadExpectationGoal` (segmented, exact-8 request, transient recovery, denial stop, denial with budget, transient exhaustion, transient without budget, budget truncation), two entry-level red tests (resource-level request conflict, foreign file reference), and a zeroed-profile sensitivity control |
 | `online.mjs` | Online stage 1 only: baseline versus initially trained candidate, both through the same public entry and the same I/O cap |
 
 ## One public entry, one controller
 
-`runCliReadExpectationGoal` is the only read-feedback execution entry. It plugs this
-domain into the existing `runRecursiveGoal` controller:
+`runCliReadExpectationGoal` is the only read-feedback execution entry. Its first
+argument is the request: `requestId`, `requirement`, and `path`. The request is the
+only source of the requested meaning. Execution resources carry the sandbox, session,
+unit, and context, and must not repeat `requirement` or `path`; if they do, the entry
+rejects the call before any read. A supplied `fileRef` is only accepted when it binds
+the requested path in the requested session, so one request cannot read its path with
+another target's reference. The entry re-binds the requested path itself.
+
+It plugs this domain into the existing `runRecursiveGoal` controller:
 
 - The root goal is a cover goal; the root evaluator decides success from real coverage
   and quantity against the user requirement. The model never decides the root.
@@ -42,7 +49,10 @@ domain into the existing `runRecursiveGoal` controller:
   `condition_met`/`terminal_error`/`need_observation` → no child (the chain closes).
 - `executeAtomic` performs one real bounded read; its receipt updates the explicit
   State (attempts, coverage, reads). The controller, not this domain, owns retry
-  limits: it admits the bounded retry policy and repeats a no-effect read.
+  limits: the entry always admits the bounded retry policy, and `assessRetry` consumes
+  the model decision at that boundary. The model's `retry_current_read` is only a
+  necessary condition; the controller's typed counting, permission, and effect checks
+  still decide whether the repeat runs.
 - A model answer outside the oracle's allowed set throws at that step, so the run stops
   and no further operation follows. `verify.mjs` asserts every recorded decision
   against the allowed set, and a zeroed reasoning profile must fail it.
@@ -56,6 +66,12 @@ domain into the existing `runRecursiveGoal` controller:
 - The base unit needs the requirement mode to tell a short read at a confirmed end
   (whole, `up_to`) apart from a real shortfall (`exact`), so the mode wires are part of
   its input. Wire counts are derived from the arrays, never hardcoded.
-- A terminal read error (EACCES) stays a real failure and stops the run. Only a
-  transient code the controller may safely repeat is treated as a completed no-effect
-  step. A shortfall at a confirmed end is reported, never fabricated as success.
+- Every read that produced a definite receipt, data or error, is a completed step that
+  crossed no effect boundary, so the controller always hands the real error to the
+  domain assessment. The model records its decision there: a transient error with
+  retry budget left records `retry_current_read` and the controller then decides
+  whether the typed repeat actually runs; a terminal error records `terminal_error`
+  and is never repeated, even when a budget exists. Running out of budget is recorded
+  as `terminal_error` from the real failure history, never claimed from a positive
+  declared budget. A shortfall at a confirmed end is reported, never fabricated as
+  success.
