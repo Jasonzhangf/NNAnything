@@ -38,6 +38,10 @@
       "types": "./dist/cli-read.d.ts",
       "import": "./dist/cli-read.js"
     },
+    "./cli-read-feedback": {
+      "types": "./dist/cli-read-feedback.d.ts",
+      "import": "./dist/cli-read-feedback.js"
+    },
     "./recursive-goal": {
       "types": "./dist/recursive-goal.d.ts",
       "import": "./dist/recursive-goal.js"

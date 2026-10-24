@@ -21,6 +21,8 @@ artifacts/**
 # Local training datasets, results, and weight profiles
 training/samples/**
 training/results/**
+# Generated read-feedback experiment assets stay local (reproducible from prepare/train)
+playground/cli/read-feedback/out/
 training/weights/**
 !training/**/README.md
 
