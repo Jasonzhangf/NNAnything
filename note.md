@@ -8,6 +8,10 @@ Alice 正式 Review ACCEPT 后，Jenny 核对候选树 8 个文件均在 C-A1 �
 
 Alice 经 `m1792842048174-49` 纠正：B-A1 oracle 三轮复核与 D1/G1 裁决实际已完成，正式证据为 `ba1-design-rulings-r1.md`（design-focus-representation-20261023 run），结论为 B1 记录方向 accept/逐项映射 rework、D1 受限 E 方向 accept/数学与过度归因 rework、G1 方向 accept/混合视口实现需补。Bob 已回应 `m1792841983680-45` 补 B1/G1；D1 未完成、B2 缺监督，Alice 已裁新来源构造解阻。当前等待 Bob 交回完整补正证据；board 上 B-A1 的旧 next_step 已过时，不得再沿旧状态向 Alice 重复唤醒。未放行训练或整体 PASS。
 
+## 2026-10-24 file.read eof 合同缺口交 CLI owner 裁决
+
+David 报告并复跑真实沙箱反例（14 用例，证据 `/Volumes/Intel/playground/nnanything-runs/cli-read-feedback-plan-20261024/facts/file-read-eof-facts.json`）：`file.read` 的 `eof` 字段实际是 `bytesRead < length` 的短读布尔，不是文件真实结束；精确到端点、空文件 `length=0`、读满文件时 `eof` 均错。实现 owner 是 `lib/adapters/cli/file-content.ts`，合同 owner 是 CLI 读取组合主线（`docs/cli-read-composition.md`），原提交者 RouteCodex Bot 已不活跃。Alice 的 Plan review 也指出不得在旧 `size` 上假定绝对端点。David 已按实验合同在 harness 层用 `size/offset/bytesRead` 确定性算 `end_observed`，不改该实现。Jenny 已把该合同事实与证据交 CLI 域 owner Carol 裁决（`m1792842930268-97`，durable），并要求保留短读事实、更新文档与回归、不破坏既有 read 组合 21 例与多来源 22 例；同时回 David（`m1792842941020-98`）确认等待 Carol 裁决。`appsdk bug intake` 在该项目返回 `DEVELOPMENT_INTAKE_READ_ONLY_CONVERSATION`，未建 canonical issue，继续用 collab board/消息作为现存契约通道。
+
 ## 2026-10-24 C-A1 集成前控制器边界 P1 定点转派
 
 Alice 通过 `m1792829557273-12` 报告 C-A1 集成阻断 P1：`content.bytes` 自写 list-inspect-read，绕过 `runRecursiveGoal`；公开入口实测 `maxTransitions=NaN` 仍 satisfied 且 3 次执行，`maxDepth/maxDerivedGoals` 未参与控制，另造 `cli.autonomous.content-bytes.result.v1`。完整分析在 `/Volumes/Intel/playground/nnanything-runs/design-focus-representation-20261023/ca1-controller-boundary-review.md`。
