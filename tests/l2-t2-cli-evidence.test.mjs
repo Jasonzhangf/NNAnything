@@ -43,9 +43,10 @@ test("C1 the legacy unread premise admits no action; the staged premise admits r
   assert.throws(() => legalActions("unknown", state), { message: /unknown premise/ });
 });
 
-test("C3 the old candidate teacher has no size precheck; its up_to rule is byte/eof based", () => {
+test("C3 the legacy E receipt branch has no size precheck; its up_to rule is byte/eof based", () => {
   // The source (playground/l2/cli.mjs, E head) never compares offset+length against size.
-  // A fabricated offset+length<=size precheck was withdrawn in review r1 (P2-2).
+  // Scope is the E receipt branch only; the old R qualification is UNVERIFIED (see
+  // LEGACY_TEACHER_SOURCE). A fabricated offset+length<=size precheck was withdrawn in r1 (P2-2).
   assert.equal(legacyTeacherVerdict("exact", { bytesRead: 2, length: 5, eof: true }), "unsatisfied");
   assert.equal(legacyTeacherVerdict("up_to", { bytesRead: 2, length: 5, eof: true }), "satisfied");
   assert.equal(legacyTeacherVerdict("up_to", { bytesRead: 2, length: 5, eof: false }), "unsatisfied");
