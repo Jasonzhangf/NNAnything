@@ -60,6 +60,26 @@
 
 EIO 断点实际在 CLI 域内：读取失败回执在领域层被改写成成功原子结果，导致 `evaluateRead` 的读取条件永不满足，控制器最终以 `evidence_unavailable` 结束。B2 只把 `EIO` 收进候选 `read_error` 事实（保留 `failureCode=EIO`、`read=null`、`contains=null`、`scan=null` 与原失败回执），并以该已记录失败满足本次读取尝试，控制器随后按既有优先级选择其他合法候选；`EACCES`、`SANDBOX_ESCAPE` 仍按原错误终止。重新采集得到 408 条决策样本、24 条 `delta=1` 训练配对（train forced 的 N/S/E/P 各 6 条），112 arms 全部 achieved；t0 forced E 为 11/256（B 反向 8/160）。同一 200 epochs/lr 0.1 预算拟合 loss 0.693147→0.053456、参数 0→2.902054（24 条配对同构，梯度均值不变），新候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc` 已由公开入口回载为合法 10×31，保持 `uncalibrated/not_applied`、训练报告 `fullyVerified=false`。上表 326/18 与候选 `39f1570f` 保留为增量 B 历史证据。
 
+### P3 增量 C 隔离评价与新进程回载（2026-10-24）
+
+独立评价矩阵用保存候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc` 做 t1/t2，用 `35bd5ad9` 的显式按名迁移零系数做 t0，测试只来自 verification A `m3-test-cerulean-*` 与 verification B `m3-test-obsidian-*`。每个 stage/family/arm 各 12 个 fresh sandbox，共 144 cells，natural 与 forced-first 各一。
+
+| stage | family | arm | inv | bytes | 成功率 | 恢复成功 |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| t0 | A | natural/forced | 10.750 | 282.000 | 12/12 | forced 12/12 |
+| t1 | A | natural | 3.000 | 64.000 | 12/12 | n/a |
+| t1 | A | forced | 5.500 | 114.000 | 12/12 | 12/12 |
+| t1 | B | natural | 6.750 | 169.333 | 12/12 | n/a |
+| t1 | B | forced | 8.000 | 194.000 | 12/12 | 12/12 |
+
+全部 144/144 achieved，forced 72/72 先取得真实 N/S/E/P 反馈后执行不同合法候选并命中，`duplicateReads=0`，无 transitions/derived 超限。A 同族平均调用 10.75→4.25（-60.465%）、平均读取 282→89 bytes（-68.44%），超过预设 15% 阈值。B 跨族如实报告双向：natural 与 forced 均为 6 改善/6 退化/0 持平，聚合调用分别 -27.0% 与 -13.5%；不据此声称任意家族泛化。
+
+t2 由 `reload-p3.mjs` 在两个独立进程（natural PID 52988、forced PID 60209）从文件重新读取同一候选并复跑，48 对 t1/t2 逐对比较根 `state/result/satisfaction`、control、规范化选择轨迹、inv/obs/bytes/duplicateReads 全一致。回载失败路径（缺文件、坏 JSON、错 wire 顺序、废弃 32-wire、旧 30-wire、错误状态、坏 cases、未知 condition）全部非零退出、无 fallback。
+
+回本点按采集总成本 1168 invocations / 30432 bytes 计，A 每 episode（natural+forced）节省 13.0 inv / 386 bytes：约 90 个 A episode 回调用、约 79 个回字节；未记录逐 episode wall-clock，故不虚构时间回本点。
+
+milestone Review 首轮 REWORK（F1 训练旁路、F2 恢复谓词过宽、F3 样本引用不可复核、F4 比较漏根字段），返工 `e736c17` 后复核 ACCEPT：F1 接入既有 8N8E typed `candidate-preference` 分支，F2 按 N/S/E/P 类特定证据重写并加四个反例，F3 样本升 v2 逐决策引用可解析，F4 比较补 root 证据。矩阵重跑仍 144/144、forced 72/72 covered/72 recovered、uncovered 0、48 对 0 mismatch。
+
 ## 当前file.property单候选结果（2026-10-19本轮）
 
 本轮输入起点是历史最终共享候选`d7c4a3e5-4111-4e09-857f-5f20f4fa18c0/candidate.json`，经显式按名迁移扩展到`unsupported,DEFER,NOOP,pwd,cd,ls`六个head和14条有序wire，共84参数，然后一次真实拟合。运行时只接typed `file.property`请求，旧Goal kind和旧4×4对象被运行入口拒绝。
