@@ -71,6 +71,40 @@ function packWeights(flat: readonly number[], headCount: number, wireCount: numb
   return Array.from({ length: headCount }, (_, head) => flat.slice(head * wireCount, (head + 1) * wireCount));
 }
 
+/**
+ * Validate an explicit continued-training start point and flatten it.
+ *
+ * A caller must pass a profile of the matching kind with the expected shapes,
+ * so a stale or foreign profile cannot silently seed a fit. Omitting the
+ * profile keeps the original all-zero start.
+ */
+function initialWeights(
+  profile: ReadProfile | undefined,
+  expectedKind: "base" | "reasoning",
+  headCount: number,
+  wireCount: number,
+): Float64Array {
+  if (profile === undefined) return new Float64Array(headCount * wireCount);
+  const expectedSchema = expectedKind === "base" ? BASE_SCHEMA : REASONING_SCHEMA;
+  if (profile.schema !== expectedSchema) {
+    throw new TypeError(`initial profile schema must be ${expectedSchema}, received ${String(profile.schema)}`);
+  }
+  if (profile.kind !== expectedKind) {
+    throw new TypeError(`initial profile kind must be ${expectedKind}, received ${String(profile.kind)}`);
+  }
+  if (profile.headCount !== headCount || profile.wireCount !== wireCount) {
+    throw new TypeError(
+      `initial profile shape must be ${headCount}x${wireCount}, received ${String(profile.headCount)}x${String(profile.wireCount)}`,
+    );
+  }
+  if (profile.weights.length !== headCount || profile.weights.some(row => row.length !== wireCount)) {
+    throw new TypeError("initial profile weights do not match its declared head and wire counts");
+  }
+  const flat = flatWeights(profile.weights);
+  if (flat.some(value => !Number.isFinite(value))) throw new TypeError("initial profile weights must all be finite");
+  return Float64Array.from(flat);
+}
+
 function wireSource(
   circuit: LinearPolicyCircuit,
   weights: readonly number[],
@@ -124,6 +158,13 @@ export type BaseFitInput = Readonly<{
   learningRate: number;
   episodes: readonly BaseEpisode[];
   stopCheckpoints: readonly number[];
+  /**
+   * Optional explicit start point for continued training. When omitted the fit
+   * keeps its original all-zero start. When present the profile must match the
+   * expected kind, head count and wire count; its weights seed the first epoch
+   * unchanged, so epoch 0 forward reproduces the supplied profile.
+   */
+  initialProfile?: ReadProfile;
 }>;
 
 export type ReasoningFitInput = Readonly<{
@@ -132,6 +173,8 @@ export type ReasoningFitInput = Readonly<{
   learningRate: number;
   episodes: readonly ReasoningEpisode[];
   stopCheckpoints: readonly number[];
+  /** Same contract as `BaseFitInput.initialProfile`; omitted means all-zero. */
+  initialProfile?: ReadProfile;
 }>;
 
 export type UnitFitResult = Readonly<{
@@ -141,6 +184,13 @@ export type UnitFitResult = Readonly<{
   stopped: "satisfied" | "epochs_exhausted" | "non_finite";
   probe: Readonly<{ maxRelative: number; passed: boolean }>;
   headReport: readonly (Readonly<{ label: string; trainAccuracy: number; masked: number }>)[];
+  /**
+   * Present only when an `initialProfile` seeded the fit: the same head report
+   * computed at the supplied weights before any gradient step. A caller compares
+   * it with the loaded profile's own forward to prove epoch 0 reproduces the
+   * captured version.
+   */
+  epochZero: readonly (Readonly<{ label: string; trainAccuracy: number; masked: number }>)[] | null;
   timing: Readonly<{ backendLoadMs: number; circuitBuildMs: number; fitMs: number; totalMs: number }>;
 }>;
 
@@ -162,7 +212,13 @@ export async function fitReadFeedbackProfile(input: BaseFitInput): Promise<UnitF
   const backendLoadMs = performance.now() - started;
   const circuit = circuitFor(module, headCount, wireCount);
   const circuitBuildMs = performance.now() - started - backendLoadMs;
-  let weights = new Float64Array(headCount * wireCount);
+  const initialFlat = initialWeights(input.initialProfile, "base", headCount, wireCount);
+  let weights = initialFlat;
+  // Epoch-0 forward at the supplied weights, before any gradient step. This is
+  // what proves a continued fit starts from the captured candidate unchanged.
+  const epochZero = input.initialProfile === undefined
+    ? null
+    : buildBaseReport(rows, initialFlat, headCount, wireCount, circuit, module);
   const trajectory: FitStep[] = [];
   let probe: { maxRelative: number; passed: boolean } = { maxRelative: Infinity, passed: false };
   const fitStarted = performance.now();
@@ -220,7 +276,7 @@ export async function fitReadFeedbackProfile(input: BaseFitInput): Promise<UnitF
         if (satisfied) {
           return finish({
             profile: { schema: BASE_SCHEMA, kind: "base", headCount, wireCount, weights: packWeights([...weights], headCount, wireCount) },
-            trajectory, epochsCompleted: epoch, stopped: "satisfied", probe, headReport,
+            trajectory, epochsCompleted: epoch, stopped: "satisfied", probe, headReport, epochZero,
             timing: { backendLoadMs, circuitBuildMs, fitMs: performance.now() - fitStarted, totalMs: performance.now() - started },
           });
         }
@@ -228,7 +284,7 @@ export async function fitReadFeedbackProfile(input: BaseFitInput): Promise<UnitF
     }
     return finish({
       profile: { schema: BASE_SCHEMA, kind: "base", headCount, wireCount, weights: packWeights([...weights], headCount, wireCount) },
-      trajectory, epochsCompleted: input.epochs, stopped: "epochs_exhausted", probe,
+      trajectory, epochsCompleted: input.epochs, stopped: "epochs_exhausted", probe, epochZero,
       headReport: buildBaseReport(rows, weights, headCount, wireCount, circuit, module),
       timing: { backendLoadMs, circuitBuildMs, fitMs: performance.now() - fitStarted, totalMs: performance.now() - started },
     });
@@ -236,7 +292,7 @@ export async function fitReadFeedbackProfile(input: BaseFitInput): Promise<UnitF
     const error = cause instanceof Error ? cause : new Error(String(cause));
     return finish({
       profile: { schema: BASE_SCHEMA, kind: "base", headCount, wireCount, weights: packWeights([...weights], headCount, wireCount) },
-      trajectory, epochsCompleted: trajectory.length, stopped: "non_finite", probe,
+      trajectory, epochsCompleted: trajectory.length, stopped: "non_finite", probe, epochZero,
       headReport: buildBaseReport(rows, weights, headCount, wireCount, circuit, module),
       timing: { backendLoadMs, circuitBuildMs, fitMs: performance.now() - fitStarted, totalMs: performance.now() - started },
       error,
@@ -284,7 +340,11 @@ export async function fitReadReasoningProfile(input: ReasoningFitInput): Promise
   const backendLoadMs = performance.now() - started;
   const circuit = circuitFor(module, headCount, wireCount);
   const circuitBuildMs = performance.now() - started - backendLoadMs;
-  let weights = new Float64Array(headCount * wireCount);
+  const initialFlat = initialWeights(input.initialProfile, "reasoning", headCount, wireCount);
+  let weights = initialFlat;
+  const epochZero = input.initialProfile === undefined
+    ? null
+    : buildReasoningReport(rows, initialFlat, headCount, wireCount, circuit);
   const trajectory: FitStep[] = [];
   let probe: { maxRelative: number; passed: boolean } = { maxRelative: Infinity, passed: false };
   const fitStarted = performance.now();
@@ -334,7 +394,7 @@ export async function fitReadReasoningProfile(input: ReasoningFitInput): Promise
         if (headReport.every(report => report.trainAccuracy >= 1)) {
           return finish({
             profile: { schema: REASONING_SCHEMA, kind: "reasoning", headCount, wireCount, weights: packWeights([...weights], headCount, wireCount) },
-            trajectory, epochsCompleted: epoch, stopped: "satisfied", probe, headReport,
+            trajectory, epochsCompleted: epoch, stopped: "satisfied", probe, headReport, epochZero,
             timing: { backendLoadMs, circuitBuildMs, fitMs: performance.now() - fitStarted, totalMs: performance.now() - started },
           });
         }
@@ -342,7 +402,7 @@ export async function fitReadReasoningProfile(input: ReasoningFitInput): Promise
     }
     return finish({
       profile: { schema: REASONING_SCHEMA, kind: "reasoning", headCount, wireCount, weights: packWeights([...weights], headCount, wireCount) },
-      trajectory, epochsCompleted: input.epochs, stopped: "epochs_exhausted", probe,
+      trajectory, epochsCompleted: input.epochs, stopped: "epochs_exhausted", probe, epochZero,
       headReport: buildReasoningReport(rows, weights, headCount, wireCount, circuit),
       timing: { backendLoadMs, circuitBuildMs, fitMs: performance.now() - fitStarted, totalMs: performance.now() - started },
     });
@@ -350,7 +410,7 @@ export async function fitReadReasoningProfile(input: ReasoningFitInput): Promise
     const error = cause instanceof Error ? cause : new Error(String(cause));
     return finish({
       profile: { schema: REASONING_SCHEMA, kind: "reasoning", headCount, wireCount, weights: packWeights([...weights], headCount, wireCount) },
-      trajectory, epochsCompleted: trajectory.length, stopped: "non_finite", probe,
+      trajectory, epochsCompleted: trajectory.length, stopped: "non_finite", probe, epochZero,
       headReport: buildReasoningReport(rows, weights, headCount, wireCount, circuit),
       timing: { backendLoadMs, circuitBuildMs, fitMs: performance.now() - fitStarted, totalMs: performance.now() - started },
       error,
