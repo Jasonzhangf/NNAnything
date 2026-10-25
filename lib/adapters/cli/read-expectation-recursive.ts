@@ -81,6 +81,8 @@ export type ReadExpectationDecision = Readonly<{
   prediction: ReasoningLabel;
   allowed: readonly ReasoningLabel[];
   legal: boolean;
+  /** Effective context the entry used for this decision, for provenance. */
+  context: ReadContext;
 }>;
 
 export type ReadExpectationAttemptRecord = Readonly<{
@@ -585,7 +587,7 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
     const vector: ReasoningVector = measureReasoning(basePrediction, attempt, context);
     const prediction = input.unit.inferReasoning(vector);
     const oracle = superviseReasoning(attempt, context);
-    return { prediction, allowed: oracle.allowed, basePrediction, legal: oracle.allowed.includes(prediction) };
+    return { prediction, allowed: oracle.allowed, basePrediction, legal: oracle.allowed.includes(prediction), context };
   }
 
   /** One decision per real attempt, recorded with the oracle's own allowed set. */
@@ -598,6 +600,7 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
       prediction: decided.prediction,
       allowed: decided.allowed,
       legal: decided.legal,
+      context: decided.context,
     }));
   }
 
