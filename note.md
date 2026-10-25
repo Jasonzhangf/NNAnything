@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-24 C-A1 CLI 编程搜索 P3（训练/评估效率）已集成 main
+
+P3 完成四个增量并合入 main（`43c4d68`），基线为 `33319e3`，已推送 `origin/main`。增量 A 在共享 `cli.command-policy.v1` 追加 `search.nameNeedleSegment` 一列，矩阵 10×31 共 310 参数，只有 `entry.inspect` 行该列可训练；旧 10×30 只能经 `migrateCliCommandProfileV10x30` 离线按名迁移补零，运行入口拒收未迁移 10×30 与废弃 10×32。增量 B 按 Plan §6 三沙盒配方采集并真实拟合，增量 B2 修正 EIO 收敛断点（断点在 CLI 域内，不是共享 core 缺口），增量 C 做独立评价矩阵与新进程回载。最终候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc` 由同一 8N8E 训练图的 typed `candidate-preference` 分支真实拟合、保存并在新进程回载；三个候选全部保持 `uncalibrated/not_applied`，训练报告 `fullyVerified=false`。
+
+隔离矩阵 144 cells 全部达成，forced 72/72 先取得真实 N/S/E/P 反馈后执行不同合法候选并命中，`duplicateReads=0`。A 同族平均调用 10.75→4.25（-60.5%）、平均读取 282→89 bytes（-68.4%），超过预设 15% 阈值；B 跨族如实报告双向（natural 与 forced 均 6 改善/6 退化），不据此声称任意家族泛化。t2 由两个独立进程复跑，48 对 t1/t2 在根状态、control、轨迹与成本上全一致；回载八类失败路径全部非零退出、无 fallback。回本点按采集总成本约 90 个 A episode 回调用、约 79 个回字节，未记录逐 episode wall-clock，故不报时间回本点。
+
+milestone Review 首轮 REWORK（F1 训练走脚本旁路未接既有 8N8E、F2 恢复谓词过宽、F3 决策样本引用不可复核、F4 比较漏根字段），返工 `e736c17` 后复核 ACCEPT，F1–F4 全部关闭。合并态全量 `npm run test:full` 为 1506 例、1495 通过、10 失败、1 跳过；10 个失败全部在 `tests/cli-read-feedback-online.test.mjs`，原因是缺 `playground/cli/read-feedback/out/` 本地忽略产物（`ENOENT`），在 `origin/main` 主树同样 10 失败，属 read-feedback 域既有基线问题，不由本次 CLI 搜索改动引入；其余受影响套件在此前各增量均 0 失败。P3 worktree 与分支已按 SESE 移除。
+
 ## 2026-10-24 B-A1 有限安全子 milestone 已集成 main
 
 Alice 对 Bob 的生产受限训练/回载与 G1 修复完成整体审查（`ba1-safety-milestone-review.md`，本人 28/28），随后 Bob 正式 deliver、Alice `task review --accept`。Jenny 在最新 `origin/main` 上以 `f6b2a1c` 非快进合并 7 个已审提交，改动仅限 `search-input-host` 数值绑定、生产投影、fixtures、公开 consumer 与测试。合并态全量 `npm run test:full` 为 1430 例、1429 通过、0 失败、1 跳过；`collab task integrated` 已记录 `f6b2a1c`。范围只含该有限 milestone：离线 profile 保持 `uncalibrated/not_applied`、不会因本集成采用；完整 B-A1 none 语义、V2/indep-2 安全弃权转 none 能力、焦点 ignore 与全网页自主绑定/恢复仍未完成，任务按后续能力保留，不被本 PASS 关闭。
