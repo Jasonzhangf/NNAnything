@@ -19,6 +19,7 @@
 import { expectRecord } from "../../core/schema.js";
 import {
   USAGE_FORM_FEATURE_NAMES,
+  USAGE_RELATION_CONTRACT,
   extractUsageFormFeatures,
   validateUsageTokenTable,
   type UsageFormFeatureName,
@@ -268,7 +269,7 @@ export function trainUsageRelation(
   }
 
   const profile = validateUsageRelationProfile({
-    contract: "browser.search-input-usage-relation.v1",
+    contract: USAGE_RELATION_CONTRACT,
     features: [...USAGE_FORM_FEATURE_NAMES],
     queryWeights,
     fieldWeights,
