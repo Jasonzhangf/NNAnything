@@ -190,3 +190,147 @@ test("the composition entry passes the live evidence map to the member observati
   assert.equal(withoutEvidence.member[0].state, "unmeasured",
     "no accessible name evidence leaves the channel unmeasured");
 });
+
+// ---------------------------------------------------------------------------
+// Alice ruling 2026-10-25 (route 2, evidence combination). These drive the
+// public composition entry with REAL typed member verdicts, not hand-set
+// states: the label carries a non-search cue (nonSearchMarker=true), the
+// placeholder has no search word (markerHit=false), the form has no
+// role=search, and the member's own profile decides the relation. The old
+// binder returned `none` here because it read only the cue wires.
+// ---------------------------------------------------------------------------
+
+/** A host the cue wires alone would call non-search (label 备注). */
+const nonSearchLookHost = () => element({
+  labels: [element({ tagName: "LABEL", textContent: "备注" })],
+  getAttribute: name => (name === "placeholder" ? "填写备注" : null),
+  closest: selector => (selector === "form" ? plainForm() : null),
+});
+
+function plainForm() {
+  return element({
+    tagName: "FORM",
+    getAttribute: () => null,
+    querySelector: selector => (selector.includes("submit") ? element({ tagName: "BUTTON", textContent: "保存" }) : null),
+  });
+}
+
+/** Same-scope input, with the member's evidence map passed explicitly. */
+function scopeWith(evidence) {
+  return {
+    ...projectionInput([{ nodeRef: "c1", element: nonSearchLookHost() }]),
+    evidenceOf: () => evidence,
+  };
+}
+
+test("member query_action + non-search cue is insufficient, never none (query conflict)", () => {
+  const outcome = bindSearchInputHostScope(
+    scopeWith({ accessibleName: "搜索", accessibleNameCoverage: "complete" }),
+    {
+      profile: dependantProfile(),
+      usageProfile: singleFeatureProfile("accessibleName.queryTokenPresent"),
+      usageTokens: TOKENS,
+    },
+  );
+  assert.equal(outcome.member[0].state, "query_action", "the member really reached the query head");
+  assert.equal(outcome.member[0].observedRevision, 1);
+  assert.equal(outcome.result.state, "insufficient_observation",
+    "a real query-action verdict must not be dropped to none");
+  assert.equal(outcome.result.rejection, "usage_relation_conflict");
+  assert.deepEqual(outcome.result.evidenceRefs, ["c1"]);
+});
+
+test("member double-support conflict is insufficient, never none", () => {
+  // Both heads read the same weighted feature: the double reach is reported as
+  // ambiguous/conflicting_support, which is still a conflict with the cue.
+  const index = USAGE_FORM_FEATURE_NAMES.indexOf("accessibleName.queryTokenPresent");
+  assert.ok(index >= 0);
+  const raw = {
+    contract: USAGE_RELATION_CONTRACT,
+    features: [...USAGE_FORM_FEATURE_NAMES],
+    queryWeights: USAGE_FORM_FEATURE_NAMES.map(() => 0),
+    fieldWeights: USAGE_FORM_FEATURE_NAMES.map(() => 0),
+    threshold: 0.5,
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+  raw.queryWeights[index] = 4;
+  raw.fieldWeights[index] = 4;
+  const outcome = bindSearchInputHostScope(
+    scopeWith({ accessibleName: "搜索", accessibleNameCoverage: "complete" }),
+    {
+      profile: dependantProfile(),
+      usageProfile: validateUsageRelationProfile(raw),
+      usageTokens: TOKENS,
+    },
+  );
+  assert.equal(outcome.member[0].state, "ambiguous");
+  assert.equal(outcome.member[0].reason, "conflicting_support");
+  assert.equal(outcome.result.state, "insufficient_observation");
+  assert.equal(outcome.result.rejection, "usage_relation_conflict");
+});
+
+test("member field_description keeps none when the original non-search evidence is intact", () => {
+  // A member profile that reads the field head only: the measured field token
+  // makes the relation decisively non-search while the query head stays below.
+  const fieldIndex = USAGE_FORM_FEATURE_NAMES.indexOf("accessibleName.fieldTokenPresent");
+  assert.ok(fieldIndex >= 0);
+  const fieldRaw = {
+    contract: USAGE_RELATION_CONTRACT,
+    features: [...USAGE_FORM_FEATURE_NAMES],
+    queryWeights: USAGE_FORM_FEATURE_NAMES.map(() => 0),
+    fieldWeights: USAGE_FORM_FEATURE_NAMES.map(() => 0),
+    threshold: 0.5,
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+  fieldRaw.fieldWeights[fieldIndex] = 4;
+  const fieldProfile = validateUsageRelationProfile(fieldRaw);
+  const outcome = bindSearchInputHostScope(
+    scopeWith({ accessibleName: "备注", accessibleNameCoverage: "complete" }),
+    {
+      profile: dependantProfile(),
+      usageProfile: fieldProfile,
+      usageTokens: TOKENS,
+    },
+  );
+  assert.equal(outcome.member[0].state, "field_description");
+  assert.equal(outcome.result.state, "none",
+    "a real non-search relation plus the full non-search cue still justifies none");
+});
+
+test("member unmeasured does not fall back to a cue-only none", () => {
+  // The accessible-name channel has no evidence, so the member abstains while
+  // the non-search cue is fully intact. A binder profile with zero support
+  // weights must not turn the missing support into the older guard: the
+  // member-enabled path reports the unresolved relation itself.
+  const outcome = bindSearchInputHostScope(
+    scopeWith(null),
+    {
+      profile: neutralSearchInputHostProfile(),
+      usageProfile: singleFeatureProfile("accessibleName.queryTokenPresent"),
+      usageTokens: TOKENS,
+    },
+  );
+  assert.equal(outcome.member[0].state, "unmeasured");
+  assert.equal(outcome.result.state, "insufficient_observation");
+  assert.equal(outcome.result.rejection, "usage_relation_unresolved");
+});
+
+test("member unsupported_relation does not fall back to a cue-only none", () => {
+  // The weighted feature is measured but false: both heads stay below the
+  // threshold, which the member reports as ambiguous/unsupported_relation. That
+  // is still missing evidence, so the cue may not decide none alone.
+  const outcome = bindSearchInputHostScope(
+    scopeWith({ accessibleName: "备注", accessibleNameCoverage: "complete" }),
+    {
+      profile: neutralSearchInputHostProfile(),
+      usageProfile: singleFeatureProfile("accessibleName.queryTokenPresent"),
+      usageTokens: TOKENS,
+    },
+  );
+  assert.equal(outcome.member[0].state, "ambiguous");
+  assert.equal(outcome.member[0].reason, "unsupported_relation");
+  assert.equal(outcome.result.state, "insufficient_observation");
+  assert.equal(outcome.result.rejection, "usage_relation_unresolved");
+});

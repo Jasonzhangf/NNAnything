@@ -25,7 +25,19 @@ export type SearchInputHostRejection =
   | "candidate_outside_scope"
   | "stale_candidate"
   | "unmeasured_candidate_fields"
-  | "access_unknown";
+  | "access_unknown"
+  // The member was enabled and its verdict names a different revision than the
+  // live request. It is never ignored to fall back to `none`.
+  | "usage_relation_stale"
+  // The member was enabled but its evidence does not name this candidate, so the
+  // verdict belongs to another object and cannot speak for this one.
+  | "usage_relation_unbound"
+  // The member was enabled and its verdict conflicts with the non-search cue:
+  // a query-action or double-support conflict means the host is not non-search.
+  | "usage_relation_conflict"
+  // The member was enabled but abstained or found no relation. That is missing
+  // relation evidence, not a proof of non-search, so `none` is not justified.
+  | "usage_relation_unresolved";
 
 /**
  * θ is a deterministic hyperparameter: 开发集选定后冻结 (selected on the
@@ -100,6 +112,26 @@ export interface SearchInputHostCandidate {
    */
   readonly usageQuerySupport?: number | null;
   readonly usageFieldSupport?: number | null;
+  /**
+   * Typed relation verdict of the usage-relation member for this same control,
+   * passed through explicitly by the production composition entry.
+   *
+   * This is a structured pass-through of `UsageRelationInference`, not a second
+   * classifier: state and reason are the member's own four-state result, and
+   * observedRevision/evidenceRefs carry their provenance so the binder can prove
+   * the verdict belongs to this object at this revision. Absent means the member
+   * was never enabled for this call; the binder must not treat an absent verdict
+   * like a stale one.
+   */
+  readonly memberVerdict?: SearchInputHostMemberVerdict;
+}
+
+/** Structured, provenance-carrying copy of the member's typed verdict. */
+export interface SearchInputHostMemberVerdict {
+  readonly state: "query_action" | "field_description" | "ambiguous" | "unmeasured";
+  readonly reason: "conflicting_support" | "unsupported_relation" | null;
+  readonly observedRevision: number;
+  readonly evidenceRefs: readonly string[];
 }
 
 /** A candidate after the deterministic missing-measurement guard. */
@@ -323,7 +355,48 @@ const CANDIDATE_KEYS = [
 ] as const;
 
 /** Added after the delivered shape, so they stay optional on old records. */
-const CANDIDATE_OPTIONAL_KEYS = ["usageQuerySupport", "usageFieldSupport"] as const;
+const CANDIDATE_OPTIONAL_KEYS = ["usageQuerySupport", "usageFieldSupport", "memberVerdict"] as const;
+
+const MEMBER_VERDICT_STATES = ["query_action", "field_description", "ambiguous", "unmeasured"] as const;
+const MEMBER_VERDICT_REASONS = ["conflicting_support", "unsupported_relation"] as const;
+
+/**
+ * Validate the structured member verdict and bind it to its provenance.
+ *
+ * This is structure and origin checking, not a second opinion on the member:
+ * the state must be one of the four relation states, the reason must be the
+ * member's own reason (null exactly when the member reported null), the revision
+ * must be a real integer, and the evidence must name at least one ref. Nothing
+ * here re-derives the relation or trusts a caller-declared verdict as authority;
+ * the binder still re-checks revision/object identity against the live request.
+ */
+function memberVerdict(value: unknown, label: string): SearchInputHostMemberVerdict {
+  const raw = expectRecord(value, label);
+  exactKeys(raw, ["state", "reason", "observedRevision", "evidenceRefs"], label);
+  const state = nullableEnum(raw.state, MEMBER_VERDICT_STATES, `${label}.state`);
+  if (state === null) throw new TypeError(`${label}.state must be one of ${MEMBER_VERDICT_STATES.join(", ")}`);
+  const reason = raw.reason === null
+    ? null
+    : nullableEnum(raw.reason, MEMBER_VERDICT_REASONS, `${label}.reason`);
+  // The member's own four-state table fixes which reasons each state may carry
+  // (`inferUsageRelation` returns reason=null for the two decisive states and
+  // one of the two conflict reasons for ambiguous). A mismatch is a malformed
+  // verdict, not a new state, so it fails here instead of being reinterpreted.
+  const reasonsAllowed = state === "ambiguous"
+    ? MEMBER_VERDICT_REASONS
+    : [null] as const;
+  if (!(reasonsAllowed as readonly (string | null)[]).includes(reason)) {
+    throw new TypeError(`${label}.reason must be one of ${reasonsAllowed.join(", ")} for state ${state}`);
+  }
+  const observedRevision = expectFiniteNumber(raw.observedRevision, `${label}.observedRevision`);
+  if (!Number.isInteger(observedRevision)) throw new TypeError(`${label}.observedRevision must be an integer`);
+  if (!Array.isArray(raw.evidenceRefs) || raw.evidenceRefs.length === 0) {
+    throw new TypeError(`${label}.evidenceRefs must be a non-empty array`);
+  }
+  const evidenceRefs = Object.freeze(raw.evidenceRefs.map((entry, index) =>
+    expectNonEmptyString(entry, `${label}.evidenceRefs[${index}]`)));
+  return Object.freeze({ state, reason, observedRevision, evidenceRefs });
+}
 
 export function validateSearchInputHostCandidate(value: unknown, label = "search input host candidate"): SearchInputHostCandidate {
   const candidate = expectRecord(value, label);
@@ -371,6 +444,9 @@ export function validateSearchInputHostCandidate(value: unknown, label = "search
     ...(candidate.usageFieldSupport === undefined
       ? {}
       : { usageFieldSupport: nullableSupport(candidate.usageFieldSupport, `${label}.usageFieldSupport`) }),
+    ...(candidate.memberVerdict === undefined
+      ? {}
+      : { memberVerdict: memberVerdict(candidate.memberVerdict, `${label}.memberVerdict`) }),
   });
 }
 
