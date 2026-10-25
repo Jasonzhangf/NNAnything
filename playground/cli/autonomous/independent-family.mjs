@@ -14,6 +14,7 @@ import {
   CLI_COMMAND_HEADS,
   createCliFilesystemSandbox,
   createEvidenceAuthority,
+  migrateCliCommandProfileV10x30,
   runCliAutonomousGoal,
   validateCliCommandProfile,
 } from "nnanything/cli-goal";
@@ -32,7 +33,12 @@ if (!weightsPath) {
 
 let profile;
 try {
-  profile = validateCliCommandProfile(JSON.parse(await readFile(weightsPath, "utf8")));
+  // A 10x30 profile predates the search.nameNeedleSegment wire; the runtime entry rejects that
+  // shape by contract, so this caller migrates it by name first. A 10x31 profile passes through.
+  const rawProfile = JSON.parse(await readFile(weightsPath, "utf8"));
+  profile = validateCliCommandProfile(
+    rawProfile.wires?.length === 30 ? migrateCliCommandProfileV10x30(rawProfile) : rawProfile,
+  );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`failed to load command policy from ${weightsPath}: ${message}`);

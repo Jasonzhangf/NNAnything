@@ -9,7 +9,12 @@ const profileFile = process.env.NN_CLI_COMMAND_PROFILE;
 if (typeof profileFile !== "string" || profileFile.length === 0) {
   throw new Error("NN_CLI_COMMAND_PROFILE is required");
 }
-const profile = JSON.parse(await readFile(profileFile, "utf8"));
+// A 10x30 profile predates the search.nameNeedleSegment wire; the runtime entry rejects that
+// shape by contract, so this caller migrates it by name first. A 10x31 profile passes through.
+const rawProfile = JSON.parse(await readFile(profileFile, "utf8"));
+const profile = rawProfile.wires?.length === 30
+  ? await (await import("nnanything/cli-goal")).migrateCliCommandProfileV10x30(rawProfile)
+  : rawProfile;
 const limits = Object.freeze({ maxTransitions: 20, maxDepth: 4, maxDerivedGoals: 8 });
 
 function request(directory, requestId) {
