@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-10-24 master 收口与协作调度（Astra 停用、GCM 复核、B-A1 切片收口、L2 文档提交）
+
+本批通知已消费，收件箱归零。CEO 全局通知 23:50 PDT 起停用 Astra，已向 Carol/Bob 转发并回复 CEO（durable `m1792907291354-1748`）；Alice 回报仅 1 个 Astra 实现 worker 预计本轮结束、无跨 23:50 worker，Bob/David 回报无 Astra。后续执行 worker 一律 `codex exec --profile gcm`（gpt-5.5），Planner/Reviewer 用 gpt-6.1-sol medium、不用 fast。
+
+GCM 入口复核：22:42 PDT 新建独立 `codex exec --profile gcm` 最小探测正常返回 GCM_OK、退出 0；原 diagnosis/metrics 两次 stream disconnected / error decoding response body 保留为传输失败证据，不归因 MLP。metrics r2 最终 exit0，A 参数口径关闭，余 E 展开行/无支持类别文案交 David E0；短 diagnosis r2 exit1 由 David 接续，不另开父 GCM。
+
+L2 设计文档收口：`docs/l2-four-head-experiment.md`（10.6 用户收敛结构、10.7 最小多选方法）与 `docs/l2-multichoice-e-diagnostic-peer.md`（David E0-E4 任务书）已按纯设计范围合入 main `a7fc299` 并推 origin/main；公共实现未整体验收，不同文档混合提交。
+
+B-A1 原 `b-a1-full-none-m2` 收口：代码切片 main `0b02865`、R1/R3 targeted PASS 与失败报告单独保留；原任务 delivery/test 条件（V2/indep-2 none、全网页自主绑定、R2 §8.6 预检未过）不可 accept，master 以 `--force` 关闭并在 reason 写明未完成能力责任迁移，worktree 已不存在、分支已清。能力责任迁至新任务 `b-a1-none-capability-r2`（rev2 invited、executor Bob、reviewer Alice），R2/R4、旧回放 6/8 两例弃权与两候选 `uncalibrated/not_applied` 继续保留。
+
+L2 任务板现状：`l2-four-head-mvp-m1`（Alice，T0/T1 核心）working；`l2-four-head-t2-cli-evidence`（Carol，REWORK 两处定点）rework；`l2-four-head-t3-browser-evidence`（Bob，证据定点复核 PASS，能力缺口保留，待 Bob 收口自有资源）rework；`l2-multichoice-e-diagnosis`（David，E0-E4，已确认 rev2 working）working。T2/T3 证据任务不批准公共实现集成。
+
 ## 2026-10-24 C-A1 CLI 编程搜索 P3（训练/评估效率）已集成 main
 
 P3 完成四个增量并合入 main（`43c4d68`），基线为 `33319e3`，已推送 `origin/main`。增量 A 在共享 `cli.command-policy.v1` 追加 `search.nameNeedleSegment` 一列，矩阵 10×31 共 310 参数，只有 `entry.inspect` 行该列可训练；旧 10×30 只能经 `migrateCliCommandProfileV10x30` 离线按名迁移补零，运行入口拒收未迁移 10×30 与废弃 10×32。增量 B 按 Plan §6 三沙盒配方采集并真实拟合，增量 B2 修正 EIO 收敛断点（断点在 CLI 域内，不是共享 core 缺口），增量 C 做独立评价矩阵与新进程回载。最终候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc` 由同一 8N8E 训练图的 typed `candidate-preference` 分支真实拟合、保存并在新进程回载；三个候选全部保持 `uncalibrated/not_applied`，训练报告 `fullyVerified=false`。
