@@ -100,6 +100,8 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 
 ## 唯一Owner与入口
 
+- 2026-10-24新实验方向：有限参数化目标词表与四语义头（对象关系、目标条件分解、状态评价、当前选择）的输出形状、量化标准、失败证伪和两域有限/持续学习准入由docs/l2-four-head-experiment.md唯一维护；内部责任图workflows/l2-four-head-step.graph.json是design，复用recursive-goal，未实现新模型。State是观测事实，Condition是Goal对State的要求，不新增平行基础元素。LLM可给关系/样本teacher提案，证据确认后才监督；BERT/小Encoder为可选学生，不训练自然语言输出。旧线性模型、候选与历史结果不自动成为四头成绩，未过有限与无遗忘门不扩成大规模训练。
+
 - 2026-10-22通用反馈修订候选：recursive-goal图/三个算子为`0.2.0.0001`，3N2E拓扑不变。失败事实与领域归因分开，`planning.attributeFailure`未配置或unknown时不创建转移排除并停止该自动恢复；合法限制须有当前post证据和已生成转移范围，续接保存归因凭据。最新行为/交付沿note.md，前述0.2.0/下述0.1.0只保留历史证据，不作为当前版本。分层刚性/混合唯一合同为docs/design.md 1.1.1；模式反应、归因、经验时间边界分别归recursive-goal-module.md 4.0、bounded-goal-planning.md 9.1、model-evolution.md 2.2。
 - 两个独立长程域任务由docs/browser-next-longhorizon.md和docs/cli-next-longhorizon.md维护，配套同名前缀的`-prompt.md`交用户派发；不因提示词落盘就启动。域owner不修改共享core，缺口交父编排者，不各自复制推理循环。旧browser-foundation尚待能力修复及整体集成；精确CLI查找已交付，不能据历史“未实现”导航忽略当前nnanything/cli-search入口。
 

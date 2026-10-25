@@ -1,5 +1,7 @@
 # 通用递归目标独立模块与准确错误合同
 
+2026-10-24领域决策新实验：[L2四语义头](l2-four-head-experiment.md)通过既有adapter接点设计关系、分解、评价及当前选择；本模块的帧、证据、权限、预算、恢复和错误合同不变。H_R不替换supports的纯类型兼容检查；H_D/H_E/H_A分别接derive/evaluate/select。内部单步责任图是design，无新增运行算子或已训练模型，不据此声称当前controller已接四头。未知与有范围的失败证伪按显式State/证据返回，不能从日志恢复控制。
+
 状态：2026-10-20。v1递归行为保留，`0.2.0` 3N2E已接有界规划、真实结果对照、checkpoint与失败先验恢复，有限合成域和真实cwd consumer已有验收。第13节保留旧`0.1.0`历史证据；新实现证据另列，不混用分母。整体Review、main集成及资源收口由[note.md](../note.md)维护。
 
 本合同唯一维护独立模块边界、公开数据类型、adapter 调用形状、错误传播、response 和 continuation。通用语义及 3N2E 仍由 [recursive-goal-design.md](recursive-goal-design.md)维护。实现源码 owner 为 `lib/workflow/recursive-goal/`，公开门面 owner 为 `lib/recursive-goal.ts`。

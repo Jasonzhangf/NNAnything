@@ -7,6 +7,7 @@
 
 | 工作流图文件 | 对应配置文件 | 拓扑规格 | 状态 | 职责与交付范围 |
 | :--- | :--- | :--- | :--- | :--- |
+| `l2-four-head-step.graph.json` | 内部单步责任设计，无运行配置 | 8 节点 7 边 (8N7E SESE) | `0.1.0-design`，未实现 | 绑定Goal/State→对象关系→条件分解→当前评价→选择当前一步→执行观察→后验评价/范围证伪→归还。四语义头复用既有recursive-goal，不新增执行引擎；数值输出、CLI/browser有限验收与后训练准入见docs/l2-four-head-experiment.md |
 | `cli-read-composition.graph.json` | 内部责任设计，无独立运行配置 | 7 节点 6 边 (7N6E SESE) | `0.1.0-design`，未实现 | 显式目录内严格名称 regular 项的只读字节组合：绑定→列举→精确匹配→类型/引用核验→范围读→字节谓词与根事实评价→汇总；实施复用recursive-goal与cli-file-property，根目标`file.property.content.bytes`。合同见docs/cli-read-composition.md |
 | `cli-entry-search.graph.json` | 内部责任设计，无独立运行配置 | 5 节点 4 边 (5N4E SESE) | `0.1.0-design`，未实现 | 单目录直接子项的精确名称查找：绑定→当前列举→名称关系→真实类型/引用核验→根评价；实施复用recursive-goal与cli-file-property，不新建五算子引擎。合同见docs/cli-entry-search-design.md |
 | `cli-content-search.graph.json` | 内部责任设计，无独立运行配置 | 9 节点 8 边 (9N8E SESE) | `0.2.0-design`，P2 实现中 | 按范围递归筛出候选并做字节级内容包含判定的只读搜索：绑定搜索范围与文件条件→取得目录直接子项证据→按深度派发子目录列举→按文件条件归并候选并排序→核验候选类型与受信引用→不重叠连续分块读取→收束部分覆盖与历史命中→评价内容包含与根事实→汇总；复用recursive-goal与cli-file-property，list/inspect/read为独立原子分派，根目标`file.property.content.bytes`且谓词为字节级`contains`。P2开放`one/flat`与`all/flat|nested`、depth边界与chunk扫描；公开入口`nnanything/cli-content-search`。合同见docs/cli-programming-search-m1.md |

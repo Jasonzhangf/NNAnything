@@ -1,0 +1,25 @@
+{
+  "id":"l2-four-head-step",
+  "version":"0.1.0-design",
+  "inputs":[{"id":"l2_step_request","schema":"Object"}],
+  "nodes":[
+    {"id":"绑定当前目标、真实状态与有限能力","operator":"l2.four-head.bind","operator_version":"0.1.0-design","inputs":["l2_step_request"],"output":{"id":"l2_context","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"编码对象并学习当前关系","operator":"l2.four-head.relate","operator_version":"0.1.0-design","inputs":["l2_context"],"output":{"id":"l2_relations","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"形成有界目标条件与分解候选","operator":"l2.four-head.decompose","operator_version":"0.1.0-design","inputs":["l2_relations"],"output":{"id":"l2_conditions","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"评价当前状态、缺口与已有假设","operator":"l2.four-head.evaluate-current","operator_version":"0.1.0-design","inputs":["l2_conditions"],"output":{"id":"l2_evaluation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"选择当前子目标、技能与结果期待","operator":"l2.four-head.select","operator_version":"0.1.0-design","inputs":["l2_evaluation"],"output":{"id":"l2_selection","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"固定调用并取得真实后验","operator":"l2.four-head.execute-observe","operator_version":"0.1.0-design","inputs":["l2_selection"],"output":{"id":"l2_actual_outcome","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"重编码后验、评价并记录有范围的证伪","operator":"l2.four-head.evaluate-posterior","operator_version":"0.1.0-design","inputs":["l2_actual_outcome"],"output":{"id":"l2_feedback","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"归还证据、错误和下一次推进条件","operator":"l2.four-head.report","operator_version":"0.1.0-design","inputs":["l2_feedback"],"output":{"id":"l2_step_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges":[
+    {"from":"绑定当前目标、真实状态与有限能力","to":"编码对象并学习当前关系","arc_id":"l2_context"},
+    {"from":"编码对象并学习当前关系","to":"形成有界目标条件与分解候选","arc_id":"l2_relations"},
+    {"from":"形成有界目标条件与分解候选","to":"评价当前状态、缺口与已有假设","arc_id":"l2_conditions"},
+    {"from":"评价当前状态、缺口与已有假设","to":"选择当前子目标、技能与结果期待","arc_id":"l2_evaluation"},
+    {"from":"选择当前子目标、技能与结果期待","to":"固定调用并取得真实后验","arc_id":"l2_selection"},
+    {"from":"固定调用并取得真实后验","to":"重编码后验、评价并记录有范围的证伪","arc_id":"l2_actual_outcome"},
+    {"from":"重编码后验、评价并记录有范围的证伪","to":"归还证据、错误和下一次推进条件","arc_id":"l2_feedback"}
+  ],
+  "outputs":["l2_step_result"]
+}
