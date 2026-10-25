@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   SEARCH_INPUT_HOST_WIRES,
   inferSearchInputHostBinding,
+  migrateSearchInputHostProfile,
   neutralSearchInputHostProfile,
   trainSearchInputHostBinder,
   validateSearchInputHostProfile,
@@ -508,7 +509,7 @@ const TRAIN_ABSOLUTE_PATH = resolve(repoRoot, "playground/browser/search-input-h
 
 const label = (ref, polarity) => ({ ref, polarity });
 
-test("absolute: only usage-evidence wires change; the other 31 stay exactly zero", async () => {
+test("absolute: only usage-evidence wires change; the other 33 stay exactly zero", async () => {
   const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
   const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
   assert.equal(result.fit.objective, "absolute");
@@ -518,7 +519,7 @@ test("absolute: only usage-evidence wires change; the other 31 stay exactly zero
       assert.equal(result.profile.weights[index], 0, `carrier wire ${wire} must stay frozen at zero`);
     }
   }
-  assert.equal(result.profile.weights.length, 34);
+  assert.equal(result.profile.weights.length, 36);
   assert.ok(result.profile.weights.some(weight => weight !== 0));
   assert.equal(result.profile.calibration, "uncalibrated");
   assert.equal(result.profile.adoption, "not_applied");
@@ -574,7 +575,7 @@ test("absolute: touching the weight bound is an observable statistic, not an err
   // only a non-finite parameter is an error. Alice ruling 2026-10-24.
   const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
   const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", learningRate: 100 });
-  assert.equal(result.profile.weights.length, 34);
+  assert.equal(result.profile.weights.length, 36);
   assert.equal(result.profile.calibration, "uncalibrated");
   assert.ok(result.fit.boundHitWires.length > 0, "the crossed box must be observable in the result");
   for (const weight of result.profile.weights) {
@@ -609,4 +610,86 @@ test("absolute: the pairwise objective stays the default and is unchanged", asyn
   assert.equal(result.fit.objective, "pairwise");
   assert.ok(result.fit.pairCount > 0);
   assert.equal(result.fit.fittedRowCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 1/6: the 36-wire boundary and migration of delivered 34-wire profiles.
+//
+// Failure mode this guards: the delivered wire list grows from 34 to 36, but
+// saved profiles still carry 34 weights. A positional copy would silently shift
+// every coefficient once a wire is inserted anywhere but the tail. Migration
+// must therefore align by wire NAME and pad only the appended wires with zero.
+// ---------------------------------------------------------------------------
+
+const DELIVERED_34_WIRES = Object.freeze([
+  "type.text", "type.search", "type.tel", "type.email", "type.url", "type.number",
+  "type.other", "contentEditable", "tag.input", "tag.textarea", "editable", "disabled",
+  "readOnly", "cssHidden", "intersectsViewport", "explicitTabIndex.negative",
+  "explicitTabIndex.nonnegative", "explicitTabIndex.absent", "explicitTabIndex.invalid",
+  "tabIndexFocus", "inForm", "formRoleSearch", "nearbySubmit", "depth.shallow",
+  "depth.middle", "depth.deep", "hasLabel", "hasPlaceholder", "hasAria", "markerHit",
+  "nonSearchMarker", "textLenBand.empty", "textLenBand.short", "textLenBand.long",
+]);
+
+const deliveredProfile = (order = DELIVERED_34_WIRES) => {
+  const weightOf = name => DELIVERED_34_WIRES.indexOf(name) + 1; // distinct, nonzero
+  return {
+    contract: "browser.search-input-host.v1",
+    role: "search-input-host",
+    wires: [...order],
+    weights: order.map(weightOf),
+    threshold: 0.5,
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+};
+
+test("the declared wire list appends exactly two usage wires after the delivered 34", () => {
+  assert.equal(SEARCH_INPUT_HOST_WIRES.length, 36);
+  assert.deepEqual(SEARCH_INPUT_HOST_WIRES.slice(0, 34), DELIVERED_34_WIRES,
+    "the delivered 34 keep their names and order; only an append is allowed");
+  assert.deepEqual(SEARCH_INPUT_HOST_WIRES.slice(34), ["usage.query_support", "usage.field_support"]);
+});
+
+test("a delivered 34-wire profile migrates to 36 by name, new wires starting at zero", () => {
+  const migrated = migrateSearchInputHostProfile(deliveredProfile());
+  assert.equal(migrated.wires.length, 36);
+  assert.equal(migrated.weights.length, 36);
+  // Every delivered coefficient survives with the same value at the same name.
+  for (const wire of DELIVERED_34_WIRES) {
+    const index = migrated.wires.indexOf(wire);
+    assert.equal(migrated.weights[index], DELIVERED_34_WIRES.indexOf(wire) + 1, `wire ${wire} must keep its weight`);
+  }
+  assert.equal(migrated.weights[34], 0, "appended usage wire starts at zero");
+  assert.equal(migrated.weights[35], 0, "appended usage wire starts at zero");
+  // Migration must not launder the candidate's delivery state.
+  assert.equal(migrated.calibration, "uncalibrated");
+  assert.equal(migrated.adoption, "not_applied");
+  // And it must pass the real validator with no second definition of the order.
+  validateSearchInputHostProfile(migrated);
+});
+
+test("migration aligns by wire name, never by array position", () => {
+  // A positional copy would pass the test above but break here: the same 34
+  // names and weights are stored in a deliberately different order.
+  const shuffled = [...DELIVERED_34_WIRES].reverse();
+  const migrated = migrateSearchInputHostProfile(deliveredProfile(shuffled));
+  for (const wire of DELIVERED_34_WIRES) {
+    const index = migrated.wires.indexOf(wire);
+    assert.equal(migrated.weights[index], DELIVERED_34_WIRES.indexOf(wire) + 1,
+      `wire ${wire} must follow its NAME through a reordered source profile`);
+  }
+  assert.equal(migrated.weights[34], 0);
+  assert.equal(migrated.weights[35], 0);
+});
+
+test("migration refuses to zero-fill a delivered wire it cannot find", () => {
+  // Only the two appended wires may default to zero. A missing delivered wire is
+  // a corrupt profile: filling it with zero would erase a learned coefficient
+  // while looking like a successful migration.
+  const broken = deliveredProfile();
+  const dropIndex = broken.wires.indexOf("markerHit");
+  broken.wires.splice(dropIndex, 1);
+  broken.weights.splice(dropIndex, 1);
+  assert.throws(() => migrateSearchInputHostProfile(broken), /markerHit|missing/i);
 });

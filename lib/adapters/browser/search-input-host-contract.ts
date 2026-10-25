@@ -205,9 +205,25 @@ export const SEARCH_INPUT_HOST_WIRES = Object.freeze([
   "textLenBand.empty",
   "textLenBand.short",
   "textLenBand.long",
+  // Relation-member support scores, appended by ruling 1 (2026-10-24). These
+  // are the two real `infer` outputs of `browser.search-input-usage-relation.v1`
+  // and carry no execution permission: a high score is evidence, not consent.
+  "usage.query_support",
+  "usage.field_support",
 ] as const);
 
 export type SearchInputHostWire = (typeof SEARCH_INPUT_HOST_WIRES)[number];
+
+/**
+ * Wires appended after the delivered 34. These are the only wires a delivered
+ * profile may lack, so they are the only ones migration is allowed to pad with
+ * zero. Keeping the list explicit stops a future wire from being silently
+ * zero-filled when an old profile is loaded.
+ */
+export const SEARCH_INPUT_HOST_APPENDED_WIRES = Object.freeze([
+  "usage.query_support",
+  "usage.field_support",
+] as const);
 
 export interface SearchInputHostProfile {
   readonly contract: typeof SEARCH_INPUT_HOST_CONTRACT;
@@ -445,9 +461,57 @@ export function validateSearchInputHostProfile(value: unknown): SearchInputHostP
   });
 }
 
-/** Neutral start: every weight is zero, so the fit decides every value. */
-export function neutralSearchInputHostProfile(): SearchInputHostProfile {
+/**
+ * Migrate a delivered profile forward to the current wire list.
+ *
+ * Weights are a positional array, so a profile saved before the wire list grew
+ * cannot be read positionally: once any wire is inserted anywhere but the tail,
+ * every coefficient after it would shift silently. The delivered profile carries
+ * its own `wires` name array, so migration aligns by NAME.
+ *
+ * Only the wires appended after delivery may start at zero. A delivered wire
+ * that cannot be found is a corrupt profile, and zero-filling it would erase a
+ * learned coefficient while looking like a successful migration.
+ *
+ * Migration is separate from training (ruling 6): this function only re-shapes
+ * the vector. No weight is fitted, retuned or given a signed prior here.
+ */
+export function migrateSearchInputHostProfile(raw: unknown): SearchInputHostProfile {
+  const input = expectRecord(raw, "search input host profile");
+  const rawWires = input.wires;
+  const rawWeights = input.weights;
+  if (!Array.isArray(rawWires)) throw new TypeError("search input host profile wires must be an array");
+  if (!Array.isArray(rawWeights)) throw new TypeError("search input host profile weights must be an array");
+  if (rawWires.length !== rawWeights.length) {
+    throw new TypeError("search input host profile wires and weights must have equal length");
+  }
+  const weightByName = new Map<string, number>();
+  rawWires.forEach((wire, index) => {
+    if (typeof wire !== "string") throw new TypeError(`search input host wire ${index} must be a string`);
+    const weight = rawWeights[index];
+    if (typeof weight !== "number" || !Number.isFinite(weight)) {
+      throw new TypeError(`search input host weight for ${wire} must be finite`);
+    }
+    weightByName.set(wire, weight);
+  });
+
+  const appended = new Set<string>(SEARCH_INPUT_HOST_APPENDED_WIRES);
+  const weights = SEARCH_INPUT_HOST_WIRES.map(wire => {
+    const weight = weightByName.get(wire);
+    if (weight !== undefined) return weight;
+    if (appended.has(wire)) return 0;
+    throw new TypeError(`search input host profile is missing delivered wire ${wire}`);
+  });
+
   return validateSearchInputHostProfile({
+    ...input,
+    wires: [...SEARCH_INPUT_HOST_WIRES],
+    weights,
+  });
+}
+
+/** Neutral start: every weight is zero, so the fit decides every value. */
+export function neutralSearchInputHostProfile(): SearchInputHostProfile {  return validateSearchInputHostProfile({
     contract: SEARCH_INPUT_HOST_CONTRACT,
     role: SEARCH_INPUT_HOST_ROLE,
     wires: [...SEARCH_INPUT_HOST_WIRES],
