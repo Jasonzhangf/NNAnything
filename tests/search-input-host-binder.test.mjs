@@ -10,6 +10,7 @@ import {
   inferSearchInputHostBinding,
   migrateSearchInputHostProfile,
   neutralSearchInputHostProfile,
+  searchInputHostFeatures,
   trainSearchInputHostBinder,
   validateSearchInputHostProfile,
 } from "../dist/search-input-host.js";
@@ -692,4 +693,62 @@ test("migration refuses to zero-fill a delivered wire it cannot find", () => {
   broken.wires.splice(dropIndex, 1);
   broken.weights.splice(dropIndex, 1);
   assert.throws(() => migrateSearchInputHostProfile(broken), /markerHit|missing/i);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 1/6: the relation member's two support scores are learnable binder
+// evidence, and the zero-evidence exclusion must not swallow them.
+// ---------------------------------------------------------------------------
+
+test("the two member supports land on wires 34 and 35 as continuous values", () => {
+  const base = baseCandidate({
+    usageQuerySupport: 0.8123,
+    usageFieldSupport: -0.4567,
+  });
+  const features = searchInputHostFeatures(base);
+  assert.equal(features.length, 36);
+  assert.equal(features[34], 0.8123, "usage.query_support is wire 34");
+  assert.equal(features[35], -0.4567, "usage.field_support is wire 35");
+});
+
+test("an abstained member contributes zero to the dot product but is not a neutral score", () => {
+  // null means "the member abstained", which is not evidence of a neutral score.
+  const abstained = searchInputHostFeatures(baseCandidate({ usageQuerySupport: null, usageFieldSupport: null }));
+  const neutral = searchInputHostFeatures(baseCandidate({ usageQuerySupport: 0, usageFieldSupport: 0 }));
+  assert.equal(abstained[34], 0);
+  assert.equal(abstained[35], 0);
+  assert.deepEqual([...abstained], [...neutral], "the dot product is identical");
+  // ...but the exclusion decision reads the raw candidate, so the two remain
+  // distinguishable where it matters.
+  assert.equal(baseCandidate({ usageQuerySupport: null }).usageQuerySupport, null);
+  assert.equal(baseCandidate({ usageQuerySupport: 0 }).usageQuerySupport, 0);
+});
+
+test("a negative carrying positive member support is fitted, not excluded as zero evidence", async () => {
+  // The candidate has no marker bits at all. Under the delivered 3-wire rule it
+  // was "zero usage evidence" and got dropped. With the member support present it
+  // carries real evidence, so dropping it would silently delete a decidable row.
+  const rows = {
+    batches: [{
+      id: "batch-usage",
+      partition: "train",
+      targetRef: "n1",
+      candidates: [
+        baseCandidate({ ref: "n1", usageQuerySupport: 0.9, usageFieldSupport: -0.9 }),
+        baseCandidate({ ref: "n2", usageQuerySupport: -0.9, usageFieldSupport: 0.9 }),
+      ],
+      labels: [
+        { ref: "n1", polarity: "negative" },
+        { ref: "n2", polarity: "positive" },
+      ],
+    }],
+  };
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  assert.deepEqual([...result.fit.excludedRows], [], "member support is real evidence, so nothing is excluded here");
+  assert.equal(result.profile.weights.length, 36);
+  // The fit must be able to use the two new wires.
+  const used = [
+    result.profile.weights[34] !== 0 || result.profile.weights[35] !== 0,
+  ].some(Boolean);
+  assert.ok(used, "at least one member support wire must move when it is the only evidence");
 });

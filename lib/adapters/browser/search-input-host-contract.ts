@@ -92,6 +92,14 @@ export interface SearchInputHostCandidate {
   readonly nonSearchMarker: boolean | null;
   readonly textLenBand: SearchInputHostTextLenBand | null;
   readonly access: SearchInputHostAccess | null;
+  /**
+   * Support scores of the usage-relation member for the same control, in
+   * (-1, 1), or null when the member abstained. Null is "no relation evidence",
+   * never a zero score: a real neutral score and a missing one must not be
+   * confused, because the binder's exclusion rule reads them differently.
+   */
+  readonly usageQuerySupport?: number | null;
+  readonly usageFieldSupport?: number | null;
 }
 
 /** A candidate after the deterministic missing-measurement guard. */
@@ -235,15 +243,47 @@ export interface SearchInputHostProfile {
   readonly adoption: "not_applied";
 }
 
-function exactKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
-  const actual = Object.keys(value);
-  if (actual.length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
-    throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`);
+/**
+ * Reject unknown keys and missing required ones.
+ *
+ * `optional` names keys that may be present but need not be. They exist for
+ * fields added after the delivered shape, so an older record stays valid while
+ * a typo or an unlisted field is still rejected.
+ */
+function exactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  label: string,
+  optional: readonly string[] = [],
+): void {
+  const allowed = new Set<string>([...keys, ...optional]);
+  const unknown = Object.keys(value).filter(key => !allowed.has(key));
+  const missing = keys.filter(key => !Object.hasOwn(value, key));
+  if (unknown.length > 0 || missing.length > 0) {
+    throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`
+      + (optional.length > 0 ? ` (optional: ${optional.join(", ")})` : "")
+      + (unknown.length > 0 ? `; unknown: ${unknown.join(", ")}` : "")
+      + (missing.length > 0 ? `; missing: ${missing.join(", ")}` : ""));
   }
 }
 
 function nonEmpty(value: unknown, label: string): string {
   return expectNonEmptyString(value, label);
+}
+
+/**
+ * A member support score is a tanh output, so it lives in (-1, 1). Null means the
+ * member abstained, which is not the same fact as a neutral score of zero.
+ */
+function nullableSupport(value: unknown, label: string): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError(`${label} must be a finite number or null`);
+  }
+  if (value <= -1 || value >= 1) {
+    throw new TypeError(`${label} must lie strictly inside (-1, 1)`);
+  }
+  return value;
 }
 
 function nullableBoolean(value: unknown, label: string): boolean | null {
@@ -282,9 +322,12 @@ const CANDIDATE_KEYS = [
   "textLenBand", "access",
 ] as const;
 
+/** Added after the delivered shape, so they stay optional on old records. */
+const CANDIDATE_OPTIONAL_KEYS = ["usageQuerySupport", "usageFieldSupport"] as const;
+
 export function validateSearchInputHostCandidate(value: unknown, label = "search input host candidate"): SearchInputHostCandidate {
   const candidate = expectRecord(value, label);
-  exactKeys(candidate, CANDIDATE_KEYS, label);
+  exactKeys(candidate, CANDIDATE_KEYS, label, CANDIDATE_OPTIONAL_KEYS);
   const revision = expectFiniteNumber(candidate.revision, `${label}.revision`);
   if (!Number.isInteger(revision)) throw new TypeError(`${label}.revision must be an integer`);
   return Object.freeze({
@@ -322,6 +365,12 @@ export function validateSearchInputHostCandidate(value: unknown, label = "search
       ["available", "login_required", "challenge", "unknown"] as const,
       `${label}.access`,
     ),
+    ...(candidate.usageQuerySupport === undefined
+      ? {}
+      : { usageQuerySupport: nullableSupport(candidate.usageQuerySupport, `${label}.usageQuerySupport`) }),
+    ...(candidate.usageFieldSupport === undefined
+      ? {}
+      : { usageFieldSupport: nullableSupport(candidate.usageFieldSupport, `${label}.usageFieldSupport`) }),
   });
 }
 

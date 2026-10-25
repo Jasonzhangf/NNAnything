@@ -48,11 +48,24 @@ const USAGE_EVIDENCE_WIRES = Object.freeze([
   "markerHit",
   "nonSearchMarker",
   "formRoleSearch",
+  // Ruling 1/6: the member's two real support scores are learnable binder
+  // evidence. Unlike the marker bits these are continuous in (-1, 1), so the
+  // "all evidence is exactly zero" exclusion below still holds, but far fewer
+  // negatives qualify: a negative the member scores positive now carries real
+  // evidence and must be answered by a weight, not dropped.
+  "usage.query_support",
+  "usage.field_support",
 ] as const);
 
 const USAGE_EVIDENCE_INDEX = Object.freeze(
   USAGE_EVIDENCE_WIRES.map(wire => SEARCH_INPUT_HOST_WIRES.indexOf(wire as SearchInputHostWire)),
 );
+
+/** Wire positions of the two continuous member supports. */
+const USAGE_SUPPORT_INDEX = Object.freeze({
+  query: SEARCH_INPUT_HOST_WIRES.indexOf("usage.query_support" as SearchInputHostWire),
+  field: SEARCH_INPUT_HOST_WIRES.indexOf("usage.field_support" as SearchInputHostWire),
+});
 
 /** Absolute objective margin, anchored on the inference threshold. */
 const ABSOLUTE_MARGIN = 1;
@@ -108,6 +121,11 @@ export function searchInputHostFeatures(candidate: MeasuredSearchInputHostCandid
   features[29] = oneHot(candidate.markerHit);
   features[30] = oneHot(candidate.nonSearchMarker);
   features[textLenIndex] = 1;
+  // Continuous member supports. A null support means the member abstained, which
+  // is not evidence of absence, so it contributes 0 to the dot product; the
+  // exclusion rule below reads `usageEvidenceOf`, which keeps the null distinct.
+  features[USAGE_SUPPORT_INDEX.query] = candidate.usageQuerySupport ?? 0;
+  features[USAGE_SUPPORT_INDEX.field] = candidate.usageFieldSupport ?? 0;
   return Object.freeze(features);
 }
 
