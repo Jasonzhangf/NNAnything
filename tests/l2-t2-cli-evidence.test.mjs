@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const { requestedRangeObtained, readReceiptObserved, legalActions, legacyRangePrecheck } = await import("../playground/l2-t2-cli/evidence.mjs");
+const { requestedRangeObtained, readReceiptObserved, legalActions, legacyTeacherVerdict } = await import("../playground/l2-t2-cli/evidence.mjs");
 
 function successReceipt(fields) {
   return {
@@ -43,8 +43,12 @@ test("C1 the legacy unread premise admits no action; the staged premise admits r
   assert.throws(() => legalActions("unknown", state), { message: /unknown premise/ });
 });
 
-test("C3 the legacy range precheck rejects a valid EOF-limited up_to request", () => {
-  assert.equal(legacyRangePrecheck(0, 15, 10), false);
-  assert.equal(legacyRangePrecheck(8, 5, 10), false);
-  assert.equal(legacyRangePrecheck(0, 10, 10), true);
+test("C3 the old candidate teacher has no size precheck; its up_to rule is byte/eof based", () => {
+  // The source (playground/l2/cli.mjs, E head) never compares offset+length against size.
+  // A fabricated offset+length<=size precheck was withdrawn in review r1 (P2-2).
+  assert.equal(legacyTeacherVerdict("exact", { bytesRead: 2, length: 5, eof: true }), "unsatisfied");
+  assert.equal(legacyTeacherVerdict("up_to", { bytesRead: 2, length: 5, eof: true }), "satisfied");
+  assert.equal(legacyTeacherVerdict("up_to", { bytesRead: 2, length: 5, eof: false }), "unsatisfied");
+  assert.equal(legacyTeacherVerdict("up_to", { bytesRead: 10, length: 15, eof: true }), "satisfied");
+  assert.equal(legacyTeacherVerdict("up_to", { bytesRead: 10, length: 15, eof: false }), "unsatisfied");
 });

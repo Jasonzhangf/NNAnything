@@ -94,11 +94,39 @@ export function legalActions(premise, state) {
 }
 
 /**
- * C3 red counterexample: a teacher that validates the requested end against the file size before
- * the read runs. It rejects a legitimate EOF-limited up_to request.
+ * The old candidate teacher's real range rule, read from its source
+ * (`playground/l2/cli.mjs`, E head, request.mode branches) rather than re-invented.
+ *
+ * It performs no size precheck at all: `exact` is satisfied iff bytesRead === length; `up_to` is
+ * satisfied iff bytesRead === length, or bytesRead < length with eof === true. An earlier revision
+ * of this file compared offset+length against size and called that the legacy precheck; that was a
+ * substitute, not the old teacher, so it is withdrawn here (C3 correction, Alice review r1).
+ *
+ * The one real endpoint divergence found on the source: the old candidate computes its own
+ * `eof` for a zero-length read as `offset >= size`, while the delivered production adapter reports
+ * `eof: false, end_observed: true` for a zero-length read exactly at the end. Both agree the
+ * zero-length exact request is satisfied because bytesRead === length; only the eof field differs.
  */
-export function legacyRangePrecheck(offset, length, size) {
-  return offset + length <= size;
+export const LEGACY_TEACHER_SOURCE = Object.freeze({
+  file: "playground/l2/cli.mjs",
+  branches: Object.freeze({
+    exact: "bytesRead === length -> satisfied; short with eof -> unsatisfied; short -> unsatisfied",
+    up_to: "bytesRead === length -> satisfied; bytesRead > length -> unsatisfied; short with eof -> satisfied; short without eof -> unsatisfied",
+  }),
+  sizePrecheck: "none: the old teacher evaluates receipt facts only",
+  zeroLengthEof: "old candidate computes eof = offset >= size for length 0; production adapter reports eof=false, end_observed=true at the end",
+});
+
+/** The old teacher's rule as a label, so no substitute predicate is mistaken for the source. */
+export function legacyTeacherVerdict(mode, { bytesRead, length, eof }) {
+  if (mode === "exact") {
+    if (bytesRead === length) return "satisfied";
+    return "unsatisfied";
+  }
+  if (mode !== "up_to") throw new Error(`unknown read mode ${mode}`);
+  if (bytesRead === length) return "satisfied";
+  if (bytesRead > length) return "unsatisfied";
+  return eof === true ? "satisfied" : "unsatisfied";
 }
 
 /** Offsets and lengths the runtime accepts as a typed request. */
@@ -238,7 +266,7 @@ async function runFrame({ id, family, partition, mode, offset, length, mutate })
           && reread.execution.observation.bytes !== Buffer.from("abcdefghij").toString("base64"),
         bytesAfterChange: reread.status === "succeeded" ? reread.execution.observation.bytes : null,
         sandboxSnapshotMtimeDelta: Number(after.mtimeMs) - Number(before.mtimeMs),
-        note: "a collector that names size+mtime equality revisionCurrent reports current here while the bytes changed; session revision is a sandbox counter, not a content fact",
+        note: "field-definition conflict: a collector that names size+mtime equality revisionCurrent reports current here while the bytes changed, and the runtime's sessionRevision is a sandbox counter that stayed 0. Content change is proved only by the direct reread bytes; ctime is metadata-only evidence (chmod also moves it), so it is not used as byte proof. A session revision that stays unchanged is not by itself an error.",
       };
       rows.push({ id, family, partition, kind: "C2-field-separation", ...contentChange });
     }
@@ -256,17 +284,24 @@ async function runFrame({ id, family, partition, mode, offset, length, mutate })
         red: staleRead.status === "succeeded",
         green: staleRead.status === "failed" && staleRead.execution.error.code === "STALE_REFERENCE",
       });
-      // Recovery: the failure code says the reference is stale, so the frame rebinds by path.
+      // Boundary (Alice review r1, P1-2): rebinding by path gets a *different* object (new inode).
+      // For a root whose target is this fixed ObservedObjectRef, that changes the target and can
+      // never be called a recovery of the original root. It is only a candidate for a root that
+      // explicitly names the path object and re-validates binding eligibility.
       const rebound = await sandbox.bindFile(session, "f.txt");
       const reboundRead = await readOnce(sandbox, rebound, offset, length);
       rows.push({
-        id, family, partition, kind: "pathB-reference-recovery",
+        id, family, partition, kind: "pathB-reference-fixed-root-boundary",
         recoveryTrigger: staleRead.execution.error.code,
-        recoveryAction: "rebind-by-path",
+        candidateAction: "rebind-by-path",
         reboundRunsNewSource: rebound.sourceRun !== ref.sourceRun,
         newIno: rebound.identity.ino !== ref.identity.ino,
-        read: receiptFacts(reboundRead),
-        requestedRangeObtained: requestedRangeObtained(reboundRead, { mode, length }),
+        newObjectRead: receiptFacts(reboundRead),
+        newObjectRangeObtained: requestedRangeObtained(reboundRead, { mode, length }),
+        originalRootRecovered: false,
+        originalRootState: "unknown",
+        boundary: "the fixed-reference root is not restored by a path rebind; the rebound read proves only that a new object was obtained. A path-located root may accept the rebound only after it explicitly allows the current path object and re-validates binding eligibility.",
+        note: "the original root keeps its unsatisfied/unknown state; the new-object read is not reported as original-root success",
       });
       ref = rebound;
     }
@@ -288,7 +323,11 @@ async function runFrame({ id, family, partition, mode, offset, length, mutate })
       rootObtained: conditions.requested_range_obtained === "satisfied",
       rangeMode: mode,
       requested: { offset, length, fileSize: before.size },
-      legacyPrecheckAccepts: legacyRangePrecheck(offset, length, before.size),
+      legacyTeacherVerdict: observedFacts === null ? "unobserved" : legacyTeacherVerdict(mode, {
+        bytesRead: observedFacts.bytesRead ?? null,
+        length,
+        eof: observedFacts.eof ?? null,
+      }),
       typedRangeValid: typedRangeValid(offset, length),
     });
     return rows;
@@ -297,38 +336,76 @@ async function runFrame({ id, family, partition, mode, offset, length, mutate })
   }
 }
 
-/** Path B with a range error: correct the request from the receipt, or stop when it cannot close. */
+/**
+ * Path B with a range error.
+ *
+ * The root goal and its threshold stay fixed for every row here (Alice review r1, P1-1): a new
+ * sub-request that succeeds never counts as the original root succeeding. Lowering length from 5 to
+ * 2 is a different goal, so the original root is re-evaluated on the original goal after each
+ * attempt and stays unsatisfied.
+ */
 async function runRangeRecovery({ id, family, partition }) {
   const world = await makeWorld(`t2-${id}`, [{ path: "start/f.txt", kind: "file", contents: "abcdefghij" }]);
   const rows = [];
+  const rootGoal = Object.freeze({ mode: "exact", offset: 8, length: 5 });
   try {
     const { sandbox, session } = world;
     const ref = await sandbox.bindFile(session, "f.txt");
-    const first = await readOnce(sandbox, ref, 8, 5);
+    const first = await readOnce(sandbox, ref, rootGoal.offset, rootGoal.length);
     const firstFacts = receiptFacts(first);
-    const firstCondition = requestedRangeObtained(first, { mode: "exact", length: 5 });
+    const firstCondition = requestedRangeObtained(first, { mode: rootGoal.mode, length: rootGoal.length });
     rows.push({
       id, family, partition, kind: "pathB-range-error-first-attempt",
-      call: { operation: "file.read", parameters: { offset: 8, length: 5 }, attempted: true, runId: first.execution.runId },
+      rootGoal,
+      call: { operation: "file.read", parameters: { offset: rootGoal.offset, length: rootGoal.length }, attempted: true, runId: first.execution.runId },
       observation: firstFacts,
       conditions: {
         binding_usable: await bindingState(sandbox, ref),
         read_receipt_observed: readReceiptObserved(first),
         requested_range_obtained: firstCondition,
       },
-      red: legacyRangePrecheck(8, 5, 10),
+      originalRootObtained: firstCondition === "satisfied",
     });
-    // The corrected sub-goal uses only facts the first receipt established.
-    const available = firstFacts.size - 8;
-    const corrected = { mode: "exact", offset: 8, length: available, derivedFrom: ["observation.size", "call.parameters.offset", "observation.eof"] };
-    const second = await readOnce(sandbox, ref, corrected.offset, corrected.length);
+
+    // A corrected sub-request derived only from the first receipt's own facts. It closes the
+    // sub-request, not the original root: the original root is re-evaluated unchanged below.
+    const available = Number(firstFacts.size) - rootGoal.offset;
+    const subRequest = { mode: "exact", offset: rootGoal.offset, length: available, derivedFrom: ["observation.size", "call.parameters.offset", "observation.eof"] };
+    const second = await readOnce(sandbox, ref, subRequest.offset, subRequest.length);
+    const subCondition = requestedRangeObtained(second, { mode: subRequest.mode, length: subRequest.length });
+    const rootAfterSub = legacyTeacherVerdict(rootGoal.mode, {
+      bytesRead: receiptFacts(second).bytesRead,
+      length: rootGoal.length,
+      eof: receiptFacts(second).eof,
+    });
     rows.push({
-      id, family, partition, kind: "pathB-range-recovery",
+      id, family, partition, kind: "pathB-range-boundary",
       recoveryFrom: first.execution.runId,
-      correctedSubGoal: corrected,
+      rootGoal,
+      subRequest,
       observation: receiptFacts(second),
-      requestedRangeObtained: requestedRangeObtained(second, { mode: corrected.mode, length: corrected.length }),
-      rootObtained: requestedRangeObtained(second, { mode: corrected.mode, length: corrected.length }) === "satisfied",
+      subRequestObtained: subCondition,
+      originalRootObtained: false,
+      originalRootVerdictOnOriginalGoal: rootAfterSub,
+      boundary: "the corrected sub-request obtains the remaining bytes; the original root exact(8,5) stays unsatisfied because only 2 bytes exist past offset 8. A lower length is a different goal and is not reported as root success.",
+      note: "real recovery of an achievable root is covered by the T1 controlled example (tests/l2-cli-conditions.test.mjs); T2 does not duplicate it and only states this boundary",
+    });
+
+    // Retry with the original goal unchanged: the requirement is not lowered, so it stays unmet.
+    const retry = await readOnce(sandbox, ref, rootGoal.offset, rootGoal.length);
+    const retryFacts = receiptFacts(retry);
+    rows.push({
+      id, family, partition, kind: "pathB-range-retry-original-goal",
+      rootGoal,
+      call: { operation: "file.read", parameters: { offset: rootGoal.offset, length: rootGoal.length }, attempted: true, runId: retry.execution.runId },
+      observation: retryFacts,
+      originalRootObtained: requestedRangeObtained(retry, { mode: rootGoal.mode, length: rootGoal.length }) === "satisfied",
+      stop: {
+        decision: "stop",
+        reason: "the original exact(8,5) range cannot be obtained on a 10-byte file; retrying with the unchanged root goal confirms the requirement was not lowered",
+        rootObtained: false,
+      },
+      furtherAttempts: 0,
     });
 
     // Non-recovery: a range fully past the observed end can never be obtained for this goal.
@@ -345,6 +422,35 @@ async function runRangeRecovery({ id, family, partition }) {
       },
       stop: { decision: "stop", reason: "no legal re-request can obtain bytes past the observed end", rootObtained: false },
       furtherAttempts: 0,
+    });
+
+    // C3 confirmed counterexamples (Alice review r1, P2-2): requests whose end lies past the file
+    // size. These use real receipts; no size precheck is invented.
+    const upToPastEnd = await readOnce(sandbox, ref, 13, 2);
+    rows.push({
+      id: "range-eof-outside-up-to", family: family, partition, kind: "range-eof-outside",
+      call: { operation: "file.read", parameters: { offset: 13, length: 2 }, attempted: true, runId: upToPastEnd.execution.runId },
+      observation: receiptFacts(upToPastEnd),
+      rangeMode: "up_to",
+      requested: { offset: 13, length: 2, fileSize: 10 },
+      requestedRangeObtained: requestedRangeObtained(upToPastEnd, { mode: "up_to", length: 2 }),
+      legacyTeacherVerdict: legacyTeacherVerdict("up_to", { bytesRead: receiptFacts(upToPastEnd).bytesRead, length: 2, eof: receiptFacts(upToPastEnd).eof }),
+      boundary: "an offset-only precheck such as offset <= size would accept this request; a fabricated offset+length<=size precheck would reject it. The real receipt decides: 0 bytes with eof established is a satisfied up_to.",
+    });
+    const zeroPastEnd = await readOnce(sandbox, ref, 13, 0);
+    const zeroAtEnd = await readOnce(sandbox, ref, 10, 0);
+    rows.push({
+      id: "range-eof-outside-zero-length", family: family, partition, kind: "range-eof-outside",
+      call: { operation: "file.read", parameters: { offset: 13, length: 0 }, attempted: true, runId: zeroPastEnd.execution.runId },
+      observation: receiptFacts(zeroPastEnd),
+      rangeMode: "exact",
+      requested: { offset: 13, length: 0, fileSize: 10 },
+      requestedRangeObtained: requestedRangeObtained(zeroPastEnd, { mode: "exact", length: 0 }),
+      endpointComparison: {
+        beyondEnd: receiptFacts(zeroPastEnd),
+        atEnd: receiptFacts(zeroAtEnd),
+      },
+      boundary: "zero-length exact is satisfied by bytesRead === length at any offset; the delivered adapter reports eof=false and end_observed=true for a zero-length read exactly at the end, while the old candidate computes eof = offset >= size. Only the eof field differs; both agree the request is satisfied.",
     });
     return rows;
   } finally {
@@ -489,10 +595,18 @@ export async function collectRows() {
 }
 
 export function summarize(rows) {
-  const attempts = rows.filter(row => row.kind === "read-attempt" || row.kind === "pathB-range-recovery" || row.kind === "pathB-nonrecovery-range" || row.kind === "pathB-range-error-first-attempt");
+  const attemptKinds = new Set([
+    "read-attempt",
+    "pathB-range-error-first-attempt",
+    "pathB-range-boundary",
+    "pathB-range-retry-original-goal",
+    "pathB-nonrecovery-range",
+    "range-eof-outside",
+  ]);
+  const attempts = rows.filter(row => attemptKinds.has(row.kind));
   const partitions = {};
   for (const row of rows) {
-    const key = `${row.partition}/${row.family}`;
+    const key = `${row.partition ?? "unpartitioned"}/${row.family ?? "unfiled"}`;
     partitions[key] ??= { rows: 0, kinds: new Set() };
     partitions[key].rows += 1;
     partitions[key].kinds.add(row.kind);
@@ -504,9 +618,18 @@ export function summarize(rows) {
     families: Object.fromEntries(Object.entries(partitions).map(([k, v]) => [k, { rows: v.rows, kinds: [...v.kinds] }])),
     conditionTable: attempts.map(row => ({
       id: row.id,
-      mode: row.rangeMode ?? row.correctedSubGoal?.mode ?? null,
+      kind: row.kind,
+      mode: row.rangeMode ?? row.subRequest?.mode ?? row.rootGoal?.mode ?? null,
       conditions: row.conditions ?? { requested_range_obtained: row.requestedRangeObtained ?? null },
+      originalRootObtained: row.originalRootObtained ?? null,
+      subRequestObtained: row.subRequestObtained ?? null,
     })),
+    boundaries: {
+      rangeRecovery: "a corrected sub-request never counts as the original root succeeding; the original goal is re-evaluated unchanged and stays unsatisfied when the range is impossible",
+      reference: "a fixed-Reference root is not restored by a path rebind that yields a new inode; that is a different target, allowed only for a path root that explicitly names the object and re-validates eligibility",
+      contentChange: "content change is proved by direct reread bytes only; ctime is metadata evidence; sessionRevision unchanged is not an error",
+      legacyTeacher: "the old candidate teacher has no size precheck and its up_to rule is bytesRead===length or (short && eof); a fabricated offset+length<=size precheck is withdrawn",
+    },
   };
 }
 
