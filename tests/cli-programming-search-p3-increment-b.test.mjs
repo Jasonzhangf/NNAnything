@@ -280,9 +280,7 @@ test("R9 a short read on the forced first candidate is unknown and the named can
   assert.equal(result.domain.bytesReadTotal, 72);
 });
 
-test("R10 an EIO first candidate preserves the error and recovers to a real later hit", {
-  skip: "shared recursive-goal core treats a failed atomic read as terminal; see playground/cli/content-search/p3-eio-core-repro.mjs",
-}, async t => {
+test("R10 an EIO first candidate preserves the error and recovers to a real later hit", async t => {
   const eio = eioIo("tu-PX000001.p3t");
   const value = await fixture(t, TRAIN_FILES, { fileReadIo: eio.io });
   const profileModule = await policyApi();
@@ -294,6 +292,46 @@ test("R10 an EIO first candidate preserves the error and recovers to a real late
   assert.ok(result.domain.matches.some(match => match.path.endsWith("tz-KX000001.p3t")));
   assert.equal(eio.calls.get("tu-PX000001.p3t"), 1);
   assert.match(JSON.stringify(result.response), /EIO/);
+  const slot0Candidate = result.domain.preserve.atomicResults
+    ?.map(item => item?.sourceResult)
+    .filter(source => source?.tag === "cli.file.read.receipt.v1")
+    .map(source => source.value)
+    .find(value => value?.ref?.absolutePath?.endsWith("tu-PX000001.p3t"));
+  assert.equal(slot0Candidate?.receipt?.execution?.status, "failed");
+  assert.equal(slot0Candidate?.receipt?.execution?.error?.code, "EIO");
+  const states = result.response?.report?.states;
+  const state = Array.isArray(states) ? states.at(-1)?.value : null;
+  const slot0Fact = state?.candidates?.find(candidate => candidate.name === "tu-PX000001.p3t");
+  assert.equal(slot0Fact?.outcome, "read_error");
+  assert.equal(slot0Fact?.failureCode, "EIO");
+  assert.equal(slot0Fact?.contains, null);
+  assert.equal(slot0Fact?.scan, null);
+  assert.equal(result.domain.negatives.length, 0);
+});
+
+test("R10 guard a SANDBOX_ESCAPE stays a terminal error and is not absorbed as a recoverable read_error", async t => {
+  const io = realIo();
+  const calls = [];
+  const value = await fixture(t, TRAIN_FILES, {
+    fileReadIo: {
+      lstat: io.lstat,
+      open: async (path, flags) => {
+        calls.push(basename(path));
+        const error = new TypeError("Entry path escapes the scenario root");
+        error.code = "SANDBOX_ESCAPE";
+        throw error;
+      },
+    },
+  });
+  const profileModule = await policyApi();
+  const result = await run(value.module, value, profileModule, {
+    order: { kind: "injected-first", name: "tu-PX000001.p3t" },
+    nameWeight: 10,
+  });
+  assert.equal(result.domain.status, "failed");
+  assert.equal(result.domain.matches.length, 0);
+  assert.deepEqual(calls, ["tu-PX000001.p3t"]);
+  assert.match(JSON.stringify(result.response), /SANDBOX_ESCAPE/);
 });
 
 test("R11 partial listing lets one satisfy a known hit and never lets all complete", async t => {

@@ -74,6 +74,7 @@ import {
   initialCandidates,
   inspectedFactFromTransition,
   isStaleReadCode,
+  isRecoverableReadCode,
   lineColumn,
   readFactEndObserved,
   listingFactFromTransition,
@@ -390,14 +391,15 @@ async function evaluateRead(
     item.fileRef.absolutePath === goal.target.ref.absolutePath,
   );
   const read = candidate?.read ?? null;
-  const staleRefused = read === null && input.evidence.some(item =>
+  const failureObserved = read === null && input.evidence.some(item =>
     item.payload.kind === "cli.content-search.read.v1" &&
     item.payload.ref.sourceRun === goal.target.ref.sourceRun &&
     item.payload.ref.absolutePath === goal.target.ref.absolutePath &&
     item.payload.receipt.execution.status === "failed" &&
-    isStaleReadCode(item.payload.receipt.execution.error.code),
+    (isStaleReadCode(item.payload.receipt.execution.error.code) ||
+      isRecoverableReadCode(item.payload.receipt.execution.error.code)),
   );
-  if (staleRefused) {
+  if (failureObserved) {
     return evaluation(CONTENT_READ_EVALUATOR, "satisfied", 100, stateEvidenceRefs(input.state, input.evidence));
   }
   if (
@@ -1205,7 +1207,8 @@ function readAtomicReceiptFromSandbox(
   });
   const failure = receipt.execution.status === "failed" ? receipt.execution.error : null;
   const stale = failure !== null && isStaleReadCode(failure.code);
-  const executionErrors = failure === null || stale
+  const recoverable = failure !== null && isRecoverableReadCode(failure.code);
+  const executionErrors = failure === null || stale || recoverable
     ? Object.freeze([])
     : Object.freeze([
         Object.freeze({
@@ -1224,7 +1227,7 @@ function readAtomicReceiptFromSandbox(
   return Object.freeze({
     runId: receipt.execution.runId,
     executorInvoked: receipt.execution.executorInvoked,
-    outcome: failure === null || stale ? ("succeeded" as const) : ("failed" as const),
+    outcome: failure === null || stale || recoverable ? ("succeeded" as const) : ("failed" as const),
     sourceResult: Object.freeze({ tag: "cli.file.read.receipt.v1", value: readReceipt }),
     newState: nextState,
     evidence: Object.freeze([

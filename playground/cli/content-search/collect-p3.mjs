@@ -177,14 +177,15 @@ for (const partitionId of partitionIds) {
       };
       arms.push(armReceipt);
 
-      // Recipe invariants for every non-blocked arm.
-      if (episode.feedbackKind !== "E") {
-        if (domain.status !== "achieved") failures.push(`${episode.scenarioId}/${arm}: expected achieved, got ${domain.status}`);
-        if (!domain.matches.some(match => match.path.endsWith(episode.names[episode.hitSlot]))) {
-          failures.push(`${episode.scenarioId}/${arm}: expected hit ${episode.names[episode.hitSlot]}`);
-        }
-      } else if (domain.status !== "failed" || domain.rootFact?.errors?.[0]?.code !== "EIO") {
-        failures.push(`${episode.scenarioId}/${arm}: EIO must stay visible as failed/EIO`);
+      // Recipe invariants for every arm. An EIO must become a read_error fact and
+      // then recover through the legal later candidate; it must never terminate
+      // the run or vanish from the evidence.
+      if (domain.status !== "achieved") failures.push(`${episode.scenarioId}/${arm}: expected achieved, got ${domain.status}`);
+      if (!domain.matches.some(match => match.path.endsWith(episode.names[episode.hitSlot]))) {
+        failures.push(`${episode.scenarioId}/${arm}: expected hit ${episode.names[episode.hitSlot]}`);
+      }
+      if (episode.feedbackKind === "E" && (slot0?.outcome !== "read_error" || slot0?.failureCode !== "EIO")) {
+        failures.push(`${episode.scenarioId}/${arm}: EIO slot 0 must stay read_error/EIO, got ${slot0?.outcome}/${slot0?.failureCode}`);
       }
       if (episode.feedbackKind === "S" && run.injection.counters.shortRead !== 1) {
         failures.push(`${episode.scenarioId}/${arm}: short read injection fired ${run.injection.counters.shortRead} times`);
@@ -207,6 +208,9 @@ for (const partitionId of partitionIds) {
       const negativeNames = new Set(domain.negatives.map(fact => fact.path.split("/").at(-1)));
       if (episode.feedbackKind === "S" && negativeNames.has(episode.names[0])) {
         failures.push(`${episode.scenarioId}/${arm}: short-read slot 0 must not become a proven negative`);
+      }
+      if (episode.feedbackKind === "E" && negativeNames.has(episode.names[0])) {
+        failures.push(`${episode.scenarioId}/${arm}: EIO slot 0 must not become a proven negative`);
       }
 
       const atomicRefs = Array.isArray(domain.preserve.atomicResults)

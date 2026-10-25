@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const policy = await import("nnanything/cli-goal");
 
@@ -42,11 +42,11 @@ const fit = await policy.fitCliCandidateNamePreference({
   learningRate,
 });
 
-const candidateId = randomUUID();
-const candidateDirectory = resolve(argument(
-  "candidate-dir",
-  join("training", "weights", "filesystem", "command", candidateId),
-));
+const candidateDirectoryArgument = argument("candidate-dir", undefined);
+const candidateDirectory = resolve(
+  candidateDirectoryArgument ?? join("training", "weights", "filesystem", "command", randomUUID()),
+);
+const candidateId = basename(candidateDirectory);
 const candidatePath = join(candidateDirectory, "candidate.json");
 await mkdir(candidateDirectory, { recursive: true });
 await writeFile(candidatePath, `${JSON.stringify(fit.profile, null, 2)}\n`);

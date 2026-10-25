@@ -75,12 +75,20 @@ try {
     scan: { maxBytesPerFile: 256, maxTotalBytes: 4096, chunkSize: 64, maxDirectoryDepth: 0, maxStaleRetries: 1 },
     order: { kind: "injected-first", name: NAMES[0] },
   });
+  const states = result.response?.report?.states;
+  const state = Array.isArray(states) && states.length > 0 ? states[states.length - 1]?.value : null;
+  const slot0Fact = Array.isArray(state?.candidates)
+    ? state.candidates.find(candidate => candidate.name === NAMES[0])
+    : null;
   const report = {
     runId: process.pid,
     expected: {
       status: "achieved",
       match: "tz-KX000001.p3t",
       errorRetained: "EIO",
+      slot0Outcome: "read_error",
+      eioOpenCount: 1,
+      provenNegatives: 0,
     },
     actual: {
       status: result.domain.status,
@@ -88,15 +96,24 @@ try {
       matches: result.domain.matches.map(match => basename(match.path)),
       rootFact: result.domain.rootFact,
       primaryErrorId: result.domain.preserve.primaryErrorId,
+      slot0Outcome: slot0Fact?.outcome ?? null,
+      slot0FailureCode: slot0Fact?.failureCode ?? null,
       eioOpenCount: calls.get(NAMES[0]) ?? 0,
+      provenNegatives: result.domain.negatives.length,
+      invocationCount: result.domain.invocationCount,
+      bytesReadTotal: result.domain.bytesReadTotal,
     },
-    verdict: "BLOCKED_BY_SHARED_CORE",
-    gap: "recursive-goal records a failed atomic receipt as a terminal error and cannot continue to the next legal candidate",
+    verdict: "RECOVERED_VIA_DOMAIN_READ_ERROR",
+    resolution:
+      "content-search converts the EIO into a candidate read_error fact and satisfies its own read attempt, so the shared controller can continue to the next legal candidate",
   };
   console.log(JSON.stringify(report, null, 2));
-  assert.notEqual(result.domain.status, "achieved");
-  assert.equal(result.domain.rootFact.errors?.[0]?.code, "EIO");
-  process.exitCode = 2;
+  assert.equal(result.domain.status, "achieved");
+  assert.ok(result.domain.matches.some(match => basename(match.path) === "tz-KX000001.p3t"));
+  assert.equal(slot0Fact?.outcome, "read_error");
+  assert.equal(slot0Fact?.failureCode, "EIO");
+  assert.equal(calls.get(NAMES[0]) ?? 0, 1);
+  assert.equal(result.domain.negatives.length, 0);
 } finally {
   await sandbox.cleanup();
   await rm(root, { recursive: true, force: true });

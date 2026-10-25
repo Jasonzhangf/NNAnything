@@ -239,6 +239,11 @@ export function isStaleReadCode(code: string): boolean {
   return code === "STALE_REFERENCE" || code === "READ_TARGET_CHANGED" || code === "ENOENT";
 }
 
+/** A transient read failure that can become a candidate read_error fact instead of aborting the run. */
+export function isRecoverableReadCode(code: string): boolean {
+  return code === "EIO";
+}
+
 export function identityKeyOfRef(ref: ContentSearchFileRef): ContentSearchIdentityKey {
   return Object.freeze({
     scenarioId: ref.scenarioId,

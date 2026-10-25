@@ -43,7 +43,7 @@
 | 采集 arm 数 | 112（train 24 + development 8 + verification A 12 + B 12，natural+forced 两条件） |
 | 决策样本数 | 326 |
 | 有效训练配对 | 18，全部 `delta=1`，`delta=0` 为 0 |
-| t0 成本对照 | development N/S/P 与 Plan §6.3.4 表一致；E 条件为真实 failed/EIO，受共享 core 阻断 |
+| t0 成本对照 | development N/S/P 与 Plan §6.3.4 表一致；E 条件当时为真实 failed/EIO（B2 已修正，见下） |
 | 参数矩阵 | 10×31 = 310；可训练参数 1，冻结参数 309 |
 | 训练代数与学习率 | 200 epochs / lr 0.1，全批 SGD |
 | 零初始化梯度 | -0.5 |
@@ -54,7 +54,11 @@
 | 候选 | `39f1570f-be11-48a4-94cb-3b071982922b/candidate.json`，`uncalibrated/not_applied` |
 | 训练报告 | `fullyVerified=false` |
 
-短读与 partial 恢复按配方保留真实事实：S 的 slot 0 为 8-byte short_read/unknown、不写证负；P 的 one 可满足、all 不 complete。EIO 后合法次选推进被 `lib/workflow/recursive-goal/module.ts` 的失败原子语义终止，最小复现见 `playground/cli/content-search/p3-eio-core-repro.mjs`，按 Plan §10 保留为 Jenny 缺口，本轮不宣称 E 恢复通过。
+短读与 partial 恢复按配方保留真实事实：S 的 slot 0 为 8-byte short_read/unknown、不写证负；P 的 one 可满足、all 不 complete。增量 B 当时把 EIO 后无法推进合法次选记为共享 core 阻断；B2 复核后确认断点在 CLI 域内（见下）。
+
+### P3 增量 B2 修正（2026-10-24）
+
+EIO 断点实际在 CLI 域内：读取失败回执在领域层被改写成成功原子结果，导致 `evaluateRead` 的读取条件永不满足，控制器最终以 `evidence_unavailable` 结束。B2 只把 `EIO` 收进候选 `read_error` 事实（保留 `failureCode=EIO`、`read=null`、`contains=null`、`scan=null` 与原失败回执），并以该已记录失败满足本次读取尝试，控制器随后按既有优先级选择其他合法候选；`EACCES`、`SANDBOX_ESCAPE` 仍按原错误终止。重新采集得到 408 条决策样本、24 条 `delta=1` 训练配对（train forced 的 N/S/E/P 各 6 条），112 arms 全部 achieved；t0 forced E 为 11/256（B 反向 8/160）。同一 200 epochs/lr 0.1 预算拟合 loss 0.693147→0.053456、参数 0→2.902054（24 条配对同构，梯度均值不变），新候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc` 已由公开入口回载为合法 10×31，保持 `uncalibrated/not_applied`、训练报告 `fullyVerified=false`。上表 326/18 与候选 `39f1570f` 保留为增量 B 历史证据。
 
 ## 当前file.property单候选结果（2026-10-19本轮）
 
