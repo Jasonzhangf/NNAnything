@@ -590,3 +590,7 @@ export async function runCliContentSearchGoal(
 
 export { createCliFilesystemSandbox } from "./adapters/cli/filesystem-sandbox.js";
 export { createCliCommandPolicy } from "./cli-goal.js";
+export {
+  detectCliCommandProfileSchema,
+  validateCliCommandProfile,
+} from "./filters/cli-command-policy.js";
