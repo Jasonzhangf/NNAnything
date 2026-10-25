@@ -91,7 +91,7 @@ PWD、LS 要求本请求的新证据；CD 在适用真观测证明已等于 D �
 
 唯一接入点在既有搜索 `nextAction` 中「尚未开始的合法候选」选择处。优先级不变：stale 复核 > 未完成分块续读 > `one` 已有命中收束 > 对剩余合法未开始候选评分 > 同分沿用稳定词法顺序。评分不得抢占未完成分块，不得把低分候选从覆盖集合删除。权重为 0 或同分时回退词法顺序，旧回归不受影响。`file.read` 仍为 `deterministic_exec`、`selectedHead:null`，不新增命令行 head。
 
-保存结构为 10×31，共 310 参数。旧 10×30 候选只能在离线经 `migrateCliCommandProfileV10x30` 按名称显式迁移，新增10个位置补零；运行入口拒绝未迁移的10×30与已废弃10×32形状，不静默迁移、不默认替代。P3 增量 A 不做真实拟合、不保存候选；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 继续为 `uncalibrated/not_applied`。
+保存结构为 10×31，共 310 参数。旧 10×30 候选只能在离线经 `migrateCliCommandProfileV10x30` 按名称显式迁移，新增10个位置补零；运行入口拒绝未迁移的10×30与已废弃10×32形状，不静默迁移、不默认替代。增量 A 本身不做真实拟合、不保存候选；原候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 继续为 `uncalibrated/not_applied`，后续偏好候选见 §0.4。
 
 两个CLI可训练单元按公共设计资料流和升级对象流挂接，不复制公共规则：
 
@@ -318,6 +318,7 @@ guard在softmax之后拒绝不可执行或类型不匹配的调用；它不改�
 
 - 推理DAG：`workflows/cli-file-property.graph.json`（6节点/5边，0.3.0）及`cli-file-property.workflow.json`，负责接收 typed `file.property` 请求，经绑定→选择→执行→观测→评价→报告收敛于统一SESE出口。I1只升级operator_version与合同载荷；节点ID、ARC ID、边与端口不变。旧`cli-command-step`与`cli-goal-step`图及绑定已物理退役。
 - 训练DAG：`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.3.0）及同名workflow配置，接收调用者准备并分区的 typed dataset。它不生成fixture，也不自行启动新进程回载；fixture由公开consumer的`makeCliCommandFixture`创建，保存候选后由consumer重新读取，并以新进程运行reload脚本。
+- 训练图的 typed 任务分支：同一 8N8E 图同时承载 `task: "command"`（旧命令episode交叉熵）与 `task: "candidate-preference"`（候选名称关系成对偏好）。偏好分支经 `partition → prepare → fit → save → execute → verify → report` 运行，`fit` 只更新 `entry.inspect × search.nameNeedleSegment` 一个系数，`execute` 用保存后的候选 profile 在同一 Handwired 电路复算每条配对效用并写 `executions.jsonl`，`report` 输出 `CliCandidatePreferenceTrainingReceipt`。两个分支共用同一图、同一分区与保存路径，不新建训练引擎；公开入口为 `nnanything/cli-goal` 的 `runCliCommandTraining` 与 consumer `playground/cli/content-search/train-p3.mjs`。
 - 阶段调度：`workflows/cli-filesystem-curriculum.graph.json`现为7节点/6边、0.2.0-design设计图（非真实训练图），只描述历史 PWD→CD→LS 顺序与后续属性单元；公开consumer只执行本轮单阶段迁移训练，不执行未来设计单元。
 - 拟合迭代：epoch循环在数值拟合器内完成，不给外层workflow加回边。
 

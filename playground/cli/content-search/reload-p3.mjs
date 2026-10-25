@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 const search = await import("nnanything/cli-content-search");
+const { atomicStepViews, decisionExecutions } = await import("./p3-recovery.mjs");
 
 const SCAN = Object.freeze({
   maxBytesPerFile: 256,
@@ -369,7 +370,8 @@ async function runCase(profile, item, condition) {
     const negativeNames = result.domain.negatives.map(fact => basename(fact.path));
     const rootEvaluation = result.domain.preserve.rootEvaluation;
     const control = result.domain.preserve.control;
-    const trace = decisionTrace(decisions);
+    const atomicSteps = atomicStepViews(result.response);
+    const trace = decisionExecutions(decisions, atomicSteps);
     const firstSelected = trace[0]?.selectedName ?? null;
     const slot0Selected = trace.some(decision => decision.selectedName === item.names[0]);
 
@@ -437,6 +439,7 @@ async function runCase(profile, item, condition) {
       scenarioId: item.scenarioId,
       feedbackKind: item.feedbackKind,
       condition,
+      hitName: item.names[item.hitSlot],
       requestId: condition === "natural" ? item.requestId.natural : item.requestId.forced,
       status: result.domain.status,
       resolution: result.domain.resolution,
@@ -446,6 +449,8 @@ async function runCase(profile, item, condition) {
       primaryErrorId: result.domain.preserve.primaryErrorId,
       matches: matchNames,
       negatives: negativeNames,
+      negativeNames,
+      limits: LIMITS,
       invocationCount: result.domain.invocationCount,
       observationCount: result.domain.observationCount,
       bytesReadTotal: result.domain.bytesReadTotal,
@@ -455,6 +460,7 @@ async function runCase(profile, item, condition) {
       coverage: result.domain.coverage,
       denominators: result.domain.denominators,
       decisionTrace: trace,
+      atomicSteps,
       candidates: candidates.map(candidateSummary),
       slot0: candidateSummary(slot0),
       injectionCounters: { ...injection.counters },

@@ -124,6 +124,65 @@ export function cliCandidatePreferenceLoss(margin: number): number {
   return softplus(-margin);
 }
 
+export type CliCandidatePreferenceEvaluationRow = Readonly<{
+  id: string;
+  partition: string;
+  preferredName: string;
+  otherName: string;
+  preferredUtility: number;
+  otherUtility: number;
+  margin: number;
+  correct: boolean;
+}>;
+
+/**
+ * Re-executes the fitted profile on the row features without learning. The
+ * applicable execution check for the preference task is a positive margin for
+ * every valid comparison row.
+ */
+export async function evaluateCliCandidateNamePreference(input: Readonly<{
+  profile: CliCommandProfile;
+  rows: readonly CliCandidatePreferenceInputRow[];
+  handwiredRoot: string;
+}>) {
+  const profile = validateCliCommandProfile(input.profile);
+  const prepared = prepareCliCandidatePreferenceDataset(input.rows);
+  const inspectRow = profile.heads.indexOf("entry.inspect");
+  if (inspectRow < 0) throw new TypeError("entry.inspect head is required for candidate preference evaluation");
+  const rows = prepared.rows;
+  if (rows.length === 0) return Object.freeze({ count: 0, correct: 0, rows: Object.freeze([]) });
+  const module = await loadHandwired(input.handwiredRoot);
+  const graph = buildCliCommandCircuit(module, profile.heads.length, profile.wires.length);
+  const weights = profile.weights.flatMap(row => [...row]);
+  const evaluateUtility = (features: readonly number[]): number => {
+    const source = new Float32Array(graph.circuit.sourceSize);
+    graph.parameters.forEach((wire, index) => { source[wire] = Math.fround(weights[index]!); });
+    graph.features.forEach((wire, index) => { source[wire] = features[index]!; });
+    return graph.circuit.evaluateReference(source)[graph.logits[inspectRow]!]!;
+  };
+  const evaluated = rows.map(row => {
+    const preferredUtility = evaluateUtility(row.preferredFeatures);
+    const otherUtility = evaluateUtility(row.otherFeatures);
+    const margin = preferredUtility - otherUtility;
+    if (!Number.isFinite(margin)) throw new Error("Non-finite candidate preference margin");
+    return Object.freeze({
+      id: row.id,
+      partition: row.partition,
+      preferredName: row.preferredName,
+      otherName: row.otherName,
+      preferredUtility,
+      otherUtility,
+      margin,
+      correct: margin > 0,
+    });
+  });
+  return Object.freeze({
+    count: evaluated.length,
+    correct: evaluated.filter(row => row.correct).length,
+    rows: Object.freeze(evaluated),
+  });
+}
+
 /**
  * Fits exactly one parameter: the entry.inspect row of
  * search.nameNeedleSegment. Evaluation and backpropagation use the same

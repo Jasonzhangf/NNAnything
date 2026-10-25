@@ -17,6 +17,8 @@ const search = await import("nnanything/cli-content-search");
 const policy = await import("nnanything/cli-goal");
 const { p3PartitionEpisodes, p3Request, p3SandboxRecipe, assertP3EpisodeOnDisk, createP3Injection } =
   await import("./p3-recipe.mjs");
+const { atomicStepViews, decisionExecutions, recoveryOutcome, t1t2Mismatches: t1t2Mismatch } =
+  await import("./p3-recovery.mjs");
 
 const SCAN = Object.freeze({
   maxBytesPerFile: 256,
@@ -112,6 +114,17 @@ function normalizedTrace(decisions) {
   }));
 }
 
+function recoveryView(item) {
+  const outcome = recoveryOutcome(item);
+  return {
+    applicable: outcome.applicable,
+    covered: outcome.covered,
+    recovered: outcome.recovered,
+    measured: outcome.measured,
+    reasons: outcome.reasons,
+  };
+}
+
 async function oracleScan(episode, scenarioRoot) {
   const scopeRoot = join(scenarioRoot, episode.scope);
   const names = (await readdir(scopeRoot)).sort();
@@ -186,6 +199,8 @@ async function runArm(episode, arm, profile, profileReference) {
     const firstSelected = trace[0]?.selectedName ?? null;
     const slot0Selected = trace.some(decision => decision.selectedName === episode.names[0]);
     const slot0Feedback = feedbackObservation(episode, slot0);
+    const atomicSteps = atomicStepViews(result.response);
+    const executionTrace = decisionExecutions(trace, atomicSteps);
     const armReceipt = {
       stage: null,
       profileReference,
@@ -206,6 +221,8 @@ async function runArm(episode, arm, profile, profileReference) {
       primaryErrorId: result.domain.preserve.primaryErrorId,
       matches: matchNames,
       negatives: negativeNames,
+      negativeNames,
+      limits: LIMITS,
       invocationCount: result.domain.invocationCount,
       observationCount: result.domain.observationCount,
       bytesReadTotal: result.domain.bytesReadTotal,
@@ -219,7 +236,24 @@ async function runArm(episode, arm, profile, profileReference) {
       slot0Feedback,
       slot0Outcome: slot0?.outcome ?? null,
       slot0FailureCode: slot0?.failureCode ?? null,
-      decisionTrace: trace,
+      decisionTrace: executionTrace,
+      atomicSteps,
+      recovery: recoveryView(Object.freeze({
+        arm,
+        feedbackKind: episode.feedbackKind,
+        slot0: candidateSummary(slot0),
+        negativeNames,
+        denominators: result.domain.denominators,
+        decisionTrace: executionTrace,
+        atomicSteps,
+        status: result.domain.status,
+        root: result.domain.preserve.rootEvaluation,
+        control: result.domain.preserve.control,
+        hitName: episode.names[episode.hitSlot],
+        transitionsUsed: result.domain.budgetUsed?.transitionsUsed ?? null,
+        derivedGoalsUsed: result.domain.budgetUsed?.derivedGoalsUsed ?? null,
+        limits: LIMITS,
+      })),
       candidates: candidates.map(candidateSummary),
       slot0: candidateSummary(slot0),
       injectionCounters: { ...injection.counters },
@@ -301,21 +335,6 @@ async function runArm(episode, arm, profile, profileReference) {
     if (sandbox !== undefined) await sandbox.cleanup();
     await rm(root, { recursive: true, force: true });
   }
-}
-
-function armOutcome(item) {
-  if (item.arm !== "forced") {
-    return { success: item.status === "achieved", denominator: false, recovery: false };
-  }
-  const slot0Feedback = item.slot0Feedback;
-  if (slot0Feedback === null || slot0Feedback === undefined || slot0Feedback === "not_triggered") {
-    return { success: item.status === "achieved", denominator: false, recovery: false };
-  }
-  const realFeedback = slot0Feedback !== "not_triggered";
-  const firstSelected = item.decisionTrace[0]?.selectedName ?? null;
-  const later = item.decisionTrace.slice(1).some(decision => decision.selectedName !== firstSelected);
-  const recovered = realFeedback && later && item.status === "achieved";
-  return { success: item.status === "achieved", denominator: realFeedback, recovery: recovered };
 }
 
 function mean(values) {
@@ -586,14 +605,25 @@ async function main() {
   });
 
   const forcedCells = cells.filter(item => item.arm === "forced");
-  const forcedDenominator = forcedCells.filter(item => armOutcome(item).denominator);
-  const forcedRecovered = forcedDenominator.filter(item => armOutcome(item).recovery);
+  const forcedOutcomes = forcedCells.map(item => ({ item, outcome: recoveryOutcome(item) }));
+  const forcedDenominator = forcedOutcomes.filter(entry => entry.outcome.applicable && entry.outcome.covered);
+  const forcedRecovered = forcedDenominator.filter(entry => entry.outcome.recovered);
+  const uncoveredForced = forcedOutcomes.filter(entry => !(entry.outcome.applicable && entry.outcome.covered));
   judgments.push({
     item: 2,
     label: "forced feedback cases recover through a different legal candidate",
+    forcedTotal: forcedCells.length,
+    covered: forcedDenominator.length,
+    uncovered: uncoveredForced.length,
+    uncoveredCells: uncoveredForced.map(entry => ({
+      partition: entry.item.partition,
+      scenarioId: entry.item.scenarioId,
+      measured: entry.outcome.measured,
+      reasons: entry.outcome.reasons,
+    })),
+    recovered: forcedRecovered.length,
     metric: `${forcedRecovered.length}/${forcedDenominator.length}`,
-    pass: forcedDenominator.length === forcedRecovered.length,
-    excluded: forcedCells.length - forcedDenominator.length,
+    pass: forcedCells.length > 0 && uncoveredForced.length === 0 && forcedDenominator.length === forcedRecovered.length,
   });
 
   judgments.push({
@@ -627,27 +657,11 @@ async function main() {
       t1t2Mismatches.push(`${item.partition}/${item.scenarioId}/${item.arm}: missing t1 counterpart`);
       continue;
     }
-    const norm = normalizedTrace(item.decisionTrace);
-    const t1Norm = normalizedTrace(t1.decisionTrace);
-    const checks = [
-      ["status", item.status, t1.status],
-      ["resolution", item.resolution, t1.resolution],
-      ["satisfaction", item.satisfaction, t1.satisfaction],
-      ["invocationCount", item.invocationCount, t1.invocationCount],
-      ["observationCount", item.observationCount, t1.observationCount],
-      ["bytesReadTotal", item.bytesReadTotal, t1.bytesReadTotal],
-      ["duplicateReads", item.duplicateReads, t1.duplicateReads],
-      ["trace", JSON.stringify(norm), JSON.stringify(t1Norm)],
-    ];
-    for (const [name, left, right] of checks) {
-      if (JSON.stringify(left) !== JSON.stringify(right)) {
-        t1t2Mismatches.push(`${item.partition}/${item.scenarioId}/${item.arm}: ${name} differs`);
-      }
-    }
+    t1t2Mismatches.push(...t1t2Mismatch(item, t1, `${item.partition}/${item.scenarioId}/${item.arm}`));
   }
   judgments.push({
     item: 6,
-    label: "t1/t2 normalized traces, root results, invocation, observation, bytes equal",
+    label: "t1/t2 normalized traces, root/control results, invocation, observation, bytes equal",
     mismatches: t1t2Mismatches.length,
     pass: t1t2Mismatches.length === 0,
   });
@@ -721,6 +735,6 @@ async function main() {
 try {
   await main();
 } catch (error) {
-  console.error(`evaluate-p3: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`evaluate-p3: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
   process.exitCode = 1;
 }

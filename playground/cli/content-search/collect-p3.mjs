@@ -10,6 +10,7 @@ import {
   p3SandboxRecipe,
   P3_PARTITIONS,
 } from "./p3-recipe.mjs";
+import { atomicStepViews, decisionExecutions } from "./p3-recovery.mjs";
 
 const search = await import("nnanything/cli-content-search");
 const policy = await import("nnanything/cli-goal");
@@ -48,6 +49,13 @@ const slot0Name = episode => episode.names[0];
 function latestState(response) {
   const states = response?.report?.states;
   return Array.isArray(states) && states.length > 0 ? states[states.length - 1]?.value ?? null : null;
+}
+
+function stateValueByRef(response, ref) {
+  const states = response?.report?.states;
+  if (!Array.isArray(states)) return null;
+  const found = states.find(step => step?.value?.stateId === ref);
+  return found?.value ?? null;
 }
 
 function feedbackObservation(episode, candidate) {
@@ -98,6 +106,12 @@ async function runArm(episode, arm, profileReference) {
       .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
     const hit = hits.find(candidate => candidate.name === episode.names[episode.hitSlot]) ?? hits[0] ?? null;
     const other = negatives.find(candidate => candidate.name !== hit?.name && featureByName.has(candidate.name)) ?? null;
+    const steps = atomicStepViews(result.response);
+    const executionTrace = decisionExecutions(decisions, steps);
+    const dispatchesOf = (name) => executionTrace
+      .filter(decision => decision.selectedName === name)
+      .flatMap(decision => decision.executions)
+      .map(step => step.dispatchId);
     const pair = hit !== null && other !== null && featureByName.has(hit.name)
       ? {
           preferredName: hit.name,
@@ -105,18 +119,21 @@ async function runArm(episode, arm, profileReference) {
           preferredFeatures: featureByName.get(hit.name),
           otherFeatures: featureByName.get(other.name),
           delta: featureByName.get(hit.name)[NAME_COLUMN] - featureByName.get(other.name)[NAME_COLUMN],
-          evidenceRefs: [`${episode.scenarioId}:${arm}:executed-hit-and-negative`],
+          evidenceRefs: [...dispatchesOf(hit.name), ...dispatchesOf(other.name)],
         }
       : null;
     return {
       episode,
       arm,
       decisions,
+      steps,
+      executionTrace,
       result,
       state,
       candidates,
       featureByName,
       pair,
+      dispatchesOf,
       slot0Candidate,
       profileReference,
       injection,
@@ -131,6 +148,8 @@ const failures = [];
 const arms = [];
 const samples = [];
 const preferenceRows = [];
+const dispatches = new Map();
+const states = new Map();
 
 for (const partitionId of partitionIds) {
   for (const episode of p3PartitionEpisodes(partitionId)) {
@@ -213,10 +232,6 @@ for (const partitionId of partitionIds) {
         failures.push(`${episode.scenarioId}/${arm}: EIO slot 0 must not become a proven negative`);
       }
 
-      const atomicRefs = Array.isArray(domain.preserve.atomicResults)
-        ? domain.preserve.atomicResults.map(item => item?.dispatchId).filter(ref => typeof ref === "string")
-        : [];
-      const postStateRef = state?.stateId ?? null;
       const preferencePair = partitionId === "train" && arm === "forced" && run.pair !== null && run.pair.delta !== 0
         ? run.pair
         : null;
@@ -232,7 +247,32 @@ for (const partitionId of partitionIds) {
           evidenceRefs: run.pair.evidenceRefs,
         });
       }
-      for (const decision of run.decisions) {
+      const slot0Name = episode.names[0];
+      const slot0Decision = run.executionTrace.find(decision => decision.selectedName === slot0Name) ?? null;
+      const slot0DispatchIds = slot0Decision === null ? [] : slot0Decision.executions.map(step => step.dispatchId);
+      for (let index = 0; index < run.decisions.length; index += 1) {
+        const decision = run.decisions[index];
+        const executed = run.executionTrace[index]?.executions ?? [];
+        const preStateRef = executed[0]?.stateBeforeRef ?? null;
+        const postStateRef = executed[executed.length - 1]?.stateAfterRef ?? null;
+        const invocationRefs = executed.map(step => step.dispatchId);
+        const feedbackEvidenceRefs = decision.ordinal > (slot0Decision?.ordinal ?? -1) ? [...slot0DispatchIds] : [];
+        for (const step of executed) {
+          if (!dispatches.has(step.dispatchId)) {
+            dispatches.set(step.dispatchId, {
+              dispatchId: step.dispatchId,
+              head: step.head,
+              candidateName: step.candidateName,
+              outcome: step.outcome,
+              errorCode: step.errorCode,
+              stateBeforeRef: step.stateBeforeRef,
+              stateAfterRef: step.stateAfterRef,
+            });
+          }
+        }
+        for (const ref of [preStateRef, postStateRef]) {
+          if (ref !== null && !states.has(ref)) states.set(ref, stateValueByRef(run.result.response, ref));
+        }
         samples.push({
           sampleId: `${episode.scenarioId}:${arm}:decision-${decision.ordinal}`,
           sourceGroup: episode.sourceGroup,
@@ -244,8 +284,8 @@ for (const partitionId of partitionIds) {
           goal: run.result.request.goal,
           satisfactionThreshold: 100,
           profileReference,
-          preStateRef: `${run.result.request.requestId}:state:initial`,
-          evidenceRefs: [`${episode.scenarioId}:${arm}:decision-${decision.ordinal}`],
+          preStateRef,
+          evidenceRefs: invocationRefs,
           candidateRefs: decision.candidates.map(candidate => candidate.name),
           featuresByCandidate: Object.fromEntries(decision.candidates.map(candidate => [candidate.name, [...candidate.features]])),
           selectedCandidateRef: decision.selected.name,
@@ -255,10 +295,10 @@ for (const partitionId of partitionIds) {
             feedbackKind: episode.feedbackKind,
             injections: { ...run.injection.counters },
           },
-          actualInvocationRefs: atomicRefs,
+          actualInvocationRefs: invocationRefs,
           actualPostStateRef: postStateRef,
           feedbackKind: armReceipt.slot0Feedback,
-          feedbackEvidenceRefs: [],
+          feedbackEvidenceRefs,
           preferencePair: decision.selected.name === preferencePair?.preferredName ? preferencePair : null,
           supervisionSource: preferencePair === null ? "evaluation_only" : "executed_poststate",
           invocationCount: domain.invocationCount,
@@ -276,19 +316,23 @@ for (const partitionId of partitionIds) {
 const deltaOne = preferenceRows.filter(row => row.preferredFeatures[NAME_COLUMN] - row.otherFeatures[NAME_COLUMN] === 1).length;
 const deltaZero = preferenceRows.filter(row => row.preferredFeatures[NAME_COLUMN] - row.otherFeatures[NAME_COLUMN] === 0).length;
 const sampleDocument = {
-  schemaVersion: "p3-content-search-samples.v1",
+  schemaVersion: "p3-content-search-samples.v2",
   runId,
   generatedAt: new Date().toISOString(),
   profileReference: `${candidateProfilePath}#migrateCliCommandProfileV10x30`,
   wire: { name: "search.nameNeedleSegment", column: NAME_COLUMN, dimensions: 31 },
   samples,
+  evidence: {
+    dispatches: Object.fromEntries(dispatches.entries()),
+    states: Object.fromEntries(states.entries()),
+  },
   preferenceRows,
   preferenceStats: { total: preferenceRows.length, deltaOne, deltaZero },
   partitions: partitionIds,
   arms: armKinds,
 };
 const receipt = {
-  schemaVersion: "p3-content-search-collection.v1",
+  schemaVersion: "p3-content-search-collection.v2",
   runId,
   generatedAt: sampleDocument.generatedAt,
   profileReference: sampleDocument.profileReference,
@@ -304,14 +348,16 @@ const receipt = {
     other: arms.filter(arm => !["achieved", "failed"].includes(arm.status)).length,
   },
   failures,
-  coreBlocked: arms.some(arm => arm.feedbackKind === "E" && arm.status === "failed")
-    ? ["EIO read failure is terminal in shared recursive-goal; see playground/cli/content-search/p3-eio-core-repro.mjs"]
-    : [],
+  evidence: { dispatchRefs: dispatches.size, stateRefs: states.size },
+  eio: {
+    arms: arms.filter(arm => arm.feedbackKind === "E").length,
+    recovered: arms.filter(arm => arm.feedbackKind === "E" && arm.status === "achieved").length,
+  },
 };
 
 await mkdir(dirname(samplePath), { recursive: true });
 await mkdir(dirname(receiptPath), { recursive: true });
 await writeFile(samplePath, `${JSON.stringify(sampleDocument, null, 2)}\n`);
 await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
-console.log(JSON.stringify({ samplePath, receiptPath, totals: receipt.totals, failures: failures.length, coreBlocked: receipt.coreBlocked }, null, 2));
+console.log(JSON.stringify({ samplePath, receiptPath, totals: receipt.totals, failures: failures.length, evidence: receipt.evidence, eio: receipt.eio }, null, 2));
 if (failures.length > 0) process.exitCode = 1;
