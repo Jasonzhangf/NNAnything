@@ -752,3 +752,33 @@ test("a negative carrying positive member support is fitted, not excluded as zer
   ].some(Boolean);
   assert.ok(used, "at least one member support wire must move when it is the only evidence");
 });
+
+test("an abstained member is recorded as insufficient observation, not as measured zero", () => {
+  // No marker bits and both supports null: the cue is missing, not absent.
+  const rows = {
+    batches: [{
+      id: "batch-abstain",
+      partition: "train",
+      targetRef: "n2",
+      candidates: [
+        baseCandidate({ ref: "n1", usageQuerySupport: null, usageFieldSupport: null }),
+        baseCandidate({ ref: "n2", usageQuerySupport: 0.9, usageFieldSupport: -0.9 }),
+        baseCandidate({ ref: "n3", usageQuerySupport: 0, usageFieldSupport: 0 }),
+        // A negative with real evidence, so the fit still has one fitted negative row.
+        baseCandidate({ ref: "n4", usageQuerySupport: 0.3, usageFieldSupport: -0.3 }),
+      ],
+      labels: [
+        { ref: "n1", polarity: "negative" },
+        { ref: "n2", polarity: "positive" },
+        { ref: "n3", polarity: "negative" },
+        { ref: "n4", polarity: "negative" },
+      ],
+    }],
+  };
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  const byRef = new Map(result.fit.excludedRows.map(row => [row.ref, row.reason]));
+  assert.equal(byRef.get("n1"), "insufficient-observation",
+    "an abstained member means the cue is missing, so it must not be called measured zero");
+  assert.equal(byRef.get("n3"), "zero-usage-evidence",
+    "a member that really scored zero, with no marker bits, is measured zero evidence");
+});

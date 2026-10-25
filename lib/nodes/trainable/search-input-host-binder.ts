@@ -403,7 +403,13 @@ export interface SearchInputHostChangedWeight {
 
 export interface SearchInputHostExcludedTrainingRow {
   readonly ref: string;
-  readonly reason: "zero-usage-evidence";
+  /**
+   * `zero-usage-evidence` is a negative whose measured cue is genuinely all
+   * zero, so it can never meet a negative margin. `insufficient-observation` is
+   * a negative whose relation member abstained, so the cue is missing, not
+   * absent. The two are not the same fact and must stay distinguishable.
+   */
+  readonly reason: "zero-usage-evidence" | "insufficient-observation";
   readonly roleMatch: number;
 }
 
@@ -663,7 +669,16 @@ function fitAbsoluteSupervision(
       const evidence = usageEvidenceOf(candidate);
       const polarity = label.polarity === "positive" ? 1 : -1;
       if (polarity === -1 && evidence.every(value => value === 0)) {
-        excludedRows.push(Object.freeze({ ref: label.ref, reason: "zero-usage-evidence", roleMatch: 0 }));
+        // A member that abstained leaves the cue missing, not measured-absent.
+        // Folding the two together would turn an unknown into a zero, which the
+        // missing-measurement rule forbids, so the reason records which happened.
+        const memberAbstained = candidate.usageQuerySupport === null
+          || candidate.usageFieldSupport === null;
+        excludedRows.push(Object.freeze({
+          ref: label.ref,
+          reason: memberAbstained ? "insufficient-observation" : "zero-usage-evidence",
+          roleMatch: 0,
+        }));
         continue;
       }
       rows.push({ ref: label.ref, polarity, evidence });
