@@ -31,6 +31,14 @@ import {
 import type { ExplicitFileState } from "../filters/cli-state.js";
 import { fitCliCommandProfile } from "../training/cli-command-numeric.js";
 import {
+  evaluateCliCandidateNamePreference,
+  fitCliCandidateNamePreference,
+  prepareCliCandidatePreferenceDataset,
+  type CliCandidatePreferenceDataset,
+  type CliCandidatePreferenceEvaluationRow,
+  type CliCandidatePreferenceInputRow,
+} from "../training/cli-candidate-preference.js";
+import {
   prepareCliCommandDataset,
   isBatch1CommandCase,
   sampleFacts,
@@ -42,13 +50,30 @@ import {
 } from "../training/cli-command-samples.js";
 import type { CliCommandBinding, CliCommandRequest, CliCommandTransition } from "./cli-command.js";
 
-export type CliCommandTrainingRequest = Readonly<{
+export type CliCommandDatasetTrainingRequest = Readonly<{
+  task?: "command";
   dataset: CliCommandDataset;
   initial: CliCommandProfile;
   initialSource: string | null;
   epochs: number;
   learningRate: number;
 }>;
+
+/**
+ * Same 8N8E cli-filesystem-training workflow, second typed task branch. The
+ * dataset is a candidate preference comparison set instead of command episodes.
+ * Only the entry.inspect row of search.nameNeedleSegment is trainable.
+ */
+export type CliCommandPreferenceTrainingRequest = Readonly<{
+  task: "candidate-preference";
+  preferenceRows: readonly CliCandidatePreferenceInputRow[];
+  initial: CliCommandProfile;
+  initialSource: string | null;
+  epochs: number;
+  learningRate: number;
+}>;
+
+export type CliCommandTrainingRequest = CliCommandDatasetTrainingRequest | CliCommandPreferenceTrainingRequest;
 
 export type CliCommandTrainingResources = Readonly<{
   handwiredRoot: string;
@@ -100,19 +125,96 @@ export type CliCommandTrainingReceipt = {
   timing: Awaited<ReturnType<typeof fitCliCommandProfile>>["timing"];
 };
 
-function prepare(value: unknown) {
+export type CliCandidatePreferenceTrainingReceipt = {
+  task: "candidate-preference";
+  runId: string;
+  accepted: boolean;
+  fullyVerified: false;
+  paths: Paths;
+  profile: CliCommandProfile;
+  initialProfile: CliCommandProfile;
+  initialSource: string | null;
+  dataset: Readonly<{ validPairCount: number; deltaOneCount: number; deltaZeroCount: number }>;
+  trainable: Readonly<{
+    head: string;
+    wire: string;
+    index: number;
+    before: number;
+    after: number;
+    initialGradient: number;
+    frozenParameterCount: number;
+    frozenDelta: number;
+  }>;
+  loss: Readonly<{ before: number; after: number }>;
+  execution: Readonly<{
+    count: number;
+    correct: number;
+    rows: readonly CliCandidatePreferenceEvaluationRow[];
+  }>;
+  timing: Awaited<ReturnType<typeof fitCliCandidateNamePreference>>["timing"];
+};
+
+const COMMAND_REQUEST_KEYS = ["task", "dataset", "initial", "initialSource", "epochs", "learningRate"];
+const PREFERENCE_REQUEST_KEYS = ["task", "preferenceRows", "initial", "initialSource", "epochs", "learningRate"];
+
+function prepare(value: unknown): Prepared {
   const request = expectRecord(value, "command training request") as unknown as CliCommandTrainingRequest;
-  if (Object.keys(request).some(key => !["dataset", "initial", "initialSource", "epochs", "learningRate"].includes(key))) {
+  const isPreference = (request as Readonly<{ task?: unknown }>).task === "candidate-preference";
+  const allowed = isPreference ? PREFERENCE_REQUEST_KEYS : COMMAND_REQUEST_KEYS;
+  if (Object.keys(request).some(key => !allowed.includes(key))) {
     throw new TypeError("Explicit shared training contract required");
   }
   const initial = validateCliCommandProfile(request.initial);
   if (request.initialSource !== null && typeof request.initialSource !== "string") throw new TypeError("initialSource must be a saved profile path or null");
-  return { request: { ...request, initial }, prepared: prepareCliCommandDataset(request.dataset) };
+  if (isPreference) {
+    const preference = request as CliCommandPreferenceTrainingRequest;
+    return {
+      kind: "candidate-preference" as const,
+      request: { ...preference, initial },
+      prepared: prepareCliCandidatePreferenceDataset(preference.preferenceRows),
+      rows: Object.freeze([...preference.preferenceRows]),
+    };
+  }
+  const command = request as CliCommandDatasetTrainingRequest;
+  return {
+    kind: "command" as const,
+    request: { ...command, initial },
+    prepared: prepareCliCommandDataset(command.dataset),
+  };
 }
 
-type Prepared = ReturnType<typeof prepare>;
-type Fitted = Prepared & { fit: Awaited<ReturnType<typeof fitCliCommandProfile>> };
-type Saved = Fitted & { paths: Paths };
+type PreparedCommand = {
+  kind: "command";
+  request: CliCommandDatasetTrainingRequest & { initial: CliCommandProfile };
+  prepared: ReturnType<typeof prepareCliCommandDataset>;
+};
+type PreparedPreference = {
+  kind: "candidate-preference";
+  request: CliCommandPreferenceTrainingRequest & { initial: CliCommandProfile };
+  prepared: CliCandidatePreferenceDataset;
+  rows: readonly CliCandidatePreferenceInputRow[];
+};
+type Prepared = PreparedCommand | PreparedPreference;
+type CommandPrepared = PreparedCommand;
+type FittedCommand = PreparedCommand & { fit: Awaited<ReturnType<typeof fitCliCommandProfile>> };
+type FittedPreference = PreparedPreference & { fit: Awaited<ReturnType<typeof fitCliCandidateNamePreference>> };
+type Fitted = FittedCommand | FittedPreference;
+type CommandSaved = FittedCommand & { paths: Paths };
+type PreferenceSaved = FittedPreference & { paths: Paths };
+type Saved = CommandSaved | PreferenceSaved;
+type PreferenceSummary = Readonly<{ count: number; correct: number; passed: boolean }>;
+type ExecutedCommand = CommandSaved & { rows: CommandEvaluationRow[]; verificationProvided: boolean };
+type ExecutedPreference = PreferenceSaved & {
+  preferenceRows: readonly CliCandidatePreferenceEvaluationRow[];
+  preferenceEvaluation: PreferenceSummary;
+};
+type VerifiedCommand = ExecutedCommand & Pick<CliCommandTrainingReceipt, "comparison" | "regression" | "semanticChanges" | "verification">;
+type VerifiedPreference = ExecutedPreference & {
+  comparison: Readonly<{ train: PreferenceSummary; development: PreferenceSummary }>;
+  regression: Record<string, never>;
+  semanticChanges: readonly never[];
+  verification: { status: "not_provided" };
+};
 
 function sameEntries(left: readonly { name: string; type: string }[], right: readonly { name: string; type: string }[]) {
   const normalized = (items: typeof left) => items.map(({ name, type }) => ({ name, type })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
@@ -439,7 +541,7 @@ async function artifactDirectory(root: string, category: string, runId: string) 
   return path;
 }
 
-function assertDisjointVerificationSources(primary: Prepared["prepared"], verification: Prepared["prepared"]) {
+function assertDisjointVerificationSources(primary: CommandPrepared["prepared"], verification: CommandPrepared["prepared"]) {
   const primarySources = new Set([...primary.scenes.values()].map(scene => scene.sourceGroup));
   const overlap = [...new Set([...verification.scenes.values()].map(scene => scene.sourceGroup).filter(group => primarySources.has(group)))].sort();
   if (overlap.length) throw new TypeError(`Verification source group overlaps primary train/development sources: ${overlap.join(", ")}`);
@@ -452,7 +554,7 @@ export function createCliCommandTrainingNodes(resources: CliCommandTrainingResou
   return [
     node("partition", [0], 1, [], context => {
       const stage = prepare(context.inputs[0]!.payload);
-      if (resources.verification !== undefined) {
+      if (stage.kind === "command" && resources.verification !== undefined) {
         assertDisjointVerificationSources(stage.prepared, prepareCliCommandDataset(resources.verification, ["verification"]));
       }
       return context.emit(stage);
@@ -460,10 +562,21 @@ export function createCliCommandTrainingNodes(resources: CliCommandTrainingResou
     node("prepare", [1], 2, [], context => context.emit(context.inputs[0]!.payload)),
     node("prepare-verification", [1], 3, [], context => {
       const stage = context.inputs[0]!.payload as Prepared;
+      if (stage.kind === "candidate-preference") return context.emit({ status: "not_provided" });
       return context.emit(resources.verification === undefined ? { status: "not_provided" } : { status: "provided", prepared: prepareCliCommandDataset(resources.verification, ["verification"]) });
     }),
     node("fit", [2], 4, ["filesystem.read"], async context => {
       const stage = context.inputs[0]!.payload as Prepared;
+      if (stage.kind === "candidate-preference") {
+        const fit = await fitCliCandidateNamePreference({
+          initial: stage.request.initial,
+          rows: stage.prepared.rows,
+          handwiredRoot: resources.handwiredRoot,
+          epochs: stage.request.epochs,
+          learningRate: stage.request.learningRate,
+        });
+        return context.emit({ ...stage, fit });
+      }
       const fit = await fitCliCommandProfile({
         initial: stage.request.initial,
         rows: stage.prepared.train.map(sample => ({ features: sampleFeatures(sample, stage.prepared.scenes.get(sample.scenarioId)!), expectedHead: sample.expectedHead })),
@@ -481,13 +594,33 @@ export function createCliCommandTrainingNodes(resources: CliCommandTrainingResou
       const profile = join(await artifactDirectory(resources.outputRoot, "weights", runId), "candidate.json");
       const result = await artifactDirectory(resources.outputRoot, "results", runId);
       const paths = { samples, profile, report: join(result, "report.json"), executions: join(result, "executions.jsonl") };
-      await writeFile(samples, JSON.stringify(stage.request.dataset, null, 2) + "\n", { flag: "wx" }); diagnostics.partialPaths.samples = samples;
+      const sampleDocument = stage.kind === "candidate-preference"
+        ? {
+            schemaVersion: "cli.candidate-preference-training.v1",
+            preferenceRows: stage.request.preferenceRows,
+            dataset: {
+              validPairCount: stage.prepared.validPairCount,
+              deltaOneCount: stage.prepared.deltaOneCount,
+              deltaZeroCount: stage.prepared.deltaZeroCount,
+            },
+          }
+        : stage.request.dataset;
+      await writeFile(samples, JSON.stringify(sampleDocument, null, 2) + "\n", { flag: "wx" }); diagnostics.partialPaths.samples = samples;
       await writeFile(profile, JSON.stringify(stage.fit.profile, null, 2) + "\n", { flag: "wx" }); diagnostics.partialPaths.profile = profile;
       await writeFile(paths.executions, "", { flag: "wx" }); diagnostics.partialPaths.executions = paths.executions;
       return context.emit({ ...stage, paths });
     }),
     node("execute", [5, 3], 6, ["filesystem.write"], async context => {
-      const stage = context.inputs[0]!.payload as Saved, verification = context.inputs[1]!.payload as { status: string; prepared?: Prepared["prepared"] };
+      const stage = context.inputs[0]!.payload as Saved, verification = context.inputs[1]!.payload as { status: string; prepared?: ReturnType<typeof prepareCliCommandDataset> };
+      if (stage.kind === "candidate-preference") {
+        const evaluation = await evaluateCliCandidateNamePreference({
+          profile: stage.fit.profile,
+          rows: stage.prepared.rows,
+          handwiredRoot: resources.handwiredRoot,
+        });
+        await appendFile(stage.paths.executions, evaluation.rows.map(row => JSON.stringify({ kind: "preference-execution", ...row })).join("\n") + (evaluation.rows.length === 0 ? "" : "\n"));
+        return context.emit({ ...stage, preferenceRows: evaluation.rows, preferenceEvaluation: { count: evaluation.count, correct: evaluation.correct } });
+      }
       const rows: CommandEvaluationRow[] = [];
       for (const sample of stage.prepared.samples) {
         rows.push(await executeCliCommandTrainingSample(sample, stage.prepared.scenes.get(sample.scenarioId)!, stage.fit.profile, factory, stage.paths.executions,
@@ -500,8 +633,27 @@ export function createCliCommandTrainingNodes(resources: CliCommandTrainingResou
       return context.emit({ ...stage, rows, verificationProvided: verification.status === "provided" });
     }),
     node("verify", [6], 7, [], context => {
-      const stage = context.inputs[0]!.payload as Saved & { rows: CommandEvaluationRow[]; verificationProvided: boolean };
-      const comparison = { train: summarize(stage.rows.filter(row => row.partition === "train")), development: summarize(stage.rows.filter(row => row.partition === "development")) };
+      const stage = context.inputs[0]!.payload as ExecutedCommand | ExecutedPreference;
+      if (stage.kind === "candidate-preference") {
+        const preferenceRows = stage.preferenceRows;
+        const summary = (partition: string) => {
+          const selected = preferenceRows.filter(row => row.partition === partition);
+          return {
+            count: selected.length,
+            correct: selected.filter(row => row.correct).length,
+            passed: selected.length > 0 && selected.every(row => row.correct),
+          };
+        };
+        return context.emit({
+          ...stage,
+          comparison: { train: summary("train"), development: summary("development") },
+          regression: {},
+          semanticChanges: [],
+          verification: { status: "not_provided" as const },
+        });
+      }
+      const rows = stage.rows;
+      const comparison = { train: summarize(rows.filter(row => row.partition === "train")), development: summarize(rows.filter(row => row.partition === "development")) };
       const regression: CliCommandTrainingReceipt["regression"] = {};
       for (const head of CLI_COMMAND_HEADS) {
         const rows = [...stage.prepared.train, ...stage.prepared.development].filter(row => row.expectedHead === head);
@@ -517,25 +669,68 @@ export function createCliCommandTrainingNodes(resources: CliCommandTrainingResou
       const semanticChanges = stage.prepared.samples.filter(row => row.case === "cwd-equals-fresh-equal")
         .map(row => ({ id: row.id, legacyExpectedHead: "cd" as const, currentExpectedHead: "NOOP" as const, observedHead: predictCliCommand(sampleGoal(row, stage.prepared.scenes.get(row.scenarioId)!), sampleFacts(row), stage.fit.profile).selectedHead }));
       return context.emit({ ...stage, comparison, regression, semanticChanges,
-        verification: stage.verificationProvided ? { status: "evaluated", evaluation: summarize(stage.rows.filter(row => row.partition === "verification")) } : { status: "not_provided" } });
+        verification: stage.verificationProvided ? { status: "evaluated", evaluation: summarize(rows.filter(row => row.partition === "verification")) } : { status: "not_provided" } });
     }),
     node("report", [7], 8, ["filesystem.write"], async context => {
-      const stage = context.inputs[0]!.payload as Saved & Pick<CliCommandTrainingReceipt, "comparison" | "regression" | "semanticChanges" | "verification">;
-      const accepted = stage.comparison.train.passed && stage.comparison.development.passed
-        && Object.values(stage.regression).every(item => item.regressed === 0);
+      const stage = context.inputs[0]!.payload as VerifiedCommand | VerifiedPreference;
+      if (stage.kind === "candidate-preference") {
+        const fitted = stage.fit as Awaited<ReturnType<typeof fitCliCandidateNamePreference>>;
+        const preferenceRows = stage.preferenceRows;
+        const receipt: CliCandidatePreferenceTrainingReceipt = {
+          task: "candidate-preference",
+          runId: context.runId,
+          accepted: preferenceRows.length > 0 && preferenceRows.every(row => row.correct),
+          fullyVerified: false,
+          paths: stage.paths,
+          profile: fitted.profile,
+          initialProfile: fitted.initialProfile,
+          initialSource: stage.request.initialSource,
+          dataset: {
+            validPairCount: stage.prepared.validPairCount,
+            deltaOneCount: stage.prepared.deltaOneCount,
+            deltaZeroCount: stage.prepared.deltaZeroCount,
+          },
+          trainable: {
+            head: fitted.trainableParameter.head,
+            wire: fitted.trainableParameter.wire,
+            index: fitted.trainableParameter.index,
+            before: fitted.parameterBefore,
+            after: fitted.parameterAfter,
+            initialGradient: fitted.initialGradient,
+            frozenParameterCount: fitted.frozenParameterCount,
+            frozenDelta: fitted.frozenDelta,
+          },
+          loss: { before: fitted.initialLoss, after: fitted.finalLoss },
+          execution: {
+            count: preferenceRows.length,
+            correct: preferenceRows.filter(row => row.correct).length,
+            rows: preferenceRows,
+          },
+          timing: fitted.timing,
+        };
+        await writeFile(stage.paths.report, JSON.stringify({ ...receipt, trajectory: fitted.trajectory }, null, 2) + "\n", { flag: "wx" });
+        diagnostics.partialPaths.report = stage.paths.report;
+        return context.emit(receipt);
+      }
+      const comparison = stage.comparison;
+      const regression = stage.regression;
+      const semanticChanges = stage.semanticChanges;
+      const verification = stage.verification;
+      const accepted = comparison.train.passed && comparison.development.passed
+        && Object.values(regression).every(item => item.regressed === 0);
       const receipt: CliCommandTrainingReceipt = {
         runId: context.runId,
         accepted,
-        fullyVerified: accepted && stage.verification.status === "evaluated" && stage.verification.evaluation.passed,
+        fullyVerified: accepted && verification.status === "evaluated" && verification.evaluation.passed,
         paths: stage.paths,
         profile: stage.fit.profile,
         initialSource: stage.request.initialSource,
         sourceProfile: stage.request.initial,
         initialProfile: stage.fit.initialProfile,
-        comparison: stage.comparison,
-        regression: stage.regression,
-        semanticChanges: stage.semanticChanges,
-        verification: stage.verification,
+        comparison,
+        regression,
+        semanticChanges,
+        verification,
         controls: {
           zero: controls(stage.prepared.train, stage.prepared.scenes, validateCliCommandProfile({ ...stage.fit.initialProfile, weights: stage.fit.initialProfile.weights.map(row => row.map(() => 0)) })),
           frozen: controls(stage.prepared.train, stage.prepared.scenes, stage.fit.initialProfile),

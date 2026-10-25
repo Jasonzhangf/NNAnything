@@ -27,7 +27,7 @@ import type {
   CliCommandSample,
   CliCommandTransition,
 } from "../../nodes/cli-command.js";
-import type { CliCommandProfile } from "../../filters/cli-command-policy.js";
+import { cliCandidateFeatures, type CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { PathRef } from "../../filters/cli-file-property.js";
 import type {
   CliFilesystemSandbox,
@@ -49,6 +49,7 @@ import {
   type ContentSearchDirectoryFact,
   type ContentSearchEffectFact,
   type ContentSearchEvidencePayload,
+  type ContentSearchDecisionObservation,
   type ContentSearchFileRef,
   type ContentSearchGoal,
   type ContentSearchHistoricalHitFact,
@@ -73,10 +74,15 @@ import {
   initialCandidates,
   inspectedFactFromTransition,
   isStaleReadCode,
+  isRecoverableReadCode,
   lineColumn,
   readFactEndObserved,
   listingFactFromTransition,
 } from "../../filters/cli-content-search.js";
+import {
+  cliCandidateUtility,
+  validateCliCommandProfile,
+} from "../../filters/cli-command-policy.js";
 
 export const CONTENT_ROOT_COMPOSITE_SKILL = "content-search.composite";
 export const CONTENT_LIST_ATOMIC_SKILL = "content-search.list";
@@ -196,6 +202,7 @@ export type ContentSearchAdapterInput = Readonly<{
   order: ContentSearchOrder;
   duplicateReadProbe?: readonly string[];
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
+  onDecision?: (decision: ContentSearchDecisionObservation) => void;
 }>;
 
 export type ContentSearchAdapter = RecursiveGoalAdapter<
@@ -384,14 +391,15 @@ async function evaluateRead(
     item.fileRef.absolutePath === goal.target.ref.absolutePath,
   );
   const read = candidate?.read ?? null;
-  const staleRefused = read === null && input.evidence.some(item =>
+  const failureObserved = read === null && input.evidence.some(item =>
     item.payload.kind === "cli.content-search.read.v1" &&
     item.payload.ref.sourceRun === goal.target.ref.sourceRun &&
     item.payload.ref.absolutePath === goal.target.ref.absolutePath &&
     item.payload.receipt.execution.status === "failed" &&
-    isStaleReadCode(item.payload.receipt.execution.error.code),
+    (isStaleReadCode(item.payload.receipt.execution.error.code) ||
+      isRecoverableReadCode(item.payload.receipt.execution.error.code)),
   );
-  if (staleRefused) {
+  if (failureObserved) {
     return evaluation(CONTENT_READ_EVALUATOR, "satisfied", 100, stateEvidenceRefs(input.state, input.evidence));
   }
   if (
@@ -604,11 +612,65 @@ function needsRead(candidate: ContentSearchCandidateFact): boolean {
   return false;
 }
 
+function chooseUnstarted(
+  candidates: readonly ContentSearchCandidateFact[],
+  score: (candidate: ContentSearchCandidateFact) => number,
+  order: ContentSearchOrder,
+  needle: string,
+  onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
+): ContentSearchCandidateFact | undefined {
+  const eligible = candidates.filter(needsInspect);
+  if (eligible.length === 0) return undefined;
+  const observed = () => Object.freeze(eligible.map(candidate => Object.freeze({
+    name: candidate.name,
+    path: candidate.path,
+    features: cliCandidateFeatures(candidate.name, needle),
+  })));
+  const emitDecision = (selected: ContentSearchCandidateFact, forced: boolean) => {
+    if (onDecision === undefined) return;
+    const snapshot = observed();
+    onDecision(Object.freeze({
+      phase: "unstarted" as const,
+      forced,
+      candidates: snapshot,
+      selected: snapshot.find(candidate => candidate.path === selected.path)!,
+    }));
+  };
+  let forced = false;
+  // injected-first is a one-shot experiment condition: the named candidate is
+  // selected without scoring on the first choice, then the learned order takes
+  // over for the remaining unstarted candidates.
+  if (order.kind === "injected-first") {
+    const forcedCandidate = eligible.find(candidate => candidate.name === order.name);
+    if (forcedCandidate !== undefined) {
+      forced = true;
+      emitDecision(forcedCandidate, forced);
+      return forcedCandidate;
+    }
+  }
+  let selected = eligible[0]!;
+  let selectedScore = score(selected);
+  for (let index = 1; index < eligible.length; index += 1) {
+    const candidate = eligible[index]!;
+    const candidateScore = score(candidate);
+    if (candidateScore > selectedScore) {
+      selected = candidate;
+      selectedScore = candidateScore;
+    }
+  }
+  emitDecision(selected, forced);
+  return selected;
+}
+
 function nextAction(
   state: ContentSearchState,
   phase: ContentSearchCursor["phase"] | null,
   scan: ContentSearchScan,
   duplicateReadProbe: readonly string[],
+  candidateScore?: (candidate: ContentSearchCandidateFact) => number,
+  order?: ContentSearchOrder,
+  needle?: string,
+  onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
 ): NextAction {
   if (state.directories.length === 0 && state.listing === null) {
     return Object.freeze({ kind: "list" });
@@ -658,7 +720,15 @@ function nextAction(
     return Object.freeze({ kind: "read", candidate: duplicate, duplicate: true });
   }
 
-  const toInspect = state.candidates.find(candidate => needsInspect(candidate));
+  const toInspect = candidateScore === undefined
+    ? state.candidates.find(candidate => needsInspect(candidate))
+    : chooseUnstarted(
+        state.candidates,
+        candidateScore,
+        order ?? { kind: "lexicographic" },
+        needle ?? "",
+        onDecision,
+      );
   if (toInspect !== undefined) {
     return Object.freeze({ kind: "inspect", candidate: toInspect });
   }
@@ -691,14 +761,19 @@ async function derive(
   input: DerivationInput<unknown, ContentSearchState, unknown, ContentSearchEvidencePayload, unknown>,
   scan: ContentSearchScan,
   duplicateReadProbe: readonly string[],
+  profile: CliCommandProfile,
+  order: ContentSearchOrder,
+  onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
 ) {
   if (!isRootGoal(input.goal) || input.skill.id !== CONTENT_ROOT_COMPOSITE_SKILL) {
     throw new TypeError("content search composite derivation received an incompatible frame");
   }
   const cursor = input.cursor as ContentSearchCursor | null;
+  const needle = (input.bindings as ContentSearchBindings).needle;
   const action = cursor === null
     ? Object.freeze({ kind: "list" as const })
-    : nextAction(input.state, cursor.phase, scan, duplicateReadProbe);
+    : nextAction(input.state, cursor.phase, scan, duplicateReadProbe,
+        candidate => cliCandidateUtility(profile, candidate.name, needle), order, needle, onDecision);
   const ordinal = input.conditions.length;
   if (action.kind === "list") {
     return Object.freeze({
@@ -1132,7 +1207,8 @@ function readAtomicReceiptFromSandbox(
   });
   const failure = receipt.execution.status === "failed" ? receipt.execution.error : null;
   const stale = failure !== null && isStaleReadCode(failure.code);
-  const executionErrors = failure === null || stale
+  const recoverable = failure !== null && isRecoverableReadCode(failure.code);
+  const executionErrors = failure === null || stale || recoverable
     ? Object.freeze([])
     : Object.freeze([
         Object.freeze({
@@ -1151,7 +1227,7 @@ function readAtomicReceiptFromSandbox(
   return Object.freeze({
     runId: receipt.execution.runId,
     executorInvoked: receipt.execution.executorInvoked,
-    outcome: failure === null || stale ? ("succeeded" as const) : ("failed" as const),
+    outcome: failure === null || stale || recoverable ? ("succeeded" as const) : ("failed" as const),
     sourceResult: Object.freeze({ tag: "cli.file.read.receipt.v1", value: readReceipt }),
     newState: nextState,
     evidence: Object.freeze([
@@ -1175,8 +1251,9 @@ function readAtomicReceiptFromSandbox(
 }
 
 export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
+  const profile = validateCliCommandProfile(input.profile);
   const policy = createCliCommandPolicy({
-    profile: input.profile,
+    profile,
     sandbox: input.sandbox,
     session: input.session,
     ...(input.onSample === undefined ? {} : { onSample: input.onSample }),
@@ -1192,6 +1269,13 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
     measureProgress: 0,
   };
   let sequence = 0;
+  let decisionOrdinal = 0;
+  const onDecision = input.onDecision === undefined
+    ? undefined
+    : (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => {
+        decisionOrdinal += 1;
+        input.onDecision!(Object.freeze({ ordinal: decisionOrdinal, ...decision }));
+      };
 
   const adapter: ContentSearchAdapter = {
     async validateRequest(request: RecursiveGoalRequestEnvelope) {
@@ -1257,7 +1341,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
 
     async derive(callback) {
       calls.derive += 1;
-      return derive(callback, input.scan, input.duplicateReadProbe ?? []);
+      return derive(callback, input.scan, input.duplicateReadProbe ?? [], profile, input.order, onDecision);
     },
 
     async executeAtomic(callback) {

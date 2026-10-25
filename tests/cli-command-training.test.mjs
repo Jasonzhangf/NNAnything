@@ -213,7 +213,7 @@ test("zero-epoch fit preserves the explicit named migration", async () => {
   });
   const frozen = await fitCliCommandProfile({
     initial,
-    rows: [{ features: Array(30).fill(0), expectedHead: "pwd" }],
+    rows: [{ features: Array(31).fill(0), expectedHead: "pwd" }],
     handwiredRoot: "/backend/is/not/loaded/for/frozen/epochs",
     epochs: 0,
     learningRate: 0.1,
@@ -222,7 +222,7 @@ test("zero-epoch fit preserves the explicit named migration", async () => {
   assert.equal(frozen.timing.completedEpochs, 0);
   assert.equal(frozen.timing.gradientRowEpochs, 0);
   assert.equal(frozen.timing.backendLoadMs, 0);
-  assert.equal(frozen.timing.trainableParamCount, 300);
+  assert.equal(frozen.timing.trainableParamCount, 310);
 });
 
 test("real Handwired fit changes shared parameters and reports training work", {
@@ -244,7 +244,7 @@ test("real Handwired fit changes shared parameters and reports training work", {
   assert.equal(fit.timing.processedRowCount, rows.length);
   assert.equal(fit.timing.gradientRowEpochs, 20 * rows.length);
   assert.equal(fit.timing.totalRowPasses, 20 * rows.length);
-  assert.equal(fit.timing.trainableParamCount, 300);
+  assert.equal(fit.timing.trainableParamCount, 310);
   assert.ok(fit.timing.fitTotalMs >= 0);
   for (const row of rows) {
     assert.equal(predictCliCommand(row.goal, row.facts, fit.profile).selectedHead, row.expectedHead);
@@ -270,7 +270,7 @@ test("missing Handwired backend fails explicitly and retains zero completed epoc
   );
 });
 
-test("R02 explicit 6x14 to 10x30 expansion copies all 84 existing values by name and zero-fills the rest", async () => {
+test("R02 explicit 6x14 to 10x31 expansion copies all 84 existing values by name and zero-fills the rest", async () => {
   const module = await api();
   const sixHeads = ["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"];
   const fourteenWires = [
@@ -300,10 +300,10 @@ test("R02 explicit 6x14 to 10x30 expansion copies all 84 existing values by name
     "unsupported", "DEFER", "NOOP", "pwd", "cd", "ls",
     "path.resolve", "path.relative", "path.parts", "entry.inspect",
   ]);
-  assert.equal(expanded.wires.length, 30);
+  assert.equal(expanded.wires.length, 31);
   assert.equal(expanded.weights.length, 10);
-  assert.equal(expanded.weights.every(row => row.length === 30), true);
-  assert.equal(expanded.weights.flat().length, 300);
+  assert.equal(expanded.weights.every(row => row.length === 31), true);
+  assert.equal(expanded.weights.flat().length, 310);
 
   let copied = 0;
   for (const [legacyRow, head] of sixHeads.entries()) {
@@ -320,7 +320,7 @@ test("R02 explicit 6x14 to 10x30 expansion copies all 84 existing values by name
 
   for (const head of ["path.resolve", "path.relative", "path.parts", "entry.inspect"]) {
     const row = expanded.heads.indexOf(head);
-    assert.deepEqual(expanded.weights[row], Array(30).fill(0));
+    assert.deepEqual(expanded.weights[row], Array(31).fill(0));
   }
   for (const head of sixHeads) {
     const row = expanded.heads.indexOf(head);
@@ -331,15 +331,15 @@ test("R02 explicit 6x14 to 10x30 expansion copies all 84 existing values by name
   }
 });
 
-test("R24 public consumer reloads a 10x30 candidate in a new process and reports fitted=false", async () => {
+test("R24 public consumer reloads a 10x31 candidate in a new process and reports fitted=false", async () => {
   const module = await api();
   const root = await mkdtemp(join(tmpdir(), "nn-command-reload-shape-"));
   try {
     const profile = module.zeroCliCommandProfile();
     assert.equal(profile.heads.length, 10);
-    assert.equal(profile.wires.length, 30);
+    assert.equal(profile.wires.length, 31);
     assert.equal(profile.weights.length, 10);
-    assert.equal(profile.weights.every(row => row.length === 30), true);
+    assert.equal(profile.weights.every(row => row.length === 31), true);
 
     const fixtureRoot = join(root, "fixture");
     await mkdir(fixtureRoot);

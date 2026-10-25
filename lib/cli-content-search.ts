@@ -504,6 +504,7 @@ export async function runCliContentSearchGoal(
     order,
     ...(resources.duplicateReadProbe === undefined ? {} : { duplicateReadProbe: resources.duplicateReadProbe }),
     ...(resources.onSample === undefined ? {} : { onSample: resources.onSample }),
+    ...(resources.onDecision === undefined ? {} : { onDecision: resources.onDecision }),
   });
   const state = initialState(
     resources.sandbox,
@@ -589,3 +590,7 @@ export async function runCliContentSearchGoal(
 
 export { createCliFilesystemSandbox } from "./adapters/cli/filesystem-sandbox.js";
 export { createCliCommandPolicy } from "./cli-goal.js";
+export {
+  detectCliCommandProfileSchema,
+  validateCliCommandProfile,
+} from "./filters/cli-command-policy.js";

@@ -178,7 +178,10 @@ test('saved shared CLI candidate passes independent command, state, naming and f
   const api = await import('nnanything/cli-goal');
   const started = performance.now(), parentCwd = process.cwd();
   const profileText = await readFile(process.env.NN_CLI_COMMAND_PROFILE, 'utf8');
-  const profile = JSON.parse(profileText);
+  const rawProfile = JSON.parse(profileText);
+  const profile = rawProfile.wires?.length === 30
+    ? api.migrateCliCommandProfileV10x30(rawProfile)
+    : rawProfile;
   const relation = process.env.NN_CWD_RELATION_PROFILE
     ? JSON.parse(await readFile(process.env.NN_CWD_RELATION_PROFILE, 'utf8'))
     : null;

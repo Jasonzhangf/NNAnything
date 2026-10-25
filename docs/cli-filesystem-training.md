@@ -1,6 +1,6 @@
 # 文件系统沙盒与共享命令模型增量训练
 
-状态：实施合同。0.2.0 的 typed `file.property` PWD/CD/LS 切片、统一控制结果、旧六参数链退役和单一6×14候选真实拟合已经实现；作者定向回归与回载证据保留，但本页不把它们扩展为0.3.0成绩。0.3.0 的 10 head、30 wire、10×30 矩阵与两张图合同已由 I2–I7 实现并接入运行入口，训练图对 262 条样本真实执行（legacy 58 + 批次1 204，`effectsOk` 262/262），新进程回载 `executed=262`、`UNVERIFIED=0`、`failed=0`；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 保持 `uncalibrated/not_applied`。实测计数、计时和run记录见[共享模型实测](cli-filesystem-training-results.md)，本文不重复历史表。本文是全命令统一共享模型与增量训练的唯一权威合同。总体Goal/State定义见[总体设计1.1](design.md#11-结构化语义的目标与状态推理)；调用与资源信封见[参数简化合同](cli-call-contract.md)；精确操作与固定映射见[语义目录](cli-semantic-operations.md)。
+状态：实施合同。0.2.0 的 typed `file.property` PWD/CD/LS 切片、统一控制结果、旧六参数链退役和单一6×14候选真实拟合已经实现；作者定向回归与回载证据保留，但本页不把它们扩展为0.3.0成绩。0.3.0 的 10 head、30 wire、10×30 基础矩阵与两张图合同已由 I2–I7 实现并接入运行入口，训练图对 262 条样本真实执行（legacy 58 + 批次1 204，`effectsOk` 262/262），新进程回载 `executed=262`、`UNVERIFIED=0`、`failed=0`。P3 增量 A 在基础矩阵上追加 `search.nameNeedleSegment`，当前运行形状为 10 head、31 wire、10×31 共 310 参数。P3 增量 B 已按 Plan §6 的三沙盒配方采集候选偏好样本，只拟合 `entry.inspect` 行新增列一个系数，并把新候选 `39f1570f-be11-48a4-94cb-3b071982922b` 保存到 `training/weights/filesystem/command/`；增量 B2 修正域内 EIO 收敛后重采 408 条决策样本、24 条 `delta=1` 配对，新候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc` 已由公开入口回载为合法 10×31。原候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 与 `39f1570f` 均未被覆盖。所有候选都保持 `uncalibrated/not_applied`，训练报告保持 `fullyVerified=false`。实测计数、计时和run记录见[共享模型实测](cli-filesystem-training-results.md)，本文不重复历史表。本文是全命令统一共享模型与增量训练的唯一权威合同。总体Goal/State定义见[总体设计1.1](design.md#11-结构化语义的目标与状态推理)；调用与资源信封见[参数简化合同](cli-call-contract.md)；精确操作与固定映射见[语义目录](cli-semantic-operations.md)。
 2026-10-19 设计扩展：PWD/CD/LS迁移已完成；批次1新增路径词法原语与`entry.inspect`合同，后续再补目录/文件变更。所有新语义统一为[file.property.xxx](cli-filesystem-semantics.md)，内容、用途、条件与能力关联均归为属性判断和属性状态变化，复用`cli-file-property.graph.json`，不零散增加Goal。B对象查找、其余目录/文件操作、特殊文件扩展及自动采用仍为设计，不靠文档冒称已运行。
 
 用户已选择真实文件系统中的专用沙盒目录，不声称硬件、虚拟机或操作系统权限隔离。PWD/CD/LS 的 `file.property` 切片已接入运行入口；B对象查找、未来22个操作与特殊文件扩展仍为设计，不将静态图校验称为这些未来执行器已实现。
@@ -9,9 +9,9 @@
 
 当前属性入口要求调用显式提供 `satisfactionThreshold`（有限 0..100），运行时不能从 profile 或环境选择。公开 `CliCommandGoalResult` 保存实际 `satisfaction: 0 | 100 | null` 与请求阈值；阈值只是最低要求，不替代实际事实。旧固定 `CLI_COMMAND_GOAL_CONFIG` 已退役。
 
-### 0.1 0.2.0运行切片与0.3.0合同注册（2026-10-19）
+### 0.1 0.2.0运行切片与当前合同注册（2026-10-19，P3 增量 A 扩展）
 
-0.2.0 切片（历史状态）只接 sessionCwd 的 `observed(this_run)`/`equals` 与 directory.entries 的 `observed(this_run)`，其6×14证据继续有效。0.3.0 合同新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，以下注册表已由 I2–I7 实现，运行校验器已接受 10 个 head 与 30 条 wire；0.3.0 的运行证据见第 295 行与 `note.md`。
+0.2.0 切片（历史状态）只接 sessionCwd 的 `observed(this_run)`/`equals` 与 directory.entries 的 `observed(this_run)`，其6×14证据继续有效。0.3.0 合同新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect`，基础注册表已由 I2–I7 实现为 10 个 head 与 30 条 wire；P3 增量 A 在这 30 列上追加 `search.nameNeedleSegment`，使当前运行校验器接受 10 个 head 与 31 条 wire。0.3.0 的运行证据见本文§6与 `note.md`。
 
 | 项 | 当前注册值 |
 | --- | --- |
@@ -20,9 +20,10 @@
 | property 块 | `property.path.absolute`, `property.path.relative`, `property.path.parent`, `property.path.name`, `property.exists`, `property.type`, `property.directory.entries`, `property.size`, `property.mode`, `property.owner`, `property.times`, `property.link.target`, `property.entry.identity`, `property.relation.sessionCwd`（14列） |
 | predicate 块 | `predicate.observe.absolute`, `predicate.observe.relative`, `predicate.observe.parts`, `predicate.observe.inspect`, `predicate.observe.sessionCwd`, `predicate.equals.sessionCwd`, `predicate.observe.entries`（7列） |
 | state 块 | `state.hasFreshEvidence`, `state.knownValue`, `state.requiredConditionHolds`, `state.hasDestinationRef` |
+| search | `search.nameNeedleSegment`（P3 增量 A） |
 | interaction | `state.requiredConditionHolds*state.hasFreshEvidence` |
 | 常量记录 | `hasSessionRef` 恒为 1，不注册；`followSymlinks` 是`entry.inspect` typed参数，不注册wire |
-| 矩阵 | F=4+14+7+4+1=30；K=10；10×30 = 300 参数 |
+| 矩阵 | 0.3.0 基础 F=4+14+7+4+1=30；P3 增量 A 追加 search 后 F=31；K=10；当前 10×31 = 310 参数 |
 
 `selectorTargetType`、`requiredTargetType`、`observedType`、`combination` 块在批次1不注册；`path.physical`、`observe.physical`、`observe.resolvedTarget`、`file.property.links`及`path.realpath`也不注册，不预留占位列。未注册 property/predicate 返回 `unsupported`。同分顺序为 `unsupported` > `DEFER` > `NOOP` > 其余按 head 表。
 
@@ -43,7 +44,9 @@ goalListDirectory = 1  <=>  directory.entries + observed(this_run)
 
 ### 0.2 单权重迁移规则（显式离线工具）
 
-迁移分两级且都必须显式执行。旧 `cli.command-policy.v1` 4×4 对象先按 name 复制 `[unsupported,pwd,cd,ls]×[bias,goalObserveCwd,goalSetCwd,goalListDirectory]` 交叉块到6×14；然后把6×14的84个已有交叉位置按name原值复制到10×30，新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 四行及16个新列补零。任何迁移都不得按索引复用权重。旧六参数 `cli.goal-policy.v1` 没有迁移目标，物理退役。
+迁移分三级且都必须显式执行。旧 `cli.command-policy.v1` 4×4 对象先按 name 复制 `[unsupported,pwd,cd,ls]×[bias,goalObserveCwd,goalSetCwd,goalListDirectory]` 交叉块到6×14；然后把6×14的84个已有交叉位置按name原值复制到10×30，新增 `path.resolve`、`path.relative`、`path.parts`、`entry.inspect` 四行及16个新列补零；最后把保存的 10×30 候选按 name 复制到 10×31，只追加 `search.nameNeedleSegment` 一列并补零。任何迁移都不得按索引复用权重。旧六参数 `cli.goal-policy.v1` 没有迁移目标，物理退役。
+
+10×30 到 10×31 的旧列顺序固定为当前 31 列去掉 `search.nameNeedleSegment`，即 interaction 仍在末列。运行入口拒绝未迁移的 10×30 与已废弃 10×32 形状，不静默迁移，也不接受默认替代。迁移工具为 `migrateCliCommandProfileV10x30`。
 
 迁移后可复现旧四行 logits 在对应语义样本上的数值。这不证明 softmax 概率不变，也不证明新增行不改变 argmax；两种预测对照（零权重与迁移后不更新参数）只做预测，不执行命令。
 
@@ -77,6 +80,19 @@ PWD、LS 要求本请求的新证据；CD 在适用真观测证明已等于 D �
 
 `changed`只表示实际session的cwd/revision变化，不表示知识变化或目标成败。PWD/LS新增知识可以为`changed:false`；CD验证失败仍可能为`changed:true`。`satisfactionThreshold`只是调用者要求，不提高模型分数、执行成功或harness权限的效力，满足度也不代替真实Goal验收。
 
+### 0.3 P3 增量 A：候选名称关系 wire 与候选排序接点
+
+`search.nameNeedleSegment` 是 `cli.command-policy.v1` 的第31条 wire。它来自候选`basename`去掉扩展名后按`-`分段，是否有一段与当前 needle 精确相等，大小写敏感、不做 Unicode 折叠；只读已观测名称与请求，绝不读文件正文。取值 0 或 1，维度为1。
+
+同一 profile 承载两种严格分离的计算上下文：
+
+- 原子命令选头：继续使用原 30 维输入，`search.nameNeedleSegment` 恒为 0。头监督不能产生同一 `entry.inspect` 下两个候选的排序梯度。
+- 候选参数排序：原 30 维全为 0，只输入名称关系列，取 `entry.inspect` 行的候选效用 `u(c) = w_name × search.nameNeedleSegment(c)`。这是纯数值函数，无执行权限，不构成第二个 selector、controller 或执行循环。
+
+唯一接入点在既有搜索 `nextAction` 中「尚未开始的合法候选」选择处。优先级不变：stale 复核 > 未完成分块续读 > `one` 已有命中收束 > 对剩余合法未开始候选评分 > 同分沿用稳定词法顺序。评分不得抢占未完成分块，不得把低分候选从覆盖集合删除。权重为 0 或同分时回退词法顺序，旧回归不受影响。`file.read` 仍为 `deterministic_exec`、`selectedHead:null`，不新增命令行 head。
+
+保存结构为 10×31，共 310 参数。旧 10×30 候选只能在离线经 `migrateCliCommandProfileV10x30` 按名称显式迁移，新增10个位置补零；运行入口拒绝未迁移的10×30与已废弃10×32形状，不静默迁移、不默认替代。增量 A 本身不做真实拟合、不保存候选；原候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 继续为 `uncalibrated/not_applied`，后续偏好候选见 §0.4。
+
 两个CLI可训练单元按公共设计资料流和升级对象流挂接，不复制公共规则：
 
 | 单元 | 设计流程 | 单元升级与冲突 | 当前状态 | 具体缺口 |
@@ -86,14 +102,28 @@ PWD、LS 要求本请求的新证据；CD 在适用真观测证明已等于 D �
 
 下一步顺序沿公共合同：先补自动使用采集及使用/候选隔离，再补当前版本与配对比较/自动采用，最后补冲突裁决执行链。当前不得把自动升级、自动采集或LLM裁决写成已完成。
 
+### 0.4 P3 增量 B：候选偏好样本、成对损失与准入
+
+三沙盒配方唯一真源是 P3 Plan §6.3，本文不复制第二套分区、名称或字节表。训练/开发/测试环境均使用 Plan §6.3.1 的生成式名称、needle、头标记、填充字节和 96-byte 内容；N/S/E/P 四种反馈只作为显式测试 IO 注入，不修改 Goal、profile、学生特征或磁盘内容。每个 fresh arm 使用独立计数器，`injected-first` 只在 forced 条件消费 slot 0 一次，之后解除。
+
+候选特征必须在选择前记录。实现只在既有 `nextAction` 的「尚未开始的合法候选」选择点调用只读 `onDecision` 观察：快照包含全部合格候选的名称、路径和 31 维 feature，以及本决策实际选中的候选。该观察没有选择权，不构成第二 selector、controller 或执行循环；`experimentCondition`、natural/forced、反馈条件和注入计数只写入证据字段，不进入 feature 向量。
+
+每条决策样本按 Plan §6.2 保存 `sampleId/sourceGroup/partition/semanticFamily`、`episodeId/requestId/decisionOrdinal`、Goal/阈值/profile 引用、pre/actual State 引用、候选引用与 31 维 `featuresByCandidate`、选中候选、实际调用与后验引用、反馈类型与成本计数。`preferencePair` 只来自已真实执行并由后验复核的候选：preferred 为命中候选，other 为已完整证负候选；短读、EIO、stale、未执行或仅预测的候选不得生成负偏好标签。配对差值为新增列上的 `delta = x(preferred) - x(other)`；`delta=0` 不进入有效训练行，全部行都为 0 的数据由 `prepareCliCandidatePreferenceDataset` 拒绝。测试来源不提供给 fitter。
+
+读取路径的 IO 失败按领域事实收敛，不把错误改写成成功，也不让共享控制器把整个搜索终止。仅 `EIO` 属于可恢复读取码：该候选进入既有 `read_error` 状态，保留 `failureCode="EIO"`、`read=null`、`contains=null`、`scan=null` 与原失败回执，`evaluateRead` 以“已记录失败”满足本次读取尝试，控制器随后按既有优先级选择其他合法候选。`EIO` 不产生证负、不重试同一对象、不记为负偏好；其后的合法命中与完整证负仍按真实后验生成 `preferencePair`。`EACCES`、`SANDBOX_ESCAPE` 等权限或越界错误不属于可恢复读取码，仍按原错误码终止并保留在失败诊断中。恢复由领域事实与共享 `recursive-goal` 的既有推进完成，不新增 selector、controller 或执行循环。
+
+成对偏好损失为 `L = log(1 + exp(-(u(preferred) - u(other))))`，其中 `u = w_name * x`，`x` 只取 `search.nameNeedleSegment`。在零初始化且 `delta=1` 时，`dL/dw = -0.5`。拟合复用既有 Handwired 求值与反传电路；只更新 `entry.inspect` 行新增列的一个参数，其余 309 个参数冻结。固定预算为 200 epochs、learning rate 0.1；非有限 loss/梯度或没有真实参数更新时停止，不得以“loss 下降”替代参数更新证据。
+
+准入至少要求一条经后验复核且 `delta≠0` 的有效配对，本轮训练数据要求 `delta=1`。保存后必须由公开 `validateCliCommandProfile` 读回为合法 10×31；缺文件、坏 JSON、错误 wire 顺序、错误矩阵形状或加载失败均显式失败，不 fallback 到默认或上一份 profile。保存候选保持 `uncalibrated/not_applied`，训练报告保持 `fullyVerified=false`；独立留出矩阵和新进程回载对照属于增量 C。
+
 ## 1. 统一共享命令模型
 
 本项目使用单一共享模型与权重profile承载所有已注册的CLI命令与当前控制结果：
 
 - 合同标识：`cli.command-policy.v1`
 - 命令头（heads）：`unsupported`, `DEFER`, `NOOP`, `pwd`, `cd`, `ls`, `path.resolve`, `path.relative`, `path.parts`, `entry.inspect`
-- 输入连线（wires）：4 条 legacy + 14 条 property + 7 条 predicate + 4 条 state + 1 条 interaction，共30
-- 0.3.0合同参数结构：10×30，共300个参数
+- 输入连线（wires）：4 条 legacy + 14 条 property + 7 条 predicate + 4 条 state + 1 条 search + 1 条 interaction，共31
+- 0.3.0基础参数结构：10×30，共300个参数；P3 增量 A 当前结构：10×31，共310个参数
 - 状态属性：`calibration: "uncalibrated"`, `adoption: "not_applied"`
 - 同分规则：稳定顺序，`unsupported`优先；结果严格按teacher计分
 
@@ -165,6 +195,7 @@ wire表按固定块顺序拼接，块间不交错：
 | requiredTargetType | `requiredTargetType.unspecified/regular/directory/symlink` | 阶段含P4目标类型条件时整块注册 |
 | observedType | `observedType.regular/directory/symlink/character_device/block_device/fifo/socket/other/unobserved` | 阶段需要实际观测类型时整块注册 |
 | state | `state.hasFreshEvidence`、`state.knownValue`、`state.requiredConditionHolds`、`state.hasSourceRef`、`state.hasDestinationRef`、`state.hasParentRef`、`state.hasSessionRef`、`state.hasPayload` | 逐条按阶段需要注册 |
+| search | `search.nameNeedleSegment` | P3 增量 A 注册；值域0/1 |
 | interaction | `state.requiredConditionHolds*state.hasFreshEvidence` | 两个乘数都注册且该交互非恒定时注册 |
 | combination | `combo.predicate.<7项>`、`combo.state.<15项>` | 仅C阶段注册，逐条按需要 |
 
@@ -177,15 +208,15 @@ F = 4
   + 3*selectorBlock
   + 4*requiredTypeBlock
   + 9*observedTypeBlock
-  + N_state + N_interaction
+  + N_state + N_search + N_interaction
   + N_combination
 K = 1(unsupported) + 2(DEFER,NOOP) + 3(pwd,cd,ls) + N_newExecutable
 矩阵 = K × F
 ```
 
-`N_*`是注册后的实际数量，`selectorBlock/requiredTypeBlock/observedTypeBlock`为0/1。只有实际阶段需要的wire才注册，不为未来块预留恒定空列。示例：若某阶段注册16个property、25个predicate、3维selectorTargetType、4维requiredTargetType、9维observedType、8个state位、1个交互项、无combination，则`F=4+16+25+3+4+9+8+1=70`；`K=1+2+3+22=28`；矩阵28×70=1960参数。该示例只说明计数方法，不是部署声明。
+`N_*`是注册后的实际数量，`selectorBlock/requiredTypeBlock/observedTypeBlock`为0/1。只有实际阶段需要的wire才注册，不为未来块预留恒定空列。`N_search`当前为1，只注册`search.nameNeedleSegment`。示例：若某阶段注册16个property、25个predicate、3维selectorTargetType、4维requiredTargetType、9维observedType、8个state位、1个交互项、无combination，则`F=4+16+25+3+4+9+8+1=70`；`K=1+2+3+22=28`；矩阵28×70=1960参数。该示例只说明计数方法，不是部署声明。
 
-运行schema实现于`lib/filters/cli-command-policy.ts`的`validateCliCommandProfile`，现接受§0.1登记的10个head与30条wire，并保存精确`properties`/`predicates`顺序；0.2.0的6×14形状只能由显式离线迁移转换。旧 4×4 与旧6×14 profile由显式离线迁移转换，运行入口拒绝旧形状。`selectorTargetType`/`requiredTargetType`/`observedType`/`combination`块、`path.realpath`及剩余操作head仍为设计，不因0.3.0合同已落盘就冒称已接入。
+运行schema实现于`lib/filters/cli-command-policy.ts`的`validateCliCommandProfile`，现接受§0.1登记的10个head与31条wire，并保存精确`properties`/`predicates`顺序；0.2.0的6×14形状只能由显式离线迁移转换，保存的10×30由`migrateCliCommandProfileV10x30`显式转换。运行入口拒绝未迁移的10×30与已废弃10×32形状，不接受默认替代。旧 4×4 与旧6×14 profile由显式离线迁移转换。`selectorTargetType`/`requiredTargetType`/`observedType`/`combination`块、`path.realpath`及剩余操作head仍为设计，不因0.3.0合同已落盘就冒称已接入。
 
 ### 2.2 新动作进入同一heads词表（25精确操作映射）
 
@@ -223,7 +254,7 @@ legacy三行的首项是实际小写命令名；新增行的首项是稳定语�
 
 ### 2.3 file.property迁移、对照与回归
 
-扩展同一阶段时，输入是上一保存候选，按name迁移：对每个新head与wire，若旧profile已有同名行/列则复制旧交叉块，否则补零。批次1从旧6×14候选扩展到10×30：84个已有交叉位置按name原值复制，新增4行与16列补零；`path.resolve`、`path.relative`、`path.parts`、`entry.inspect`不复制任何旧行。旧交叉块按name保留，不按索引复用；不改写、不重置已有系数。零填充只保证结构兼容，不保证softmax无回归：新增行/列会改变softmax分母与argmax，必须实测。
+扩展同一阶段时，输入是上一保存候选，按name迁移：对每个新head与wire，若旧profile已有同名行/列则复制旧交叉块，否则补零。批次1从旧6×14候选扩展到10×30：84个已有交叉位置按name原值复制，新增4行与16列补零；`path.resolve`、`path.relative`、`path.parts`、`entry.inspect`不复制任何旧行。P3 增量 A 再从保存的10×30候选扩展到10×31：30个已有交叉位置按name原值复制，只追加`search.nameNeedleSegment`新列并补零，10×30与已废弃10×32不被运行入口接受。旧交叉块按name保留，不按索引复用；不改写、不重置已有系数。零填充只保证结构兼容，不保证softmax无回归：新增行/列会改变softmax分母与argmax，必须实测。
 
 同一阶段必须回放全部必需旧行：`pwd`、`cd`、`ls`、真实`unsupported`，并按新样本要求加入本批4个新head/property/predicate行。旧行保留原teacher head，不得改标为REJECT。每阶段分别设计并记录下列四项：
 
@@ -287,12 +318,13 @@ guard在softmax之后拒绝不可执行或类型不匹配的调用；它不改�
 
 - 推理DAG：`workflows/cli-file-property.graph.json`（6节点/5边，0.3.0）及`cli-file-property.workflow.json`，负责接收 typed `file.property` 请求，经绑定→选择→执行→观测→评价→报告收敛于统一SESE出口。I1只升级operator_version与合同载荷；节点ID、ARC ID、边与端口不变。旧`cli-command-step`与`cli-goal-step`图及绑定已物理退役。
 - 训练DAG：`workflows/cli-filesystem-training.graph.json`（8节点/8边，0.3.0）及同名workflow配置，接收调用者准备并分区的 typed dataset。它不生成fixture，也不自行启动新进程回载；fixture由公开consumer的`makeCliCommandFixture`创建，保存候选后由consumer重新读取，并以新进程运行reload脚本。
+- 训练图的 typed 任务分支：同一 8N8E 图同时承载 `task: "command"`（旧命令episode交叉熵）与 `task: "candidate-preference"`（候选名称关系成对偏好）。偏好分支经 `partition → prepare → fit → save → execute → verify → report` 运行，`fit` 只更新 `entry.inspect × search.nameNeedleSegment` 一个系数，`execute` 用保存后的候选 profile 在同一 Handwired 电路复算每条配对效用并写 `executions.jsonl`，`report` 输出 `CliCandidatePreferenceTrainingReceipt`。两个分支共用同一图、同一分区与保存路径，不新建训练引擎；公开入口为 `nnanything/cli-goal` 的 `runCliCommandTraining` 与 consumer `playground/cli/content-search/train-p3.mjs`。
 - 阶段调度：`workflows/cli-filesystem-curriculum.graph.json`现为7节点/6边、0.2.0-design设计图（非真实训练图），只描述历史 PWD→CD→LS 顺序与后续属性单元；公开consumer只执行本轮单阶段迁移训练，不执行未来设计单元。
 - 拟合迭代：epoch循环在数值拟合器内完成，不给外层workflow加回边。
 
 ## 6. 当前实施状态与验收底线
 
-当前状态：0.2.0源码已迁移为 typed `file.property` 单 profile（`createCliCommandPolicy`与`runCliCommandTraining`），从旧共享候选 `d7c4a3e5-4111-4e09-857f-5f20f4fa18c0` 显式迁移后真实拟合；profile保持`uncalibrated`/`not_applied`。旧六参数 PWD API 与旧 4×4 运行 profile 已物理退役。历史 PWD/CD/LS 实测数据保留为历史基线，不直接抄写为本轮成绩。0.3.0批次1已实现、已训练并在训练图真实执行262条样本（legacy 58 + 批次1 204），新进程回载 executed=262、UNVERIFIED=0、failed=0；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 保持 `uncalibrated`/`not_applied`，未提供可选verification分区时 `fullyVerified=false`。
+当前状态：0.2.0源码已迁移为 typed `file.property` 单 profile（`createCliCommandPolicy`与`runCliCommandTraining`），从旧共享候选 `d7c4a3e5-4111-4e09-857f-5f20f4fa18c0` 显式迁移后真实拟合；profile保持`uncalibrated`/`not_applied`。旧六参数 PWD API 与旧 4×4 运行 profile 已物理退役。历史 PWD/CD/LS 实测数据保留为历史基线，不直接抄写为本轮成绩。0.3.0批次1已实现、已训练并在训练图真实执行262条样本（legacy 58 + 批次1 204），新进程回载 executed=262、UNVERIFIED=0、failed=0；原候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 保持 `uncalibrated`/`not_applied`。P3 增量 B 从该 10×30 候选显式迁移出 t0，采集 326 条决策样本、18 条 `delta=1` 训练配对，以 200 epochs/lr 0.1 真实拟合：loss 0.693147→0.053456，`entry.inspect × search.nameNeedleSegment` 参数 0→2.902054，零初始化梯度 -0.5，其余 309 参数冻结；新候选 `39f1570f-be11-48a4-94cb-3b071982922b` 已由公开加载入口读回为合法 10×31。增量 B2 修正域内读取失败收敛后，E 条件恢复为真实次选命中：重新采集 408 条决策样本、24 条 `delta=1` 训练配对（train forced 的 N/S/E/P 各 6 条），112 arms 全部 achieved，t0 forced E 成本为 11/256（B 反向 8/160）；同一 200 epochs/lr 0.1 预算拟合得到 loss 0.693147→0.053456、参数 0→2.902054（24 条配对同构，梯度均值不变），新候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc` 已由公开加载入口读回为合法 10×31。训练报告保持 `fullyVerified=false`；可选 verification 与回载对照仍属增量 C。
 
 历史独立PWD与CD实测数据保留为历史基线，不直接抄写为共享模型结果。`accepted`只表示train/dev与历史回归通过；未提供可选verification资源时`fullyVerified=false`。训练图的冻结/零权重对照只做预测，不执行命令；独立测试由父级独立报告另行记录，不声称在训练图内执行。
 

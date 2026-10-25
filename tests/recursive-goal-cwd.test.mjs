@@ -85,7 +85,7 @@ test("public recursive-goal module runs the two-layer cwd consumer", async t => 
     assert.equal(run.profile.calibration, "uncalibrated");
     assert.equal(run.profile.adoption, "not_applied");
     assert.equal(run.profile.heads, 10);
-    assert.equal(run.profile.wires, 30);
+    assert.equal(run.profile.wires, 31);
 
     await t.test("same cwd uses one pwd and no cd", () => {
       const scenario = scenarioByName(run, "same");

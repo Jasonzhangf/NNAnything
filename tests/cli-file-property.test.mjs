@@ -92,7 +92,7 @@ const TEN_HEADS = [
   "unsupported", "DEFER", "NOOP", "pwd", "cd", "ls",
   "path.resolve", "path.relative", "path.parts", "entry.inspect",
 ];
-const THIRTY_WIRES = [
+const THIRTY_ONE_WIRES = [
   "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
   "property.path.absolute", "property.path.relative", "property.path.parent", "property.path.name",
   "property.exists", "property.type", "property.directory.entries", "property.size",
@@ -102,6 +102,7 @@ const THIRTY_WIRES = [
   "predicate.observe.inspect", "predicate.observe.sessionCwd", "predicate.equals.sessionCwd",
   "predicate.observe.entries",
   "state.hasFreshEvidence", "state.knownValue", "state.requiredConditionHolds", "state.hasDestinationRef",
+  "search.nameNeedleSegment",
   "state.requiredConditionHolds*state.hasFreshEvidence",
 ];
 const SIX_HEADS = ["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"];
@@ -127,7 +128,7 @@ function directoryQuery(name = "child") {
   };
 }
 
-test("R01 profile registers ten shared heads, thirty ordered wires and a 10x30 matrix", async () => {
+test("R01 profile registers ten shared heads, thirty-one ordered wires and a 10x31 matrix", async () => {
   const module = await api();
   const profile = module.zeroCliCommandProfile();
   assert.deepEqual(profile.heads, TEN_HEADS);
@@ -142,10 +143,10 @@ test("R01 profile registers ten shared heads, thirty ordered wires and a 10x30 m
     "predicate.observe.inspect", "predicate.observe.sessionCwd", "predicate.equals.sessionCwd",
     "predicate.observe.entries",
   ]);
-  assert.deepEqual(profile.wires, THIRTY_WIRES);
+  assert.deepEqual(profile.wires, THIRTY_ONE_WIRES);
   assert.equal(profile.weights.length, 10);
-  assert.equal(profile.weights.every(row => row.length === 30), true);
-  assert.equal(profile.weights.flat().length, 300);
+  assert.equal(profile.weights.every(row => row.length === 31), true);
+  assert.equal(profile.weights.flat().length, 310);
 });
 
 test("legacy four-by-four migration copies its named cross block into the current schema", async () => {
@@ -165,7 +166,7 @@ test("legacy four-by-four migration copies its named cross block into the curren
   };
   const migrated = migrateLegacyCliCommandProfile(legacy);
   assert.deepEqual(migrated.heads, TEN_HEADS);
-  assert.deepEqual(migrated.wires, THIRTY_WIRES);
+  assert.deepEqual(migrated.wires, THIRTY_ONE_WIRES);
   const legacyHeads = ["unsupported", "pwd", "cd", "ls"];
   const legacyWires = ["bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory"];
   for (const [legacyRow, head] of legacyHeads.entries()) {
@@ -180,7 +181,7 @@ test("legacy four-by-four migration copies its named cross block into the curren
   }
   for (const head of TEN_HEADS) {
     const row = migrated.weights[migrated.heads.indexOf(head)];
-    for (const [column, wire] of THIRTY_WIRES.entries()) {
+    for (const [column, wire] of THIRTY_ONE_WIRES.entries()) {
       if (!legacyHeads.includes(head) || !legacyWires.includes(wire)) assert.equal(row[column], 0, `${head}/${wire} must be zero-filled`);
     }
   }

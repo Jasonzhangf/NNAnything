@@ -67,6 +67,7 @@ import {
 import {
   createCliCommandTrainingNodes,
   executeCliCommandTrainingSample,
+  type CliCandidatePreferenceTrainingReceipt,
   type CliCommandTrainingReceipt,
   type CliCommandTrainingRequest,
   type CliCommandTrainingResources,
@@ -79,7 +80,15 @@ export * from "./filters/cli-file-property.js";
 export * from "./filters/cli-state.js";
 export * from "./training/cli-command-numeric.js";
 export * from "./training/cli-command-samples.js";
-export type { CliCommandTrainingReceipt, CliCommandTrainingRequest, CliCommandTrainingResources } from "./nodes/cli-command-training.js";
+export * from "./training/cli-candidate-preference.js";
+export type {
+  CliCandidatePreferenceTrainingReceipt,
+  CliCommandDatasetTrainingRequest,
+  CliCommandPreferenceTrainingRequest,
+  CliCommandTrainingReceipt,
+  CliCommandTrainingRequest,
+  CliCommandTrainingResources,
+} from "./nodes/cli-command-training.js";
 export type {
   CliCommandAction,
   CliCommandBinding,
@@ -589,7 +598,7 @@ async function runContentBytesGoal(request: CliAutonomousRequest): Promise<CliAu
 export async function runCliCommandTraining(
   request: CliCommandTrainingRequest,
   resources: CliCommandTrainingResources,
-): Promise<CliCommandTrainingReceipt> {
+): Promise<CliCommandTrainingReceipt | CliCandidatePreferenceTrainingReceipt> {
   const diagnostics = { partialPaths: {} as Partial<Record<string, string>> };
   const definitions = createCliCommandTrainingNodes(resources, binding => createCliCommandPolicy(binding), diagnostics);
   const graph = await loadWorkflow({ configPath: configPath("cli-filesystem-training"), allowedRoot });
