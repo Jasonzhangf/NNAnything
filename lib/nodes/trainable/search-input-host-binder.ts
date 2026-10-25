@@ -290,6 +290,22 @@ export function inferSearchInputHostBinding(
     );
   }
 
+  // Missing member support is missing evidence, never a measured zero (milestone
+  // review P1-1, Alice ruling 2026-10-24). A candidate whose relation member
+  // abstained leaves the support null/undefined; folding that into 0 would turn
+  // an unknown into a neutral score and let the marker wires decide alone. This
+  // guard is profile-aware: it only fires when the loaded profile actually reads
+  // the wire (non-zero weight), so an old all-zero profile does not gain a new
+  // dependency out of thin air.
+  const dependsOnQuerySupport = profile.weights[USAGE_SUPPORT_INDEX.query] !== 0;
+  const dependsOnFieldSupport = profile.weights[USAGE_SUPPORT_INDEX.field] !== 0;
+  const missingSupport = applied.filter(candidate =>
+    (dependsOnQuerySupport && (candidate.usageQuerySupport === null || candidate.usageQuerySupport === undefined))
+    || (dependsOnFieldSupport && (candidate.usageFieldSupport === null || candidate.usageFieldSupport === undefined)));
+  if (missingSupport.length > 0) {
+    return reject("unmeasured_candidate_fields", observedRevision, missingSupport.map(candidate => candidate.ref));
+  }
+
   // `none` requires positive usage evidence that no applicable host carries the
   // role. A low score, a missing cue hit or an unknown purpose is not evidence of
   // absence: non-search inputs are allowed to exist inside an eligible scope, so

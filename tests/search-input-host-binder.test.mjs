@@ -724,6 +724,33 @@ test("an abstained member contributes zero to the dot product but is not a neutr
   assert.equal(baseCandidate({ usageQuerySupport: 0 }).usageQuerySupport, 0);
 });
 
+test("inference rejects an abstained member when the profile depends on its wire (milestone P1-1)", () => {
+  // A profile that learned a non-zero usage support weight must not silently
+  // read a null support as 0: the marker wires would then decide alone. The
+  // missing measurement is a rejection, not a score.
+  const dependant = profileWith({ "usage.query_support": 1, "usage.field_support": -1 });
+  const search = searchCandidate({ usageQuerySupport: null, usageFieldSupport: null });
+  const result = inferSearchInputHostBinding(
+    requestFor([search]),
+    { profile: dependant },
+  );
+  assert.equal(result.state, "insufficient_observation");
+  assert.equal(result.rejection, "unmeasured_candidate_fields");
+  assert.deepEqual(result.evidenceRefs, ["search"]);
+});
+
+test("inference does not reject missing support under an all-zero profile (milestone P1-1)", () => {
+  // An old all-zero profile reads neither support wire, so null support is not a
+  // new dependency: the guard must not fire and turn every legacy call into a
+  // rejection. The marker wires stay the only evidence.
+  const search = searchCandidate({ usageQuerySupport: null, usageFieldSupport: null });
+  const result = inferSearchInputHostBinding(
+    requestFor([search]),
+    { profile: neutralSearchInputHostProfile() },
+  );
+  assert.notEqual(result.rejection, "unmeasured_candidate_fields");
+});
+
 test("a negative carrying positive member support is fitted, not excluded as zero evidence", async () => {
   // The candidate has no marker bits at all. Under the delivered 3-wire rule it
   // was "zero usage evidence" and got dropped. With the member support present it

@@ -118,14 +118,34 @@ function resolveFormOwner(
   return { form: lookup, resolved: true, dangling: false };
 }
 
-/** The accessible name already measured by observeLiveDom, or null when unread. */
+/**
+ * The accessible name already measured by observeLiveDom, or null when unread.
+ *
+ * `label` carries the already-projected label channel (texts plus coverage) so
+ * an empty name read can be told apart from an unread one without inventing a
+ * second accessible-name algorithm (ruling 2: reuse the live-dom name read, do
+ * not build a new AAM).
+ *
+ * An empty read is a *proven* empty only when every declared name source was
+ * considered: the live-dom read returned a complete empty value AND the
+ * associated-label channel was itself measured complete with no label text. A
+ * label is a name source for a form control, so "no aria-labelledby, no
+ * aria-label, no title" alone does not prove an empty name (Alice ruling
+ * 2026-10-24, milestone review P2-2). When the label channel is unread, or when
+ * it does carry text, the empty read stays unread instead of being promoted to
+ * eight false facts.
+ */
 function accessibleNameOf(
   evidence: Record<string, unknown> | null,
   properties: Record<string, unknown> | null,
+  label: { readonly labels: readonly string[] | null; readonly coverage: UsageChannelCoverage },
 ): {
   name: string | null;
   coverage: UsageChannelCoverage;
 } {
+  const labelSettlesEmptiness = label.coverage === "complete"
+    && label.labels !== null
+    && label.labels.length === 0;
   // observeLiveDom reports the accessible name on the evidence map, not on the
   // basic-kind properties map. Prefer evidence, fall back to properties so a
   // caller that already has the name in hand can pass it either way.
@@ -140,17 +160,22 @@ function accessibleNameOf(
     return { name: raw, coverage: declared === "complete" ? "complete" : "truncated" };
   }
   if (declared === "complete") {
-    // Every declared source resolved and carried no text. That is a measured
-    // absence of a name, so the channel scores eight false facts; downgrading it
-    // to "unavailable" would turn a measured empty into an unfinished read.
-    return { name: "", coverage: "complete" };
+    // The live-dom read resolved its declared source and carried no text. That
+    // covers the aria/title sources only, so it is a measured absence only when
+    // the label source also measured empty. Otherwise the name is unread and
+    // must stay null rather than become eight false facts.
+    return labelSettlesEmptiness
+      ? { name: "", coverage: "complete" }
+      : { name: null, coverage: "unmeasured" };
   }
   if (declared === "unavailable") {
     // aria-labelledby existed but resolved to nothing. An unresolved reference
-    // is an unfinished read; a resolved-but-empty set is a measured absence.
-    return unresolved
-      ? { name: null, coverage: "unmeasured" }
-      : { name: "", coverage: "complete" };
+    // is an unfinished read. A resolved-but-empty set is a measured absence only
+    // under the same label condition as above.
+    if (unresolved) return { name: null, coverage: "unmeasured" };
+    return labelSettlesEmptiness
+      ? { name: "", coverage: "complete" }
+      : { name: null, coverage: "unmeasured" };
   }
   if (declared === null || declared === undefined) return { name: null, coverage: "unmeasured" };
   return { name: null, coverage: "unavailable" };
@@ -225,7 +250,7 @@ export function observeUsageRelation(input: UsageObserveInput): UsageObservation
   const properties = input.properties;
   const label = labelChannelOf(element);
   const placeholder = placeholderChannelOf(element);
-  const accessible = accessibleNameOf(input.evidence ?? null, properties);
+  const accessible = accessibleNameOf(input.evidence ?? null, properties, label);
   const owner = resolveFormOwner(element, input.scopeRoot);
   const submits = ownedSubmitsOf(owner.form, owner.resolved);
   return {

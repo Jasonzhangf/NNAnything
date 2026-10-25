@@ -382,6 +382,17 @@ const MEASURED_FIELDS = [
   "textLenBand", "access",
 ] as const;
 
+/**
+ * Deterministic missing-measurement guard for the structural facts.
+ *
+ * The two member supports are deliberately not in this list. Whether a missing
+ * support is a problem depends on the loaded profile: a profile that reads the
+ * wire has a real dependency, and an all-zero profile does not. This guard has
+ * no profile, so it must not invent that dependency for every caller (Alice
+ * ruling 2026-10-24: 旧零系数不凭空增加依赖). The profile-aware check lives in
+ * `inferSearchInputHostBinding`, which rejects a missing support only when the
+ * profile's weight on that wire is non-zero.
+ */
 export function isMeasuredSearchInputHostCandidate(
   candidate: SearchInputHostCandidate,
 ): candidate is MeasuredSearchInputHostCandidate {

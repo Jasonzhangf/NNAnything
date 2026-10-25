@@ -737,3 +737,67 @@ test("the vector stays positional: 27 entries and the field bit sits at index 26
   assert.equal(vector[24], false);
   assert.equal(vector[25], false);
 });
+
+// ---------------------------------------------------------------------------
+// Milestone review P2-2 (Alice ruling 2026-10-24): an empty accessible-name read
+// is not a proven empty merely because aria-labelledby / aria-label / title are
+// absent. A label is a name source for a form control, so the label channel's
+// own coverage decides whether the empty read may be scored as eight false facts
+// or must stay unread.
+// ---------------------------------------------------------------------------
+
+test("an empty name read beside a real label text is unread, not a proven empty name", () => {
+  // The live-dom read only covers the aria/title sources. It returned empty, but
+  // the control does have a label, so the name is not empty — it is unread.
+  const input = element({ labels: [element({ tagName: "LABEL", textContent: "搜索" })] });
+  const observation = observeUsageRelation({
+    ...observationBase,
+    nodeRef: "c1",
+    element: input,
+    evidence: {
+      accessibleName: null,
+      accessibleNameCoverage: "unavailable",
+      labelledByUnresolved: false,
+    },
+  });
+  assert.equal(observation.accessibleName, null);
+  assert.equal(observation.accessibleNameCoverage, "unmeasured");
+  const features = extractUsageFormFeatures(observation, tokens);
+  assert.deepEqual(
+    USAGE_FORM_FEATURE_NAMES.filter(name => name.startsWith("accessibleName.")).map(name => features[name]),
+    [null, null, null, null, null, null, null, null],
+    "an unread name scores no false fact",
+  );
+});
+
+test("an empty name read beside unread labels stays unmeasured instead of being promoted to empty", () => {
+  // labels: null means the label channel itself is unread, so the emptiness of
+  // the name is not settled. Claiming "complete empty" here would turn an
+  // unfinished read into measured evidence.
+  const input = element({ labels: null });
+  const observation = observeUsageRelation({
+    ...observationBase,
+    nodeRef: "c1",
+    element: input,
+    evidence: {
+      accessibleName: null,
+      accessibleNameCoverage: "unavailable",
+      labelledByUnresolved: false,
+    },
+  });
+  assert.equal(observation.accessibleName, null);
+  assert.equal(observation.accessibleNameCoverage, "unmeasured");
+});
+
+test("no accessible-name evidence at all is unmeasured, never a complete empty name", () => {
+  // The live-dom read did not run for this control (no aria-labelledby, no
+  // aria-label, no title). Missing evidence is not evidence of absence.
+  const input = element({ labels: [] });
+  const observation = observeUsageRelation({
+    ...observationBase,
+    nodeRef: "c1",
+    element: input,
+  });
+  assert.equal(observation.accessibleName, null);
+  assert.equal(observation.accessibleNameCoverage, "unmeasured");
+});
