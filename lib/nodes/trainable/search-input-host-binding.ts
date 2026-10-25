@@ -31,6 +31,7 @@ import { observeUsageRelation } from "../../adapters/browser/search-input-host-u
 import {
   inferUsageRelation,
   type UsageRelationProfile,
+  type UsageRelationReason,
   type UsageRelationState,
 } from "../../adapters/browser/search-input-host-usage-relation.js";
 import type {
@@ -70,6 +71,11 @@ export interface SearchInputHostMemberReport {
   readonly state: UsageRelationState;
   readonly querySupport: number | null;
   readonly fieldSupport: number | null;
+  /** The member's own reason (null when the member reported null). */
+  readonly reason: UsageRelationReason;
+  /** Provenance of the verdict, copied from the member's inference. */
+  readonly observedRevision: number;
+  readonly evidenceRefs: readonly string[];
 }
 
 export interface SearchInputHostObservedRelation {
@@ -88,11 +94,15 @@ export interface SearchInputHostBindingOutcome {
 }
 
 /**
- * Attach the member's two real support scores to every projected candidate.
+ * Attach the member's typed verdict and two real support scores to every
+ * projected candidate.
  *
- * A member that abstains keeps `null`. It is never folded into 0 here: the
- * binder decides what a missing support means, and it can only do that if the
- * missing value survives this step.
+ * A member that abstains keeps `null` scores. It is never folded into 0 here:
+ * the binder decides what a missing support means, and it can only do that if
+ * the missing value survives this step. The structured verdict is attached too,
+ * with its provenance, so the binder can tell "member never enabled" (absent
+ * verdict) from "member enabled and abstained" (unmeasured) and from "member
+ * enabled but its verdict belongs elsewhere" (stale revision/object).
  */
 export function attachUsageSupport(
   candidates: readonly SearchInputHostCandidate[],
@@ -106,6 +116,12 @@ export function attachUsageSupport(
       ...candidate,
       usageQuerySupport: member.querySupport,
       usageFieldSupport: member.fieldSupport,
+      memberVerdict: {
+        state: member.state,
+        reason: member.reason,
+        observedRevision: member.observedRevision,
+        evidenceRefs: member.evidenceRefs,
+      },
     });
   }));
 }
@@ -149,6 +165,9 @@ export function bindSearchInputHostScope(
       state: outcome.state,
       querySupport: outcome.querySupport,
       fieldSupport: outcome.fieldSupport,
+      reason: outcome.reason,
+      observedRevision: outcome.observedRevision,
+      evidenceRefs: outcome.evidenceRefs,
     });
   }
 

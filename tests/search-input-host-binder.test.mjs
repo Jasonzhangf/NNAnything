@@ -891,3 +891,104 @@ test("an abstained member is recorded as insufficient observation, not as measur
   assert.equal(byRef.get("n3"), "zero-usage-evidence",
     "a member that really scored zero, with no marker bits, is measured zero evidence");
 });
+
+// ---------------------------------------------------------------------------
+// Alice ruling 2026-10-25 (route 2): the direct binder entry, for the guaerd's
+// invalid shapes and the unchanged pure-cue contract. The composition entry
+// tests (search-input-host-binding.test.mjs) prove real typed transmission;
+// this file proves the guard itself with hand-set verdicts.
+// ---------------------------------------------------------------------------
+
+const memoWithVerdict = (verdict, overrides = {}) => memoCandidate({
+  memberVerdict: { state: "query_action", reason: null, observedRevision: 1, evidenceRefs: ["memo"] },
+  ...overrides,
+});
+
+test("a stale member verdict is insufficient, never ignored back to none", () => {
+  // The verdict names revision 2 while the request is revision 1: it belongs to
+  // a different observation and must not prop up nor be dropped from `none`.
+  const result = inferSearchInputHostBinding(
+    requestFor([memoCandidate({
+      memberVerdict: { state: "field_description", reason: null, observedRevision: 2, evidenceRefs: ["memo"] },
+    })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(result.state, "insufficient_observation");
+  assert.equal(result.rejection, "usage_relation_stale");
+});
+
+test("an unbound member verdict (evidence for another ref) is insufficient", () => {
+  // evidenceRefs does not name this candidate: the verdict is about some other
+  // object, so it carries no meaning here and cannot justify `none`.
+  const result = inferSearchInputHostBinding(
+    requestFor([memoCandidate({
+      memberVerdict: { state: "field_description", reason: null, observedRevision: 1, evidenceRefs: ["other-ref"] },
+    })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(result.state, "insufficient_observation");
+  assert.equal(result.rejection, "usage_relation_unbound");
+});
+
+test("a member query_action overrides the non-search cue at the direct entry too", () => {
+  const result = inferSearchInputHostBinding(
+    requestFor([memoWithVerdict({ state: "query_action", reason: null, observedRevision: 1, evidenceRefs: ["memo"] })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(result.state, "insufficient_observation");
+  assert.equal(result.rejection, "usage_relation_conflict");
+});
+
+test("a member conflicting_support overrides the non-search cue", () => {
+  const result = inferSearchInputHostBinding(
+    requestFor([memoCandidate({
+      memberVerdict: { state: "ambiguous", reason: "conflicting_support", observedRevision: 1, evidenceRefs: ["memo"] },
+    })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(result.state, "insufficient_observation");
+  assert.equal(result.rejection, "usage_relation_conflict");
+});
+
+test("a member field_description keeps none at the direct entry", () => {
+  const result = inferSearchInputHostBinding(
+    requestFor([memoCandidate({
+      memberVerdict: { state: "field_description", reason: null, observedRevision: 1, evidenceRefs: ["memo"] },
+    })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(result.state, "none");
+});
+
+test("a member unmeasured verdict is unresolved, never cue-only none", () => {
+  const result = inferSearchInputHostBinding(
+    requestFor([memoCandidate({
+      memberVerdict: { state: "unmeasured", reason: null, observedRevision: 1, evidenceRefs: ["memo"] },
+    })]),
+    { profile: selectionProfile },
+  );
+  assert.equal(result.state, "insufficient_observation");
+  assert.equal(result.rejection, "usage_relation_unresolved");
+});
+
+test("pure-cue candidates without a verdict keep the old none contract", () => {
+  const result = inferSearchInputHostBinding(
+    requestFor([memoCandidate()]),
+    { profile: selectionProfile },
+  );
+  assert.equal(result.state, "none");
+  assert.equal(result.rejection, undefined);
+});
+
+test("schema-rejection: an old strict candidate with a verdict stays rejected, never old-none", () => {
+  // The direct binder validates the request first (Alice ruling 2026-10-25 rev.1):
+  // a memberVerdict request that fails the strict schema must throw, and the
+  // throw must not be misreported as an old `none` red case. This test is
+  // recorded separately from the conflict/`none` red cases on purpose.
+  assert.throws(() => inferSearchInputHostBinding(
+    requestFor([memoCandidate({
+      memberVerdict: { state: "query_action", reason: null, observedRevision: 1 },
+    })]),
+    { profile: selectionProfile },
+  ), /evidenceRefs/);
+});

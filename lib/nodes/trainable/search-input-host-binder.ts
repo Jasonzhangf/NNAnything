@@ -331,6 +331,54 @@ export function inferSearchInputHostBinding(
         unassessedEligible.map(candidate => candidate.ref),
       );
     }
+
+    // Member-enabled path (Alice ruling 2026-10-25, route 2). A candidate that
+    // carries an explicit typed verdict proves the member ran for this same
+    // control. Its verdict is evidence, not decoration: it must never be
+    // dropped just because the cue wires alone would say `none`.
+    //
+    //   - verdict from another revision: stale, never ignored → none.
+    //   - verdict whose evidence names other refs: unbound to this object.
+    //   - query_action, or double support (conflicting_support): the host may
+    //     carry the search role, so `none` is not justified.
+    //   - unmeasured / unsupported_relation: the member was enabled but has no
+    //     usable relation; that is missing evidence, not a non-search proof, so
+    //     the cue-only `none` cannot stand either.
+    //   - field_description: a real non-search relation; the original non-search
+    //     evidence stands and `none` survives.
+    //
+    // Candidates without a verdict are the pure-cue path: they keep the existing
+    // contract unchanged (no member was enabled for them).
+    const withVerdict = applied.filter(candidate => candidate.memberVerdict !== undefined);
+    if (withVerdict.length > 0) {
+      const staleVerdict = withVerdict.filter(candidate =>
+        candidate.memberVerdict!.observedRevision !== currentControl.revision);
+      if (staleVerdict.length > 0) {
+        return reject("usage_relation_stale", observedRevision, staleVerdict.map(candidate => candidate.ref));
+      }
+      const unboundVerdict = withVerdict.filter(candidate =>
+        !candidate.memberVerdict!.evidenceRefs.includes(candidate.ref));
+      if (unboundVerdict.length > 0) {
+        return reject("usage_relation_unbound", observedRevision, unboundVerdict.map(candidate => candidate.ref));
+      }
+      const conflicted = withVerdict.filter(candidate => {
+        const verdict = candidate.memberVerdict!;
+        return verdict.state === "query_action"
+          || (verdict.state === "ambiguous" && verdict.reason === "conflicting_support");
+      });
+      if (conflicted.length > 0) {
+        return reject("usage_relation_conflict", observedRevision, conflicted.map(candidate => candidate.ref));
+      }
+      const unresolved = withVerdict.filter(candidate => {
+        const verdict = candidate.memberVerdict!;
+        return verdict.state === "unmeasured"
+          || (verdict.state === "ambiguous" && verdict.reason === "unsupported_relation");
+      });
+      if (unresolved.length > 0) {
+        return reject("usage_relation_unresolved", observedRevision, unresolved.map(candidate => candidate.ref));
+      }
+    }
+
     return Object.freeze({
       state: "none",
       selectedRef: null,
