@@ -98,7 +98,9 @@ export function legalActions(premise, state) {
  * (`playground/l2/cli.mjs`, E head, request.mode branches) rather than re-invented.
  *
  * It performs no size precheck at all: `exact` is satisfied iff bytesRead === length; `up_to` is
- * satisfied iff bytesRead === length, or bytesRead < length with eof === true. An earlier revision
+ * satisfied iff bytesRead === length, or bytesRead < length with eof === true. This claim is
+ * scoped to the E branch only (see LEGACY_TEACHER_SOURCE.scope); the old R qualification or any
+ * pre-read range gate is UNVERIFIED here. An earlier revision
  * of this file compared offset+length against size and called that the legacy precheck; that was a
  * substitute, not the old teacher, so it is withdrawn here (C3 correction, Alice review r1).
  *
@@ -109,11 +111,13 @@ export function legalActions(premise, state) {
  */
 export const LEGACY_TEACHER_SOURCE = Object.freeze({
   file: "playground/l2/cli.mjs",
+  scope: "E branch only: the receipt-level range judgment reproduced below. This is the only part verified against source.",
   branches: Object.freeze({
     exact: "bytesRead === length -> satisfied; short with eof -> unsatisfied; short -> unsatisfied",
     up_to: "bytesRead === length -> satisfied; bytesRead > length -> unsatisfied; short with eof -> satisfied; short without eof -> unsatisfied",
   }),
-  sizePrecheck: "none: the old teacher evaluates receipt facts only",
+  eBranchSizePrecheck: "none inside the E branch: the E branch evaluates receipt facts only",
+  fullChainSizePrecheck: "UNVERIFIED: the old R qualification or any pre-read range gate is not verified here; the current shared source no longer contains the historical version, so no claim is made about it",
   zeroLengthEof: "old candidate computes eof = offset >= size for length 0; production adapter reports eof=false, end_observed=true at the end",
 });
 
@@ -288,22 +292,30 @@ async function runFrame({ id, family, partition, mode, offset, length, mutate })
       // For a root whose target is this fixed ObservedObjectRef, that changes the target and can
       // never be called a recovery of the original root. It is only a candidate for a root that
       // explicitly names the path object and re-validates binding eligibility.
+      // (Alice review r2, P1): the original binding is kept; the rebound object's read is recorded
+      // as its own result and never as the original case's root success.
       const rebound = await sandbox.bindFile(session, "f.txt");
       const reboundRead = await readOnce(sandbox, rebound, offset, length);
       rows.push({
         id, family, partition, kind: "pathB-reference-fixed-root-boundary",
         recoveryTrigger: staleRead.execution.error.code,
         candidateAction: "rebind-by-path",
+        identityEndpoints: {
+          original: { dev: ref.identity.dev, ino: ref.identity.ino, sourceRun: ref.sourceRun },
+          rebound: { dev: rebound.identity.dev, ino: rebound.identity.ino, sourceRun: rebound.sourceRun },
+        },
         reboundRunsNewSource: rebound.sourceRun !== ref.sourceRun,
         newIno: rebound.identity.ino !== ref.identity.ino,
         newObjectRead: receiptFacts(reboundRead),
         newObjectRangeObtained: requestedRangeObtained(reboundRead, { mode, length }),
+        newObjectRootObtained: requestedRangeObtained(reboundRead, { mode, length }) === "satisfied",
         originalRootRecovered: false,
         originalRootState: "unknown",
         boundary: "the fixed-reference root is not restored by a path rebind; the rebound read proves only that a new object was obtained. A path-located root may accept the rebound only after it explicitly allows the current path object and re-validates binding eligibility.",
-        note: "the original root keeps its unsatisfied/unknown state; the new-object read is not reported as original-root success",
+        note: "the original root keeps its unsatisfied/unknown state; the new-object read is reported as newObjectRootObtained, not as original-root success",
       });
-      ref = rebound;
+      // Keep ref as the original binding: the read below then runs on the stale original ref and
+      // reports the original root as unsatisfied, preserving traceability.
     }
 
     // Path A: the staged premise admits the read, and the real receipt closes the conditions.
@@ -321,6 +333,7 @@ async function runFrame({ id, family, partition, mode, offset, length, mutate })
       observation: observedFacts,
       conditions,
       rootObtained: conditions.requested_range_obtained === "satisfied",
+      rootBinding: { dev: ref.identity.dev, ino: ref.identity.ino, sourceRun: ref.sourceRun },
       rangeMode: mode,
       requested: { offset, length, fileSize: before.size },
       legacyTeacherVerdict: observedFacts === null ? "unobserved" : legacyTeacherVerdict(mode, {
@@ -435,7 +448,7 @@ async function runRangeRecovery({ id, family, partition }) {
       requested: { offset: 13, length: 2, fileSize: 10 },
       requestedRangeObtained: requestedRangeObtained(upToPastEnd, { mode: "up_to", length: 2 }),
       legacyTeacherVerdict: legacyTeacherVerdict("up_to", { bytesRead: receiptFacts(upToPastEnd).bytesRead, length: 2, eof: receiptFacts(upToPastEnd).eof }),
-      boundary: "an offset-only precheck such as offset <= size would accept this request; a fabricated offset+length<=size precheck would reject it. The real receipt decides: 0 bytes with eof established is a satisfied up_to.",
+      boundary: "the real receipts below are the counterexample, not any invented size precheck: an up_to(13,2) on a 10-byte file returns 0 bytes with eof established, and the up_to rule (bytesRead===length or short-with-eof) judges it satisfied. No claim is made about an offset<=size acceptance, because 13<=10 is false and no historical precheck is verified here.",
     });
     const zeroPastEnd = await readOnce(sandbox, ref, 13, 0);
     const zeroAtEnd = await readOnce(sandbox, ref, 10, 0);
@@ -585,12 +598,33 @@ export const SCENARIOS = Object.freeze([
   { id: "reference-replaced", family: "F6-stale-reference-rebind", partition: "TRAIN", mode: "exact", offset: 0, length: 10, mutate: "replace-object" },
 ]);
 
+/**
+ * Assertion on the real replacement trajectory (Alice review r2, P1).
+ *
+ * For the case whose root is the fixed ObservedObjectRef that was replaced, no row may report the
+ * original root as obtained: the rebound object belongs to a different identity and its read is
+ * recorded as newObjectRootObtained only.
+ */
+export function assertReplacementCaseHasNoOriginalRootSuccess(rows, caseId) {
+  const caseRows = rows.filter(row => row.id === caseId);
+  if (caseRows.length === 0) throw new Error(`no rows recorded for case ${caseId}`);
+  const offending = caseRows.filter(row => row.rootObtained === true || row.originalRootObtained === true);
+  if (offending.length > 0) {
+    throw new Error(`case ${caseId} reports original-root success on ${offending.map(row => row.kind).join(", ")}`);
+  }
+  const boundary = caseRows.find(row => row.kind === "pathB-reference-fixed-root-boundary");
+  if (boundary === undefined) throw new Error(`case ${caseId} has no replacement boundary row`);
+  if (boundary.originalRootRecovered !== false) throw new Error(`case ${caseId} claims the original root recovered`);
+  return true;
+}
+
 export async function collectRows() {
   const rows = [];
   for (const scenario of SCENARIOS) rows.push(...await runFrame(scenario));
   rows.push(...await runRangeRecovery({ id: "range-recovery", family: "F9-range-recovery", partition: "dev" }));
   rows.push(...await runCapabilityGaps({ partition: "dev" }));
   rows.push(...await runControllerPathA());
+  assertReplacementCaseHasNoOriginalRootSuccess(rows, "reference-replaced");
   return rows;
 }
 
@@ -628,7 +662,7 @@ export function summarize(rows) {
       rangeRecovery: "a corrected sub-request never counts as the original root succeeding; the original goal is re-evaluated unchanged and stays unsatisfied when the range is impossible",
       reference: "a fixed-Reference root is not restored by a path rebind that yields a new inode; that is a different target, allowed only for a path root that explicitly names the object and re-validates eligibility",
       contentChange: "content change is proved by direct reread bytes only; ctime is metadata evidence; sessionRevision unchanged is not an error",
-      legacyTeacher: "the old candidate teacher has no size precheck and its up_to rule is bytesRead===length or (short && eof); a fabricated offset+length<=size precheck is withdrawn",
+      legacyTeacher: "the legacy comparison is scoped to the E branch: its up_to rule is bytesRead===length or (short && eof). No size precheck is claimed for the old full chain (R qualification / pre-read gate), which is UNVERIFIED because the historical source is no longer available; a fabricated offset+length<=size precheck is withdrawn",
     },
   };
 }
