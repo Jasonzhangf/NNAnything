@@ -41,7 +41,16 @@ function normalizeType(raw: string | null, tag: string): SearchInputHostType {
     : "other";
 }
 
-function hostOf(element: Element): SearchInputHostHost | null {
+/**
+ * Whether an element can carry the search-input-host role at all.
+ *
+ * Exported so a caller can report how many host controls it observed, which is
+ * the `observedCandidateCount` the binder compares against the projected
+ * candidates. The binder's mismatch check is only meaningful when the caller
+ * counts with this same rule; deriving the count inside the composition would
+ * make that guard compare the projection with itself.
+ */
+export function searchInputHostHostOf(element: Element): SearchInputHostHost | null {
   const tag = element.tagName.toLowerCase();
   if (tag === "input") return "input";
   if (tag === "textarea") return "textarea";
@@ -104,7 +113,7 @@ export function projectSearchInputHostCandidates(
   const candidates: SearchInputHostCandidate[] = [];
   for (const node of input.nodes) {
     const element = node.element;
-    const host = hostOf(element);
+    const host = searchInputHostHostOf(element);
     if (host === null) continue;
     const properties = input.propertiesOf(node.nodeRef);
     const form = element.closest("form");

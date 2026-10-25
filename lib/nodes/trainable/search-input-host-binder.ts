@@ -48,11 +48,24 @@ const USAGE_EVIDENCE_WIRES = Object.freeze([
   "markerHit",
   "nonSearchMarker",
   "formRoleSearch",
+  // Ruling 1/6: the member's two real support scores are learnable binder
+  // evidence. Unlike the marker bits these are continuous in (-1, 1), so the
+  // "all evidence is exactly zero" exclusion below still holds, but far fewer
+  // negatives qualify: a negative the member scores positive now carries real
+  // evidence and must be answered by a weight, not dropped.
+  "usage.query_support",
+  "usage.field_support",
 ] as const);
 
 const USAGE_EVIDENCE_INDEX = Object.freeze(
   USAGE_EVIDENCE_WIRES.map(wire => SEARCH_INPUT_HOST_WIRES.indexOf(wire as SearchInputHostWire)),
 );
+
+/** Wire positions of the two continuous member supports. */
+const USAGE_SUPPORT_INDEX = Object.freeze({
+  query: SEARCH_INPUT_HOST_WIRES.indexOf("usage.query_support" as SearchInputHostWire),
+  field: SEARCH_INPUT_HOST_WIRES.indexOf("usage.field_support" as SearchInputHostWire),
+});
 
 /** Absolute objective margin, anchored on the inference threshold. */
 const ABSOLUTE_MARGIN = 1;
@@ -108,6 +121,14 @@ export function searchInputHostFeatures(candidate: MeasuredSearchInputHostCandid
   features[29] = oneHot(candidate.markerHit);
   features[30] = oneHot(candidate.nonSearchMarker);
   features[textLenIndex] = 1;
+  // Continuous member supports. This vector holds numbers only, so a missing
+  // support cannot survive in it. Every caller that must not turn an abstention
+  // into a measured zero therefore checks the candidate first: the fit does that
+  // in `fitAbsoluteSupervision` before building a row (milestone recheck P1), and
+  // inference relies on the profile-aware guard that runs before scoring, so only
+  // an all-zero profile reaches this line with a null support.
+  features[USAGE_SUPPORT_INDEX.query] = candidate.usageQuerySupport ?? 0;
+  features[USAGE_SUPPORT_INDEX.field] = candidate.usageFieldSupport ?? 0;
   return Object.freeze(features);
 }
 
@@ -272,6 +293,22 @@ export function inferSearchInputHostBinding(
     );
   }
 
+  // Missing member support is missing evidence, never a measured zero (milestone
+  // review P1-1, Alice ruling 2026-10-24). A candidate whose relation member
+  // abstained leaves the support null/undefined; folding that into 0 would turn
+  // an unknown into a neutral score and let the marker wires decide alone. This
+  // guard is profile-aware: it only fires when the loaded profile actually reads
+  // the wire (non-zero weight), so an old all-zero profile does not gain a new
+  // dependency out of thin air.
+  const dependsOnQuerySupport = profile.weights[USAGE_SUPPORT_INDEX.query] !== 0;
+  const dependsOnFieldSupport = profile.weights[USAGE_SUPPORT_INDEX.field] !== 0;
+  const missingSupport = applied.filter(candidate =>
+    (dependsOnQuerySupport && (candidate.usageQuerySupport === null || candidate.usageQuerySupport === undefined))
+    || (dependsOnFieldSupport && (candidate.usageFieldSupport === null || candidate.usageFieldSupport === undefined)));
+  if (missingSupport.length > 0) {
+    return reject("unmeasured_candidate_fields", observedRevision, missingSupport.map(candidate => candidate.ref));
+  }
+
   // `none` requires positive usage evidence that no applicable host carries the
   // role. A low score, a missing cue hit or an unknown purpose is not evidence of
   // absence: non-search inputs are allowed to exist inside an eligible scope, so
@@ -385,8 +422,17 @@ export interface SearchInputHostChangedWeight {
 
 export interface SearchInputHostExcludedTrainingRow {
   readonly ref: string;
-  readonly reason: "zero-usage-evidence";
-  readonly roleMatch: number;
+  /**
+   * `insufficient-observation` means the relation member produced no finite
+   * support, so the cue is missing rather than absent. Such a row cannot
+   * supervise this objective at all and never enters the fitted set, whatever its
+   * marker bits say (milestone recheck P1). `zero-usage-evidence` is a negative
+   * whose measured cue is genuinely all zero, so it can never meet a negative
+   * margin. The two are different facts and stay distinguishable.
+   */
+  readonly reason: "zero-usage-evidence" | "insufficient-observation";
+  /** The score when the row was scored; null when its cue was missing. */
+  readonly roleMatch: number | null;
 }
 
 export interface SearchInputHostTrainingFit {
@@ -561,6 +607,11 @@ interface AbsoluteRow {
   readonly evidence: readonly number[];
 }
 
+/** A support is measured only when it is a finite number; null/undefined is missing. */
+function isFiniteSupport(support: number | null | undefined): support is number {
+  return typeof support === "number" && Number.isFinite(support);
+}
+
 function usageEvidenceOf(candidate: MeasuredSearchInputHostCandidate): readonly number[] {
   const features = searchInputHostFeatures(candidate);
   return Object.freeze(USAGE_EVIDENCE_INDEX.map(index => features[index]!));
@@ -642,10 +693,30 @@ function fitAbsoluteSupervision(
         continue;
       }
       const candidate = measured.get(label.ref)!;
+      // A missing member support is missing evidence, not a measured zero
+      // (milestone recheck P1). Folding it into 0 would train the two support
+      // wires on an unknown value while inference refuses the very same input.
+      // The row carries no usable supervision for this objective, so it is
+      // reported as unassessed and kept out of the fitted set regardless of its
+      // marker bits.
+      if (!isFiniteSupport(candidate.usageQuerySupport) || !isFiniteSupport(candidate.usageFieldSupport)) {
+        excludedRows.push(Object.freeze({
+          ref: label.ref,
+          reason: "insufficient-observation",
+          roleMatch: null,
+        }));
+        continue;
+      }
       const evidence = usageEvidenceOf(candidate);
       const polarity = label.polarity === "positive" ? 1 : -1;
       if (polarity === -1 && evidence.every(value => value === 0)) {
-        excludedRows.push(Object.freeze({ ref: label.ref, reason: "zero-usage-evidence", roleMatch: 0 }));
+        // Every wire is a measured zero, so this negative can never meet its
+        // margin. It is reported instead of being silently given one.
+        excludedRows.push(Object.freeze({
+          ref: label.ref,
+          reason: "zero-usage-evidence",
+          roleMatch: 0,
+        }));
         continue;
       }
       rows.push({ ref: label.ref, polarity, evidence });

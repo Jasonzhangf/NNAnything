@@ -92,6 +92,14 @@ export interface SearchInputHostCandidate {
   readonly nonSearchMarker: boolean | null;
   readonly textLenBand: SearchInputHostTextLenBand | null;
   readonly access: SearchInputHostAccess | null;
+  /**
+   * Support scores of the usage-relation member for the same control, in
+   * (-1, 1), or null when the member abstained. Null is "no relation evidence",
+   * never a zero score: a real neutral score and a missing one must not be
+   * confused, because the binder's exclusion rule reads them differently.
+   */
+  readonly usageQuerySupport?: number | null;
+  readonly usageFieldSupport?: number | null;
 }
 
 /** A candidate after the deterministic missing-measurement guard. */
@@ -205,9 +213,25 @@ export const SEARCH_INPUT_HOST_WIRES = Object.freeze([
   "textLenBand.empty",
   "textLenBand.short",
   "textLenBand.long",
+  // Relation-member support scores, appended by ruling 1 (2026-10-24). These
+  // are the two real `infer` outputs of `browser.search-input-usage-relation.v1`
+  // and carry no execution permission: a high score is evidence, not consent.
+  "usage.query_support",
+  "usage.field_support",
 ] as const);
 
 export type SearchInputHostWire = (typeof SEARCH_INPUT_HOST_WIRES)[number];
+
+/**
+ * Wires appended after the delivered 34. These are the only wires a delivered
+ * profile may lack, so they are the only ones migration is allowed to pad with
+ * zero. Keeping the list explicit stops a future wire from being silently
+ * zero-filled when an old profile is loaded.
+ */
+export const SEARCH_INPUT_HOST_APPENDED_WIRES = Object.freeze([
+  "usage.query_support",
+  "usage.field_support",
+] as const);
 
 export interface SearchInputHostProfile {
   readonly contract: typeof SEARCH_INPUT_HOST_CONTRACT;
@@ -219,15 +243,47 @@ export interface SearchInputHostProfile {
   readonly adoption: "not_applied";
 }
 
-function exactKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
-  const actual = Object.keys(value);
-  if (actual.length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
-    throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`);
+/**
+ * Reject unknown keys and missing required ones.
+ *
+ * `optional` names keys that may be present but need not be. They exist for
+ * fields added after the delivered shape, so an older record stays valid while
+ * a typo or an unlisted field is still rejected.
+ */
+function exactKeys(
+  value: Record<string, unknown>,
+  keys: readonly string[],
+  label: string,
+  optional: readonly string[] = [],
+): void {
+  const allowed = new Set<string>([...keys, ...optional]);
+  const unknown = Object.keys(value).filter(key => !allowed.has(key));
+  const missing = keys.filter(key => !Object.hasOwn(value, key));
+  if (unknown.length > 0 || missing.length > 0) {
+    throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`
+      + (optional.length > 0 ? ` (optional: ${optional.join(", ")})` : "")
+      + (unknown.length > 0 ? `; unknown: ${unknown.join(", ")}` : "")
+      + (missing.length > 0 ? `; missing: ${missing.join(", ")}` : ""));
   }
 }
 
 function nonEmpty(value: unknown, label: string): string {
   return expectNonEmptyString(value, label);
+}
+
+/**
+ * A member support score is a tanh output, so it lives in (-1, 1). Null means the
+ * member abstained, which is not the same fact as a neutral score of zero.
+ */
+function nullableSupport(value: unknown, label: string): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError(`${label} must be a finite number or null`);
+  }
+  if (value <= -1 || value >= 1) {
+    throw new TypeError(`${label} must lie strictly inside (-1, 1)`);
+  }
+  return value;
 }
 
 function nullableBoolean(value: unknown, label: string): boolean | null {
@@ -266,9 +322,12 @@ const CANDIDATE_KEYS = [
   "textLenBand", "access",
 ] as const;
 
+/** Added after the delivered shape, so they stay optional on old records. */
+const CANDIDATE_OPTIONAL_KEYS = ["usageQuerySupport", "usageFieldSupport"] as const;
+
 export function validateSearchInputHostCandidate(value: unknown, label = "search input host candidate"): SearchInputHostCandidate {
   const candidate = expectRecord(value, label);
-  exactKeys(candidate, CANDIDATE_KEYS, label);
+  exactKeys(candidate, CANDIDATE_KEYS, label, CANDIDATE_OPTIONAL_KEYS);
   const revision = expectFiniteNumber(candidate.revision, `${label}.revision`);
   if (!Number.isInteger(revision)) throw new TypeError(`${label}.revision must be an integer`);
   return Object.freeze({
@@ -306,6 +365,12 @@ export function validateSearchInputHostCandidate(value: unknown, label = "search
       ["available", "login_required", "challenge", "unknown"] as const,
       `${label}.access`,
     ),
+    ...(candidate.usageQuerySupport === undefined
+      ? {}
+      : { usageQuerySupport: nullableSupport(candidate.usageQuerySupport, `${label}.usageQuerySupport`) }),
+    ...(candidate.usageFieldSupport === undefined
+      ? {}
+      : { usageFieldSupport: nullableSupport(candidate.usageFieldSupport, `${label}.usageFieldSupport`) }),
   });
 }
 
@@ -317,6 +382,17 @@ const MEASURED_FIELDS = [
   "textLenBand", "access",
 ] as const;
 
+/**
+ * Deterministic missing-measurement guard for the structural facts.
+ *
+ * The two member supports are deliberately not in this list. Whether a missing
+ * support is a problem depends on the loaded profile: a profile that reads the
+ * wire has a real dependency, and an all-zero profile does not. This guard has
+ * no profile, so it must not invent that dependency for every caller (Alice
+ * ruling 2026-10-24: 旧零系数不凭空增加依赖). The profile-aware check lives in
+ * `inferSearchInputHostBinding`, which rejects a missing support only when the
+ * profile's weight on that wire is non-zero.
+ */
 export function isMeasuredSearchInputHostCandidate(
   candidate: SearchInputHostCandidate,
 ): candidate is MeasuredSearchInputHostCandidate {
@@ -445,9 +521,57 @@ export function validateSearchInputHostProfile(value: unknown): SearchInputHostP
   });
 }
 
-/** Neutral start: every weight is zero, so the fit decides every value. */
-export function neutralSearchInputHostProfile(): SearchInputHostProfile {
+/**
+ * Migrate a delivered profile forward to the current wire list.
+ *
+ * Weights are a positional array, so a profile saved before the wire list grew
+ * cannot be read positionally: once any wire is inserted anywhere but the tail,
+ * every coefficient after it would shift silently. The delivered profile carries
+ * its own `wires` name array, so migration aligns by NAME.
+ *
+ * Only the wires appended after delivery may start at zero. A delivered wire
+ * that cannot be found is a corrupt profile, and zero-filling it would erase a
+ * learned coefficient while looking like a successful migration.
+ *
+ * Migration is separate from training (ruling 6): this function only re-shapes
+ * the vector. No weight is fitted, retuned or given a signed prior here.
+ */
+export function migrateSearchInputHostProfile(raw: unknown): SearchInputHostProfile {
+  const input = expectRecord(raw, "search input host profile");
+  const rawWires = input.wires;
+  const rawWeights = input.weights;
+  if (!Array.isArray(rawWires)) throw new TypeError("search input host profile wires must be an array");
+  if (!Array.isArray(rawWeights)) throw new TypeError("search input host profile weights must be an array");
+  if (rawWires.length !== rawWeights.length) {
+    throw new TypeError("search input host profile wires and weights must have equal length");
+  }
+  const weightByName = new Map<string, number>();
+  rawWires.forEach((wire, index) => {
+    if (typeof wire !== "string") throw new TypeError(`search input host wire ${index} must be a string`);
+    const weight = rawWeights[index];
+    if (typeof weight !== "number" || !Number.isFinite(weight)) {
+      throw new TypeError(`search input host weight for ${wire} must be finite`);
+    }
+    weightByName.set(wire, weight);
+  });
+
+  const appended = new Set<string>(SEARCH_INPUT_HOST_APPENDED_WIRES);
+  const weights = SEARCH_INPUT_HOST_WIRES.map(wire => {
+    const weight = weightByName.get(wire);
+    if (weight !== undefined) return weight;
+    if (appended.has(wire)) return 0;
+    throw new TypeError(`search input host profile is missing delivered wire ${wire}`);
+  });
+
   return validateSearchInputHostProfile({
+    ...input,
+    wires: [...SEARCH_INPUT_HOST_WIRES],
+    weights,
+  });
+}
+
+/** Neutral start: every weight is zero, so the fit decides every value. */
+export function neutralSearchInputHostProfile(): SearchInputHostProfile {  return validateSearchInputHostProfile({
     contract: SEARCH_INPUT_HOST_CONTRACT,
     role: SEARCH_INPUT_HOST_ROLE,
     wires: [...SEARCH_INPUT_HOST_WIRES],

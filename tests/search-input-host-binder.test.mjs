@@ -8,7 +8,9 @@ import { fileURLToPath } from "node:url";
 import {
   SEARCH_INPUT_HOST_WIRES,
   inferSearchInputHostBinding,
+  migrateSearchInputHostProfile,
   neutralSearchInputHostProfile,
+  searchInputHostFeatures,
   trainSearchInputHostBinder,
   validateSearchInputHostProfile,
 } from "../dist/search-input-host.js";
@@ -508,73 +510,155 @@ const TRAIN_ABSOLUTE_PATH = resolve(repoRoot, "playground/browser/search-input-h
 
 const label = (ref, polarity) => ({ ref, polarity });
 
-test("absolute: only usage-evidence wires change; the other 31 stay exactly zero", async () => {
-  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
-  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+// The pre-member replay fixture predates the relation member, so none of its
+// candidates carries a support score. Under the corrected missing-measurement
+// semantics it cannot supervise a fit (milestone recheck P1). The helpers below
+// build synthetic measured candidates: they exercise the fitter mechanics and are
+// not evidence about the delivered data.
+const measuredPositive = (ref, overrides = {}) => baseCandidate({
+  ref,
+  type: "search",
+  inForm: true,
+  formRoleSearch: true,
+  hasPlaceholder: true,
+  markerHit: true,
+  usageQuerySupport: 0.9,
+  usageFieldSupport: -0.9,
+  ...overrides,
+});
+
+const measuredNegative = (ref, overrides = {}) => baseCandidate({
+  ref,
+  type: "text",
+  inForm: true,
+  hasLabel: true,
+  nonSearchMarker: true,
+  usageQuerySupport: -0.9,
+  usageFieldSupport: 0.9,
+  ...overrides,
+});
+
+const measuredBatch = (overrides = {}) => ({
+  id: "batch-measured",
+  partition: "train",
+  targetRef: "search",
+  candidates: [measuredPositive("search"), measuredNegative("memo")],
+  labels: [label("search", "positive"), label("memo", "negative")],
+  ...overrides,
+});
+
+const LEARNABLE_WIRES = new Set([
+  "markerHit", "nonSearchMarker", "formRoleSearch", "usage.query_support", "usage.field_support",
+]);
+
+test("absolute: only usage-evidence wires change; the other 31 stay exactly zero", () => {
+  const result = trainSearchInputHostBinder({ batches: [measuredBatch()] }, { objective: "absolute" });
   assert.equal(result.fit.objective, "absolute");
   for (let index = 0; index < SEARCH_INPUT_HOST_WIRES.length; index += 1) {
     const wire = SEARCH_INPUT_HOST_WIRES[index];
-    if (wire !== "markerHit" && wire !== "nonSearchMarker" && wire !== "formRoleSearch") {
+    if (!LEARNABLE_WIRES.has(wire)) {
       assert.equal(result.profile.weights[index], 0, `carrier wire ${wire} must stay frozen at zero`);
     }
   }
-  assert.equal(result.profile.weights.length, 34);
+  assert.equal(result.profile.weights.length, 36);
   assert.ok(result.profile.weights.some(weight => weight !== 0));
   assert.equal(result.profile.calibration, "uncalibrated");
   assert.equal(result.profile.adoption, "not_applied");
 });
 
-test("absolute: a memo field inside a role=search form is not selected after fitting", async () => {
-  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
-  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
-  const batch = rows.batches.find(entry => entry.id === "batch-s7a");
-  const memo = batch.candidates.find(candidate => candidate.ref === "scope-s7a-11");
-  const scopeRef = batch.candidates[0].scopeRef;
-  const first = batch.candidates[0];
-  const request = requestFor(batch.candidates, {
-    goal: { requestedRole: "search-input-host", allowedScopeRef: scopeRef },
-    coverage: {
-      scopeRef,
-      observedCandidateCount: batch.candidates.length,
-      unassessedIframeCount: 0,
-      unassessedObjectCount: 0,
-      unassessedOpenShadowRootCount: 0,
-      excluded: [],
-    },
-    currentControl: { documentRef: first.documentRef, observationId: first.observationId, revision: first.revision },
-  });
+test("absolute: a memo field inside a role=search form is not selected after fitting", () => {
+  // The delivered s7a shape with measured member support: the query field carries
+  // a positive query cue and the memo a negative one, so the fitted profile must
+  // still prefer the query field inside the same role=search form.
+  const query = measuredPositive("search");
+  const memo = measuredNegative("memo");
+  const request = requestFor([query, memo]);
+  const result = trainSearchInputHostBinder({ batches: [measuredBatch()] }, { objective: "absolute" });
   const outcome = inferSearchInputHostBinding(request, { profile: result.profile });
-  assert.equal(outcome.selectedRef, "scope-s7a-9", "the query field must win inside the same role=search form");
-  assert.notEqual(outcome.selectedRef, memo.ref, "the search-form memo must not be selected");
+  assert.equal(outcome.selectedRef, "search", "the query field must win inside the same role=search form");
+  assert.notEqual(outcome.selectedRef, "memo", "the search-form memo must not be selected");
 });
 
-test("absolute: an all-zero-evidence negative is reported excluded, never silently given a margin", async () => {
-  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
-  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
-  assert.equal(result.fit.fittedRowCount, 14, "the two unlearnable rows must not enter the fitted set");
-  const excluded = result.fit.excludedRows.map(row => row.ref);
-  assert.deepEqual([...excluded].sort(), ["scope-s1a-19", "scope-s1b-18"]);
-  for (const row of result.fit.excludedRows) {
-    assert.equal(row.reason, "zero-usage-evidence");
-    assert.equal(row.roleMatch, 0, "below theta by construction, not recognised as non-search");
-  }
+test("absolute: a measured all-zero-evidence negative is reported excluded, never silently given a margin", () => {
+  const zero = baseCandidate({ ref: "z1", usageQuerySupport: 0, usageFieldSupport: 0 });
+  const batch = {
+    id: "batch-zero",
+    partition: "train",
+    targetRef: "search",
+    // A second, measured negative keeps one fitted negative row in the objective.
+    candidates: [measuredPositive("search"), zero, measuredNegative("memo")],
+    labels: [label("search", "positive"), label("z1", "negative"), label("memo", "negative")],
+  };
+  const result = trainSearchInputHostBinder({ batches: [batch] }, { objective: "absolute" });
+  const excluded = result.fit.excludedRows.find(row => row.ref === "z1");
+  assert.ok(excluded, "a measured all-zero negative must be reported, not fitted");
+  assert.equal(excluded.reason, "zero-usage-evidence");
+  assert.equal(excluded.roleMatch, 0, "below theta by construction, not recognised as non-search");
+  assert.equal(result.fit.fittedRowCount, 2, "the measured positive and the measured negative both fit");
 });
 
-test("absolute: the stop metric is reported as a number the caller can judge", async () => {
+test("absolute: a missing member support is unassessed even beside a marker bit (recheck P1)", () => {
+  // Failure mode this guards: the fit built the numeric row through the feature
+  // vector, where a null support became 0. A negative carrying a marker bit then
+  // entered the fitted set with both usage wires silently zeroed, while inference
+  // rejects the same input. A missing cue must never be fitted as a measured zero.
+  const missing = baseCandidate({ ref: "m1", markerHit: true, usageQuerySupport: null, usageFieldSupport: null });
+  const batch = {
+    id: "batch-missing",
+    partition: "train",
+    targetRef: "search",
+    candidates: [measuredPositive("search"), missing, measuredNegative("memo")],
+    labels: [label("search", "positive"), label("m1", "negative"), label("memo", "negative")],
+  };
+  const result = trainSearchInputHostBinder({ batches: [batch] }, { objective: "absolute" });
+  const excluded = result.fit.excludedRows.find(row => row.ref === "m1");
+  assert.ok(excluded, "the row must be reported, not fitted as zero support");
+  assert.equal(excluded.reason, "insufficient-observation");
+  assert.equal(excluded.roleMatch, null, "the cue was missing, so no score exists");
+  assert.equal(result.fit.fittedRowCount, 2, "only the two measured rows fit");
+});
+
+test("absolute: a positive row without member support is not supervision either (recheck P1)", () => {
+  const missingPositive = baseCandidate({ ref: "p1", markerHit: true, usageQuerySupport: null, usageFieldSupport: undefined });
+  const batch = {
+    id: "batch-missing-positive",
+    partition: "train",
+    targetRef: "p1",
+    // A measured positive keeps the fit able to run after the missing row is out.
+    candidates: [missingPositive, measuredPositive("search"), measuredNegative("memo")],
+    labels: [label("p1", "positive"), label("search", "positive"), label("memo", "negative")],
+  };
+  const result = trainSearchInputHostBinder({ batches: [batch] }, { objective: "absolute" });
+  const excluded = result.fit.excludedRows.find(row => row.ref === "p1");
+  assert.ok(excluded, "a positive with a missing support must be reported too");
+  assert.equal(excluded.reason, "insufficient-observation");
+  assert.equal(result.fit.fittedRowCount, 2, "the two measured rows still fit");
+});
+
+test("absolute: the pre-member replay fixture cannot supervise a fit (recheck P1 impact)", async () => {
   const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
-  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  // Every candidate in this fixture predates the relation member, so no support
+  // is present. The fit has no measured row at all and must refuse instead of
+  // absorbing the abstentions as zeros.
+  assert.throws(
+    () => trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" }),
+    /at least one fitted positive row/,
+  );
+});
+
+test("absolute: the stop metric is reported as a number the caller can judge", () => {
+  const result = trainSearchInputHostBinder({ batches: [measuredBatch()] }, { objective: "absolute" });
   assert.equal(typeof result.fit.stopEpoch, "number");
   assert.ok(result.fit.stopEpoch > 0 && result.fit.stopEpoch <= 400);
   assert.ok(result.fit.worstMarginViolation <= 0, "the reported stop metric is the fitted-set maximum");
   assert.deepEqual([...result.fit.boundHitWires], [], "this budget never crosses the optimisation box");
 });
 
-test("absolute: touching the weight bound is an observable statistic, not an error", async () => {
+test("absolute: touching the weight bound is an observable statistic, not an error", () => {
   // The ±8 box is an optimisation constraint. A finite parameter may sit on it;
   // only a non-finite parameter is an error. Alice ruling 2026-10-24.
-  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
-  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", learningRate: 100 });
-  assert.equal(result.profile.weights.length, 34);
+  const result = trainSearchInputHostBinder({ batches: [measuredBatch()] }, { objective: "absolute", learningRate: 100 });
+  assert.equal(result.profile.weights.length, 36);
   assert.equal(result.profile.calibration, "uncalibrated");
   assert.ok(result.fit.boundHitWires.length > 0, "the crossed box must be observable in the result");
   for (const weight of result.profile.weights) {
@@ -583,13 +667,13 @@ test("absolute: touching the weight bound is an observable statistic, not an err
   }
 });
 
-test("absolute: an unmet stop metric is reported, not thrown", async () => {
-  const rows = JSON.parse(await readFile(TRAIN_ABSOLUTE_PATH, "utf8"));
-  // One step is far too few for the fitted set to reach its margin.
-  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", epochs: 50 });
-  assert.equal(result.fit.stopEpoch, 50);
-  assert.ok(result.fit.worstMarginViolation <= 0);
-  const short = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute", epochs: 1 });
+test("absolute: an unmet stop metric is reported, not thrown", () => {
+  // A learning rate this small cannot reach the margin in one epoch, so no
+  // checkpoint passes and the unmet metric must be reported instead of thrown.
+  const short = trainSearchInputHostBinder(
+    { batches: [measuredBatch()] },
+    { objective: "absolute", epochs: 1, learningRate: 0.01 },
+  );
   assert.equal(short.fit.stopEpoch, null, "no checkpoint was reached, so no stop epoch exists");
   assert.equal(typeof short.fit.worstMarginViolation, "number", "the unmet metric is still reported");
   assert.ok(short.fit.worstMarginViolation > 0);
@@ -609,4 +693,201 @@ test("absolute: the pairwise objective stays the default and is unchanged", asyn
   assert.equal(result.fit.objective, "pairwise");
   assert.ok(result.fit.pairCount > 0);
   assert.equal(result.fit.fittedRowCount, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 1/6: the 36-wire boundary and migration of delivered 34-wire profiles.
+//
+// Failure mode this guards: the delivered wire list grows from 34 to 36, but
+// saved profiles still carry 34 weights. A positional copy would silently shift
+// every coefficient once a wire is inserted anywhere but the tail. Migration
+// must therefore align by wire NAME and pad only the appended wires with zero.
+// ---------------------------------------------------------------------------
+
+const DELIVERED_34_WIRES = Object.freeze([
+  "type.text", "type.search", "type.tel", "type.email", "type.url", "type.number",
+  "type.other", "contentEditable", "tag.input", "tag.textarea", "editable", "disabled",
+  "readOnly", "cssHidden", "intersectsViewport", "explicitTabIndex.negative",
+  "explicitTabIndex.nonnegative", "explicitTabIndex.absent", "explicitTabIndex.invalid",
+  "tabIndexFocus", "inForm", "formRoleSearch", "nearbySubmit", "depth.shallow",
+  "depth.middle", "depth.deep", "hasLabel", "hasPlaceholder", "hasAria", "markerHit",
+  "nonSearchMarker", "textLenBand.empty", "textLenBand.short", "textLenBand.long",
+]);
+
+const deliveredProfile = (order = DELIVERED_34_WIRES) => {
+  const weightOf = name => DELIVERED_34_WIRES.indexOf(name) + 1; // distinct, nonzero
+  return {
+    contract: "browser.search-input-host.v1",
+    role: "search-input-host",
+    wires: [...order],
+    weights: order.map(weightOf),
+    threshold: 0.5,
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+};
+
+test("the declared wire list appends exactly two usage wires after the delivered 34", () => {
+  assert.equal(SEARCH_INPUT_HOST_WIRES.length, 36);
+  assert.deepEqual(SEARCH_INPUT_HOST_WIRES.slice(0, 34), DELIVERED_34_WIRES,
+    "the delivered 34 keep their names and order; only an append is allowed");
+  assert.deepEqual(SEARCH_INPUT_HOST_WIRES.slice(34), ["usage.query_support", "usage.field_support"]);
+});
+
+test("a delivered 34-wire profile migrates to 36 by name, new wires starting at zero", () => {
+  const migrated = migrateSearchInputHostProfile(deliveredProfile());
+  assert.equal(migrated.wires.length, 36);
+  assert.equal(migrated.weights.length, 36);
+  // Every delivered coefficient survives with the same value at the same name.
+  for (const wire of DELIVERED_34_WIRES) {
+    const index = migrated.wires.indexOf(wire);
+    assert.equal(migrated.weights[index], DELIVERED_34_WIRES.indexOf(wire) + 1, `wire ${wire} must keep its weight`);
+  }
+  assert.equal(migrated.weights[34], 0, "appended usage wire starts at zero");
+  assert.equal(migrated.weights[35], 0, "appended usage wire starts at zero");
+  // Migration must not launder the candidate's delivery state.
+  assert.equal(migrated.calibration, "uncalibrated");
+  assert.equal(migrated.adoption, "not_applied");
+  // And it must pass the real validator with no second definition of the order.
+  validateSearchInputHostProfile(migrated);
+});
+
+test("migration aligns by wire name, never by array position", () => {
+  // A positional copy would pass the test above but break here: the same 34
+  // names and weights are stored in a deliberately different order.
+  const shuffled = [...DELIVERED_34_WIRES].reverse();
+  const migrated = migrateSearchInputHostProfile(deliveredProfile(shuffled));
+  for (const wire of DELIVERED_34_WIRES) {
+    const index = migrated.wires.indexOf(wire);
+    assert.equal(migrated.weights[index], DELIVERED_34_WIRES.indexOf(wire) + 1,
+      `wire ${wire} must follow its NAME through a reordered source profile`);
+  }
+  assert.equal(migrated.weights[34], 0);
+  assert.equal(migrated.weights[35], 0);
+});
+
+test("migration refuses to zero-fill a delivered wire it cannot find", () => {
+  // Only the two appended wires may default to zero. A missing delivered wire is
+  // a corrupt profile: filling it with zero would erase a learned coefficient
+  // while looking like a successful migration.
+  const broken = deliveredProfile();
+  const dropIndex = broken.wires.indexOf("markerHit");
+  broken.wires.splice(dropIndex, 1);
+  broken.weights.splice(dropIndex, 1);
+  assert.throws(() => migrateSearchInputHostProfile(broken), /markerHit|missing/i);
+});
+
+// ---------------------------------------------------------------------------
+// Ruling 1/6: the relation member's two support scores are learnable binder
+// evidence, and the zero-evidence exclusion must not swallow them.
+// ---------------------------------------------------------------------------
+
+test("the two member supports land on wires 34 and 35 as continuous values", () => {
+  const base = baseCandidate({
+    usageQuerySupport: 0.8123,
+    usageFieldSupport: -0.4567,
+  });
+  const features = searchInputHostFeatures(base);
+  assert.equal(features.length, 36);
+  assert.equal(features[34], 0.8123, "usage.query_support is wire 34");
+  assert.equal(features[35], -0.4567, "usage.field_support is wire 35");
+});
+
+test("an abstained member contributes zero to the dot product but is not a neutral score", () => {
+  // null means "the member abstained", which is not evidence of a neutral score.
+  const abstained = searchInputHostFeatures(baseCandidate({ usageQuerySupport: null, usageFieldSupport: null }));
+  const neutral = searchInputHostFeatures(baseCandidate({ usageQuerySupport: 0, usageFieldSupport: 0 }));
+  assert.equal(abstained[34], 0);
+  assert.equal(abstained[35], 0);
+  assert.deepEqual([...abstained], [...neutral], "the dot product is identical");
+  // ...but the exclusion decision reads the raw candidate, so the two remain
+  // distinguishable where it matters.
+  assert.equal(baseCandidate({ usageQuerySupport: null }).usageQuerySupport, null);
+  assert.equal(baseCandidate({ usageQuerySupport: 0 }).usageQuerySupport, 0);
+});
+
+test("inference rejects an abstained member when the profile depends on its wire (milestone P1-1)", () => {
+  // A profile that learned a non-zero usage support weight must not silently
+  // read a null support as 0: the marker wires would then decide alone. The
+  // missing measurement is a rejection, not a score.
+  const dependant = profileWith({ "usage.query_support": 1, "usage.field_support": -1 });
+  const search = searchCandidate({ usageQuerySupport: null, usageFieldSupport: null });
+  const result = inferSearchInputHostBinding(
+    requestFor([search]),
+    { profile: dependant },
+  );
+  assert.equal(result.state, "insufficient_observation");
+  assert.equal(result.rejection, "unmeasured_candidate_fields");
+  assert.deepEqual(result.evidenceRefs, ["search"]);
+});
+
+test("inference does not reject missing support under an all-zero profile (milestone P1-1)", () => {
+  // An old all-zero profile reads neither support wire, so null support is not a
+  // new dependency: the guard must not fire and turn every legacy call into a
+  // rejection. The marker wires stay the only evidence.
+  const search = searchCandidate({ usageQuerySupport: null, usageFieldSupport: null });
+  const result = inferSearchInputHostBinding(
+    requestFor([search]),
+    { profile: neutralSearchInputHostProfile() },
+  );
+  assert.notEqual(result.rejection, "unmeasured_candidate_fields");
+});
+
+test("a negative carrying positive member support is fitted, not excluded as zero evidence", async () => {
+  // The candidate has no marker bits at all. Under the delivered 3-wire rule it
+  // was "zero usage evidence" and got dropped. With the member support present it
+  // carries real evidence, so dropping it would silently delete a decidable row.
+  const rows = {
+    batches: [{
+      id: "batch-usage",
+      partition: "train",
+      targetRef: "n1",
+      candidates: [
+        baseCandidate({ ref: "n1", usageQuerySupport: 0.9, usageFieldSupport: -0.9 }),
+        baseCandidate({ ref: "n2", usageQuerySupport: -0.9, usageFieldSupport: 0.9 }),
+      ],
+      labels: [
+        { ref: "n1", polarity: "negative" },
+        { ref: "n2", polarity: "positive" },
+      ],
+    }],
+  };
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  assert.deepEqual([...result.fit.excludedRows], [], "member support is real evidence, so nothing is excluded here");
+  assert.equal(result.profile.weights.length, 36);
+  // The fit must be able to use the two new wires.
+  const used = [
+    result.profile.weights[34] !== 0 || result.profile.weights[35] !== 0,
+  ].some(Boolean);
+  assert.ok(used, "at least one member support wire must move when it is the only evidence");
+});
+
+test("an abstained member is recorded as insufficient observation, not as measured zero", () => {
+  // No marker bits and both supports null: the cue is missing, not absent.
+  const rows = {
+    batches: [{
+      id: "batch-abstain",
+      partition: "train",
+      targetRef: "n2",
+      candidates: [
+        baseCandidate({ ref: "n1", usageQuerySupport: null, usageFieldSupport: null }),
+        baseCandidate({ ref: "n2", usageQuerySupport: 0.9, usageFieldSupport: -0.9 }),
+        baseCandidate({ ref: "n3", usageQuerySupport: 0, usageFieldSupport: 0 }),
+        // A negative with real evidence, so the fit still has one fitted negative row.
+        baseCandidate({ ref: "n4", usageQuerySupport: 0.3, usageFieldSupport: -0.3 }),
+      ],
+      labels: [
+        { ref: "n1", polarity: "negative" },
+        { ref: "n2", polarity: "positive" },
+        { ref: "n3", polarity: "negative" },
+        { ref: "n4", polarity: "negative" },
+      ],
+    }],
+  };
+  const result = trainSearchInputHostBinder({ batches: rows.batches }, { objective: "absolute" });
+  const byRef = new Map(result.fit.excludedRows.map(row => [row.ref, row.reason]));
+  assert.equal(byRef.get("n1"), "insufficient-observation",
+    "an abstained member means the cue is missing, so it must not be called measured zero");
+  assert.equal(byRef.get("n3"), "zero-usage-evidence",
+    "a member that really scored zero, with no marker bits, is measured zero evidence");
 });
