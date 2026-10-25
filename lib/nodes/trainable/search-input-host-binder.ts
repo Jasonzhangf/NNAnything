@@ -121,9 +121,12 @@ export function searchInputHostFeatures(candidate: MeasuredSearchInputHostCandid
   features[29] = oneHot(candidate.markerHit);
   features[30] = oneHot(candidate.nonSearchMarker);
   features[textLenIndex] = 1;
-  // Continuous member supports. A null support means the member abstained, which
-  // is not evidence of absence, so it contributes 0 to the dot product; the
-  // exclusion rule below reads `usageEvidenceOf`, which keeps the null distinct.
+  // Continuous member supports. This vector holds numbers only, so a missing
+  // support cannot survive in it. Every caller that must not turn an abstention
+  // into a measured zero therefore checks the candidate first: the fit does that
+  // in `fitAbsoluteSupervision` before building a row (milestone recheck P1), and
+  // inference relies on the profile-aware guard that runs before scoring, so only
+  // an all-zero profile reaches this line with a null support.
   features[USAGE_SUPPORT_INDEX.query] = candidate.usageQuerySupport ?? 0;
   features[USAGE_SUPPORT_INDEX.field] = candidate.usageFieldSupport ?? 0;
   return Object.freeze(features);
@@ -420,13 +423,16 @@ export interface SearchInputHostChangedWeight {
 export interface SearchInputHostExcludedTrainingRow {
   readonly ref: string;
   /**
-   * `zero-usage-evidence` is a negative whose measured cue is genuinely all
-   * zero, so it can never meet a negative margin. `insufficient-observation` is
-   * a negative whose relation member abstained, so the cue is missing, not
-   * absent. The two are not the same fact and must stay distinguishable.
+   * `insufficient-observation` means the relation member produced no finite
+   * support, so the cue is missing rather than absent. Such a row cannot
+   * supervise this objective at all and never enters the fitted set, whatever its
+   * marker bits say (milestone recheck P1). `zero-usage-evidence` is a negative
+   * whose measured cue is genuinely all zero, so it can never meet a negative
+   * margin. The two are different facts and stay distinguishable.
    */
   readonly reason: "zero-usage-evidence" | "insufficient-observation";
-  readonly roleMatch: number;
+  /** The score when the row was scored; null when its cue was missing. */
+  readonly roleMatch: number | null;
 }
 
 export interface SearchInputHostTrainingFit {
@@ -601,6 +607,11 @@ interface AbsoluteRow {
   readonly evidence: readonly number[];
 }
 
+/** A support is measured only when it is a finite number; null/undefined is missing. */
+function isFiniteSupport(support: number | null | undefined): support is number {
+  return typeof support === "number" && Number.isFinite(support);
+}
+
 function usageEvidenceOf(candidate: MeasuredSearchInputHostCandidate): readonly number[] {
   const features = searchInputHostFeatures(candidate);
   return Object.freeze(USAGE_EVIDENCE_INDEX.map(index => features[index]!));
@@ -682,17 +693,28 @@ function fitAbsoluteSupervision(
         continue;
       }
       const candidate = measured.get(label.ref)!;
+      // A missing member support is missing evidence, not a measured zero
+      // (milestone recheck P1). Folding it into 0 would train the two support
+      // wires on an unknown value while inference refuses the very same input.
+      // The row carries no usable supervision for this objective, so it is
+      // reported as unassessed and kept out of the fitted set regardless of its
+      // marker bits.
+      if (!isFiniteSupport(candidate.usageQuerySupport) || !isFiniteSupport(candidate.usageFieldSupport)) {
+        excludedRows.push(Object.freeze({
+          ref: label.ref,
+          reason: "insufficient-observation",
+          roleMatch: null,
+        }));
+        continue;
+      }
       const evidence = usageEvidenceOf(candidate);
       const polarity = label.polarity === "positive" ? 1 : -1;
       if (polarity === -1 && evidence.every(value => value === 0)) {
-        // A member that abstained leaves the cue missing, not measured-absent.
-        // Folding the two together would turn an unknown into a zero, which the
-        // missing-measurement rule forbids, so the reason records which happened.
-        const memberAbstained = candidate.usageQuerySupport === null
-          || candidate.usageFieldSupport === null;
+        // Every wire is a measured zero, so this negative can never meet its
+        // margin. It is reported instead of being silently given one.
         excludedRows.push(Object.freeze({
           ref: label.ref,
-          reason: memberAbstained ? "insufficient-observation" : "zero-usage-evidence",
+          reason: "zero-usage-evidence",
           roleMatch: 0,
         }));
         continue;
