@@ -1,0 +1,17 @@
+{
+  "id": "search-input-host-binding-design",
+  "version": "0.1.0-design",
+  "inputs": [{"id": "binding_request", "schema": "Object"}],
+  "nodes": [
+    {"id": "生产观测与投影", "operator": "search-input-host.observe-project", "operator_version": "0.1.0-design", "inputs": ["binding_request"], "output": {"id": "projected_candidates", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "可选成员推理及显式结果", "operator": "search-input-host.member-infer", "operator_version": "0.1.0-design", "inputs": ["projected_candidates"], "output": {"id": "enriched_candidates", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "binder 判定", "operator": "search-input-host.binder", "operator_version": "0.1.0-design", "inputs": ["enriched_candidates"], "output": {"id": "binding_decision", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"},
+    {"id": "统一 report 出口", "operator": "search-input-host.report", "operator_version": "0.1.0-design", "inputs": ["binding_decision"], "output": {"id": "binding_report", "schema": "Object"}, "input_selector": {"include": [], "exclude": []}, "output_selector": {"include": [], "exclude": []}, "iterator": "Whole"}
+  ],
+  "edges": [
+    {"from": "生产观测与投影", "to": "可选成员推理及显式结果", "arc_id": "projected_candidates"},
+    {"from": "可选成员推理及显式结果", "to": "binder 判定", "arc_id": "enriched_candidates"},
+    {"from": "binder 判定", "to": "统一 report 出口", "arc_id": "binding_decision"}
+  ],
+  "outputs": ["binding_report"]
+}
