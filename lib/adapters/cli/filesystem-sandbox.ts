@@ -11,7 +11,13 @@ import {
   type DirectoryListObservation,
   type DirectoryListingResult,
 } from "./directory-listing.js";
-import { readFileRange, type FileReadIo } from "./file-content.js";
+import {
+  readFileLines,
+  readFileRange,
+  type FileReadIo,
+  type FileReadLinesOptions,
+  type FileReadLinesProcess,
+} from "./file-content.js";
 import {
   readEntrySnapshot,
   readInspectRef,
@@ -118,6 +124,15 @@ export type SemanticFileReadCall = Readonly<{
   }>;
 }>;
 
+export type SemanticFileReadLinesCall = Readonly<{
+  operation: "file.read.lines";
+  parameters: Readonly<{
+    ref: ObservedObjectRef;
+    anchor: "head" | "tail";
+    count: number;
+  }>;
+}>;
+
 export type SemanticCliCall =
   | SemanticCwdGetCall
   | SemanticCwdSetCall
@@ -126,7 +141,8 @@ export type SemanticCliCall =
   | SemanticPathRelativeCall
   | SemanticPathPartsCall
   | SemanticEntryInspectCall
-  | SemanticFileReadCall;
+  | SemanticFileReadCall
+  | SemanticFileReadLinesCall;
 
 export type CwdSetObservation = Readonly<{
   kind: "cwd.set";
@@ -196,6 +212,19 @@ export type FileReadObservation = Readonly<{
   identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
 }>;
 
+export type FileReadLinesObservation = Readonly<{
+  kind: "file.read.lines";
+  ref: ObservedObjectRef;
+  absolutePath: string;
+  anchor: "head" | "tail";
+  requestedCount: number;
+  bytes: string;
+  bytesRead: number;
+  logicalLines: number;
+  identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
+  process: FileReadLinesProcess;
+}>;
+
 export type SemanticCallReceipt = Readonly<{
   call: SemanticCliCall;
   status: "succeeded" | "failed";
@@ -214,13 +243,15 @@ export type SemanticCallReceipt = Readonly<{
           | PathRelativeObservation
           | PathPartsCallObservation
           | EntryInspectObservation
-          | FileReadObservation;
+          | FileReadObservation
+          | FileReadLinesObservation;
       }>
     | Readonly<{
         status: "failed";
         runId: string;
         executorInvoked: boolean;
         error: CliFailure;
+        process?: FileReadLinesProcess;
       }>;
 }>;
 
@@ -270,6 +301,7 @@ type SandboxState = {
   readonly observation?: CliSandboxObservation;
   readonly listingObserver?: DirectoryListingObserver;
   readonly fileReadIo?: FileReadIo;
+  readonly fileReadLinesOptions?: FileReadLinesOptions;
   readonly boundRefs: Map<string, ObservedObjectRef>;
   readonly issuedDirectoryRefs: Map<string, number>;
   active: boolean;
@@ -380,6 +412,45 @@ function readRecipe(value: unknown): SandboxRecipe {
     });
   });
   return Object.freeze({ scenarioId, entries: Object.freeze(entries), sessions: Object.freeze(sessions) });
+}
+
+function readFileReadLinesOptions(value: unknown): FileReadLinesOptions {
+  const options = expectRecord(value, "fileReadLinesOptions");
+  exactKeys(options, [
+    "timeoutMs",
+    "killGraceMs",
+    "maxStdoutBytes",
+    "maxStderrBytes",
+    ...(Object.hasOwn(options, "signal") ? ["signal"] : []),
+  ], "fileReadLinesOptions");
+  if (!Number.isSafeInteger(options.timeoutMs) || (options.timeoutMs as number) <= 0) {
+    throw new TypeError("fileReadLinesOptions timeoutMs must be a positive safe integer");
+  }
+  if (!Number.isSafeInteger(options.killGraceMs) || (options.killGraceMs as number) <= 0) {
+    throw new TypeError("fileReadLinesOptions killGraceMs must be a positive safe integer");
+  }
+  if (!Number.isSafeInteger(options.maxStdoutBytes) || (options.maxStdoutBytes as number) <= 0) {
+    throw new TypeError("fileReadLinesOptions maxStdoutBytes must be a positive safe integer");
+  }
+  if (!Number.isSafeInteger(options.maxStderrBytes) || (options.maxStderrBytes as number) < 0) {
+    throw new TypeError("fileReadLinesOptions maxStderrBytes must be a non-negative safe integer");
+  }
+  if (Object.hasOwn(options, "signal")) {
+    const signal = options.signal;
+    if (signal === null || typeof signal !== "object"
+      || typeof (signal as { aborted?: unknown }).aborted !== "boolean"
+      || typeof (signal as { addEventListener?: unknown }).addEventListener !== "function"
+      || typeof (signal as { removeEventListener?: unknown }).removeEventListener !== "function") {
+      throw new TypeError("fileReadLinesOptions signal must be an AbortSignal");
+    }
+  }
+  return Object.freeze({
+    timeoutMs: options.timeoutMs as number,
+    killGraceMs: options.killGraceMs as number,
+    maxStdoutBytes: options.maxStdoutBytes as number,
+    maxStderrBytes: options.maxStderrBytes as number,
+    ...(Object.hasOwn(options, "signal") ? { signal: options.signal as AbortSignal } : {}),
+  });
 }
 
 function assertRef(value: unknown, label: string): Record<string, unknown> {
@@ -507,7 +578,25 @@ export function readSemanticCliCall(value: unknown): SemanticCliCall {
       }),
     });
   }
-  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts, entry.inspect and file.read are supported");
+  if (call.operation === "file.read.lines") {
+    const parameters = expectRecord(call.parameters, "semantic CLI parameters");
+    exactKeys(parameters, ["ref", "anchor", "count"], "semantic CLI parameters");
+    if (parameters.anchor !== "head" && parameters.anchor !== "tail") {
+      throw new TypeError("file.read.lines anchor must be head or tail");
+    }
+    if (!Number.isSafeInteger(parameters.count) || (parameters.count as number) <= 0) {
+      throw new TypeError("file.read.lines count must be a positive safe integer");
+    }
+    return Object.freeze({
+      operation: "file.read.lines",
+      parameters: Object.freeze({
+        ref: readObservedObjectRef(parameters.ref),
+        anchor: parameters.anchor,
+        count: parameters.count as number,
+      }),
+    });
+  }
+  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts, entry.inspect, file.read and file.read.lines are supported");
 }
 
 function snapshot(state: SandboxState, ref: SessionRef): SessionSnapshot {
@@ -720,6 +809,7 @@ function failedReceipt(
   message: string,
   stage: CliFailure["stage"],
   executorInvoked: boolean,
+  process?: FileReadLinesProcess,
 ): SemanticCallReceipt {
   return Object.freeze({
     call,
@@ -731,6 +821,7 @@ function failedReceipt(
       runId,
       executorInvoked,
       error: { operation: call.operation, stage, code, message },
+      ...(process === undefined ? {} : { process }),
     }),
   });
 }
@@ -1055,6 +1146,70 @@ async function executeFileRead(state: SandboxState, call: SemanticFileReadCall, 
   });
 }
 
+async function executeFileReadLines(state: SandboxState, call: SemanticFileReadLinesCall, before: SessionSnapshot): Promise<SemanticCallReceipt> {
+  const runId = randomUUID();
+  const ref = call.parameters.ref;
+  if (!sameSession(state, before, ref)) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "File reference must belong to the selected session and scenario", "validate", false);
+  }
+  const missing = (["filesystem.read", "process.exec"] as const)
+    .filter(effect => !before.grantedEffects.includes(effect));
+  if (missing.length) {
+    return failedReceipt(call, before, state, runId, "EFFECT_DENIED", `Missing CLI effect grant: ${missing.join(", ")}`, "authorize", false);
+  }
+  if (ref.kind !== "cli.file" || ref.type !== "regular") {
+    return failedReceipt(call, before, state, runId, "NOT_REGULAR_FILE", "file.read.lines requires a cli.file reference to a regular file", "authorize", false);
+  }
+  if (state.fileReadLinesOptions === undefined) {
+    return failedReceipt(call, before, state, runId, "CONFIG_MISSING", "file.read.lines requires explicit fileReadLinesOptions", "validate", false);
+  }
+
+  let configuredPath: string;
+  let preflight: Awaited<ReturnType<typeof readEntrySnapshot>>;
+  try {
+    configuredPath = await physicalEntryCandidate(state, ref.absolutePath);
+    preflight = await readEntrySnapshot(configuredPath, false);
+    validateObservedRef(state, before, ref, preflight);
+  } catch (error) {
+    return failedReceipt(call, before, state, runId, failureCode(error), error instanceof Error ? error.message : String(error), "authorize", false);
+  }
+
+  const result = await readFileLines(
+    configuredPath,
+    call.parameters.anchor,
+    call.parameters.count,
+    state.fileReadLinesOptions,
+    ref.identity,
+    state.fileReadIo,
+  );
+  if (!result.ok) {
+    return failedReceipt(call, before, state, runId, result.error.code, result.error.message, result.error.stage, result.executorInvoked, result.process);
+  }
+
+  const observation: FileReadLinesObservation = Object.freeze({
+    kind: "file.read.lines",
+    ref,
+    absolutePath: configuredPath,
+    anchor: call.parameters.anchor,
+    requestedCount: call.parameters.count,
+    bytes: result.observation.bytes,
+    bytesRead: result.observation.bytesRead,
+    logicalLines: result.observation.logicalLines,
+    identity: Object.freeze({
+      dev: result.observation.identity.dev as OsInteger,
+      ino: result.observation.identity.ino as OsInteger,
+    }),
+    process: result.process,
+  });
+  return Object.freeze({
+    call,
+    status: "succeeded",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+  });
+}
+
 export async function executeSemanticCliCall(
   sandbox: CliFilesystemSandbox,
   value: unknown,
@@ -1114,6 +1269,7 @@ export async function createCliFilesystemSandbox(options: {
   readonly observation?: CliSandboxObservation;
   readonly listingObserver?: DirectoryListingObserver;
   readonly fileReadIo?: FileReadIo;
+  readonly fileReadLinesOptions?: FileReadLinesOptions;
 }): Promise<CliFilesystemSandbox> {
   const input = expectRecord(options, "sandbox options");
   const allowed = [
@@ -1123,6 +1279,7 @@ export async function createCliFilesystemSandbox(options: {
     ...(Object.hasOwn(input, "observation") ? ["observation"] : []),
     ...(Object.hasOwn(input, "listingObserver") ? ["listingObserver"] : []),
     ...(Object.hasOwn(input, "fileReadIo") ? ["fileReadIo"] : []),
+    ...(Object.hasOwn(input, "fileReadLinesOptions") ? ["fileReadLinesOptions"] : []),
   ];
   exactKeys(input, allowed, "sandbox options");
   if (Object.hasOwn(input, "observation") && typeof input.observation !== "function") throw new TypeError("sandbox observation must be a function");
@@ -1133,6 +1290,9 @@ export async function createCliFilesystemSandbox(options: {
       throw new TypeError("sandbox fileReadIo must provide lstat and open functions");
     }
   }
+  const fileReadLinesOptions = Object.hasOwn(input, "fileReadLinesOptions")
+    ? readFileReadLinesOptions(input.fileReadLinesOptions)
+    : undefined;
   const rootValue = nonEmpty(input.root, "sandbox root");
   if (!isAbsolute(rootValue)) throw new TypeError("sandbox root must be absolute");
   ownerGrants(input.ownerGrantedEffects);
@@ -1160,6 +1320,7 @@ export async function createCliFilesystemSandbox(options: {
     ...(input.observation === undefined ? {} : { observation: input.observation as CliSandboxObservation }),
     ...(input.listingObserver === undefined ? {} : { listingObserver: input.listingObserver as DirectoryListingObserver }),
     ...(input.fileReadIo === undefined ? {} : { fileReadIo: input.fileReadIo as FileReadIo }),
+    ...(fileReadLinesOptions === undefined ? {} : { fileReadLinesOptions }),
     active: true,
   };
   try {
@@ -1262,6 +1423,7 @@ export async function createCliFilesystemSandbox(options: {
       if (call.operation === "path.relative") return executePathRelative(state, call, before);
       if (call.operation === "path.parts") return executePathParts(state, call, before);
       if (call.operation === "file.read") return executeFileRead(state, call, before);
+      if (call.operation === "file.read.lines") return executeFileReadLines(state, call, before);
       return executeEntryInspect(state, call, before);
     },
     async cleanup() {
