@@ -54,6 +54,6 @@ A的5列为goal.head、goal.tail、E三态one-hot，输出head/tail/RETURN。单
 
 ## 6. 工程及后续准入
 
-正式Handwired后端与独立torch诊断的初始化、损失缩放、优化器及停止合同有差异。本页不把独立拟合冒充正式后端通过。加速/保存工程三项修复已父级接收，独立复核与集成按原任务处理；被终止的Astra增量分析没有最终审查结论。
+正式Handwired后端与独立torch诊断的初始化、损失缩放、优化器及停止合同有差异。本页不把独立拟合冒充正式后端通过。2026-10-26加速/保存工程三项修复经独立定点复核通过，Jenny报告已集成并推送main 1bcd33b；回执为RUN/compute-backend-work/independent-recheck/report.md，组合树两套件37/37、对抗复核7/7。这只关闭工程finding，E数值等价与正式模型能力仍未由此通过。被终止的Astra增量分析没有最终审查结论。
 
 当前可以继续有限数据与下一真实组合设计，不能启动任意Shell规模化或自动采用。下一切片见[搜索后读取的学习设计](cli-search-read-learning.md)。正式迁移必须显式保持输入顺序、标签和权重，单独验证前向/回载/行为；不偷偷从零重训。后训练继续旧TRAIN重放、新监督和独立评价隔离，按model-evolution既有标准决定保留或拒绝候选。
