@@ -26,7 +26,7 @@
 
 ## 分工与现有基础
 
-Alice（designer）：总路线、疑难分析和设计报告，核对语义/可辨性/评价，不能自称master。Jenny（项目master）：跨peer范围、共享owner依赖、冲突与集成协调。Carol：CLI域目标编排。Bob：浏览器域目标编排。此次用户授权指导两域继续推进；同一文件/任务域仍只有一个活动owner。每个peer自行规划、派GCM执行与观察、独立Review、main交付和资源收口。
+Alice（designer/详细设计owner）：目标拆解、逐条件语义、对象与证据关联、详细I/O、算法与步骤、具体反例和验收、失败裁决；发现未定义分支时保留证据交Alice裁决，worker只停该分支。Jenny（项目master）：派发、进度与集成协调；跨peer范围、共享owner依赖与冲突协调，不代Alice做技术裁决。Carol：CLI域目标编排。Bob：浏览器域目标编排。worker只按Alice已落盘的明确文档执行，不自行补语义、不改gold/门限/预算/目标函数、不归因根因。独立Reviewer负责交付审查。同一文件/任务域仍只有一个活动owner；每个peer自行编排已定方案的执行、派GCM执行与观察、独立Review、main交付和资源收口。
 
 CLI已有路径/属性命令、受信精确查找、只读单/多来源根组合，排序接口可替换但未训练；浏览器已有基础分类、普通text输入、显式绑定搜索与展开域反馈。已知B1、F1独立评价与搜索学习恢复缺口不清零。候选仍uncalibrated/not_applied。
 

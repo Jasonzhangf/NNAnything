@@ -253,6 +253,8 @@ E必须在有界合法路径中影响推进或下一观察。独立精确验收�
 
 ### 10.7 最小多选方法实验：读取前段/后段
 
+状态（2026-10-25 清理）：本节是历史底层范围API实验，已停止作为原生命令训练路线。其错偏移/错长度与强制SIZE_UNBOUND的恢复要求退出当前命令训练准入，不得再作为新命令训练的必过项或默认调度。原结果、失败与参数迁移记录保留，不因退役改写。
+
 用户授权先完成最小多选方法验证，再完善。独立Plan位于本轮外置run的multichoice-plan.md；本节记录其执行合同。本实验不替代原M1/M2，不打开原独立验证，不包含浏览器训练。
 
 固定根Goal为文件ref、anchor=head/tail、正整数N，读取前N或后N字节；文件短于N时取全部。两个候选始终同时枚举：direct_read仅含range条件；observe_size_then_read含size→range。head或已知size的tail可直接读取；未知size的tail须由真实inspect取得size，再固定计算offset=max(0,size-N)。错选direct时不得偷偷stat、默认offset或替模型改选。多余但成功的inspect计效率损失，不冒充根失败。

@@ -64,6 +64,12 @@ node_modules
 
 ## 本地设计与训练Skill
 
+### 实验设计与执行分工
+
+所有实验的概要设计、详细设计和评价设计由 Alice 负责：目标与假设、真实操作及参数范围、语义真值、对象与证据关联、样本与分区、训练配方和预算、指标分母、验收与停止条件、失败分析和下一轮方案。worker 只按落盘设计执行实现、采集、训练和指定计算，报告原始事实；不得代拟实验、评价标准或自行扩展场景。遇到未定义事项交 Alice 裁决，只停受影响部分。领域 peer 可编排已定义的执行步骤，不接管实验设计。Jenny 负责派发、进度和集成；独立 Reviewer 审核交付，不替代 Alice 的设计责任。
+
+CLI 实验从真实命令的能力、参数和结果推导语义。正常命令已保证的内部行为不重复训练，不人为制造其内部错误来扩充负例。只覆盖当前任务中实际可能的决策错误和真实命令反馈；接口故障注入与工程测试单列，不计为语义训练覆盖。设计与执行的操作要求分别沿下列两个项目 Skill。
+
 每个语义及训练设计均按本地设计 Skill 的标准流程治理：Goal/satisfactionThreshold/State/Action 四元素闭合、SESE、最小必要性。基础合同唯一源为 docs/design.md 1.1；流程拓扑唯一源为 workflows/project-design.graph.json，由 DAGpipe validate/inspect 管理。缺口先收束为未就绪，不以静态通过替代真实训练和行为验收。复用未变有效设计，不增加平行台账或冻结快照。
 
 新增能力或修改语义I/O、状态、harness边界、特征/数值连线、workflow或自动采用条件前，读取[本地设计Skill](.agents/skills/nnanything-design/SKILL.md)。它维护基础设计方法；实际架构与采用规则分别由docs/design.md、docs/model-evolution.md维护。已有合同内的普通拟合不为此重做设计。
