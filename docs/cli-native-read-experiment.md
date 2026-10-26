@@ -57,3 +57,45 @@ A的5列为goal.head、goal.tail、E三态one-hot，输出head/tail/RETURN。单
 正式Handwired后端与独立torch诊断的初始化、损失缩放、优化器及停止合同有差异。本页不把独立拟合冒充正式后端通过。2026-10-26加速/保存工程三项修复经独立定点复核通过，Jenny报告已集成并推送main 1bcd33b；回执为RUN/compute-backend-work/independent-recheck/report.md，组合树两套件37/37、对抗复核7/7。这只关闭工程finding，E数值等价与正式模型能力仍未由此通过。被终止的Astra增量分析没有最终审查结论。
 
 当前可以继续有限数据与下一真实组合设计，不能启动任意Shell规模化或自动采用。下一切片见[搜索后读取的学习设计](cli-search-read-learning.md)。正式迁移必须显式保持输入顺序、标签和权重，单独验证前向/回载/行为；不偷偷从零重训。后训练继续旧TRAIN重放、新监督和独立评价隔离，按model-evolution既有标准决定保留或拒绝候选。
+
+## 7. 正式接入：受信原生行读取
+
+2026-10-26 新增公开 sandbox 操作 `file.read.lines`。目标是正式多循环模型入口的第一增量，不训练、不替换权重、不修改递归核心。
+
+调用形状：
+
+```ts
+{
+  operation: "file.read.lines",
+  parameters: { ref: ObservedObjectRef, anchor: "head" | "tail", count: 正整数 }
+}
+```
+
+只接受当前 sandbox、当前 session revision 已签发的 `cli.file` regular 引用。缺失 `filesystem.read` 或 `process.exec` 任一效果在打开前拒绝。固定使用 `/usr/bin/head` 或 `/usr/bin/tail -n N`，通过已验证 fd 传入 stdin，不传文件路径 argv，不用用户 shell。
+
+`createCliFilesystemSandbox` 新增显式宿主选项 `fileReadLinesOptions`，不是语义参数。本轮回执使用 `timeoutMs=10000`、`killGraceMs=250`、`maxStdoutBytes=16777216`、`maxStderrBytes=1048576`，可选 `signal`。缺配置返回 `CONFIG_MISSING`，零打开、零启动。旧调用者不提供时不影响既有 `file.read`。
+
+成功观测：
+
+```text
+kind: "file.read.lines"
+ref, anchor, requestedCount, bytes(base64), bytesRead, logicalLines, identity, process
+```
+
+`logicalLines` 只按完整 stdout 的 LF 字节统计；非空且无末尾 LF 加 1。空文件和短文件都是正常成功。`requestedCount` 不等于输出行数。非零退出、启动失败、超时、取消、stdout/stderr 越界、流错误或 close 不完整都走失败臂，不返回部分成功。stderr 非空本身不失败。
+
+实现边界：
+
+- 共用 `file-content.ts` 的已验证打开函数，保留 `O_RDONLY | O_NOFOLLOW | O_NONBLOCK`、pre-open lstat、opened fstat 与 dev/ino 比对。
+- 行读取在 spawn 前把 opened dev/ino 与受信 ref identity 比对；预打开阶段身份不符零 spawn。
+- 子进程只由本 helper 的 lifecycle 管理，先 TERM，`killGraceMs` 后 KILL；句柄在 close 后释放。
+- 不取全文行数，不按 `fstat.size` 推断行数，不做通用 shell 执行器。
+
+验收证据：
+
+- 红测：`tests/cli-file-read-lines-sandbox.test.mjs` 新增前，公开入口报“仅支持 cwd.get … file.read”，保存于 `red.log`。
+- 新套件 17/17 通过，覆盖空/短/恰 N/长/无末尾 LF、二进制字节保真、缺效果、伪造/过期/非 regular/路径替代拒绝、abort、绑定后替换、preflight-to-open 换文件、打开后路径改名仍读原对象、spawn 失败/非零退出/signal/timeout/abort/stdout/stderr 越界及非空 stderr 成功。
+- 受影响 range 回归 34/34 通过，command/binding 套件 7/7 通过，1 项因缺少最终共享候选跳过，不是新增失败。
+- 构建：`NN_HANDWIRED_ROOT=/Volumes/extension/code/handwired npm run build` 通过。
+
+本轮未完成：正式模型组合、selector 选择新操作、训练与采用均未接入；旧 range API 与模型候选保持不变。完整四头或整体模型交付不能由本切片推断。

@@ -142,11 +142,21 @@ test('P1 open boundary: a regular file swapped to a FIFO cannot block and is ref
     const file = process.argv[2];
     const fifo = process.argv[3];
     let seenFlags = null;
+    let closes = 0;
+    let openedHandle = null;
     readFileRange(file, 0, 7, {
       lstat: (p, o) => fs.lstat(file, o),
-      open: (p, flags) => { seenFlags = flags; return fs.open(fifo, flags); },
+      open: async (p, flags) => {
+        seenFlags = flags;
+        openedHandle = await fs.open(fifo, flags);
+        return {
+          stat: (...args) => openedHandle.stat(...args),
+          read: (...args) => openedHandle.read(...args),
+          close: async () => { closes += 1; return openedHandle.close(); },
+        };
+      },
     }).then(r => {
-      process.stdout.write(JSON.stringify({ ok: r.ok, code: r.ok ? null : r.error.code, seenFlags }));
+      process.stdout.write(JSON.stringify({ ok: r.ok, code: r.ok ? null : r.error.code, seenFlags, closes, fdAfter: openedHandle.fd }));
       process.exit(0);
     }).catch(e => {
       process.stdout.write(JSON.stringify({ thrown: String(e) }));
@@ -164,6 +174,8 @@ test('P1 open boundary: a regular file swapped to a FIFO cannot block and is ref
   assert.equal(result.ok, false);
   assert.equal(result.code, 'READ_TYPE_DENIED');
   assert.notEqual(result.seenFlags & constants.O_NONBLOCK, 0, 'production must pass O_NONBLOCK to the real open');
+  assert.equal(result.closes, 1, 'the non-regular handle must be closed exactly once');
+  assert.equal(result.fdAfter, -1, 'the real descriptor must be closed, not only counted');
 });
 
 test('P1 flag sensitivity: FIFO open blocks without O_NONBLOCK, so the flag is load-bearing', async t => {
@@ -182,19 +194,60 @@ test('P1 flag sensitivity: FIFO open blocks without O_NONBLOCK, so the flag is l
   );
 });
 
-test('P1 open boundary: a regular file swapped to another regular file is refused', async t => {
+test('P1 open boundary: a regular file swapped to another regular file is refused and closes the opened handle', async t => {
   const { root } = await makeScene(t);
   const file = join(root, 'target.bin');
   await writeFile(file, 'payload');
   const other = join(root, 'other.bin');
   await writeFile(other, 'different');
 
+  let closes = 0;
+  let openedHandle = null;
   const swapped = await readFileRange(file, 0, 9, {
     lstat: (path, options) => lstat(file, options),
-    open: (path, flags) => open(other, flags),
+    open: async (path, flags) => {
+      openedHandle = await open(other, flags);
+      return {
+        stat: (...args) => openedHandle.stat(...args),
+        read: (...args) => openedHandle.read(...args),
+        close: async () => {
+          closes += 1;
+          return openedHandle.close();
+        },
+      };
+    },
   });
   assert.equal(swapped.ok, false);
   assert.equal(swapped.error.code, 'READ_TARGET_CHANGED');
+  assert.equal(closes, 1, 'the rejected handle must be closed exactly once');
+  assert.equal(openedHandle.fd, -1, 'the real descriptor must be closed, not only counted');
+});
+
+test('P1 open close: a successful read transfers the handle and closes it exactly once', async t => {
+  const { root } = await makeScene(t);
+  const file = join(root, 'target.bin');
+  await writeFile(file, 'payload');
+
+  let closes = 0;
+  let openedHandle = null;
+  const result = await readFileRange(file, 0, 7, {
+    lstat: (path, options) => lstat(file, options),
+    open: async (path, flags) => {
+      openedHandle = await open(path, flags);
+      return {
+        stat: (...args) => openedHandle.stat(...args),
+        read: (...args) => openedHandle.read(...args),
+        close: async () => {
+          closes += 1;
+          return openedHandle.close();
+        },
+      };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(Buffer.from(result.observation.bytes, 'base64'), Buffer.from('payload'));
+  assert.equal(closes, 1, 'the caller owns the transferred handle and closes it once');
+  assert.equal(openedHandle.fd, -1, 'the real descriptor is closed exactly once');
 });
 
 test('P1 open boundary: the real open refuses a final symlink end-to-end', async t => {
