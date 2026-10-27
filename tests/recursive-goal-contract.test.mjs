@@ -20,6 +20,10 @@ import {
   singleChildDerivation,
   successfulAtomicReceipt,
 } from "./recursive-goal-fixtures.mjs";
+import {
+  createBoundedFiniteResources,
+  runBoundedFiniteStep,
+} from "../playground/recursive-goal/bounded-finite.mjs";
 
 let publicApi;
 let workflowApi;
@@ -78,6 +82,14 @@ function depsFor(fixture, overrides = {}) {
     grantedEffects: new Set(),
     ...overrides,
   };
+}
+
+function legacyContinuationWithoutCompositeCycleBaseline(continuation) {
+  const legacy = structuredClone(continuation);
+  for (const control of legacy.frameControls) {
+    delete control.compositeCycleBaseline;
+  }
+  return legacy;
 }
 
 test("public recursive-goal subpath exposes runRecursiveGoal", async () => {
@@ -906,4 +918,122 @@ test("R7 a repeated condition id stays a duplicate_condition contract error", as
   assert.notEqual(duplicate, undefined);
   assert.equal(report.control.outcome, "error");
   assertResponseReferencesClosed(response);
+});
+
+test("legacy v1 continuation missing compositeCycleBaseline resumes without budget reset or replay", async () => {
+  const api = await loadPublicApi();
+  const firstHarness = createFiniteBudgetHarness({
+    rootTarget: 50,
+    derivationCount: 50,
+    limits: { maxTransitions: 9, maxDepth: 8, maxDerivedGoals: 16 },
+  });
+  const first = await api.runRecursiveGoal(firstHarness.request, firstHarness.deps);
+  const firstReport = responseReport(first);
+  assert.equal(firstReport.control.outcome, "exceeded");
+  const legacy = legacyContinuationWithoutCompositeCycleBaseline(
+    firstReport.continuation,
+  );
+  assert.equal(legacy.schema, "nnanything.recursive-goal.continuation.v1");
+  assert.equal(
+    legacy.frameControls.every(
+      control => !Object.hasOwn(control, "compositeCycleBaseline"),
+    ),
+    true,
+  );
+
+  const resumeHarness = createFiniteBudgetHarness({
+    rootTarget: 50,
+    derivationCount: 50,
+    limits: { maxTransitions: 0, maxDepth: 8, maxDerivedGoals: 16 },
+  });
+  const resumed = await api.runRecursiveGoal(
+    {
+      ...resumeHarness.request,
+      continuation: legacy,
+      limits: { maxTransitions: 0, maxDepth: 8, maxDerivedGoals: 16 },
+    },
+    resumeHarness.deps,
+  );
+  assert.equal(
+    resumed.kind,
+    "run_result",
+    `legacy v1 continuation must resume; got ${resumed.kind}: ${resumed.error?.diagnosticMessage ?? ""}`,
+  );
+  const resumedReport = responseReport(resumed);
+  const rootFrameId = resumedReport.continuation.acceptedRoot.rootFrameId;
+  const rootControl = resumedReport.continuation.frameControls.find(
+    control => control.frameId === rootFrameId,
+  );
+  assert.equal(rootControl.compositeCycleBaseline, null);
+  assert.equal(
+    resumedReport.budgetUsed.transitionsUsed,
+    firstReport.budgetUsed.transitionsUsed,
+    "cumulative transition budget must not reset",
+  );
+  assert.deepEqual(
+    resumedReport.atomicResults.map(result => result.dispatchId),
+    firstReport.atomicResults.map(result => result.dispatchId),
+    "completed atomic actions must not replay",
+  );
+  assert.equal(resumeHarness.fixture.calls.executeAtomic, 0);
+  assertResponseReferencesClosed(resumed);
+});
+
+test("legacy v2 planning continuation missing compositeCycleBaseline resumes without budget reset or replay", async () => {
+  const api = await loadPublicApi();
+  const resources = createBoundedFiniteResources({
+    scenario: "branch-switch",
+    actualBranch: "reject",
+    expectedBranch: "reject",
+  });
+  const firstStep = await runBoundedFiniteStep(resources);
+  const firstReport = responseReport(firstStep.response);
+  assert.equal(firstReport.control.outcome, "yielded");
+  const legacy = legacyContinuationWithoutCompositeCycleBaseline(
+    firstReport.continuation,
+  );
+  assert.equal(legacy.schema, "nnanything.recursive-goal.continuation.v2");
+  assert.equal(
+    legacy.frameControls.every(
+      control => !Object.hasOwn(control, "compositeCycleBaseline"),
+    ),
+    true,
+  );
+
+  const resumeResources = createBoundedFiniteResources({
+    scenario: "branch-switch",
+    actualBranch: "reject",
+    expectedBranch: "reject",
+  });
+  const resumed = await api.runRecursiveGoal(
+    {
+      ...resumeResources.request,
+      continuation: legacy,
+      limits: { maxTransitions: 0, maxDepth: 6, maxDerivedGoals: 24 },
+    },
+    resumeResources.dependencies,
+  );
+  assert.equal(
+    resumed.kind,
+    "run_result",
+    `legacy v2 continuation must resume; got ${resumed.kind}: ${resumed.error?.diagnosticMessage ?? ""}`,
+  );
+  const resumedReport = responseReport(resumed);
+  const rootFrameId = resumedReport.continuation.acceptedRoot.rootFrameId;
+  const rootControl = resumedReport.continuation.frameControls.find(
+    control => control.frameId === rootFrameId,
+  );
+  assert.equal(rootControl.compositeCycleBaseline, null);
+  assert.equal(
+    resumedReport.budgetUsed.transitionsUsed,
+    firstReport.budgetUsed.transitionsUsed,
+    "cumulative transition budget must not reset",
+  );
+  assert.deepEqual(
+    resumedReport.atomicResults.map(result => result.dispatchId),
+    firstReport.atomicResults.map(result => result.dispatchId),
+    "completed atomic actions must not replay",
+  );
+  assert.equal(resumeResources.memory.atomicExecutions.length, 0);
+  assertResponseReferencesClosed(resumed);
 });

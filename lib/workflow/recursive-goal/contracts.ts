@@ -2622,11 +2622,10 @@ function readFrameControl<G, B>(value: unknown): RecursiveGoalFrameControl<G, B>
       "expansion",
       "evaluation",
       "progressBaseline",
-      "compositeCycleBaseline",
       "pendingVerification",
       "obligationSnapshot",
     ],
-    [],
+    ["compositeCycleBaseline"],
     "frameControl",
   );
   if (
@@ -2656,6 +2655,7 @@ function readFrameControl<G, B>(value: unknown): RecursiveGoalFrameControl<G, B>
         ? null
         : readProgressBaseline(value.progressBaseline, satisfactionThreshold),
     compositeCycleBaseline:
+      value.compositeCycleBaseline === undefined ||
       value.compositeCycleBaseline === null
         ? null
         : readProgressBaseline(
