@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-26 G3 shared-E 三段结构 milestone 已集成 main
+
+整体 milestone Review 首轮 FAIL：标准训练器 `/Volumes/Intel/playground/nnanything/standard-training-runner`（branch `codex/standard-training-runner`，base `085e592`）三处 P1。(1) 通用 `head-rows-jsonl` 可让 Head E 绕过回执已知性、固定规则/gold 与固定路由门禁，伪造 `family=read`、`receiptFact={known:true,present:true}`；(2) `DATA_INVALID` 时 evaluate/validate-data 无条件删除既有 `candidatePackagePath`；(3) 已完成更新后后端失败被报告为零步且累计计时未更新。Review 原件与证据在 `.agent-collab/review/l2-standard-hybrid-milestone-review-1/`。
+
+Emma 修复三项后交原 reviewer 两次定点复核：review-2 FAIL 一项验证闭环 P1（测试导入 `dist/`，复核时 `dist` 落后源码且 Scenario 9 用例仍在变动，build/6-6 证据不覆盖最终源码）；待工作树静止（40s 与启动前 20s 均无变化）后按当前源码重建 `dist`，重新运行 build 与 affected tests，review-3 exit 0、schema-valid、findings=[]，独立确认三项修复与源码/dist/测试闭环。复核原件归档 `/Volumes/Intel/playground/nnanything-runs/l2-layer-corpus-20261025/standard-runner-targeted-recheck/`。
+
+集成：主树先提交五份纯文档 `c915ccc`（`docs/design.md` 三段结构与推理前置边界、`docs/semantic-evaluation.md` 混合单元审计、两份项目 Skill 入口、`docs/domain-expert-pretraining-design.md` 状态更新），再在独占 worktree 合入这些文档并新增四个标准训练器文件，runner 提交 `141b2dd`。合并态 `npm run build` exit 0、`node --test tests/l2-standard-runner.test.mjs` 6/6（含 Scenario 9）。`main` fast-forward 至 `141b2dd`、推送 `origin/main`（`085e592..141b2dd`），annotated tag `gcm-g3-standard-milestone-20261026` 已推送；远端 main 与 tag 均核对一致。任务 `l2-standard-runner-p1-fixes` 已 accepted/integrated/closed，自有 worktree 与分支已移除；`cg1-tool-adaptation`、`l2-four-head-mvp` 为他工作树，保留未动。
+
+边界：本轮标准训练器修复只覆盖上述三项 P1；未重跑 independent96，未新拟合或优化，未采用候选，权重仍 `uncalibrated/not_applied`，未扩大任意 CLI/浏览器或产品集成结论。下一阶段为双绑定文件搜索到上下文设计，当前只有原语探针，尚无新采样或训练配方，不自动开训。
+
 ## 2026-10-24 master 收口与协作调度（Astra 停用、GCM 复核、B-A1 切片收口、L2 文档提交）
 
 本批通知已消费，收件箱归零。CEO 全局通知 23:50 PDT 起停用 Astra，已向 Carol/Bob 转发并回复 CEO（durable `m1792907291354-1748`）；Alice 回报仅 1 个 Astra 实现 worker 预计本轮结束、无跨 23:50 worker，Bob/David 回报无 Astra。后续执行 worker 一律 `codex exec --profile gcm`（gpt-5.5），Planner/Reviewer 用 gpt-6.1-sol medium、不用 fast。
