@@ -17,6 +17,14 @@ CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-
 
 实验设计归属沿[AGENTS.md「实验设计与执行分工」](../../../AGENTS.md#实验设计与执行分工)。执行者先取得Alice已落盘的概要/详细设计，按其中的命令、参数、样本、标签、分区、配方、预算和评价公式执行；已有合同内普通拟合无需重做设计。缺少决定当前步骤的设计项时，提交具体输入、缺口和事实给Alice，只停该步骤，不自行补标准或扩实验。可以报告错误分布和观察，不把自拟根因当结论。真实shell正常行为不被改造成异常训练样本，工程注入例不充当语义泛化证据。
 
+### 标准训练入口与数据门
+
+1. trainer、evaluator、数据校验和样本converter由Alice或获授权研究员准备并测试，Alice验收后才能成为标准入口。GCM及一般执行worker只运行已验收的固定命令、config和输出目录；不得在拟合期间改训练器、目标函数、优化器、converter、评价器、标签或预算，也不得因执行报错自行修复程序。旧`fit.py`及其结果只保留为历史证据，不自动提升为标准。
+2. 标准训练使用同一runner的`validate-data`、`train`、`resume`、`evaluate`显式命令和现有加速后端/checkpoint能力，不按head复制训练程序。typed config只选择已批准head、phase、输入包、TRAIN数据、固定预算和输出路径；预训练与后训练分记，后训练显式继承已验收权重。拟合进程不接收DEV/VERIFY路径，评价在独立进程运行，候选不自动采用。
+3. 数据门必须先于optimizer创建。校验来源与分区、feature schema/order、缺测、语义gold与回执关联、标注一致性、hybrid固定/学习路由、重复/冲突投影和有效loss分母；只允许设计声明的格式适配，不自动丢弃、填充或改写标签。失败写`DATA_INVALID`、 offending source/row/reason，以非零退出，优化步数为0且不生成候选；失败数据不得进入train或resume。
+4. 每次每个head的运行（含失败、中断、resume）自动记录机器可读和人工可读的run/head/phase、起止时间、monotonic wall/dataValidation/load/optimization/checkpointIO/evaluation耗时、optimizerSteps、processedRows、吞吐分母、stopReason/error及backend/device/dtype/threads。validation-only或未训练须记`optimizationSeconds=0`和`not_trained`；历史缺失记null/unrecorded，不做估算。检查点保存模型、optimizer、RNG、累计步数/时间和early-stop状态；resume报告累计值与本次值，不重置或重复计时。
+5. 训练执行错误或数据门错误原样回传Alice/研究员。同一数据修复问题连续失败两次后停止盲派，转研究员定位和修正；只有同一数据门的精确检查通过才重置计数。独立无关任务可继续。标准环境未通过Alice的工程验收前，不宣称完成，也不启动新的实际训练或批量样本迁移。
+
 ### 阶段和数据分开
 
 1. 预训练用于建立基础语义，单独记录样本、起点、预算、结果及基础验收。后训练须显式加载已有合格权重，只读复用原资产，结合旧train重放与新增使用监督；epoch 0核对原模型前向。候选另存，不覆盖原权重。新增参数仅按批准的名称迁移与初始化规则处理。补预训练与零起点诊断须单独标明，不能记作持续后训练成果；缺少基础资产先报告缺口，不默默重训再声称继承。
