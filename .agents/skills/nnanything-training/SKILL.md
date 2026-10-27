@@ -19,6 +19,8 @@ CLI共享命令训练沿[文件系统训练合同](../../../docs/cli-filesystem-
 
 ### 标准训练入口与数据门
 
+混合头训练先读取[三段结构与推理前置边界](../../../docs/design.md#决策单元的三段结构与推理前置边界)：确定性因素前置处理、MLP处理、确定性结果后置处理共同构成各头单元。仅优化声明的MLP学习参数；固定层声明和参数保存回载且保持不变。损失覆盖按该头已批准合同声明；完全由固定分支决定的结果不冒充MLP训练收益，相关样本仍保留在行为评价。报告分开原始MLP、固定分支和最终输出，按[混合单元审计](../../../docs/semantic-evaluation.md#混合决策单元与推理前置审计)保留分母与错误。通用推理控制和CLI命令预处理属于模型外框架，不参与权重拟合；本条不授权结构修改或把E头证据扩大到其他头。
+
 1. trainer、evaluator、数据校验和样本converter由Alice或获授权研究员准备并测试，Alice验收后才能成为标准入口。GCM及一般执行worker只运行已验收的固定命令、config和输出目录；不得在拟合期间改训练器、目标函数、优化器、converter、评价器、标签或预算，也不得因执行报错自行修复程序。旧`fit.py`及其结果只保留为历史证据，不自动提升为标准。
 2. 标准训练使用同一runner的`validate-data`、`train`、`resume`、`evaluate`显式命令和现有加速后端/checkpoint能力，不按head复制训练程序。typed config只选择已批准head、phase、输入包、TRAIN数据、固定预算和输出路径；预训练与后训练分记，后训练显式继承已验收权重。拟合进程不接收DEV/VERIFY路径，评价在独立进程运行，候选不自动采用。
 3. 数据门必须先于optimizer创建。校验来源与分区、feature schema/order、缺测、语义gold与回执关联、标注一致性、hybrid固定/学习路由、重复/冲突投影和有效loss分母；只允许设计声明的格式适配，不自动丢弃、填充或改写标签。失败写`DATA_INVALID`、 offending source/row/reason，以非零退出，优化步数为0且不生成候选；失败数据不得进入train或resume。
