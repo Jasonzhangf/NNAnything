@@ -490,7 +490,7 @@ export function createCliAutonomousAdapter(input: CliAutonomousAdapterInput): Cl
         state: readState(request.state),
         rootEvaluatorId: request.rootEvaluatorId,
         rootSelectorId: request.rootSelectorId,
-        limits: request.limits,
+        ...(request.limits === undefined ? {} : { limits: request.limits }),
         continuation: null,
       });
     },

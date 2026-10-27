@@ -29,6 +29,7 @@ import {
   readEvaluationReceipt,
   readGoalGraphPlan,
   readRecursiveGoalInitialObservation,
+  readRecursiveGoalLimits,
   readRecursiveGoalResumableContinuation,
   readRecursiveGoalRequestEnvelope,
   readSelectorBinding,
@@ -62,12 +63,15 @@ import {
   type RecursiveGoalContinuation,
   type RecursiveGoalControl,
   type RecursiveGoalControlOutcome,
+  type RecursiveGoalBudgetReport,
+  type RecursiveGoalBudgetDimension,
   type RecursiveGoalDependencies,
   type RecursiveGoalErrorCode,
   type RecursiveGoalErrorDiagnostic,
   type RecursiveGoalErrorStage,
   type RecursiveGoalExecution,
   type RecursiveGoalFact,
+  type ProgressReceipt,
   type RecursiveGoalFrameControl,
   type RecursiveGoalFrameEvaluation,
   type RecursiveGoalFrameStackEntry,
@@ -210,6 +214,8 @@ interface InternalFrame<G, B, C> {
   safeRetrySkill: boolean;
   lastAttemptEffectKnowledge: EffectKnowledge | null;
   lastAtomicOutcome: RecursiveGoalAtomicOutcome | null;
+  /** Previous complete composite cycle state for `expansion: "more"` no-progress detection. */
+  compositeCycleBaseline: RecursiveGoalProgressBaseline | null;
 }
 
 interface AtomicOutcomeProjection<F, R> {
@@ -805,6 +811,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluation: null,
       lastEvaluationAtTransition: null,
       progressBaseline: null,
+      compositeCycleBaseline: null,
       pendingVerification: null,
       obligationSnapshot: null,
       pendingProgressCheck: false,
@@ -1382,8 +1389,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return true;
     }
     if (
+      this.retryControl!.policy.maxAtomicAttempts !== undefined &&
       this.retryControl!.atomicAttemptsUsed >=
-      this.retryControl!.policy.maxAtomicAttempts
+        this.retryControl!.policy.maxAtomicAttempts
     ) {
       this.stopAtomicAttemptBudget(frame);
       return true;
@@ -1436,8 +1444,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         return;
       }
       if (
+        this.retryControl!.policy.maxAtomicAttempts !== undefined &&
         this.retryControl!.atomicAttemptsUsed >=
-        this.retryControl!.policy.maxAtomicAttempts
+          this.retryControl!.policy.maxAtomicAttempts
       ) {
         this.stopAtomicAttemptBudget(frame);
         return;
@@ -1453,8 +1462,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         lockedSkillId: frameRetry.lockedSkillId,
         exhaustedSkillIds,
         remainingAtomicAttempts:
-          this.retryControl!.policy.maxAtomicAttempts -
-          this.retryControl!.atomicAttemptsUsed,
+          this.retryControl!.policy.maxAtomicAttempts === undefined
+            ? null
+            : this.retryControl!.policy.maxAtomicAttempts -
+              this.retryControl!.atomicAttemptsUsed,
       });
     }
     if (candidates.length === 0) {
@@ -1799,6 +1810,14 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
     if (!this.beginTransition(frame, "derivation")) return;
 
+    // Composite `expansion: "more"` cycles: before issuing another batch, judge
+    // whether the previous complete cycle changed business facts. This closes
+    // the gap where a frame re-derives the same obligation under new ids and
+    // counters forever once caller limits are optional. Atomic no-progress and
+    // the ancestor cycle detector stay untouched.
+    this.advanceCompositeCycleProgress(frame);
+    if (this.finished) return;
+
     let receipt: ReturnType<typeof readDerivationReceipt<G, B, C>>;
     try {
       const raw = await this.deps.adapter.derive({
@@ -1928,19 +1947,40 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     const required = receipt.conditions.filter(
       condition => condition.activation === "required",
     );
-    const remainingDerived =
-      this.validated.limits.maxDerivedGoals - this.derivedGoalsUsed;
-    const depthExceeded = required.some(
-      _condition => frame.depth + 1 > this.validated.limits.maxDepth,
-    );
-    if (required.length > remainingDerived || depthExceeded) {
+    const maxDerivedGoals = this.validated.limits?.maxDerivedGoals;
+    const maxDepth = this.validated.limits?.maxDepth;
+    const derivedLimited =
+      maxDerivedGoals !== undefined &&
+      required.length > maxDerivedGoals - this.derivedGoalsUsed;
+    const depthExceeded =
+      maxDepth !== undefined &&
+      required.some(_condition => frame.depth + 1 > maxDepth);
+    if (derivedLimited || depthExceeded) {
+      const dimensions: RecursiveGoalBudgetDimension[] = [];
+      const limits: number[] = [];
+      const used: number[] = [];
+      const attempted: number[] = [];
+      if (derivedLimited) {
+        dimensions.push("maxDerivedGoals");
+        limits.push(maxDerivedGoals!);
+        used.push(this.derivedGoalsUsed);
+        attempted.push(required.length);
+      }
+      if (depthExceeded) {
+        dimensions.push("maxDepth");
+        limits.push(maxDepth!);
+        used.push(frame.depth);
+        attempted.push(frame.depth + 1);
+      }
       this.stopWithNewDiagnostic(
         frame,
         {
           code: "budget_exceeded",
           stage: "derivation",
           message:
-            depthExceeded
+            derivedLimited && depthExceeded
+              ? "the derived condition batch exceeds maxDerivedGoals and maxDepth"
+              : depthExceeded
               ? "the derived condition exceeds maxDepth"
               : "the derived condition batch exceeds the shared maxDerivedGoals budget",
           origin: { skillId: skill.id },
@@ -1948,6 +1988,19 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         },
         "exceeded",
         "budget",
+        dimensions.length === 1
+          ? {
+              dimension: dimensions[0]!,
+              limit: limits[0]!,
+              used: used[0]!,
+              attempted: attempted[0]!,
+            }
+          : {
+              dimension: [...dimensions],
+              limit: [...limits],
+              used: [...used],
+              attempted: [...attempted],
+            },
       );
     }
   }
@@ -2075,6 +2128,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     const frameRetry = this.ensureRetryFrame(frame);
     if (
       this.retryControl !== null &&
+      this.retryControl!.policy.maxAtomicAttempts !== undefined &&
       this.retryControl!.atomicAttemptsUsed >=
         this.retryControl!.policy.maxAtomicAttempts
     ) {
@@ -2099,8 +2153,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
               .filter(strategy => strategy.exhausted)
               .map(strategy => strategy.skillId),
             remainingAtomicAttempts:
-              this.retryControl.policy.maxAtomicAttempts -
-              this.retryControl.atomicAttemptsUsed,
+              this.retryControl.policy.maxAtomicAttempts === undefined
+                ? null
+                : this.retryControl.policy.maxAtomicAttempts -
+                  this.retryControl.atomicAttemptsUsed,
           });
       }
       this.retryControl!.atomicAttemptsUsed += 1;
@@ -2717,6 +2773,77 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
   }
 
+  private advanceCompositeCycleProgress(
+    frame: InternalFrame<G, B, C>,
+  ): void {
+    if (frame.mode !== "composite" || frame.lastEvaluation === null) {
+      return;
+    }
+    if (frame.compositeCycleBaseline === null) {
+      frame.compositeCycleBaseline = {
+        stateRef: this.currentStateRecord().id,
+        evaluation: frame.lastEvaluation,
+        capturedAtTransition: this.transitionsUsed,
+      };
+      return;
+    }
+    let receipt: ProgressReceipt;
+    try {
+      const before =
+        frame.compositeCycleBaseline === null
+          ? this.currentState()
+          : this.stateByRef(frame.compositeCycleBaseline.stateRef);
+      const raw = this.deps.adapter.measureProgress({
+        goal: this.callbackGoal(frame.goal),
+        before: freezeSnapshot(before),
+        after: this.callbackState(),
+        previousEvaluation: freezeSnapshot(frame.compositeCycleBaseline.evaluation),
+        currentEvaluation: freezeSnapshot(frame.lastEvaluation),
+      });
+      if (!isRecord(raw) || typeof raw.improved !== "boolean") {
+        throw new TypeError(
+          "measureProgress must return an improved boolean",
+        );
+      }
+      receipt = raw as ProgressReceipt;
+    } catch (error) {
+      throw new TypeError(`measureProgress failed: ${errorMessage(error)}`);
+    }
+    if (!receipt.comparable) {
+      return;
+    }
+    if (receipt.improved) {
+      frame.noProgressCount = 0;
+      frame.compositeCycleBaseline = {
+        stateRef: this.currentStateRecord().id,
+        evaluation: frame.lastEvaluation,
+        capturedAtTransition: this.transitionsUsed,
+      };
+      return;
+    }
+    frame.compositeCycleBaseline = {
+      stateRef: this.currentStateRecord().id,
+      evaluation: frame.lastEvaluation,
+      capturedAtTransition: this.transitionsUsed,
+    };
+    frame.noProgressCount += 1;
+    if (frame.noProgressCount >= 2) {
+      this.stopWithNewDiagnostic(
+        frame,
+        {
+          code: "no_progress",
+          stage: "aggregation",
+          message:
+            "two completed composite cycles made no semantic progress on the same obligation",
+          category: "stalled",
+          effectKnowledge: this.frameEffectKnowledge(frame),
+        },
+        "stalled",
+        "no_progress",
+      );
+    }
+  }
+
   private pendingVerificationProof(
     frame: InternalFrame<G, B, C>,
   ): AtomicExecutionResult<F, R> | null {
@@ -2857,7 +2984,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     parent: InternalFrame<G, B, C>,
     condition: InternalCondition<G, B>,
   ): boolean {
-    if (this.derivedGoalsUsed >= this.validated.limits.maxDerivedGoals) {
+    const maxDerivedGoals = this.validated.limits?.maxDerivedGoals;
+    if (
+      maxDerivedGoals !== undefined &&
+      this.derivedGoalsUsed >= maxDerivedGoals
+    ) {
       this.stopWithNewDiagnostic(
         parent,
         {
@@ -2869,11 +3000,18 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         },
         "exceeded",
         "budget",
+        {
+          dimension: "maxDerivedGoals",
+          limit: maxDerivedGoals,
+          used: this.derivedGoalsUsed,
+          attempted: this.derivedGoalsUsed + 1,
+        },
       );
       return false;
     }
     const depth = parent.depth + 1;
-    if (depth > this.validated.limits.maxDepth) {
+    const maxDepth = this.validated.limits?.maxDepth;
+    if (maxDepth !== undefined && depth > maxDepth) {
       this.stopWithNewDiagnostic(
         parent,
         {
@@ -2885,6 +3023,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         },
         "exceeded",
         "budget",
+        {
+          dimension: "maxDepth",
+          limit: maxDepth,
+          used: parent.depth,
+          attempted: depth,
+        },
       );
       return false;
     }
@@ -2920,6 +3064,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluation: null,
       lastEvaluationAtTransition: null,
       progressBaseline: null,
+      compositeCycleBaseline: null,
       pendingVerification: null,
       obligationSnapshot: null,
       pendingProgressCheck: false,
@@ -3439,7 +3584,13 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       ) {
         continue;
       }
-      if (this.derivedGoalsUsed >= this.validated.limits.maxDerivedGoals) continue;
+      const maxDerivedGoals = this.validated.limits?.maxDerivedGoals;
+      if (
+        maxDerivedGoals !== undefined &&
+        this.derivedGoalsUsed >= maxDerivedGoals
+      ) {
+        continue;
+      }
       const frameId = `${parent.frameId}:goal:${condition.id}`;
       const dependent: InternalFrame<G, B, C> = {
         frameId,
@@ -3471,6 +3622,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         lastEvaluation: null,
         lastEvaluationAtTransition: null,
         progressBaseline: null,
+      compositeCycleBaseline: null,
         pendingVerification: null,
         obligationSnapshot: null,
         pendingProgressCheck: false,
@@ -3497,8 +3649,17 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.stopCancelled(frame);
       return false;
     }
-    if (this.transitionsUsed >= this.validated.limits.maxTransitions) {
-      this.stopBudget(frame, stage);
+    const maxTransitions = this.validated.limits?.maxTransitions;
+    if (
+      maxTransitions !== undefined &&
+      this.transitionsUsed >= maxTransitions
+    ) {
+      this.stopBudget(frame, stage, {
+        dimension: "maxTransitions",
+        limit: maxTransitions,
+        used: this.transitionsUsed,
+        attempted: this.transitionsUsed + 1,
+      });
       return false;
     }
     this.transitionsUsed += 1;
@@ -3548,6 +3709,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private stopBudget(
     frame: InternalFrame<G, B, C>,
     stage: RecursiveGoalErrorStage,
+    budget: RecursiveGoalBudgetReport,
   ): void {
     this.stopWithNewDiagnostic(
       frame,
@@ -3564,10 +3726,18 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       },
       "exceeded",
       "budget",
+      budget,
     );
   }
 
   private stopAtomicAttemptBudget(frame: InternalFrame<G, B, C>): void {
+    const policy = this.retryControl!.policy;
+    const limit = policy.maxAtomicAttempts;
+    if (limit === undefined) {
+      throw new ModuleInvariantError(
+        "atomic attempt budget stop requires a declared maxAtomicAttempts",
+      );
+    }
     this.stopWithNewDiagnostic(
       frame,
       {
@@ -3578,6 +3748,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       },
       "exceeded",
       "budget",
+      {
+        dimension: "maxAtomicAttempts",
+        limit,
+        used: this.retryControl!.atomicAttemptsUsed,
+        attempted: this.retryControl!.atomicAttemptsUsed + 1,
+      },
     );
   }
 
@@ -3662,6 +3838,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     spec: StopDiagnosticSpec,
     outcome: RecursiveGoalControlOutcome,
     stopReason: RecursiveGoalStopReason,
+    budget?: RecursiveGoalBudgetReport,
   ): void {
     if (this.finished) return;
     const diagnostic = this.diagnostics.create({
@@ -3699,7 +3876,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       );
     }
     this.propagateDiagnostic(frame, diagnostic);
-    this.control = { outcome, stopReason, frameId: this.stack.at(-1)?.frameId ?? null };
+    this.control = {
+      outcome,
+      stopReason,
+      frameId: this.stack.at(-1)?.frameId ?? null,
+      ...(budget === undefined ? {} : { budget }),
+    };
     this.finished = true;
   }
 
@@ -4164,6 +4346,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
               evaluatedAtTransition: frame.lastEvaluationAtTransition,
             },
       progressBaseline: frame.progressBaseline,
+      compositeCycleBaseline: frame.compositeCycleBaseline,
       pendingVerification: frame.pendingVerification,
       obligationSnapshot: frame.obligationSnapshot,
     }));
@@ -4517,6 +4700,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluationAtTransition:
         control.evaluation?.evaluatedAtTransition ?? null,
       progressBaseline: control.progressBaseline,
+      compositeCycleBaseline: control.compositeCycleBaseline,
       pendingVerification: control.pendingVerification,
       obligationSnapshot: control.obligationSnapshot,
       pendingProgressCheck: false,
@@ -4567,6 +4751,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       lastEvaluationAtTransition:
         control.evaluation?.evaluatedAtTransition ?? null,
       progressBaseline: control.progressBaseline,
+      compositeCycleBaseline: control.compositeCycleBaseline,
       pendingVerification: control.pendingVerification,
       obligationSnapshot: control.obligationSnapshot,
       pendingProgressCheck: false,
@@ -4849,12 +5034,21 @@ function validateValidatedRequest<G, S, B, E, F, R, C>(
   ) {
     throw new TypeError("adapter changed root evaluator or selector");
   }
-  if (
-    validated.limits.maxTransitions !== envelope.limits.maxTransitions ||
-    validated.limits.maxDepth !== envelope.limits.maxDepth ||
-    validated.limits.maxDerivedGoals !== envelope.limits.maxDerivedGoals
-  ) {
-    throw new TypeError("adapter changed request limits");
+  const envelopeLimits = readRecursiveGoalLimits(
+    envelope.limits === undefined ? {} : envelope.limits,
+  );
+  const validatedLimits = readRecursiveGoalLimits(
+    validated.limits === undefined ? {} : validated.limits,
+  );
+  const dimensions = [
+    "maxTransitions",
+    "maxDepth",
+    "maxDerivedGoals",
+  ] as const;
+  for (const dimension of dimensions) {
+    if (validatedLimits[dimension] !== envelopeLimits[dimension]) {
+      throw new TypeError("adapter changed request limits");
+    }
   }
   if (
     (envelope.retryPolicy === undefined) !==
@@ -5249,7 +5443,9 @@ function cloneRetryPolicy(policy: BoundedRetryPolicy): BoundedRetryPolicy {
     selectorId: policy.selectorId,
     strategySkillIds: [...policy.strategySkillIds],
     sameFailureLimit: policy.sameFailureLimit,
-    maxAtomicAttempts: policy.maxAtomicAttempts,
+    ...(policy.maxAtomicAttempts === undefined
+      ? {}
+      : { maxAtomicAttempts: policy.maxAtomicAttempts }),
   };
 }
 
@@ -5262,7 +5458,8 @@ function sameBoundedRetryPolicy(
     left.selectorId === right.selectorId &&
     sameStringSet(left.strategySkillIds, right.strategySkillIds) &&
     left.sameFailureLimit === right.sameFailureLimit &&
-    left.maxAtomicAttempts === right.maxAtomicAttempts
+    (left.maxAtomicAttempts ?? null) ===
+      (right.maxAtomicAttempts ?? null)
   );
 }
 

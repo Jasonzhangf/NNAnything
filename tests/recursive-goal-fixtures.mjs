@@ -352,6 +352,7 @@ export function singleChildDerivation({
   activation = "required",
   allowedEffects = [],
   cursor = "closed",
+  expansion = "closed",
 } = {}) {
   return {
     conditions: [
@@ -370,8 +371,205 @@ export function singleChildDerivation({
       },
     ],
     nextCursor: cursor,
-    expansion: "closed",
+    expansion,
   };
+}
+
+export function finiteDerivationAdapter(options = {}) {
+  return incrementalChainHarness(options);
+}
+
+export function createFiniteBudgetHarness(options = {}) {
+  if (options.nested !== undefined) {
+    return nestedDepthHarness({
+      depth: options.nested.depth ?? 6,
+      limits: options.nested.limits,
+    });
+  }
+  return finiteDerivationAdapter(options);
+}
+
+// Composite root that repeatedly derives exactly one atomic child. Each child
+// carries a per-step goal (current count + 1) so a single increment satisfies
+// it, and the root keeps expanding with `expansion: "more"` until the root
+// target is met. This exercises real, monotonically increasing progress across
+// many transitions and derived goals without any caller-declared cap.
+export function incrementalChainHarness(options = {}) {
+  const rounds = options.derivationCount ?? options.rounds ?? options.rootTarget ?? 1;
+  const fixture = createFixtureAdapter({
+    derive: (input, calls) => {
+      if (calls.derive > rounds) {
+        throw new TypeError("fixture incremental derivation exhausted");
+      }
+      const current = currentCount(input.state);
+      return singleChildDerivation({
+        id: `increment-step-${calls.derive}`,
+        goal: counterGoal(current + 1),
+        bindings: input.bindings,
+        mode: "atomic",
+        selectorId: "finite-leaf-selector",
+        cursor: "open",
+        expansion: "more",
+      });
+    },
+    executeAtomic: (input, calls) => {
+      const count = currentCount(input.state) + 1;
+      return successfulAtomicReceipt({
+        count,
+        stateId: `finite-state-${calls.executeAtomic}`,
+        evidenceId: `finite-evidence-${calls.executeAtomic}`,
+        runId: `finite-run-${calls.executeAtomic}`,
+      });
+    },
+    ...options,
+  });
+  const request = makeRequest({
+    rootGoal: counterGoal(options.rootTarget ?? 1),
+    state: { count: options.rootCount ?? 0 },
+    ...(options.limits === undefined ? { limits: undefined } : { limits: options.limits }),
+  });
+  const deps = {
+    adapter: fixture.adapter,
+    enabledSkills: [
+      skill("compose-counter", "composite"),
+      skill("increment-counter", "atomic"),
+    ],
+    enabledEvaluators: [evaluator()],
+    selectors: [
+      selector("root-selector", ["compose-counter"]),
+      selector("finite-leaf-selector", ["increment-counter"]),
+    ],
+    comparators: {
+      sameGoal: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameBindings: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameFacts: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+    },
+    grantedEffects: new Set(),
+  };
+  return { request, deps, fixture };
+}
+
+// Nested composite chain that descends `depth` composite levels before deriving
+// a single atomic leaf. Used to prove that omitting maxDepth allows the goal
+// stack to exceed the retired default depth caps.
+export function nestedDepthHarness({ depth = 6, limits } = {}) {
+  const fixture = createFixtureAdapter({
+    derive: (input, calls) => {
+      const level = typeof input.goal?.level === "number" ? input.goal.level : 0;
+      if (level < depth) {
+        return singleChildDerivation({
+          id: `nested-composite-${level}`,
+          goal: counterGoal(1, { level: level + 1 }),
+          bindings: input.bindings,
+          mode: "composite",
+          selectorId: "finite-child-selector",
+          cursor: "closed",
+          expansion: "closed",
+        });
+      }
+      const current = currentCount(input.state);
+      return singleChildDerivation({
+        id: `nested-leaf-${level}`,
+        goal: counterGoal(current + 1, { level }),
+        bindings: input.bindings,
+        mode: "atomic",
+        selectorId: "finite-leaf-selector",
+        cursor: "closed",
+        expansion: "closed",
+      });
+    },
+    executeAtomic: (input, calls) => {
+      const count = currentCount(input.state) + 1;
+      return successfulAtomicReceipt({
+        count,
+        stateId: `nested-state-${calls.executeAtomic}`,
+        evidenceId: `nested-evidence-${calls.executeAtomic}`,
+        runId: `nested-run-${calls.executeAtomic}`,
+      });
+    },
+  });
+  const request = makeRequest({
+    rootGoal: counterGoal(1, { level: 0 }),
+    state: { count: 0 },
+    ...(limits === undefined ? { limits: undefined } : { limits }),
+  });
+  const deps = {
+    adapter: fixture.adapter,
+    enabledSkills: [
+      skill("compose-counter", "composite"),
+      skill("compose-child", "composite"),
+      skill("increment-counter", "atomic"),
+    ],
+    enabledEvaluators: [evaluator()],
+    selectors: [
+      selector("root-selector", ["compose-counter"]),
+      selector("finite-child-selector", ["compose-child"]),
+      selector("finite-leaf-selector", ["increment-counter"]),
+    ],
+    comparators: {
+      sameGoal: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameBindings: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameFacts: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+    },
+    grantedEffects: new Set(),
+  };
+  return { request, deps, fixture };
+}
+
+// Composite root that keeps re-deriving the same obligation with a *new*
+// condition id but no real state change. Each derived child is already
+// satisfied, so the root never makes business progress while it keeps
+// expanding. Used to prove that changing ids/counters is not treated as
+// progress and that the composite no-progress detector fires.
+export function sameObligationNoProgressHarness({ limits, rootTarget = 100 } = {}) {
+  const fixture = createFixtureAdapter({
+    derive: (input, calls) => {
+      const current = currentCount(input.state);
+      return singleChildDerivation({
+        id: `stale-obligation-${calls.derive}`,
+        goal: counterGoal(current, { obligation: "same" }),
+        bindings: input.bindings,
+        mode: "atomic",
+        selectorId: "finite-leaf-selector",
+        cursor: "open",
+        expansion: "more",
+      });
+    },
+    executeAtomic: (input, calls) => {
+      const count = currentCount(input.state);
+      return successfulAtomicReceipt({
+        count,
+        stateId: `stale-state-${calls.executeAtomic}`,
+        evidenceId: `stale-evidence-${calls.executeAtomic}`,
+        runId: `stale-run-${calls.executeAtomic}`,
+      });
+    },
+  });
+  const request = makeRequest({
+    rootGoal: counterGoal(rootTarget),
+    state: { count: 0 },
+    initialObservation: initialObservation({ count: 0 }),
+    ...(limits === undefined ? { limits: undefined } : { limits }),
+  });
+  const deps = {
+    adapter: fixture.adapter,
+    enabledSkills: [
+      skill("compose-counter", "composite"),
+      skill("increment-counter", "atomic"),
+    ],
+    enabledEvaluators: [evaluator()],
+    selectors: [
+      selector("root-selector", ["compose-counter"]),
+      selector("finite-leaf-selector", ["increment-counter"]),
+    ],
+    comparators: {
+      sameGoal: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameBindings: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameFacts: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+    },
+    grantedEffects: new Set(),
+  };
+  return { request, deps, fixture };
 }
 
 export function completionAdapter({

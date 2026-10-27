@@ -55,7 +55,11 @@ type ReportView = Readonly<{
     result: string | undefined;
     satisfaction: number | null | undefined;
   }> | null;
-  control: Readonly<{ outcome: string; stopReason: string }> | null;
+  control: Readonly<{
+    outcome: string;
+    stopReason: string;
+    budget?: unknown;
+  }> | null;
   primaryErrorId: string | null;
   errors: readonly Readonly<{ errorId: string; code: string }>[];
   states: readonly Readonly<{ value: EntrySearchState }>[];
@@ -277,7 +281,19 @@ export function rootFact(
     });
   }
   if (listing.coverage === null) {
-    if (primaryCode === "budget_exceeded" || primaryCode === "cancelled" || primaryCode === "no_progress") {
+    if (primaryCode === "budget_exceeded") {
+      return Object.freeze({
+        kind: "insufficient_evidence",
+        predicate,
+        listing: Object.freeze({
+          sourceRun: listing.sourceRun,
+          coverage: null,
+          errors: listing.errors,
+          candidateNames: listing.candidateNames,
+        }),
+      });
+    }
+    if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
       return Object.freeze({ kind: "interrupted" });
     }
     if (primaryCode === "effect_denied" || primaryCode === "capability_missing" || primaryCode === "invalid_binding") {
@@ -310,6 +326,18 @@ export function rootFact(
     });
   }
   if (listing.candidate === null) {
+    if (primaryCode === "budget_exceeded") {
+      return Object.freeze({
+        kind: "insufficient_evidence",
+        predicate,
+        listing: Object.freeze({
+          sourceRun: listing.sourceRun,
+          coverage: listing.coverage,
+          errors: listing.errors,
+          candidateNames: listing.candidateNames,
+        }),
+      });
+    }
     return Object.freeze({
       kind: "not_found",
       predicate,
@@ -317,6 +345,22 @@ export function rootFact(
     });
   }
   const inspect = inspectFact(cli, listing.candidate.path, transitions);
+  if (primaryCode === "budget_exceeded") {
+    const verifiedRef =
+      inspect !== null && issuedRef !== null && issuedRefMatchesInspect(issuedRef, inspect)
+        ? issuedRef
+        : null;
+    return Object.freeze({
+      kind: "stale_or_unverified",
+      predicate,
+      listing: Object.freeze({
+        sourceRun: listing.sourceRun,
+        coverage: "complete",
+      }),
+      inspect,
+      ref: verifiedRef,
+    });
+  }
   if (inspect === null) {
     return Object.freeze({
       kind: "stale_or_unverified",
@@ -380,17 +424,35 @@ export function projectDomain(
   const transitions = report === null ? [] : transitionsOf(report);
   const state = report === null ? null : latestState(report);
   const primaryCode = primaryError(view);
+  const budgetStopped =
+    primaryCode === "budget_exceeded"
+    || report?.control?.stopReason === "budget"
+    || report?.control?.budget !== undefined;
   const predicate = request.goal.requirement.predicate;
 
   if (state === null) {
-    const status = noStateStatus(primaryCode);
+    const status = budgetStopped
+      ? Object.freeze({ status: "unknown" as const, resolution: "budget_exhausted" as const })
+      : noStateStatus(primaryCode);
     return Object.freeze({
       status: status.status,
       resolution: status.resolution,
       satisfaction: null,
       match: null,
       coverage: null,
-      rootFact: noStateRootFact(primaryCode),
+      rootFact: noStateRootFact(budgetStopped ? "budget_exceeded" : primaryCode),
+      preserve: preserve(view),
+    });
+  }
+
+  if (budgetStopped) {
+    return Object.freeze({
+      status: "unknown",
+      resolution: "budget_exhausted",
+      satisfaction: null,
+      match: null,
+      coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
+      rootFact: rootFact(predicate, state.cli, transitions, "budget_exceeded", issuedRef),
       preserve: preserve(view),
     });
   }
@@ -428,7 +490,7 @@ export function projectDomain(
     });
   }
 
-  if (primaryCode === "budget_exceeded" || primaryCode === "cancelled" || primaryCode === "no_progress") {
+  if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
     return Object.freeze({
       status: "unknown",
       resolution: "interrupted",
@@ -612,6 +674,10 @@ function reportView(value: unknown): ReportView | null {
   };
   const rootEvaluation = input.rootEvaluation;
   const control = input.control;
+  const controlRecord =
+    typeof control === "object" && control !== null
+      ? control as { outcome?: unknown; stopReason?: unknown; budget?: unknown }
+      : null;
   const errors = input.errors;
   const states = input.states;
   const atomicResults = input.atomicResults;
@@ -625,10 +691,13 @@ function reportView(value: unknown): ReportView | null {
           })
         : null,
     control:
-      typeof control === "object" && control !== null
+      controlRecord !== null
         ? Object.freeze({
-            outcome: String((control as { outcome?: unknown }).outcome ?? "error"),
-            stopReason: String((control as { stopReason?: unknown }).stopReason ?? "fatal_error"),
+            outcome: String(controlRecord.outcome ?? "error"),
+            stopReason: String(controlRecord.stopReason ?? "fatal_error"),
+            ...(controlRecord.budget === undefined
+              ? {}
+              : { budget: controlRecord.budget }),
           })
         : null,
     primaryErrorId: typeof input.primaryErrorId === "string" ? input.primaryErrorId : null,
@@ -682,8 +751,10 @@ function noStateStatus(primaryCode: string | null): Readonly<{
   status: EntrySearchDomainProjection["status"];
   resolution: EntrySearchDomainProjection["resolution"];
 }> {
+  if (primaryCode === "budget_exceeded") {
+    return Object.freeze({ status: "unknown", resolution: "budget_exhausted" });
+  }
   if (
-    primaryCode === "budget_exceeded" ||
     primaryCode === "cancelled" ||
     primaryCode === "no_progress" ||
     primaryCode === "stalled"
@@ -703,8 +774,19 @@ function noStateStatus(primaryCode: string | null): Readonly<{
 }
 
 function noStateRootFact(primaryCode: string | null): EntrySearchRootFact {
+  if (primaryCode === "budget_exceeded") {
+    return Object.freeze({
+      kind: "insufficient_evidence",
+      predicate: null as never,
+      listing: Object.freeze({
+        sourceRun: null,
+        coverage: null,
+        errors: [],
+        candidateNames: [],
+      }),
+    });
+  }
   if (
-    primaryCode === "budget_exceeded" ||
     primaryCode === "cancelled" ||
     primaryCode === "no_progress" ||
     primaryCode === "stalled"

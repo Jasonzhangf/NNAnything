@@ -417,7 +417,7 @@ export function readRootFact(
     });
   }
   if (listing.coverage === null) {
-    if (primaryCode === "budget_exceeded" || primaryCode === "cancelled" || primaryCode === "no_progress") {
+    if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
       return Object.freeze({ kind: "interrupted" });
     }
     if (primaryCode === "effect_denied" || primaryCode === "capability_missing" || primaryCode === "invalid_binding") {
@@ -634,11 +634,16 @@ function errorCodeView(value: unknown): Readonly<{ code: string }> | null {
 
 type ReportView = Readonly<{
   rootEvaluation: Readonly<{
-    state: string;
-    result: string | undefined;
-    satisfaction: number | null | undefined;
+    state?: unknown;
+    result?: unknown;
+    satisfaction?: unknown;
+    [key: string]: unknown;
   }> | null;
-  control: Readonly<{ outcome: string; stopReason: string }> | null;
+  control: Readonly<{
+    outcome: string;
+    stopReason: string;
+    budget?: unknown;
+  }> | null;
   primaryErrorId: string | null;
   errors: readonly Readonly<{ errorId: string; code: string; nativeCode: string | null }>[];
   states: readonly Readonly<{ value: ReadCompositionState }>[];
@@ -663,23 +668,26 @@ function reportView(value: unknown): ReportView | null {
   };
   const rootEvaluation = input.rootEvaluation;
   const control = input.control;
+  const controlRecord =
+    typeof control === "object" && control !== null
+      ? control as { outcome?: unknown; stopReason?: unknown; budget?: unknown }
+      : null;
   const errors = input.errors;
   const states = input.states;
   const atomicResults = input.atomicResults;
   return Object.freeze({
     rootEvaluation:
       typeof rootEvaluation === "object" && rootEvaluation !== null
-        ? Object.freeze({
-            state: String((rootEvaluation as { state?: unknown }).state ?? "not_evaluated"),
-            result: (rootEvaluation as { result?: unknown }).result as string | undefined,
-            satisfaction: (rootEvaluation as { satisfaction?: unknown }).satisfaction as number | null | undefined,
-          })
+        ? Object.freeze(rootEvaluation as Record<string, unknown>)
         : null,
     control:
-      typeof control === "object" && control !== null
+      controlRecord !== null
         ? Object.freeze({
-            outcome: String((control as { outcome?: unknown }).outcome ?? "error"),
-            stopReason: String((control as { stopReason?: unknown }).stopReason ?? "fatal_error"),
+            outcome: String(controlRecord.outcome ?? "error"),
+            stopReason: String(controlRecord.stopReason ?? "fatal_error"),
+            ...(controlRecord.budget === undefined
+              ? {}
+              : { budget: controlRecord.budget }),
           })
         : null,
     primaryErrorId: typeof input.primaryErrorId === "string" ? input.primaryErrorId : null,
@@ -752,12 +760,28 @@ function nativeErrors(view: ReturnType<typeof transitionView>): readonly string[
   );
 }
 
-function noStateStatus(primaryCode: string | null): Readonly<{
+function isBudgetStop(
+  report: ReportView | null,
+  primaryCode: string | null,
+): boolean {
+  return (
+    primaryCode === "budget_exceeded"
+    || report?.control?.stopReason === "budget"
+    || report?.control?.budget !== undefined
+  );
+}
+
+function noStateStatus(
+  primaryCode: string | null,
+  budgetStopped = primaryCode === "budget_exceeded",
+): Readonly<{
   status: ReadCompositionDomainProjection["status"];
   resolution: ReadCompositionDomainProjection["resolution"];
 }> {
+  if (budgetStopped) {
+    return Object.freeze({ status: "unknown", resolution: "budget_exhausted" });
+  }
   if (
-    primaryCode === "budget_exceeded" ||
     primaryCode === "cancelled" ||
     primaryCode === "no_progress" ||
     primaryCode === "stalled"
@@ -776,9 +800,14 @@ function noStateStatus(primaryCode: string | null): Readonly<{
   return Object.freeze({ status: "failed", resolution: "failed" });
 }
 
-function noStateRootFact(primaryCode: string | null): ReadCompositionRootFact {
+function noStateRootFact(
+  primaryCode: string | null,
+  budgetStopped = primaryCode === "budget_exceeded",
+): ReadCompositionRootFact {
+  if (budgetStopped) {
+    return multiRootFact(null, "insufficient_evidence");
+  }
   if (
-    primaryCode === "budget_exceeded" ||
     primaryCode === "cancelled" ||
     primaryCode === "no_progress" ||
     primaryCode === "stalled"
@@ -868,6 +897,38 @@ function readAtomicNativeError(report: ReportView | null, nativeCode: string): b
   return false;
 }
 
+function singleBudgetRootFact(
+  request: ReadCompositionRequest,
+  state: ReadCompositionState,
+  listing: ReadListingFacts,
+): ReadCompositionRootFact {
+  const listingFact: ReadCompositionListingFact = Object.freeze({
+    sourceRun: listing.sourceRun,
+    coverage: listing.coverage,
+    directoryRef: state.listing === null ? null : state.listing.directoryRef,
+    errors: listing.errors,
+    candidateNames: listing.candidateNames,
+    entries: state.listing === null ? Object.freeze([]) : state.listing.entries,
+  });
+  const fileRef = state.fileRef ?? state.read?.ref ?? null;
+  const shortRead =
+    state.read !== null
+    && state.read.bytesRead !== null
+    && state.read.bytesRead < request.goal.requirement.range.length;
+  const completeCandidate =
+    listing.coverage === "complete"
+    && listing.sourceRun !== null
+    && listing.candidate !== null
+    && !shortRead;
+  return Object.freeze({
+    kind: completeCandidate ? "stale_or_unverified" : "insufficient_evidence",
+    listing: listingFact,
+    inspected: state.inspected,
+    fileRef,
+    read: state.read,
+  });
+}
+
 export function projectReadDomain(
   request: ReadCompositionRequest,
   response: unknown,
@@ -880,11 +941,12 @@ export function projectReadDomain(
   const transitions = report === null ? [] : transitionsOf(report);
   const state = report === null ? null : latestState(report);
   const primaryCode = primaryError(view);
+  const budgetStopped = isBudgetStop(report, primaryCode);
   const name = request.goal.target.name;
   const range = request.goal.requirement.range;
 
   if (state === null) {
-    const status = noStateStatus(primaryCode);
+    const status = noStateStatus(primaryCode, budgetStopped);
     return Object.freeze({
       status: status.status,
       resolution: status.resolution,
@@ -893,7 +955,7 @@ export function projectReadDomain(
       coverage: null,
       sources: Object.freeze([]),
       decision: null,
-      rootFact: noStateRootFact(primaryCode),
+      rootFact: noStateRootFact(primaryCode, budgetStopped),
       preserve: preserve(view),
     });
   }
@@ -903,6 +965,19 @@ export function projectReadDomain(
   const coverage = listing.coverage;
   const completed = rootEvaluationCompleted(report);
   const rootResult = completed ? report?.rootEvaluation?.result ?? null : null;
+  if (budgetStopped) {
+    return Object.freeze({
+      status: "unknown",
+      resolution: "budget_exhausted",
+      satisfaction: null,
+      match: null,
+      coverage,
+      sources: Object.freeze([]),
+      decision: null,
+      rootFact: singleBudgetRootFact(request, state, listing),
+      preserve: preserve(view),
+    });
+  }
   if (decision.result === "satisfied" && rootResult === "satisfied") {
     return achieved(request, state, transitions, report);
   }
@@ -970,8 +1045,7 @@ export function projectReadDomain(
     });
   }
   if (
-    primaryCode === "budget_exceeded"
-    || primaryCode === "cancelled"
+    primaryCode === "cancelled"
     || primaryCode === "no_progress"
     || primaryCode === "stalled"
   ) {
@@ -1237,6 +1311,58 @@ function multiRootFact(
   });
 }
 
+function hasObservedMultiSourceFact(source: ReadCompositionSourceState): boolean {
+  return (
+    source.listing !== null
+    || source.inspected !== null
+    || source.fileRef !== null
+    || source.read !== null
+  );
+}
+
+function multiBudgetRootFact(
+  state: ReadCompositionState,
+  facts: readonly MultiSourceFact[],
+  decision: MultiSourceDecision,
+): ReadCompositionRootFact {
+  if (state.sources === null) {
+    return multiRootFact(null, "insufficient_evidence");
+  }
+  const activeUnresolved = state.sources.find(source => {
+    const fact = facts.find(item => item.sourceId === source.sourceId);
+    return (
+      fact !== undefined
+      && (fact.attempt === "unknown" || fact.attempt === "in_progress")
+      && hasObservedMultiSourceFact(source)
+    );
+  });
+  const chosenSource =
+    decision?.chosen !== null && decision?.chosen !== undefined
+      ? state.sources.find(
+          source => source.sourceId === decision.chosen && hasObservedMultiSourceFact(source),
+        )
+      : undefined;
+  const anyObserved = [...state.sources]
+    .reverse()
+    .find(source => hasObservedMultiSourceFact(source));
+  const selected = activeUnresolved ?? chosenSource ?? anyObserved ?? null;
+  if (selected === null) {
+    return multiRootFact(null, "insufficient_evidence");
+  }
+  const selectedFact = facts.find(item => item.sourceId === selected.sourceId);
+  const hasPostListingFact =
+    selected.inspected !== null
+    || selected.fileRef !== null
+    || selected.read !== null
+    || (selected.listing?.coverage === "complete"
+      && selectedFact !== undefined
+      && selectedFact.candidate !== null);
+  return multiRootFact(
+    selected,
+    hasPostListingFact ? "stale_or_unverified" : "insufficient_evidence",
+  );
+}
+
 function projectMultiReadDomain(
   request: ReadCompositionRequest,
   response: unknown,
@@ -1245,9 +1371,10 @@ function projectMultiReadDomain(
   const report = view.report;
   const state = report === null ? null : latestState(report);
   const primaryCode = primaryError(view);
+  const budgetStopped = isBudgetStop(report, primaryCode);
 
   if (state === null) {
-    const status = noStateStatus(primaryCode);
+    const status = noStateStatus(primaryCode, budgetStopped);
     return Object.freeze({
       status: status.status,
       resolution: status.resolution,
@@ -1256,11 +1383,24 @@ function projectMultiReadDomain(
       coverage: null,
       sources: Object.freeze([]),
       decision: null,
-      rootFact: noStateRootFact(primaryCode),
+      rootFact: noStateRootFact(primaryCode, budgetStopped),
       preserve: preserve(view),
     });
   }
   if (state.sources === null) {
+    if (budgetStopped) {
+      return Object.freeze({
+        status: "unknown",
+        resolution: "budget_exhausted",
+        satisfaction: null,
+        match: null,
+        coverage: null,
+        sources: Object.freeze([]),
+        decision: null,
+        rootFact: multiRootFact(null, "insufficient_evidence"),
+        preserve: preserve(view),
+      });
+    }
     return Object.freeze({
       status: "unknown",
       resolution: "insufficient_evidence",
@@ -1291,6 +1431,20 @@ function projectMultiReadDomain(
       negative: fact.negative,
     })),
   );
+
+  if (budgetStopped) {
+    return Object.freeze({
+      status: "unknown",
+      resolution: "budget_exhausted",
+      satisfaction: null,
+      match: null,
+      coverage,
+      sources,
+      decision,
+      rootFact: multiBudgetRootFact(state, facts, decision),
+      preserve: preserve(view),
+    });
+  }
 
   const matchedSource = multiMatchedSource(state, facts);
   if (matchedSource !== null && rootResult === "satisfied") {
@@ -1369,8 +1523,7 @@ function projectMultiReadDomain(
   }
 
   if (
-    primaryCode === "budget_exceeded"
-    || primaryCode === "cancelled"
+    primaryCode === "cancelled"
     || primaryCode === "no_progress"
     || primaryCode === "stalled"
   ) {

@@ -631,7 +631,7 @@ export function createReadExpectationAdapter(input: ReadExpectationAdapterInput)
         state: restored,
         rootEvaluatorId: request.rootEvaluatorId,
         rootSelectorId: request.rootSelectorId,
-        limits: request.limits,
+        ...(request.limits === undefined ? {} : { limits: request.limits }),
         continuation: null,
         // The admitted retry policy is the controller's, so it must pass
         // through unchanged.
@@ -1024,7 +1024,7 @@ export async function runCliReadExpectationGoal(
     throw new TypeError("read expectation fileRef does not correspond to the requested path and session");
   }
   const retryBudget = resources.retryBudget ?? 0;
-  const limits = resources.limits ?? Object.freeze({ maxTransitions: 60, maxDepth: 5, maxDerivedGoals: 12 });
+  const limits = resources.limits;
   const created = createReadExpectationAdapter({
     sandbox: resources.sandbox,
     session: resources.session,
@@ -1071,7 +1071,12 @@ export async function runCliReadExpectationGoal(
         strategySkillIds: [READ_EXPECTATION_READ_SKILL],
         sameFailureLimit: retryBudget + 1,
         // One atomic attempt per derived read, plus the declared retry budget.
-        maxAtomicAttempts: (limits.maxDerivedGoals ?? 12) + retryBudget + 1,
+      ...(limits?.maxDerivedGoals === undefined
+        ? {}
+        : {
+            maxAtomicAttempts:
+              (limits.maxDerivedGoals as number) + retryBudget + 1,
+          }),
       },
     },
     createReadExpectationDependencies(created, resources.signal),

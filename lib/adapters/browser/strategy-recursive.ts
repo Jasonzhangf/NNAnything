@@ -1444,7 +1444,7 @@ function createAdapter(
         state,
         rootEvaluatorId: BROWSER_STRATEGY_EVALUATOR_ID,
         rootSelectorId: BROWSER_STRATEGY_SELECTOR_ID,
-        limits: request.limits,
+        ...(request.limits === undefined ? {} : { limits: request.limits }),
         ...(initialObservation === undefined ? {} : { initialObservation }),
         continuation: request.continuation === undefined
           ? null

@@ -157,7 +157,7 @@ function runWith(fixtureValue, goal, options = {}) {
     sandbox: fixtureValue.sandbox,
     session: options.session ?? fixtureValue.session,
     profile: options.profile ?? fixtureValue.profile ?? undefined,
-    limits: options.limits ?? LIMITS,
+    ...("limits" in options ? { limits: options.limits } : { limits: LIMITS }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
     ...(options.onSample === undefined ? {} : { onSample: options.onSample }),
   });
@@ -351,18 +351,46 @@ test("R04 equal-range full read with different bytes is byte_mismatch at 0", asy
   const value = await withProfile(t, [
     { path: "start/target.bin", kind: "file", contents: "abcdef" },
   ]);
-  const result = await runWith(
-    value,
-    readRequest(value.directory, "target.bin", { offset: 1, length: 3 }, b64("XYZ")),
+  const req = () => readRequest(
+    value.directory,
+    "target.bin",
+    { offset: 1, length: 3 },
+    b64("XYZ"),
   );
-  assert.equal(result.domain.status, "unmet");
-  assert.equal(result.domain.resolution, "byte_mismatch");
-  assert.equal(result.domain.satisfaction, 0);
-  assert.equal(result.domain.match, null);
-  assert.equal(result.domain.rootFact.kind, "byte_mismatch");
-  assert.deepEqual(heads(result.response), ["ls", "entry.inspect"]);
-  assert.equal(result.response.report.rootEvaluation.result, "unsatisfied");
-  assert.equal(value.openCount(), 1);
+
+  // A: the 23-transition slice is a real budget stop at T24. It must not be
+  // projected as byte_mismatch, and must keep the T23 root evaluation + read.
+  const budget23 = await runWith(value, req());
+  assert.equal(budget23.domain.status, "unknown");
+  assert.equal(budget23.domain.resolution, "budget_exhausted");
+  assert.equal(budget23.domain.satisfaction, null);
+  assert.equal(budget23.domain.match, null);
+  assert.equal(budget23.domain.rootFact.kind, "stale_or_unverified");
+  assert.equal(budget23.domain.rootFact.read.bytes, b64("bcd"));
+  assert.equal(budget23.response.report.rootEvaluation.result, "unsatisfied");
+  assert.equal(budget23.response.report.control.budget.limit, 23);
+
+  // B: without a transition limit the same inputs close on the real business
+  // outcome (byte_mismatch) under the strict finite-closure contract.
+  const before = value.openCount();
+  const unbounded = await runWith(value, req(), {
+    limits: undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  assert.equal(unbounded.domain.status, "unmet");
+  assert.equal(unbounded.domain.resolution, "byte_mismatch");
+  assert.equal(unbounded.domain.satisfaction, 0);
+  assert.equal(unbounded.domain.match, null);
+  assert.equal(unbounded.domain.rootFact.kind, "byte_mismatch");
+  assert.equal(unbounded.response.report.rootEvaluation.result, "unsatisfied");
+  assert.equal(unbounded.response.report.control.outcome, "error");
+  assert.equal(unbounded.response.report.control.stopReason, "fatal_error");
+  assert.ok(
+    unbounded.response.report.errors.some(error => error.code === "precondition_unsatisfied"),
+    "strict finite closure reports precondition_unsatisfied",
+  );
+  assert.deepEqual(heads(unbounded.response), ["ls", "entry.inspect"]);
+  assert.equal(value.openCount() - before, 1, "the business path opens the file once");
 });
 
 test("R05 partial listing stays insufficient_evidence and never inspects or reads", async t => {
@@ -470,21 +498,44 @@ test("S-React-4 postcondition insufficient on short read is insufficient_evidenc
   const value = await withProfile(t, [
     { path: "start/target.bin", kind: "file", contents: "abc" },
   ]);
-  const result = await runWith(
-    value,
-    readRequest(value.directory, "target.bin", { offset: 2, length: 10 }, b64("cxxxxxxxxx")),
+  const req = () => readRequest(
+    value.directory,
+    "target.bin",
+    { offset: 2, length: 10 },
+    b64("cxxxxxxxxx"),
   );
-  assert.equal(result.domain.status, "unknown");
-  assert.equal(result.domain.resolution, "insufficient_evidence");
-  assert.equal(result.domain.satisfaction, null);
-  assert.equal(result.domain.match, null);
-  assert.equal(result.domain.rootFact.kind, "insufficient_evidence");
-  assert.equal(result.domain.rootFact.read.bytesRead, 1);
-  assert.ok(result.domain.rootFact.read.bytesRead < result.domain.rootFact.read.length);
-  assert.equal(result.domain.rootFact.read.eof, true);
-  assert.equal(value.openCount(), 1);
-  assert.deepEqual(heads(result.response), ["ls", "entry.inspect"]);
-  assert.equal(result.response.report.rootEvaluation.result, "unknown");
+
+  // A: 23-transition slice hits the real budget stop at T24.
+  const budget23 = await runWith(value, req());
+  assert.equal(budget23.domain.status, "unknown");
+  assert.equal(budget23.domain.resolution, "budget_exhausted");
+  assert.equal(budget23.domain.satisfaction, null);
+  assert.equal(budget23.domain.match, null);
+  assert.equal(budget23.domain.rootFact.kind, "insufficient_evidence");
+  assert.equal(budget23.domain.rootFact.read.bytesRead, 1);
+  assert.equal(budget23.domain.rootFact.read.eof, true);
+  assert.equal(budget23.response.report.rootEvaluation.result, "unknown");
+  assert.equal(budget23.response.report.control.budget.limit, 23);
+
+  // B: without a transition limit the short read closes with insufficient
+  // evidence and the controller is not budget-exceeded.
+  const before = value.openCount();
+  const unbounded = await runWith(value, req(), {
+    limits: undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  assert.equal(unbounded.domain.status, "unknown");
+  assert.equal(unbounded.domain.resolution, "insufficient_evidence");
+  assert.equal(unbounded.domain.satisfaction, null);
+  assert.equal(unbounded.domain.match, null);
+  assert.equal(unbounded.domain.rootFact.kind, "insufficient_evidence");
+  assert.equal(unbounded.domain.rootFact.read.bytesRead, 1);
+  assert.ok(unbounded.domain.rootFact.read.bytesRead < unbounded.domain.rootFact.read.length);
+  assert.equal(unbounded.domain.rootFact.read.eof, true);
+  assert.equal(unbounded.response.report.rootEvaluation.result, "unknown");
+  assert.notEqual(unbounded.response.report.control.outcome, "exceeded");
+  assert.deepEqual(heads(unbounded.response), ["ls", "entry.inspect"]);
+  assert.equal(value.openCount() - before, 1, "the business path opens the file once");
 });
 
 test("S-React-5 root already satisfied performs no extra OS calls after the read receipt", async t => {
@@ -652,20 +703,39 @@ test("R14 child steps all green but root bytes differ never reach 100", async t 
   const value = await withProfile(t, [
     { path: "start/target.bin", kind: "file", contents: "same-prefix-different" },
   ]);
-  const result = await runWith(
-    value,
-    readRequest(value.directory, "target.bin", { offset: 0, length: 5 }, b64("diff!")),
+  const req = () => readRequest(
+    value.directory,
+    "target.bin",
+    { offset: 0, length: 5 },
+    b64("diff!"),
   );
-  assert.equal(result.response.report.atomicResults.length, 3);
+
+  // A: 23-transition slice is a real budget stop at T24; all three atomic
+  // steps succeeded but the root is not yet closed.
+  const budget23 = await runWith(value, req());
+  assert.equal(budget23.response.report.atomicResults.length, 3);
   assert.deepEqual(
-    result.response.report.atomicResults.map(item => item.outcome),
+    budget23.response.report.atomicResults.map(item => item.outcome),
     ["succeeded", "succeeded", "succeeded"],
   );
-  assert.equal(result.domain.status, "unmet");
-  assert.equal(result.domain.resolution, "byte_mismatch");
-  assert.equal(result.domain.satisfaction, 0);
-  assert.equal(result.domain.rootFact.kind, "byte_mismatch");
-  assert.equal(result.response.report.rootEvaluation.result, "unsatisfied");
+  assert.equal(budget23.domain.status, "unknown");
+  assert.equal(budget23.domain.resolution, "budget_exhausted");
+  assert.equal(budget23.domain.satisfaction, null);
+  assert.equal(budget23.domain.rootFact.kind, "stale_or_unverified");
+  assert.equal(budget23.domain.rootFact.read.bytes, b64("same-"));
+  assert.equal(budget23.response.report.rootEvaluation.result, "unsatisfied");
+  assert.equal(budget23.response.report.control.budget.limit, 23);
+
+  // B: without a transition limit the same inputs close on byte_mismatch.
+  const unbounded = await runWith(value, req(), {
+    limits: undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  assert.equal(unbounded.domain.status, "unmet");
+  assert.equal(unbounded.domain.resolution, "byte_mismatch");
+  assert.equal(unbounded.domain.satisfaction, 0);
+  assert.equal(unbounded.domain.rootFact.kind, "byte_mismatch");
+  assert.equal(unbounded.response.report.rootEvaluation.result, "unsatisfied");
 });
 
 test("R15 special exact names are compared verbatim including spaces, newline, Unicode, dash and backslash", async t => {
@@ -741,11 +811,46 @@ test("R16 unsupported typed requests are rejected with stable codes and zero exe
   assert.equal(value.openCount(), 0);
 });
 
-test("R17 budget stops before a completed root evaluation are interrupted with the read fact preserved", async t => {
+test("R17 budget stops before a completed root evaluation stay budget_exhausted with observed facts and typed budget preserved", async t => {
   const value = await withProfile(t, [
     { path: "start/target.bin", kind: "file", contents: "abcdef" },
   ]);
   const expectedBase64 = b64("abcdef");
+
+  const zero = await runWith(
+    value,
+    readRequest(
+      value.directory,
+      "target.bin",
+      { offset: 0, length: 6 },
+      expectedBase64,
+      "budget-zero",
+    ),
+    { limits: Object.freeze({ maxTransitions: 1, maxDepth: 4, maxDerivedGoals: 8 }) },
+  );
+  assert.equal(zero.domain.status, "unknown", "zero-action budget status");
+  assert.equal(zero.domain.resolution, "budget_exhausted", "zero-action budget resolution");
+  assert.equal(zero.domain.satisfaction, null, "zero-action budget satisfaction");
+  assert.equal(zero.domain.match, null, "zero-action budget match");
+  assert.equal(zero.domain.rootFact.kind, "insufficient_evidence", "zero-action root fact");
+  assert.equal(zero.domain.rootFact.listing.coverage, null, "zero-action listing coverage");
+
+  const listed = await runWith(
+    value,
+    readRequest(
+      value.directory,
+      "target.bin",
+      { offset: 0, length: 6 },
+      expectedBase64,
+      "budget-listed",
+    ),
+    { limits: Object.freeze({ maxTransitions: 6, maxDepth: 4, maxDerivedGoals: 8 }) },
+  );
+  assert.equal(listed.domain.status, "unknown", "listing budget status");
+  assert.equal(listed.domain.resolution, "budget_exhausted", "listing budget resolution");
+  assert.equal(listed.domain.rootFact.kind, "stale_or_unverified", "listing root fact");
+  assert.equal(listed.domain.rootFact.listing.coverage, "complete", "listing coverage");
+  assert.equal(listed.domain.rootFact.read, null, "listing must not invent a read fact");
 
   for (const maxTransitions of [20, 21, 22]) {
     const result = await runWith(
@@ -760,11 +865,24 @@ test("R17 budget stops before a completed root evaluation are interrupted with t
       { limits: Object.freeze({ maxTransitions, maxDepth: 4, maxDerivedGoals: 8 }) },
     );
     assert.equal(result.domain.status, "unknown", `budget ${maxTransitions} status`);
-    assert.equal(result.domain.resolution, "interrupted", `budget ${maxTransitions} resolution`);
+    assert.equal(result.domain.resolution, "budget_exhausted", `budget ${maxTransitions} resolution`);
     assert.equal(result.domain.satisfaction, null, `budget ${maxTransitions} satisfaction`);
     assert.equal(result.domain.match, null, `budget ${maxTransitions} match`);
+    assert.equal(result.domain.rootFact.kind, "stale_or_unverified", `budget ${maxTransitions} root fact`);
+    assert.equal(result.domain.rootFact.read?.bytes, expectedBase64, `budget ${maxTransitions} root read bytes`);
+    assert.equal(result.domain.rootFact.inspected?.type, "regular", `budget ${maxTransitions} root inspected type`);
+    assert.ok(result.domain.rootFact.fileRef !== null, `budget ${maxTransitions} root file ref`);
     assert.equal(result.response.report.control.outcome, "exceeded", `budget ${maxTransitions} control outcome`);
     assert.equal(result.response.report.control.stopReason, "budget", `budget ${maxTransitions} stop reason`);
+    const sourceBudget = result.response.report.control.budget;
+    assert.ok(sourceBudget !== undefined, `budget ${maxTransitions} controller exposes budget`);
+    assert.equal(sourceBudget.dimension, "maxTransitions", `budget ${maxTransitions} budget dimension`);
+    assert.equal(sourceBudget.limit, maxTransitions, `budget ${maxTransitions} budget limit`);
+    const preservedBudget = result.domain.preserve.control.budget;
+    assert.ok(preservedBudget !== undefined, `budget ${maxTransitions} preserve control budget present`);
+    assert.deepEqual(preservedBudget, sourceBudget, `budget ${maxTransitions} preserve control budget`);
+    assert.equal(typeof preservedBudget.used, "number", `budget ${maxTransitions} budget used`);
+    assert.equal(typeof preservedBudget.attempted, "number", `budget ${maxTransitions} budget attempted`);
     assert.notEqual(
       result.response.report.rootEvaluation.result,
       "satisfied",
@@ -823,51 +941,79 @@ test("R18 an unissued plain directory reference is rejected with zero execution"
 });
 
 test("R19 a public fileReadIo race before open yields stale_or_unverified without replacement bytes", async t => {
-  const race = { swapped: false, opens: 0 };
-  const raceIo = {
-    lstat: async (path, options) => {
-      if (!race.swapped && basename(path) === "target.bin") {
-        race.swapped = true;
-        const directory = dirname(path);
-        await rename(join(directory, "target.bin"), join(directory, "original.bin"));
-        await rename(join(directory, "swap.bin"), join(directory, "target.bin"));
-      }
-      return lstat(path, options);
-    },
-    open: async (path, flags) => {
-      race.opens += 1;
-      return open(path, flags);
-    },
+  const makeRaceValue = async () => {
+    const race = { swapped: false, opens: 0 };
+    const raceIo = {
+      lstat: async (path, options) => {
+        if (!race.swapped && basename(path) === "target.bin") {
+          race.swapped = true;
+          const directory = dirname(path);
+          await rename(join(directory, "target.bin"), join(directory, "original.bin"));
+          await rename(join(directory, "swap.bin"), join(directory, "target.bin"));
+        }
+        return lstat(path, options);
+      },
+      open: async (path, flags) => {
+        race.opens += 1;
+        return open(path, flags);
+      },
+    };
+    const value = await withProfile(
+      t,
+      [
+        { path: "start/target.bin", kind: "file", contents: "original" },
+        { path: "start/swap.bin", kind: "file", contents: "replaced" },
+      ],
+      { fileReadIo: raceIo },
+    );
+    return { value, race };
   };
-  const value = await withProfile(
-    t,
-    [
-      { path: "start/target.bin", kind: "file", contents: "original" },
-      { path: "start/swap.bin", kind: "file", contents: "replaced" },
-    ],
-    { fileReadIo: raceIo },
+  const req = value => readRequest(
+    value.directory,
+    "target.bin",
+    { offset: 0, length: 8 },
+    b64("original"),
   );
-  const result = await runWith(
-    value,
-    readRequest(value.directory, "target.bin", { offset: 0, length: 8 }, b64("original")),
-  );
-  assert.equal(race.swapped, true, "the public fileReadIo seam performed the swap");
-  assert.equal(race.opens, 1, "the race caused exactly one open");
-  assert.equal(result.domain.status, "unknown");
-  assert.equal(result.domain.resolution, "stale_or_unverified");
-  assert.equal(result.domain.satisfaction, null);
-  assert.equal(result.domain.match, null);
-  assert.equal(result.domain.rootFact.kind, "stale_or_unverified");
-  assert.equal(result.domain.rootFact.read, null, "no stale read fact may be reused as evidence");
-  assert.equal(
-    JSON.stringify(result.domain).includes(b64("replaced")),
-    false,
-    "replacement bytes must not be returned",
-  );
-  const failedReads = result.domain.preserve.atomicResults
+  const failedReads = result => result.domain.preserve.atomicResults
     .filter(item => item.sourceResult?.tag === "cli.file.read.receipt.v1")
     .map(item => item.sourceResult.value.receipt)
     .filter(receipt => receipt.execution.status === "failed");
-  assert.equal(failedReads.length, 1);
-  assert.equal(failedReads[0].execution.error.code, "STALE_REFERENCE");
+
+  // A: 23-transition slice stops on budget after the raced read failed.
+  const a = await makeRaceValue();
+  const budget23 = await runWith(a.value, req(a.value));
+  assert.equal(a.race.swapped, true, "the public fileReadIo seam performed the swap");
+  assert.equal(a.race.opens, 1, "the race caused exactly one open");
+  assert.equal(budget23.domain.status, "unknown");
+  assert.equal(budget23.domain.resolution, "budget_exhausted");
+  assert.equal(budget23.domain.satisfaction, null);
+  assert.equal(budget23.domain.match, null);
+  assert.equal(budget23.domain.rootFact.kind, "stale_or_unverified");
+  assert.equal(budget23.domain.rootFact.read, null, "no stale read fact may be reused as evidence");
+  assert.equal(
+    JSON.stringify(budget23.domain).includes(b64("replaced")),
+    false,
+    "replacement bytes must not be returned",
+  );
+  const budgetFailedReads = failedReads(budget23);
+  assert.equal(budgetFailedReads.length, 1);
+  assert.equal(budgetFailedReads[0].execution.error.code, "STALE_REFERENCE");
+  assert.equal(budget23.response.report.rootEvaluation.result, "unknown");
+  assert.equal(budget23.response.report.control.budget.limit, 23);
+
+  // B: without a transition limit the raced read closes as stale_or_unverified.
+  const b = await makeRaceValue();
+  const unbounded = await runWith(b.value, req(b.value), {
+    limits: undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  assert.equal(unbounded.domain.status, "unknown");
+  assert.equal(unbounded.domain.resolution, "stale_or_unverified");
+  assert.equal(unbounded.domain.satisfaction, null);
+  assert.equal(unbounded.domain.rootFact.kind, "stale_or_unverified");
+  assert.equal(unbounded.domain.rootFact.read, null);
+  const unboundedFailedReads = failedReads(unbounded);
+  assert.equal(unboundedFailedReads.length, 1);
+  assert.equal(unboundedFailedReads[0].execution.error.code, "STALE_REFERENCE");
+  assert.notEqual(unbounded.response.report.control.outcome, "exceeded");
 });

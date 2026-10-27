@@ -70,7 +70,7 @@ export async function runCliEntrySearchGoal(
       state,
       rootEvaluatorId: ROOT_EVALUATOR,
       rootSelectorId: ROOT_SELECTOR,
-      limits: resources.limits,
+      ...(resources.limits === undefined ? {} : { limits: resources.limits }),
     },
     createEntrySearchDependencies(created, resources.signal),
   );

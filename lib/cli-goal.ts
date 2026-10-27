@@ -254,12 +254,6 @@ function narrowSandbox(
   });
 }
 
-const DEFAULT_AUTONOMOUS_LIMITS = Object.freeze({
-  maxTransitions: 20,
-  maxDepth: 4,
-  maxDerivedGoals: 8,
-});
-
 function readEnabledSkills(
   value: readonly string[] | undefined,
   content: boolean,
@@ -433,10 +427,7 @@ export async function runCliAutonomousGoal(request: CliAutonomousRequest): Promi
     }),
     rootEvaluatorId: compositeRoot ? ROOT_EVALUATOR_ID : ATOMIC_EVALUATOR_ID,
     rootSelectorId: compositeRoot ? ROOT_SELECTOR_ID : ATOMIC_SELECTOR_ID,
-    limits: Object.freeze({
-      ...DEFAULT_AUTONOMOUS_LIMITS,
-      ...(request.resources.budget ?? {}),
-    }),
+    ...(request.resources.budget === undefined ? {} : { limits: request.resources.budget }),
   }, createCliAutonomousDependencies(created, allowed, enabledSkills));
   const finalState = created.lastState ?? state;
   return Object.freeze({
@@ -573,10 +564,7 @@ async function runContentBytesGoal(request: CliAutonomousRequest): Promise<CliAu
     }),
     rootEvaluatorId: CONTENT_ROOT_EVALUATOR_ID,
     rootSelectorId: CONTENT_ROOT_SELECTOR_ID,
-    limits: Object.freeze({
-      ...DEFAULT_AUTONOMOUS_LIMITS,
-      ...(request.resources.budget ?? {}),
-    }),
+    ...(request.resources.budget === undefined ? {} : { limits: request.resources.budget }),
   }, createCliAutonomousDependencies(created, allowed, enabledSkills));
   const finalState = created.lastState ?? state;
   const readReceipt = created.readReceipts[0] ?? null;

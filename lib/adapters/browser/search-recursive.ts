@@ -33,7 +33,7 @@ export async function runBrowserSearchGoal(raw:unknown,resources:BrowserSearchRe
     allowedEffects:allowed,retry:'never',effectClass:phase==='root'?'none':phase==='results'?'read_only':'mutating'}));
   const adapter:Adapter={
     async validateRequest(envelope){return {requestId:envelope.requestId,rootGoal,satisfactionThreshold:100,rootBindings:request.bindings,state,
-      rootEvaluatorId:evaluator,rootSelectorId:selector,limits:envelope.limits,initialObservation:{stateId:initial.observationId,evidence:evidenceFor(state,initial.observationId)},continuation:null};},
+      rootEvaluatorId:evaluator,rootSelectorId:selector,...(envelope.limits===undefined?{}:{limits:envelope.limits}),initialObservation:{stateId:initial.observationId,evidence:evidenceFor(state,initial.observationId)},continuation:null};},
     supports:input=>input.goal.kind==='BrowserSearch'&&input.skill.id===skillId(input.goal.phase),
     async evaluate(input){
       const refs=input.evidence.filter(item=>item.validity==='valid'&&item.payload.observationId===input.state.observation.observationId).map(item=>item.id);
@@ -65,8 +65,8 @@ export async function runBrowserSearchGoal(raw:unknown,resources:BrowserSearchRe
     measureProgress:({previousEvaluation,currentEvaluation})=>{const improved=currentEvaluation.result==='satisfied'&&previousEvaluation.result!=='satisfied';return {improved,reason:improved?'facts_improved':'none',comparable:true};},
     async collect(input){await resources.collectRoot?.(input);return {receiptId:`search-collection:${randomUUID()}`};},
   };
-  const limits=request.limits??{maxTransitions:100,maxDepth:3,maxDerivedGoals:3};
-  return runRecursiveGoal({schema:'nnanything.recursive-goal.request.v1',requestId:request.requestId,rootGoal,satisfactionThreshold:100,rootBindings:request.bindings,state,rootEvaluatorId:evaluator,rootSelectorId:selector,limits,
+  const limits=request.limits;
+  return runRecursiveGoal({schema:'nnanything.recursive-goal.request.v1',requestId:request.requestId,rootGoal,satisfactionThreshold:100,rootBindings:request.bindings,state,rootEvaluatorId:evaluator,rootSelectorId:selector,...(limits===undefined?{}:{limits}),
     initialObservation:{stateId:initial.observationId,evidence:evidenceFor(state,initial.observationId)}},
     {adapter,enabledSkills:skills,enabledEvaluators:[{id:evaluator,goalType:'BrowserSearch',thresholdContract:'0..100',allowsPartialSatisfaction:false}],selectors:[{id:selector,skillIds:skills.map(skill=>skill.id)}],
       comparators:{sameGoal:isDeepStrictEqual,sameBindings:isDeepStrictEqual,sameFacts:(left,right)=>isDeepStrictEqual({state:businessFacts(left.state),conditions:left.conditions.map(c=>c.fact)},{state:businessFacts(right.state),conditions:right.conditions.map(c=>c.fact)})},

@@ -112,13 +112,20 @@ function makeRequest({
   };
 }
 
-function runComposition(ctx, parameters) {
+function runComposition(ctx, parameters, options = {}) {
   return runCliReadCompositionGoal(makeRequest(parameters), {
     sandbox: ctx.sandbox,
     session: ctx.session,
     profile,
-    limits,
+    ...("limits" in options ? { limits: options.limits } : { limits }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
+}
+
+// Non-budget business regressions omit the transition limit and instead rely on
+// a process-local cooperative cancel deadline. This never raises the 23 budget.
+function unbounded() {
+  return { limits: undefined, signal: AbortSignal.timeout(15000) };
 }
 
 function readFailure(result) {
@@ -302,7 +309,7 @@ function flatFixture(id, name, contents, extraEntries = []) {
   });
 }
 
-async function flatReadCase({ family, name, fixtureId, fileName, contents, offset, length, expectedBase64, expected }) {
+async function flatReadCase({ family, name, fixtureId, fileName, contents, offset, length, expectedBase64, expected, options = {} }) {
   return runCase({
     family,
     name,
@@ -317,7 +324,7 @@ async function flatReadCase({ family, name, fixtureId, fileName, contents, offse
         offset,
         length,
         expectedBase64,
-      });
+      }, options);
     },
     verify: ({ check, opens, executedActions, result }) => {
       check(opens === 1, `expected one read open, saw ${opens}`);
@@ -545,7 +552,7 @@ cases.push(
         offset: 0,
         length: raceOriginal.length,
         expectedBase64: b64(raceOriginal),
-      });
+      }, unbounded());
       ctx.inodeAfter = await inodeOf(join(ctx.scenarioRoot, "d/f.txt"));
       return result;
     },
@@ -758,7 +765,7 @@ cases.push(
         offset: 1,
         length: 10,
         expectedBase64: Buffer.alloc(10, 0x62).toString("base64"),
-      });
+      }, unbounded());
     },
     verify: ({ check, opens, executedActions, result, actual }) => {
       check(opens === 1, "short read did not open once");
@@ -964,6 +971,7 @@ cases.push(
     length: 5,
     expectedBase64: b64("world"),
     expected: byteMismatch,
+    options: unbounded(),
   }),
 );
 
@@ -1040,6 +1048,7 @@ cases.push(
     length: 3,
     expectedBase64: b64("abd"),
     expected: byteMismatch,
+    options: unbounded(),
   }),
 );
 
