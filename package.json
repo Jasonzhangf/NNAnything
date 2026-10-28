@@ -42,6 +42,10 @@
       "types": "./dist/cli-content-search.d.ts",
       "import": "./dist/cli-content-search.js"
     },
+    "./cli-command-search": {
+      "types": "./dist/cli-command-search.d.ts",
+      "import": "./dist/cli-command-search.js"
+    },
     "./cli-read-feedback": {
       "types": "./dist/cli-read-feedback.d.ts",
       "import": "./dist/cli-read-feedback.js"
@@ -91,6 +95,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:full": "npm run build && node scripts/test-full.mjs",
+    "test:cli-command-search": "node --test tests/cli-command-search.test.mjs",
     "demo": "npm run build && node playground/common/demo.mjs",
     "demo:browser": "npm run build && node playground/browser/demo.mjs",
     "demo:sampling": "npm run build && node playground/sampling/demo.mjs",

@@ -1276,7 +1276,12 @@ function readCommandSearchSemanticReceipt(value: unknown, label: string): Semant
     throw new TypeError(`${label}.status must be succeeded or failed`);
   }
   const call = record(receipt.call, `${label}.call`);
-  if (call.operation !== "directory.search.entries" && call.operation !== "directory.search.content") {
+  if (
+    call.operation !== "directory.search.entries"
+    && call.operation !== "directory.search.content"
+    && call.operation !== "file.read"
+    && call.operation !== "file.read.lines"
+  ) {
     throw new TypeError(`${label}.call.operation is not a command search operation`);
   }
   const execution = record(receipt.execution, `${label}.execution`);

@@ -139,6 +139,7 @@ Agent现场采证与回归直接通过内置浏览器只读DOM，复用浏览器
 - 浏览器行为目录、单步意图选择及分类后元素保留结构：docs/browser-behavior-framework.md，固定为0.1.0-design；单步复用operation-episode的7N6E，接入通用递归框架。已有一次外部原生键鼠搜索合同实验，不代表项目L1/L2/operation运行验收；新结构尚非导出API。
 - 统一CLI共享命令模型与文件系统训练合同唯一owner：docs/cli-filesystem-training.md；参数简化调用合同：docs/cli-call-contract.md。
 - 单目录直接子项的精确名称查找设计、错误/覆盖边界、测试与验收：docs/cli-entry-search-design.md；worker交接：docs/cli-entry-search-worker-prompt.md。内部责任图为workflows/cli-entry-search.graph.json，当前未实现，不扩大原子policy支持域或宣称P3已训练。
+- SC 正式命令搜索产品接入公开入口 `nnanything/cli-command-search`（`runCliCommandSearchGoal`）：Slice 3 复用 Slice 2 的 `lib/filters/cli-command-search.ts` 与 `lib/adapters/cli/command-search-contract.ts`，实现 `runRecursiveGoal` 递归适配器、真实 `sandbox.execute` 搜索/受控读取与 `domain` 投影；支持单范围 `one|all` 与双槽 `one`，双范围 `all` 在公开边界显式 `TypeError` 拒收。模型保持 `uncalibrated/not_applied`，不训练、不改权重/阈值/采用。内部责任图 `workflows/cli-command-search.graph.json`（5N4E SESE），合同见 `docs/cli-filesystem-semantics.md` §8。
 - CLI旧实现到file.property迁移的审计、完成定义、收口步骤与残留退役顺序：docs/cli-migration.md；运行形状仍由上述领域合同维护，本页不复制词表或训练规则。
 - 项目进度和证据汇总由note.md单一owner维护；任务过程材料放仓库外，不建立第二套治理台账。
 

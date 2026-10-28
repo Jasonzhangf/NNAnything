@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import {
+  createCliFilesystemSandbox,
+  runCliCommandSearchGoal,
+} from "../dist/cli-command-search.js";
 import {
   DEFAULT_CLI_HYBRID_SEARCH_REF,
   buildFeatureVector,
@@ -826,4 +830,577 @@ test("strict request/bindings/state/evidence contracts reject forged or malforme
     7,
   );
   assert.equal(restoredCommandSearchSequence(null), 0);
+});
+
+const READ_LINES_LIMITS = Object.freeze({
+  timeoutMs: 10_000,
+  killGraceMs: 1_000,
+  maxStdoutBytes: 64 * 1024,
+  maxStderrBytes: 16 * 1024,
+});
+
+async function commandSearchFixture(t, options = {}) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "nn-cli-command-search-")));
+  const scenarioId = options.scenarioId ?? "sc-product-slice3";
+  const sandbox = await createCliFilesystemSandbox({
+    root,
+    ownerGrantedEffects: ["filesystem.write"],
+    recipe: {
+      scenarioId,
+      entries: options.entries ?? [],
+      sessions: options.sessions ?? [
+        {
+          id: "s",
+          cwd: ".",
+          grantedEffects: ["filesystem.read", "process.exec"],
+        },
+      ],
+    },
+    ...(options.fileReadLinesOptions === undefined
+      ? { fileReadLinesOptions: READ_LINES_LIMITS }
+      : { fileReadLinesOptions: options.fileReadLinesOptions }),
+  });
+  t.after(async () => {
+    await sandbox.cleanup();
+    await rm(root, { recursive: true, force: true });
+  });
+  return {
+    sandbox,
+    scenarioId,
+    session: sandbox.bindSession(options.sessionId ?? "s"),
+  };
+}
+
+async function commandScope(fx, path) {
+  return fx.sandbox.bindDirectory(fx.session, path);
+}
+
+async function commandLiteralRequest(fx, options = {}) {
+  const scopeRefs = await Promise.all((options.paths ?? ["scan"]).map(path => commandScope(fx, path)));
+  return {
+    requestId: options.requestId ?? "sc-slice3-literal",
+    goal: {
+      kind: "file.property",
+      property: "file.property.content.bytes",
+      target: {
+        kind: "cli.command-search-scope",
+        scopeRefs,
+        fileFilter: options.fileFilter ?? null,
+        ignorePolicy: "no_ignore",
+      },
+      requirement: {
+        kind: "contains_literal",
+        queryLiteral: options.needle ?? "needle",
+        cardinality: options.cardinality ?? "all",
+      },
+    },
+  };
+}
+
+async function commandTargetRequest(fx, options = {}) {
+  const scopeRefs = await Promise.all((options.paths ?? ["scan"]).map(path => commandScope(fx, path)));
+  return {
+    requestId: options.requestId ?? "sc-slice3-target",
+    goal: {
+      kind: "file.property",
+      property: "file.property.directory.entries",
+      target: {
+        kind: "cli.command-search-scope",
+        scopeRefs,
+        fileFilter: options.fileFilter ?? { suffix: ".txt" },
+        ignorePolicy: "no_ignore",
+      },
+      requirement: {
+        kind: "matches_target",
+        cardinality: options.cardinality ?? "all",
+        followUpRead: options.followUpRead ?? null,
+      },
+    },
+  };
+}
+
+async function runCommandSearch(fx, request, options = {}) {
+  return runCliCommandSearchGoal(request, {
+    sandbox: fx.sandbox,
+    session: fx.session,
+    l2Model: options.model ?? model,
+    ...(options.explicitLimits === undefined ? {} : { explicitLimits: options.explicitLimits }),
+    ...(options.limits === undefined ? {} : { limits: options.limits }),
+    ...(options.continuation === undefined ? {} : { continuation: options.continuation }),
+  });
+}
+
+function assertRdeaTraceStep(step) {
+  assert.equal(step.R.s0.features.length, 14);
+  assert.equal(step.E.features.length, 19);
+  if (step.D !== null) assert.equal(step.D.features.length, 26);
+  if (step.A !== null) assert.equal(step.A.features.length, 6);
+}
+
+test("Slice 3 T1 public entry runs real literal one/all and target one/all through the sandbox", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t1",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/deep", kind: "directory" },
+      { path: "scan/amber.txt", kind: "file", contents: "alpha\nneedle here\n" },
+      { path: "scan/deep/report.md", kind: "file", contents: "needle deep\n" },
+    ],
+  });
+
+  const literalAll = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, { requestId: "sc-t1-literal-all", cardinality: "all" }),
+  );
+  assert.equal(literalAll.domain.status, "achieved");
+  assert.equal(literalAll.domain.resolution, "matched");
+  assert.equal(literalAll.domain.satisfaction, 100);
+  assert.equal(literalAll.domain.coverage, "complete");
+  assert.equal(literalAll.domain.searchCommandSpawns, 1);
+  assert.equal(literalAll.domain.probeCommandSpawns, 0);
+  assert.deepEqual([...literalAll.domain.matchedEntries], ["amber.txt", "deep/report.md"]);
+  assert.ok(literalAll.domain.stepTrace.length > 0);
+  literalAll.domain.stepTrace.forEach(assertRdeaTraceStep);
+
+  const literalOne = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, { requestId: "sc-t1-literal-one", cardinality: "one" }),
+  );
+  assert.equal(literalOne.domain.status, "achieved");
+  assert.equal(literalOne.domain.resolution, "matched");
+  assert.equal(literalOne.domain.satisfaction, 100);
+  assert.equal(literalOne.domain.searchCommandSpawns, 1);
+
+  const targetAll = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, { requestId: "sc-t1-target-all", cardinality: "all" }),
+  );
+  assert.equal(targetAll.domain.status, "achieved");
+  assert.equal(targetAll.domain.resolution, "matched");
+  assert.equal(targetAll.domain.satisfaction, 100);
+  assert.equal(targetAll.domain.searchCommandSpawns, 1);
+
+  const targetOne = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, { requestId: "sc-t1-target-one", cardinality: "one" }),
+  );
+  assert.equal(targetOne.domain.status, "achieved");
+  assert.equal(targetOne.domain.resolution, "matched");
+  assert.equal(targetOne.domain.satisfaction, 100);
+  assert.equal(targetOne.domain.searchCommandSpawns, 1);
+
+  await assert.rejects(
+    runCliCommandSearchGoal(
+      await commandLiteralRequest(fx, { requestId: "sc-t1-no-model", cardinality: "one" }),
+      { sandbox: fx.sandbox, session: fx.session },
+    ),
+    TypeError,
+  );
+
+  const forged = {
+    kind: "cli.directory",
+    scenarioId: fx.scenarioId,
+    sessionId: "s",
+    path: "not-issued-by-sandbox",
+  };
+  const forgedResult = await runCliCommandSearchGoal(
+    {
+      requestId: "sc-t1-forged",
+      goal: {
+        kind: "file.property",
+        property: "file.property.content.bytes",
+        target: {
+          kind: "cli.command-search-scope",
+          scopeRefs: [forged],
+          fileFilter: null,
+          ignorePolicy: "no_ignore",
+        },
+        requirement: {
+          kind: "contains_literal",
+          queryLiteral: "needle",
+          cardinality: "one",
+        },
+      },
+    },
+    { sandbox: fx.sandbox, session: fx.session, l2Model: model },
+  );
+  assert.equal(forgedResult.domain.status, "rejected");
+  assert.equal(forgedResult.domain.resolution, "rejected");
+  assert.equal(forgedResult.domain.totalProcessSpawns, 0);
+});
+
+test("Slice 3 T2 target hit binds a trusted file and performs controlled line and byte reads", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t2",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/note.txt", kind: "file", contents: "first line\nsecond line\n" },
+    ],
+  });
+
+  const lines = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, {
+      requestId: "sc-t2-lines",
+      cardinality: "one",
+      fileFilter: { exactBasename: "note.txt" },
+      followUpRead: { mode: "lines", anchor: "head", count: 1 },
+    }),
+  );
+  assert.equal(lines.domain.status, "achieved");
+  assert.equal(lines.domain.resolution, "matched");
+  assert.equal(lines.domain.satisfaction, 100);
+  assert.equal(lines.domain.issuedRefs.length, 1);
+  assert.equal(lines.domain.readReceipt?.operation, "file.read.lines");
+  assert.equal(lines.domain.readReceipt?.logicalLines, 1);
+  assert.equal(
+    Buffer.from(lines.domain.readReceipt?.bytesBase64 ?? "", "base64").toString("utf8"),
+    "first line\n",
+  );
+  assert.ok(lines.domain.stepTrace.some(step => step.D?.predictedLabel === "READ_TARGET_S0"));
+
+  const bytes = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, {
+      requestId: "sc-t2-bytes",
+      cardinality: "one",
+      fileFilter: { exactBasename: "note.txt" },
+      followUpRead: { mode: "bytes", offset: 0, length: 5 },
+    }),
+  );
+  assert.equal(bytes.domain.status, "achieved");
+  assert.equal(bytes.domain.resolution, "matched");
+  assert.equal(bytes.domain.readReceipt?.operation, "file.read");
+  assert.equal(
+    Buffer.from(bytes.domain.readReceipt?.bytesBase64 ?? "", "base64").toString("utf8"),
+    "first",
+  );
+});
+
+test("Slice 3 T3 complete negative search terminates unmet and never reports a false success", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t3",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/deep", kind: "directory" },
+      { path: "scan/alpha.txt", kind: "file", contents: "alpha\nbeta\n" },
+      { path: "scan/deep/gamma.txt", kind: "file", contents: "gamma\n" },
+    ],
+  });
+  const result = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-t3-negative",
+      needle: "not-present-anywhere",
+      cardinality: "all",
+    }),
+  );
+  assert.equal(result.domain.status, "unmet");
+  assert.equal(result.domain.resolution, "not_found");
+  assert.equal(result.domain.satisfaction, 0);
+  assert.equal(result.domain.coverage, "complete");
+  assert.equal(result.domain.searchCommandSpawns, 1);
+  assert.deepEqual([...result.domain.matchedEntries], []);
+  assert.ok(result.domain.reasons.includes("no_matching_entries"));
+  assert.equal(result.response.report.rootEvaluation.result, "unsatisfied");
+  // The unmet verdict is derivation-closed trusted evidence, not a masked
+  // execution failure: the controller ended in "error" on a
+  // precondition_unsatisfied diagnostic whose source.category is
+  // "derivation_closed", and no execution/observation/effect failure code is
+  // present. The projection must keep reporting unmet/not_found, not failed.
+  assert.equal(result.domain.preserve.control.outcome, "error");
+  const errors = result.domain.preserve.errors;
+  const primary =
+    errors.find(error => error.errorId === result.domain.preserve.primaryErrorId) ?? errors[0];
+  assert.equal(primary.code, "precondition_unsatisfied");
+  assert.equal(primary.source.category, "derivation_closed");
+  const codes = errors.map(error => error.code);
+  for (const forbidden of ["execution_failed", "evidence_unavailable", "effect_denied"]) {
+    assert.equal(codes.includes(forbidden), false);
+  }
+});
+
+test("Slice 3 T4 dual-slot one uses ordered fallback and early-stops without scanning s1", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t4",
+    entries: [
+      { path: "primary", kind: "directory" },
+      { path: "fallback", kind: "directory" },
+      { path: "primary/alpha.txt", kind: "file", contents: "ordinary\n" },
+      { path: "fallback/hit.txt", kind: "file", contents: "needle fallback\n" },
+    ],
+  });
+
+  const fallback = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-t4-fallback",
+      paths: ["primary", "fallback"],
+      cardinality: "one",
+    }),
+  );
+  assert.equal(fallback.domain.status, "achieved");
+  assert.equal(fallback.domain.resolution, "matched");
+  assert.equal(fallback.domain.satisfaction, 100);
+  assert.equal(fallback.domain.coverage, "complete");
+  assert.equal(fallback.domain.searchCommandSpawns, 2);
+  const labels = fallback.domain.stepTrace.map(step => step.D?.predictedLabel);
+  assert.ok(labels.includes("SEARCH_LITERAL_S0"));
+  assert.ok(labels.includes("SEARCH_LITERAL_S1"));
+  assert.ok(labels.includes("RETURN_RESULT"));
+
+  const early = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-t4-early-stop",
+      paths: ["fallback", "primary"],
+      cardinality: "one",
+    }),
+  );
+  assert.equal(early.domain.status, "achieved");
+  assert.equal(early.domain.resolution, "matched");
+  assert.equal(early.domain.satisfaction, 100);
+  assert.equal(early.domain.coverage, "partial");
+  assert.ok(early.domain.reasons.includes("unsearched_fallback_scope_early_stop"));
+  assert.equal(early.domain.searchCommandSpawns, 1);
+});
+
+test("Slice 3 T5 public domain reports frozen model metadata without digest identity fields", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t5",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/note.txt", kind: "file", contents: "needle\n" },
+    ],
+  });
+  const result = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, { requestId: "sc-t5-metadata", cardinality: "one" }),
+  );
+  assert.deepEqual(result.domain.modelMetadata.ref, DEFAULT_CLI_HYBRID_SEARCH_REF);
+  assert.equal(result.domain.modelMetadata.schema, "cli.hybrid-package.v1");
+  assert.equal(result.domain.modelMetadata.calibration, "uncalibrated");
+  assert.equal(result.domain.modelMetadata.adoption, "not_applied");
+  for (const key of ["hash", "digest", "sha256", "checksum"]) {
+    assert.equal(Object.hasOwn(result.domain.modelMetadata, key), false);
+    assert.equal(Object.hasOwn(result.domain.modelMetadata.ref, key), false);
+  }
+});
+
+test("Slice 3 T6 budget continuation resumes at s1 and rejects a different model ref", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t6",
+    entries: [
+      { path: "primary", kind: "directory" },
+      { path: "fallback", kind: "directory" },
+      { path: "primary/alpha.txt", kind: "file", contents: "ordinary\n" },
+      { path: "fallback/hit.txt", kind: "file", contents: "needle fallback\n" },
+    ],
+  });
+  const request = await commandLiteralRequest(fx, {
+    requestId: "sc-t6-continuation",
+    paths: ["primary", "fallback"],
+    cardinality: "one",
+  });
+  const first = await runCommandSearch(fx, request, {
+    limits: { maxTransitions: 6, maxDepth: 8, maxDerivedGoals: 4 },
+  });
+  assert.equal(first.domain.status, "unknown");
+  assert.equal(first.domain.resolution, "budget_exhausted");
+  assert.equal(first.domain.satisfaction, null);
+  assert.equal(first.domain.searchCommandSpawns, 1);
+  assert.notEqual(first.domain.preserve.continuation, null);
+
+  const second = await runCommandSearch(fx, request, {
+    continuation: first.domain.preserve.continuation,
+  });
+  assert.equal(second.domain.status, "achieved");
+  assert.equal(second.domain.resolution, "matched");
+  assert.equal(second.domain.satisfaction, 100);
+  assert.equal(second.domain.searchCommandSpawns, 2);
+  assert.equal(second.domain.preserve.continuation, null);
+  assert.ok(
+    second.response.report.budgetUsed.transitionsUsed
+      > first.response.report.budgetUsed.transitionsUsed,
+  );
+  assert.ok(second.domain.stepTrace.some(step => step.D?.predictedLabel === "SEARCH_LITERAL_S1"));
+
+  const mismatched = await runCliCommandSearchGoal(
+    { ...request, requestId: "sc-t6-continuation-other" },
+    {
+      sandbox: fx.sandbox,
+      session: fx.session,
+      l2Model: {
+        ...model,
+        ref: { id: "cli.hybrid-search", version: "other" },
+      },
+      continuation: first.domain.preserve.continuation,
+    },
+  );
+  assert.equal(mismatched.domain.status, "rejected");
+  assert.equal(mismatched.domain.resolution, "rejected");
+});
+
+test("Slice 3 T7 rejects multi-scope cardinality all at the public boundary", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t7",
+    entries: [
+      { path: "primary", kind: "directory" },
+      { path: "fallback", kind: "directory" },
+    ],
+  });
+  await assert.rejects(
+    runCommandSearch(
+      fx,
+      await commandLiteralRequest(fx, {
+        requestId: "sc-t7-no-multi-all",
+        paths: ["primary", "fallback"],
+        cardinality: "all",
+      }),
+    ),
+    /multi-scope cardinality all/,
+  );
+});
+
+test("Slice 3 T7a truncated zero-hit literal search projects unknown insufficient_evidence", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t7a",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/big.txt", kind: "file", contents: `${"x".repeat(5000)}\n` },
+    ],
+  });
+  const result = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-t7a-truncated-empty",
+      needle: "needle",
+      cardinality: "all",
+    }),
+    { explicitLimits: { maxStdoutBytes: 64 } },
+  );
+  const d = result.domain;
+  assert.equal(d.status, "unknown");
+  assert.equal(d.resolution, "insufficient_evidence");
+  assert.equal(d.satisfaction, null);
+  assert.equal(d.coverage, "partial");
+  assert.ok(d.reasons.includes("stdout_max_bytes_exceeded"));
+  assert.deepEqual([...d.matchedEntries], []);
+  assert.equal(d.totalProcessSpawns, 1);
+});
+
+test("Slice 3 T7b truncated literal search with an existing hit projects unknown partial", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t7b",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/hits.txt", kind: "file", contents: `${Array.from({ length: 100 }, () => "needle").join("\n")}\n` },
+    ],
+  });
+  const result = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-t7b-truncated-hit",
+      needle: "needle",
+      cardinality: "all",
+    }),
+    { explicitLimits: { maxStdoutBytes: 256 } },
+  );
+  const d = result.domain;
+  assert.equal(d.status, "unknown");
+  assert.equal(d.resolution, "partial");
+  assert.equal(d.satisfaction, null);
+  assert.equal(d.coverage, "partial");
+  assert.ok(d.reasons.includes("stdout_max_bytes_exceeded"));
+  assert.ok(d.matchedEntries.length > 0);
+  assert.equal(d.totalProcessSpawns, 1);
+});
+
+test("Slice 3 T2a a session without process.exec is rejected before any spawn", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t2a",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/a.txt", kind: "file", contents: "needle\n" },
+    ],
+    sessions: [{ id: "s", cwd: ".", grantedEffects: ["filesystem.read"] }],
+  });
+  const result = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-t2a-no-exec",
+      needle: "needle",
+      cardinality: "one",
+    }),
+  );
+  assert.equal(result.domain.status, "rejected");
+  assert.equal(result.domain.resolution, "rejected");
+  assert.equal(result.domain.totalProcessSpawns, 0);
+});
+
+test("Slice 3 T2b a final directory symlink is rejected with native FINAL_SYMLINK and no spawn", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t2b",
+    entries: [
+      { path: "real", kind: "directory" },
+      { path: "real/a.txt", kind: "file", contents: "needle\n" },
+    ],
+  });
+  await symlink(join(fx.sandbox.scenarioRoot, "real"), join(fx.sandbox.scenarioRoot, "scan-link"));
+  const scope = await fx.sandbox.bindDirectory(fx.session, "scan-link");
+  const request = {
+    requestId: "sc-t2b-final-symlink",
+    goal: {
+      kind: "file.property",
+      property: "file.property.content.bytes",
+      target: {
+        kind: "cli.command-search-scope",
+        scopeRefs: [scope],
+        fileFilter: null,
+        ignorePolicy: "no_ignore",
+      },
+      requirement: { kind: "contains_literal", queryLiteral: "needle", cardinality: "one" },
+    },
+  };
+  const result = await runCommandSearch(fx, request);
+  assert.equal(result.domain.status, "rejected");
+  assert.equal(result.domain.resolution, "rejected");
+  assert.equal(result.domain.totalProcessSpawns, 0);
+  const nativeCodes = result.domain.preserve.errors.map(error => error.source?.nativeCode).filter(Boolean);
+  assert.ok(nativeCodes.includes("FINAL_SYMLINK"), `expected FINAL_SYMLINK, got ${JSON.stringify(nativeCodes)}`);
+});
+
+test("Slice 3 T5b a fallback slot hit binds and reads through READ_TARGET_S1", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t5b",
+    entries: [
+      { path: "primary", kind: "directory" },
+      { path: "fallback", kind: "directory" },
+      { path: "primary/alpha.md", kind: "file", contents: "ordinary\n" },
+      { path: "fallback/hit.txt", kind: "file", contents: "target line one\ntarget line two\n" },
+    ],
+  });
+  const result = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, {
+      requestId: "sc-t5b-read-s1",
+      paths: ["primary", "fallback"],
+      cardinality: "one",
+      fileFilter: { suffix: ".txt" },
+      followUpRead: { mode: "lines", anchor: "head", count: 1 },
+    }),
+  );
+  const d = result.domain;
+  assert.equal(d.status, "achieved");
+  assert.equal(d.resolution, "matched");
+  assert.equal(d.satisfaction, 100);
+  assert.ok(d.stepTrace.some(step => step.D?.predictedLabel === "READ_TARGET_S1"));
+  assert.equal(d.readReceipt?.slot, "s1");
+  assert.equal(d.readReceipt?.operation, "file.read.lines");
+  assert.equal(d.issuedRefs.length, 1);
+  assert.equal(d.searchCommandSpawns, 2);
+  assert.equal(
+    Buffer.from(d.readReceipt?.bytesBase64 ?? "", "base64").toString("utf8"),
+    "target line one\n",
+  );
 });

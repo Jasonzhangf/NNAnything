@@ -678,6 +678,29 @@ export function projectCommandSearchDomain(
     satisfaction = null;
     coverage = "partial";
     addReason("interrupted");
+  } else if (outcome === "yielded") {
+    status = "unknown";
+    resolution = report.continuation !== null ? "budget_exhausted" : "insufficient_evidence";
+    satisfaction = null;
+    coverage = facts.searchedCount > 0 ? "partial" : null;
+    addReason(resolution);
+  } else if (rootResult === "satisfied" && hasHit) {
+    // A decisive satisfied root is authoritative even when the finite
+    // derivation closed with a precondition_unsatisfied diagnostic. Only
+    // genuine reject/execution failures leave the root non-decisive.
+    status = "achieved";
+    resolution = "matched";
+    satisfaction = 100;
+    coverage = facts.anyPartial || s1UnsearchedEarlyStop ? "partial" : "complete";
+    if (s1UnsearchedEarlyStop) addReason("unsearched_fallback_scope_early_stop");
+  } else if (rootResult === "unsatisfied") {
+    // A complete search that exhausts every enabled slot without a hit is
+    // authoritative not-found evidence, not an execution failure.
+    status = "unmet";
+    resolution = "not_found";
+    satisfaction = 0;
+    coverage = facts.anyPartial ? "partial" : "complete";
+    addReason("no_matching_entries");
   } else if (outcome === "error") {
     const codes = new Set(errorCodes(report));
     const rejected =
@@ -685,30 +708,38 @@ export function projectCommandSearchDomain(
       || codes.has("invalid_binding")
       || codes.has("invalid_request")
       || codes.has("adapter_contract_invalid");
-    status = rejected ? "rejected" : "failed";
-    resolution = rejected ? "rejected" : "failed";
-    satisfaction = null;
-    coverage = rejected ? null : facts.anyPartial ? "partial" : null;
-    addReason(rejected ? "rejected" : "failed");
-    for (const code of codes) addReason(code);
-  } else if (outcome === "yielded") {
-    status = "unknown";
-    resolution = report.continuation !== null ? "budget_exhausted" : "insufficient_evidence";
-    satisfaction = null;
-    coverage = facts.searchedCount > 0 ? "partial" : null;
-    addReason(resolution);
-  } else if (outcome === "completed" && rootResult === "satisfied" && hasHit) {
-    status = "achieved";
-    resolution = "matched";
-    satisfaction = 100;
-    coverage = facts.anyPartial || s1UnsearchedEarlyStop ? "partial" : "complete";
-    if (s1UnsearchedEarlyStop) addReason("unsearched_fallback_scope_early_stop");
-  } else if (outcome === "completed" && rootResult === "unsatisfied") {
-    status = "unmet";
-    resolution = "not_found";
-    satisfaction = 0;
-    coverage = facts.anyPartial ? "partial" : "complete";
-    addReason("no_matching_entries");
+    // A finite derivation that closed on trusted-but-insufficient evidence
+    // (e.g. stdout truncation, EACCES, maxDepth) is partial evidence, not a
+    // generic execution failure. Mirror the cli-content-search PARTIAL_CODES
+    // mapping; genuine reject/execution-failure codes keep their own paths.
+    const derivationClosed =
+      codes.has("evidence_unavailable")
+      || codes.has("precondition_unsatisfied")
+      || report.errors.some(
+        error => isRecord(error.source) && error.source.category === "derivation_closed",
+      );
+    if (rejected) {
+      status = "rejected";
+      resolution = "rejected";
+      satisfaction = null;
+      coverage = null;
+      addReason("rejected");
+      for (const code of codes) addReason(code);
+    } else if (derivationClosed) {
+      status = "unknown";
+      resolution = hasHit ? "partial" : "insufficient_evidence";
+      satisfaction = null;
+      coverage = facts.anyPartial || facts.searchedCount > 0 ? "partial" : null;
+      addReason(resolution);
+      for (const code of codes) addReason(code);
+    } else {
+      status = "failed";
+      resolution = "failed";
+      satisfaction = null;
+      coverage = facts.anyPartial ? "partial" : null;
+      addReason("failed");
+      for (const code of codes) addReason(code);
+    }
   } else {
     // Completed with unknown evidence, a stalled run, or any unclassified
     // non-terminal control outcome stays inconclusive rather than synthesizing
