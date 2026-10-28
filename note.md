@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-28 SC CLI 命令级递归查找产品接入已集成 main
+
+SC（`nnanything/cli-command-search` → `runCliCommandSearchGoal`）正式产品接入里程碑已集成 main（merge `e528e51`，特性提交 `f7e23a7`、`3687e62`、`db79bf4`，base `62ba681`）。范围是单命令子树 `directory.search.entries` / `directory.search.content`、受控 `file.read` / `file.read.lines`、`s0/s1` 双槽位与 `continuation`；新增 5N4E SESE `workflows/cli-command-search.graph.json`，复用 `runRecursiveGoal`、`filesystem-sandbox` 和 `l2-hybrid-package`，未改共享控制器、预算语义、权重、gold、阈值、采用或训练。
+
+独立 milestone Review 共三轮：首轮 FAIL 五项 P1（预派发 continuation 恢复、深度检查跟随符号链接、grep 不守 `maxDepth`、followUpRead 特征伪造、ripgrep bytes 记录丢失）；修复 `3687e62` 后复核关闭四项、残留 F4 的 `actual.N/16` 应取 observation `requestedCount`；修复 `db79bf4` 后 `sc-milestone-review-3` PASS、findings=[]。Review 原件归档 `/Volumes/Intel/playground/nnanything-runs/sc-milestone-review-20261028/`。修复 red/green 证据在 `/Volumes/Intel/playground/nnanything-runs/sc-milestone-review-1-fixes/` 与 `sc-milestone-review-2-fixes/`。
+
+验收：`npm run build` exit 0；SC 两套件 35/35；受影响回归 125/125；全量 1753 例、1742 通过、10 失败、1 跳过。10 项失败均为 `tests/cli-read-feedback-online.test.mjs` 缺本地 `playground/cli/read-feedback/out/` 产物，主树 base `62ba681` 同样 10 失败，无新增回归。期间 `l2-mlp-backend` R3 计时断言失败一次，隔离两次均 24 通过/0 失败，重跑全量未复现，按既有间歇性计时失败记录，不归因本切片。master 独立基线在 `/Volumes/Intel/playground/nnanything-runs/sc-master-verify-20261028/`。SC worktree 与分支在合流后按 SESE 回收。
+
 ## 2026-10-26 G3 shared-E 三段结构 milestone 已集成 main
 
 整体 milestone Review 首轮 FAIL：标准训练器 `/Volumes/Intel/playground/nnanything/standard-training-runner`（branch `codex/standard-training-runner`，base `085e592`）三处 P1。(1) 通用 `head-rows-jsonl` 可让 Head E 绕过回执已知性、固定规则/gold 与固定路由门禁，伪造 `family=read`、`receiptFact={known:true,present:true}`；(2) `DATA_INVALID` 时 evaluate/validate-data 无条件删除既有 `candidatePackagePath`；(3) 已完成更新后后端失败被报告为零步且累计计时未更新。Review 原件与证据在 `.agent-collab/review/l2-standard-hybrid-milestone-review-1/`。
