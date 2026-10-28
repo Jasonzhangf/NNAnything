@@ -177,6 +177,9 @@ function requiredEffectsForOperation(
     case "entry.inspect":
     case "file.read.lines":
       return OBSERVE_EFFECTS;
+    case "directory.search.entries":
+    case "directory.search.content":
+      return Object.freeze(["filesystem.read", "process.exec"]);
     default: {
       const exhaustive: never = operation;
       throw new TypeError(`Unsupported semantic CLI operation: ${String(exhaustive)}`);
@@ -212,6 +215,9 @@ function sessionRefOf(ref: Readonly<{ scenarioId: string; sessionId: string }>):
 
 function sessionOfSemanticCall(call: SemanticCliCall): SessionRef {
   if (call.operation === "cwd.get" || call.operation === "cwd.set" || call.operation === "directory.list") {
+    return call.parameters.session;
+  }
+  if (call.operation === "directory.search.entries" || call.operation === "directory.search.content") {
     return call.parameters.session;
   }
   if (call.operation === "path.resolve") return sessionRefOf(call.parameters.base);

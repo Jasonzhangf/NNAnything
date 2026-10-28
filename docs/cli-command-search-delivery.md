@@ -28,3 +28,22 @@ written as the work actually progresses.
   commit Phase 1.
 - **No blockers.** Worker is actively editing; no external-repo reads, no
   training, no gold/weight changes, no digest ceremony.
+
+- **Node: Phase 1 actual test update (correcting prior note)** — The earlier
+  line said "red tests not yet written"; it was stale. Real log evidence:
+  - `node --test tests/cli-command-search-sandbox.test.mjs` => `# pass 8 / # fail 0`
+    (T0a/T0b cross-chunk + unterminated-fragment, T1 rg, T2 explicit stdout
+    limit => partial, T3 find fallback, T4 grep NUL parse, T5 effect/binding/
+    final-symlink gates reject before spawn, plus T6/T7).
+  - `node --test tests/cli-command-search-sandbox.test.mjs tests/cli-cd-sandbox.test.mjs tests/cli-cwd-sandbox.test.mjs tests/cli-file-read-lines-sandbox.test.mjs tests/cli-file-read-sandbox.test.mjs tests/cli-filesystem-binding.test.mjs tests/cli-filesystem-evaluation.test.mjs tests/cli-filesystem-independent.test.mjs tests/cli-entry-inspect.test.mjs tests/cli-list.test.mjs` => `# pass 69 / # fail 0`.
+  - With `NN_HANDWIRED_ROOT=/Volumes/extension/code/handwired`,
+    `NN_CLI_COMMAND_PROFILE=.../35bd5ad9-.../candidate.json`,
+    `NN_CWD_RELATION_PROFILE=.../0dbccef3-.../relation-candidate.json`:
+    `node --test tests/cli-entry-search.test.mjs tests/cli-content-search.test.mjs tests/cli-content-search-m2.test.mjs` => `# pass 80 / # fail 0`.
+  - Red-first caveat: the first-green of these 8 tests ran against the current
+    implementation, so it is not a commit-level red-first proof. Failure
+    evidence for the red side is being kept separately in this worktree's
+    temporary test scratch and will be named in the Phase 1 commit message.
+- **Node: Phase 1 commit** — Will commit the implemented sandbox branch
+  (`filesystem-sandbox.ts`, `directory-command-search.ts`, `cli-goal.ts`) plus
+  the sandbox tests with the real pass/fail and the red evidence path.

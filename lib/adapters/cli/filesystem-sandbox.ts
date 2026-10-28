@@ -31,9 +31,25 @@ import {
   type ObservedObjectRef,
   type PathRef,
 } from "./entry-inspection.js";
+import {
+  runDirectorySearchCommand,
+  resolveCapabilities,
+  type CliCommandFileFilter,
+  type CliCommandIgnorePolicy,
+  type CliCommandSearchLimits,
+  type CommandMatchedLineRecord,
+  type CommandSearchTool,
+  type CommandSpawnLedgerEntry,
+} from "./directory-command-search.js";
 import type { CliEffect as ObservationEffect, CliFailure, CliResult, PwdObservation } from "./observation.js";
 
 export type { ObservedEntrySnapshot } from "./entry-inspection.js";
+export type {
+  CommandMatchedLineRecord,
+  CommandSearchTool,
+  CommandSpawnLedgerEntry,
+} from "./directory-command-search.js";
+export type { CliCommandFileFilter, CliCommandIgnorePolicy, CliCommandSearchLimits } from "./directory-command-search.js";
 
 export type CliSandboxEffect = ObservationEffect | "session.write";
 type CliEffect = CliSandboxEffect;
@@ -133,6 +149,29 @@ export type SemanticFileReadLinesCall = Readonly<{
   }>;
 }>;
 
+export type SemanticDirectorySearchEntriesCall = Readonly<{
+  operation: "directory.search.entries";
+  parameters: Readonly<{
+    session: SessionRef;
+    directory: DirectoryRef;
+    fileFilter: CliCommandFileFilter | null;
+    ignorePolicy: CliCommandIgnorePolicy;
+    explicitLimits?: CliCommandSearchLimits;
+  }>;
+}>;
+
+export type SemanticDirectorySearchContentCall = Readonly<{
+  operation: "directory.search.content";
+  parameters: Readonly<{
+    session: SessionRef;
+    directory: DirectoryRef;
+    queryLiteral: string;
+    fileFilter: CliCommandFileFilter | null;
+    ignorePolicy: CliCommandIgnorePolicy;
+    explicitLimits?: CliCommandSearchLimits;
+  }>;
+}>;
+
 export type SemanticCliCall =
   | SemanticCwdGetCall
   | SemanticCwdSetCall
@@ -142,7 +181,9 @@ export type SemanticCliCall =
   | SemanticPathPartsCall
   | SemanticEntryInspectCall
   | SemanticFileReadCall
-  | SemanticFileReadLinesCall;
+  | SemanticFileReadLinesCall
+  | SemanticDirectorySearchEntriesCall
+  | SemanticDirectorySearchContentCall;
 
 export type CwdSetObservation = Readonly<{
   kind: "cwd.set";
@@ -244,7 +285,9 @@ export type SemanticCallReceipt = Readonly<{
           | PathPartsCallObservation
           | EntryInspectObservation
           | FileReadObservation
-          | FileReadLinesObservation;
+          | FileReadLinesObservation
+          | DirectorySearchEntriesObservation
+          | DirectorySearchContentObservation;
       }>
     | Readonly<{
         status: "failed";
@@ -253,6 +296,56 @@ export type SemanticCallReceipt = Readonly<{
         error: CliFailure;
         process?: FileReadLinesProcess;
       }>;
+}>;
+
+export type DirectorySearchEntriesObservation = Readonly<{
+  kind: "directory.search.entries";
+  directory: DirectoryRef;
+  configuredDirectory: string;
+  physicalDirectory: string;
+  toolUsed: "rg_files" | "find_P";
+  executable: string;
+  argv: readonly string[];
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  stdoutBytesRead: number;
+  stdoutChunkCount: number;
+  crossChunkRecordSplits: number;
+  unterminatedRemainderBytes: number;
+  unterminatedFragmentDiscarded: boolean;
+  stderr: string;
+  normalCompleted: boolean;
+  coverage: "complete" | "partial";
+  reasons: readonly string[];
+  matchedEntries: readonly string[];
+  queryMatches: 1;
+  spawnLedger: readonly CommandSpawnLedgerEntry[];
+}>;
+
+export type DirectorySearchContentObservation = Readonly<{
+  kind: "directory.search.content";
+  directory: DirectoryRef;
+  configuredDirectory: string;
+  physicalDirectory: string;
+  queryLiteral: string;
+  toolUsed: "rg" | "grep_bsd" | "grep_gnu";
+  executable: string;
+  argv: readonly string[];
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  stdoutBytesRead: number;
+  stdoutChunkCount: number;
+  crossChunkRecordSplits: number;
+  unterminatedRemainderBytes: number;
+  unterminatedFragmentDiscarded: boolean;
+  stderr: string;
+  normalCompleted: boolean;
+  coverage: "complete" | "partial";
+  reasons: readonly string[];
+  matchedEntries: readonly string[];
+  matchedLines: readonly CommandMatchedLineRecord[];
+  queryMatches: 1;
+  spawnLedger: readonly CommandSpawnLedgerEntry[];
 }>;
 
 /** Typed test dependency for the postcommit observation branch. */
@@ -302,10 +395,19 @@ type SandboxState = {
   readonly listingObserver?: DirectoryListingObserver;
   readonly fileReadIo?: FileReadIo;
   readonly fileReadLinesOptions?: FileReadLinesOptions;
+  readonly commandSearchLimits?: CliCommandSearchLimits;
+  readonly commandSearchCapabilities?: CommandSearchCapabilities;
   readonly boundRefs: Map<string, ObservedObjectRef>;
   readonly issuedDirectoryRefs: Map<string, number>;
   active: boolean;
 };
+
+export type CommandSearchCapabilities = Readonly<{
+  rg: string | null;
+  grep: string | null;
+  grepFlavor: "unprobed" | "bsd" | "gnu";
+  find: string | null;
+}>;
 
 const execFileAsync = promisify(execFile);
 
@@ -482,6 +584,140 @@ function readDirectoryRef(value: unknown): DirectoryRef {
   });
 }
 
+function readCommandSearchFileFilter(
+  value: unknown,
+  label: string,
+): CliCommandFileFilter | null {
+  if (value === null) return null;
+  const record = expectRecord(value, label);
+  if (Object.keys(record).some(key => key !== "exactBasename" && key !== "suffix")) {
+    throw new TypeError(`${label} contains unsupported fields`);
+  }
+  if (!Object.hasOwn(record, "exactBasename") && !Object.hasOwn(record, "suffix")) {
+    throw new TypeError(`${label} needs exactBasename or suffix`);
+  }
+  const filter: { exactBasename?: string; suffix?: string } = {};
+  if (Object.hasOwn(record, "exactBasename")) {
+    const exact = nonEmpty(record.exactBasename, `${label}.exactBasename`);
+    if (exact === "." || exact === ".." || exact.includes("/") || exact.includes("\\")) {
+      throw new TypeError(`${label}.exactBasename must be a single name segment`);
+    }
+    filter.exactBasename = exact;
+  }
+  if (Object.hasOwn(record, "suffix")) {
+    const suffix = nonEmpty(record.suffix, `${label}.suffix`);
+    if (suffix.includes("\r") || suffix.includes("\n")) {
+      throw new TypeError(`${label}.suffix must not contain line breaks`);
+    }
+    filter.suffix = suffix;
+  }
+  return Object.freeze(filter);
+}
+
+function readCommandSearchIgnorePolicy(value: unknown, label: string): CliCommandIgnorePolicy {
+  if (value !== "no_ignore" && value !== "respect_vcs_ignore") {
+    throw new TypeError(`${label} must be no_ignore or respect_vcs_ignore`);
+  }
+  return value;
+}
+
+function readCommandSearchLimits(value: unknown, label: string): CliCommandSearchLimits {
+  const record = expectRecord(value, label);
+  if (Object.keys(record).some(key => !["maxStdoutBytes", "maxDepth", "timeoutMs"].includes(key))) {
+    throw new TypeError(`${label} contains unsupported fields`);
+  }
+  const limits: { maxStdoutBytes?: number; maxDepth?: number; timeoutMs?: number } = {};
+  if (Object.hasOwn(record, "maxStdoutBytes")) {
+    const maxStdoutBytes = record.maxStdoutBytes;
+    if (!Number.isSafeInteger(maxStdoutBytes) || (maxStdoutBytes as number) <= 0) {
+      throw new TypeError(`${label}.maxStdoutBytes must be a positive safe integer`);
+    }
+    limits.maxStdoutBytes = maxStdoutBytes as number;
+  }
+  if (Object.hasOwn(record, "maxDepth")) {
+    const maxDepth = record.maxDepth;
+    if (!Number.isSafeInteger(maxDepth) || (maxDepth as number) < 0) {
+      throw new TypeError(`${label}.maxDepth must be a non-negative safe integer`);
+    }
+    limits.maxDepth = maxDepth as number;
+  }
+  if (Object.hasOwn(record, "timeoutMs")) {
+    const timeoutMs = record.timeoutMs;
+    if (!Number.isSafeInteger(timeoutMs) || (timeoutMs as number) <= 0) {
+      throw new TypeError(`${label}.timeoutMs must be a positive safe integer`);
+    }
+    limits.timeoutMs = timeoutMs as number;
+  }
+  return Object.freeze(limits);
+}
+
+function readCommandSearchCapabilities(value: unknown): CommandSearchCapabilities {
+  const record = expectRecord(value, "sandbox commandSearchCapabilities");
+  exactKeys(record, ["rg", "grep", "grepFlavor", "find"], "sandbox commandSearchCapabilities");
+  const binary = (candidate: unknown, label: string): string | null => {
+    if (candidate === null) return null;
+    if (typeof candidate !== "string" || candidate.length === 0) {
+      throw new TypeError(`${label} must be a non-empty string or null`);
+    }
+    return candidate;
+  };
+  if (record.grepFlavor !== "unprobed" && record.grepFlavor !== "bsd" && record.grepFlavor !== "gnu") {
+    throw new TypeError("sandbox commandSearchCapabilities.grepFlavor must be unprobed, bsd or gnu");
+  }
+  return Object.freeze({
+    rg: binary(record.rg, "sandbox commandSearchCapabilities.rg"),
+    grep: binary(record.grep, "sandbox commandSearchCapabilities.grep"),
+    grepFlavor: record.grepFlavor,
+    find: binary(record.find, "sandbox commandSearchCapabilities.find"),
+  });
+}
+
+function readDirectorySearchParameters(
+  value: unknown,
+  needsQueryLiteral: boolean,
+): Readonly<{
+  session: SessionRef;
+  directory: DirectoryRef;
+  queryLiteral?: string;
+  fileFilter: CliCommandFileFilter | null;
+  ignorePolicy: CliCommandIgnorePolicy;
+  explicitLimits?: CliCommandSearchLimits;
+}> {
+  const parameters = expectRecord(value, "semantic CLI parameters");
+  const required = needsQueryLiteral
+    ? ["session", "directory", "queryLiteral", "fileFilter", "ignorePolicy"]
+    : ["session", "directory", "fileFilter", "ignorePolicy"];
+  const allowed = [...required, "explicitLimits"];
+  if (Object.keys(parameters).length < required.length || Object.keys(parameters).some(key => !allowed.includes(key))) {
+    throw new TypeError(`semantic CLI parameters must contain exactly ${allowed.join(", ")} (explicitLimits optional)`);
+  }
+  for (const key of required) {
+    if (!Object.hasOwn(parameters, key)) throw new TypeError(`semantic CLI parameters.${key} is required`);
+  }
+  const queryLiteral = needsQueryLiteral ? parameters.queryLiteral : undefined;
+  if (needsQueryLiteral) {
+    if (
+      typeof queryLiteral !== "string" ||
+      queryLiteral.length === 0 ||
+      queryLiteral.includes("\0") ||
+      queryLiteral.includes("\r") ||
+      queryLiteral.includes("\n")
+    ) {
+      throw new TypeError("semantic CLI parameters.queryLiteral must be a non-empty single-line string without NUL");
+    }
+  }
+  return Object.freeze({
+    session: readSessionRef(parameters.session),
+    directory: readDirectoryRef(parameters.directory),
+    ...(needsQueryLiteral ? { queryLiteral: queryLiteral as string } : {}),
+    fileFilter: readCommandSearchFileFilter(parameters.fileFilter, "semantic CLI parameters.fileFilter"),
+    ignorePolicy: readCommandSearchIgnorePolicy(parameters.ignorePolicy, "semantic CLI parameters.ignorePolicy"),
+    ...(Object.hasOwn(parameters, "explicitLimits")
+      ? { explicitLimits: readCommandSearchLimits(parameters.explicitLimits, "semantic CLI parameters.explicitLimits") }
+      : {}),
+  });
+}
+
 export function readSemanticCliCall(value: unknown): SemanticCliCall {
   const call = expectRecord(value, "semantic CLI call");
   exactKeys(call, ["operation", "parameters"], "semantic CLI call");
@@ -596,7 +832,34 @@ export function readSemanticCliCall(value: unknown): SemanticCliCall {
       }),
     });
   }
-  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts, entry.inspect, file.read and file.read.lines are supported");
+  if (call.operation === "directory.search.entries") {
+    const parameters = readDirectorySearchParameters(call.parameters, false);
+    return Object.freeze({
+      operation: "directory.search.entries",
+      parameters: Object.freeze({
+        session: parameters.session,
+        directory: parameters.directory,
+        fileFilter: parameters.fileFilter,
+        ignorePolicy: parameters.ignorePolicy,
+        ...(parameters.explicitLimits === undefined ? {} : { explicitLimits: parameters.explicitLimits }),
+      }),
+    });
+  }
+  if (call.operation === "directory.search.content") {
+    const parameters = readDirectorySearchParameters(call.parameters, true);
+    return Object.freeze({
+      operation: "directory.search.content",
+      parameters: Object.freeze({
+        session: parameters.session,
+        directory: parameters.directory,
+        queryLiteral: parameters.queryLiteral as string,
+        fileFilter: parameters.fileFilter,
+        ignorePolicy: parameters.ignorePolicy,
+        ...(parameters.explicitLimits === undefined ? {} : { explicitLimits: parameters.explicitLimits }),
+      }),
+    });
+  }
+  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts, entry.inspect, file.read, file.read.lines, directory.search.entries and directory.search.content are supported");
 }
 
 function snapshot(state: SandboxState, ref: SessionRef): SessionSnapshot {
@@ -651,6 +914,9 @@ function sessionOfRef(ref: PathRef | ObservedObjectRef | LegacyDirectoryRef): Se
 
 function sessionOfCall(call: SemanticCliCall): SessionRef {
   if (call.operation === "cwd.get" || call.operation === "cwd.set" || call.operation === "directory.list") {
+    return call.parameters.session;
+  }
+  if (call.operation === "directory.search.entries" || call.operation === "directory.search.content") {
     return call.parameters.session;
   }
   if (call.operation === "path.resolve") return sessionOfRef(call.parameters.base);
@@ -1210,6 +1476,122 @@ async function executeFileReadLines(state: SandboxState, call: SemanticFileReadL
   });
 }
 
+function mergedCommandSearchLimits(
+  base: CliCommandSearchLimits | undefined,
+  override: CliCommandSearchLimits | undefined,
+): CliCommandSearchLimits | undefined {
+  if (base === undefined && override === undefined) return undefined;
+  return Object.freeze({ ...(base ?? {}), ...(override ?? {}) });
+}
+
+async function executeDirectorySearch(
+  state: SandboxState,
+  call: SemanticDirectorySearchEntriesCall | SemanticDirectorySearchContentCall,
+  before: SessionSnapshot,
+): Promise<SemanticCallReceipt> {
+  const runId = randomUUID();
+  const { session, directory } = call.parameters;
+  if (session.scenarioId !== directory.scenarioId || session.sessionId !== directory.sessionId) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "Directory reference must belong to the selected session and scenario", "validate", false);
+  }
+  const missing = (["filesystem.read", "process.exec"] as const)
+    .filter(effect => !before.grantedEffects.includes(effect));
+  if (missing.length) {
+    return failedReceipt(call, before, state, runId, "EFFECT_DENIED", `Missing CLI effect grant: ${missing.join(", ")}`, "authorize", false);
+  }
+  const issuedRevision = state.issuedDirectoryRefs.get(directoryRefKey(directory));
+  if (issuedRevision === undefined || issuedRevision !== before.revision) {
+    return failedReceipt(call, before, state, runId, "binding_identity_missing", "Directory reference was not issued by this sandbox at the current revision", "authorize", false);
+  }
+  let target: Awaited<ReturnType<typeof resolveDirectory>>;
+  try {
+    target = await resolveDirectory(state, directory, true);
+  } catch (error) {
+    return failedReceipt(call, before, state, runId, failureCode(error), error instanceof Error ? error.message : String(error), "authorize", false);
+  }
+  const ledger: CommandSpawnLedgerEntry[] = [];
+  let capabilities: CommandSearchCapabilities | undefined = state.commandSearchCapabilities;
+  try {
+    if (capabilities === undefined) {
+      capabilities = await resolveCapabilities(
+        false,
+        call.parameters.ignorePolicy === "respect_vcs_ignore",
+        ledger,
+      );
+      if (capabilities.rg === null && call.operation === "directory.search.content") {
+        capabilities = await resolveCapabilities(
+          true,
+          call.parameters.ignorePolicy === "respect_vcs_ignore",
+          ledger,
+        );
+      }
+    }
+    const result = await runDirectorySearchCommand({
+      actionKind: call.operation === "directory.search.entries" ? "SEARCH_TARGET" : "SEARCH_LITERAL",
+      physicalDirectory: target.physicalPath,
+      queryLiteral: call.operation === "directory.search.content" ? call.parameters.queryLiteral : "",
+      fileFilter: call.parameters.fileFilter,
+      ignorePolicy: call.parameters.ignorePolicy,
+      explicitLimits: mergedCommandSearchLimits(state.commandSearchLimits, call.parameters.explicitLimits),
+      capabilities,
+      spawnLedger: ledger,
+    });
+    const baseObservation = {
+      directory,
+      configuredDirectory: target.configuredPath,
+      physicalDirectory: target.physicalPath,
+      executable: result.executable,
+      argv: result.argv,
+      exitCode: result.exitCode,
+      signal: result.signal,
+      stdoutBytesRead: result.stdoutBytesRead,
+      stdoutChunkCount: result.stdoutChunkCount,
+      crossChunkRecordSplits: result.crossChunkRecordSplits,
+      unterminatedRemainderBytes: result.unterminatedRemainderBytes,
+      unterminatedFragmentDiscarded: result.unterminatedFragmentDiscarded,
+      stderr: result.stderr,
+      normalCompleted: result.normalCompleted,
+      coverage: result.coverage,
+      reasons: result.reasons,
+      matchedEntries: result.matchedEntries,
+      queryMatches: 1 as const,
+      spawnLedger: result.spawnLedger,
+    };
+    const observation: DirectorySearchEntriesObservation | DirectorySearchContentObservation =
+      call.operation === "directory.search.entries"
+        ? Object.freeze({
+            kind: "directory.search.entries",
+            ...baseObservation,
+            toolUsed: result.toolUsed as "rg_files" | "find_P",
+          })
+        : Object.freeze({
+            kind: "directory.search.content",
+            ...baseObservation,
+            queryLiteral: call.parameters.queryLiteral,
+            toolUsed: result.toolUsed as "rg" | "grep_bsd" | "grep_gnu",
+            matchedLines: result.matchedLines,
+          });
+    return Object.freeze({
+      call,
+      status: "succeeded",
+      session_before: before,
+      session_after: before,
+      execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+    });
+  } catch (error) {
+    return failedReceipt(
+      call,
+      before,
+      state,
+      runId,
+      failureCode(error),
+      error instanceof Error ? error.message : String(error),
+      "observe",
+      false,
+    );
+  }
+}
+
 export async function executeSemanticCliCall(
   sandbox: CliFilesystemSandbox,
   value: unknown,
@@ -1270,6 +1652,8 @@ export async function createCliFilesystemSandbox(options: {
   readonly listingObserver?: DirectoryListingObserver;
   readonly fileReadIo?: FileReadIo;
   readonly fileReadLinesOptions?: FileReadLinesOptions;
+  readonly commandSearchLimits?: CliCommandSearchLimits;
+  readonly commandSearchCapabilities?: CommandSearchCapabilities;
 }): Promise<CliFilesystemSandbox> {
   const input = expectRecord(options, "sandbox options");
   const allowed = [
@@ -1280,6 +1664,8 @@ export async function createCliFilesystemSandbox(options: {
     ...(Object.hasOwn(input, "listingObserver") ? ["listingObserver"] : []),
     ...(Object.hasOwn(input, "fileReadIo") ? ["fileReadIo"] : []),
     ...(Object.hasOwn(input, "fileReadLinesOptions") ? ["fileReadLinesOptions"] : []),
+    ...(Object.hasOwn(input, "commandSearchLimits") ? ["commandSearchLimits"] : []),
+    ...(Object.hasOwn(input, "commandSearchCapabilities") ? ["commandSearchCapabilities"] : []),
   ];
   exactKeys(input, allowed, "sandbox options");
   if (Object.hasOwn(input, "observation") && typeof input.observation !== "function") throw new TypeError("sandbox observation must be a function");
@@ -1292,6 +1678,12 @@ export async function createCliFilesystemSandbox(options: {
   }
   const fileReadLinesOptions = Object.hasOwn(input, "fileReadLinesOptions")
     ? readFileReadLinesOptions(input.fileReadLinesOptions)
+    : undefined;
+  const commandSearchLimits = Object.hasOwn(input, "commandSearchLimits")
+    ? readCommandSearchLimits(input.commandSearchLimits, "sandbox commandSearchLimits")
+    : undefined;
+  const commandSearchCapabilities = Object.hasOwn(input, "commandSearchCapabilities")
+    ? readCommandSearchCapabilities(input.commandSearchCapabilities)
     : undefined;
   const rootValue = nonEmpty(input.root, "sandbox root");
   if (!isAbsolute(rootValue)) throw new TypeError("sandbox root must be absolute");
@@ -1321,6 +1713,8 @@ export async function createCliFilesystemSandbox(options: {
     ...(input.listingObserver === undefined ? {} : { listingObserver: input.listingObserver as DirectoryListingObserver }),
     ...(input.fileReadIo === undefined ? {} : { fileReadIo: input.fileReadIo as FileReadIo }),
     ...(fileReadLinesOptions === undefined ? {} : { fileReadLinesOptions }),
+    ...(commandSearchLimits === undefined ? {} : { commandSearchLimits }),
+    ...(commandSearchCapabilities === undefined ? {} : { commandSearchCapabilities }),
     active: true,
   };
   try {
@@ -1424,6 +1818,9 @@ export async function createCliFilesystemSandbox(options: {
       if (call.operation === "path.parts") return executePathParts(state, call, before);
       if (call.operation === "file.read") return executeFileRead(state, call, before);
       if (call.operation === "file.read.lines") return executeFileReadLines(state, call, before);
+      if (call.operation === "directory.search.entries" || call.operation === "directory.search.content") {
+        return executeDirectorySearch(state, call, before);
+      }
       return executeEntryInspect(state, call, before);
     },
     async cleanup() {
