@@ -787,8 +787,8 @@ test("T12 budget interruption keeps facts and continuation resumes without repla
   });
   const d1 = first.domain;
   assert.equal(d1.status, "unknown");
-  assert.equal(d1.resolution, "interrupted");
-  assert.equal(d1.rootFact.kind, "interrupted");
+  assert.equal(d1.resolution, "budget_exhausted");
+  assert.equal(d1.rootFact.kind, "partial");
   assert.equal(d1.coverage, "partial");
   assert.equal(d1.invocationCount, 3);
   assert.equal(d1.bytesReadTotal, 4096);
@@ -1007,8 +1007,8 @@ test("F1 T15b cross-candidate byte exhaustion never reads the second candidate",
   });
   const d = result.domain;
   assert.equal(d.status, "unknown");
-  assert.equal(d.resolution, "interrupted");
-  assert.equal(d.rootFact.kind, "interrupted");
+  assert.equal(d.resolution, "budget_exhausted");
+  assert.equal(d.rootFact.kind, "insufficient_evidence");
   assert.equal(d.coverage, "partial");
   assert.equal(d.invocationCount, 5);
   assert.equal(d.observationCount, 5);
@@ -1049,7 +1049,7 @@ test("F1 T15c continuation keeps consumed bytes and does not replay", async t =>
     scan: { ...defaultScan(0), maxTotalBytes: 8, chunkSize: 4 },
   });
   assert.equal(first.domain.bytesReadTotal, 8);
-  assert.equal(first.domain.resolution, "interrupted");
+  assert.equal(first.domain.resolution, "budget_exhausted");
   assert.ok(first.domain.preserve.continuation !== null);
 
   const second = await run(fx, request(directory, "zmq", "p2-t15-budget-b", "all", "flat"), {
@@ -1136,4 +1136,172 @@ test("F2 T16b cross-block newline needle uses prefix-before-hit only", async t =
   const state = result.response?.report?.states?.at(-1)?.value;
   const candidate = state?.candidates?.find(item => item.path.endsWith("ruby.ts"));
   assert.equal(candidate?.scan?.chunks, 2);
+});
+
+test("R6 continuation over a large file resumes with omitted limits and advances real byte offsets", async t => {
+  const body = `${"x".repeat(160)}hunt1234`;
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-r6-large-continuation",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/large.ts", kind: "file", contents: body },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const first = await run(fx, request(directory, "hunt1234", "r6-large-a", "all", "flat"), {
+    limits: { maxTransitions: 25, maxDepth: 8, maxDerivedGoals: 4 },
+    scan: { ...defaultScan(0), chunkSize: 8 },
+  });
+  const firstDomain = first.domain;
+  assert.equal(firstDomain.status, "unknown");
+  assert.equal(firstDomain.resolution, "budget_exhausted");
+  assert.ok(firstDomain.bytesReadTotal > 0);
+  assert.ok(firstDomain.bytesReadTotal < body.length);
+  assert.ok(firstDomain.preserve.continuation !== null);
+
+  // The resumed request omits every caller budget; the controller must not
+  // inherit the old finite transition limit and must keep counting usage.
+  const second = await run(fx, request(directory, "hunt1234", "r6-large-a", "all", "flat"), {
+    scan: { ...defaultScan(0), chunkSize: 8 },
+    continuation: firstDomain.preserve.continuation,
+  });
+  const secondDomain = second.domain;
+  assert.equal(secondDomain.status, "achieved");
+  assert.equal(secondDomain.resolution, "matched");
+  assert.equal(secondDomain.bytesReadTotal, body.length);
+  assert.equal(secondDomain.matches.length, 1);
+  assert.equal(secondDomain.matches[0].byteSpan.start, 160);
+  assert.ok(
+    secondDomain.bytesReadTotal > firstDomain.bytesReadTotal,
+    "the resumed read must advance past the first run's byte region",
+  );
+});
+
+test("R5 a continuation bound to another requestId is rejected without a projection crash", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-r5-continuation-mismatch",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/large.ts", kind: "file", contents: `${"x".repeat(160)}hunt1234` },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const first = await run(fx, request(directory, "hunt1234", "r5-cont-a", "all", "flat"), {
+    limits: { maxTransitions: 25, maxDepth: 8, maxDerivedGoals: 4 },
+    scan: { ...defaultScan(0), chunkSize: 8 },
+  });
+  assert.equal(first.domain.resolution, "budget_exhausted");
+
+  const mismatched = await run(fx, request(directory, "hunt1234", "r5-cont-b", "all", "flat"), {
+    scan: { ...defaultScan(0), chunkSize: 8 },
+    continuation: first.domain.preserve.continuation,
+  });
+  assert.equal(mismatched.domain.status, "rejected");
+  assert.equal(mismatched.domain.resolution, "rejected");
+  assert.equal(
+    ["invalid_request", "invalid_binding"].includes(mismatched.response.error.code),
+    true,
+  );
+});
+
+test("T12 progress ignores identity and counter-only changes but accepts real chunk coverage", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "m2-test-t12-progress-facts",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/large.ts", kind: "file", contents: "x".repeat(256) },
+    ],
+  });
+  fx.profile = await profile();
+  const directory = await bind(fx, "scan");
+  const result = await run(
+    fx,
+    request(directory, "needle-not-present", "t12-progress", "one", "flat"),
+    { scan: { ...defaultScan(0), chunkSize: 64 } },
+  );
+  const states = result.response.report.states.map(entry => entry.value);
+  const candidatePath = states
+    .flatMap(state => state.candidates)
+    .find(candidate => candidate.scan !== null)?.path;
+  assert.ok(candidatePath, "the fixture must expose a scanned candidate");
+  const scannedStates = states
+    .map(state => ({
+      state,
+      scan: state.candidates.find(candidate => candidate.path === candidatePath)?.scan ?? null,
+    }))
+    .filter(item => item.scan !== null);
+  const before = scannedStates.find(item => item.scan.nextOffset > 0 && item.scan.nextOffset < 256);
+  const after = before === undefined
+    ? undefined
+    : scannedStates.find(item => item.scan.nextOffset > before.scan.nextOffset);
+  assert.ok(before, "the fixture must record a partially covered file");
+  assert.ok(after, "the fixture must record a later covered range");
+
+  const { createContentSearchAdapter } = await import(
+    "../dist/adapters/cli/content-search-recursive.js"
+  );
+  const { adapter } = createContentSearchAdapter({
+    sandbox: fx.sandbox,
+    session: fx.session,
+    profile: fx.profile,
+    scan: { ...defaultScan(0), chunkSize: 64 },
+    order: { kind: "lexicographic" },
+  });
+  const measure = (beforeState, afterState) =>
+    adapter.measureProgress({ before: beforeState, after: afterState });
+
+  const real = measure(before.state, after.state);
+  assert.equal(real.improved, true, "a later real covered range must count as progress");
+
+  const fake = structuredClone(before.state);
+  const fakeCandidate = fake.candidates.find(candidate => candidate.path === candidatePath);
+  assert.ok(fakeCandidate?.scan, "the synthetic state must retain its scan fact");
+  fakeCandidate.scan.chunks += 7;
+  fakeCandidate.scan.firstReadSourceRun = "source-run-without-new-coverage";
+  fakeCandidate.scan.lastReadSourceRun = "source-run-without-new-coverage";
+  fakeCandidate.history = [
+    ...fakeCandidate.history,
+    {
+      kind: "historical_stale_hit",
+      historical: true,
+      identityKey: fakeCandidate.scan.identityAtStart,
+      fileRef: fakeCandidate.fileRef,
+      sourceRun: "source-run-without-new-coverage",
+      path: fakeCandidate.path,
+      needle: "needle-not-present",
+      byteSpan: { start: 0, end: 4 },
+      line: 1,
+      column: 1,
+      size: 256,
+      bytesRead: 64,
+      invalidation: {
+        kind: "read_stale",
+        observedAtSourceRun: "source-run-without-new-coverage",
+        code: null,
+      },
+    },
+  ];
+  if (fakeCandidate.inspected !== null) {
+    fakeCandidate.inspected.sourceRun = "source-run-without-new-coverage";
+  }
+  if (fakeCandidate.fileRef !== null) {
+    fakeCandidate.fileRef.sourceRun = "source-run-without-new-coverage";
+  }
+  fake.directories = fake.directories.map(item => ({
+    ...item,
+    observedAtSourceRun: "source-run-without-new-coverage",
+    listing: item.listing === null
+      ? null
+      : { ...item.listing, sourceRun: "source-run-without-new-coverage" },
+  }));
+  fake.duplicateReads += 3;
+
+  const ignored = measure(before.state, fake);
+  assert.equal(
+    ignored.improved,
+    false,
+    "source ids, history growth, chunk counters and duplicate counters are not business progress",
+  );
 });

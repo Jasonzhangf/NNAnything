@@ -810,7 +810,7 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
         state,
         rootEvaluatorId: request.rootEvaluatorId,
         rootSelectorId: request.rootSelectorId,
-        limits: request.limits,
+        ...(request.limits === undefined ? {} : { limits: request.limits }),
         continuation,
       });
     },
@@ -908,9 +908,12 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
       return readAtomicReceipt(raw, DOMAIN_GUARDS);
     },
 
-    measureProgress() {
+    measureProgress(input) {
       calls.measureProgress += 1;
-      return { improved: false, reason: "none" as const, comparable: true };
+      const before = input.before as EntrySearchState;
+      const after = input.after as EntrySearchState;
+      const improved = entrySearchProgressFingerprint(before) !== entrySearchProgressFingerprint(after);
+      return { improved, reason: improved ? "facts_improved" as const : "none" as const, comparable: true };
     },
   };
 
@@ -921,6 +924,33 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
     },
     calls,
   });
+}
+
+// Business-fact fingerprint for the composite entry-search cycle. It tracks
+// whether the direct listing and the exact-entry inspection facts advanced and
+// ignores identity-only churn (source runs, revisions, dev/ino identity,
+// observation timestamps). The composite `expansion: "more"` no-progress check
+// compares this so list -> inspect progress is not treated as a stalled
+// obligation.
+function entrySearchProgressFingerprint(state: EntrySearchState): string {
+  const listing = state.cli.directoryListing;
+  const listingFact = listing === null
+    ? null
+    : [
+        listing.coverage,
+        listing.errors.length,
+        listing.entries.map(entry => [entry.name, entry.path, entry.type]),
+      ];
+  const entry = state.cli.entryKnowledge ?? null;
+  const entryFact = entry === null
+    ? null
+    : [
+        entry.observedWith,
+        entry.entryExists,
+        entry.type,
+        entry.absolutePath,
+      ];
+  return JSON.stringify({ listing: listingFact, entry: entryFact });
 }
 
 export function createEntrySearchDependencies(

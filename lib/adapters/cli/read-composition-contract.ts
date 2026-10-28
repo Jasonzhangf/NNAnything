@@ -303,6 +303,7 @@ export type ReadCompositionDomainProjection = Readonly<{
     | "stale_or_unverified"
     | "rejected"
     | "failed"
+    | "budget_exhausted"
     | "interrupted";
   satisfaction: number | null;
   match: ReadCompositionFileRef | null;
@@ -334,7 +335,7 @@ export type ReadCompositionResources = Readonly<{
   sandbox: CliFilesystemSandbox;
   session: SessionRef;
   profile: CliCommandProfile;
-  limits: RecursiveGoalLimits;
+  limits?: RecursiveGoalLimits;
   signal?: AbortSignal;
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
   decision?: PlanningDecisionBinding;

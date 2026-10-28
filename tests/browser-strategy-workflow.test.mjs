@@ -353,13 +353,18 @@ function goalResources({
   return { resources, clicks };
 }
 
-function goalRequest({
-  requestId,
-  initial,
-  continuation,
-  sameFailureLimit = 2,
-  maxAtomicAttempts = 4,
-}) {
+function goalRequest(options) {
+  const {
+    requestId,
+    initial,
+    continuation,
+    sameFailureLimit = 2,
+  } = options;
+  // A caller that does not declare a total ceiling omits the property; passing
+  // an explicit undefined must also omit it instead of emitting undefined.
+  const maxAtomicAttempts = Object.hasOwn(options, "maxAtomicAttempts")
+    ? options.maxAtomicAttempts
+    : 4;
   return {
     schema: REQUEST_SCHEMA,
     requestId,
@@ -383,7 +388,7 @@ function goalRequest({
       selectorId: strategyGoal.BROWSER_STRATEGY_SELECTOR_ID,
       strategySkillIds: [NATIVE_SKILL, ROLE_SKILL],
       sameFailureLimit,
-      maxAtomicAttempts,
+      ...(maxAtomicAttempts === undefined ? {} : { maxAtomicAttempts }),
     },
     invocation: { maxAtomicDispatches: 1 },
   };
@@ -884,4 +889,83 @@ test("recursive goal fact survives execution transport error without safe-retry 
   assert.ok(result.report.atomicResults[0].executionErrorIds.length > 0);
   assert.notEqual(result.report.control.outcome, "yielded");
   assert.equal(clicks, 1);
+});
+
+test("omitted maxAtomicAttempts reaches a strategy selection with a null remaining budget", async () => {
+  const initial = snapshot({ observationId: "null-budget-initial", revision: 1 });
+  const { resources, clicks } = goalResources({
+    initial,
+    observations: [
+      snapshot({ observationId: "null-budget-preflight", revision: 2 }),
+      snapshot({ observationId: "null-budget-pre", revision: 3 }),
+    ],
+  });
+  const request = goalRequest({
+    requestId: "browser-strategy-null-budget",
+    initial,
+    maxAtomicAttempts: undefined,
+  });
+  assert.equal(
+    Object.hasOwn(request.retryPolicy, "maxAtomicAttempts"),
+    false,
+    "request must omit retryPolicy.maxAtomicAttempts",
+  );
+
+  const result = await strategyGoal.runBrowserStrategyGoal(request, resources);
+  assert.equal(
+    result.kind,
+    "run_result",
+    result.kind === "request_rejected"
+      ? JSON.stringify(result.error)
+      : "nullable ceiling must not be rejected at the selection stage",
+  );
+  assert.equal(
+    result.report.atomicResults.length,
+    1,
+    JSON.stringify(result.report.errors),
+  );
+  assert.equal(clicks.length, 1, JSON.stringify(result.report.errors));
+  assert.equal(clicks[0].targetRef, "native-target");
+});
+
+test("explicit zero remaining budget still defers with exhausted semantics", () => {
+  const pre = snapshot({ observationId: "zero-budget-pre", revision: 2 });
+  const input = strategyPolicy.readBrowserStrategyRequest({
+    request: currentRequest(pre),
+    history: [],
+  });
+  const prediction = strategyPolicy.predictBrowserStrategy(input, {
+    profile: strategyProfile(),
+    atomicProfile: atomicProfile(),
+    feedbackProfile: feedbackProfile(),
+    registry: registry(),
+    selection: selection({ remainingAtomicAttempts: 0 }),
+  });
+  assert.equal(prediction.kind, "DEFER");
+  assert.match(prediction.reason, /atomic attempt budget is exhausted/);
+});
+
+test("runtime strategy selection rejects malformed remainingAtomicAttempts values", () => {
+  const pre = snapshot({ observationId: "malformed-pre", revision: 2 });
+  const input = strategyPolicy.readBrowserStrategyRequest({
+    request: currentRequest(pre),
+    history: [],
+  });
+  const models = {
+    profile: strategyProfile(),
+    atomicProfile: atomicProfile(),
+    feedbackProfile: feedbackProfile(),
+    registry: registry(),
+  };
+  const base = selection();
+  for (const bad of [undefined, -1, 1.5, "3", NaN, Infinity]) {
+    assert.throws(
+      () => strategyPolicy.predictBrowserStrategy(input, {
+        ...models,
+        selection: { ...base, remainingAtomicAttempts: bad },
+      }),
+      /remainingAtomicAttempts must be null or a nonnegative safe integer/,
+      `expected rejection for ${String(bad)}`,
+    );
+  }
 });

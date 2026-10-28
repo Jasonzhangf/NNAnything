@@ -808,7 +808,7 @@ test("E12 a wrong head is a policy error with zero execution", async t => {
   assert.equal(heads(result.response).includes("entry.inspect"), false);
 });
 
-test("E12 budget and cancellation stop as interrupted, not as not_found", async t => {
+test("E12 budget stops as budget_exhausted and cancellation stops as interrupted", async t => {
   const value = await withProfile(t, [
     { path: "start/target.txt", kind: "file", contents: "x" },
   ]);
@@ -816,7 +816,7 @@ test("E12 budget and cancellation stop as interrupted, not as not_found", async 
     limits: { maxTransitions: 1, maxDepth: 4, maxDerivedGoals: 8 },
   });
   assert.equal(budget.domain.status, "unknown");
-  assert.equal(budget.domain.resolution, "interrupted");
+  assert.equal(budget.domain.resolution, "budget_exhausted");
   assert.equal(budget.domain.satisfaction, null);
   assert.equal(budget.domain.match, null);
   assert.match(JSON.stringify(budget.response.report.control), /budget/);
@@ -838,6 +838,131 @@ test("E12 budget and cancellation stop as interrupted, not as not_found", async 
   assert.equal(cancelled.domain.satisfaction, null);
   assert.equal(cancelled.domain.match, null);
   assert.match(JSON.stringify(cancelled.response.report.control), /cancel/);
+});
+
+test("E12b budget after listing or inspection stays budget_exhausted", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.txt", kind: "directory" },
+    { path: "start/other.txt", kind: "file", contents: "other" },
+  ]);
+  const scenarios = [
+    { label: "not_found", goal: request(value.directory, "missing.txt", "regular") },
+    { label: "type_mismatch", goal: request(value.directory, "target.txt", "regular") },
+  ];
+  for (const scenario of scenarios) {
+    const baseline = await run(value, scenario.goal);
+    assert.equal(baseline.domain.resolution, scenario.label);
+    const used = baseline.response.report.budgetUsed.transitionsUsed;
+    let sawListing = false;
+    let sawInspect = false;
+    let sawInspectPreserved = false;
+    for (let maxTransitions = 1; maxTransitions < used; maxTransitions += 1) {
+      const result = await runWith(value, scenario.goal, {
+        limits: { maxTransitions, maxDepth: 4, maxDerivedGoals: 8 },
+      });
+      if (result.response.report.control.stopReason !== "budget") continue;
+      const selectedHeads = heads(result.response);
+      sawListing ||= selectedHeads.includes("ls");
+      sawInspect ||= selectedHeads.includes("entry.inspect");
+      if (selectedHeads.includes("entry.inspect")) {
+        const preserved = result.domain.preserve.atomicResults ?? [];
+        sawInspectPreserved ||= preserved.some(
+          item => item?.sourceResult?.value?.policy?.selectedHead === "entry.inspect",
+        );
+      }
+      assert.equal(
+        result.domain.status,
+        "unknown",
+        `${scenario.label} budget ${maxTransitions} status`,
+      );
+      assert.equal(
+        result.domain.resolution,
+        "budget_exhausted",
+        `${scenario.label} budget ${maxTransitions} resolution`,
+      );
+      assert.equal(result.domain.satisfaction, null);
+      assert.equal(result.domain.match, null);
+      if (scenario.label === "type_mismatch") {
+        const listed = selectedHeads.includes("ls");
+        assert.equal(
+          result.domain.rootFact.kind,
+          listed ? "stale_or_unverified" : "insufficient_evidence",
+          `type_mismatch budget ${maxTransitions} must not overwrite the budget stop`,
+        );
+        if (selectedHeads.includes("entry.inspect")) {
+          assert.equal(
+            result.domain.rootFact.inspect?.type,
+            "directory",
+            `type_mismatch budget ${maxTransitions} must keep the observed directory type`,
+          );
+        }
+      }
+      assert.deepEqual(
+        result.domain.preserve.control.budget,
+        result.response.report.control.budget,
+        `${scenario.label} budget ${maxTransitions} preserve detail`,
+      );
+    }
+    assert.equal(sawListing, true, `${scenario.label} must cover a listing receipt`);
+    if (scenario.label === "type_mismatch") {
+      assert.equal(sawInspect, true, "the type-mismatch scenario must cover an inspect receipt");
+      assert.equal(
+        sawInspectPreserved,
+        true,
+        "the inspect receipt must remain a preserved partial fact",
+      );
+    }
+  }
+});
+
+test("E12c budget after a partial listing stays budget_exhausted with partial facts", async t => {
+  const value = await withProfile(
+    t,
+    [
+      { path: "start/target.txt", kind: "file", contents: "do not read" },
+      { path: "start/unrelated.bin", kind: "file", contents: "unrelated" },
+    ],
+    { listingObserver: input => observeRealListing(input, "unrelated.bin") },
+  );
+  const goal = request(value.directory, "target.txt", "regular");
+  const baseline = await run(value, goal);
+  assert.equal(baseline.domain.status, "unknown");
+  assert.equal(baseline.domain.resolution, "insufficient_evidence");
+  assert.equal(baseline.domain.coverage, "partial");
+  const used = baseline.response.report.budgetUsed.transitionsUsed;
+  let sawPartialBudget = false;
+  for (let maxTransitions = 1; maxTransitions < used; maxTransitions += 1) {
+    const result = await runWith(value, goal, {
+      limits: { maxTransitions, maxDepth: 4, maxDerivedGoals: 8 },
+    });
+    if (result.response.report.control.stopReason !== "budget") continue;
+    assert.equal(result.domain.status, "unknown", `partial budget ${maxTransitions} status`);
+    assert.equal(
+      result.domain.resolution,
+      "budget_exhausted",
+      `partial budget ${maxTransitions} resolution`,
+    );
+    assert.equal(result.domain.satisfaction, null);
+    assert.equal(result.domain.match, null);
+    assert.equal(result.domain.rootFact.kind, "insufficient_evidence");
+    assert.ok(
+      result.domain.coverage === "partial" || result.domain.coverage === null,
+      `partial budget ${maxTransitions} coverage`,
+    );
+    if (result.domain.coverage === "partial") {
+      sawPartialBudget = true;
+    }
+    assert.deepEqual(
+      result.domain.preserve.control.budget,
+      result.response.report.control.budget,
+      `partial budget ${maxTransitions} preserve detail`,
+    );
+  }
+  assert.equal(
+    sawPartialBudget,
+    true,
+    "the loop must cover a budget stop after a partial listing fact",
+  );
 });
 
 test("E14 repeated evaluation does no extra IO and interleaved sessions stay isolated", async t => {

@@ -194,6 +194,7 @@ export type EntrySearchDomainProjection = Readonly<{
     | "stale_or_unverified"
     | "rejected"
     | "failed"
+    | "budget_exhausted"
     | "interrupted";
   satisfaction: number | null;
   match: ObservedObjectRef | null;
@@ -215,7 +216,7 @@ export type EntrySearchResources = Readonly<{
   sandbox: CliFilesystemSandbox;
   session: SessionRef;
   profile: CliCommandProfile;
-  limits: RecursiveGoalLimits;
+  limits?: RecursiveGoalLimits;
   signal?: AbortSignal;
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
 }>;

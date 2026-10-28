@@ -310,9 +310,6 @@ export async function fitBrowserStrategyProfile(input: StrategyFitInput): Promis
     if (episodes.some(episode => episode.partition !== "train")) {
       throw new TypeError("browser strategy fitter accepts only train episodes");
     }
-    if (episodes.some(episode => !Number.isFinite(episode.selection.remainingAtomicAttempts))) {
-      throw new TypeError("browser strategy episodes require a finite selection view");
-    }
     if (typeof value.handwiredRoot !== "string" || value.handwiredRoot.length === 0) {
       throw new TypeError("browser strategy fit requires an explicit Handwired source root");
     }

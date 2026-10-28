@@ -807,21 +807,38 @@ test("M16 a budget of N-1 stops after the preferred chain without a partial scor
   assertRoot(baseline, "achieved", "matched", 100);
   const atomicCount = baseline.response.report.atomicResults.length;
   assert.ok(atomicCount > 0, "the baseline must execute real atomic results");
+  const used = baseline.response.report.budgetUsed.transitionsUsed;
+  assert.ok(Number.isInteger(used) && used > 0, "the baseline must record real transitions");
   const budgetResult = await runWith(
     value,
     multiSourceRequest(sources, "target.bin", RANGE, b64(GOOD), "m16-budget"),
     {
       limits: Object.freeze({
-        maxTransitions: atomicCount - 1,
+        maxTransitions: used - 1,
         maxDepth: 4,
         maxDerivedGoals: 12,
       }),
     },
   );
-  assertRoot(budgetResult, "unknown", "interrupted", null);
+  assertRoot(budgetResult, "unknown", "budget_exhausted", null);
   assert.equal(budgetResult.domain.match, null);
   assert.notEqual(budgetResult.domain.satisfaction, 0);
   assert.notEqual(budgetResult.domain.satisfaction, 100);
+  assert.equal(
+    sourceById(budgetResult, "source:0").negative,
+    "byte_mismatch",
+    "the preferred chain negative fact must survive the budget stop",
+  );
+  assert.notEqual(budgetResult.domain.rootFact.kind, "interrupted");
+  const sourceBudget = budgetResult.response.report.control.budget;
+  assert.ok(sourceBudget !== undefined, "controller exposes budget");
+  assert.equal(sourceBudget.dimension, "maxTransitions");
+  assert.equal(sourceBudget.limit, used - 1);
+  const budget = budgetResult.domain.preserve.control.budget;
+  assert.ok(budget !== undefined, "preserve control budget present");
+  assert.deepEqual(budget, sourceBudget);
+  assert.equal(typeof budget.used, "number");
+  assert.equal(typeof budget.attempted, "number");
 });
 
 test("M17 cancellation before the alternate chain keeps the preferred source facts", async t => {
@@ -974,16 +991,32 @@ test("M21 two definitive negatives stopped before root evaluation stay unknown",
         }),
       },
     );
-    const root = result.response.report.rootEvaluation;
-    const completedUnsatisfied = root?.state === "evaluated" && root.result === "unsatisfied";
-    if (completedUnsatisfied) {
-      assertRoot(result, "unmet", "byte_mismatch", 0);
-    } else {
-      assertRoot(result, "unknown", "interrupted", null);
-      assert.equal(result.domain.match, null);
-      assert.notEqual(result.domain.satisfaction, 0, "an unfinished root evaluation must not score 0");
-      assert.notEqual(result.domain.satisfaction, 100);
-    }
+    // A completed root evaluation that coincides with control.budget must still
+    // be projected as budget_exhausted: no completion-first exemption.
+    assertRoot(result, "unknown", "budget_exhausted", null);
+    assert.equal(result.domain.match, null, `cut ${cut} must not bind a match`);
+    assert.notEqual(
+      result.domain.rootFact.kind,
+      "interrupted",
+      `cut ${cut} root fact keeps the observed facts`,
+    );
+    assert.notEqual(result.domain.satisfaction, 0, "a budget stop must not score 0");
+    assert.notEqual(result.domain.satisfaction, 100);
+    assert.equal(
+      sourceById(result, "source:0").negative,
+      "byte_mismatch",
+      `cut ${cut} keeps the preferred source negative fact`,
+    );
+    sourceById(result, "source:1");
+    const sourceBudget = result.response.report.control.budget;
+    assert.ok(sourceBudget !== undefined, `cut ${cut} controller exposes budget`);
+    assert.equal(sourceBudget.dimension, "maxTransitions");
+    assert.equal(sourceBudget.limit, cut);
+    const budget = result.domain.preserve.control.budget;
+    assert.ok(budget !== undefined, `cut ${cut} preserve control budget present`);
+    assert.deepEqual(budget, sourceBudget);
+    assert.equal(typeof budget.used, "number");
+    assert.equal(typeof budget.attempted, "number");
   }
 });
 

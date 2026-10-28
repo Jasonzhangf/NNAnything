@@ -415,7 +415,7 @@ test("T10 a hard read error preserves errno and stays failed", async t => {
   assert.match(JSON.stringify(result.response), /EACCES/);
 });
 
-test("T11 an exhausted transition budget stops as interrupted with zero IO", async t => {
+test("T11 an exhausted transition budget stops as budget_exhausted with zero IO", async t => {
   const value = await fixture(t, {
     scenarioId: "m1-test-telemetry-e1",
     entries: [
@@ -429,7 +429,7 @@ test("T11 an exhausted transition budget stops as interrupted with zero IO", asy
   });
   const d = result.domain;
   assert.equal(d.status, "unknown");
-  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.resolution, "budget_exhausted");
   assert.equal(d.invocationCount, 0);
   assert.equal(d.observationCount, 0);
   assert.equal(d.bytesReadTotal, 0);
@@ -472,7 +472,7 @@ function genericRoot(result) {
   };
 }
 
-test("T14 a completed hit whose root evaluation is unfinished stays interrupted", async t => {
+test("T14 a completed hit whose root evaluation is unfinished reports budget_exhausted with partial facts", async t => {
   const value = await fixture(t, {
     scenarioId: "m1-test-budget-hit",
     entries: [
@@ -492,9 +492,9 @@ test("T14 a completed hit whose root evaluation is unfinished stays interrupted"
     stopReason: "budget",
   });
   assert.equal(d.status, "unknown");
-  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.resolution, "budget_exhausted");
   assert.equal(d.satisfaction, null);
-  assert.equal(d.rootFact.kind, "interrupted");
+  assert.equal(d.rootFact.kind, "partial");
   assert.equal(d.matches.length, 1);
   assert.equal(d.matches[0].path, join(value.sandbox.getSession(value.session).cwd, "ingest.ts"));
   assert.equal(d.matches[0].needle, "traceToken");
@@ -527,7 +527,7 @@ test("T15 the same search with a finished root evaluation reports achieved and m
   assert.equal(d.rootFact.match.path, join(value.sandbox.getSession(value.session).cwd, "ingest.ts"));
 });
 
-test("T16 the last proven negative whose root evaluation is unfinished stays interrupted", async t => {
+test("T16 the last proven negative whose root evaluation is unfinished reports budget_exhausted with insufficient evidence", async t => {
   const value = await fixture(t, {
     scenarioId: "m1-test-budget-negative",
     entries: [
@@ -547,11 +547,94 @@ test("T16 the last proven negative whose root evaluation is unfinished stays int
     stopReason: "budget",
   });
   assert.equal(d.status, "unknown");
-  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.resolution, "budget_exhausted");
   assert.equal(d.satisfaction, null);
-  assert.equal(d.rootFact.kind, "interrupted");
+  assert.equal(d.rootFact.kind, "insufficient_evidence");
   assert.equal(d.matches.length, 0);
   assert.equal(d.negatives.length, 1);
   assert.equal(d.negatives[0].path, join(value.sandbox.getSession(value.session).cwd, "capture.ts"));
   assert.equal(d.negatives[0].reason, "complete_read_no_match");
+});
+
+test("R6 an omitted budget scans every chunk until the needle is found", async t => {
+  const needle = "nedl1234";
+  const body = `${"x".repeat(160)}${needle}`;
+  const value = await fixture(t, {
+    entries: [{ path: "src/big.ts", kind: "file", contents: body }],
+  });
+  const directory = await value.sandbox.bindDirectory(value.session, ".");
+  const result = await value.module.runCliContentSearchGoal(
+    request(directory, needle, "R6-chunks"),
+    {
+      sandbox: value.sandbox,
+      session: value.session,
+      profile: await profile(),
+      scan: {
+        maxBytesPerFile: 65536,
+        maxTotalBytes: 262144,
+        chunkSize: 8,
+        maxDirectoryDepth: 0,
+        maxStaleRetries: 1,
+      },
+    },
+  );
+  const d = result.domain;
+  assert.equal(d.status, "achieved");
+  assert.equal(d.satisfaction, 100);
+  assert.equal(d.matches.length, 1);
+  assert.equal(d.matches[0].path, join(value.sandbox.getSession(value.session).cwd, "big.ts"));
+  assert.ok(d.bytesReadTotal >= body.length);
+});
+
+test("R9 an omitted budget honors abort after the in-flight chunk with no further read", async t => {
+  const controller = new AbortController();
+  let reads = 0;
+  const body = "z".repeat(160);
+  const fileReadIo = {
+    lstat: (path, options) => lstat(path, options),
+    open: async (path, flags) => {
+      const handle = await open(path, flags);
+      return {
+        stat: (options) => handle.stat(options),
+        read: async (buffer, offset, length, position) => {
+          reads += 1;
+          const result = await handle.read(
+            buffer,
+            offset,
+            Math.min(length, 8),
+            position,
+          );
+          if (reads === 3) controller.abort();
+          return { bytesRead: result.bytesRead };
+        },
+        close: () => handle.close(),
+      };
+    },
+  };
+  const value = await fixture(t, {
+    entries: [{ path: "src/big.ts", kind: "file", contents: body }],
+    fileReadIo,
+  });
+  const directory = await value.sandbox.bindDirectory(value.session, ".");
+  const result = await value.module.runCliContentSearchGoal(
+    request(directory, "nope", "R9-abort"),
+    {
+      sandbox: value.sandbox,
+      session: value.session,
+      profile: await profile(),
+      scan: {
+        maxBytesPerFile: 65536,
+        maxTotalBytes: 262144,
+        chunkSize: 8,
+        maxDirectoryDepth: 0,
+        maxStaleRetries: 1,
+      },
+      signal: controller.signal,
+    },
+  );
+  const d = result.domain;
+  assert.equal(d.status, "unknown");
+  assert.equal(d.resolution, "interrupted");
+  assert.equal(d.satisfaction, null);
+  assert.equal(reads, 3);
 });

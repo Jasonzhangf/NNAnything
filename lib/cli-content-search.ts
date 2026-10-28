@@ -125,8 +125,15 @@ function readReceipts(report: unknown): readonly ReadReceiptView[] {
 }
 
 function latestState(report: unknown): ContentSearchState | null {
-  const input = report as { states?: readonly { value?: unknown }[] } | null;
-  if (input === null || !Array.isArray(input.states) || input.states.length === 0) return null;
+  const input = report as { states?: readonly { value?: unknown }[] } | null | undefined;
+  if (
+    input === null ||
+    input === undefined ||
+    !Array.isArray(input.states) ||
+    input.states.length === 0
+  ) {
+    return null;
+  }
   const last = input.states[input.states.length - 1];
   const value = last?.value;
   if (value === null || typeof value !== "object") return null;
@@ -292,7 +299,8 @@ type AuthoritativeRoot =
   | Readonly<{ kind: "evaluated"; result: "satisfied" | "unsatisfied" | "unknown"; satisfaction: number | null }>
   | Readonly<{ kind: "not_evaluated" }>;
 
-const INTERRUPT_CODES = new Set(["budget_exceeded", "cancelled", "no_progress", "stalled"]);
+const BUDGET_CODES = new Set(["budget_exceeded"]);
+const INTERRUPT_CODES = new Set(["cancelled", "no_progress", "stalled"]);
 const PARTIAL_CODES = new Set([
   "evidence_unavailable",
   "precondition_unsatisfied",
@@ -308,6 +316,7 @@ const REJECT_CODES = new Set([
 function authoritativeRoot(response: unknown): Readonly<{
   root: AuthoritativeRoot;
   interrupted: boolean;
+  budgetStopped: boolean;
 }> {
   const report = (response as {
     report?: {
@@ -315,30 +324,38 @@ function authoritativeRoot(response: unknown): Readonly<{
       control?: { outcome?: unknown; stopReason?: unknown } | null;
     } | null;
   } | null)?.report;
-  const interrupted = report?.control?.outcome === "exceeded" ||
+  const budgetStopped =
+    report?.control?.outcome === "exceeded" &&
+    (report?.control?.stopReason === "budget" ||
+      report?.control?.stopReason === "too_many_attempts");
+  const interrupted = !budgetStopped && (
+    report?.control?.outcome === "exceeded" ||
     report?.control?.outcome === "cancelled" ||
     report?.control?.outcome === "stalled" ||
     report?.control?.stopReason === "budget" ||
     report?.control?.stopReason === "cancel" ||
-    report?.control?.stopReason === "no_progress";
+    report?.control?.stopReason === "no_progress"
+  );
   const evaluation = report?.rootEvaluation;
   if (evaluation === null || evaluation === undefined || evaluation.state !== "evaluated") {
-    return Object.freeze({ root: Object.freeze({ kind: "not_evaluated" as const }), interrupted });
+    return Object.freeze({ root: Object.freeze({ kind: "not_evaluated" as const }), interrupted, budgetStopped });
   }
   const result = evaluation.result;
   if (result !== "satisfied" && result !== "unsatisfied" && result !== "unknown") {
-    return Object.freeze({ root: Object.freeze({ kind: "not_evaluated" as const }), interrupted });
+    return Object.freeze({ root: Object.freeze({ kind: "not_evaluated" as const }), interrupted, budgetStopped });
   }
   const satisfaction = typeof evaluation.satisfaction === "number" ? evaluation.satisfaction : null;
   return Object.freeze({
     root: Object.freeze({ kind: "evaluated" as const, result, satisfaction }),
     interrupted,
+    budgetStopped,
   });
 }
 
 function projectionStatus(
   root: AuthoritativeRoot,
   interrupted: boolean,
+  budgetStopped: boolean,
   primaryCode: string | null,
   hasMatches: boolean,
 ): Readonly<{
@@ -346,6 +363,9 @@ function projectionStatus(
   resolution: ContentSearchDomainProjection["resolution"];
   satisfaction: number | null;
 }> {
+  if (budgetStopped || (primaryCode !== null && BUDGET_CODES.has(primaryCode))) {
+    return Object.freeze({ status: "unknown", resolution: "budget_exhausted", satisfaction: null });
+  }
   if (interrupted) {
     return Object.freeze({ status: "unknown", resolution: "interrupted", satisfaction: null });
   }
@@ -531,7 +551,7 @@ export async function runCliContentSearchGoal(
       state,
       rootEvaluatorId: CONTENT_ROOT_EVALUATOR,
       rootSelectorId: CONTENT_ROOT_SELECTOR,
-      limits: resources.limits,
+      ...(resources.limits === undefined ? {} : { limits: resources.limits }),
       ...(resources.continuation === undefined ? {} : { continuation: resources.continuation }),
     },
     createContentSearchDependencies(created, resources.signal),
@@ -558,7 +578,13 @@ export async function runCliContentSearchGoal(
   const authoritative = authoritativeRoot(response);
   const needle = validated.goal.requirement.predicate.needle;
   const currentMatches = matchesOf(synthesized, needle);
-  const status = projectionStatus(authoritative.root, authoritative.interrupted, primaryCode, currentMatches.length > 0);
+  const status = projectionStatus(
+    authoritative.root,
+    authoritative.interrupted,
+    authoritative.budgetStopped,
+    primaryCode,
+    currentMatches.length > 0,
+  );
   const metrics = telemetry((response as { report?: unknown } | null)?.report ?? null);
   return Object.freeze({
     request: validated,

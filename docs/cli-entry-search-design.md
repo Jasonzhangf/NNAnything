@@ -117,7 +117,8 @@ limits、能力缺失、取消、stalled/exceeded沿[递归模块](recursive-goa
 | 命中后消失、无法核验或缺身份 | unknown / stale_or_unverified | null / unknown，保留原始errno/引用错误；非ENOENT执行故障也在errors保留 |
 | 缺授权、未执行的绑定/能力拒绝 | rejected / rejected | null，根事实保持未验证；effect_denied/capability_missing等沿既有错误码 |
 | helper/协议/策略错误或必需执行失败 | failed / failed | null，根事实保持未验证；保留policy_error、执行与观察错误，不伪装not_found |
-| budget/cancel/stalled提前停止 | unknown / interrupted | null，除非终止前根已有真实判定；control保留exceeded/cancelled/stalled及原因 |
+| budget提前停止 | unknown / budget_exhausted | null，保留 typed budget control、`rootEvaluation` 与部分事实，不由根已评价豁免 |
+| cancel/stalled提前停止 | unknown / interrupted | null；control保留cancelled/stalled及原因 |
 
 非法schema、额外答案字段、非法name/type/threshold沿现有入口约定抛TypeError，零执行；合法但缺技能/授权等有准确typed报告。部分IO失败不抛掉整条ledger。错误码映射复用既有recursive错误链，errno置原始执行错误证据，不编新的通用errno。
 

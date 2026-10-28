@@ -82,7 +82,8 @@ async function runCase(id, entries, readArgs, expected, options = {}) {
       sandbox: world.sandbox,
       session: world.session,
       profile,
-      limits,
+      ...("limits" in options ? { limits: options.limits } : { limits }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.onSample === undefined ? {} : { onSample: options.onSample }),
     });
     for (const [key, value] of Object.entries(expected)) {
@@ -124,6 +125,7 @@ cases.push(await runCase(
   [{ path: "start/target.bin", kind: "file", contents: "abcdef" }],
   { name: "target.bin", range: { offset: 1, length: 3 }, expectedBase64: b64("XYZ") },
   { status: "unmet", resolution: "byte_mismatch", satisfaction: 0, coverage: "complete" },
+  { limits: undefined, signal: AbortSignal.timeout(15000) },
 ));
 cases.push(await runCase(
   "zero-length",
@@ -136,6 +138,7 @@ cases.push(await runCase(
   [{ path: "start/target.bin", kind: "file", contents: "abc" }],
   { name: "target.bin", range: { offset: 2, length: 10 }, expectedBase64: b64("cxxxxxxxxx") },
   { status: "unknown", resolution: "insufficient_evidence", satisfaction: null, coverage: "complete" },
+  { limits: undefined, signal: AbortSignal.timeout(15000) },
 ));
 
 const staleWorld = await makeWorld([{ path: "start/target.bin", kind: "file", contents: "original" }]);
@@ -180,6 +183,66 @@ try {
   });
 } finally {
   await closeWorld(staleWorld);
+}
+
+const budgetWorld = await makeWorld([{ path: "start/target.bin", kind: "file", contents: "abcdef" }]);
+try {
+  const budgetCuts = [
+    {
+      maxTransitions: 20,
+      range: { offset: 0, length: 6 },
+      expectedBase64: b64("abcdef"),
+      readBytes: b64("abcdef"),
+      rootResult: null,
+    },
+    {
+      maxTransitions: 23,
+      range: { offset: 1, length: 3 },
+      expectedBase64: b64("XYZ"),
+      readBytes: b64("bcd"),
+      rootResult: "unsatisfied",
+    },
+  ];
+  for (const cut of budgetCuts) {
+    const result = await runCliReadCompositionGoal(
+      request(
+        budgetWorld.directory,
+        "target.bin",
+        cut.range,
+        cut.expectedBase64,
+        `consumer-budget-exhausted-${cut.maxTransitions}`,
+      ),
+      {
+        sandbox: budgetWorld.sandbox,
+        session: budgetWorld.session,
+        profile,
+        limits: { maxTransitions: cut.maxTransitions, maxDepth: 4, maxDerivedGoals: 8 },
+      },
+    );
+    assert.equal(result.domain.status, "unknown");
+    assert.equal(result.domain.resolution, "budget_exhausted");
+    assert.equal(result.domain.satisfaction, null);
+    assert.equal(result.response.report.control.budget.dimension, "maxTransitions");
+    assert.equal(result.response.report.control.budget.limit, cut.maxTransitions);
+    assert.equal(result.domain.rootFact.read.bytes, cut.readBytes);
+    assert.deepEqual(
+      result.domain.preserve.rootEvaluation,
+      result.response.report.rootEvaluation,
+      "the root evaluation must be preserved on a budget stop",
+    );
+    if (cut.rootResult !== null) {
+      assert.equal(result.response.report.rootEvaluation.result, cut.rootResult);
+    }
+    cases.push({
+      id: `budget-exhausted-${cut.maxTransitions}`,
+      status: result.domain.status,
+      resolution: result.domain.resolution,
+      satisfaction: result.domain.satisfaction,
+      coverage: result.domain.coverage,
+    });
+  }
+} finally {
+  await closeWorld(budgetWorld);
 }
 
 process.stdout.write(JSON.stringify({ consumer: "public", exitCode: 0, cases }) + "\n");

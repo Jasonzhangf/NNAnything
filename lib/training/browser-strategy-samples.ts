@@ -13,7 +13,11 @@ import type {
 } from "../adapters/browser/single-action-contract.js";
 import type { FeedbackInput, FeedbackProfile } from "../adapters/browser/feedback-contract.js";
 import type { BrowserSingleActionProfile } from "../adapters/browser/single-action-contract.js";
-import { readBrowserStrategyRequest, predictBrowserStrategy } from "../filters/browser-strategy.js";
+import {
+  readBrowserStrategyRequest,
+  predictBrowserStrategy,
+  readRemainingAtomicAttempts,
+} from "../filters/browser-strategy.js";
 import { expectRecord } from "../core/schema.js";
 
 const EPISODE_KEYS = ["id", "family", "partition", "input", "registry", "selection", "teacher"] as const;
@@ -88,10 +92,10 @@ function readSelection(value: unknown): StrategyEpisode["selection"] {
   const lockedSkillId = selection.lockedSkillId === null
     ? null
     : nonEmptyString(selection.lockedSkillId, "strategy episode selection.lockedSkillId");
-  if (typeof selection.remainingAtomicAttempts !== "number"
-    || !Number.isSafeInteger(selection.remainingAtomicAttempts) || selection.remainingAtomicAttempts < 0) {
-    throw new TypeError("strategy episode selection.remainingAtomicAttempts must be a nonnegative integer");
-  }
+  const remainingAtomicAttempts = readRemainingAtomicAttempts(
+    selection.remainingAtomicAttempts,
+    "strategy episode selection.remainingAtomicAttempts",
+  );
   if (eligibleSkillIds.some(skillId => exhaustedSkillIds.includes(skillId))) {
     throw new TypeError("strategy episode selection contains an exhausted eligible strategy");
   }
@@ -102,7 +106,7 @@ function readSelection(value: unknown): StrategyEpisode["selection"] {
     eligibleSkillIds,
     lockedSkillId,
     exhaustedSkillIds,
-    remainingAtomicAttempts: selection.remainingAtomicAttempts,
+    remainingAtomicAttempts,
   });
 }
 

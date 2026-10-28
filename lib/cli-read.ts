@@ -137,7 +137,7 @@ export async function runCliReadCompositionGoal(
       state,
       rootEvaluatorId: multi ? READ_MULTI_ROOT_EVALUATOR : READ_ROOT_EVALUATOR,
       rootSelectorId: multi ? READ_MULTI_ROOT_SELECTOR : READ_ROOT_SELECTOR,
-      limits: resources.limits,
+      ...(resources.limits === undefined ? {} : { limits: resources.limits }),
     },
     dependencies,
   );

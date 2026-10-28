@@ -2186,7 +2186,7 @@ export function createReadCompositionAdapter(input: ReadCompositionAdapterInput)
         state,
         rootEvaluatorId: request.rootEvaluatorId,
         rootSelectorId: request.rootSelectorId,
-        limits: request.limits,
+        ...(request.limits === undefined ? {} : { limits: request.limits }),
         continuation,
       });
     },
@@ -2438,9 +2438,12 @@ export function createReadCompositionAdapter(input: ReadCompositionAdapterInput)
       return readAtomicReceipt(raw, DOMAIN_GUARDS);
     },
 
-    measureProgress() {
+    measureProgress(input) {
       calls.measureProgress += 1;
-      return { improved: false, reason: "none" as const, comparable: true };
+      const before = input.before as ReadCompositionState;
+      const after = input.after as ReadCompositionState;
+      const improved = readCompositionProgressFingerprint(before) !== readCompositionProgressFingerprint(after);
+      return { improved, reason: improved ? "facts_improved" as const : "none" as const, comparable: true };
     },
   };
 
@@ -2461,6 +2464,50 @@ function listingEntriesOf(transition: CliCommandTransition): readonly { name: st
         type: entry.type as "file" | "directory" | "symlink" | "other" | "unknown",
       })))
     : Object.freeze([]);
+}
+
+// Business-fact fingerprint for the composite read cycle. It tracks the real
+// stage progression (listing, candidate, inspected type, file ref, read bytes)
+// and deliberately ignores identity-only churn: state ids, source runs,
+// session revisions and dev/ino identity. The composite `expansion: "more"`
+// no-progress check compares this fingerprint so genuine list -> inspect ->
+// read progress is never mistaken for a stalled obligation.
+function readCompositionProgressFingerprint(state: ReadCompositionState): string {
+  const summarizeListing = (listing: ReadCompositionState["listing"]) =>
+    listing === null
+      ? null
+      : [
+          listing.coverage,
+          listing.candidateNames,
+          listing.entries.map(entry => [entry.name, entry.path, entry.type]),
+        ];
+  const summarizeRead = (read: ReadCompositionState["read"]) =>
+    read === null
+      ? null
+      : [read.offset, read.length, read.bytes, read.bytesRead, read.eof];
+  const summarizeInspected = (inspected: ReadCompositionState["inspected"]) =>
+    inspected === null ? null : [inspected.type, inspected.absolutePath];
+  const summarizeFileRef = (fileRef: ReadCompositionState["fileRef"]) =>
+    fileRef === null ? null : [fileRef.type, fileRef.absolutePath];
+  const summarizeCandidate = (candidate: ReadCompositionState["candidate"]) =>
+    candidate === null ? null : [candidate.name, candidate.path, candidate.listedType];
+  const sources = state.sources === null
+    ? null
+    : state.sources.map(source => [
+        summarizeListing(source.listing),
+        summarizeCandidate(source.candidate),
+        summarizeInspected(source.inspected),
+        summarizeFileRef(source.fileRef),
+        summarizeRead(source.read),
+      ]);
+  return JSON.stringify({
+    listing: summarizeListing(state.listing),
+    candidate: summarizeCandidate(state.candidate),
+    inspected: summarizeInspected(state.inspected),
+    fileRef: summarizeFileRef(state.fileRef),
+    read: summarizeRead(state.read),
+    sources,
+  });
 }
 
 export function createReadCompositionDependencies(

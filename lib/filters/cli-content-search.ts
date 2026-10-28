@@ -510,6 +510,49 @@ export function buildRootFact(
   if (status.status === "unknown" && status.resolution === "interrupted") {
     return Object.freeze({ kind: "interrupted" });
   }
+  if (status.status === "unknown" && status.resolution === "budget_exhausted") {
+    // Budget stops preserve every observed partial fact; they must not be
+    // confused with cancellation, failure, or a decisive match/not-found.
+    const matchPaths = matchesOf(state, needle).map(match => match.path);
+    const negativePaths = state.candidates.filter(candidate => candidate.outcome === "negative").map(candidate => candidate.path);
+    const reasons = state.candidates
+      .filter(candidate => candidate.reason !== null && candidate.reason !== "no_match")
+      .map(candidate => candidate.reason ?? "")
+      .concat(state.directories
+        .filter(directory => directory.uncoveredReason !== null)
+        .map(directory => directory.uncoveredReason ?? "")
+      );
+    if (matchPaths.length > 0) {
+      return Object.freeze({
+        kind: "partial",
+        needle,
+        listing: Object.freeze({
+          sourceRun: listing?.sourceRun ?? null,
+          sourceRuns: sourceRunsOf(state),
+          coverage: listing?.coverage ?? null,
+          errors: Object.freeze(listing?.errors ?? []),
+        }),
+        candidateNames: Object.freeze(state.candidates.map(candidate => candidate.name)),
+        matchPaths: Object.freeze(matchPaths),
+        negativePaths: Object.freeze(negativePaths),
+        reasons: Object.freeze([...new Set(reasons)]),
+      });
+    }
+    return Object.freeze({
+      kind: "insufficient_evidence",
+      needle,
+      listing: Object.freeze({
+        sourceRun: listing?.sourceRun ?? null,
+        sourceRuns: sourceRunsOf(state),
+        coverage: listing?.coverage ?? null,
+        errors: Object.freeze(listing?.errors ?? []),
+      }),
+      candidateNames: Object.freeze(state.candidates.map(candidate => candidate.name)),
+      reasons: Object.freeze([...new Set(reasons)]),
+      matchPaths: Object.freeze([]),
+      negativePaths: Object.freeze(negativePaths),
+    });
+  }
   if (status.status === "rejected") {
     return Object.freeze({ kind: "rejected" });
   }
