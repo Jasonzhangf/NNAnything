@@ -1467,3 +1467,48 @@ test("DEV_CE08 all-mode partial with a valid match keeps depth_limit and full pa
     typeMismatches: 0,
   });
 });
+
+test("DEV_CE09 all-mode cancellation after a verified match reports an interrupted root fact", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.ts", kind: "file", contents: "top" },
+    { path: "start/sub", kind: "directory" },
+    { path: "start/sub/target.ts", kind: "file", contents: "deep" },
+  ]);
+  const controller = new AbortController();
+  const actions = [];
+  const result = await runWith(
+    value,
+    recursiveRequest(value.directory, "target.ts", "regular", "all", "nested"),
+    {
+      limits: RECURSIVE_LIMITS,
+      scan: { maxDirectoryDepth: 0 },
+      signal: controller.signal,
+      onSample: async sample => {
+        actions.push(sample.policy.selectedHead);
+        if (sample.policy.selectedHead === "entry.inspect") controller.abort();
+      },
+    },
+  );
+  assert.equal(controller.signal.aborted, true);
+  assert.deepEqual(actions, ["ls", "entry.inspect"]);
+  assert.equal(heads(result.response).length, actions.length);
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "interrupted");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.match, null);
+  assert.deepEqual(result.domain.rootFact, { kind: "interrupted" });
+  assert.equal(result.domain.coverage, "partial");
+  const start = value.sandbox.getSession(value.session).cwd;
+  assert.equal(result.domain.matches.length, 1);
+  assert.equal(result.domain.matches[0].absolutePath, join(start, "target.ts"));
+  assertDenominators(result.domain, {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 1,
+    nameMatchedCandidates: 1,
+    candidatesInspected: 1,
+    candidatesMatched: 1,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 0,
+  });
+});

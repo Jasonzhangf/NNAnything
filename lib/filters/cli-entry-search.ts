@@ -357,6 +357,20 @@ export function rootFact(
     return insufficient();
   }
 
+  if (
+    primaryCode !== null &&
+    (primaryCode === "invalid_request" || primaryCode === "invalid_binding" ||
+      primaryCode === "effect_denied" || primaryCode === "capability_missing")
+  ) {
+    return Object.freeze({ kind: "rejected" });
+  }
+  if (primaryCode === "execution_failed" || primaryCode === "policy_error") {
+    return Object.freeze({ kind: "failed" });
+  }
+  if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
+    return Object.freeze({ kind: "interrupted" });
+  }
+
   if (matches.length > 0) {
     if (cardinality === "all" && coverage !== "complete") {
       return Object.freeze({
@@ -383,19 +397,6 @@ export function rootFact(
       inspect: candidate?.inspected ?? (() => { throw new TypeError("matched entry lost its inspection"); })(),
       ref: first,
     });
-  }
-  if (
-    primaryCode !== null &&
-    (primaryCode === "invalid_request" || primaryCode === "invalid_binding" ||
-      primaryCode === "effect_denied" || primaryCode === "capability_missing")
-  ) {
-    return Object.freeze({ kind: "rejected" });
-  }
-  if (primaryCode === "execution_failed" || primaryCode === "policy_error") {
-    return Object.freeze({ kind: "failed" });
-  }
-  if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
-    return Object.freeze({ kind: "interrupted" });
   }
   if (coverage === "complete") {
     if (typeMismatches.length > 0) {
