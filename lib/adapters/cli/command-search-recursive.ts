@@ -478,6 +478,7 @@ function readFactFromObservation(
     operation: observation.kind,
     bytesRead: observation.bytesRead,
     logicalLines: observation.kind === "file.read.lines" ? observation.logicalLines : null,
+    requestedCount: observation.kind === "file.read.lines" ? observation.requestedCount : null,
     bytesBase64: observation.bytes,
     identity: Object.freeze({
       dev: observation.identity.dev,

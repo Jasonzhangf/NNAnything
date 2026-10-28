@@ -718,13 +718,23 @@ test("strict request/bindings/state/evidence contracts reject forged or malforme
     operation: "file.read.lines",
     bytesRead: 16,
     logicalLines: 2,
+    requestedCount: 2,
     bytesBase64: "bm90ZQ==",
     identity: { dev: 1, ino: 2 },
   };
   assert.equal(readCommandSearchReadFact(readFact).fileRef.kind, "cli.file");
+  assert.equal(readCommandSearchReadFact(readFact).requestedCount, 2);
   assert.throws(
     () => readCommandSearchReadFact({ ...readFact, operation: "file.read.unsupported" }),
     /operation must be/,
+  );
+  assert.throws(
+    () => readCommandSearchReadFact({ ...readFact, requestedCount: null }),
+    /requested line count for file.read.lines/,
+  );
+  assert.throws(
+    () => readCommandSearchReadFact({ ...readFact, operation: "file.read", logicalLines: null, requestedCount: 2 }),
+    /requestedCount must be null for file.read/,
   );
   assert.throws(
     () => readCommandSearchReadFact({ ...readFact, identity: { dev: 1, ino: 3 } }),
@@ -1129,6 +1139,67 @@ test("Slice 3 T2 target hit binds a trusted file and performs controlled line an
   assert.equal(byteReadStep.E.namedFeatures["actual.N/16"], 0);
   assert.equal(byteReadStep.D?.namedFeatures["read.fromS0"], 1);
   assert.equal(byteReadStep.D?.namedFeatures["read.fromS1"], 0);
+});
+
+test("Slice 3 T2b short and empty line reads keep actual.N/16 at the requested count", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-slice3-t2b",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/one-line.txt", kind: "file", contents: "only line\n" },
+      { path: "scan/empty.txt", kind: "file", contents: "" },
+    ],
+  });
+
+  const short = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, {
+      requestId: "sc-t2b-short",
+      cardinality: "one",
+      fileFilter: { exactBasename: "one-line.txt" },
+      followUpRead: { mode: "lines", anchor: "head", count: 16 },
+    }),
+  );
+  assert.equal(short.domain.readReceipt?.operation, "file.read.lines");
+  assert.equal(short.domain.readReceipt?.logicalLines, 1);
+  const shortStep = short.domain.stepTrace.findLast(
+    step => step.commandReceipt === null && step.E.namedFeatures["receipt.present"] === 1,
+  );
+  assert.ok(shortStep);
+  assert.equal(shortStep.E.namedFeatures["goal.N/16"], 1);
+  assert.equal(shortStep.E.namedFeatures["actual.N/16"], 1);
+  assert.equal(shortStep.E.namedFeatures["output.logicalLines/16"], 1 / 16);
+  assert.notEqual(
+    shortStep.E.namedFeatures["actual.N/16"],
+    shortStep.E.namedFeatures["output.logicalLines/16"],
+  );
+  assert.equal(short.domain.readReceipt?.requestedCount, 16);
+
+  const empty = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, {
+      requestId: "sc-t2b-empty",
+      cardinality: "one",
+      fileFilter: { exactBasename: "empty.txt" },
+      followUpRead: { mode: "lines", anchor: "head", count: 4 },
+    }),
+  );
+  assert.equal(empty.domain.readReceipt?.operation, "file.read.lines");
+  assert.equal(empty.domain.readReceipt?.logicalLines, 0);
+  assert.equal(empty.domain.readReceipt?.bytesRead, 0);
+  const emptyStep = empty.domain.stepTrace.findLast(
+    step => step.commandReceipt === null && step.E.namedFeatures["receipt.present"] === 1,
+  );
+  assert.ok(emptyStep);
+  assert.equal(emptyStep.E.namedFeatures["goal.N/16"], 4 / 16);
+  assert.equal(emptyStep.E.namedFeatures["actual.N/16"], 4 / 16);
+  assert.equal(emptyStep.E.namedFeatures["output.linesKnown"], 1);
+  assert.equal(emptyStep.E.namedFeatures["output.logicalLines/16"], 0);
+  assert.notEqual(
+    emptyStep.E.namedFeatures["actual.N/16"],
+    emptyStep.E.namedFeatures["output.logicalLines/16"],
+  );
+  assert.equal(empty.domain.readReceipt?.requestedCount, 4);
 });
 
 test("Slice 3 T3 complete negative search terminates unmet and never reports a false success", async t => {

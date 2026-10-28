@@ -316,6 +316,7 @@ export function evaluateCommandSearchRdea(
       const goalTail = linesRequested && input.followUpRead.anchor === "tail" ? 1 : 0;
       const goalN = linesRequested ? input.followUpRead.count / 16 : 0;
       const logicalLines = linesObserved ? input.readReceipt!.logicalLines! / 16 : 0;
+      const actualN = linesObserved ? input.readReceipt!.requestedCount! / 16 : 0;
       const actualHead = linesObserved && linesRequested && input.followUpRead.anchor === "head" ? 1 : 0;
       const actualTail = linesObserved && linesRequested && input.followUpRead.anchor === "tail" ? 1 : 0;
       eResult = evaluateCommandSearchE(model, {
@@ -328,7 +329,7 @@ export function evaluateCommandSearchRdea(
         "execution.succeeded": readDone ? 1 : 0,
         "output.linesKnown": linesObserved ? 1 : 0,
         "output.logicalLines/16": logicalLines,
-        "actual.N/16": linesObserved ? logicalLines : 0,
+        "actual.N/16": actualN,
       }, "g2.read", { known: true, present: readDone });
     } else {
       const isComplete = Boolean(

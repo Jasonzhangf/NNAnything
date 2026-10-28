@@ -203,6 +203,7 @@ export type CommandSearchReadFact = Readonly<{
   operation: "file.read" | "file.read.lines";
   bytesRead: number;
   logicalLines: number | null;
+  requestedCount: number | null;
   bytesBase64: string;
   identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
 }>;
@@ -865,12 +866,32 @@ export function readCommandSearchReadFact(
   const input = record(value, label);
   exactKeys(
     input,
-    ["slot", "relPath", "fileRef", "operation", "bytesRead", "logicalLines", "bytesBase64", "identity"],
+    [
+      "slot",
+      "relPath",
+      "fileRef",
+      "operation",
+      "bytesRead",
+      "logicalLines",
+      "requestedCount",
+      "bytesBase64",
+      "identity",
+    ],
     label,
   );
   if (input.slot !== "s0" && input.slot !== "s1") throw new TypeError(`${label}.slot is invalid`);
   if (input.operation !== "file.read" && input.operation !== "file.read.lines") {
     throw new TypeError(`${label}.operation must be file.read or file.read.lines`);
+  }
+  const requestedCount =
+    input.requestedCount === null
+      ? null
+      : positiveInteger(input.requestedCount, `${label}.requestedCount`);
+  if (input.operation === "file.read.lines" && requestedCount === null) {
+    throw new TypeError(`${label}.requestedCount must be the requested line count for file.read.lines`);
+  }
+  if (input.operation === "file.read" && requestedCount !== null) {
+    throw new TypeError(`${label}.requestedCount must be null for file.read`);
   }
   const fileRef = readObservedObjectRef(input.fileRef);
   if (fileRef.kind !== "cli.file" || fileRef.type !== "regular") {
@@ -896,6 +917,7 @@ export function readCommandSearchReadFact(
       input.logicalLines === null
         ? null
         : nonnegativeInteger(input.logicalLines, `${label}.logicalLines`),
+    requestedCount,
     bytesBase64: input.bytesBase64,
     identity: Object.freeze({ dev, ino }),
   });
