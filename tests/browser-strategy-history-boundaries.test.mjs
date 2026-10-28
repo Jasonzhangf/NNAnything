@@ -23,6 +23,7 @@ async function fixture() {
   relationWeights[0][12] = 6;
   return {
     strategy,
+    samples,
     rows: samples.makeStrategySamples(),
     profile: strategy.createZeroBrowserStrategyProfile(),
     atomicProfile: atomicPolicy.validateBrowserSingleActionProfile({ ...zeroAtomic, relationWeights }),
@@ -166,5 +167,26 @@ test("synthetic history stays within its current document and revision", async (
         assert.equal(history.input.controlAtCompletion.documentRef, current.documentRef, row.id);
       }
     }
+  }
+});
+
+test("strategy episode reader accepts a null remaining budget and round-trips it", async () => {
+  const data = await fixture();
+  const episode = structuredClone(data.rows[0]);
+  episode.selection.remainingAtomicAttempts = null;
+  const [read] = data.samples.readStrategyEpisodes([episode]);
+  assert.equal(read.selection.remainingAtomicAttempts, null);
+});
+
+test("strategy episode reader rejects malformed remaining budget values", async () => {
+  const data = await fixture();
+  for (const bad of [undefined, -1, 1.5, "3", NaN, Infinity]) {
+    const episode = structuredClone(data.rows[0]);
+    episode.selection.remainingAtomicAttempts = bad;
+    assert.throws(
+      () => data.samples.readStrategyEpisodes([episode]),
+      /remainingAtomicAttempts must be null or a nonnegative safe integer/,
+      `expected rejection for ${String(bad)}`,
+    );
   }
 });

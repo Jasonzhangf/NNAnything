@@ -66,6 +66,15 @@ function sameSequence(value: unknown, expected: readonly string[], label: string
   }
 }
 
+/** Accepts a caller-declared remaining budget: null means no total ceiling. */
+export function readRemainingAtomicAttempts(value: unknown, label: string): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new TypeError(`${label} must be null or a nonnegative safe integer`);
+  }
+  return value;
+}
+
 function finiteMatrix(value: unknown): readonly (readonly number[])[] {
   if (!Array.isArray(value) || value.length !== STRATEGY_HEADS.length) {
     throw new TypeError(`browser strategy weights must have ${STRATEGY_HEADS.length} rows`);
@@ -170,7 +179,7 @@ interface ReadSelection {
   readonly eligibleSkillIds: readonly string[];
   readonly lockedSkillId: string | null;
   readonly exhaustedSkillIds: readonly string[];
-  readonly remainingAtomicAttempts: number;
+  readonly remainingAtomicAttempts: number | null;
 }
 
 function readSelection(value: unknown): ReadSelection {
@@ -181,15 +190,15 @@ function readSelection(value: unknown): ReadSelection {
   const lockedSkillId = selection.lockedSkillId === null
     ? null
     : nonEmptyString(selection.lockedSkillId, "browser strategy selection.lockedSkillId");
-  if (typeof selection.remainingAtomicAttempts !== "number"
-    || !Number.isSafeInteger(selection.remainingAtomicAttempts) || selection.remainingAtomicAttempts < 0) {
-    throw new TypeError("browser strategy selection.remainingAtomicAttempts must be a nonnegative integer");
-  }
+  const remainingAtomicAttempts = readRemainingAtomicAttempts(
+    selection.remainingAtomicAttempts,
+    "browser strategy selection.remainingAtomicAttempts",
+  );
   return Object.freeze({
     eligibleSkillIds,
     lockedSkillId,
     exhaustedSkillIds,
-    remainingAtomicAttempts: selection.remainingAtomicAttempts,
+    remainingAtomicAttempts,
   });
 }
 
