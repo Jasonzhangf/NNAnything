@@ -524,6 +524,23 @@ export function projectDomain(
     });
   }
 
+  if (
+    primaryCode === "invalid_request" || primaryCode === "invalid_binding" ||
+    primaryCode === "effect_denied" || primaryCode === "capability_missing"
+  ) {
+    return unresolved("rejected", "rejected", state, predicate, primaryCode, view);
+  }
+  if (primaryCode === "execution_failed" || primaryCode === "policy_error") {
+    return unresolved("failed", "failed", state, predicate, primaryCode, view);
+  }
+  if (
+    primaryCode === "cancelled" ||
+    primaryCode === "no_progress" ||
+    primaryCode === "stalled"
+  ) {
+    return unresolved("unknown", "interrupted", state, predicate, primaryCode, view);
+  }
+
   if (decision.result === "satisfied") {
     const fact = rootFact(predicate, state, primaryCode);
     if (fact.kind !== "matched") {
@@ -541,23 +558,6 @@ export function projectDomain(
       rootFact: fact,
       preserve: preserve(view),
     });
-  }
-
-  if (
-    primaryCode === "invalid_request" || primaryCode === "invalid_binding" ||
-    primaryCode === "effect_denied" || primaryCode === "capability_missing"
-  ) {
-    return unresolved("rejected", "rejected", state, predicate, primaryCode, view);
-  }
-  if (primaryCode === "execution_failed" || primaryCode === "policy_error") {
-    return unresolved("failed", "failed", state, predicate, primaryCode, view);
-  }
-  if (
-    primaryCode === "cancelled" ||
-    primaryCode === "no_progress" ||
-    primaryCode === "stalled"
-  ) {
-    return unresolved("unknown", "interrupted", state, predicate, primaryCode, view);
   }
 
   if (decision.result === "unsatisfied") {

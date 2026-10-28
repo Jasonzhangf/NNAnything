@@ -1512,3 +1512,85 @@ test("DEV_CE09 all-mode cancellation after a verified match reports an interrupt
     typeMismatches: 0,
   });
 });
+
+test("DEV_CE10 one-mode cancellation after a satisfied inspect reports interrupted", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.ts", kind: "file", contents: "top" },
+  ]);
+  const controller = new AbortController();
+  const actions = [];
+  const result = await runWith(
+    value,
+    recursiveRequest(value.directory, "target.ts", "regular", "one", "nested"),
+    {
+      limits: RECURSIVE_LIMITS,
+      signal: controller.signal,
+      onSample: async sample => {
+        actions.push(sample.policy.selectedHead);
+        if (sample.policy.selectedHead === "entry.inspect") controller.abort();
+      },
+    },
+  );
+  assert.equal(controller.signal.aborted, true);
+  assert.deepEqual(actions, ["ls", "entry.inspect"]);
+  assert.deepEqual(heads(result.response), actions);
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "interrupted");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.match, null);
+  assert.deepEqual(result.domain.rootFact, { kind: "interrupted" });
+  assert.equal(result.domain.matches.length, 1);
+  const start = value.sandbox.getSession(value.session).cwd;
+  assert.equal(result.domain.matches[0].absolutePath, join(start, "target.ts"));
+  assert.equal(result.domain.preserve.control.outcome, "cancelled");
+  assert.equal(result.domain.preserve.control.stopReason, "cancel");
+  assert.equal(result.response.report.control.outcome, "cancelled");
+  assert.equal(result.response.report.control.stopReason, "cancel");
+  assert.match(JSON.stringify(result.response.report.control), /cancel/);
+});
+
+test("DEV_CE11 all-mode cancellation after the last satisfied inspect reports interrupted", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.ts", kind: "file", contents: "top" },
+    { path: "start/sub", kind: "directory" },
+    { path: "start/sub/target.ts", kind: "file", contents: "deep" },
+  ]);
+  const controller = new AbortController();
+  const actions = [];
+  let inspections = 0;
+  const result = await runWith(
+    value,
+    recursiveRequest(value.directory, "target.ts", "regular", "all", "nested"),
+    {
+      limits: RECURSIVE_LIMITS,
+      signal: controller.signal,
+      onSample: async sample => {
+        actions.push(sample.policy.selectedHead);
+        if (sample.policy.selectedHead === "entry.inspect") {
+          inspections += 1;
+          if (inspections === 2) controller.abort();
+        }
+      },
+    },
+  );
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(inspections, 2);
+  assert.deepEqual(heads(result.response), actions);
+  assert.equal(result.domain.coverage, "complete");
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "interrupted");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.match, null);
+  assert.deepEqual(result.domain.rootFact, { kind: "interrupted" });
+  assert.equal(result.domain.matches.length, 2);
+  const start = value.sandbox.getSession(value.session).cwd;
+  assert.deepEqual(
+    result.domain.matches.map(match => match.absolutePath),
+    [join(start, "sub", "target.ts"), join(start, "target.ts")],
+  );
+  assert.equal(result.domain.preserve.control.outcome, "cancelled");
+  assert.equal(result.domain.preserve.control.stopReason, "cancel");
+  assert.equal(result.response.report.control.outcome, "cancelled");
+  assert.equal(result.response.report.control.stopReason, "cancel");
+  assert.match(JSON.stringify(result.response.report.control), /cancel/);
+});
