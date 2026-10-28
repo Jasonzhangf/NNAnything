@@ -1,0 +1,19 @@
+{
+  "id": "cli-command-search-design",
+  "version": "0.2.0-design",
+  "inputs": [{"id":"command_search_request","schema":"Object"}],
+  "nodes": [
+    {"id":"validate_request","operator":"cli.command-search.validate","operator_version":"0.2.0-design","inputs":["command_search_request"],"output":{"id":"command_search_context","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"evaluate_rdea_state","operator":"cli.command-search.evaluate","operator_version":"0.2.0-design","inputs":["command_search_context"],"output":{"id":"command_search_evaluation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"derive_or_close","operator":"cli.command-search.derive","operator_version":"0.2.0-design","inputs":["command_search_evaluation"],"output":{"id":"command_search_derivation","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"execute_sandbox_command","operator":"cli.command-search.execute","operator_version":"0.2.0-design","inputs":["command_search_derivation"],"output":{"id":"command_search_execution","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"},
+    {"id":"project_domain_result","operator":"cli.command-search.project","operator_version":"0.2.0-design","inputs":["command_search_execution"],"output":{"id":"command_search_result","schema":"Object"},"input_selector":{"include":[],"exclude":[]},"output_selector":{"include":[],"exclude":[]},"iterator":"Whole"}
+  ],
+  "edges": [
+    {"from":"validate_request","to":"evaluate_rdea_state","arc_id":"command_search_context"},
+    {"from":"evaluate_rdea_state","to":"derive_or_close","arc_id":"command_search_evaluation"},
+    {"from":"derive_or_close","to":"execute_sandbox_command","arc_id":"command_search_derivation"},
+    {"from":"execute_sandbox_command","to":"project_domain_result","arc_id":"command_search_execution"}
+  ],
+  "outputs": ["command_search_result"]
+}

@@ -265,3 +265,36 @@ OS 整数使用 bigint 读取。超出安全整数时以固定十进制字符串
 ### 7.5 平台边界
 
 `block_device` 保留在完整类型联合中。本机 macOS 没有真实 fixture 时，其 native 证据必须标 `UNVERIFIED`；不得用 `mknod`、sudo 或其他伪设备方式伪造。FIFO、socket 与 symlink 必须在沙盒内真实构造并保留证据，不能只靠注入或 mock 宣称实测。未知平台能力保持缺测，不阻塞其他属性。
+
+## 8. 0.3.0 Slice 3：SC 正式命令搜索产品接入（2026-10-28）
+
+公开入口 `nnanything/cli-command-search`（`runCliCommandSearchGoal`）。本切片只接入产品级命令搜索的递归执行与领域投影，不训练、不改权重/阈值/采用状态。Slice 2 的 `command-search-contract.ts` 与 `cli-command-search.ts` 过滤/模型层为唯一 owner，本切片复用。
+
+### 8.1 有限切片边界
+
+- 公开域只接受两个根目标：
+  - `file.property.content.bytes` + `requirement.kind = "contains_literal"`：字面量搜索，执行 `directory.search.content`；
+  - `file.property.directory.entries` + `requirement.kind = "matches_target"`：文件名/类型匹配，执行 `directory.search.entries`。
+- 范围（`cli.command-search-scope.scopeRefs`）支持单槽 `one|all` 与双槽主备；双槽位 `cardinality = "one"` 启用 `s1` 主备回退（`s0` 命中即早停，`s1` 未搜索）；**双槽位 `cardinality = "all"` 在公开边界显式抛出 `TypeError` 拒收**，因为多范围无法定义全局 `all` 命集合。
+- 受控读取（`requirement.followUpRead`）仅经 `sandbox.bindFile` 签发的 `ObservedObjectRef` 执行 `file.read` / `file.read.lines`，不绕开沙箱身份校验。
+
+### 8.2 执行与身份边界
+
+- 所有 `directory.search.entries` / `directory.search.content` 只经 `sandbox.execute` 生成真实 `SemanticCallReceipt`；禁止 adapter 私自 spawn 或硬编码路径。
+- `scopeRefs` 中每个 `DirectoryRef` 必须已由 `sandbox.bindDirectory` 签发；伪造/未签发引用返回 `status = "rejected"`、`resolution = "rejected"`、`totalProcessSpawns = 0`（底层 `binding_identity_missing`）。
+- 缺少 `process.exec` / `filesystem.read` 授权时同样 `rejected/0`，`executorInvoked = false`。
+- 最终目录为 symlink、或子目录内指向沙盒外的 symlink 在被禁止跟随时，不发生越界读取。
+
+### 8.3 公开 domain 投影与冻结元数据
+
+投影只暴露设计真源 §4.3 的正式词汇：`status`、`resolution`、`satisfaction`、`coverage`、`reasons`、`matchedEntries`、`matchedLines`、`readReceipt`、`issuedRefs`、`searchCommandSpawns`、`probeCommandSpawns`、`spawnLedger`、`stepTrace`、`modelMetadata`。
+
+- `modelMetadata` 冻结为 `{ ref, schema: "cli.hybrid-package.v1", calibration: "uncalibrated", adoption: "not_applied" }`；**不含任何 hash/digest/sha256/checksum 字段**，也不对 `ref` 注入身份摘要。
+- `stepTrace` 携带真实 `R`（14 维）/ `E`（19 维）/ `D`（26 维）/ `A`（6 维）logits 与每步 `command` 操作，作为运行证据；不进入满足度判定。
+- 结局映射（唯一断言标准）：
+  - 单/双槽命中完成或 `one` 早停：`achieved / matched / 100 / complete|partial`；
+  - 全部槽位完整搜索且 0 命中：`unmet / not_found / 0 / complete`，`reasons = ["no_matching_entries"]`；
+  - 覆盖不完整（`EACCES` / `maxStdoutBytes` / `maxDepth` 截断）：已有命中为 `unknown / partial / null / partial`，0 命中为 `unknown / insufficient_evidence / null / partial`；
+  - 预算耗尽（如 `maxTransitions`）：`unknown / budget_exhausted / null`，`preserve.continuation != null`；
+  - `effect_denied` / `invalid_binding` / `adapter_contract_invalid`：`rejected / rejected / null`；
+  - `continuation` 与 `modelRef` 不一致（异版本或异 requestId）拒绝为 `rejected`。
