@@ -364,3 +364,25 @@ test("fixed DEFER teacher raises every maximum candidate once and is order invar
   assertCloseArray(reversedFit.trajectory[0].gradient, fit.trajectory[0].gradient, 1e-7,
     "candidate order invariant gradient");
 });
+
+test("fitter accepts a nullable remaining budget without a finite-value guard", async () => {
+  const numeric = await loadNumeric();
+  const strategy = await loadStrategy();
+  const { samples, models } = await modelsAndSamples();
+  const episode = samples.find(row => row.partition === "train");
+  assert.ok(episode);
+  const nullable = structuredClone(episode);
+  nullable.id = `${episode.id}:null-budget`;
+  nullable.family = `${episode.family}:null-budget`;
+  nullable.selection.remainingAtomicAttempts = null;
+  const fit = await numeric.fitBrowserStrategyProfile({
+    ...models,
+    profile: strategy.createZeroBrowserStrategyProfile(),
+    episodes: [nullable],
+    handwiredRoot: "/backend/not-loaded",
+    epochs: 0,
+    learningRate: 0.1,
+  });
+  assert.equal(fit.trajectory.length, 0);
+  assert.equal(fit.timing.decisionSets, 1);
+});

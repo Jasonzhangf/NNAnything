@@ -194,6 +194,63 @@ async function observeRealListing(input, failName = null) {
   };
 }
 
+function assertDenominators(domain, expected) {
+  assert.deepEqual(domain.denominators, {
+    listedDirectories: expected.listedDirectories,
+    directoriesComplete: expected.directoriesComplete,
+    directoriesUncovered: expected.directoriesUncovered,
+    nameMatchedCandidates: expected.nameMatchedCandidates,
+    candidatesInspected: expected.candidatesInspected,
+    candidatesMatched: expected.candidatesMatched,
+    candidatesStaleOrUnverified: expected.candidatesStaleOrUnverified,
+    typeMismatches: expected.typeMismatches,
+  });
+}
+
+async function assertObservedObjectRef(ref, expected, fixtureValue) {
+  assert.deepEqual(Object.keys(ref).sort(), [
+    "absolutePath",
+    "identity",
+    "kind",
+    "scenarioId",
+    "sessionId",
+    "sessionRevision",
+    "sourceRun",
+    "type",
+  ]);
+  assert.deepEqual(Object.keys(ref.identity).sort(), ["dev", "ino"]);
+  assert.equal(ref.kind, expected.kind);
+  assert.equal(ref.scenarioId, fixtureValue.session.scenarioId);
+  assert.equal(ref.sessionId, fixtureValue.session.sessionId);
+  assert.equal(ref.type, expected.type);
+  assert.equal(ref.absolutePath, expected.absolutePath);
+  assert.equal(
+    ref.sessionRevision,
+    fixtureValue.sandbox.getSession(fixtureValue.session).revision,
+  );
+  assert.equal(typeof ref.sourceRun, "string");
+  assert.notEqual(ref.sourceRun.length, 0);
+  const stat = await lstat(ref.absolutePath, { bigint: true });
+  assert.equal(String(ref.identity.dev), String(stat.dev));
+  assert.equal(String(ref.identity.ino), String(stat.ino));
+}
+
+function assertDerivationClosedUnknown(result) {
+  const report = result.response.report;
+  assert.equal(report.rootEvaluation.state, "evaluated");
+  assert.equal(report.rootEvaluation.result, "unknown");
+  assert.equal(report.rootEvaluation.satisfaction, null);
+  assert.equal(report.control.outcome, "error");
+  assert.equal(report.control.stopReason, "fatal_error");
+  assert.equal(report.errors.length, 1);
+  const primaryError = report.errors.find(error => error.errorId === report.primaryErrorId);
+  assert.ok(primaryError, "primary error id must resolve to the single retained error");
+  assert.equal(primaryError.code, "evidence_unavailable");
+  assert.equal(primaryError.stage, "aggregation");
+  assert.equal(primaryError.source.owner, "module");
+  assert.equal(primaryError.source.category, "derivation_closed");
+}
+
 async function withProfile(t, entries, options = {}) {
   const loaded = await fixture(t, {
     scenarioId: options.scenarioId ?? "entry-search",
@@ -319,7 +376,11 @@ test("E09 a match removed after listing is stale evidence, not a complete not_fo
   );
 
   assert.equal(deletedAfter.length, 1);
-  assert.equal(result.domain.status, "unknown");
+  assert.equal(
+    result.domain.status,
+    "unknown",
+    JSON.stringify(result.response.report.errors),
+  );
   assert.equal(result.domain.resolution, "stale_or_unverified");
   assert.equal(result.domain.satisfaction, null);
   assert.equal(result.domain.match, null);
@@ -816,7 +877,7 @@ test("E12 a wrong head is a policy error with zero execution", async t => {
   assert.equal(heads(result.response).includes("entry.inspect"), false);
 });
 
-test("E12 budget and cancellation stop as interrupted, not as not_found", async t => {
+test("E12 budget stops as budget_exhausted and cancellation stops as interrupted", async t => {
   const value = await withProfile(t, [
     { path: "start/target.txt", kind: "file", contents: "x" },
   ]);
@@ -824,7 +885,7 @@ test("E12 budget and cancellation stop as interrupted, not as not_found", async 
     limits: { maxTransitions: 1, maxDepth: 4, maxDerivedGoals: 8 },
   });
   assert.equal(budget.domain.status, "unknown");
-  assert.equal(budget.domain.resolution, "interrupted");
+  assert.equal(budget.domain.resolution, "budget_exhausted");
   assert.equal(budget.domain.satisfaction, null);
   assert.equal(budget.domain.match, null);
   assert.match(JSON.stringify(budget.response.report.control), /budget/);
@@ -846,6 +907,131 @@ test("E12 budget and cancellation stop as interrupted, not as not_found", async 
   assert.equal(cancelled.domain.satisfaction, null);
   assert.equal(cancelled.domain.match, null);
   assert.match(JSON.stringify(cancelled.response.report.control), /cancel/);
+});
+
+test("E12b budget after listing or inspection stays budget_exhausted", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.txt", kind: "directory" },
+    { path: "start/other.txt", kind: "file", contents: "other" },
+  ]);
+  const scenarios = [
+    { label: "not_found", goal: request(value.directory, "missing.txt", "regular") },
+    { label: "type_mismatch", goal: request(value.directory, "target.txt", "regular") },
+  ];
+  for (const scenario of scenarios) {
+    const baseline = await run(value, scenario.goal);
+    assert.equal(baseline.domain.resolution, scenario.label);
+    const used = baseline.response.report.budgetUsed.transitionsUsed;
+    let sawListing = false;
+    let sawInspect = false;
+    let sawInspectPreserved = false;
+    for (let maxTransitions = 1; maxTransitions < used; maxTransitions += 1) {
+      const result = await runWith(value, scenario.goal, {
+        limits: { maxTransitions, maxDepth: 4, maxDerivedGoals: 8 },
+      });
+      if (result.response.report.control.stopReason !== "budget") continue;
+      const selectedHeads = heads(result.response);
+      sawListing ||= selectedHeads.includes("ls");
+      sawInspect ||= selectedHeads.includes("entry.inspect");
+      if (selectedHeads.includes("entry.inspect")) {
+        const preserved = result.domain.preserve.atomicResults ?? [];
+        sawInspectPreserved ||= preserved.some(
+          item => item?.sourceResult?.value?.policy?.selectedHead === "entry.inspect",
+        );
+      }
+      assert.equal(
+        result.domain.status,
+        "unknown",
+        `${scenario.label} budget ${maxTransitions} status`,
+      );
+      assert.equal(
+        result.domain.resolution,
+        "budget_exhausted",
+        `${scenario.label} budget ${maxTransitions} resolution`,
+      );
+      assert.equal(result.domain.satisfaction, null);
+      assert.equal(result.domain.match, null);
+      if (scenario.label === "type_mismatch") {
+        const listed = selectedHeads.includes("ls");
+        assert.equal(
+          result.domain.rootFact.kind,
+          listed ? "stale_or_unverified" : "insufficient_evidence",
+          `type_mismatch budget ${maxTransitions} must not overwrite the budget stop`,
+        );
+        if (selectedHeads.includes("entry.inspect")) {
+          assert.equal(
+            result.domain.rootFact.inspect?.type,
+            "directory",
+            `type_mismatch budget ${maxTransitions} must keep the observed directory type`,
+          );
+        }
+      }
+      assert.deepEqual(
+        result.domain.preserve.control.budget,
+        result.response.report.control.budget,
+        `${scenario.label} budget ${maxTransitions} preserve detail`,
+      );
+    }
+    assert.equal(sawListing, true, `${scenario.label} must cover a listing receipt`);
+    if (scenario.label === "type_mismatch") {
+      assert.equal(sawInspect, true, "the type-mismatch scenario must cover an inspect receipt");
+      assert.equal(
+        sawInspectPreserved,
+        true,
+        "the inspect receipt must remain a preserved partial fact",
+      );
+    }
+  }
+});
+
+test("E12c budget after a partial listing stays budget_exhausted with partial facts", async t => {
+  const value = await withProfile(
+    t,
+    [
+      { path: "start/target.txt", kind: "file", contents: "do not read" },
+      { path: "start/unrelated.bin", kind: "file", contents: "unrelated" },
+    ],
+    { listingObserver: input => observeRealListing(input, "unrelated.bin") },
+  );
+  const goal = request(value.directory, "target.txt", "regular");
+  const baseline = await run(value, goal);
+  assert.equal(baseline.domain.status, "unknown");
+  assert.equal(baseline.domain.resolution, "insufficient_evidence");
+  assert.equal(baseline.domain.coverage, "partial");
+  const used = baseline.response.report.budgetUsed.transitionsUsed;
+  let sawPartialBudget = false;
+  for (let maxTransitions = 1; maxTransitions < used; maxTransitions += 1) {
+    const result = await runWith(value, goal, {
+      limits: { maxTransitions, maxDepth: 4, maxDerivedGoals: 8 },
+    });
+    if (result.response.report.control.stopReason !== "budget") continue;
+    assert.equal(result.domain.status, "unknown", `partial budget ${maxTransitions} status`);
+    assert.equal(
+      result.domain.resolution,
+      "budget_exhausted",
+      `partial budget ${maxTransitions} resolution`,
+    );
+    assert.equal(result.domain.satisfaction, null);
+    assert.equal(result.domain.match, null);
+    assert.equal(result.domain.rootFact.kind, "insufficient_evidence");
+    assert.ok(
+      result.domain.coverage === "partial" || result.domain.coverage === null,
+      `partial budget ${maxTransitions} coverage`,
+    );
+    if (result.domain.coverage === "partial") {
+      sawPartialBudget = true;
+    }
+    assert.deepEqual(
+      result.domain.preserve.control.budget,
+      result.response.report.control.budget,
+      `partial budget ${maxTransitions} preserve detail`,
+    );
+  }
+  assert.equal(
+    sawPartialBudget,
+    true,
+    "the loop must cover a budget stop after a partial listing fact",
+  );
 });
 
 test("E14 repeated evaluation does no extra IO and interleaved sessions stay isolated", async t => {
@@ -948,7 +1134,16 @@ test("DEV_CE01 cardinality one early-stop keeps coverage partial", async t => {
   assert.equal(first.domain.satisfaction, 100);
   assert.equal(first.domain.coverage, "partial");
   assert.equal(basename(first.domain.match.absolutePath), "target.ts");
-  assert.equal(first.domain.denominators.listedDirectories, 1);
+  assertDenominators(first.domain, {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 0,
+    nameMatchedCandidates: 1,
+    candidatesInspected: 1,
+    candidatesMatched: 1,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 0,
+  });
   assert.deepEqual(heads(first.response), ["ls", "entry.inspect"]);
   assert.equal(listingCalls, 1);
 });
@@ -978,15 +1173,91 @@ test("DEV_CE02 all-nested full tree with disappeared candidate stays unknown sta
   const result = await runWith(valueWithHook, recursiveRequest(valueWithHook.directory, "item", "regular", "all", "nested"), {
     limits: RECURSIVE_LIMITS,
   });
-  assert.equal(result.domain.status, "unknown");
+  assert.equal(
+    result.domain.status,
+    "unknown",
+    JSON.stringify(result.response.report.errors),
+  );
   assert.equal(result.domain.resolution, "stale_or_unverified");
   assert.equal(result.domain.satisfaction, null);
   assert.equal(result.domain.coverage, "partial");
   assert.equal(result.domain.rootFact.kind, "stale_or_unverified");
   assert.ok(result.domain.rootFact.reasons.includes("disappeared"));
-  assert.deepEqual(result.domain.denominators.directoriesUncovered, 0);
-  assert.equal(result.domain.denominators.listedDirectories, 4);
-  assert.ok(result.domain.typeMismatches.some(item => item.path.endsWith("a/item")));
+  assertDenominators(result.domain, {
+    listedDirectories: 4,
+    directoriesComplete: 4,
+    directoriesUncovered: 0,
+    nameMatchedCandidates: 2,
+    candidatesInspected: 2,
+    candidatesMatched: 0,
+    candidatesStaleOrUnverified: 1,
+    typeMismatches: 1,
+  });
+  const start = valueWithHook.sandbox.getSession(valueWithHook.session).cwd;
+  assert.equal(result.domain.typeMismatches.length, 1);
+  await assertObservedObjectRef(result.domain.typeMismatches[0], {
+    kind: "cli.directory",
+    type: "directory",
+    absolutePath: join(start, "a", "item"),
+  }, valueWithHook);
+  assert.deepEqual(result.domain.rootFact.typeMismatches, result.domain.typeMismatches);
+  assertDerivationClosedUnknown(result);
+
+  let firstDeleted = false;
+  const valueWithFirstDisappearing = await withProfile(t, [
+    { path: "start/a/item", kind: "file", contents: "disappears first" },
+    { path: "start/a", kind: "directory" },
+    { path: "start/b/item", kind: "file", contents: "survives" },
+    { path: "start/b", kind: "directory" },
+  ], {
+    listingObserver: async input => {
+      const listing = await observeRealListing(input);
+      if (listing.ok && input.physicalDirectory.endsWith("/a") && !firstDeleted) {
+        firstDeleted = true;
+        await rm(join(input.physicalDirectory, "item"), { force: true });
+      }
+      return listing;
+    },
+  });
+  const successor = await runWith(
+    valueWithFirstDisappearing,
+    recursiveRequest(
+      valueWithFirstDisappearing.directory,
+      "item",
+      "regular",
+      "all",
+      "nested",
+    ),
+    { limits: RECURSIVE_LIMITS },
+  );
+  const successorStart = valueWithFirstDisappearing.sandbox.getSession(
+    valueWithFirstDisappearing.session,
+  ).cwd;
+  assert.equal(firstDeleted, true);
+  assert.equal(successor.domain.status, "unknown");
+  assert.equal(successor.domain.resolution, "partial");
+  assert.equal(successor.domain.matches.length, 1);
+  await assertObservedObjectRef(successor.domain.matches[0], {
+    kind: "cli.file",
+    type: "regular",
+    absolutePath: join(successorStart, "b", "item"),
+  }, valueWithFirstDisappearing);
+  const inspectedPaths = successor.response.report.atomicResults
+    .map(result => result.sourceResult.value)
+    .filter(transition => transition.action?.kind === "entry.inspect")
+    .map(transition => transition.action.ref.path);
+  assert.ok(inspectedPaths.includes(join(successorStart, "a", "item")));
+  assert.ok(inspectedPaths.includes(join(successorStart, "b", "item")));
+  assertDenominators(successor.domain, {
+    listedDirectories: 3,
+    directoriesComplete: 3,
+    directoriesUncovered: 0,
+    nameMatchedCandidates: 2,
+    candidatesInspected: 2,
+    candidatesMatched: 1,
+    candidatesStaleOrUnverified: 1,
+    typeMismatches: 0,
+  });
 });
 
 test("DEV_CE03 depth limit mixed with type_mismatch stays insufficient_evidence with two uncovered directories", async t => {
@@ -1005,9 +1276,28 @@ test("DEV_CE03 depth limit mixed with type_mismatch stays insufficient_evidence 
   assert.equal(result.domain.coverage, "partial");
   assert.equal(result.domain.rootFact.kind, "insufficient_evidence");
   assert.ok(result.domain.rootFact.listing.reasons.includes("depth_limit"));
-  assert.equal(result.domain.denominators.listedDirectories, 1);
-  assert.equal(result.domain.denominators.directoriesUncovered, 2);
+  assert.ok(result.domain.rootFact.reasons.includes("depth_limit"));
+  assertDenominators(result.domain, {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 2,
+    nameMatchedCandidates: 1,
+    candidatesInspected: 1,
+    candidatesMatched: 0,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 1,
+  });
   assert.equal(result.domain.typeMismatches.length, 1);
+  const start = value.sandbox.getSession(value.session).cwd;
+  await assertObservedObjectRef(result.domain.typeMismatches[0], {
+    kind: "cli.directory",
+    type: "directory",
+    absolutePath: join(start, "entry.ts"),
+  }, value);
+  assert.deepEqual(
+    result.domain.rootFact.listing.typeMismatchPaths,
+    [join(start, "entry.ts")],
+  );
 });
 
 test("DEV_CE04 type-mismatch directory is still descended and full tree returns unmet type_mismatch", async t => {
@@ -1023,11 +1313,25 @@ test("DEV_CE04 type-mismatch directory is still descended and full tree returns 
   assert.equal(result.domain.resolution, "type_mismatch");
   assert.equal(result.domain.satisfaction, 0);
   assert.equal(result.domain.coverage, "complete");
-  assert.equal(result.domain.denominators.listedDirectories, 4);
-  assert.equal(result.domain.denominators.directoriesComplete, 4);
-  assert.equal(result.domain.denominators.directoriesUncovered, 0);
+  assertDenominators(result.domain, {
+    listedDirectories: 4,
+    directoriesComplete: 4,
+    directoriesUncovered: 0,
+    nameMatchedCandidates: 1,
+    candidatesInspected: 1,
+    candidatesMatched: 0,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 1,
+  });
   assert.equal(result.domain.typeMismatches.length, 1);
   assert.equal(result.domain.rootFact.kind, "type_mismatch");
+  const start = value.sandbox.getSession(value.session).cwd;
+  await assertObservedObjectRef(result.domain.typeMismatches[0], {
+    kind: "cli.directory",
+    type: "directory",
+    absolutePath: join(start, "a", "config.json"),
+  }, value);
+  assert.deepEqual(result.domain.rootFact.typeMismatches, result.domain.typeMismatches);
 });
 
 test("DEV_CE05 BFS discovery is normalized to absolutePath UTF-16 lexicographic order", async t => {
@@ -1048,6 +1352,16 @@ test("DEV_CE05 BFS discovery is normalized to absolutePath UTF-16 lexicographic 
     join(start, "z-target.ts"),
   ]);
   assert.equal(result.domain.match.absolutePath, join(start, "a", "z-target.ts"));
+  assertDenominators(result.domain, {
+    listedDirectories: 2,
+    directoriesComplete: 2,
+    directoriesUncovered: 0,
+    nameMatchedCandidates: 2,
+    candidatesInspected: 2,
+    candidatesMatched: 2,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 0,
+  });
   const order = result.domain.matches.map(match => match.absolutePath);
   assert.deepEqual(order, [...order].sort((left, right) => left < right ? -1 : left > right ? 1 : 0));
 });
@@ -1081,4 +1395,15 @@ test("DEV_CE06 stale_or_unverified beats depth_limit and both reasons are kept",
   assert.equal(result.domain.rootFact.kind, "stale_or_unverified");
   assert.ok(result.domain.rootFact.reasons.includes("disappeared"));
   assert.ok(result.domain.rootFact.reasons.includes("depth_limit"));
+  assertDenominators(result.domain, {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 1,
+    nameMatchedCandidates: 1,
+    candidatesInspected: 1,
+    candidatesMatched: 0,
+    candidatesStaleOrUnverified: 1,
+    typeMismatches: 0,
+  });
+  assertDerivationClosedUnknown(result);
 });

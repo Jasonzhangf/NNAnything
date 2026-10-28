@@ -1125,7 +1125,7 @@ await singleCase({
   caseId: "p4f-15-budget-interrupted",
   expected: {
     status: "unknown",
-    resolution: "interrupted",
+    resolution: "budget_exhausted",
     satisfaction: null,
     openCount: 1,
     source0Negative: "byte_mismatch",
@@ -1168,9 +1168,10 @@ await singleCase({
     checks(oracle.baselineAtomicCount !== null && oracle.baselineAtomicCount > 0, "baseline atomic count missing");
     checks(oracle.budget === 24, "budget is not the measured cutoff");
     checks(result.domain.status === "unknown", `status ${result.domain.status}`);
-    checks(result.domain.resolution === "interrupted", `resolution ${result.domain.resolution}`);
+    checks(result.domain.resolution === "budget_exhausted", `resolution ${result.domain.resolution}`);
     checks(result.domain.satisfaction === null, `satisfaction ${result.domain.satisfaction}`);
-    checks(result.domain.match === null, "interrupted run produced a match");
+    checks(result.domain.match === null, "budget run produced a match");
+    checks(result.domain.rootFact?.kind !== "interrupted", "budget rootFact must not be interrupted");
     checks(sourceById(result.domain, "source:0")?.negative === "byte_mismatch", "preferred byte mismatch fact lost");
     checks(openCount === 1, `openCount ${openCount}`);
   },

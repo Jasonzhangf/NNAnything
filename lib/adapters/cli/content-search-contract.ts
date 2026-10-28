@@ -406,6 +406,7 @@ export type ContentSearchDomainProjection = Readonly<{
     | "insufficient_evidence"
     | "rejected"
     | "failed"
+    | "budget_exhausted"
     | "interrupted";
   satisfaction: number | null;
   cardinality: ContentSearchCardinality;
@@ -457,7 +458,7 @@ export type ContentSearchResources = Readonly<{
   sandbox: CliFilesystemSandbox;
   session: SessionRef;
   profile: CliCommandProfile;
-  limits: RecursiveGoalLimits;
+  limits?: RecursiveGoalLimits;
   scan?: ContentSearchScan;
   order?: ContentSearchOrder;
   continuation?: unknown;

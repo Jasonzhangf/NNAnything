@@ -216,7 +216,7 @@ export type EntrySearchRootFact =
       listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
       inspect: EntrySearchInspectFact;
       ref: ObservedObjectRef | null;
-      typeMismatches: readonly Readonly<{ name: string; path: string }>[];
+      typeMismatches: readonly ObservedObjectRef[];
     }>
   | Readonly<{
       kind: "stale_or_unverified";
@@ -225,14 +225,14 @@ export type EntrySearchRootFact =
       inspect: EntrySearchInspectFact | null;
       ref: ObservedObjectRef | null;
       reasons: readonly string[];
-      typeMismatches: readonly Readonly<{ name: string; path: string }>[];
+      typeMismatches: readonly ObservedObjectRef[];
     }>
   | Readonly<{
       kind: "partial";
       predicate: EntrySearchPredicate;
       listing: Readonly<{ sourceRun: string | null; coverage: "complete" | "partial" | null }>;
       matches: readonly ObservedObjectRef[];
-      typeMismatches: readonly Readonly<{ name: string; path: string }>[];
+      typeMismatches: readonly ObservedObjectRef[];
       reasons: readonly string[];
     }>
   | Readonly<{
@@ -246,6 +246,7 @@ export type EntrySearchRootFact =
         typeMismatchPaths?: readonly string[];
         reasons?: readonly string[];
       }>;
+      reasons: readonly string[];
     }>
   | Readonly<{ kind: "rejected" }>
   | Readonly<{ kind: "failed" }>
@@ -262,19 +263,21 @@ export type EntrySearchDomainProjection = Readonly<{
     | "partial"
     | "rejected"
     | "failed"
+    | "budget_exhausted"
     | "interrupted";
   satisfaction: number | null;
   match: ObservedObjectRef | null;
   matches: readonly ObservedObjectRef[];
-  typeMismatches: readonly Readonly<{ name: string; path: string }>[];
+  typeMismatches: readonly ObservedObjectRef[];
   denominators: Readonly<{
     listedDirectories: number;
     directoriesComplete: number;
     directoriesUncovered: number;
-    candidatesScanned: number;
+    nameMatchedCandidates: number;
+    candidatesInspected: number;
     candidatesMatched: number;
-    candidatesTypeMismatch: number;
-    candidatesUnresolved: number;
+    candidatesStaleOrUnverified: number;
+    typeMismatches: number;
   }>;
   coverage: "complete" | "partial" | null;
   rootFact: EntrySearchRootFact | null;

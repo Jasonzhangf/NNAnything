@@ -1164,26 +1164,55 @@ function stateWithCli(state: ContentSearchState, cli: ContentSearchState["cli"],
 function progressFingerprint(state: ContentSearchState): string {
   const directories = state.directories.map(directory => [
     directory.path,
+    directory.depth,
     directory.listed,
-    directory.observedAtSourceRun,
     directory.listing?.coverage ?? null,
-    directory.listing?.sourceRun ?? null,
     directory.uncoveredReason,
-    directory.listing?.entries.length ?? 0,
+    (directory.listing?.entries ?? []).map(entry => [
+      entry.name,
+      entry.path,
+      entry.type,
+    ]),
+  ]);
+  const pendingDirectories = state.pendingDirectories.map(directory => [
+    directory.path,
+    directory.depth,
   ]);
   const candidates = state.candidates.map(candidate => [
     candidate.path,
     candidate.outcome,
     candidate.contains,
-    candidate.scan?.bytesRead ?? 0,
-    candidate.scan?.chunks ?? 0,
+    candidate.scan?.nextOffset ?? null,
     candidate.scan?.complete ?? false,
-    candidate.inspected?.sourceRun ?? null,
-    candidate.fileRef?.sourceRun ?? null,
-    candidate.history.length,
+    candidate.scan?.found ?? false,
+    candidate.scan?.firstMatch ?? null,
+    candidate.scan?.shortRead ?? false,
+    candidate.inspected === null
+      ? null
+      : [
+          candidate.inspected.absolutePath,
+          candidate.inspected.type,
+          String(candidate.inspected.size),
+          String(candidate.inspected.identity.dev),
+          String(candidate.inspected.identity.ino),
+          candidate.inspected.errno,
+          candidate.inspected.sessionRevision,
+        ],
+    candidate.fileRef === null
+      ? null
+      : [
+          candidate.fileRef.absolutePath,
+          String(candidate.fileRef.identity.dev),
+          String(candidate.fileRef.identity.ino),
+          candidate.fileRef.sessionRevision,
+        ],
+    candidate.byteSpan,
+    candidate.line,
+    candidate.column,
+    candidate.reason,
     candidate.failureCode ?? null,
   ]);
-  return JSON.stringify({ directories, candidates, duplicateReads: state.duplicateReads });
+  return JSON.stringify({ directories, pendingDirectories, candidates });
 }
 
 function readAtomicReceiptFromSandbox(
@@ -1305,7 +1334,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
         state,
         rootEvaluatorId: request.rootEvaluatorId,
         rootSelectorId: request.rootSelectorId,
-        limits: request.limits,
+        ...(request.limits === undefined ? {} : { limits: request.limits }),
         continuation,
       });
     },

@@ -504,9 +504,9 @@ const CASES = [
   },
   {
     id: "B-E12",
-    premise: "wrong head is a policy error; budget and cancellation are interrupted controls",
+    premise: "wrong head is a policy error; budget is budget_exhausted and cancellation is interrupted",
     injected: "forced pwd head, maxTransitions=1, abort after listing",
-    expected: { wrongHead: { status: "failed", resolution: "failed", satisfaction: null }, budget: { status: "unknown", resolution: "interrupted", satisfaction: null }, cancelled: { status: "unknown", resolution: "interrupted", satisfaction: null } },
+    expected: { wrongHead: { status: "failed", resolution: "failed", satisfaction: null }, budget: { status: "unknown", resolution: "budget_exhausted", satisfaction: null }, cancelled: { status: "unknown", resolution: "interrupted", satisfaction: null } },
     async body() {
       const world = await openWorld({
         entries: [{ path: "work/hit.txt", kind: "file", contents: "hit" }],

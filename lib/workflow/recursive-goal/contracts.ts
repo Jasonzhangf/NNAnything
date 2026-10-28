@@ -94,9 +94,9 @@ export type RecursiveGoalErrorStage =
   | "finalization";
 
 export interface RecursiveGoalLimits {
-  readonly maxTransitions: number;
-  readonly maxDepth: number;
-  readonly maxDerivedGoals: number;
+  readonly maxTransitions?: number;
+  readonly maxDepth?: number;
+  readonly maxDerivedGoals?: number;
 }
 
 export interface BoundedRetryPolicy {
@@ -105,7 +105,7 @@ export interface BoundedRetryPolicy {
   readonly strategySkillIds: readonly string[];
   /** Includes the first attempt and every completed safe same-failure retry. */
   readonly sameFailureLimit: number;
-  readonly maxAtomicAttempts: number;
+  readonly maxAtomicAttempts?: number;
 }
 
 export interface RecursiveGoalInvocationControl {
@@ -141,7 +141,7 @@ export interface RetrySelectionView {
   readonly eligibleSkillIds: readonly string[];
   readonly lockedSkillId: string | null;
   readonly exhaustedSkillIds: readonly string[];
-  readonly remainingAtomicAttempts: number;
+  readonly remainingAtomicAttempts: number | null;
 }
 
 export interface BudgetUsed {
@@ -158,7 +158,7 @@ export interface RecursiveGoalRequestEnvelope {
   readonly state: unknown;
   readonly rootEvaluatorId: string;
   readonly rootSelectorId: string;
-  readonly limits: RecursiveGoalLimits;
+  readonly limits?: RecursiveGoalLimits;
   readonly initialObservation?: RecursiveGoalInitialObservation<unknown>;
   readonly continuation?: unknown;
   readonly retryPolicy?: BoundedRetryPolicy;
@@ -443,7 +443,7 @@ export interface ValidatedRequest<G, S, B, E, F, R, C> {
   readonly state: S;
   readonly rootEvaluatorId: string;
   readonly rootSelectorId: string;
-  readonly limits: RecursiveGoalLimits;
+  readonly limits?: RecursiveGoalLimits;
   readonly initialObservation?: RecursiveGoalInitialObservation<E>;
   readonly continuation: RecursiveGoalResumableContinuation<
     G,
@@ -558,6 +558,21 @@ export interface RecursiveGoalControl {
   readonly outcome: RecursiveGoalControlOutcome;
   readonly stopReason: RecursiveGoalStopReason;
   readonly frameId: string | null;
+  /** Typed budget stop evidence attached only by the budget check points. */
+  readonly budget?: RecursiveGoalBudgetReport;
+}
+
+export type RecursiveGoalBudgetDimension =
+  | "maxTransitions"
+  | "maxDepth"
+  | "maxDerivedGoals"
+  | "maxAtomicAttempts";
+
+export interface RecursiveGoalBudgetReport {
+  readonly dimension: RecursiveGoalBudgetDimension | readonly RecursiveGoalBudgetDimension[];
+  readonly limit: number | readonly number[];
+  readonly used: number | readonly number[];
+  readonly attempted: number | readonly number[] | null;
 }
 
 export interface FrameResult<G, B, C> {
@@ -690,6 +705,8 @@ export interface RecursiveGoalFrameControl<G, B> {
   readonly expansion: "not_derived" | "more" | "closed";
   readonly evaluation: RecursiveGoalFrameEvaluation | null;
   readonly progressBaseline: RecursiveGoalProgressBaseline | null;
+  /** Previous complete composite cycle state used by no-progress detection. */
+  readonly compositeCycleBaseline: RecursiveGoalProgressBaseline | null;
   readonly pendingVerification: RecursiveGoalPendingVerification | null;
   /** Facts used to compare this frame with the current ancestor path. */
   readonly obligationSnapshot: RecursiveGoalObligationSnapshot | null;
@@ -971,9 +988,8 @@ export function readBoundedRetryPolicy(
       "selectorId",
       "strategySkillIds",
       "sameFailureLimit",
-      "maxAtomicAttempts",
     ],
-    [],
+    ["maxAtomicAttempts"],
     label,
   );
   if (value.kind !== "bounded_strategy_retry.v1") {
@@ -994,10 +1010,14 @@ export function readBoundedRetryPolicy(
       value.sameFailureLimit,
       `${label}.sameFailureLimit`,
     ),
-    maxAtomicAttempts: positiveInteger(
-      value.maxAtomicAttempts,
-      `${label}.maxAtomicAttempts`,
-    ),
+    ...(value.maxAtomicAttempts === undefined
+      ? {}
+      : {
+          maxAtomicAttempts: positiveInteger(
+            value.maxAtomicAttempts,
+            `${label}.maxAtomicAttempts`,
+          ),
+        }),
   };
 }
 
@@ -1147,7 +1167,10 @@ export function readRecursiveGoalRetryControl(
     value.atomicAttemptsUsed,
     `${label}.atomicAttemptsUsed`,
   );
-  if (atomicAttemptsUsed > policy.maxAtomicAttempts) {
+  if (
+    policy.maxAtomicAttempts !== undefined &&
+    atomicAttemptsUsed > policy.maxAtomicAttempts
+  ) {
     throw new TypeError(`${label}.atomicAttemptsUsed exceeds maxAtomicAttempts`);
   }
   const frames = value.frames.map((entry, index) =>
@@ -1161,14 +1184,111 @@ export function readRecursiveGoalLimits(value: unknown): RecursiveGoalLimits {
   if (!isRecord(value)) throw new TypeError("limits must be an object");
   assertExactKeys(
     value,
-    ["maxTransitions", "maxDepth", "maxDerivedGoals"],
     [],
+    ["maxTransitions", "maxDepth", "maxDerivedGoals"],
     "limits",
   );
+  const maxTransitions =
+    value.maxTransitions === undefined
+      ? undefined
+      : nonnegativeInteger(value.maxTransitions, "limits.maxTransitions");
+  const maxDepth =
+    value.maxDepth === undefined
+      ? undefined
+      : nonnegativeInteger(value.maxDepth, "limits.maxDepth");
+  const maxDerivedGoals =
+    value.maxDerivedGoals === undefined
+      ? undefined
+      : nonnegativeInteger(value.maxDerivedGoals, "limits.maxDerivedGoals");
+  if (
+    maxTransitions === undefined &&
+    maxDepth === undefined &&
+    maxDerivedGoals === undefined
+  ) {
+    return {};
+  }
   return {
-    maxTransitions: nonnegativeInteger(value.maxTransitions, "limits.maxTransitions"),
-    maxDepth: nonnegativeInteger(value.maxDepth, "limits.maxDepth"),
-    maxDerivedGoals: nonnegativeInteger(value.maxDerivedGoals, "limits.maxDerivedGoals"),
+    ...(maxTransitions === undefined ? {} : { maxTransitions }),
+    ...(maxDepth === undefined ? {} : { maxDepth }),
+    ...(maxDerivedGoals === undefined ? {} : { maxDerivedGoals }),
+  };
+}
+
+const BUDGET_DIMENSIONS = new Set([
+  "maxTransitions",
+  "maxDepth",
+  "maxDerivedGoals",
+  "maxAtomicAttempts",
+]);
+
+export function readRecursiveGoalBudgetReport(
+  value: unknown,
+): RecursiveGoalBudgetReport {
+  if (!isRecord(value)) {
+    throw new TypeError("control.budget must be an object");
+  }
+  assertExactKeys(
+    value,
+    ["dimension", "limit", "used", "attempted"],
+    [],
+    "control.budget",
+  );
+  const dimensions =
+    typeof value.dimension === "string"
+      ? [value.dimension]
+      : value.dimension;
+  if (!Array.isArray(dimensions)) {
+    throw new TypeError("control.budget.dimension must be a string or array");
+  }
+  if (
+    dimensions.length === 0 ||
+    dimensions.some(dimension => !BUDGET_DIMENSIONS.has(dimension))
+  ) {
+    throw new TypeError("control.budget.dimension is invalid");
+  }
+  const limits =
+    typeof value.limit === "number"
+      ? [value.limit]
+      : value.limit;
+  const used =
+    typeof value.used === "number"
+      ? [value.used]
+      : value.used;
+  const attempted =
+    value.attempted === null
+      ? null
+      : typeof value.attempted === "number"
+        ? [value.attempted]
+        : value.attempted;
+  if (
+    !Array.isArray(limits) ||
+    !Array.isArray(used) ||
+    limits.length !== dimensions.length ||
+    used.length !== dimensions.length ||
+    (attempted !== null &&
+      (!Array.isArray(attempted) || attempted.length !== dimensions.length))
+  ) {
+    throw new TypeError(
+      "control.budget dimension, limit, used and attempted must align",
+    );
+  }
+  for (const number of [...limits, ...used, ...(attempted ?? [])]) {
+    if (
+      !Number.isSafeInteger(number) ||
+      number < 0 ||
+      (number as number) === Infinity ||
+      Number.isNaN(number)
+    ) {
+      throw new TypeError("control.budget numeric values must be safe integers");
+    }
+  }
+  return {
+    dimension:
+      dimensions.length === 1 ? dimensions[0] : [...dimensions],
+    limit: limits.length === 1 ? limits[0] : [...limits],
+    used: used.length === 1 ? used[0] : [...used],
+    attempted:
+      attempted === null ? null : attempted.length === 1 ? attempted[0] : [...attempted],
   };
 }
 
@@ -1185,9 +1305,9 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
       "state",
       "rootEvaluatorId",
       "rootSelectorId",
-      "limits",
     ],
     [
+      "limits",
       "initialObservation",
       "continuation",
       "retryPolicy",
@@ -1234,7 +1354,9 @@ export function readRecursiveGoalRequestEnvelope(value: unknown): RecursiveGoalR
     state: value.state,
     rootEvaluatorId: nonEmptyString(value.rootEvaluatorId, "request.rootEvaluatorId"),
     rootSelectorId: nonEmptyString(value.rootSelectorId, "request.rootSelectorId"),
-    limits: readRecursiveGoalLimits(value.limits),
+    ...(value.limits === undefined
+      ? {}
+      : { limits: readRecursiveGoalLimits(value.limits) }),
     ...(initialObservation === undefined ? {} : { initialObservation }),
     ...(continuation === undefined ? {} : { continuation }),
     ...(retryPolicy === undefined ? {} : { retryPolicy }),
@@ -2017,7 +2139,12 @@ function readRootEvaluation(value: unknown): RootEvaluation {
 
 function readControl(value: unknown): RecursiveGoalControl {
   if (!isRecord(value)) throw new TypeError("control must be an object");
-  assertExactKeys(value, ["outcome", "stopReason", "frameId"], [], "control");
+  assertExactKeys(
+    value,
+    ["outcome", "stopReason", "frameId"],
+    ["budget"],
+    "control",
+  );
   if (
     value.outcome !== "completed" &&
     value.outcome !== "error" &&
@@ -2049,6 +2176,9 @@ function readControl(value: unknown): RecursiveGoalControl {
     outcome: value.outcome,
     stopReason: value.stopReason,
     frameId: nullableString(value.frameId, "control.frameId"),
+    ...(value.budget === undefined
+      ? {}
+      : { budget: readRecursiveGoalBudgetReport(value.budget) }),
   };
 }
 
@@ -2495,7 +2625,7 @@ function readFrameControl<G, B>(value: unknown): RecursiveGoalFrameControl<G, B>
       "pendingVerification",
       "obligationSnapshot",
     ],
-    [],
+    ["compositeCycleBaseline"],
     "frameControl",
   );
   if (
@@ -2524,6 +2654,14 @@ function readFrameControl<G, B>(value: unknown): RecursiveGoalFrameControl<G, B>
       value.progressBaseline === null
         ? null
         : readProgressBaseline(value.progressBaseline, satisfactionThreshold),
+    compositeCycleBaseline:
+      value.compositeCycleBaseline === undefined ||
+      value.compositeCycleBaseline === null
+        ? null
+        : readProgressBaseline(
+            value.compositeCycleBaseline,
+            satisfactionThreshold,
+          ),
     pendingVerification:
       value.pendingVerification === null
         ? null
@@ -3363,6 +3501,36 @@ function readRecursiveGoalContinuationBase<G, S, B, E, F, R, C>(
         if (!evidenceIds.has(evidenceRef)) {
           throw new TypeError(
             `continuation frame ${frame.frameId} progress has unknown evidence`,
+          );
+        }
+      }
+    }
+    if (frameControl.compositeCycleBaseline !== null) {
+      if (
+        frameControl.compositeCycleBaseline.capturedAtTransition >
+        lastTrustedTransition
+      ) {
+        throw new TypeError(
+          `continuation frame ${frame.frameId} composite cycle exceeds lastTrustedTransition`,
+        );
+      }
+      if (!stateIds.has(frameControl.compositeCycleBaseline.stateRef)) {
+        throw new TypeError(
+          `continuation frame ${frame.frameId} composite cycle has unknown state`,
+        );
+      }
+      if (
+        frameControl.compositeCycleBaseline.evaluation.evaluatorId !==
+        frameControl.evaluatorId
+      ) {
+        throw new TypeError(
+          `continuation frame ${frame.frameId} composite cycle evaluator disagrees`,
+        );
+      }
+      for (const evidenceRef of frameControl.compositeCycleBaseline.evaluation.evidenceRefs) {
+        if (!evidenceIds.has(evidenceRef)) {
+          throw new TypeError(
+            `continuation frame ${frame.frameId} composite cycle has unknown evidence`,
           );
         }
       }

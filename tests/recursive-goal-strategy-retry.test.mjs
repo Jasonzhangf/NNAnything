@@ -768,6 +768,12 @@ test("a final safe attempt at the total budget stops before selecting another st
 
   assert.equal(report.control.outcome, "exceeded");
   assert.equal(report.control.stopReason, "budget");
+  assert.deepEqual(report.control.budget, {
+    dimension: "maxAtomicAttempts",
+    limit: 1,
+    used: 1,
+    attempted: 2,
+  });
   assert.equal(fixture.calls.select, 1);
   assert.equal(fixture.calls.executeAtomic, 1);
   assert.equal(fixture.calls.assessRetry, 1);
@@ -776,6 +782,29 @@ test("a final safe attempt at the total budget stops before selecting another st
     report.errors.some((error) => error.code === "budget_exceeded"),
     true,
   );
+});
+
+test("omitted maxAtomicAttempts leaves the total ceiling unknown but keeps same-failure recovery", async () => {
+  const api = await loadPublicApi();
+  const fixture = createRetryFixture();
+  const policy = retryPolicy({ sameFailureLimit: 1 });
+  delete policy.maxAtomicAttempts;
+
+  const response = await invoke(
+    api,
+    fixture,
+    retryRequest({ policy, invocation: undefined }),
+  );
+  const report = responseReport(response);
+
+  assert.equal(report.control.outcome, "completed");
+  assert.equal(report.control.budget, undefined);
+  assert.deepEqual(
+    fixture.atomicViews.map((view) => view.remainingAtomicAttempts),
+    [null, null],
+  );
+  assert.equal(fixture.calls.executeAtomic, 2);
+  assertResponseReferencesClosed(response);
 });
 
 test("an already satisfied root ignores retry and returns the legacy-shaped continuation", async () => {

@@ -613,7 +613,11 @@ function evidenceId(requestId: string, sequence: number): string {
   return `${requestId}:evidence-${sequence}`;
 }
 
-function transitionDiagnostics(transition: CliCommandTransition, id: string): {
+function transitionDiagnostics(
+  transition: CliCommandTransition,
+  id: string,
+  state: EntrySearchState,
+): {
   executionErrors: readonly AdapterDiagnostic[];
   verificationErrors: readonly AdapterDiagnostic[];
   outcome: "succeeded" | "failed" | "rejected" | "unknown";
@@ -621,17 +625,21 @@ function transitionDiagnostics(transition: CliCommandTransition, id: string): {
   const executionErrors: AdapterDiagnostic[] = [];
   const verificationErrors: AdapterDiagnostic[] = [];
   let outcome: "succeeded" | "failed" | "rejected" | "unknown";
+  const isFlatSingle =
+    (state.recursion ?? "flat") === "flat" && (state.cardinality ?? "one") === "one";
   if (missingEntryObservation(transition)) {
-    const knowledge = transition.observed_state_after.entryKnowledge;
-    verificationErrors.push({
-      diagnosticId: `${id}:postcommit-observation`,
-      code: "evidence_unavailable",
-      stage: "observation",
-      sourceCategory: "cli.entry_inspection",
-      message: `matched entry disappeared before inspection: ${knowledge?.errno ?? "ENOENT"}`,
-      nativeCode: knowledge?.errno ?? "ENOENT",
-      refs: Object.freeze([id]),
-    });
+    if (isFlatSingle) {
+      const knowledge = transition.observed_state_after.entryKnowledge;
+      verificationErrors.push({
+        diagnosticId: `${id}:postcommit-observation`,
+        code: "evidence_unavailable",
+        stage: "observation",
+        sourceCategory: "cli.entry_inspection",
+        message: `matched entry disappeared before inspection: ${knowledge?.errno ?? "ENOENT"}`,
+        nativeCode: knowledge?.errno ?? "ENOENT",
+        refs: Object.freeze([id]),
+      });
+    }
     outcome = "succeeded";
     return { executionErrors, verificationErrors, outcome };
   }
@@ -704,15 +712,16 @@ function candidateFromTransition(
   if (inspect.type === null || inspect.identity.dev === null || inspect.identity.ino === null) {
     return Object.freeze({ ...candidate, outcome: "stale_or_unverified", reason: "unverified_identity", inspected: inspect, issuedRef: null });
   }
-  if (inspect.type !== predicate.type) {
-    return Object.freeze({ ...candidate, outcome: "type_mismatch", reason: "type_mismatch", inspected: inspect, issuedRef: issuedRef ?? null });
-  }
-  if (issuedRef === null || !issuedRefMatchesInspect(issuedRef, inspect)) {
-    return Object.freeze({ ...candidate, outcome: "stale_or_unverified", reason: "stale_revision", inspected: inspect, issuedRef: null });
-  }
   const sessionBefore = transition.session_before;
-  if (issuedRef.sessionRevision !== sessionBefore.revision) {
+  if (
+    issuedRef === null ||
+    !issuedRefMatchesInspect(issuedRef, inspect) ||
+    issuedRef.sessionRevision !== sessionBefore.revision
+  ) {
     return Object.freeze({ ...candidate, outcome: "stale_or_unverified", reason: "stale_revision", inspected: inspect, issuedRef: null });
+  }
+  if (inspect.type !== predicate.type) {
+    return Object.freeze({ ...candidate, outcome: "type_mismatch", reason: "type_mismatch", inspected: inspect, issuedRef });
   }
   return Object.freeze({ ...candidate, outcome: "matched", reason: null, inspected: inspect, issuedRef });
 }
@@ -815,7 +824,7 @@ function atomicReceipt(
       validity: "valid" as const,
     }),
   ]);
-  const diagnostics = transitionDiagnostics(transition, id);
+  const diagnostics = transitionDiagnostics(transition, id, input.state);
   const effect: AtomicReceipt<EntrySearchState, EntrySearchEvidencePayload, EntrySearchEffectFact, EntrySearchReceiptPayload>["effect"] = Object.freeze({
     knowledge: "none",
     confirmedEffects: Object.freeze([]),
@@ -961,7 +970,7 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
         state,
         rootEvaluatorId: request.rootEvaluatorId,
         rootSelectorId: request.rootSelectorId,
-        limits: request.limits,
+        ...(request.limits === undefined ? {} : { limits: request.limits }),
         continuation,
       });
     },
@@ -1127,9 +1136,12 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
       return readAtomicReceipt(raw, DOMAIN_GUARDS);
     },
 
-    measureProgress() {
+    measureProgress(input) {
       calls.measureProgress += 1;
-      return { improved: false, reason: "none" as const, comparable: true };
+      const before = input.before as EntrySearchState;
+      const after = input.after as EntrySearchState;
+      const improved = entrySearchProgressFingerprint(before) !== entrySearchProgressFingerprint(after);
+      return { improved, reason: improved ? "facts_improved" as const : "none" as const, comparable: true };
     },
   };
 
@@ -1140,6 +1152,33 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
     },
     calls,
   });
+}
+
+// Business-fact fingerprint for the composite entry-search cycle. It tracks
+// whether the direct listing and the exact-entry inspection facts advanced and
+// ignores identity-only churn (source runs, revisions, dev/ino identity,
+// observation timestamps). The composite `expansion: "more"` no-progress check
+// compares this so list -> inspect progress is not treated as a stalled
+// obligation.
+function entrySearchProgressFingerprint(state: EntrySearchState): string {
+  const listing = state.cli.directoryListing;
+  const listingFact = listing === null
+    ? null
+    : [
+        listing.coverage,
+        listing.errors.length,
+        listing.entries.map(entry => [entry.name, entry.path, entry.type]),
+      ];
+  const entry = state.cli.entryKnowledge ?? null;
+  const entryFact = entry === null
+    ? null
+    : [
+        entry.observedWith,
+        entry.entryExists,
+        entry.type,
+        entry.absolutePath,
+      ];
+  return JSON.stringify({ listing: listingFact, entry: entryFact });
 }
 
 export function createEntrySearchDependencies(

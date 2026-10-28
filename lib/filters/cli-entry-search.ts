@@ -191,11 +191,11 @@ export function verifiedMatches(state: EntrySearchState): readonly ObservedObjec
 
 export function typeMismatchFacts(
   state: EntrySearchState,
-): readonly Readonly<{ name: string; path: string }>[] {
+): readonly ObservedObjectRef[] {
   return Object.freeze(candidatesOf(state)
-    .filter(candidate => candidate.outcome === "type_mismatch")
-    .map(candidate => Object.freeze({ name: candidate.name, path: candidate.path }))
-    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    .filter(candidate => candidate.outcome === "type_mismatch" && candidate.issuedRef !== null)
+    .map(candidate => candidate.issuedRef as ObservedObjectRef)
+    .sort(compareByAbsolutePath));
 }
 
 export function treeCoverage(state: EntrySearchState): "complete" | "partial" | null {
@@ -231,14 +231,14 @@ export function denominatorFields(state: EntrySearchState): EntrySearchDomainPro
   const candidates = candidatesOf(state);
   return Object.freeze({
     listedDirectories: directories.filter(directory => directory.listed).length,
-    directoriesComplete: directories.filter(directory =>
-      directory.listed && directory.listing !== null && directory.listing.coverage === "complete").length,
+    directoriesComplete: directories.filter(directory => isCompleteListing(directory)).length,
     directoriesUncovered: directories.filter(directory => directory.uncoveredReason !== null).length,
-    candidatesScanned: candidates.filter(candidate => candidate.outcome !== "pending").length,
+    nameMatchedCandidates: candidates.length,
+    candidatesInspected: candidates.filter(candidate => candidate.outcome !== "pending").length,
     candidatesMatched: candidates.filter(candidate => candidate.outcome === "matched").length,
-    candidatesTypeMismatch: candidates.filter(candidate => candidate.outcome === "type_mismatch").length,
-    candidatesUnresolved: candidates.filter(candidate =>
-      candidate.outcome === "pending" || candidate.outcome === "stale_or_unverified").length,
+    candidatesStaleOrUnverified: candidates.filter(candidate =>
+      candidate.outcome === "stale_or_unverified").length,
+    typeMismatches: candidates.filter(candidate => candidate.outcome === "type_mismatch").length,
   });
 }
 
@@ -306,6 +306,56 @@ export function rootFact(
   const reasons = reasonsOf(state);
   const coverage = treeCoverage(state);
   const cardinality = state.cardinality ?? "one";
+  const insufficient = (): EntrySearchRootFact => Object.freeze({
+    kind: "insufficient_evidence",
+    predicate,
+    listing: Object.freeze({
+      sourceRun: firstListingSourceRun(directories),
+      coverage,
+      errors: listingErrors(directories),
+      candidateNames: Object.freeze(directories.flatMap(directory =>
+        directory.listing === null
+          ? []
+          : directory.listing.entries
+              .filter(entry => entry.name === predicate.name)
+              .map(entry => entry.name))),
+      typeMismatchPaths: Object.freeze(typeMismatches.map(item => item.absolutePath)),
+      reasons,
+    }),
+    reasons,
+  });
+
+  if (primaryCode === "budget_exceeded") {
+    if (matches.length > 0) {
+      return Object.freeze({
+        kind: "partial",
+        predicate,
+        listing: Object.freeze({
+          sourceRun: firstListingSourceRun(directories),
+          coverage,
+        }),
+        matches,
+        typeMismatches,
+        reasons,
+      });
+    }
+    const candidate = candidatesOf(state)[0];
+    if (candidate !== undefined) {
+      return Object.freeze({
+        kind: "stale_or_unverified",
+        predicate,
+        listing: Object.freeze({
+          sourceRun: candidate.listedAtSourceRun,
+          coverage: "complete",
+        }),
+        inspect: candidate.inspected,
+        ref: candidate.issuedRef,
+        reasons,
+        typeMismatches,
+      });
+    }
+    return insufficient();
+  }
 
   if (matches.length > 0) {
     const first = matches[0] as ObservedObjectRef;
@@ -336,8 +386,8 @@ export function rootFact(
   }
   if (coverage === "complete") {
     if (typeMismatches.length > 0) {
-      const first = typeMismatches[0] as Readonly<{ name: string; path: string }>;
-      const candidate = candidateFor(state, first.path);
+      const first = typeMismatches[0] as ObservedObjectRef;
+      const candidate = candidateFor(state, first.absolutePath);
       return Object.freeze({
         kind: "type_mismatch",
         predicate,
@@ -387,23 +437,7 @@ export function rootFact(
       typeMismatches,
     });
   }
-  return Object.freeze({
-    kind: "insufficient_evidence",
-    predicate,
-    listing: Object.freeze({
-      sourceRun: firstListingSourceRun(directories),
-      coverage,
-      errors: listingErrors(directories),
-      candidateNames: Object.freeze(directories.flatMap(directory =>
-        directory.listing === null
-          ? []
-          : directory.listing.entries
-              .filter(entry => entry.name === predicate.name)
-              .map(entry => entry.name))),
-      typeMismatchPaths: Object.freeze(typeMismatches.map(item => item.path)),
-      reasons,
-    }),
-  });
+  return insufficient();
 }
 
 type TransitionView = Readonly<{
@@ -421,7 +455,11 @@ type ReportView = Readonly<{
     result: string | undefined;
     satisfaction: number | null | undefined;
   }> | null;
-  control: Readonly<{ outcome: string; stopReason: string }> | null;
+  control: Readonly<{
+    outcome: string;
+    stopReason: string;
+    budget?: unknown;
+  }> | null;
   primaryErrorId: string | null;
   errors: readonly Readonly<{ errorId: string; code: string }>[];
   states: readonly Readonly<{ value: EntrySearchState }>[];
@@ -440,10 +478,16 @@ export function projectDomain(
   const report = view.report;
   const state = report === null ? null : latestState(report);
   const primaryCode = primaryError(view);
+  const budgetStopped =
+    primaryCode === "budget_exceeded"
+    || report?.control?.stopReason === "budget"
+    || report?.control?.budget !== undefined;
   const predicate = request.goal.requirement.predicate;
 
   if (state === null) {
-    const status = noStateStatus(primaryCode);
+    const status = budgetStopped
+      ? Object.freeze({ status: "unknown" as const, resolution: "budget_exhausted" as const })
+      : noStateStatus(primaryCode);
     return Object.freeze({
       status: status.status,
       resolution: status.resolution,
@@ -453,7 +497,7 @@ export function projectDomain(
       typeMismatches: Object.freeze([]),
       denominators: emptyDenominators(),
       coverage: null,
-      rootFact: noStateRootFact(primaryCode),
+      rootFact: noStateRootFact(budgetStopped ? "budget_exceeded" : primaryCode, predicate),
       preserve: preserve(view),
     });
   }
@@ -463,6 +507,21 @@ export function projectDomain(
   const typeMismatches = typeMismatchFacts(state);
   const denominators = denominatorFields(state);
   const decision = decideEntrySearchRoot(state);
+
+  if (budgetStopped) {
+    return Object.freeze({
+      status: "unknown",
+      resolution: "budget_exhausted",
+      satisfaction: null,
+      match: null,
+      matches,
+      typeMismatches,
+      denominators,
+      coverage,
+      rootFact: rootFact(predicate, state, "budget_exceeded"),
+      preserve: preserve(view),
+    });
+  }
 
   if (decision.result === "satisfied") {
     const fact = rootFact(predicate, state, primaryCode);
@@ -493,7 +552,6 @@ export function projectDomain(
     return unresolved("failed", "failed", state, predicate, primaryCode, view);
   }
   if (
-    primaryCode === "budget_exceeded" ||
     primaryCode === "cancelled" ||
     primaryCode === "no_progress" ||
     primaryCode === "stalled"
@@ -563,10 +621,11 @@ function emptyDenominators(): EntrySearchDomainProjection["denominators"] {
     listedDirectories: 0,
     directoriesComplete: 0,
     directoriesUncovered: 0,
-    candidatesScanned: 0,
+    nameMatchedCandidates: 0,
+    candidatesInspected: 0,
     candidatesMatched: 0,
-    candidatesTypeMismatch: 0,
-    candidatesUnresolved: 0,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 0,
   });
 }
 
@@ -611,6 +670,10 @@ function reportView(value: unknown): ReportView | null {
   };
   const rootEvaluation = input.rootEvaluation;
   const control = input.control;
+  const controlRecord =
+    typeof control === "object" && control !== null
+      ? control as { outcome?: unknown; stopReason?: unknown; budget?: unknown }
+      : null;
   const errors = input.errors;
   const states = input.states;
   const atomicResults = input.atomicResults;
@@ -624,10 +687,13 @@ function reportView(value: unknown): ReportView | null {
           })
         : null,
     control:
-      typeof control === "object" && control !== null
+      controlRecord !== null
         ? Object.freeze({
-            outcome: String((control as { outcome?: unknown }).outcome ?? "error"),
-            stopReason: String((control as { stopReason?: unknown }).stopReason ?? "fatal_error"),
+            outcome: String(controlRecord.outcome ?? "error"),
+            stopReason: String(controlRecord.stopReason ?? "fatal_error"),
+            ...(controlRecord.budget === undefined
+              ? {}
+              : { budget: controlRecord.budget }),
           })
         : null,
     primaryErrorId: typeof input.primaryErrorId === "string" ? input.primaryErrorId : null,
@@ -671,8 +737,10 @@ function noStateStatus(primaryCode: string | null): Readonly<{
   status: EntrySearchDomainProjection["status"];
   resolution: EntrySearchDomainProjection["resolution"];
 }> {
+  if (primaryCode === "budget_exceeded") {
+    return Object.freeze({ status: "unknown", resolution: "budget_exhausted" });
+  }
   if (
-    primaryCode === "budget_exceeded" ||
     primaryCode === "cancelled" ||
     primaryCode === "no_progress" ||
     primaryCode === "stalled"
@@ -691,9 +759,25 @@ function noStateStatus(primaryCode: string | null): Readonly<{
   return Object.freeze({ status: "failed", resolution: "failed" });
 }
 
-function noStateRootFact(primaryCode: string | null): EntrySearchRootFact {
+function noStateRootFact(
+  primaryCode: string | null,
+  predicate: EntrySearchPredicate,
+): EntrySearchRootFact {
+  if (primaryCode === "budget_exceeded") {
+    return Object.freeze({
+      kind: "insufficient_evidence",
+      predicate,
+      listing: Object.freeze({
+        sourceRun: null,
+        coverage: null,
+        errors: [],
+        candidateNames: [],
+        reasons: Object.freeze([]),
+      }),
+      reasons: Object.freeze([]),
+    });
+  }
   if (
-    primaryCode === "budget_exceeded" ||
     primaryCode === "cancelled" ||
     primaryCode === "no_progress" ||
     primaryCode === "stalled"

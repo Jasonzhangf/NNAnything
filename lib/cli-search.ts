@@ -84,7 +84,7 @@ export async function runCliEntrySearchGoal(
       state,
       rootEvaluatorId: ROOT_EVALUATOR,
       rootSelectorId: ROOT_SELECTOR,
-      limits: resources.limits ?? Object.freeze({ maxTransitions: 1000, maxDepth: 4, maxDerivedGoals: 1000 }),
+      ...(resources.limits === undefined ? {} : { limits: resources.limits }),
       ...(resources.continuation === undefined ? {} : { continuation: resources.continuation }),
     },
     createEntrySearchDependencies(created, resources.signal),
