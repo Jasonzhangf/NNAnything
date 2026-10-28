@@ -1155,30 +1155,54 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
 }
 
 // Business-fact fingerprint for the composite entry-search cycle. It tracks
-// whether the direct listing and the exact-entry inspection facts advanced and
-// ignores identity-only churn (source runs, revisions, dev/ino identity,
-// observation timestamps). The composite `expansion: "more"` no-progress check
-// compares this so list -> inspect progress is not treated as a stalled
-// obligation.
+// cumulative per-directory listing facts, the pending-directory set and
+// candidate verification progress, and ignores identity-only churn (source
+// runs, revisions, dev/ino identity, observation timestamps). The composite
+// `expansion: "more"` no-progress check compares this so listing a distinct
+// empty directory still counts as progress toward the search frontier.
+function byFirstElement(left: readonly unknown[], right: readonly unknown[]): number {
+  const leftKey = String(left[0]);
+  const rightKey = String(right[0]);
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+}
+
 function entrySearchProgressFingerprint(state: EntrySearchState): string {
-  const listing = state.cli.directoryListing;
-  const listingFact = listing === null
-    ? null
-    : [
-        listing.coverage,
-        listing.errors.length,
-        listing.entries.map(entry => [entry.name, entry.path, entry.type]),
-      ];
-  const entry = state.cli.entryKnowledge ?? null;
-  const entryFact = entry === null
-    ? null
-    : [
-        entry.observedWith,
-        entry.entryExists,
-        entry.type,
-        entry.absolutePath,
-      ];
-  return JSON.stringify({ listing: listingFact, entry: entryFact });
+  const directories = (state.directories ?? [])
+    .map(directory => [
+      directory.path,
+      directory.depth,
+      directory.listed,
+      directory.descendable,
+      directory.uncoveredReason,
+      directory.listing === null
+        ? null
+        : [
+            directory.listing.coverage,
+            directory.listing.errors.map(error => [error.name, error.code, error.message]),
+            directory.listing.entries.map(entry => [entry.name, entry.path, entry.type]),
+          ],
+    ])
+    .sort(byFirstElement);
+  const pending = (state.pendingDirectories ?? [])
+    .map(pendingDirectory => [pendingDirectory.path, pendingDirectory.depth])
+    .sort(byFirstElement);
+  const candidates = (state.candidates ?? [])
+    .map(candidate => [
+      candidate.path,
+      candidate.outcome,
+      candidate.reason,
+      candidate.inspected === null
+        ? null
+        : [
+            candidate.inspected.observedWith,
+            candidate.inspected.entryExists,
+            candidate.inspected.resolvedTargetExists,
+            candidate.inspected.type,
+            candidate.inspected.errno,
+          ],
+    ])
+    .sort(byFirstElement);
+  return JSON.stringify({ directories, pending, candidates });
 }
 
 export function createEntrySearchDependencies(

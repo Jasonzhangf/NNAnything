@@ -358,6 +358,19 @@ export function rootFact(
   }
 
   if (matches.length > 0) {
+    if (cardinality === "all" && coverage !== "complete") {
+      return Object.freeze({
+        kind: "partial",
+        predicate,
+        listing: Object.freeze({
+          sourceRun: firstListingSourceRun(directories),
+          coverage,
+        }),
+        matches,
+        typeMismatches,
+        reasons,
+      });
+    }
     const first = matches[0] as ObservedObjectRef;
     const candidate = candidateFor(state, first.absolutePath);
     return Object.freeze({
@@ -407,19 +420,6 @@ export function rootFact(
         sourceRun: firstListingSourceRun(directories) ?? "",
         coverage: "complete",
       }),
-    });
-  }
-  if (cardinality === "all" && matches.length > 0) {
-    return Object.freeze({
-      kind: "partial",
-      predicate,
-      listing: Object.freeze({
-        sourceRun: firstListingSourceRun(directories),
-        coverage,
-      }),
-      matches,
-      typeMismatches,
-      reasons,
     });
   }
   const stale = candidatesOf(state).find(candidate => candidate.outcome === "stale_or_unverified");
