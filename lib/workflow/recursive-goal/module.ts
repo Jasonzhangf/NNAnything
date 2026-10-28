@@ -491,7 +491,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private readonly frames = new Map<string, InternalFrame<G, B, C>>();
   private readonly stack: InternalFrame<G, B, C>[] = [];
   private states: StateRecord<S>[];
-  private evidence: EvidenceRecord<E>[];
+  private evidence: EvidenceRecord<E>[] = [];
   private ledger: EffectRecord<F>[];
   private atomicResults: AtomicExecutionResult<F, R>[];
   private errors: RecursiveGoalErrorDiagnostic[];
@@ -523,6 +523,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private planningReport: PlanningReport | null;
   private readonly invocationLimit: 1 | null;
   private atomicDispatchesThisInvocation = 0;
+  private cachedCallbackEvidence: readonly EvidenceRecord<E>[] | null = null;
+  private readonly pureFrozenNodes = new WeakSet<object>();
+  private nonPureEvidenceCount = 0;
 
   constructor(
     admission: Admission<G, S, B, E, F, R, C>,
@@ -579,10 +582,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           value: admission.validated.state,
         },
       ];
-      this.evidence =
-        initialObservation === undefined
-          ? []
-          : initialObservation.evidence.map(item => ({ ...item }));
+      this.initEvidence(
+        initialObservation === undefined ? [] : initialObservation.evidence,
+      );
       this.ledger = [];
       this.atomicResults = [];
       this.errors = [];
@@ -619,7 +621,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
               value: admission.validated.state,
             },
           ];
-    this.evidence = continuation.evidence.map(item => ({ ...item }));
+    this.initEvidence(continuation.evidence);
     this.ledger = continuation.ledger.map(item => ({ ...item }));
     this.atomicResults = continuation.atomicResults.map(item => ({ ...item }));
     this.errors = continuation.errors.map(error => cloneDiagnostic(error));
@@ -3310,7 +3312,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           `atomic evidence ${item.id} references an unknown state`,
         );
       }
-      this.evidence.push(item);
+      this.appendEvidenceRecord(item);
     }
     frame.evidenceRefs = mergeStrings(
       frame.evidenceRefs,
@@ -3979,7 +3981,37 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     return freezeSnapshot(this.currentState());
   }
 
+  private initEvidence(items: readonly EvidenceRecord<E>[]): void {
+    this.evidence = [];
+    this.cachedCallbackEvidence = null;
+    this.nonPureEvidenceCount = 0;
+    for (const item of items) {
+      const record = Object.isFrozen(item) ? item : Object.freeze({ ...item });
+      this.evidence.push(record);
+      this.registerEvidenceRecord(record);
+    }
+  }
+
+  private appendEvidenceRecord(item: EvidenceRecord<E>): void {
+    const record = Object.isFrozen(item) ? item : freezeSnapshot(item);
+    this.evidence.push(record);
+    this.cachedCallbackEvidence = null;
+    this.registerEvidenceRecord(record);
+  }
+
+  private registerEvidenceRecord(record: EvidenceRecord<E>): void {
+    if (!isPureFrozenDataGraph(record, this.pureFrozenNodes)) {
+      this.nonPureEvidenceCount += 1;
+    }
+  }
+
   private callbackEvidence(): readonly EvidenceRecord<E>[] {
+    if (this.nonPureEvidenceCount === 0) {
+      if (this.cachedCallbackEvidence === null) {
+        this.cachedCallbackEvidence = Object.freeze([...this.evidence]);
+      }
+      return this.cachedCallbackEvidence;
+    }
     return freezeSnapshot(this.evidence);
   }
 
@@ -5731,6 +5763,94 @@ function selectorIncludes(
   skillId: string,
 ): boolean {
   return selector !== undefined && selector.skillIds.includes(skillId);
+}
+
+export function isPureFrozenDataGraph(
+  root: unknown,
+  verifiedPure: WeakSet<object>,
+): boolean {
+  if (root === null || (typeof root !== "object" && typeof root !== "function")) {
+    return true;
+  }
+  if (typeof root === "function") {
+    return false;
+  }
+  if (verifiedPure.has(root)) {
+    return true;
+  }
+  const visitedInCall = new Set<object>();
+
+  const checkNode = (value: unknown): boolean => {
+    if (
+      value === null ||
+      (typeof value !== "object" && typeof value !== "function")
+    ) {
+      return true;
+    }
+    if (typeof value === "function") {
+      return false;
+    }
+    if (verifiedPure.has(value) || visitedInCall.has(value)) {
+      return true;
+    }
+    if (!Object.isFrozen(value)) {
+      return false;
+    }
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) {
+        return false;
+      }
+    } else {
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== Object.prototype && proto !== null) {
+        return false;
+      }
+    }
+    if (
+      value instanceof Date ||
+      value instanceof Map ||
+      value instanceof Set ||
+      value instanceof RegExp ||
+      value instanceof ArrayBuffer ||
+      ArrayBuffer.isView(value) ||
+      value instanceof Error ||
+      value instanceof WeakMap ||
+      value instanceof WeakSet ||
+      value instanceof Promise
+    ) {
+      return false;
+    }
+    visitedInCall.add(value);
+    for (const key of Reflect.ownKeys(value)) {
+      const desc = Object.getOwnPropertyDescriptor(value, key);
+      if (
+        desc === undefined ||
+        !("value" in desc) ||
+        "get" in desc ||
+        "set" in desc ||
+        desc.writable !== false ||
+        desc.configurable !== false
+      ) {
+        return false;
+      }
+      if (!checkNode(desc.value)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  try {
+    if (!checkNode(root)) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  for (const node of visitedInCall) {
+    verifiedPure.add(node);
+  }
+  return true;
 }
 
 function snapshotData<T>(value: T): T {

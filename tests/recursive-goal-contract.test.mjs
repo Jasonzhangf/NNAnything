@@ -181,6 +181,225 @@ test("initial observation is bound to its state and cannot accompany continuatio
   }
 });
 
+test("pure evidence callbacks share a frozen cache until append invalidates it", async () => {
+  const api = await loadPublicApi();
+  const callbacks = [];
+  let initialSnapshot = null;
+  const fixture = createFixtureAdapter({
+    evaluate: (input) => {
+      callbacks.push({ name: "evaluate", evidence: input.evidence });
+      if (initialSnapshot === null) initialSnapshot = input.evidence;
+      assert.equal(Object.isFrozen(input.evidence), true);
+      for (const record of input.evidence) {
+        assert.equal(Object.isFrozen(record), true);
+        assert.equal(Object.isFrozen(record.payload), true);
+      }
+      assert.throws(() => input.evidence.push({}), TypeError);
+      assert.throws(() => {
+        input.evidence[0].payload.count = 99;
+      }, TypeError);
+      const satisfied = input.state.count >= 2;
+      return {
+        evaluatorId: "counter-evaluator",
+        result: satisfied ? "satisfied" : "unsatisfied",
+        satisfaction: satisfied ? 100 : 0,
+        necessaryConditionsMet: satisfied,
+        evidenceRefs: input.evidence
+          .filter((record) => record.validity === "valid")
+          .map((record) => record.id),
+      };
+    },
+    select: (input) => {
+      callbacks.push({ name: "select", evidence: input.evidence });
+      return { kind: "selected", skillId: input.candidates[0].id };
+    },
+    derive: (input, calls) =>
+      singleChildDerivation({
+        id: `pure-cache-step-${calls.derive}`,
+        goal: counterGoal(input.state.count + 1),
+        bindings: input.bindings,
+        mode: "atomic",
+        selectorId: "finite-leaf-selector",
+        cursor: "open",
+        expansion: "more",
+      }),
+    executeAtomic: (input, calls) => {
+      callbacks.push({ name: "executeAtomic", evidence: input.evidence });
+      return successfulAtomicReceipt({
+        count: input.state.count + 1,
+        stateId: `pure-cache-state-${calls.executeAtomic}`,
+        evidenceId: `pure-cache-evidence-${calls.executeAtomic}`,
+        runId: `pure-cache-run-${calls.executeAtomic}`,
+      });
+    },
+  });
+  const request = makeRequest({
+    rootGoal: counterGoal(2),
+    state: { count: 0 },
+    initialObservation: {
+      stateId: "fixture-initial-state",
+      evidence: [evidence("pure-cache-initial", "fixture-initial-state", 1)],
+    },
+  });
+  const response = await api.runRecursiveGoal(
+    request,
+    depsFor(fixture, {
+      enabledSkills: [
+        skill("compose-counter", "composite"),
+        skill("increment-counter", "atomic"),
+      ],
+      selectors: [
+        selector("root-selector", ["compose-counter"]),
+        selector("finite-leaf-selector", ["increment-counter"]),
+      ],
+    }),
+  );
+  const report = responseReport(response);
+
+  const beforeAppend = callbacks.filter((item) => item.evidence.length === 1);
+  assert.equal(beforeAppend.length > 1, true);
+  assert.equal(
+    beforeAppend.every((item) => item.evidence === initialSnapshot),
+    true,
+  );
+  const firstAtomic = callbacks.find((item) => item.name === "executeAtomic");
+  assert.equal(firstAtomic.evidence, initialSnapshot);
+  const afterAppend = callbacks.find(
+    (item) => item.name === "evaluate" && item.evidence.length === 2,
+  );
+  assert.notEqual(afterAppend, undefined);
+  assert.notEqual(afterAppend.evidence, initialSnapshot);
+  assert.equal(initialSnapshot.length, 1);
+  assert.equal(Object.isFrozen(report.evidence), true);
+  assert.equal(report.evidence.length, 3);
+  assert.equal(report.evidence[0].payload.count, 1);
+});
+
+test("shared mutable evidence stays isolated while preserving cross-record aliases", async () => {
+  const api = await loadPublicApi();
+  const sharedMap = new Map([["k", "v"]]);
+  const sharedDate = new Date(1700000000000);
+  const sharedSet = new Set(["a"]);
+  const initial = [
+    {
+      id: "shared-map-0",
+      stateRef: "fixture-initial-state",
+      payload: { sharedMap, sharedDate, sharedSet },
+      validity: "valid",
+    },
+    {
+      id: "shared-map-1",
+      stateRef: "fixture-initial-state",
+      payload: { sharedMap, sharedDate, sharedSet },
+      validity: "valid",
+    },
+  ];
+  const callbackEvidence = [];
+  let mutatedInFirstCallback = false;
+  const fixture = createFixtureAdapter({
+    evaluate: (input) => {
+      callbackEvidence.push(input.evidence);
+      assert.equal(
+        input.evidence[0].payload.sharedMap,
+        input.evidence[1].payload.sharedMap,
+      );
+      if (!mutatedInFirstCallback) {
+        mutatedInFirstCallback = true;
+        input.evidence[0].payload.sharedMap.set("k", "mutated");
+        assert.equal(
+          input.evidence[1].payload.sharedMap.get("k"),
+          "mutated",
+        );
+      } else {
+        assert.equal(input.evidence[0].payload.sharedMap.get("k"), "v");
+      }
+      const satisfied = input.state.count >= 1;
+      return {
+        evaluatorId: "counter-evaluator",
+        result: satisfied ? "satisfied" : "unsatisfied",
+        satisfaction: satisfied ? 100 : 0,
+        necessaryConditionsMet: satisfied,
+        evidenceRefs: input.evidence.map((record) => record.id),
+      };
+    },
+    select: (input) => {
+      callbackEvidence.push(input.evidence);
+      assert.equal(input.evidence[0].payload.sharedMap.get("k"), "v");
+      assert.equal(
+        input.evidence[0].payload.sharedMap,
+        input.evidence[1].payload.sharedMap,
+      );
+      return { kind: "selected", skillId: input.candidates[0].id };
+    },
+    derive: (input) =>
+      singleChildDerivation({
+        id: "shared-map-step",
+        goal: counterGoal(input.state.count + 1),
+        bindings: input.bindings,
+        mode: "atomic",
+        selectorId: "finite-leaf-selector",
+        cursor: "closed",
+        expansion: "closed",
+      }),
+    executeAtomic: (input, calls) =>
+      successfulAtomicReceipt({
+        count: input.state.count + 1,
+        stateId: `shared-map-state-${calls.executeAtomic}`,
+        evidenceId: `shared-map-evidence-${calls.executeAtomic}`,
+        runId: `shared-map-run-${calls.executeAtomic}`,
+      }),
+  });
+  const response = await api.runRecursiveGoal(
+    makeRequest({
+      rootGoal: counterGoal(1),
+      state: { count: 0 },
+      initialObservation: {
+        stateId: "fixture-initial-state",
+        evidence: initial,
+      },
+    }),
+    depsFor(fixture, {
+      enabledSkills: [
+        skill("compose-counter", "composite"),
+        skill("increment-counter", "atomic"),
+      ],
+      selectors: [
+        selector("root-selector", ["compose-counter"]),
+        selector("finite-leaf-selector", ["increment-counter"]),
+      ],
+    }),
+  );
+  const report = responseReport(response);
+
+  assert.equal(mutatedInFirstCallback, true);
+  assert.equal(callbackEvidence.length > 1, true);
+  assert.equal(callbackEvidence[1][0].payload.sharedMap.get("k"), "v");
+  assert.equal(report.evidence[0].payload.sharedMap.get("k"), "v");
+  assert.equal(
+    report.evidence[0].payload.sharedMap,
+    report.evidence[1].payload.sharedMap,
+  );
+});
+
+test("failed pure graph validation does not mark visited children as verified", async () => {
+  const { isPureFrozenDataGraph } = await import(
+    "../dist/workflow/recursive-goal/module.js"
+  );
+  const sharedPureChild = Object.freeze({
+    nested: Object.freeze({ value: 1 }),
+  });
+  const mixed = Object.freeze({
+    pureChild: sharedPureChild,
+    badChild: new Map([["bad", true]]),
+  });
+  const verifiedPure = new WeakSet();
+
+  assert.equal(isPureFrozenDataGraph(mixed, verifiedPure), false);
+  assert.equal(verifiedPure.has(mixed), false);
+  assert.equal(verifiedPure.has(sharedPureChild), false);
+  assert.equal(verifiedPure.has(sharedPureChild.nested), false);
+});
+
 test("real recursive workflow assets load and compile as a 3N2E candidate", async () => {
   const { loadWorkflow, compileWorkflow } = await loadWorkflowApi();
   const root = fileURLToPath(new URL("../", import.meta.url));
