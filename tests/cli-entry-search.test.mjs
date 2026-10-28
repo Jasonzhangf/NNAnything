@@ -20,6 +20,12 @@ const LIMITS = Object.freeze({
   maxDerivedGoals: 8,
 });
 
+const RECURSIVE_LIMITS = Object.freeze({
+  maxTransitions: 400,
+  maxDepth: 8,
+  maxDerivedGoals: 200,
+});
+
 function profilePath() {
   const value = process.env.NN_CLI_COMMAND_PROFILE;
   assert.equal(
@@ -105,12 +111,14 @@ function childSkillIds(response) {
   return response.report.atomicResults.map(result => result.skillId);
 }
 
-function runWith(fixtureValue, goal, options = {}) {
+async function runWith(fixtureValue, goal, options = {}) {
+  const profile = options.profile ?? fixtureValue.profile ?? await profile();
   return fixtureValue.module.runCliEntrySearchGoal(goal, {
     sandbox: fixtureValue.sandbox,
     session: options.session ?? fixtureValue.session,
-    profile: options.profile ?? fixtureValue.profile ?? undefined,
+    profile,
     limits: options.limits ?? LIMITS,
+    ...(options.scan === undefined ? {} : { scan: options.scan }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
     ...(options.onSample === undefined ? {} : { onSample: options.onSample }),
   });
@@ -895,4 +903,182 @@ test("E14 repeated evaluation does no extra IO and interleaved sessions stay iso
   assert.equal(value.sandbox.getSession(second).cwd, other);
   assert.deepEqual((await readdir(start)).sort(), startEntries);
   assert.deepEqual((await readdir(other)).sort(), otherEntries);
+});
+
+function recursiveRequest(directory, name, type, cardinality, recursion) {
+  return {
+    requestId: `entry-search-${name}-${type}-${cardinality}-${recursion}`,
+    goal: {
+      kind: "file.property",
+      property: "file.property.directory.entries",
+      target: directory,
+      requirement: {
+        kind: "matches",
+        predicate: {
+          kind: "entrySelector",
+          name,
+          type,
+          cardinality,
+          recursion,
+        },
+      },
+    },
+    satisfactionThreshold: 100,
+  };
+}
+
+test("DEV_CE01 cardinality one early-stop keeps coverage partial", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.ts", kind: "file", contents: "top" },
+    { path: "start/sub", kind: "directory" },
+    { path: "start/sub/other.ts", kind: "file", contents: "other" },
+  ]);
+  let listingCalls = 0;
+  const first = await runWith(value, recursiveRequest(value.directory, "target.ts", "regular", "one", "nested"), {
+    limits: RECURSIVE_LIMITS,
+    scan: undefined,
+    onSample: async sample => {
+      if (sample.goal.property === "file.property.directory.entries") {
+        listingCalls += 1;
+      }
+    },
+  });
+  assert.equal(first.domain.status, "achieved");
+  assert.equal(first.domain.resolution, "matched");
+  assert.equal(first.domain.satisfaction, 100);
+  assert.equal(first.domain.coverage, "partial");
+  assert.equal(basename(first.domain.match.absolutePath), "target.ts");
+  assert.equal(first.domain.denominators.listedDirectories, 1);
+  assert.deepEqual(heads(first.response), ["ls", "entry.inspect"]);
+  assert.equal(listingCalls, 1);
+});
+
+test("DEV_CE02 all-nested full tree with disappeared candidate stays unknown stale_or_unverified", async t => {
+  const value = await withProfile(t, [
+    { path: "start/a/item", kind: "directory" },
+    { path: "start/a", kind: "directory" },
+    { path: "start/b/item", kind: "file", contents: "candidate" },
+    { path: "start/b", kind: "directory" },
+  ]);
+  let deleted = false;
+  const observer = async input => {
+    const result = await observeRealListing(input);
+    if (result.ok && input.physicalDirectory.endsWith("/b") && !deleted) {
+      deleted = true;
+      await rm(join(input.physicalDirectory, "item"), { force: true });
+    }
+    return result;
+  };
+  const valueWithHook = await withProfile(t, [
+    { path: "start/a/item", kind: "directory" },
+    { path: "start/a", kind: "directory" },
+    { path: "start/b/item", kind: "file", contents: "candidate" },
+    { path: "start/b", kind: "directory" },
+  ], { listingObserver: observer });
+  const result = await runWith(valueWithHook, recursiveRequest(valueWithHook.directory, "item", "regular", "all", "nested"), {
+    limits: RECURSIVE_LIMITS,
+  });
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "stale_or_unverified");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.coverage, "partial");
+  assert.equal(result.domain.rootFact.kind, "stale_or_unverified");
+  assert.ok(result.domain.rootFact.reasons.includes("disappeared"));
+  assert.deepEqual(result.domain.denominators.directoriesUncovered, 0);
+  assert.equal(result.domain.denominators.listedDirectories, 4);
+  assert.ok(result.domain.typeMismatches.some(item => item.path.endsWith("a/item")));
+});
+
+test("DEV_CE03 depth limit mixed with type_mismatch stays insufficient_evidence with two uncovered directories", async t => {
+  const value = await withProfile(t, [
+    { path: "start/entry.ts", kind: "directory" },
+    { path: "start/sub", kind: "directory" },
+    { path: "start/sub/entry.ts", kind: "file", contents: "deep" },
+  ]);
+  const result = await runWith(value, recursiveRequest(value.directory, "entry.ts", "regular", "all", "nested"), {
+    limits: RECURSIVE_LIMITS,
+    scan: { maxDirectoryDepth: 0 },
+  });
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "insufficient_evidence");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.coverage, "partial");
+  assert.equal(result.domain.rootFact.kind, "insufficient_evidence");
+  assert.ok(result.domain.rootFact.listing.reasons.includes("depth_limit"));
+  assert.equal(result.domain.denominators.listedDirectories, 1);
+  assert.equal(result.domain.denominators.directoriesUncovered, 2);
+  assert.equal(result.domain.typeMismatches.length, 1);
+});
+
+test("DEV_CE04 type-mismatch directory is still descended and full tree returns unmet type_mismatch", async t => {
+  const value = await withProfile(t, [
+    { path: "start/a/config.json", kind: "directory" },
+    { path: "start/a", kind: "directory" },
+    { path: "start/b", kind: "directory" },
+  ]);
+  const result = await runWith(value, recursiveRequest(value.directory, "config.json", "regular", "all", "nested"), {
+    limits: RECURSIVE_LIMITS,
+  });
+  assert.equal(result.domain.status, "unmet");
+  assert.equal(result.domain.resolution, "type_mismatch");
+  assert.equal(result.domain.satisfaction, 0);
+  assert.equal(result.domain.coverage, "complete");
+  assert.equal(result.domain.denominators.listedDirectories, 4);
+  assert.equal(result.domain.denominators.directoriesComplete, 4);
+  assert.equal(result.domain.denominators.directoriesUncovered, 0);
+  assert.equal(result.domain.typeMismatches.length, 1);
+  assert.equal(result.domain.rootFact.kind, "type_mismatch");
+});
+
+test("DEV_CE05 BFS discovery is normalized to absolutePath UTF-16 lexicographic order", async t => {
+  const value = await withProfile(t, [
+    { path: "start/z-target.ts", kind: "file", contents: "z" },
+    { path: "start/a/z-target.ts", kind: "file", contents: "a" },
+    { path: "start/a", kind: "directory" },
+  ]);
+  const result = await runWith(value, recursiveRequest(value.directory, "z-target.ts", "regular", "all", "nested"), {
+    limits: RECURSIVE_LIMITS,
+  });
+  assert.equal(result.domain.status, "achieved");
+  assert.equal(result.domain.satisfaction, 100);
+  assert.equal(result.domain.coverage, "complete");
+  const start = value.sandbox.getSession(value.session).cwd;
+  assert.deepEqual(result.domain.matches.map(match => match.absolutePath), [
+    join(start, "a", "z-target.ts"),
+    join(start, "z-target.ts"),
+  ]);
+  assert.equal(result.domain.match.absolutePath, join(start, "a", "z-target.ts"));
+  const order = result.domain.matches.map(match => match.absolutePath);
+  assert.deepEqual(order, [...order].sort((left, right) => left < right ? -1 : left > right ? 1 : 0));
+});
+
+test("DEV_CE06 stale_or_unverified beats depth_limit and both reasons are kept", async t => {
+  const value = await withProfile(t, [
+    { path: "start/item.ts", kind: "file", contents: "top" },
+    { path: "start/sub", kind: "directory" },
+    { path: "start/sub/item.ts", kind: "file", contents: "deep" },
+  ]);
+  const observer = async input => {
+    const result = await observeRealListing(input);
+    if (result.ok && input.physicalDirectory.endsWith("/sub") === false) {
+      await rm(join(input.physicalDirectory, "item.ts"), { force: true });
+    }
+    return result;
+  };
+  const valueWithHook = await withProfile(t, [
+    { path: "start/item.ts", kind: "file", contents: "top" },
+    { path: "start/sub", kind: "directory" },
+    { path: "start/sub/item.ts", kind: "file", contents: "deep" },
+  ], { listingObserver: observer });
+  const result = await runWith(valueWithHook, recursiveRequest(valueWithHook.directory, "item.ts", "regular", "all", "nested"), {
+    limits: RECURSIVE_LIMITS,
+    scan: { maxDirectoryDepth: 0 },
+  });
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "stale_or_unverified");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.coverage, "partial");
+  assert.equal(result.domain.rootFact.kind, "stale_or_unverified");
+  assert.ok(result.domain.rootFact.reasons.includes("disappeared"));
+  assert.ok(result.domain.rootFact.reasons.includes("depth_limit"));
 });
