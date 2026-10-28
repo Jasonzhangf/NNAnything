@@ -204,24 +204,18 @@ function matchesFileFilter(
 
 function hasSubdirsBeyondDepth(scopeRoot: string, maxDepth: number): boolean {
   function walk(directory: string, depth: number): boolean {
-    let names: string[];
+    let entries;
     try {
-      names = readdirSync(directory, { withFileTypes: true })
-        .map(entry => entry.name);
+      entries = readdirSync(directory, { withFileTypes: true });
     } catch {
-      return false;
+      // An uninspectable subtree cannot be claimed complete.
+      return true;
     }
-    for (const name of names) {
-      let entryStats;
-      try {
-        entryStats = statSync(join(directory, name), { throwIfNoEntry: true });
-      } catch {
-        continue;
-      }
-      if (entryStats.isSymbolicLink()) continue;
-      if (entryStats.isDirectory()) {
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
         if (depth + 1 > maxDepth) return true;
-        if (walk(join(directory, name), depth + 1)) return true;
+        if (walk(join(directory, entry.name), depth + 1)) return true;
       }
     }
     return false;
@@ -235,6 +229,7 @@ export type IncrementalStreamResult = Readonly<{
   crossChunkRecordSplits: number;
   unterminatedRemainderBytes: number;
   unterminatedFragmentDiscarded: boolean;
+  parseIncomplete: boolean;
 }>;
 
 /**
@@ -254,6 +249,7 @@ export function createIncrementalStreamParser(input: Readonly<{
   const matchedFileSet = new Set<string>();
   let remainder: Buffer = Buffer.alloc(0);
   let crossChunkRecordSplits = 0;
+  let parseIncomplete = false;
 
   function consumeRgJsonLine(lineBuffer: Buffer): void {
     const line = lineBuffer.toString("utf8").trim();
@@ -265,19 +261,52 @@ export function createIncrementalStreamParser(input: Readonly<{
       return;
     }
     if (!isRecord(event) || event.type !== "match" || !isRecord(event.data)) return;
-    const rawPath = pathOf(event.data, "path.text");
-    if (rawPath === null) return;
+    let rawPath = pathOf(event.data, "path.text");
+    if (rawPath === null) {
+      const encodedPath = pathOf(event.data, "path.bytes");
+      if (encodedPath === null) {
+        parseIncomplete = true;
+        return;
+      }
+      const decodedPath = decodeUtf8Base64(encodedPath);
+      if (decodedPath === null) {
+        parseIncomplete = true;
+        return;
+      }
+      rawPath = decodedPath.text;
+    }
     const relPath = normalizeRelPath(scopeRoot, rawPath);
     if (!matchesFileFilter(relPath, fileFilter)) return;
     const rawLineText = pathOf(event.data, "lines.text");
-    const hasLF = rawLineText !== null && rawLineText.endsWith("\n");
-    const lineText = hasLF ? rawLineText!.slice(0, -1) : rawLineText ?? "";
+    const encodedLine = pathOf(event.data, "lines.bytes");
+    let lineText: string;
+    let lineByteLength: number;
+    let hasLF: boolean;
+    if (rawLineText !== null) {
+      hasLF = rawLineText.endsWith("\n");
+      lineText = hasLF ? rawLineText.slice(0, -1) : rawLineText;
+      lineByteLength = Buffer.byteLength(lineText, "utf8");
+    } else if (encodedLine !== null) {
+      const decodedLine = decodeUtf8Base64(encodedLine);
+      if (decodedLine === null) {
+        matchedFileSet.add(relPath);
+        parseIncomplete = true;
+        return;
+      }
+      hasLF = decodedLine.bytes.length > 0
+        && decodedLine.bytes[decodedLine.bytes.length - 1] === 0x0a;
+      lineText = hasLF ? decodedLine.text.slice(0, -1) : decodedLine.text;
+      lineByteLength = hasLF ? decodedLine.bytes.length - 1 : decodedLine.bytes.length;
+    } else {
+      matchedFileSet.add(relPath);
+      parseIncomplete = true;
+      return;
+    }
     const lineNumber = numberOr(event.data, "line_number", -1);
-    const byteLength = Buffer.byteLength(lineText, "utf8");
     filteredMatches.push({
       relPath,
       lineNumber,
-      lineByteLength: byteLength,
+      lineByteLength,
       lineText: lineText.length <= 4096 ? lineText : `${lineText.slice(0, 256)}...[+${lineText.length - 256} chars]`,
       matchedLineHasTrailingLF: hasLF,
     });
@@ -383,6 +412,7 @@ export function createIncrementalStreamParser(input: Readonly<{
       crossChunkRecordSplits,
       unterminatedRemainderBytes: remainder.length,
       unterminatedFragmentDiscarded: remainder.length > 0,
+      parseIncomplete,
     };
   }
 
@@ -391,6 +421,19 @@ export function createIncrementalStreamParser(input: Readonly<{
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function decodeUtf8Base64(value: string): Readonly<{ bytes: Buffer; text: string }> | null {
+  try {
+    const bytes = Buffer.from(value, "base64");
+    if (bytes.length === 0) return null;
+    return Object.freeze({
+      bytes,
+      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    });
+  } catch {
+    return null;
+  }
 }
 
 function pathOf(record: Record<string, unknown>, dotted: string): string | null {
@@ -569,6 +612,15 @@ export async function runDirectorySearchCommand(input: Readonly<{
     ignorePolicy,
     explicitLimits,
   });
+  if (
+    (built.toolUsed === "grep_bsd" || built.toolUsed === "grep_gnu")
+    && explicitLimits?.maxDepth !== undefined
+  ) {
+    throw Object.assign(
+      new TypeError("grep search does not support an explicit maxDepth"),
+      { code: "UNSUPPORTED_GREP_MAX_DEPTH" },
+    );
+  }
   const streamParser = createIncrementalStreamParser({
     toolUsed: built.toolUsed,
     scopeRoot: physicalDirectory,
@@ -631,6 +683,14 @@ export async function runDirectorySearchCommand(input: Readonly<{
       } else {
         reasons.push("command_partial_or_error");
       }
+    }
+  }
+
+  if (parsed.parseIncomplete) {
+    normalCompleted = false;
+    coverage = "partial";
+    if (!reasons.includes("unrepresentable_byte_record")) {
+      reasons.push("unrepresentable_byte_record");
     }
   }
 

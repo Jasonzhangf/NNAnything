@@ -859,6 +859,9 @@ async function commandSearchFixture(t, options = {}) {
     ...(options.fileReadLinesOptions === undefined
       ? { fileReadLinesOptions: READ_LINES_LIMITS }
       : { fileReadLinesOptions: options.fileReadLinesOptions }),
+    ...(options.commandSearchCapabilities === undefined
+      ? {}
+      : { commandSearchCapabilities: options.commandSearchCapabilities }),
   });
   t.after(async () => {
     await sandbox.cleanup();
@@ -1058,6 +1061,43 @@ test("Slice 3 T2 target hit binds a trusted file and performs controlled line an
     "first line\n",
   );
   assert.ok(lines.domain.stepTrace.some(step => step.D?.predictedLabel === "READ_TARGET_S0"));
+  const lineReadStep = lines.domain.stepTrace.findLast(
+    step => step.commandReceipt === null && step.E.namedFeatures["receipt.present"] === 1,
+  );
+  assert.ok(lineReadStep);
+  assert.equal(lineReadStep.E.namedFeatures["goal.head"], 1);
+  assert.equal(lineReadStep.E.namedFeatures["goal.tail"], 0);
+  assert.equal(lineReadStep.E.namedFeatures["goal.N/16"], 1 / 16);
+  assert.equal(lineReadStep.E.namedFeatures["actual.head"], 1);
+  assert.equal(lineReadStep.E.namedFeatures["actual.tail"], 0);
+  assert.equal(lineReadStep.E.namedFeatures["output.linesKnown"], 1);
+  assert.equal(lineReadStep.E.namedFeatures["output.logicalLines/16"], 1 / 16);
+  assert.equal(lineReadStep.E.namedFeatures["actual.N/16"], 1 / 16);
+  assert.equal(lineReadStep.D?.namedFeatures["read.fromS0"], 1);
+  assert.equal(lineReadStep.D?.namedFeatures["read.fromS1"], 0);
+
+  const tail = await runCommandSearch(
+    fx,
+    await commandTargetRequest(fx, {
+      requestId: "sc-t2-lines-tail",
+      cardinality: "one",
+      fileFilter: { exactBasename: "note.txt" },
+      followUpRead: { mode: "lines", anchor: "tail", count: 2 },
+    }),
+  );
+  assert.equal(tail.domain.status, "achieved");
+  const tailReadStep = tail.domain.stepTrace.findLast(
+    step => step.commandReceipt === null && step.E.namedFeatures["receipt.present"] === 1,
+  );
+  assert.ok(tailReadStep);
+  assert.equal(tailReadStep.E.namedFeatures["goal.head"], 0);
+  assert.equal(tailReadStep.E.namedFeatures["goal.tail"], 1);
+  assert.equal(tailReadStep.E.namedFeatures["goal.N/16"], 2 / 16);
+  assert.equal(tailReadStep.E.namedFeatures["actual.head"], 0);
+  assert.equal(tailReadStep.E.namedFeatures["actual.tail"], 1);
+  assert.equal(tailReadStep.E.namedFeatures["output.linesKnown"], 1);
+  assert.equal(tailReadStep.E.namedFeatures["output.logicalLines/16"], 2 / 16);
+  assert.equal(tailReadStep.E.namedFeatures["actual.N/16"], 2 / 16);
 
   const bytes = await runCommandSearch(
     fx,
@@ -1075,6 +1115,20 @@ test("Slice 3 T2 target hit binds a trusted file and performs controlled line an
     Buffer.from(bytes.domain.readReceipt?.bytesBase64 ?? "", "base64").toString("utf8"),
     "first",
   );
+  const byteReadStep = bytes.domain.stepTrace.findLast(
+    step => step.commandReceipt === null && step.E.namedFeatures["receipt.present"] === 1,
+  );
+  assert.ok(byteReadStep);
+  assert.equal(byteReadStep.E.namedFeatures["goal.head"], 0);
+  assert.equal(byteReadStep.E.namedFeatures["goal.tail"], 0);
+  assert.equal(byteReadStep.E.namedFeatures["goal.N/16"], 0);
+  assert.equal(byteReadStep.E.namedFeatures["actual.head"], 0);
+  assert.equal(byteReadStep.E.namedFeatures["actual.tail"], 0);
+  assert.equal(byteReadStep.E.namedFeatures["output.linesKnown"], 0);
+  assert.equal(byteReadStep.E.namedFeatures["output.logicalLines/16"], 0);
+  assert.equal(byteReadStep.E.namedFeatures["actual.N/16"], 0);
+  assert.equal(byteReadStep.D?.namedFeatures["read.fromS0"], 1);
+  assert.equal(byteReadStep.D?.namedFeatures["read.fromS1"], 0);
 });
 
 test("Slice 3 T3 complete negative search terminates unmet and never reports a false success", async t => {
@@ -1403,4 +1457,106 @@ test("Slice 3 T5b a fallback slot hit binds and reads through READ_TARGET_S1", a
     Buffer.from(d.readReceipt?.bytesBase64 ?? "", "base64").toString("utf8"),
     "target line one\n",
   );
+  const readStep = d.stepTrace.findLast(
+    step => step.commandReceipt === null && step.E.namedFeatures["receipt.present"] === 1,
+  );
+  assert.ok(readStep);
+  assert.equal(readStep.D?.namedFeatures["read.fromS0"], 0);
+  assert.equal(readStep.D?.namedFeatures["read.fromS1"], 1);
 });
+
+test("RED F3 public grep maxDepth refuses a deep-only hit before spawning", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-red-f3-public",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/deep", kind: "directory" },
+      { path: "scan/deep/hit.txt", kind: "file", contents: "needle deep\n" },
+    ],
+    commandSearchCapabilities: {
+      rg: null,
+      grep: "/usr/bin/grep",
+      grepFlavor: "bsd",
+      find: null,
+    },
+  });
+  const result = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-red-f3-public",
+      needle: "needle",
+      cardinality: "all",
+    }),
+    { explicitLimits: { maxDepth: 0 } },
+  );
+  assert.equal(result.domain.status, "failed");
+  assert.equal(result.domain.resolution, "failed");
+  assert.equal(result.domain.totalProcessSpawns, 0);
+  assert.deepEqual([...result.domain.matchedEntries], []);
+  const nativeCodes = result.domain.preserve.errors
+    .map(error => error.source?.nativeCode)
+    .filter(Boolean);
+  assert.ok(nativeCodes.includes("UNSUPPORTED_GREP_MAX_DEPTH"));
+});
+
+test("RED F5 real rg invalid line bytes never fabricate an empty match line", async t => {
+  const fx = await commandSearchFixture(t, {
+    scenarioId: "sc-red-f5-line",
+    entries: [{ path: "scan", kind: "directory" }],
+  });
+  await writeFile(
+    join(fx.sandbox.scenarioRoot, "scan", "invalid.txt"),
+    Buffer.concat([Buffer.from("needle ", "utf8"), Buffer.from([0xff]), Buffer.from("\n", "utf8")]),
+  );
+  const result = await runCommandSearch(
+    fx,
+    await commandLiteralRequest(fx, {
+      requestId: "sc-red-f5-line",
+      needle: "needle",
+      cardinality: "all",
+    }),
+  );
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "partial");
+  assert.equal(result.domain.coverage, "partial");
+  assert.equal(result.domain.searchCommandSpawns, 1);
+  assert.deepEqual([...result.domain.matchedEntries], ["invalid.txt"]);
+  assert.deepEqual([...result.domain.matchedLines], []);
+  assert.ok(result.domain.reasons.includes("unrepresentable_byte_record"));
+});
+
+for (const maxTransitions of [3, 4, 5]) {
+  test(`RED F1 continuation resumes a pre-dispatch pause at ${maxTransitions} transitions`, async t => {
+    const fx = await commandSearchFixture(t, {
+      scenarioId: `sc-red-f1-${maxTransitions}`,
+      entries: [
+        { path: "primary", kind: "directory" },
+        { path: "fallback", kind: "directory" },
+        { path: "primary/alpha.txt", kind: "file", contents: "ordinary\n" },
+        { path: "fallback/hit.txt", kind: "file", contents: "needle fallback\n" },
+      ],
+    });
+    const request = await commandLiteralRequest(fx, {
+      requestId: `sc-red-f1-${maxTransitions}`,
+      paths: ["primary", "fallback"],
+      cardinality: "one",
+    });
+    // A tight transition budget stops after deriving the s0 child, before dispatch.
+    const first = await runCommandSearch(fx, request, {
+      limits: { maxTransitions, maxDepth: 8, maxDerivedGoals: 4 },
+    });
+    assert.equal(first.domain.status, "unknown");
+    assert.equal(first.domain.resolution, "budget_exhausted");
+    assert.equal(first.domain.searchCommandSpawns, 0);
+    assert.notEqual(first.domain.preserve.continuation, null);
+    const second = await runCommandSearch(fx, request, {
+      continuation: first.domain.preserve.continuation,
+    });
+    assert.equal(second.domain.status, "achieved");
+    assert.equal(second.domain.resolution, "matched");
+    assert.equal(second.domain.satisfaction, 100);
+    // Resume must run s0 then s1 exactly once each, not repeat a dispatched search.
+    assert.equal(second.domain.searchCommandSpawns, 2);
+    assert.equal(second.domain.preserve.continuation, null);
+  });
+}

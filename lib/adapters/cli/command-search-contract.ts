@@ -1431,7 +1431,77 @@ export function readCommandSearchContinuation(
   value: unknown,
   guards: CommandSearchDomainGuards,
 ): CommandSearchContinuation {
-  return readRecursiveGoalContinuation(value, guards);
+  return readRecursiveGoalContinuation(normalizeCommandSearchContinuation(value), guards);
+}
+
+export function normalizeCommandSearchContinuation(value: unknown): unknown {
+  if (
+    !isRecord(value)
+    || !Array.isArray(value.frames)
+    || !Array.isArray(value.dependencies)
+  ) {
+    return value;
+  }
+  const childFrames = new Map<string, Record<string, unknown>>();
+  for (const frame of value.frames) {
+    if (isRecord(frame) && typeof frame.frameId === "string") {
+      childFrames.set(frame.frameId, frame);
+    }
+  }
+  const preDispatchKeys = new Set<string>();
+  const frames = value.frames.map(frame => {
+    if (!isRecord(frame) || !Array.isArray(frame.conditionResults)) return frame;
+    let changed = false;
+    const conditionResults = frame.conditionResults.map(result => {
+      if (
+        !isRecord(result)
+        || result.fact !== "unknown"
+        || result.evaluatorId !== null
+        || typeof result.conditionId !== "string"
+        || typeof result.childFrameId !== "string"
+      ) {
+        return result;
+      }
+      const child = childFrames.get(result.childFrameId);
+      if (
+        child === undefined
+        || child.fact !== "not_evaluated"
+        || child.execution !== "not_started"
+      ) {
+        return result;
+      }
+      preDispatchKeys.add(`${String(frame.frameId)}\u0000${result.conditionId}`);
+      changed = true;
+      return Object.freeze({ ...result, fact: "not_evaluated" as const });
+    });
+    return changed
+      ? Object.freeze({ ...frame, conditionResults: Object.freeze(conditionResults) })
+      : frame;
+  });
+  let dependenciesChanged = false;
+  const dependencies = value.dependencies.map(dependency => {
+    if (
+      !isRecord(dependency)
+      || dependency.fact !== "unknown"
+      || typeof dependency.ownerFrameId !== "string"
+      || !isRecord(dependency.condition)
+      || typeof dependency.condition.id !== "string"
+      || !preDispatchKeys.has(
+        `${dependency.ownerFrameId}\u0000${dependency.condition.id}`,
+      )
+    ) {
+      return dependency;
+    }
+    dependenciesChanged = true;
+    return Object.freeze({ ...dependency, fact: "not_evaluated" as const });
+  });
+  return dependenciesChanged
+    ? Object.freeze({
+        ...value,
+        frames: Object.freeze(frames),
+        dependencies: Object.freeze(dependencies),
+      })
+    : value;
 }
 
 export function restoredCommandSearchSequence(

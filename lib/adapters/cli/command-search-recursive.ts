@@ -26,6 +26,7 @@ import {
   readCommandSearchEffectFact,
   readCommandSearchEvidencePayload,
   readCommandSearchState,
+  normalizeCommandSearchContinuation,
   restoredCommandSearchSequence,
   validateCommandSearchBindings,
   validateCommandSearchRequest,
@@ -424,7 +425,9 @@ function postCommandState(
     readReceipt: state.readReceipt,
     followUpRead: bindings.followUpRead,
   });
-  return terminalDecision(post) ? appendTrace(state, post, null) : state;
+  return terminalDecision(post) || (bindings.followUpRead !== null && state.readReceipt !== null)
+    ? appendTrace(state, post, null)
+    : state;
 }
 
 function slotFactFromObservation(
@@ -724,7 +727,10 @@ export function createCommandSearchAdapter(input: CommandSearchAdapterInput): Co
       }
       const continuation = request.continuation === undefined || request.continuation === null
         ? null
-        : readRecursiveGoalContinuation(request.continuation, guards);
+        : readRecursiveGoalContinuation(
+            normalizeCommandSearchContinuation(request.continuation),
+            guards,
+          );
       if (continuation !== null) {
         sequence = Math.max(sequence, restoredCommandSearchSequence(continuation));
       }
@@ -872,22 +878,42 @@ export function createCommandSearchAdapter(input: CommandSearchAdapterInput): Co
       ) {
         throw new TypeError("command search executeAtomic received an unsupported atomic action");
       }
-      if (pendingEvaluation === null || pendingAction === null) {
-        throw new TypeError("command search executeAtomic has no model decision");
-      }
       const action = callback.goal.action;
       const bindings = callback.bindings;
+      let decision: CommandSearchRdeaEvaluation;
+      let decisionAction: CommandSearchActionGoal["action"];
+      if (pendingEvaluation === null || pendingAction === null) {
+        decision = evaluateCommandSearchRdea(input.l2Model, {
+          goalKind: bindings.goalKind,
+          cardinality: bindings.cardinality,
+          s1Enabled: bindings.scopeRefs.length > 1,
+          lastSearchedSlot: callback.state.lastSearchedSlot,
+          slotReceipts: callback.state.slotReceipts,
+          readReceipt: callback.state.readReceipt,
+          followUpRead: bindings.followUpRead,
+        });
+        const reconstructed = searchActionForDLabel(bindings.goalKind, decision.D.predictedLabel);
+        if (reconstructed === null) {
+          throw new TypeError("command search executeAtomic has no model decision");
+        }
+        decisionAction = reconstructed;
+      } else {
+        decision = pendingEvaluation;
+        decisionAction = pendingAction;
+      }
       if (
-        action.kind !== pendingAction.kind
-        || action.slot !== pendingAction.slot
+        action.kind !== decisionAction.kind
+        || action.slot !== decisionAction.slot
         || (
           action.kind === "search"
-          && pendingAction.kind === "search"
-          && action.operation !== pendingAction.operation
+          && decisionAction.kind === "search"
+          && action.operation !== decisionAction.operation
         )
       ) {
         throw new TypeError("command search executeAtomic goal does not match the model decision");
       }
+      pendingEvaluation = decision;
+      pendingAction = decisionAction;
       const slotIndex = action.slot === "s0" ? 0 : 1;
       const directory = bindings.scopeRefs[slotIndex];
       if (directory === undefined) {
@@ -922,7 +948,7 @@ export function createCommandSearchAdapter(input: CommandSearchAdapterInput): Co
             };
         const receipt = await input.sandbox.execute(call);
         const commandReceipt = actionReceiptOf(action);
-        let nextState = appendTrace(callback.state, pendingEvaluation, commandReceipt);
+        let nextState = appendTrace(callback.state, decision, commandReceipt);
         const evidence: CommandSearchEvidencePayload[] = [];
         if (receipt.execution.status === "succeeded") {
           const observation = receipt.execution.observation;
@@ -1040,7 +1066,7 @@ export function createCommandSearchAdapter(input: CommandSearchAdapterInput): Co
       const receipt = await input.sandbox.execute(readCall);
       let nextState = appendTrace(
         callback.state,
-        pendingEvaluation,
+        decision,
         actionReceiptOf(action, bindings.followUpRead.mode),
       );
       const evidence: CommandSearchEvidencePayload[] = [];

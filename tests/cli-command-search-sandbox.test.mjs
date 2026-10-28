@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -407,4 +407,120 @@ test("T6 semantic call schema rejects malformed search parameters", () => {
       extra: true,
     },
   }), /exactly/);
+});
+
+test("RED F2 depth inspection must not follow a descendant symlink outside the sandbox", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "sc-red-f2",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/real", kind: "directory" },
+      { path: "scan/top.txt", kind: "file", contents: "top\n" },
+    ],
+  });
+  await mkdir(join(fx.root, "external", "deep"), { recursive: true });
+  await writeFile(join(fx.root, "external", "deep", "outside.txt"), "outside\n");
+  await symlink(join(fx.root, "external"), join(fx.scenarioRoot, "scan", "link"));
+  const directory = await fx.sandbox.bindDirectory(fx.session, "scan");
+  const receipt = await fx.sandbox.execute({
+    operation: "directory.search.entries",
+    parameters: {
+      session: fx.session,
+      directory,
+      fileFilter: { exactBasename: "top.txt" },
+      ignorePolicy: "no_ignore",
+      explicitLimits: { maxDepth: 1 },
+    },
+  });
+  assert.equal(receipt.status, "succeeded");
+  const observation = receipt.execution.observation;
+  assert.equal(observation.kind, "directory.search.entries");
+  assert.deepEqual(observation.matchedEntries, ["top.txt"]);
+  assert.equal(observation.coverage, "complete");
+  assert.equal(observation.normalCompleted, true);
+  assert.equal(observation.reasons.includes("depth_limit"), false);
+});
+
+test("RED F3 grep maxDepth must reject before unrestricted recursive reading", async t => {
+  const fx = await fixture(t, {
+    scenarioId: "sc-red-f3",
+    entries: [
+      { path: "scan", kind: "directory" },
+      { path: "scan/deep", kind: "directory" },
+      { path: "scan/deep/hit.txt", kind: "file", contents: "quarryMark deep\n" },
+    ],
+    commandSearchCapabilities: {
+      rg: null,
+      grep: "/usr/bin/grep",
+      grepFlavor: "bsd",
+      find: null,
+    },
+  });
+  const directory = await fx.sandbox.bindDirectory(fx.session, "scan");
+  const receipt = await fx.sandbox.execute({
+    operation: "directory.search.content",
+    parameters: {
+      session: fx.session,
+      directory,
+      queryLiteral: "quarryMark",
+      fileFilter: null,
+      ignorePolicy: "no_ignore",
+      explicitLimits: { maxDepth: 0 },
+    },
+  });
+  assert.equal(receipt.status, "failed");
+  assert.equal(receipt.execution.executorInvoked, false);
+  assert.equal(receipt.execution.error.code, "UNSUPPORTED_GREP_MAX_DEPTH");
+});
+
+test("RED F5 ripgrep byte-form records preserve bytes or mark evidence incomplete", () => {
+  const validPath = Buffer.from("café.txt", "utf8").toString("base64");
+  const validLine = Buffer.from("quarryMark\n", "utf8").toString("base64");
+  const valid = parse(
+    createIncrementalStreamParser({ toolUsed: "rg", scopeRoot: "/scenario", fileFilter: null }),
+    [`${JSON.stringify({
+      type: "match",
+      data: {
+        path: { bytes: validPath },
+        lines: { bytes: validLine },
+        line_number: 4,
+      },
+    })}\n`],
+  );
+  assert.deepEqual(valid.matchedEntries, ["café.txt"]);
+  assert.equal(valid.matchedLines[0].lineText, "quarryMark");
+  assert.equal(valid.matchedLines[0].lineByteLength, Buffer.byteLength("quarryMark", "utf8"));
+  assert.equal(valid.matchedLines[0].matchedLineHasTrailingLF, true);
+  assert.equal(valid.parseIncomplete, false);
+
+  const invalidPath = Buffer.from([0xff, 0x2e, 0x74, 0x78, 0x74]).toString("base64");
+  const pathOnly = parse(
+    createIncrementalStreamParser({ toolUsed: "rg", scopeRoot: "/scenario", fileFilter: null }),
+    [`${JSON.stringify({
+      type: "match",
+      data: {
+        path: { bytes: invalidPath },
+        lines: { text: "quarryMark\n" },
+        line_number: 1,
+      },
+    })}\n`],
+  );
+  assert.deepEqual(pathOnly.matchedEntries, []);
+  assert.equal(pathOnly.parseIncomplete, true);
+
+  const invalidLine = Buffer.from([0xff, 0x0a]).toString("base64");
+  const lineOnly = parse(
+    createIncrementalStreamParser({ toolUsed: "rg", scopeRoot: "/scenario", fileFilter: null }),
+    [`${JSON.stringify({
+      type: "match",
+      data: {
+        path: { text: "./amber.txt" },
+        lines: { bytes: invalidLine },
+        line_number: 1,
+      },
+    })}\n`],
+  );
+  assert.deepEqual(lineOnly.matchedEntries, ["amber.txt"]);
+  assert.deepEqual(lineOnly.matchedLines, []);
+  assert.equal(lineOnly.parseIncomplete, true);
 });

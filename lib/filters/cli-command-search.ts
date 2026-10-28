@@ -307,15 +307,28 @@ export function evaluateCommandSearchRdea(
   if (!isLiteral) {
     if (input.followUpRead !== null) {
       const readDone = input.readReceipt !== null;
+      const linesRequested = input.followUpRead.mode === "lines";
+      const linesObserved =
+        readDone
+        && input.readReceipt!.operation === "file.read.lines"
+        && input.readReceipt!.logicalLines !== null;
+      const goalHead = linesRequested && input.followUpRead.anchor === "head" ? 1 : 0;
+      const goalTail = linesRequested && input.followUpRead.anchor === "tail" ? 1 : 0;
+      const goalN = linesRequested ? input.followUpRead.count / 16 : 0;
+      const logicalLines = linesObserved ? input.readReceipt!.logicalLines! / 16 : 0;
+      const actualHead = linesObserved && linesRequested && input.followUpRead.anchor === "head" ? 1 : 0;
+      const actualTail = linesObserved && linesRequested && input.followUpRead.anchor === "tail" ? 1 : 0;
       eResult = evaluateCommandSearchE(model, {
-        "goal.head": 1,
-        "goal.N/16": 1,
+        "goal.head": goalHead,
+        "goal.tail": goalTail,
+        "goal.N/16": goalN,
         "receipt.present": readDone ? 1 : 0,
-        "actual.head": readDone ? 1 : 0,
+        "actual.head": actualHead,
+        "actual.tail": actualTail,
         "execution.succeeded": readDone ? 1 : 0,
-        "output.linesKnown": readDone ? 1 : 0,
-        "output.logicalLines/16": readDone ? 1 : 0,
-        "actual.N/16": readDone ? 1 : 0,
+        "output.linesKnown": linesObserved ? 1 : 0,
+        "output.logicalLines/16": logicalLines,
+        "actual.N/16": linesObserved ? logicalLines : 0,
       }, "g2.read", { known: true, present: readDone });
     } else {
       const isComplete = Boolean(
@@ -367,6 +380,7 @@ export function evaluateCommandSearchRdea(
       input.readReceipt !== null
       || (input.followUpRead === null && (input.slotReceipts.s0?.matchedEntries.length ?? 0) > 0)
     );
+  const readOrigin = input.readReceipt?.slot ?? null;
   const dResult = evaluateCommandSearchHead(model, "D", {
     "s0.listing.present": !isLiteral && input.slotReceipts.s0 && input.slotReceipts.s0.queryMatches ? 1 : 0,
     "s0.listing.complete":
@@ -405,8 +419,10 @@ export function evaluateCommandSearchRdea(
     "s1.r.insufficient": input.s1Enabled && r1?.predictedLabel === "insufficient" ? 1 : 0,
     "s1.r.holds": input.s1Enabled && r1?.predictedLabel === "holds" ? 1 : 0,
     "s1.r.refuted": input.s1Enabled && r1?.predictedLabel === "refuted" ? 1 : 0,
-    "read.fromS0": readPresent ? 1 : 0,
-    "read.fromS1": 0,
+    "read.fromS0": readOrigin !== null
+      ? (readOrigin === "s0" ? 1 : 0)
+      : readPresent ? 1 : 0,
+    "read.fromS1": readOrigin === "s1" ? 1 : 0,
     "goal.isLiteral": isLiteralFlag,
     "grep.present": isLiteral && activeReceipt && activeReceipt.queryMatches ? 1 : 0,
     "grepE.unsatisfied": isLiteral && eResult.predictedLabel === "unsatisfied" ? 1 : 0,
