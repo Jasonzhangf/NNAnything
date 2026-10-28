@@ -1237,6 +1237,10 @@ test("DEV_CE02 all-nested full tree with disappeared candidate stays unknown sta
   assert.equal(successor.domain.status, "unknown");
   assert.equal(successor.domain.resolution, "partial");
   assert.equal(successor.domain.matches.length, 1);
+  assert.equal(successor.domain.rootFact.kind, "partial");
+  assert.deepEqual(successor.domain.rootFact.matches, successor.domain.matches);
+  assert.deepEqual(successor.domain.rootFact.typeMismatches, successor.domain.typeMismatches);
+  assert.ok(successor.domain.rootFact.reasons.includes("disappeared"));
   await assertObservedObjectRef(successor.domain.matches[0], {
     kind: "cli.file",
     type: "regular",
@@ -1406,4 +1410,60 @@ test("DEV_CE06 stale_or_unverified beats depth_limit and both reasons are kept",
     typeMismatches: 0,
   });
   assertDerivationClosedUnknown(result);
+});
+
+test("DEV_CE07 consecutive distinct empty directories still advance the search frontier", async t => {
+  const value = await withProfile(t, [
+    { path: "start/a", kind: "directory" },
+    { path: "start/b", kind: "directory" },
+    { path: "start/c", kind: "directory" },
+    { path: "start/z/target.ts", kind: "file", contents: "found" },
+    { path: "start/z", kind: "directory" },
+  ]);
+  const result = await runWith(
+    value,
+    recursiveRequest(value.directory, "target.ts", "regular", "all", "nested"),
+    { limits: RECURSIVE_LIMITS },
+  );
+  assert.equal(result.domain.status, "achieved");
+  assert.equal(result.domain.satisfaction, 100);
+  assert.equal(result.domain.coverage, "complete");
+  const start = value.sandbox.getSession(value.session).cwd;
+  assert.equal(result.domain.match.absolutePath, join(start, "z", "target.ts"));
+  assert.equal(result.domain.rootFact.kind, "matched");
+  assert.equal(result.domain.rootFact.ref.absolutePath, join(start, "z", "target.ts"));
+});
+
+test("DEV_CE08 all-mode partial with a valid match keeps depth_limit and full partial root fact", async t => {
+  const value = await withProfile(t, [
+    { path: "start/target.ts", kind: "file", contents: "top" },
+    { path: "start/sub", kind: "directory" },
+    { path: "start/sub/target.ts", kind: "file", contents: "deep" },
+  ]);
+  const result = await runWith(
+    value,
+    recursiveRequest(value.directory, "target.ts", "regular", "all", "nested"),
+    { limits: RECURSIVE_LIMITS, scan: { maxDirectoryDepth: 0 } },
+  );
+  assert.equal(result.domain.status, "unknown");
+  assert.equal(result.domain.resolution, "partial");
+  assert.equal(result.domain.satisfaction, null);
+  assert.equal(result.domain.coverage, "partial");
+  assert.equal(result.domain.rootFact.kind, "partial");
+  assert.deepEqual(result.domain.rootFact.matches, result.domain.matches);
+  assert.deepEqual(result.domain.rootFact.typeMismatches, result.domain.typeMismatches);
+  assert.ok(result.domain.rootFact.reasons.includes("depth_limit"));
+  assert.equal(result.domain.matches.length, 1);
+  const start = value.sandbox.getSession(value.session).cwd;
+  assert.equal(result.domain.matches[0].absolutePath, join(start, "target.ts"));
+  assertDenominators(result.domain, {
+    listedDirectories: 1,
+    directoriesComplete: 1,
+    directoriesUncovered: 1,
+    nameMatchedCandidates: 1,
+    candidatesInspected: 1,
+    candidatesMatched: 1,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 0,
+  });
 });
