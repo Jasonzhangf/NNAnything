@@ -163,10 +163,10 @@ type ContentBytesGoal = {
 | 引用/身份/revision/postcondition 过期，或读取前对象替换 | unknown | null | stale_or_unverified |
 | 缺 effect、类型/范围/绑定拒绝、伪造引用 | rejected | null | rejected |
 | helper/protocol/策略错误或必需操作真实失败 | failed | null | failed |
-| budget 提前停止且根无真实判定 | unknown | null | budget_exhausted |
-| cancel/stalled 提前停止且根无真实判定 | unknown | null | interrupted |
+| budget 提前停止 | unknown | null | budget_exhausted |
+| cancel/stalled 提前停止 | unknown | null | interrupted |
 
-0 与 100 是二元目标的全部合法 satisfaction；null 表示证据不足。短读不冒充 `byte_mismatch`，也绝不产生部分满足分数。achieved/100 与 unmet/0 都必须同时具备已完成且结果一致的根评价；控制器在根评价完成前预算/取消/stalled 停止时，根保持 unknown/null。预算停止的 resolution 为 `budget_exhausted`，并保留 typed budget control、`rootEvaluation` 与已形成的部分事实，不由根已评价豁免；取消/stalled 的 resolution 为 `interrupted`。
+0 与 100 是二元目标的全部合法 satisfaction；null 表示证据不足。短读不冒充 `byte_mismatch`，也绝不产生部分满足分数。achieved/100 与 unmet/0 都必须同时具备已完成且结果一致的根评价。预算停止时根保持 `unknown/null`，resolution 恒为 `budget_exhausted`，并保留 typed budget control、`rootEvaluation` 与已形成的部分事实，不由根已评价豁免；取消/stalled 停止时根保持 `unknown/null`，resolution 为 `interrupted`。
 
 ## 4. 有限组合边界
 
@@ -205,7 +205,7 @@ type ContentBytesGoal = {
 - `sandbox`：`createCliFilesystemSandbox` 创建、已授予 `filesystem.write` 的沙箱；
 - `session`：`bindSession` 绑定的会话；
 - `profile`：`cli.command-policy.v1` 候选 JSON（未采用，仅选择 ls/entry.inspect）；
-- `limits`：实测必需 `{ maxTransitions: 23, maxDepth: 4, maxDerivedGoals: 8 }`；`maxTransitions` 低于 23 会在根评价完成前 `budget_exceeded`，投影为 `unknown/budget_exhausted/null` 并保留 typed budget control、`rootEvaluation` 与已形成的 read 事实，不再投影 achieved；
+- `limits`：可选。省略时调用方不设转换/派生/深度次数上限；显式传入时按 typed budget control 工作，预算停止投影为 `unknown/budget_exhausted/null` 并保留 typed budget control、`rootEvaluation` 与已形成的 read 事实，不再投影 achieved。文档不承诺任何固定转换数足以完成读取；
 - 可选 `onSample` 与 `signal`。
 
 rootBindings 只携带普通 JSON 值（session ref、directory ref、name、requiredType、range、expectedBase64），不携带 Buffer 或非 JSON 对象。共享 policy 不新增 head，`file.read` 原子结果没有 `selectedHead`。
@@ -314,15 +314,15 @@ type MultiSourceContentBytesGoal = {
 | 无 match；存在未知来源（partial 列举、短读、stale/替换、unverified）或排序 defer | unknown | stale_or_unverified > insufficient_evidence | null |
 | 任何来源引用伪造/未签发/旧 revision（执行前） | rejected | rejected | null |
 | 真实执行失败（errno，如 EACCES） | failed | failed | null |
-| 预算在根评价完成前停止（`budget_exceeded`） | unknown | budget_exhausted | null；保留 typed budget control、`rootEvaluation` 与已形成的部分事实 |
-| 取消/stalled 在根评价完成前停止 | unknown | interrupted | null |
+| 预算停止（`budget_exceeded`） | unknown | budget_exhausted | null；保留 typed budget control、`rootEvaluation` 与已形成的部分事实 |
+| 取消/stalled 停止 | unknown | interrupted | null |
 
 0 需要全部合法候选确定否定且无未知来源：未知来源不能补成否定，部分列举不返回 `not_found`。短读不返回 `byte_mismatch`；读到字节不等于根满足；不产生部分满足分数。执行错误、观察事实与根满足度分别保留。
 
 ### 8.7 权限与预算
 
 - `directory.list` 需 `filesystem.read`+`process.exec`；`entry.inspect` 沿用其现有授权；`file.read` 只需 `filesystem.read`。本切片无写操作。
-- 预算上限以实测最小转换数为准：实现后用真实最小转换数测量再定测试 limits。预算不足时以 `budget_exhausted` 停止，保留 typed budget control、`rootEvaluation` 与已完成事实，不出现 0 或 100。
+- 普通行为测试省略 `resources.limits`（不设次数上限），由外层独立 watchdog 按单案例时间超时防挂；显式预算用例单独列出并只断言 typed budget control 与 `budget_exhausted` 投影。预算不足时以 `budget_exhausted` 停止，保留 typed budget control、`rootEvaluation` 与已完成事实，不出现 0 或 100。
 
 ### 8.8 限制与不做
 
