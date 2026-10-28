@@ -29,15 +29,28 @@ import {
   readEntrySearchEvidencePayload,
   readEntrySearchGoal,
   readEntrySearchReceiptPayload,
+  readEntrySearchState,
+  type EntrySearchCandidateFact,
+  type EntrySearchDirectoryFact,
   type EntrySearchEffectFact,
   type EntrySearchEvidencePayload,
   type EntrySearchInspectGoal,
+  type EntrySearchListingRecord,
   type EntrySearchListGoal,
+  type EntrySearchPredicate,
   type EntrySearchReceiptPayload,
   type EntrySearchRequest,
   type EntrySearchState,
 } from "./entry-search-contract.js";
-import { decideRoot, listingIntegrityErrors } from "../../filters/cli-entry-search.js";
+import {
+  candidatesFromDirectories,
+  decideEntrySearchRoot,
+  inspectFactFromTransition,
+  issuedRefMatchesInspect,
+  listingIntegrityErrors,
+  listingFactFromTransition,
+  mergeCandidates,
+} from "../../filters/cli-entry-search.js";
 import type { ExplicitFileState } from "../../filters/cli-state.js";
 import type { CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { CliCommandSample, CliCommandTransition } from "../../nodes/cli-command.js";
@@ -153,7 +166,7 @@ export type EntrySearchAdapter = RecursiveGoalAdapter<
 
 export type EntrySearchAdapterHandle = Readonly<{
   adapter: EntrySearchAdapter;
-  issuedRef: ObservedObjectRef | null;
+  issuedRefs: readonly ObservedObjectRef[];
   calls: Readonly<{
     validateRequest: number;
     supports: number;
@@ -165,6 +178,14 @@ export type EntrySearchAdapterHandle = Readonly<{
     measureProgress: number;
   }>;
 }>;
+
+export type EntrySearchCursor = Readonly<{ phase: "initial" | "listed" | "descend" | "closed" }>;
+
+type NextAction =
+  | Readonly<{ kind: "list" }>
+  | Readonly<{ kind: "descend"; directory: Readonly<{ path: string; depth: number }> }>
+  | Readonly<{ kind: "inspect"; candidate: EntrySearchCandidateFact }>
+  | Readonly<{ kind: "close" }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -200,28 +221,7 @@ function readBindings(value: unknown): unknown {
 }
 
 function readState(value: unknown): EntrySearchState {
-  if (!isRecord(value)) throw new TypeError("entry search state must be an object");
-  exactKeys(value, ["stateId", "session", "cli"], "entry search state");
-  return Object.freeze({
-    stateId: nonEmpty(value.stateId, "entry search state stateId"),
-    session: readSessionSnapshot(value.session),
-    cli: value.cli as ExplicitFileState,
-  });
-}
-
-function readSessionSnapshot(value: unknown): EntrySearchState["session"] {
-  if (!isRecord(value)) throw new TypeError("entry search session snapshot must be an object");
-  exactKeys(value, ["id", "cwd", "revision", "grantedEffects"], "entry search session snapshot");
-  const grantedEffects = value.grantedEffects;
-  if (!Array.isArray(grantedEffects) || grantedEffects.some(effect => typeof effect !== "string")) {
-    throw new TypeError("entry search session snapshot grantedEffects must be a string array");
-  }
-  return Object.freeze({
-    id: nonEmpty(value.id, "entry search session snapshot id"),
-    cwd: absolutePath(value.cwd, "entry search session snapshot cwd"),
-    revision: nonnegativeInteger(value.revision, "entry search session snapshot revision"),
-    grantedEffects: Object.freeze([...grantedEffects]),
-  });
+  return readEntrySearchState(value);
 }
 
 function nonnegativeInteger(value: unknown, label: string): number {
@@ -263,37 +263,28 @@ function evaluation(evaluatorId: string, result: "satisfied" | "unsatisfied" | "
   });
 }
 
-function listingKnowledge(state: EntrySearchState, name: string): {
-  coverage: "complete" | "partial" | null;
-  candidate: { name: string; path: string; listedType: string } | null;
-} {
-  const listing = state.cli.directoryListing;
-  if (listing === null) return { coverage: null, candidate: null };
-  const integrity = listingIntegrityErrors(listing.entries, listing.physicalDirectory);
-  const matches = listing.entries.filter(entry => entry.name === name);
-  const single = matches.length === 1 ? matches[0] : undefined;
-  return {
-    coverage: integrity.length === 0 ? listing.coverage : "partial",
-    candidate:
-      integrity.length === 0 && single !== undefined
-        ? { name: single.name, path: single.path, listedType: single.type }
-        : null,
-  };
+function directoriesOf(state: EntrySearchState): readonly EntrySearchDirectoryFact[] {
+  return state.directories ?? Object.freeze([]);
+}
+
+function candidatesOf(state: EntrySearchState): readonly EntrySearchCandidateFact[] {
+  return state.candidates ?? Object.freeze([]);
+}
+
+function directoryFor(state: EntrySearchState, path: string): EntrySearchDirectoryFact | null {
+  return directoriesOf(state).find(directory => directory.path === path) ?? null;
+}
+
+function listingIntegrityClean(directory: EntrySearchDirectoryFact): boolean {
+  return directory.listing !== null && directory.listing.coverage === "complete"
+    && directory.listing.errors.length === 0;
 }
 
 async function evaluateRoot(
   input: EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>,
-  issuedRef: ObservedObjectRef | null,
 ): Promise<EvaluationReceipt> {
-  const bindings = input.bindings as Readonly<{ predicate: Readonly<{ name: string; type: "regular" | "directory" }> }>;
   const evidenceRefs = stateEvidenceRefs(input.state, input.evidence);
-  const decision = decideRoot(
-    input.state.cli,
-    bindings.predicate.name,
-    bindings.predicate.type,
-    transitionsOf(input.evidence),
-    issuedRef,
-  );
+  const decision = decideEntrySearchRoot(input.state);
   if (decision.result === "satisfied") {
     return evaluation(ROOT_EVALUATOR, "satisfied", 100, evidenceRefs);
   }
@@ -303,31 +294,40 @@ async function evaluateRoot(
   return evaluation(ROOT_EVALUATOR, "unknown", null, []);
 }
 
-function transitionsOf(evidence: readonly { payload: EntrySearchEvidencePayload }[]): readonly CliCommandTransition[] {
-  const transitions = evidence
-    .filter(item => item.payload.kind === "cli.entry-search.transition.v1")
-    .map(item => item.payload.transition);
-  return Object.freeze([...transitions]);
-}
-
-async function evaluateList(input: EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>): Promise<EvaluationReceipt> {
-  const listing = input.state.cli.directoryListing;
-  if (
-    listing !== null &&
-    listing.coverage === "complete" &&
-    listing.errors.length === 0 &&
-    listing.entries.every(entry => entry.type !== "unknown")
-  ) {
-    const evidenceRefs = stateEvidenceRefs(input.state, input.evidence);
-    return evaluation(LIST_EVALUATOR, "satisfied", 100, evidenceRefs);
+async function evaluateList(
+  input: EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>,
+): Promise<EvaluationReceipt> {
+  const goal = input.goal as EntrySearchListGoal;
+  const target = goal.target;
+  const cwd = input.state.session.cwd;
+  const absoluteTarget = target.path === "." || target.path === "" || target.path.startsWith("/")
+    ? (target.path === "." ? cwd : target.path)
+    : `${cwd}/${target.path}`;
+  const directory = directoryFor(input.state, absoluteTarget);
+  const listing = directory?.listing ?? null;
+  if (listing !== null && listing.sourceRun !== null && listingIntegrityClean(directory ?? {
+    path: absoluteTarget,
+    depth: 0,
+    listing,
+    observedAtSourceRun: listing.sourceRun,
+    listed: true,
+    descendable: false,
+    uncoveredReason: null,
+  } as EntrySearchDirectoryFact)) {
+    return evaluation(LIST_EVALUATOR, "satisfied", 100, stateEvidenceRefs(input.state, input.evidence));
   }
   return evaluation(LIST_EVALUATOR, "unknown", null, []);
 }
 
-async function evaluateInspect(input: EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>): Promise<EvaluationReceipt> {
+async function evaluateInspect(
+  input: EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>,
+): Promise<EvaluationReceipt> {
   const goal = input.goal as EntrySearchInspectGoal;
   const knowledge = input.state.cli.entryKnowledge;
+  const candidate = input.state.candidates?.find(item =>
+    item.path === goal.target.ref.path && item.inspected !== null);
   if (
+    candidate !== undefined &&
     knowledge !== null &&
     knowledge !== undefined &&
     knowledge.kind === "entry.inspect" &&
@@ -342,8 +342,10 @@ async function evaluateInspect(input: EvaluationInput<unknown, EntrySearchState,
     knowledge.identity.dev !== null &&
     knowledge.identity.ino !== null
   ) {
-    const evidenceRefs = stateEvidenceRefs(input.state, input.evidence);
-    return evaluation(INSPECT_EVALUATOR, "satisfied", 100, evidenceRefs);
+    return evaluation(INSPECT_EVALUATOR, "satisfied", 100, stateEvidenceRefs(input.state, input.evidence));
+  }
+  if (candidate !== undefined && candidate.inspected !== null && candidate.inspected.entryExists === false) {
+    return evaluation(INSPECT_EVALUATOR, "satisfied", 100, stateEvidenceRefs(input.state, input.evidence));
   }
   return evaluation(INSPECT_EVALUATOR, "unknown", null, []);
 }
@@ -430,12 +432,11 @@ function policyDirectoryRef(directory: DirectoryObjectRef, cwd: string): Directo
   return directory;
 }
 
-function listGoal(bindings: unknown, cwd: string): EntrySearchListGoal {
-  const input = bindings as Readonly<{ directory: DirectoryObjectRef }>;
+function listGoal(bindings: unknown, cwd: string, targetDirectory: DirectoryObjectRef): EntrySearchListGoal {
   return Object.freeze({
     kind: "file.property",
     property: "file.property.directory.entries",
-    target: policyDirectoryRef(input.directory, cwd),
+    target: policyDirectoryRef(targetDirectory, cwd),
     requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
   });
 }
@@ -460,48 +461,85 @@ function inspectGoal(bindings: unknown, candidatePath: string, session: SessionR
   });
 }
 
+function nextAction(
+  state: EntrySearchState,
+  phase: EntrySearchCursor["phase"] | null,
+): NextAction {
+  if (directoriesOf(state).length === 0) {
+    return Object.freeze({ kind: "list" });
+  }
+  const pending = state.pendingDirectories ?? Object.freeze([]);
+  const firstPending = pending[0];
+
+  const matches = candidatesOf(state).filter(candidate => candidate.outcome === "matched");
+  if (state.cardinality === "one" && matches.length > 0) {
+    return Object.freeze({ kind: "close" });
+  }
+
+  if (state.cardinality === "all" && firstPending !== undefined) {
+    return Object.freeze({ kind: "descend", directory: firstPending });
+  }
+
+  const toInspect = candidatesOf(state).find(candidate => candidate.outcome === "pending");
+  if (toInspect !== undefined) {
+    return Object.freeze({ kind: "inspect", candidate: toInspect });
+  }
+
+  if (firstPending !== undefined) {
+    return Object.freeze({ kind: "descend", directory: firstPending });
+  }
+  void phase;
+  return Object.freeze({ kind: "close" });
+}
+
 async function derive(input: DerivationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload, unknown>) {
   if (!isRootGoal(input.goal) || input.skill.id !== ROOT_COMPOSITE_SKILL) {
     throw new TypeError("entry search composite derivation received an incompatible frame");
   }
-  const cursor = input.cursor as Readonly<{ phase: "listed" | "verified" | "closed" }> | null;
-  const phase = cursor === null ? "initial" : cursor.phase;
-  const bindings = input.bindings as Readonly<{ predicate: Readonly<{ name: string }> }>;
-  const listing = listingKnowledge(input.state, bindings.predicate.name);
-  if (phase === "initial") {
+  const cursor = input.cursor as EntrySearchCursor | null;
+  const action = cursor === null
+    ? Object.freeze({ kind: "list" as const })
+    : nextAction(input.state, cursor.phase);
+  const bindings = input.bindings as Readonly<{ directory: DirectoryObjectRef }>;
+  const cwd = input.state.session.cwd;
+  const ordinal = input.conditions.length;
+  if (action.kind === "list") {
     return Object.freeze({
       conditions: Object.freeze([
-        condition(
-          "observe-direct-entries",
-          listGoal(input.bindings, input.state.session.cwd),
-          input.bindings,
-          LIST_SELECTOR,
-          LIST_EVALUATOR,
-          EFFECTS,
-        ),
+        condition(`observe-direct-entries:${ordinal}`, listGoal(input.bindings, cwd, bindings.directory), input.bindings,
+          LIST_SELECTOR, LIST_EVALUATOR, EFFECTS),
       ]),
       nextCursor: Object.freeze({ phase: "listed" }),
       expansion: "more",
     });
   }
-  if (
-    phase === "listed" &&
-    listing.coverage === "complete" &&
-    listing.candidate !== null
-  ) {
+  if (action.kind === "descend") {
+    const target: DirectoryRef = Object.freeze({
+      kind: "cli.directory",
+      scenarioId: bindings.directory.scenarioId,
+      sessionId: bindings.directory.sessionId,
+      path: relative(cwd, action.directory.path) || ".",
+    });
+    return Object.freeze({
+      conditions: Object.freeze([
+        condition(`descend-${action.directory.path}:${ordinal}`, listGoal(input.bindings, cwd, target), input.bindings,
+          LIST_SELECTOR, LIST_EVALUATOR, EFFECTS),
+      ]),
+      nextCursor: Object.freeze({ phase: "descend" }),
+      expansion: "more",
+    });
+  }
+  if (action.kind === "inspect") {
     return Object.freeze({
       conditions: Object.freeze([
         condition(
-          "verify-matched-entry",
-          inspectGoal(input.bindings, listing.candidate.path, inputSession(input.bindings)),
+          `verify-${action.candidate.path}:${ordinal}`,
+          inspectGoal(input.bindings, action.candidate.path, inputSession(input.bindings)),
           input.bindings,
-          INSPECT_SELECTOR,
-          INSPECT_EVALUATOR,
-          EFFECTS,
-        ),
+          INSPECT_SELECTOR, INSPECT_EVALUATOR, EFFECTS),
       ]),
-      nextCursor: Object.freeze({ phase: "closed" }),
-      expansion: "closed",
+      nextCursor: Object.freeze({ phase: "listed" as const }),
+      expansion: "more",
     });
   }
   return Object.freeze({
@@ -525,7 +563,6 @@ async function validateDirectoryBinding(
   const bindings = input.rootBindings as Readonly<{
     session: SessionRef;
     directory: DirectoryObjectRef;
-    predicate: Readonly<{ name: string; type: "regular" | "directory" }>;
   }>;
   const cwd = input.sandbox.getSession(bindings.session).cwd;
   if ("absolutePath" in bindings.directory) {
@@ -576,24 +613,35 @@ function evidenceId(requestId: string, sequence: number): string {
   return `${requestId}:evidence-${sequence}`;
 }
 
-function transitionDiagnostics(transition: CliCommandTransition, id: string): {
+function transitionDiagnostics(
+  transition: CliCommandTransition,
+  id: string,
+  state: EntrySearchState,
+): {
   executionErrors: readonly AdapterDiagnostic[];
   verificationErrors: readonly AdapterDiagnostic[];
+  outcome: "succeeded" | "failed" | "rejected" | "unknown";
 } {
   const executionErrors: AdapterDiagnostic[] = [];
   const verificationErrors: AdapterDiagnostic[] = [];
+  let outcome: "succeeded" | "failed" | "rejected" | "unknown";
+  const isFlatSingle =
+    (state.recursion ?? "flat") === "flat" && (state.cardinality ?? "one") === "one";
   if (missingEntryObservation(transition)) {
-    const knowledge = transition.observed_state_after.entryKnowledge;
-    verificationErrors.push({
-      diagnosticId: `${id}:postcommit-observation`,
-      code: "evidence_unavailable",
-      stage: "observation",
-      sourceCategory: "cli.entry_inspection",
-      message: `matched entry disappeared before inspection: ${knowledge?.errno ?? "ENOENT"}`,
-      nativeCode: knowledge?.errno ?? "ENOENT",
-      refs: Object.freeze([id]),
-    });
-    return { executionErrors, verificationErrors };
+    if (isFlatSingle) {
+      const knowledge = transition.observed_state_after.entryKnowledge;
+      verificationErrors.push({
+        diagnosticId: `${id}:postcommit-observation`,
+        code: "evidence_unavailable",
+        stage: "observation",
+        sourceCategory: "cli.entry_inspection",
+        message: `matched entry disappeared before inspection: ${knowledge?.errno ?? "ENOENT"}`,
+        nativeCode: knowledge?.errno ?? "ENOENT",
+        refs: Object.freeze([id]),
+      });
+    }
+    outcome = "succeeded";
+    return { executionErrors, verificationErrors, outcome };
   }
   if (transition.status === "rejected" && transition.reason !== "unexpected_head") {
     const receipt = transition.execution_result.receipt;
@@ -607,7 +655,8 @@ function transitionDiagnostics(transition: CliCommandTransition, id: string): {
       nativeCode: failure?.code ?? null,
       refs: Object.freeze([id]),
     });
-  } else if (transition.status === "failed") {
+    outcome = "rejected";
+  } else if (transition.status === "failed" || transition.policy_error !== null) {
     const receipt = transition.execution_result.receipt;
     const failure = receipt?.execution.status === "failed" ? receipt.execution.error : null;
     executionErrors.push({
@@ -619,6 +668,11 @@ function transitionDiagnostics(transition: CliCommandTransition, id: string): {
       nativeCode: failure?.code ?? null,
       refs: Object.freeze([id]),
     });
+    outcome = "failed";
+  } else if (transition.status === "unknown") {
+    outcome = "unknown";
+  } else {
+    outcome = "succeeded";
   }
   if (transition.reason === "postcommit_observation_failed") {
     const receipt = transition.postcondition?.receipt ?? null;
@@ -633,7 +687,7 @@ function transitionDiagnostics(transition: CliCommandTransition, id: string): {
       refs: Object.freeze([id]),
     });
   }
-  return { executionErrors, verificationErrors };
+  return { executionErrors, verificationErrors, outcome };
 }
 
 function missingEntryObservation(transition: CliCommandTransition): boolean {
@@ -642,12 +696,99 @@ function missingEntryObservation(transition: CliCommandTransition): boolean {
   return knowledge?.kind === "entry.inspect" && knowledge.entryExists === false;
 }
 
-function outcomeOf(transition: CliCommandTransition): "succeeded" | "failed" | "rejected" | "unknown" {
-  if (missingEntryObservation(transition)) return "succeeded";
-  if (transition.status === "achieved") return "succeeded";
-  if (transition.status === "unknown") return "unknown";
-  if (transition.status === "rejected") return "rejected";
-  return "failed";
+function candidateFromTransition(
+  transition: CliCommandTransition,
+  candidate: EntrySearchCandidateFact,
+  predicate: EntrySearchPredicate,
+  issuedRef: ObservedObjectRef | null,
+): EntrySearchCandidateFact {
+  const inspect = inspectFactFromTransition(transition);
+  if (inspect === null) {
+    return Object.freeze({ ...candidate, outcome: "stale_or_unverified", reason: "unverified_identity", inspected: null, issuedRef: null });
+  }
+  if (inspect.entryExists !== true) {
+    return Object.freeze({ ...candidate, outcome: "stale_or_unverified", reason: inspect.errno === "ENOENT" ? "disappeared" : "unverified_identity", inspected: inspect, issuedRef: null });
+  }
+  if (inspect.type === null || inspect.identity.dev === null || inspect.identity.ino === null) {
+    return Object.freeze({ ...candidate, outcome: "stale_or_unverified", reason: "unverified_identity", inspected: inspect, issuedRef: null });
+  }
+  const sessionBefore = transition.session_before;
+  if (
+    issuedRef === null ||
+    !issuedRefMatchesInspect(issuedRef, inspect) ||
+    issuedRef.sessionRevision !== sessionBefore.revision
+  ) {
+    return Object.freeze({ ...candidate, outcome: "stale_or_unverified", reason: "stale_revision", inspected: inspect, issuedRef: null });
+  }
+  if (inspect.type !== predicate.type) {
+    return Object.freeze({ ...candidate, outcome: "type_mismatch", reason: "type_mismatch", inspected: inspect, issuedRef });
+  }
+  return Object.freeze({ ...candidate, outcome: "matched", reason: null, inspected: inspect, issuedRef });
+}
+
+function entriesAfterListing(
+  _state: EntrySearchState,
+  listing: EntrySearchListingRecord,
+  depth: number,
+  recursion: "flat" | "nested",
+  maxDirectoryDepth: number | null,
+): Readonly<{
+  current: EntrySearchDirectoryFact;
+  addedDirectories: readonly EntrySearchDirectoryFact[];
+  addedPending: readonly Readonly<{ path: string; depth: number }>[];
+}> {
+  const current: EntrySearchDirectoryFact = Object.freeze({
+    path: listing.physicalDirectory,
+    depth,
+    listing,
+    observedAtSourceRun: listing.sourceRun,
+    listed: true,
+    descendable: recursion === "nested",
+    uncoveredReason: listing.coverage === "complete" && listing.errors.length === 0
+      && listingIntegrityErrors(listing.entries, listing.physicalDirectory).length === 0
+      ? null
+      : "listing_partial",
+  });
+  const addedDirectories: EntrySearchDirectoryFact[] = [];
+  const addedPending: Readonly<{ path: string; depth: number }>[] = [];
+  if (
+    recursion === "nested" &&
+    listing.coverage === "complete" &&
+    listing.errors.length === 0 &&
+    listingIntegrityErrors(listing.entries, listing.physicalDirectory).length === 0
+  ) {
+    const childDepth = depth + 1;
+    for (const child of listing.entries) {
+      if (child.type !== "directory") continue;
+      if (maxDirectoryDepth !== null && childDepth > maxDirectoryDepth) {
+        addedDirectories.push(Object.freeze({
+          path: child.path,
+          depth: childDepth,
+          listing: null,
+          observedAtSourceRun: null,
+          listed: false,
+          descendable: false,
+          uncoveredReason: "depth_limit",
+        }));
+      } else {
+        addedDirectories.push(Object.freeze({
+          path: child.path,
+          depth: childDepth,
+          listing: null,
+          observedAtSourceRun: null,
+          listed: false,
+          descendable: false,
+          uncoveredReason: null,
+        }));
+        addedPending.push(Object.freeze({ path: child.path, depth: childDepth }));
+      }
+    }
+  }
+  return Object.freeze({
+    current,
+    addedDirectories: Object.freeze(addedDirectories),
+    addedPending: Object.freeze(addedPending),
+  });
 }
 
 function atomicReceipt(
@@ -657,6 +798,8 @@ function atomicReceipt(
     transition: CliCommandTransition;
     expectedHead: string;
     session: SessionRef;
+    state: EntrySearchState;
+    nextState: EntrySearchState;
   }>,
 ): AtomicReceipt<EntrySearchState, EntrySearchEvidencePayload, EntrySearchEffectFact, EntrySearchReceiptPayload> {
   const transition = input.transition;
@@ -664,9 +807,8 @@ function atomicReceipt(
   const nextState = Object.freeze({
     id: stateId(input.context.requestId, input.sequence),
     value: Object.freeze({
+      ...input.nextState,
       stateId: stateId(input.context.requestId, input.sequence),
-      session: transition.session_after,
-      cli: transition.observed_state_after,
     }),
   });
   const evidence = Object.freeze([
@@ -682,7 +824,7 @@ function atomicReceipt(
       validity: "valid" as const,
     }),
   ]);
-  const errors = transitionDiagnostics(transition, id);
+  const diagnostics = transitionDiagnostics(transition, id, input.state);
   const effect: AtomicReceipt<EntrySearchState, EntrySearchEvidencePayload, EntrySearchEffectFact, EntrySearchReceiptPayload>["effect"] = Object.freeze({
     knowledge: "none",
     confirmedEffects: Object.freeze([]),
@@ -691,15 +833,15 @@ function atomicReceipt(
   return Object.freeze({
     runId: transition.execution_result.receipt?.execution.runId ?? null,
     executorInvoked: transition.execution_result.executorInvoked,
-    outcome: outcomeOf(transition),
+    outcome: diagnostics.outcome,
     sourceResult: Object.freeze({
       tag: "cli.command.transition.v1",
       value: transition,
     }),
     newState: nextState,
     evidence,
-    executionErrors: Object.freeze(errors.executionErrors),
-    verificationErrors: Object.freeze(errors.verificationErrors),
+    executionErrors: Object.freeze(diagnostics.executionErrors),
+    verificationErrors: Object.freeze(diagnostics.verificationErrors),
     effect,
   });
 }
@@ -746,6 +888,21 @@ async function issueObservedRef(
   return ref;
 }
 
+function restoredSequence(continuation: unknown): number {
+  const value = continuation as { requestId?: unknown; transitionsUsed?: unknown };
+  // The continuation envelope is opaque; infer from its stored state ids when present.
+  const raw = continuation as { states?: readonly { id?: unknown }[] };
+  let max = 0;
+  for (const state of raw.states ?? []) {
+    if (typeof state.id === "string") {
+      const match = /:state-(\d+)$/.exec(state.id);
+      if (match !== null) max = Math.max(max, Number(match[1]));
+    }
+  }
+  if (max === 0 && typeof value.transitionsUsed === "number") max = value.transitionsUsed;
+  return max;
+}
+
 export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
   const policy = createCliCommandPolicy({
     profile: input.profile,
@@ -764,7 +921,7 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
     measureProgress: 0,
   };
   let sequence = 0;
-  let issuedRef: ObservedObjectRef | null = null;
+  const issuedRefs: ObservedObjectRef[] = [];
 
   const adapter: EntrySearchAdapter = {
     async validateRequest(request: RecursiveGoalRequestEnvelope) {
@@ -802,6 +959,9 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
         request.continuation === undefined || request.continuation === null
           ? null
           : readRecursiveGoalContinuation(request.continuation, DOMAIN_GUARDS);
+      if (continuation !== null) {
+        sequence = Math.max(sequence, restoredSequence(continuation));
+      }
       return Object.freeze({
         requestId: request.requestId,
         rootGoal: rootGoal as unknown,
@@ -825,7 +985,7 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
       const input = callback as EvaluationInput<unknown, EntrySearchState, unknown, EntrySearchEvidencePayload>;
       const goal = input.goal as Readonly<{ property: string; requirement: Readonly<{ kind: string }> }>;
       if (goal.property === "file.property.directory.entries" && goal.requirement.kind === "matches") {
-        return evaluateRoot(input, issuedRef);
+        return evaluateRoot(input);
       }
       if (goal.property === "file.property.directory.entries" && goal.requirement.kind === "observed") {
         return evaluateList(input);
@@ -855,6 +1015,7 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
       if (!listSelected && !inspectSelected) {
         throw new TypeError("entry search executeAtomic received an unsupported skill");
       }
+      const bindings = callback.bindings as Readonly<{ predicate: EntrySearchPredicate }>;
       const transition = listSelected
         ? await executeList(policy, {
             goal: callback.goal as EntrySearchListGoal,
@@ -874,6 +1035,8 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
           transition,
           expectedHead,
           session: input.session,
+          state: callback.state,
+          nextState: callback.state,
         });
         const selectedHead = transition.policy.selectedHead;
         const policyError: AdapterDiagnostic = Object.freeze({
@@ -891,8 +1054,71 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
           executionErrors: Object.freeze([...receipt.executionErrors, policyError]),
         });
       }
-      if (inspectSelected) {
-        issuedRef = await issueObservedRef(input.sandbox, input.session, transition);
+
+      let nextState = callback.state;
+      let inspectRef: ObservedObjectRef | null = null;
+      if (listSelected) {
+        const observation = listingFactFromTransition(transition);
+        const listing: EntrySearchListingRecord | null = observation === null
+          ? null
+          : Object.freeze({
+              physicalDirectory: observation.physicalDirectory,
+              entries: observation.entries,
+              coverage: observation.coverage,
+              errors: observation.errors,
+              sourceRun: transition.execution_result.receipt?.execution.runId ?? "",
+              revision: transition.session_before.revision,
+              observation,
+            });
+        if (listing !== null) {
+          const existing = callback.state.directories?.find(directory => directory.path === listing.physicalDirectory);
+          const depth = existing?.depth ?? 0;
+          const recursion = callback.state.recursion ?? bindings.predicate.recursion ?? "flat";
+          const maxDirectoryDepth = callback.state.maxDirectoryDepth === undefined
+            ? (recursion === "flat" ? 0 : null)
+            : callback.state.maxDirectoryDepth;
+          const after = entriesAfterListing(callback.state, listing, depth, recursion, maxDirectoryDepth);
+          const directories = existing === undefined
+            ? [after.current, ...after.addedDirectories]
+            : [
+                ...callback.state.directories!.map(directory => directory.path === after.current.path ? after.current : directory),
+                ...after.addedDirectories.filter(added => !callback.state.directories!.some(directory => directory.path === added.path)),
+              ];
+          const pendingDirectories = [
+            ...(callback.state.pendingDirectories ?? Object.freeze([])).filter(pending => pending.path !== after.current.path),
+            ...after.addedPending,
+          ];
+          const candidates = mergeCandidates(
+            callback.state.candidates ?? Object.freeze([]),
+            candidatesFromDirectories(
+              Object.freeze(directories),
+              bindings.predicate as EntrySearchPredicate,
+            ),
+          );
+          nextState = Object.freeze({
+            ...callback.state,
+            session: transition.session_after,
+            cli: transition.observed_state_after,
+            directories: Object.freeze(directories),
+            pendingDirectories: Object.freeze(pendingDirectories),
+            candidates,
+          });
+        }
+      } else {
+        inspectRef = await issueObservedRef(input.sandbox, input.session, transition);
+        if (inspectRef !== null) issuedRefs.push(inspectRef);
+        const pending = callback.state.candidates?.find(candidate => candidate.path === (callback.goal as EntrySearchInspectGoal).target.ref.path);
+        if (pending !== undefined) {
+          const updated = candidateFromTransition(transition, pending, bindings.predicate, inspectRef);
+          const candidates = Object.freeze((callback.state.candidates ?? []).map(candidate =>
+            candidate.path === pending.path ? updated : candidate));
+          nextState = Object.freeze({
+            ...callback.state,
+            session: transition.session_after,
+            cli: transition.observed_state_after,
+            candidates,
+          });
+        }
       }
       return atomicReceipt({
         context: callback.context,
@@ -900,6 +1126,8 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
         transition,
         expectedHead,
         session: input.session,
+        state: callback.state,
+        nextState,
       });
     },
 
@@ -919,8 +1147,8 @@ export function createEntrySearchAdapter(input: EntrySearchAdapterInput) {
 
   return Object.freeze({
     adapter,
-    get issuedRef(): ObservedObjectRef | null {
-      return issuedRef;
+    get issuedRefs(): readonly ObservedObjectRef[] {
+      return Object.freeze([...issuedRefs]);
     },
     calls,
   });
@@ -975,4 +1203,3 @@ export function createEntrySearchDependencies(
     ...(signal === undefined ? {} : { signal }),
   });
 }
-

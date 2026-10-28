@@ -12,6 +12,7 @@ import {
   type PathRef,
 } from "./entry-inspection.js";
 import type {
+  DirectoryKnowledge,
   ExplicitFileState,
 } from "../../filters/cli-state.js";
 import type {
@@ -22,6 +23,13 @@ import type { CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { RecursiveGoalLimits } from "../../workflow/recursive-goal/contracts.js";
 
 export type EntrySearchType = "regular" | "directory";
+
+export type EntrySearchCardinality = "one" | "all";
+export type EntrySearchRecursion = "flat" | "nested";
+
+export type EntrySearchScan = Readonly<{
+  maxDirectoryDepth?: number;
+}>;
 
 /** A bound directory reference. The trusted observed object shape is the
  * public contract; the legacy relative-path shape remains an accepted
@@ -34,7 +42,8 @@ export type EntrySearchPredicate = Readonly<{
   kind: "entrySelector";
   name: string;
   type: EntrySearchType;
-  cardinality: "one";
+  cardinality: EntrySearchCardinality;
+  recursion?: EntrySearchRecursion;
 }>;
 
 export type EntrySearchGoal = Readonly<{
@@ -80,6 +89,45 @@ export type EntrySearchBindings = Readonly<{
   predicate: EntrySearchPredicate;
 }>;
 
+export type EntrySearchListingRecord = Readonly<{
+  physicalDirectory: string;
+  entries: DirectoryKnowledge["entries"];
+  coverage: "complete" | "partial";
+  errors: DirectoryKnowledge["errors"];
+  sourceRun: string;
+  revision: number;
+  observation: DirectoryListObservation;
+}>;
+
+export type EntrySearchDirectoryFact = Readonly<{
+  path: string;
+  depth: number;
+  listing: EntrySearchListingRecord | null;
+  observedAtSourceRun: string | null;
+  listed: boolean;
+  descendable: boolean;
+  uncoveredReason: "depth_limit" | "listing_partial" | "list_error" | null;
+}>;
+
+export type EntrySearchCandidateOutcome =
+  | "pending"
+  | "matched"
+  | "type_mismatch"
+  | "stale_or_unverified";
+
+export type EntrySearchCandidateFact = Readonly<{
+  name: string;
+  path: string;
+  parentDirectoryPath: string;
+  depth: number;
+  listedType: "file" | "directory" | "symlink" | "other" | "unknown";
+  listedAtSourceRun: string;
+  inspected: EntrySearchInspectFact | null;
+  issuedRef: ObservedObjectRef | null;
+  outcome: EntrySearchCandidateOutcome;
+  reason: "type_mismatch" | "disappeared" | "unverified_identity" | "stale_revision" | null;
+}>;
+
 /**
  * One recursive state record. The root and every atomic transition share this
  * shape. The embedded cli state is the production ExplicitFileState that is
@@ -89,9 +137,15 @@ export type EntrySearchState = Readonly<{
   stateId: string;
   session: SessionSnapshot;
   cli: ExplicitFileState;
+  cardinality?: EntrySearchCardinality;
+  recursion?: EntrySearchRecursion;
+  maxDirectoryDepth?: number | null;
+  directories?: readonly EntrySearchDirectoryFact[];
+  pendingDirectories?: readonly Readonly<{ path: string; depth: number }>[];
+  candidates?: readonly EntrySearchCandidateFact[];
 }>;
 
-export type EntrySearchPhase = "listed" | "verified" | "closed";
+export type EntrySearchPhase = "initial" | "listed" | "descend" | "verified" | "closed";
 export type EntrySearchCursor = Readonly<{ phase: EntrySearchPhase }>;
 
 export type EntrySearchEvidencePayload = Readonly<{
@@ -147,7 +201,7 @@ export type EntrySearchRootFact =
   | Readonly<{
       kind: "matched";
       predicate: EntrySearchPredicate;
-      listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
+      listing: Readonly<{ sourceRun: string; coverage: "complete" | "partial" }>;
       inspect: EntrySearchInspectFact;
       ref: ObservedObjectRef;
     }>
@@ -162,6 +216,7 @@ export type EntrySearchRootFact =
       listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
       inspect: EntrySearchInspectFact;
       ref: ObservedObjectRef | null;
+      typeMismatches: readonly ObservedObjectRef[];
     }>
   | Readonly<{
       kind: "stale_or_unverified";
@@ -169,6 +224,16 @@ export type EntrySearchRootFact =
       listing: Readonly<{ sourceRun: string; coverage: "complete" }>;
       inspect: EntrySearchInspectFact | null;
       ref: ObservedObjectRef | null;
+      reasons: readonly string[];
+      typeMismatches: readonly ObservedObjectRef[];
+    }>
+  | Readonly<{
+      kind: "partial";
+      predicate: EntrySearchPredicate;
+      listing: Readonly<{ sourceRun: string | null; coverage: "complete" | "partial" | null }>;
+      matches: readonly ObservedObjectRef[];
+      typeMismatches: readonly ObservedObjectRef[];
+      reasons: readonly string[];
     }>
   | Readonly<{
       kind: "insufficient_evidence";
@@ -178,7 +243,10 @@ export type EntrySearchRootFact =
         coverage: "complete" | "partial" | null;
         errors: readonly string[];
         candidateNames: readonly string[];
+        typeMismatchPaths?: readonly string[];
+        reasons?: readonly string[];
       }>;
+      reasons: readonly string[];
     }>
   | Readonly<{ kind: "rejected" }>
   | Readonly<{ kind: "failed" }>
@@ -192,12 +260,25 @@ export type EntrySearchDomainProjection = Readonly<{
     | "type_mismatch"
     | "insufficient_evidence"
     | "stale_or_unverified"
+    | "partial"
     | "rejected"
     | "failed"
     | "budget_exhausted"
     | "interrupted";
   satisfaction: number | null;
   match: ObservedObjectRef | null;
+  matches: readonly ObservedObjectRef[];
+  typeMismatches: readonly ObservedObjectRef[];
+  denominators: Readonly<{
+    listedDirectories: number;
+    directoriesComplete: number;
+    directoriesUncovered: number;
+    nameMatchedCandidates: number;
+    candidatesInspected: number;
+    candidatesMatched: number;
+    candidatesStaleOrUnverified: number;
+    typeMismatches: number;
+  }>;
   coverage: "complete" | "partial" | null;
   rootFact: EntrySearchRootFact | null;
   preserve: Readonly<{
@@ -209,6 +290,7 @@ export type EntrySearchDomainProjection = Readonly<{
     errors: unknown;
     primaryErrorId: string | null;
     budgetUsed: unknown;
+    continuation: unknown;
   }>;
 }>;
 
@@ -216,8 +298,10 @@ export type EntrySearchResources = Readonly<{
   sandbox: CliFilesystemSandbox;
   session: SessionRef;
   profile: CliCommandProfile;
+  scan?: EntrySearchScan;
   limits?: RecursiveGoalLimits;
   signal?: AbortSignal;
+  continuation?: unknown;
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
 }>;
 
@@ -334,12 +418,28 @@ function nonnegativeInteger(value: unknown, label: string): number {
 
 export function validateEntrySearchPredicate(value: unknown): EntrySearchPredicate {
   const predicate = record(value, "goal.requirement.predicate");
-  exactKeys(predicate, ["kind", "name", "type", "cardinality"], "goal.requirement.predicate");
+  const keys = Object.keys(predicate);
+  const required = ["kind", "name", "type", "cardinality"];
+  if (
+    keys.length !== required.length + (Object.hasOwn(predicate, "recursion") ? 1 : 0) ||
+    required.some(key => !Object.hasOwn(predicate, key)) ||
+    keys.some(key => key !== "recursion" && !required.includes(key))
+  ) {
+    throw new TypeError(
+      "goal.requirement.predicate must contain exactly kind, name, type, cardinality and optional recursion",
+    );
+  }
   if (predicate.kind !== "entrySelector") {
     throw new TypeError("goal.requirement.predicate.kind must be entrySelector");
   }
-  if (predicate.cardinality !== "one") {
-    throw new TypeError("goal.requirement.predicate.cardinality must be one");
+  if (predicate.cardinality !== "one" && predicate.cardinality !== "all") {
+    throw new TypeError("goal.requirement.predicate.cardinality must be one or all");
+  }
+  const recursion = Object.hasOwn(predicate, "recursion")
+    ? predicate.recursion
+    : "flat";
+  if (recursion !== "flat" && recursion !== "nested") {
+    throw new TypeError("goal.requirement.predicate.recursion must be flat or nested");
   }
   if (predicate.type !== "regular" && predicate.type !== "directory") {
     throw new TypeError("goal.requirement.predicate.type must be regular or directory");
@@ -355,7 +455,8 @@ export function validateEntrySearchPredicate(value: unknown): EntrySearchPredica
     kind: "entrySelector",
     name,
     type: predicate.type as EntrySearchType,
-    cardinality: "one",
+    cardinality: predicate.cardinality as EntrySearchCardinality,
+    ...(recursion === "flat" ? {} : { recursion: "nested" as const }),
   });
 }
 
@@ -421,11 +522,127 @@ export function validateEntrySearchBindings(value: unknown, session: SessionRef)
 
 export function readEntrySearchState(value: unknown): EntrySearchState {
   const state = record(value, "entry search state");
-  exactKeys(state, ["stateId", "session", "cli"], "entry search state");
+  const legacy = !Object.hasOwn(state, "recursion");
+  if (legacy) {
+    exactKeys(state, ["stateId", "session", "cli"], "entry search state");
+  } else {
+    const keys = Object.keys(state);
+    for (const key of ["stateId", "session", "cli", "cardinality", "recursion", "maxDirectoryDepth", "directories", "pendingDirectories", "candidates"]) {
+      if (!Object.hasOwn(state, key)) {
+        throw new TypeError(`entry search state.${key} is required`);
+      }
+    }
+    if (keys.length !== 9) {
+      throw new TypeError("entry search state must contain exactly stateId, session, cli, cardinality, recursion, maxDirectoryDepth, directories, pendingDirectories, candidates");
+    }
+  }
+  if (legacy) {
+    return Object.freeze({
+      stateId: nonEmpty(state.stateId, "entry search state stateId"),
+      session: sessionSnapshot(state.session, "entry search state session"),
+      cli: readExplicitFileState(state.cli),
+    });
+  }
+  if (state.cardinality !== "one" && state.cardinality !== "all") {
+    throw new TypeError("entry search state.cardinality must be one or all");
+  }
+  if (state.recursion !== "flat" && state.recursion !== "nested") {
+    throw new TypeError("entry search state.recursion must be flat or nested");
+  }
+  const maxDirectoryDepth = state.maxDirectoryDepth === null
+    ? null
+    : nonnegativeInteger(state.maxDirectoryDepth, "entry search state.maxDirectoryDepth");
+  if (!Array.isArray(state.directories) || !Array.isArray(state.pendingDirectories) || !Array.isArray(state.candidates)) {
+    throw new TypeError("entry search state directories, pendingDirectories and candidates must be arrays");
+  }
+  const directories = (state.directories as unknown[]).map((item, index) =>
+    readEntrySearchDirectoryFact(item, `entry search state.directories[${index}]`));
+  const pendingDirectories = (state.pendingDirectories as unknown[]).map((item, index) => {
+    const pending = record(item, `entry search state.pendingDirectories[${index}]`);
+    exactKeys(pending, ["path", "depth"], `entry search state.pendingDirectories[${index}]`);
+    return Object.freeze({
+      path: nonEmpty(pending.path, `entry search state.pendingDirectories[${index}].path`),
+      depth: nonnegativeInteger(pending.depth, `entry search state.pendingDirectories[${index}].depth`),
+    });
+  });
+  const candidates = (state.candidates as unknown[]).map((item, index) =>
+    readEntrySearchCandidateFact(item, `entry search state.candidates[${index}]`));
   return Object.freeze({
     stateId: nonEmpty(state.stateId, "entry search state stateId"),
     session: sessionSnapshot(state.session, "entry search state session"),
     cli: readExplicitFileState(state.cli),
+    cardinality: state.cardinality,
+    recursion: state.recursion,
+    maxDirectoryDepth,
+    directories: Object.freeze(directories),
+    pendingDirectories: Object.freeze(pendingDirectories),
+    candidates: Object.freeze(candidates),
+  });
+}
+
+function readEntrySearchDirectoryFact(value: unknown, label: string): EntrySearchDirectoryFact {
+  const input = record(value, label);
+  const keys = ["path", "depth", "listing", "observedAtSourceRun", "listed", "descendable", "uncoveredReason"];
+  if (keys.some(key => !Object.hasOwn(input, key)) || Object.keys(input).length !== keys.length) {
+    throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`);
+  }
+  if (typeof input.listed !== "boolean" || typeof input.descendable !== "boolean") {
+    throw new TypeError(`${label}.listed and .descendable must be booleans`);
+  }
+  if (
+    input.uncoveredReason !== null &&
+    input.uncoveredReason !== "depth_limit" &&
+    input.uncoveredReason !== "listing_partial" &&
+    input.uncoveredReason !== "list_error"
+  ) {
+    throw new TypeError(`${label}.uncoveredReason is invalid`);
+  }
+  return Object.freeze({
+    path: nonEmpty(input.path, `${label}.path`),
+    depth: nonnegativeInteger(input.depth, `${label}.depth`),
+    listing: input.listing === null ? null : (input.listing as EntrySearchListingRecord),
+    observedAtSourceRun: input.observedAtSourceRun === null ? null : nonEmpty(input.observedAtSourceRun, `${label}.observedAtSourceRun`),
+    listed: input.listed,
+    descendable: input.descendable,
+    uncoveredReason: input.uncoveredReason,
+  });
+}
+
+function readEntrySearchCandidateFact(value: unknown, label: string): EntrySearchCandidateFact {
+  const input = record(value, label);
+  const keys = ["name", "path", "parentDirectoryPath", "depth", "listedType", "listedAtSourceRun", "inspected", "issuedRef", "outcome", "reason"];
+  if (keys.some(key => !Object.hasOwn(input, key)) || Object.keys(input).length !== keys.length) {
+    throw new TypeError(`${label} must contain exactly ${keys.join(", ")}`);
+  }
+  if (
+    input.listedType !== "file" && input.listedType !== "directory" &&
+    input.listedType !== "symlink" && input.listedType !== "other" && input.listedType !== "unknown"
+  ) {
+    throw new TypeError(`${label}.listedType is invalid`);
+  }
+  if (
+    input.outcome !== "pending" && input.outcome !== "matched" &&
+    input.outcome !== "type_mismatch" && input.outcome !== "stale_or_unverified"
+  ) {
+    throw new TypeError(`${label}.outcome is invalid`);
+  }
+  if (
+    input.reason !== null && input.reason !== "type_mismatch" &&
+    input.reason !== "disappeared" && input.reason !== "unverified_identity" && input.reason !== "stale_revision"
+  ) {
+    throw new TypeError(`${label}.reason is invalid`);
+  }
+  return Object.freeze({
+    name: nonEmpty(input.name, `${label}.name`),
+    path: nonEmpty(input.path, `${label}.path`),
+    parentDirectoryPath: nonEmpty(input.parentDirectoryPath, `${label}.parentDirectoryPath`),
+    depth: nonnegativeInteger(input.depth, `${label}.depth`),
+    listedType: input.listedType,
+    listedAtSourceRun: nonEmpty(input.listedAtSourceRun, `${label}.listedAtSourceRun`),
+    inspected: input.inspected === null ? null : (input.inspected as EntrySearchInspectFact),
+    issuedRef: input.issuedRef === null ? null : readObservedObjectRef(input.issuedRef),
+    outcome: input.outcome,
+    reason: input.reason,
   });
 }
 
@@ -497,10 +714,48 @@ export function readEntrySearchGoal(value: unknown): EntrySearchRunGoal {
 export function readEntrySearchCursor(value: unknown): EntrySearchCursor {
   const cursor = record(value, "entry search cursor");
   exactKeys(cursor, ["phase"], "entry search cursor");
-  if (cursor.phase !== "listed" && cursor.phase !== "verified" && cursor.phase !== "closed") {
+  if (
+    cursor.phase !== "initial" &&
+    cursor.phase !== "listed" &&
+    cursor.phase !== "descend" &&
+    cursor.phase !== "verified" &&
+    cursor.phase !== "closed"
+  ) {
     throw new TypeError("entry search cursor phase is invalid");
   }
   return Object.freeze({ phase: cursor.phase as EntrySearchPhase });
+}
+
+/**
+ * Resolve the caller's optional scan scope into the concrete recursion mode and
+ * directory depth bound. Flat recursion never descends, so its bound is 0.
+ * Nested recursion without an explicit bound records `null`, meaning the tree
+ * is enumerated until it is naturally exhausted.
+ */
+export function resolveEntrySearchScan(
+  predicate: EntrySearchPredicate,
+  scan: unknown,
+): Readonly<{ recursion: EntrySearchRecursion; maxDirectoryDepth: number | null }> {
+  const recursion = predicate.recursion ?? "flat";
+  if (scan === undefined) {
+    return Object.freeze({ recursion, maxDirectoryDepth: recursion === "flat" ? 0 : null });
+  }
+  const input = record(scan, "entry search scan");
+  const keys = Object.keys(input);
+  if (keys.length > 1 || (keys.length === 1 && !Object.hasOwn(input, "maxDirectoryDepth"))) {
+    throw new TypeError("entry search scan must contain only optional maxDirectoryDepth");
+  }
+  const provided = Object.hasOwn(input, "maxDirectoryDepth") && input.maxDirectoryDepth !== undefined;
+  const maxDirectoryDepth = provided
+    ? nonnegativeInteger(input.maxDirectoryDepth, "entry search scan.maxDirectoryDepth")
+    : (recursion === "flat" ? 0 : null);
+  if (recursion === "flat") {
+    if (maxDirectoryDepth !== 0) {
+      throw new TypeError("entry search flat recursion requires scan.maxDirectoryDepth to be 0");
+    }
+    return Object.freeze({ recursion, maxDirectoryDepth: 0 });
+  }
+  return Object.freeze({ recursion, maxDirectoryDepth });
 }
 
 export function readEntrySearchEvidencePayload(value: unknown): EntrySearchEvidencePayload {

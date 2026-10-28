@@ -6,6 +6,7 @@ import {
   ROOT_SELECTOR,
 } from "./adapters/cli/entry-search-recursive.js";
 import {
+  resolveEntrySearchScan,
   validateEntrySearchRequest,
   type EntrySearchDomainProjection,
   type EntrySearchRequest,
@@ -22,6 +23,9 @@ function initialState(
   sandbox: CliFilesystemSandbox,
   session: SessionRef,
   stateId: string,
+  cardinality: "one" | "all",
+  recursion: "flat" | "nested",
+  maxDirectoryDepth: number | null,
 ): EntrySearchState {
   const snapshot: SessionSnapshot = sandbox.getSession(session);
   return Object.freeze({
@@ -37,6 +41,12 @@ function initialState(
       cwdObservation: null,
       directoryListing: null,
     }),
+    cardinality,
+    recursion,
+    maxDirectoryDepth,
+    directories: Object.freeze([]),
+    pendingDirectories: Object.freeze([]),
+    candidates: Object.freeze([]),
   });
 }
 
@@ -45,6 +55,7 @@ export async function runCliEntrySearchGoal(
   resources: EntrySearchResources,
 ): Promise<EntrySearchRunResult> {
   const validated = validateEntrySearchRequest(request, resources.session);
+  const scan = resolveEntrySearchScan(validated.goal.requirement.predicate, resources.scan);
   const created = createEntrySearchAdapter({
     sandbox: resources.sandbox,
     session: resources.session,
@@ -55,6 +66,9 @@ export async function runCliEntrySearchGoal(
     resources.sandbox,
     resources.session,
     `${validated.requestId}:state:initial`,
+    validated.goal.requirement.predicate.cardinality,
+    scan.recursion,
+    scan.maxDirectoryDepth,
   );
   const response = await runRecursiveGoal(
     {
@@ -71,10 +85,11 @@ export async function runCliEntrySearchGoal(
       rootEvaluatorId: ROOT_EVALUATOR,
       rootSelectorId: ROOT_SELECTOR,
       ...(resources.limits === undefined ? {} : { limits: resources.limits }),
+      ...(resources.continuation === undefined ? {} : { continuation: resources.continuation }),
     },
     createEntrySearchDependencies(created, resources.signal),
   );
-  const domain: EntrySearchDomainProjection = projectDomain(validated, response, created.issuedRef);
+  const domain: EntrySearchDomainProjection = projectDomain(validated, response);
   return Object.freeze({
     request: validated,
     response,

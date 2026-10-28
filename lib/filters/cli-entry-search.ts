@@ -1,5 +1,7 @@
 import type {
   EntrySearchCandidate,
+  EntrySearchCandidateFact,
+  EntrySearchDirectoryFact,
   EntrySearchDomainProjection,
   EntrySearchInspectFact,
   EntrySearchPredicate,
@@ -10,7 +12,6 @@ import type {
 import type { ObservedObjectRef } from "../adapters/cli/entry-inspection.js";
 import type { CliCommandTransition } from "../nodes/cli-command.js";
 import type { DirectoryListObservation } from "../adapters/cli/directory-listing.js";
-import type { ExplicitFileState } from "./cli-state.js";
 import { join } from "node:path";
 
 export type ListingFacts = Readonly<{
@@ -20,53 +21,6 @@ export type ListingFacts = Readonly<{
   errors: readonly string[];
   candidateNames: readonly string[];
   candidate: EntrySearchCandidate | null;
-}>;
-
-function issuedRefMatchesInspect(ref: ObservedObjectRef, inspect: EntrySearchInspectFact): boolean {
-  const expectedKind = inspect.type === "regular"
-    ? "cli.file"
-    : inspect.type === "directory"
-      ? "cli.directory"
-      : "cli.entry";
-  return ref.kind === expectedKind
-    && ref.type === inspect.type
-    && ref.absolutePath === inspect.absolutePath
-    && String(ref.identity.dev) === String(inspect.identity.dev)
-    && String(ref.identity.ino) === String(inspect.identity.ino)
-    && ref.sessionRevision === inspect.sessionRevision;
-}
-
-export type RootDecision =
-  | Readonly<{ result: "satisfied"; satisfaction: 100 }>
-  | Readonly<{ result: "unsatisfied"; satisfaction: 0; reason: "not_found" | "type_mismatch" }>
-  | Readonly<{ result: "unknown"; satisfaction: null; reason: "no_listing" | "partial" | "unverified" }>;
-
-type TransitionView = Readonly<{
-  kind: string | null;
-  requestId: string | null;
-  report: ReportView | null;
-  error: Readonly<{ code: string }> | null;
-  fault: Readonly<{ code: string }> | null;
-}>;
-
-type ReportView = Readonly<{
-  rootEvaluation: Readonly<{
-    state: string;
-    result: string | undefined;
-    satisfaction: number | null | undefined;
-  }> | null;
-  control: Readonly<{
-    outcome: string;
-    stopReason: string;
-    budget?: unknown;
-  }> | null;
-  primaryErrorId: string | null;
-  errors: readonly Readonly<{ errorId: string; code: string }>[];
-  states: readonly Readonly<{ value: EntrySearchState }>[];
-  atomicResults: readonly Readonly<{ sourceResult: unknown }>[];
-  frames: unknown;
-  effects: unknown;
-  budgetUsed: unknown;
 }>;
 
 export function findExactEntry(
@@ -107,104 +61,30 @@ export function listingIntegrityErrors(
   return Object.freeze(errors);
 }
 
-export function listingFacts(
-  cli: ExplicitFileState,
-  name: string,
-  transitions: readonly CliCommandTransition[],
-): ListingFacts {
-  if (cli.directoryListing !== null) {
-    const listing = cli.directoryListing;
-    const integrity = listingIntegrityErrors(listing.entries, listing.physicalDirectory);
-    const coverage = integrity.length === 0 ? listing.coverage : "partial";
-    const errors = Object.freeze([
-      ...listing.errors.map(error => `${error.name}:${error.code}:${error.message}`),
-      ...integrity,
-    ]);
-    const candidate = integrity.length === 0 ? findExactEntry(listing.entries, name) : null;
-    return Object.freeze({
-      coverage,
-      sourceRun: listing.sourceRun,
-      physicalDirectory: listing.physicalDirectory,
-      errors,
-      candidateNames: Object.freeze(
-        candidate === null
-          ? []
-          : [name],
-      ),
-      candidate,
-    });
-  }
-  const transition = listingTransition(transitions);
-  if (transition === null) {
-    return Object.freeze({
-      coverage: null,
-      sourceRun: null,
-      physicalDirectory: null,
-      errors: Object.freeze([]),
-      candidateNames: Object.freeze([]),
-      candidate: null,
-    });
-  }
-  const observation = listingObservation(transition);
-  if (observation === null) {
-    return Object.freeze({
-      coverage: null,
-      sourceRun: transition.execution_result.receipt?.execution.runId ?? null,
-      physicalDirectory: null,
-      errors: Object.freeze([]),
-      candidateNames: Object.freeze([]),
-      candidate: null,
-    });
-  }
-  const integrity = listingIntegrityErrors(observation.entries, observation.physicalDirectory);
-  const coverage = integrity.length === 0 ? observation.coverage : "partial";
-  const candidate = integrity.length === 0 ? findExactEntry(observation.entries, name) : null;
-  return Object.freeze({
-    coverage,
-    sourceRun: transition.execution_result.receipt?.execution.runId ?? null,
-    physicalDirectory: observation.physicalDirectory,
-    errors: Object.freeze([
-      ...observation.errors.map(error => `${error.name}:${error.code}:${error.message}`),
-      ...integrity,
-    ]),
-    candidateNames: Object.freeze(
-      candidate === null
-        ? observation.entries.filter(entry => entry.name === name).map(entry => entry.name)
-        : [candidate.name],
-    ),
-    candidate,
-  });
+export function compareByAbsolutePath(
+  left: { readonly absolutePath: string },
+  right: { readonly absolutePath: string },
+): number {
+  return left.absolutePath < right.absolutePath ? -1 : left.absolutePath > right.absolutePath ? 1 : 0;
 }
 
-export function inspectFact(
-  cli: ExplicitFileState,
-  expectedPath: string | null,
-  transitions: readonly CliCommandTransition[],
-): EntrySearchInspectFact | null {
-  const knowledge = cli.entryKnowledge;
-  if (
-    knowledge !== null &&
-    knowledge !== undefined &&
-    knowledge.kind === "entry.inspect" &&
-    knowledge.query.followSymlinks === false &&
-    knowledge.query.ref.kind === "cli.path" &&
-    (expectedPath === null || knowledge.absolutePath === expectedPath)
-  ) {
-    return factFromKnowledge(knowledge);
-  }
-  const transition = inspectTransition(transitions);
-  if (transition === null) return null;
+export function listingFactFromTransition(transition: CliCommandTransition): DirectoryListObservation | null {
+  const receipt = transition.execution_result.receipt;
+  if (receipt?.execution.status !== "succeeded") return null;
+  const observation = receipt.execution.observation;
+  return observation.kind === "directory.list" ? observation : null;
+}
+
+export function inspectFactFromTransition(transition: CliCommandTransition): EntrySearchInspectFact | null {
   const receipt = transition.execution_result.receipt;
   if (receipt === null || receipt.execution.status !== "succeeded") return null;
   const observation = receipt.execution.observation.kind === "entry.inspect"
     ? receipt.execution.observation
     : null;
   if (observation === null) return null;
-  const path = observation.configuredPath;
-  if (expectedPath !== null && path !== expectedPath) return null;
   const snapshot = observation.snapshot;
   return Object.freeze({
-    absolutePath: path,
+    absolutePath: observation.configuredPath,
     observedWith: snapshot.observedWith,
     entryExists: snapshot.entryExists,
     resolvedTargetExists: snapshot.resolvedTargetExists,
@@ -222,206 +102,380 @@ export function inspectFact(
   });
 }
 
-export function decideRoot(
-  cli: ExplicitFileState,
-  name: string,
-  predicateType: "regular" | "directory",
-  transitions: readonly CliCommandTransition[],
-  issuedRef: ObservedObjectRef | null,
-): RootDecision {
-  const listing = listingFacts(cli, name, transitions);
-  if (listing.coverage === null) {
-    return Object.freeze({ result: "unknown", satisfaction: null, reason: "no_listing" });
+export function issuedRefMatchesInspect(ref: ObservedObjectRef, inspect: EntrySearchInspectFact): boolean {
+  const expectedKind = inspect.type === "regular"
+    ? "cli.file"
+    : inspect.type === "directory"
+      ? "cli.directory"
+      : "cli.entry";
+  return ref.kind === expectedKind
+    && ref.type === inspect.type
+    && ref.absolutePath === inspect.absolutePath
+    && String(ref.identity.dev) === String(inspect.identity.dev)
+    && String(ref.identity.ino) === String(inspect.identity.ino)
+    && ref.sessionRevision === inspect.sessionRevision;
+}
+
+function directoriesOf(state: EntrySearchState): readonly EntrySearchDirectoryFact[] {
+  return state.directories ?? Object.freeze([]);
+}
+
+function candidatesOf(state: EntrySearchState): readonly EntrySearchCandidateFact[] {
+  return state.candidates ?? Object.freeze([]);
+}
+
+function pendingDirectoriesOf(state: EntrySearchState): readonly Readonly<{ path: string; depth: number }>[] {
+  return state.pendingDirectories ?? Object.freeze([]);
+}
+
+function isCompleteListing(directory: EntrySearchDirectoryFact): boolean {
+  return directory.listed
+    && directory.listing !== null
+    && directory.listing.coverage === "complete"
+    && directory.uncoveredReason === null
+    && listingIntegrityErrors(directory.listing.entries, directory.listing.physicalDirectory).length === 0;
+}
+
+export function candidatesFromDirectories(
+  directories: readonly EntrySearchDirectoryFact[],
+  predicate: EntrySearchPredicate,
+): readonly EntrySearchCandidateFact[] {
+  const candidates: EntrySearchCandidateFact[] = [];
+  for (const directory of directories) {
+    if (!isCompleteListing(directory) || directory.listing === null || directory.observedAtSourceRun === null) {
+      continue;
+    }
+    const named = directory.listing.entries
+      .filter(entry => entry.name === predicate.name)
+      .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+    for (const entry of named) {
+      candidates.push(Object.freeze({
+        name: entry.name,
+        path: entry.path,
+        parentDirectoryPath: directory.path,
+        depth: directory.depth,
+        listedType: entry.type as EntrySearchCandidateFact["listedType"],
+        listedAtSourceRun: directory.observedAtSourceRun,
+        inspected: null,
+        issuedRef: null,
+        outcome: "pending" as const,
+        reason: null,
+      }));
+    }
   }
-  if (listing.coverage === "partial") {
-    return Object.freeze({ result: "unknown", satisfaction: null, reason: "partial" });
+  return Object.freeze(candidates);
+}
+
+export function mergeCandidates(
+  previous: readonly EntrySearchCandidateFact[],
+  fresh: readonly EntrySearchCandidateFact[],
+): readonly EntrySearchCandidateFact[] {
+  return Object.freeze(fresh.map(candidate => {
+    const existing = previous.find(item => item.path === candidate.path);
+    return existing === undefined ? candidate : Object.freeze({
+      ...candidate,
+      inspected: existing.inspected,
+      issuedRef: existing.issuedRef,
+      outcome: existing.outcome,
+      reason: existing.reason,
+    });
+  }));
+}
+
+export function verifiedMatches(state: EntrySearchState): readonly ObservedObjectRef[] {
+  return Object.freeze(candidatesOf(state)
+    .filter(candidate => candidate.outcome === "matched" && candidate.issuedRef !== null)
+    .map(candidate => candidate.issuedRef as ObservedObjectRef)
+    .sort(compareByAbsolutePath));
+}
+
+export function typeMismatchFacts(
+  state: EntrySearchState,
+): readonly ObservedObjectRef[] {
+  return Object.freeze(candidatesOf(state)
+    .filter(candidate => candidate.outcome === "type_mismatch" && candidate.issuedRef !== null)
+    .map(candidate => candidate.issuedRef as ObservedObjectRef)
+    .sort(compareByAbsolutePath));
+}
+
+export function treeCoverage(state: EntrySearchState): "complete" | "partial" | null {
+  const directories = directoriesOf(state);
+  const listedDirectories = directories.filter(directory => directory.listed).length;
+  if (listedDirectories === 0) return null;
+  const complete = pendingDirectoriesOf(state).length === 0
+    && directories.every(directory =>
+      directory.listed
+      && directory.listing !== null
+      && directory.listing.coverage === "complete"
+      && directory.uncoveredReason === null)
+    && candidatesOf(state).every(candidate =>
+      candidate.outcome === "matched" || candidate.outcome === "type_mismatch");
+  return complete ? "complete" : "partial";
+}
+
+export function reasonsOf(state: EntrySearchState): readonly string[] {
+  const reasons: string[] = [];
+  for (const candidate of candidatesOf(state)) {
+    if (candidate.outcome !== "stale_or_unverified" && candidate.outcome !== "pending") continue;
+    reasons.push(candidate.reason ?? "pending_inspect");
   }
-  if (listing.candidate === null) {
-    return Object.freeze({ result: "unsatisfied", satisfaction: 0, reason: "not_found" });
+  for (const directory of directoriesOf(state)) {
+    if (directory.uncoveredReason !== null) reasons.push(directory.uncoveredReason);
   }
-  const inspect = inspectFact(cli, listing.candidate.path, transitions);
-  if (inspect === null) {
-    return Object.freeze({ result: "unknown", satisfaction: null, reason: "unverified" });
+  if (pendingDirectoriesOf(state).length > 0) reasons.push("pending_directory");
+  return Object.freeze([...new Set(reasons)]);
+}
+
+export function denominatorFields(state: EntrySearchState): EntrySearchDomainProjection["denominators"] {
+  const directories = directoriesOf(state);
+  const candidates = candidatesOf(state);
+  return Object.freeze({
+    listedDirectories: directories.filter(directory => directory.listed).length,
+    directoriesComplete: directories.filter(directory => isCompleteListing(directory)).length,
+    directoriesUncovered: directories.filter(directory => directory.uncoveredReason !== null).length,
+    nameMatchedCandidates: candidates.length,
+    candidatesInspected: candidates.filter(candidate => candidate.outcome !== "pending").length,
+    candidatesMatched: candidates.filter(candidate => candidate.outcome === "matched").length,
+    candidatesStaleOrUnverified: candidates.filter(candidate =>
+      candidate.outcome === "stale_or_unverified").length,
+    typeMismatches: candidates.filter(candidate => candidate.outcome === "type_mismatch").length,
+  });
+}
+
+export type RootDecision =
+  | Readonly<{ result: "satisfied"; satisfaction: 100 }>
+  | Readonly<{ result: "unsatisfied"; satisfaction: 0; reason: "not_found" | "type_mismatch" }>
+  | Readonly<{ result: "unknown"; satisfaction: null }>;
+
+export function decideEntrySearchRoot(state: EntrySearchState): RootDecision {
+  const matches = verifiedMatches(state);
+  const cardinality = state.cardinality ?? "one";
+  const coverage = treeCoverage(state);
+  if (cardinality === "one" && matches.length > 0) {
+    return Object.freeze({ result: "satisfied", satisfaction: 100 });
   }
-  if (
-    inspect.type === null ||
-    inspect.entryExists !== true ||
-    inspect.identity.dev === null ||
-    inspect.identity.ino === null
-  ) {
-    return Object.freeze({ result: "unknown", satisfaction: null, reason: "unverified" });
+  if (cardinality === "all" && coverage === "complete" && matches.length > 0) {
+    return Object.freeze({ result: "satisfied", satisfaction: 100 });
   }
-  if (inspect.type !== predicateType) {
-    return Object.freeze({ result: "unsatisfied", satisfaction: 0, reason: "type_mismatch" });
+  if (coverage === "complete" && matches.length === 0) {
+    const stale = candidatesOf(state).some(candidate => candidate.outcome === "stale_or_unverified");
+    if (!stale) {
+      return Object.freeze({
+        result: "unsatisfied",
+        satisfaction: 0,
+        reason: typeMismatchFacts(state).length > 0 ? "type_mismatch" : "not_found",
+      });
+    }
   }
-  if (issuedRef === null || !issuedRefMatchesInspect(issuedRef, inspect)) {
-    return Object.freeze({ result: "unknown", satisfaction: null, reason: "unverified" });
+  return Object.freeze({ result: "unknown", satisfaction: null });
+}
+
+function firstListingSourceRun(directories: readonly EntrySearchDirectoryFact[]): string | null {
+  for (const directory of directories) {
+    if (directory.observedAtSourceRun !== null) return directory.observedAtSourceRun;
   }
-  return Object.freeze({ result: "satisfied", satisfaction: 100 });
+  return null;
+}
+
+function listingErrors(directories: readonly EntrySearchDirectoryFact[]): readonly string[] {
+  const errors: string[] = [];
+  for (const directory of directories) {
+    if (directory.listing === null) continue;
+    for (const error of directory.listing.errors) {
+      errors.push(`${error.name}:${error.code}:${error.message}`);
+    }
+    for (const error of listingIntegrityErrors(directory.listing.entries, directory.listing.physicalDirectory)) {
+      errors.push(error);
+    }
+  }
+  return Object.freeze(errors);
+}
+
+function candidateFor(state: EntrySearchState, absolutePath: string): EntrySearchCandidateFact | null {
+  return candidatesOf(state).find(candidate => candidate.path === absolutePath) ?? null;
 }
 
 export function rootFact(
   predicate: EntrySearchPredicate,
-  cli: ExplicitFileState,
-  transitions: readonly CliCommandTransition[],
+  state: EntrySearchState,
   primaryCode: string | null,
-  issuedRef: ObservedObjectRef | null,
 ): EntrySearchRootFact {
-  const listing = listingFacts(cli, predicate.name, transitions);
-  if (listing.coverage === "partial") {
-    return Object.freeze({
-      kind: "insufficient_evidence",
-      predicate,
-      listing: Object.freeze({
-        sourceRun: listing.sourceRun,
-        coverage: "partial",
-        errors: listing.errors,
-        candidateNames: listing.candidateNames,
-      }),
-    });
-  }
-  if (listing.coverage === null) {
-    if (primaryCode === "budget_exceeded") {
+  const directories = directoriesOf(state);
+  const matches = verifiedMatches(state);
+  const typeMismatches = typeMismatchFacts(state);
+  const reasons = reasonsOf(state);
+  const coverage = treeCoverage(state);
+  const cardinality = state.cardinality ?? "one";
+  const insufficient = (): EntrySearchRootFact => Object.freeze({
+    kind: "insufficient_evidence",
+    predicate,
+    listing: Object.freeze({
+      sourceRun: firstListingSourceRun(directories),
+      coverage,
+      errors: listingErrors(directories),
+      candidateNames: Object.freeze(directories.flatMap(directory =>
+        directory.listing === null
+          ? []
+          : directory.listing.entries
+              .filter(entry => entry.name === predicate.name)
+              .map(entry => entry.name))),
+      typeMismatchPaths: Object.freeze(typeMismatches.map(item => item.absolutePath)),
+      reasons,
+    }),
+    reasons,
+  });
+
+  if (primaryCode === "budget_exceeded") {
+    if (matches.length > 0) {
       return Object.freeze({
-        kind: "insufficient_evidence",
+        kind: "partial",
         predicate,
         listing: Object.freeze({
-          sourceRun: listing.sourceRun,
-          coverage: null,
-          errors: listing.errors,
-          candidateNames: listing.candidateNames,
+          sourceRun: firstListingSourceRun(directories),
+          coverage,
         }),
+        matches,
+        typeMismatches,
+        reasons,
       });
     }
-    if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
-      return Object.freeze({ kind: "interrupted" });
-    }
-    if (primaryCode === "effect_denied" || primaryCode === "capability_missing" || primaryCode === "invalid_binding") {
-      return Object.freeze({ kind: "rejected" });
-    }
-    if (primaryCode === "execution_failed" || primaryCode === "policy_error") {
-      return Object.freeze({ kind: "failed" });
-    }
-    return Object.freeze({
-      kind: "insufficient_evidence",
-      predicate,
-      listing: Object.freeze({
-        sourceRun: null,
-        coverage: null,
-        errors: listing.errors,
-        candidateNames: listing.candidateNames,
-      }),
-    });
-  }
-  if (listing.sourceRun === null) {
-    return Object.freeze({
-      kind: "insufficient_evidence",
-      predicate,
-      listing: Object.freeze({
-        sourceRun: null,
-        coverage: listing.coverage,
-        errors: listing.errors,
-        candidateNames: listing.candidateNames,
-      }),
-    });
-  }
-  if (listing.candidate === null) {
-    if (primaryCode === "budget_exceeded") {
+    const candidate = candidatesOf(state)[0];
+    if (candidate !== undefined) {
       return Object.freeze({
-        kind: "insufficient_evidence",
+        kind: "stale_or_unverified",
         predicate,
         listing: Object.freeze({
-          sourceRun: listing.sourceRun,
-          coverage: listing.coverage,
-          errors: listing.errors,
-          candidateNames: listing.candidateNames,
+          sourceRun: candidate.listedAtSourceRun,
+          coverage: "complete",
         }),
+        inspect: candidate.inspected,
+        ref: candidate.issuedRef,
+        reasons,
+        typeMismatches,
+      });
+    }
+    return insufficient();
+  }
+
+  if (matches.length > 0) {
+    const first = matches[0] as ObservedObjectRef;
+    const candidate = candidateFor(state, first.absolutePath);
+    return Object.freeze({
+      kind: "matched",
+      predicate,
+      listing: Object.freeze({
+        sourceRun: candidate?.listedAtSourceRun ?? firstListingSourceRun(directories) ?? "",
+        coverage: coverage ?? "partial",
+      }),
+      inspect: candidate?.inspected ?? (() => { throw new TypeError("matched entry lost its inspection"); })(),
+      ref: first,
+    });
+  }
+  if (
+    primaryCode !== null &&
+    (primaryCode === "invalid_request" || primaryCode === "invalid_binding" ||
+      primaryCode === "effect_denied" || primaryCode === "capability_missing")
+  ) {
+    return Object.freeze({ kind: "rejected" });
+  }
+  if (primaryCode === "execution_failed" || primaryCode === "policy_error") {
+    return Object.freeze({ kind: "failed" });
+  }
+  if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
+    return Object.freeze({ kind: "interrupted" });
+  }
+  if (coverage === "complete") {
+    if (typeMismatches.length > 0) {
+      const first = typeMismatches[0] as ObservedObjectRef;
+      const candidate = candidateFor(state, first.absolutePath);
+      return Object.freeze({
+        kind: "type_mismatch",
+        predicate,
+        listing: Object.freeze({
+          sourceRun: firstListingSourceRun(directories) ?? "",
+          coverage: "complete",
+        }),
+        inspect: candidate?.inspected ?? (() => { throw new TypeError("type mismatch lost its inspection"); })(),
+        ref: candidate?.issuedRef ?? null,
+        typeMismatches,
       });
     }
     return Object.freeze({
       kind: "not_found",
       predicate,
-      listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
+      listing: Object.freeze({
+        sourceRun: firstListingSourceRun(directories) ?? "",
+        coverage: "complete",
+      }),
     });
   }
-  const inspect = inspectFact(cli, listing.candidate.path, transitions);
-  if (primaryCode === "budget_exceeded") {
-    const verifiedRef =
-      inspect !== null && issuedRef !== null && issuedRefMatchesInspect(issuedRef, inspect)
-        ? issuedRef
-        : null;
+  if (cardinality === "all" && matches.length > 0) {
+    return Object.freeze({
+      kind: "partial",
+      predicate,
+      listing: Object.freeze({
+        sourceRun: firstListingSourceRun(directories),
+        coverage,
+      }),
+      matches,
+      typeMismatches,
+      reasons,
+    });
+  }
+  const stale = candidatesOf(state).find(candidate => candidate.outcome === "stale_or_unverified");
+  if (stale !== undefined) {
     return Object.freeze({
       kind: "stale_or_unverified",
       predicate,
       listing: Object.freeze({
-        sourceRun: listing.sourceRun,
+        sourceRun: firstListingSourceRun(directories) ?? "",
         coverage: "complete",
       }),
-      inspect,
-      ref: verifiedRef,
-    });
-  }
-  if (inspect === null) {
-    return Object.freeze({
-      kind: "stale_or_unverified",
-      predicate,
-      listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
-      inspect: null,
+      inspect: stale.inspected,
       ref: null,
+      reasons,
+      typeMismatches,
     });
   }
-  if (
-    inspect.type === null ||
-    inspect.entryExists !== true ||
-    inspect.identity.dev === null ||
-    inspect.identity.ino === null
-  ) {
-    return Object.freeze({
-      kind: "stale_or_unverified",
-      predicate,
-      listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
-      inspect,
-      ref: null,
-    });
-  }
-  if (inspect.type !== predicate.type) {
-    const ref = issuedRef !== null && issuedRefMatchesInspect(issuedRef, inspect)
-      ? issuedRef
-      : null;
-    return Object.freeze({
-      kind: "type_mismatch",
-      predicate,
-      listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
-      inspect,
-      ref,
-    });
-  }
-  if (issuedRef === null || !issuedRefMatchesInspect(issuedRef, inspect)) {
-    return Object.freeze({
-      kind: "stale_or_unverified",
-      predicate,
-      listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
-      inspect,
-      ref: null,
-    });
-  }
-  return Object.freeze({
-    kind: "matched",
-    predicate,
-    listing: Object.freeze({ sourceRun: listing.sourceRun, coverage: "complete" }),
-    inspect,
-    ref: issuedRef,
-  });
+  return insufficient();
 }
+
+type TransitionView = Readonly<{
+  kind: string | null;
+  requestId: string | null;
+  report: ReportView | null;
+  continuation: unknown;
+  error: Readonly<{ code: string }> | null;
+  fault: Readonly<{ code: string }> | null;
+}>;
+
+type ReportView = Readonly<{
+  rootEvaluation: Readonly<{
+    state: string;
+    result: string | undefined;
+    satisfaction: number | null | undefined;
+  }> | null;
+  control: Readonly<{
+    outcome: string;
+    stopReason: string;
+    budget?: unknown;
+  }> | null;
+  primaryErrorId: string | null;
+  errors: readonly Readonly<{ errorId: string; code: string }>[];
+  states: readonly Readonly<{ value: EntrySearchState }>[];
+  atomicResults: readonly Readonly<{ sourceResult: unknown }>[];
+  frames: unknown;
+  effects: unknown;
+  budgetUsed: unknown;
+  continuation: unknown;
+}>;
 
 export function projectDomain(
   request: EntrySearchRequest,
   response: unknown,
-  issuedRef: ObservedObjectRef | null,
 ): EntrySearchDomainProjection {
   const view = transitionView(response);
   const report = view.report;
-  const transitions = report === null ? [] : transitionsOf(report);
   const state = report === null ? null : latestState(report);
   const primaryCode = primaryError(view);
   const budgetStopped =
@@ -439,11 +493,20 @@ export function projectDomain(
       resolution: status.resolution,
       satisfaction: null,
       match: null,
+      matches: Object.freeze([]),
+      typeMismatches: Object.freeze([]),
+      denominators: emptyDenominators(),
       coverage: null,
-      rootFact: noStateRootFact(budgetStopped ? "budget_exceeded" : primaryCode),
+      rootFact: noStateRootFact(budgetStopped ? "budget_exceeded" : primaryCode, predicate),
       preserve: preserve(view),
     });
   }
+
+  const coverage = treeCoverage(state);
+  const matches = verifiedMatches(state);
+  const typeMismatches = typeMismatchFacts(state);
+  const denominators = denominatorFields(state);
+  const decision = decideEntrySearchRoot(state);
 
   if (budgetStopped) {
     return Object.freeze({
@@ -451,82 +514,70 @@ export function projectDomain(
       resolution: "budget_exhausted",
       satisfaction: null,
       match: null,
-      coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
-      rootFact: rootFact(predicate, state.cli, transitions, "budget_exceeded", issuedRef),
-      preserve: preserve(view),
-    });
-  }
-
-  const decision = decideRoot(state.cli, predicate.name, predicate.type, transitions, issuedRef);
-  if (decision.result === "satisfied") {
-    return achieved(request, state, transitions, report, issuedRef);
-  }
-  if (decision.result === "unsatisfied") {
-    const resolution = decision.reason === "type_mismatch" ? "type_mismatch" : "not_found";
-    return Object.freeze({
-      status: "unmet",
-      resolution,
-      satisfaction: 0,
-      match: null,
-      coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
-      rootFact: rootFact(predicate, state.cli, transitions, primaryCode, issuedRef),
-      preserve: preserve(view),
-    });
-  }
-
-  // A partial or contract-invalid listing is always insufficient evidence.
-  // It must not be re-labelled as an interruption, rejection or failure merely
-  // because the controller stopped early after an unverifiable child goal.
-  const coverage = listingFacts(state.cli, predicate.name, transitions).coverage;
-  if (coverage === "partial") {
-    return Object.freeze({
-      status: "unknown",
-      resolution: "insufficient_evidence",
-      satisfaction: null,
-      match: null,
+      matches,
+      typeMismatches,
+      denominators,
       coverage,
-      rootFact: rootFact(predicate, state.cli, transitions, primaryCode, issuedRef),
+      rootFact: rootFact(predicate, state, "budget_exceeded"),
       preserve: preserve(view),
     });
   }
 
-  if (primaryCode === "cancelled" || primaryCode === "no_progress" || primaryCode === "stalled") {
+  if (decision.result === "satisfied") {
+    const fact = rootFact(predicate, state, primaryCode);
+    if (fact.kind !== "matched") {
+      throw new TypeError("satisfied entry search root lost its verified evidence");
+    }
     return Object.freeze({
-      status: "unknown",
-      resolution: "interrupted",
-      satisfaction: null,
-      match: null,
-      coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
-      rootFact: Object.freeze({ kind: "interrupted" }),
+      status: "achieved",
+      resolution: "matched",
+      satisfaction: 100,
+      match: matches[0] ?? null,
+      matches,
+      typeMismatches,
+      denominators,
+      coverage,
+      rootFact: fact,
       preserve: preserve(view),
     });
   }
-  if (primaryCode === "effect_denied" || primaryCode === "capability_missing" || primaryCode === "invalid_binding") {
-    return Object.freeze({
-      status: "rejected",
-      resolution: "rejected",
-      satisfaction: null,
-      match: null,
-      coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
-      rootFact: Object.freeze({ kind: "rejected" }),
-      preserve: preserve(view),
-    });
+
+  if (
+    primaryCode === "invalid_request" || primaryCode === "invalid_binding" ||
+    primaryCode === "effect_denied" || primaryCode === "capability_missing"
+  ) {
+    return unresolved("rejected", "rejected", state, predicate, primaryCode, view);
   }
   if (primaryCode === "execution_failed" || primaryCode === "policy_error") {
+    return unresolved("failed", "failed", state, predicate, primaryCode, view);
+  }
+  if (
+    primaryCode === "cancelled" ||
+    primaryCode === "no_progress" ||
+    primaryCode === "stalled"
+  ) {
+    return unresolved("unknown", "interrupted", state, predicate, primaryCode, view);
+  }
+
+  if (decision.result === "unsatisfied") {
     return Object.freeze({
-      status: "failed",
-      resolution: "failed",
-      satisfaction: null,
+      status: "unmet",
+      resolution: decision.reason === "type_mismatch" ? "type_mismatch" : "not_found",
+      satisfaction: 0,
       match: null,
-      coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
-      rootFact: Object.freeze({ kind: "failed" }),
+      matches,
+      typeMismatches,
+      denominators,
+      coverage,
+      rootFact: rootFact(predicate, state, primaryCode),
       preserve: preserve(view),
     });
   }
 
-  const fact = rootFact(predicate, state.cli, transitions, primaryCode, issuedRef);
-  const resolution =
-    fact.kind === "stale_or_unverified"
+  const fact = rootFact(predicate, state, primaryCode);
+  const resolution = matches.length > 0 && (state.cardinality ?? "one") === "all"
+    ? "partial"
+    : fact.kind === "stale_or_unverified"
       ? "stale_or_unverified"
       : "insufficient_evidence";
   return Object.freeze({
@@ -534,106 +585,48 @@ export function projectDomain(
     resolution,
     satisfaction: null,
     match: null,
-    coverage: listingFacts(state.cli, predicate.name, transitions).coverage,
+    matches,
+    typeMismatches,
+    denominators,
+    coverage,
     rootFact: fact,
     preserve: preserve(view),
   });
 }
 
-function achieved(
-  request: EntrySearchRequest,
+function unresolved(
+  status: EntrySearchDomainProjection["status"],
+  resolution: EntrySearchDomainProjection["resolution"],
   state: EntrySearchState,
-  transitions: readonly CliCommandTransition[],
-  report: ReportView | null,
-  issuedRef: ObservedObjectRef | null,
+  predicate: EntrySearchPredicate,
+  primaryCode: string | null,
+  view: TransitionView,
 ): EntrySearchDomainProjection {
-  const predicate = request.goal.requirement.predicate;
-  const listing = listingFacts(state.cli, predicate.name, transitions);
-  const inspect = inspectFact(state.cli, listing.candidate?.path ?? null, transitions);
-  const rootFactValue = rootFact(predicate, state.cli, transitions, null, issuedRef);
-  if (
-    listing.sourceRun === null ||
-    listing.physicalDirectory === null ||
-    inspect === null
-  ) {
-    throw new TypeError("satisfied entry search root lost its verified evidence");
-  }
-  if (rootFactValue.kind !== "matched") {
-    return Object.freeze({
-      status: "unknown",
-      resolution: "stale_or_unverified",
-      satisfaction: null,
-      match: null,
-      coverage: "complete",
-      rootFact: rootFactValue,
-      preserve: preserveFromReport(report),
-    });
-  }
   return Object.freeze({
-    status: "achieved",
-    resolution: "matched",
-    satisfaction: 100,
-    match: rootFactValue.ref,
-    coverage: "complete",
-    rootFact: rootFactValue,
-    preserve: preserveFromReport(report),
+    status,
+    resolution,
+    satisfaction: null,
+    match: null,
+    matches: verifiedMatches(state),
+    typeMismatches: typeMismatchFacts(state),
+    denominators: denominatorFields(state),
+    coverage: treeCoverage(state),
+    rootFact: rootFact(predicate, state, primaryCode),
+    preserve: preserve(view),
   });
 }
 
-function factFromKnowledge(knowledge: NonNullable<ExplicitFileState["entryKnowledge"]>): EntrySearchInspectFact {
+function emptyDenominators(): EntrySearchDomainProjection["denominators"] {
   return Object.freeze({
-    absolutePath: knowledge.absolutePath,
-    observedWith: knowledge.observedWith,
-    entryExists: knowledge.entryExists,
-    resolvedTargetExists: knowledge.resolvedTargetExists,
-    type: knowledge.type,
-    identity: Object.freeze({
-      dev: knowledge.identity.dev,
-      ino: knowledge.identity.ino,
-      nlink: knowledge.identity.nlink,
-      rdev: knowledge.identity.rdev,
-    }),
-    errno: knowledge.errno,
-    linkTarget: knowledge.linkTarget,
-    sourceRun: knowledge.sourceRun,
-    sessionRevision: knowledge.sessionRevision,
+    listedDirectories: 0,
+    directoriesComplete: 0,
+    directoriesUncovered: 0,
+    nameMatchedCandidates: 0,
+    candidatesInspected: 0,
+    candidatesMatched: 0,
+    candidatesStaleOrUnverified: 0,
+    typeMismatches: 0,
   });
-}
-
-function listingTransition(transitions: readonly CliCommandTransition[]): CliCommandTransition | null {
-  for (let index = transitions.length - 1; index >= 0; index -= 1) {
-    const transition = transitions[index];
-    if (
-      transition !== undefined &&
-      transition.goal.property === "file.property.directory.entries" &&
-      transition.goal.requirement.kind === "observed"
-    ) {
-      return transition;
-    }
-  }
-  return null;
-}
-
-function inspectTransition(transitions: readonly CliCommandTransition[]): CliCommandTransition | null {
-  for (let index = transitions.length - 1; index >= 0; index -= 1) {
-    const transition = transitions[index];
-    if (
-      transition !== undefined &&
-      transition.goal.property === "file.property.type" &&
-      transition.goal.target.kind === "cli.entry-query" &&
-      transition.goal.target.followSymlinks === false
-    ) {
-      return transition;
-    }
-  }
-  return null;
-}
-
-function listingObservation(transition: CliCommandTransition): DirectoryListObservation | null {
-  const receipt = transition.execution_result.receipt;
-  if (receipt?.execution.status !== "succeeded") return null;
-  const observation = receipt.execution.observation;
-  return observation.kind === "directory.list" ? observation : null;
 }
 
 function transitionView(value: unknown): TransitionView {
@@ -641,6 +634,7 @@ function transitionView(value: unknown): TransitionView {
     kind?: unknown;
     requestId?: unknown;
     report?: unknown;
+    continuation?: unknown;
     error?: unknown;
     fault?: unknown;
   };
@@ -648,6 +642,7 @@ function transitionView(value: unknown): TransitionView {
     kind: typeof input.kind === "string" ? input.kind : null,
     requestId: typeof input.requestId === "string" ? input.requestId : null,
     report: reportView(input.report),
+    continuation: input.continuation ?? null,
     error: errorCodeView(input.error),
     fault: errorCodeView(input.fault),
   });
@@ -671,6 +666,7 @@ function reportView(value: unknown): ReportView | null {
     frames?: unknown;
     effects?: unknown;
     budgetUsed?: unknown;
+    continuation?: unknown;
   };
   const rootEvaluation = input.rootEvaluation;
   const control = input.control;
@@ -719,18 +715,8 @@ function reportView(value: unknown): ReportView | null {
     frames: input.frames ?? null,
     effects: input.effects ?? null,
     budgetUsed: input.budgetUsed ?? null,
+    continuation: input.continuation ?? null,
   });
-}
-
-function transitionsOf(report: ReportView): readonly CliCommandTransition[] {
-  const transitions: CliCommandTransition[] = [];
-  for (const result of report.atomicResults) {
-    const source = result.sourceResult as { tag?: unknown; value?: unknown } | null;
-    if (source !== null && typeof source === "object" && source.tag === "cli.command.transition.v1") {
-      transitions.push(source.value as CliCommandTransition);
-    }
-  }
-  return Object.freeze(transitions);
 }
 
 function latestState(report: ReportView): EntrySearchState | null {
@@ -773,17 +759,22 @@ function noStateStatus(primaryCode: string | null): Readonly<{
   return Object.freeze({ status: "failed", resolution: "failed" });
 }
 
-function noStateRootFact(primaryCode: string | null): EntrySearchRootFact {
+function noStateRootFact(
+  primaryCode: string | null,
+  predicate: EntrySearchPredicate,
+): EntrySearchRootFact {
   if (primaryCode === "budget_exceeded") {
     return Object.freeze({
       kind: "insufficient_evidence",
-      predicate: null as never,
+      predicate,
       listing: Object.freeze({
         sourceRun: null,
         coverage: null,
         errors: [],
         candidateNames: [],
+        reasons: Object.freeze([]),
       }),
+      reasons: Object.freeze([]),
     });
   }
   if (
@@ -816,24 +807,10 @@ function preserve(view: TransitionView): EntrySearchDomainProjection["preserve"]
       errors: view.error === null && view.fault === null ? null : Object.freeze([view.error ?? view.fault]),
       primaryErrorId: null,
       budgetUsed: null,
+      continuation: view.continuation,
     });
   }
-  return preserveFromReport(view.report);
-}
-
-function preserveFromReport(report: ReportView | null): EntrySearchDomainProjection["preserve"] {
-  if (report === null) {
-    return Object.freeze({
-      rootEvaluation: null,
-      control: null,
-      frames: null,
-      atomicResults: null,
-      effects: null,
-      errors: null,
-      primaryErrorId: null,
-      budgetUsed: null,
-    });
-  }
+  const report = view.report;
   return Object.freeze({
     rootEvaluation: report.rootEvaluation,
     control: report.control,
@@ -843,5 +820,6 @@ function preserveFromReport(report: ReportView | null): EntrySearchDomainProject
     errors: report.errors,
     primaryErrorId: report.primaryErrorId,
     budgetUsed: report.budgetUsed,
+    continuation: view.continuation ?? report.continuation,
   });
 }
