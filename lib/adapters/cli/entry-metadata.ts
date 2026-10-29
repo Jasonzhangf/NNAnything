@@ -99,6 +99,7 @@ export type ApplyEntryMetadataResult =
 
 const helperPath = fileURLToPath(new URL("./entry-metadata-helper.js", import.meta.url));
 const SNAPSHOT_KEYS = [
+  "entryKind",
   "kind",
   "dev",
   "ino",
@@ -336,6 +337,7 @@ function classify(stats: BigIntStats): EntryKind {
 function snapshotFromStats(stats: BigIntStats, kind: EntryKind, observedWith: "stat" | "lstat"): EntrySnapshot {
   const linkTarget = kind === "symlink" ? "" : null;
   return Object.freeze({
+    entryKind: kind,
     kind,
     dev: stats.dev,
     ino: stats.ino,
@@ -456,6 +458,7 @@ export function entryMetadataHelperPath(): string {
 function readObservedSnapshot(value: unknown): ObservedEntrySnapshot {
   const snapshot = expectRecord(value, "entry metadata snapshot");
   exactKeys(snapshot, SNAPSHOT_KEYS, "entry metadata snapshot");
+  const entryKind = snapshot.entryKind === null ? null : requireEntryKind(snapshot.entryKind, "entry metadata snapshot entryKind");
   const kind = snapshot.kind === null ? null : requireEntryKind(snapshot.kind, "entry metadata snapshot kind");
   if (snapshot.observedWith !== null && snapshot.observedWith !== "stat" && snapshot.observedWith !== "lstat") {
     throw new TypeError("entry metadata snapshot observedWith is invalid");
@@ -472,6 +475,7 @@ function readObservedSnapshot(value: unknown): ObservedEntrySnapshot {
     }
   }
   return Object.freeze({
+    entryKind,
     kind,
     dev: osInteger(snapshot.dev, "entry metadata snapshot dev"),
     ino: osInteger(snapshot.ino, "entry metadata snapshot ino"),
