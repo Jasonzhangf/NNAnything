@@ -29,6 +29,7 @@ const trainRows = rows.filter(row => row.partition === "train");
 const prepared = policy.prepareCliCandidatePreferenceDataset(trainRows);
 
 const rawProfile = JSON.parse(await readFile(profilePath, "utf8"));
+const schema = policy.detectCliCommandProfileSchema(rawProfile);
 const initial = policy.migrateCliCommandProfileToCurrent(rawProfile);
 
 const fit = await policy.fitCliCandidateNamePreference({
