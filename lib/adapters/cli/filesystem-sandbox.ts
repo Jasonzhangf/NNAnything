@@ -24,11 +24,13 @@ import {
   readObservedObjectRef,
   readPathRef,
   runEntryInspectHelper,
+  runPathRealpathHelper,
   type EntryKind,
   type LegacyDirectoryRef,
   type OsInteger,
   type ObservedEntrySnapshot,
   type ObservedObjectRef,
+  type ObservedRealpathSnapshot,
   type PathRef,
 } from "./entry-inspection.js";
 import {
@@ -131,6 +133,11 @@ export type SemanticEntryInspectCall = Readonly<{
   parameters: Readonly<{ ref: PathRef | ObservedObjectRef | LegacyDirectoryRef; followSymlinks: boolean }>;
 }>;
 
+export type SemanticPathRealpathCall = Readonly<{
+  operation: "path.realpath";
+  parameters: Readonly<{ ref: PathRef | ObservedObjectRef | LegacyDirectoryRef }>;
+}>;
+
 export type SemanticFileReadCall = Readonly<{
   operation: "file.read";
   parameters: Readonly<{
@@ -180,6 +187,7 @@ export type SemanticCliCall =
   | SemanticPathRelativeCall
   | SemanticPathPartsCall
   | SemanticEntryInspectCall
+  | SemanticPathRealpathCall
   | SemanticFileReadCall
   | SemanticFileReadLinesCall
   | SemanticDirectorySearchEntriesCall
@@ -227,6 +235,7 @@ export type PathPartsCallObservation = Readonly<{
 export type EntryInspectObservation = Readonly<{
   kind: "entry.inspect";
   ref: PathRef | ObservedObjectRef;
+  entryKind: EntryKind | null;
   followSymlinks: boolean;
   configuredPath: string;
   executable: string;
@@ -237,6 +246,20 @@ export type EntryInspectObservation = Readonly<{
   stderr: string;
   exitCode: 0;
   snapshot: ObservedEntrySnapshot;
+}>;
+
+export type PathRealpathObservation = Readonly<{
+  kind: "path.realpath";
+  ref: PathRef | ObservedObjectRef;
+  configuredPath: string;
+  executable: string;
+  helperPath: string;
+  argv: readonly [string, string];
+  stdin: string;
+  stdout: string;
+  stderr: string;
+  exitCode: 0;
+  snapshot: ObservedRealpathSnapshot;
 }>;
 
 export type FileReadObservation = Readonly<{
@@ -284,6 +307,7 @@ export type SemanticCallReceipt = Readonly<{
           | PathRelativeObservation
           | PathPartsCallObservation
           | EntryInspectObservation
+          | PathRealpathObservation
           | FileReadObservation
           | FileReadLinesObservation
           | DirectorySearchEntriesObservation
@@ -794,6 +818,14 @@ export function readSemanticCliCall(value: unknown): SemanticCliCall {
       }),
     });
   }
+  if (call.operation === "path.realpath") {
+    const parameters = expectRecord(call.parameters, "semantic CLI parameters");
+    exactKeys(parameters, ["ref"], "semantic CLI parameters");
+    return Object.freeze({
+      operation: "path.realpath",
+      parameters: Object.freeze({ ref: readInspectRef(parameters.ref) }),
+    });
+  }
   if (call.operation === "file.read") {
     const parameters = expectRecord(call.parameters, "semantic CLI parameters");
     exactKeys(parameters, ["ref", "offset", "length"], "semantic CLI parameters");
@@ -859,7 +891,7 @@ export function readSemanticCliCall(value: unknown): SemanticCliCall {
       }),
     });
   }
-  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts, entry.inspect, file.read, file.read.lines, directory.search.entries and directory.search.content are supported");
+  throw new TypeError("Only cwd.get, cwd.set, directory.list, path.resolve, path.relative, path.parts, entry.inspect, path.realpath, file.read, file.read.lines, directory.search.entries and directory.search.content are supported");
 }
 
 function snapshot(state: SandboxState, ref: SessionRef): SessionSnapshot {
@@ -1325,13 +1357,90 @@ async function executeEntryInspect(state: SandboxState, call: SemanticEntryInspe
   if (result.observation.snapshot.errno !== null && result.observation.snapshot.errno !== "ENOENT") {
     return failedReceipt(call, before, state, runId, result.observation.snapshot.errno, `Entry inspection failed with ${result.observation.snapshot.errno}`, "observe", true);
   }
-  if (ref.kind !== "cli.path" && result.observation.snapshot.errno === "ENOENT") {
+  const observedBrokenTarget = ref.kind === "cli.entry"
+    && result.observation.snapshot.entryExists === true
+    && result.observation.snapshot.entryKind === "symlink"
+    && result.observation.snapshot.resolvedTargetExists === false;
+  if (ref.kind !== "cli.path" && result.observation.snapshot.errno === "ENOENT" && !observedBrokenTarget) {
     return failedReceipt(call, before, state, runId, "ENOENT", "Observed reference target resolution failed", "observe", true);
   }
   const observation: EntryInspectObservation = Object.freeze({
     kind: "entry.inspect",
     ref,
+    entryKind: result.observation.entryKind,
     followSymlinks: call.parameters.followSymlinks,
+    configuredPath,
+    executable: result.observation.executable,
+    helperPath: result.observation.helperPath,
+    argv: result.observation.argv,
+    stdin: result.observation.stdin,
+    stdout: result.observation.stdout,
+    stderr: result.observation.stderr,
+    exitCode: 0,
+    snapshot: result.observation.snapshot,
+  });
+  return Object.freeze({
+    call,
+    status: "succeeded",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({ status: "succeeded", runId, executorInvoked: true, observation }),
+  });
+}
+
+async function executePathRealpath(state: SandboxState, call: SemanticPathRealpathCall, before: SessionSnapshot): Promise<SemanticCallReceipt> {
+  const runId = randomUUID();
+  const ref = call.parameters.ref;
+  if (!sameSession(state, before, ref)) {
+    return failedReceipt(call, before, state, runId, "EINVAL", "Path reference must belong to the selected session and scenario", "validate", false);
+  }
+  const missing = (["filesystem.read", "process.exec"] as const)
+    .filter(effect => !before.grantedEffects.includes(effect));
+  if (missing.length) {
+    return failedReceipt(call, before, state, runId, "EFFECT_DENIED", `Missing CLI effect grant: ${missing.join(", ")}`, "authorize", false);
+  }
+  if (ref.kind === "cli.directory" && !("absolutePath" in ref)) {
+    return failedReceipt(call, before, state, runId, "binding_identity_missing", "Legacy directory references need observed identity for path.realpath", "authorize", false);
+  }
+
+  const referencedPath = ref.kind === "cli.path" ? ref.path : ref.absolutePath;
+  let configuredPath: string;
+  let preflight: Awaited<ReturnType<typeof readEntrySnapshot>>;
+  try {
+    configuredPath = await physicalEntryCandidate(state, referencedPath);
+    preflight = await readEntrySnapshot(configuredPath, false);
+    if (ref.kind !== "cli.path") {
+      validateObservedRef(state, before, ref, preflight);
+    }
+    await followTargetWithin(state, configuredPath, preflight);
+  } catch (error) {
+    return failedReceipt(call, before, state, runId, failureCode(error), error instanceof Error ? error.message : String(error), "authorize", false);
+  }
+
+  const result = await runPathRealpathHelper({ absolutePath: configuredPath });
+  if (!result.ok) return failedReceipt(call, before, state, runId, result.error.code, result.error.message, "observe", true);
+  if (result.observation.snapshot.errno !== null) {
+    return failedReceipt(
+      call,
+      before,
+      state,
+      runId,
+      result.observation.snapshot.errno,
+      `Path realpath failed with ${result.observation.snapshot.errno}`,
+      "observe",
+      true,
+    );
+  }
+  const physicalPath = result.observation.snapshot.physicalPath;
+  if (physicalPath === null) {
+    return failedReceipt(call, before, state, runId, "INVALID_OBSERVATION", "Path realpath returned no physical path", "observe", true);
+  }
+  if (!within(state.scenarioRoot, physicalPath)) {
+    return failedReceipt(call, before, state, runId, "SANDBOX_ESCAPE", "Resolved physical path escapes the scenario root", "observe", true);
+  }
+  const observation: PathRealpathObservation = Object.freeze({
+    kind: "path.realpath",
+    ref,
     configuredPath,
     executable: result.observation.executable,
     helperPath: result.observation.helperPath,
@@ -1816,6 +1925,7 @@ export async function createCliFilesystemSandbox(options: {
       if (call.operation === "path.resolve") return executePathResolve(state, call, before);
       if (call.operation === "path.relative") return executePathRelative(state, call, before);
       if (call.operation === "path.parts") return executePathParts(state, call, before);
+      if (call.operation === "path.realpath") return executePathRealpath(state, call, before);
       if (call.operation === "file.read") return executeFileRead(state, call, before);
       if (call.operation === "file.read.lines") return executeFileReadLines(state, call, before);
       if (call.operation === "directory.search.entries" || call.operation === "directory.search.content") {

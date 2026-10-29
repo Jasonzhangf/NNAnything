@@ -11,12 +11,8 @@ if (profilePath === undefined || profilePath.length === 0) {
   throw new Error("NN_CLI_COMMAND_PROFILE is required; no candidate default is allowed");
 }
 const module = await import("nnanything/cli-goal");
-// A 10x30 profile predates the search.nameNeedleSegment wire; the runtime entry rejects that
-// shape by contract, so this caller migrates it by name first. A 10x31 profile passes through.
 const rawProfile = JSON.parse(await readFile(profilePath, "utf8"));
-const profile = rawProfile.wires?.length === 30
-  ? await module.migrateCliCommandProfileV10x30(rawProfile)
-  : rawProfile;
+const profile = module.migrateCliCommandProfileToCurrent(rawProfile);
 
 const root = await realpath(await mkdtemp(join(tmpdir(), "nn-cli-controller-budget-")));
 const sessionEffects = Object.freeze(["filesystem.read", "process.exec", "session.write"]);

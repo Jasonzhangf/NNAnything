@@ -412,12 +412,10 @@ async function main() {
 
   const t0Raw = JSON.parse(await readFile(t0ProfilePath, "utf8"));
   const t0Schema = policy.detectCliCommandProfileSchema(t0Raw);
-  const t0Profile = t0Schema === "rejected-10x30"
-    ? policy.migrateCliCommandProfileV10x30(t0Raw)
-    : policy.validateCliCommandProfile(t0Raw);
-  if (t0Profile.wires.length !== 31 || t0Profile.weights.length !== 10
-    || t0Profile.weights.some(row => row.length !== 31)) {
-    throw new TypeError("t0 profile did not validate as a 10x31 matrix");
+  const t0Profile = policy.migrateCliCommandProfileToCurrent(t0Raw);
+  if (t0Profile.heads.length !== 11 || t0Profile.wires.length !== 34
+    || t0Profile.weights.length !== 11 || t0Profile.weights.some(row => row.length !== 34)) {
+    throw new TypeError("t0 profile did not validate as the current 11x34 matrix");
   }
   const t0NameWeight = t0Profile.weights[t0Profile.heads.indexOf("entry.inspect")]
     [t0Profile.wires.indexOf("search.nameNeedleSegment")];
@@ -427,18 +425,20 @@ async function main() {
 
   const t1Raw = JSON.parse(await readFile(t1ProfilePath, "utf8"));
   const t1Schema = policy.detectCliCommandProfileSchema(t1Raw);
-  if (t1Schema !== "current-10x31") {
-    throw new TypeError(`t1 profile schema must be current-10x31; detected ${t1Schema}`);
+  const t1Profile = policy.migrateCliCommandProfileToCurrent(t1Raw);
+  if (t1Profile.heads.length !== 11 || t1Profile.wires.length !== 34
+    || t1Profile.weights.length !== 11 || t1Profile.weights.some(row => row.length !== 34)) {
+    throw new TypeError("t1 profile did not validate as the current 11x34 matrix");
   }
-  const t1Profile = policy.validateCliCommandProfile(t1Raw);
 
   let t2Profile = null;
   const t2Raw = JSON.parse(await readFile(t2ProfilePath, "utf8"));
   const t2Schema = policy.detectCliCommandProfileSchema(t2Raw);
-  if (t2Schema !== "current-10x31") {
-    throw new TypeError(`t2 profile schema must be current-10x31; detected ${t2Schema}`);
+  t2Profile = policy.migrateCliCommandProfileToCurrent(t2Raw);
+  if (t2Profile.heads.length !== 11 || t2Profile.wires.length !== 34
+    || t2Profile.weights.length !== 11 || t2Profile.weights.some(row => row.length !== 34)) {
+    throw new TypeError("t2 profile did not validate as the current 11x34 matrix");
   }
-  t2Profile = policy.validateCliCommandProfile(t2Raw);
 
   const profileReceipts = Object.freeze({
     t0: {
@@ -538,7 +538,7 @@ async function main() {
     for (const episode of episodes) {
       for (const arm of CONDITIONS) {
         const reference = stage === "t0"
-          ? `${t0ProfilePath}#migrateCliCommandProfileV10x30`
+          ? `${t0ProfilePath}#migrateCliCommandProfileToCurrent`
           : `${t1ProfilePath}#read-from-file`;
         const run = await runArm(episode, arm, stage === "t0" ? t0Profile : t1Profile, reference);
         cells.push({ ...run, stage });

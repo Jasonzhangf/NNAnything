@@ -533,9 +533,7 @@ export async function runControllerPathA() {
   }
   const { readFile: read } = await import("node:fs/promises");
   const rawProfile = JSON.parse(await read(profileFile, "utf8"));
-  const profile = rawProfile.wires?.length === 30
-    ? await (await import("nnanything/cli-goal")).migrateCliCommandProfileV10x30(rawProfile)
-    : rawProfile;
+  const profile = await (await import("nnanything/cli-goal")).migrateCliCommandProfileToCurrent(rawProfile);
   const { runCliReadCompositionGoal } = await import("nnanything/cli-read");
   const world = await makeWorld("t2-controller", [{ path: "start/target.bin", kind: "file", contents: "abcdef" }]);
   const rows = [];

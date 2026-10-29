@@ -5,6 +5,7 @@ import type {
   DirectoryRef,
   EntryInspectObservation,
   PathPartsCallObservation,
+  PathRealpathObservation,
   PathRelativeObservation,
   PathResolveObservation,
   SessionRef,
@@ -16,6 +17,7 @@ import type { PwdObservation } from "../adapters/cli/observation.js";
 import {
   computePropertyFacts,
   expectedDirectoryOf,
+  isResolvedTargetGoal,
   requiredHead,
   validatePropertyRequest,
   type CwdGoal,
@@ -24,11 +26,13 @@ import {
   type InspectGoal,
   type InspectRef,
   type PathAbsoluteGoal,
+  type PathPhysicalGoal,
   type PathPartsGoal,
   type PathRef,
   type PathRelativeGoal,
   type PropertyFacts,
   type PropertyRequest,
+  type ResolvedTargetGoal,
   type ValidatedPropertyRequest,
 } from "../filters/cli-file-property.js";
 import {
@@ -57,6 +61,7 @@ export type CliCommandInvocation =
   | readonly ["path.resolve", PathRef, string]
   | readonly ["path.relative", PathRef, PathRef]
   | readonly ["path.parts", PathRef]
+  | readonly ["path.realpath", InspectRef]
   | readonly ["entry.inspect", InspectRef, boolean];
 
 export type CliCommandPolicyError = Readonly<{ expectedHead: CliCommandHead; selectedHead: CliCommandHead }>;
@@ -208,26 +213,35 @@ function actionOf(selectedHead: CliCommandHead, session: SessionRef, goal: FileP
   const relativeGoal = goal.property === "file.property.path.relative" && selectedHead === "path.relative"
     ? goal as PathRelativeGoal
     : null;
-  const inspect = goal.property === "file.property.exists"
+  const physicalGoal = goal.property === "file.property.path.physical" && selectedHead === "path.realpath"
+    ? goal as PathPhysicalGoal
+    : null;
+  const inspect = goal.requirement.kind === "observed" && (goal.property === "file.property.exists"
     || goal.property === "file.property.type"
     || goal.property === "file.property.size"
     || goal.property === "file.property.mode"
     || goal.property === "file.property.owner"
     || goal.property === "file.property.times"
     || goal.property === "file.property.link.target"
-    || goal.property === "file.property.entry.identity"
+    || goal.property === "file.property.entry.identity")
     ? selectedHead === "entry.inspect" ? goal as InspectGoal : null
     : null;
+  const resolvedTarget = isResolvedTargetGoal(goal)
+    && selectedHead === "entry.inspect"
+    ? goal as ResolvedTargetGoal
+    : null;
+  const inspectTarget = inspect?.target ?? resolvedTarget?.target ?? null;
   return Object.freeze({
     kind: selectedHead,
-    session: ["pwd", "cd", "path.resolve", "path.relative", "path.parts", "entry.inspect"].includes(selectedHead) ? session : null,
+    session: ["pwd", "cd", "path.resolve", "path.relative", "path.parts", "path.realpath", "entry.inspect"].includes(selectedHead) ? session : null,
     directory,
-    path: pathGoal?.target ?? absoluteGoal?.target.base ?? relativeGoal?.target.from ?? null,
+    path: pathGoal?.target ?? absoluteGoal?.target.base ?? relativeGoal?.target.from
+      ?? (physicalGoal?.target.kind === "cli.path" ? physicalGoal.target : null),
     from: relativeGoal?.target.from ?? null,
     to: relativeGoal?.target.to ?? null,
     input: absoluteGoal?.target.input ?? null,
-    ref: inspect?.target.ref ?? null,
-    followSymlinks: inspect?.target.followSymlinks ?? null,
+    ref: inspectTarget?.ref ?? null,
+    followSymlinks: inspectTarget?.followSymlinks ?? null,
   });
 }
 
@@ -251,7 +265,7 @@ function directoryKnowledge(observation: DirectoryListObservation, revision: num
 }
 
 function pathKnowledge(
-  observation: PathResolveObservation | PathRelativeObservation | PathPartsCallObservation,
+  observation: PathResolveObservation | PathRelativeObservation | PathPartsCallObservation | PathRealpathObservation,
   revision: number,
   sourceRun: string,
 ): PathKnowledge {
@@ -272,6 +286,19 @@ function pathKnowledge(
       from: observation.from,
       to: observation.to,
       relativePath: observation.relative,
+      sourceRun,
+      sessionRevision: revision,
+    });
+  }
+  if (observation.kind === "path.realpath") {
+    return Object.freeze({
+      kind: "path.realpath",
+      ref: observation.ref as InspectRef,
+      physicalPath: observation.snapshot.physicalPath,
+      entryExists: observation.snapshot.entryExists,
+      resolvedTargetExists: observation.snapshot.resolvedTargetExists,
+      resolvedIdentity: observation.snapshot.resolvedIdentity,
+      errno: observation.snapshot.errno,
       sourceRun,
       sessionRevision: revision,
     });
@@ -408,6 +435,25 @@ function inspectProjection(goal: InspectGoal, observation: EntryInspectObservati
   };
 }
 
+function resolvedTargetProjection(observation: EntryInspectObservation): InspectProjection {
+  const snapshot = observation.snapshot;
+  if (observation.entryKind !== "symlink") {
+    if (snapshot.entryExists === false) return { state: "missing", errno: snapshot.errno };
+    return { state: "inapplicable" };
+  }
+  if (snapshot.resolvedTargetExists !== true || snapshot.kind === null) {
+    return { state: "missing", errno: snapshot.errno };
+  }
+  return {
+    state: "known",
+    value: Object.freeze({
+      resolvedTargetExists: true,
+      targetType: snapshot.kind,
+      targetIdentity: Object.freeze({ dev: snapshot.dev, ino: snapshot.ino }),
+    }),
+  };
+}
+
 function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisfaction" | "status" | "reason" | "evidence" | "defer"> {
   const common = {
     facts: input.facts,
@@ -419,7 +465,15 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
     errorCode: failureCode(input.receipt),
   } as const;
   if (input.bindingError !== null) {
-    return { satisfaction: 0, status: "rejected", reason: "directory_binding_failed", evidence: Object.freeze({ ...common }), defer: null };
+    return {
+      satisfaction: 0,
+      status: "rejected",
+      reason: input.bindingError === "resolved_target_requires_follow_symlinks"
+        ? input.bindingError
+        : "directory_binding_failed",
+      evidence: Object.freeze({ ...common }),
+      defer: null,
+    };
   }
   if (!input.registered) {
     return { satisfaction: null, status: "unknown", reason: "unsupported_property", evidence: Object.freeze({ ...common }), defer: null };
@@ -446,19 +500,28 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
     };
   }
   const observation = input.receipt?.execution.status === "succeeded" ? input.receipt.execution.observation : null;
-  const inspectGoal = input.request.goal.property === "file.property.exists"
+  const physicalGoal = input.request.goal.property === "file.property.path.physical"
+    ? input.request.goal as PathPhysicalGoal
+    : null;
+  const resolvedTargetGoal = isResolvedTargetGoal(input.request.goal)
+    ? input.request.goal as ResolvedTargetGoal
+    : null;
+  const inspectGoal = resolvedTargetGoal === null
+    && input.request.goal.requirement.kind === "observed"
+    && (input.request.goal.property === "file.property.exists"
     || input.request.goal.property === "file.property.type"
     || input.request.goal.property === "file.property.size"
     || input.request.goal.property === "file.property.mode"
     || input.request.goal.property === "file.property.owner"
     || input.request.goal.property === "file.property.times"
     || input.request.goal.property === "file.property.link.target"
-    || input.request.goal.property === "file.property.entry.identity"
+    || input.request.goal.property === "file.property.entry.identity")
     ? input.request.goal as InspectGoal
     : null;
-  const legacyInspect = inspectGoal !== null
-    && inspectGoal.target.ref.kind === "cli.directory"
-    && !Object.hasOwn(inspectGoal.target.ref, "absolutePath");
+  const observedRef = inspectGoal?.target.ref ?? physicalGoal?.target ?? null;
+  const legacyInspect = observedRef !== null
+    && observedRef.kind === "cli.directory"
+    && !Object.hasOwn(observedRef, "absolutePath");
   if (legacyInspect && failureCode(input.receipt) === "binding_identity_missing") {
     return { satisfaction: null, status: "unknown", reason: "binding_identity_missing", evidence: Object.freeze({ ...common }), defer: null };
   }
@@ -466,6 +529,9 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
     return { satisfaction: 0, status: "rejected", reason: input.execution_result.reason, evidence: Object.freeze({ ...common }), defer: null };
   }
   if (input.execution_result.status === "failed") {
+    if (physicalGoal !== null) {
+      return { satisfaction: 0, status: "failed", reason: "physical_path_unavailable", evidence: Object.freeze({ ...common }), defer: null };
+    }
     return { satisfaction: 0, status: "failed", reason: input.execution_result.reason, evidence: Object.freeze({ ...common }), defer: null };
   }
   if (input.request.goal.property === "file.property.relation.sessionCwd") {
@@ -530,6 +596,25 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
       defer: null,
     };
   }
+  if (physicalGoal !== null) {
+    if (observation?.kind !== "path.realpath") {
+      return { satisfaction: null, status: "unknown", reason: "path_realpath_observation_invalid", evidence: Object.freeze({ ...common }), defer: null };
+    }
+    if (!unchanged(input.session_before, input.session_after)) {
+      return { satisfaction: 0, status: "unmet", reason: "unexpected_state_change", evidence: Object.freeze({ ...common }), defer: null };
+    }
+    if (observation.snapshot.physicalPath === null || observation.snapshot.entryExists !== true
+      || observation.snapshot.resolvedTargetExists !== true) {
+      return { satisfaction: 0, status: "failed", reason: "physical_path_unavailable", evidence: Object.freeze({ ...common }), defer: null };
+    }
+    return {
+      satisfaction: 100,
+      status: "achieved",
+      reason: "physical_path_observed",
+      evidence: Object.freeze({ ...common, value: observation.snapshot.physicalPath }),
+      defer: null,
+    };
+  }
   if (input.request.goal.property === "file.property.path.parent" || input.request.goal.property === "file.property.path.name") {
     if (observation?.kind !== "path.parts") {
       return { satisfaction: null, status: "unknown", reason: "path_parts_observation_invalid", evidence: Object.freeze({ ...common }), defer: null };
@@ -542,6 +627,49 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
       status: "achieved",
       reason: "path_parts_observed",
       evidence: Object.freeze({ ...common, parent: observation.parent, name: observation.name, isRoot: observation.isRoot }),
+      defer: null,
+    };
+  }
+  if (resolvedTargetGoal !== null) {
+    if (observation?.kind !== "entry.inspect") {
+      return { satisfaction: null, status: "unknown", reason: "entry_observation_invalid", evidence: Object.freeze({ ...common }), defer: null };
+    }
+    if (!unchanged(input.session_before, input.session_after)) {
+      return { satisfaction: 0, status: "unmet", reason: "unexpected_state_change", evidence: Object.freeze({ ...common }), defer: null };
+    }
+    const projected = resolvedTargetProjection(observation);
+    if (projected.state === "known") {
+      return {
+        satisfaction: 100,
+        status: "achieved",
+        reason: "resolved_target_observed",
+        evidence: Object.freeze({ ...common, value: projected.value }),
+        defer: null,
+      };
+    }
+    if (projected.state === "inapplicable") {
+      return {
+        satisfaction: null,
+        status: "unknown",
+        reason: "attribute_not_applicable",
+        evidence: Object.freeze({ ...common }),
+        defer: null,
+      };
+    }
+    if (projected.errno === "ENOENT") {
+      return {
+        satisfaction: 0,
+        status: "unmet",
+        reason: "resolved_target_missing",
+        evidence: Object.freeze({ ...common, errno: projected.errno }),
+        defer: null,
+      };
+    }
+    return {
+      satisfaction: 0,
+      status: "failed",
+      reason: "attribute_unavailable",
+      evidence: Object.freeze({ ...common, errno: projected.errno }),
       defer: null,
     };
   }
@@ -606,7 +734,7 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
           session,
           session_before: before,
           expectedPhysical,
-          bindingError,
+          bindingError: request.bindingError ?? bindingError,
           registered: request.registered,
           unboundDirectory: request.unboundDirectory,
         });
@@ -646,7 +774,11 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
         let invocation: CliCommandInvocation | null = null, call: SemanticCallReceipt["call"] | null = null, receipt: SemanticCallReceipt | null = null;
         let result: CliCommandExecutionResult;
         if (selected.bindingError !== null) {
-          result = executionResult("rejected", "directory_binding_failed", null, false, selected.bindingError);
+          result = executionResult("rejected",
+            selected.bindingError === "resolved_target_requires_follow_symlinks"
+              ? selected.bindingError
+              : "directory_binding_failed",
+            null, false, selected.bindingError);
         } else if (selected.policy_error !== null) {
           result = executionResult("rejected", "unexpected_head");
         } else if (selected.policy.selectedHead === "unsupported") {
@@ -690,6 +822,13 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
               call = Object.freeze({
                 operation: "path.parts",
                 parameters: Object.freeze({ path: target }),
+              });
+            } else if (head === "path.realpath") {
+              const target = (goal as PathPhysicalGoal).target;
+              invocation = Object.freeze(["path.realpath", target] as const);
+              call = Object.freeze({
+                operation: "path.realpath",
+                parameters: Object.freeze({ ref: target }),
               });
             } else if (head === "entry.inspect") {
               const target = (goal as InspectGoal).target;
@@ -744,7 +883,7 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
               runId: executed.receipt.execution.runId,
               observation,
             });
-          } else if ((observation.kind === "path.resolve" || observation.kind === "path.relative" || observation.kind === "path.parts")
+          } else if ((observation.kind === "path.resolve" || observation.kind === "path.relative" || observation.kind === "path.parts" || observation.kind === "path.realpath")
             && unchanged(executed.session_before, executed.session_after)) {
             observed = Object.freeze({
               ...observed,

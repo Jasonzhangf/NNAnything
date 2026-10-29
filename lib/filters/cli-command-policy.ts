@@ -26,6 +26,7 @@ export const CLI_COMMAND_HEADS = Object.freeze([
   "path.resolve",
   "path.relative",
   "path.parts",
+  "path.realpath",
   "entry.inspect",
 ] as const);
 export type CliCommandHead = typeof CLI_COMMAND_HEADS[number];
@@ -85,6 +86,25 @@ export type CliCommandPrediction = Readonly<{
 }>;
 
 const PROFILE_KEYS = ["adoption", "calibration", "contract", "heads", "predicates", "properties", "weights", "wires"] as const;
+const STAGE0_HEADS = Object.freeze(CLI_COMMAND_HEADS.filter(head => head !== "path.realpath")) as readonly CliCommandHead[];
+const STAGE1_NEW_WIRES = Object.freeze([
+  "property.path.physical",
+  "predicate.observe.physical",
+  "predicate.observe.resolvedTarget",
+] as const);
+const CURRENT_10X31_WIRES = Object.freeze(
+  CLI_COMMAND_WIRES.filter(wire => !STAGE1_NEW_WIRES.includes(wire as typeof STAGE1_NEW_WIRES[number])),
+) as readonly CliCommandWire[];
+const LEGACY_10X30_WIRES = Object.freeze(
+  CURRENT_10X31_WIRES.filter(wire => wire !== "search.nameNeedleSegment"),
+) as readonly CliCommandWire[];
+const LEGACY_10X30_PROPERTIES = Object.freeze(
+  CLI_COMMAND_PROPERTIES.filter(property => property !== "property.path.physical"),
+) as readonly CliCommandProperty[];
+const LEGACY_10X30_PREDICATES = Object.freeze(
+  CLI_COMMAND_PREDICATES.filter(predicate =>
+    predicate !== "predicate.observe.physical" && predicate !== "predicate.observe.resolvedTarget"),
+) as readonly CliCommandPredicate[];
 const LEGACY_HEADS = ["unsupported", "pwd", "cd", "ls"] as const;
 const LEGACY_WIRES = ["bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory"] as const;
 const LEGACY_6X14_HEADS = ["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"] as const;
@@ -104,11 +124,8 @@ const LEGACY_6X14_WIRES = [
   "state.hasDestinationRef",
   "state.requiredConditionHolds*state.hasFreshEvidence",
 ] as const;
-const LEGACY_10X30_WIRES = Object.freeze(
-  CLI_COMMAND_WIRES.filter(wire => wire !== "search.nameNeedleSegment"),
-) as readonly CliCommandWire[];
-
 export type CliCommandProfileSchema =
+  | "current-11x34"
   | "legacy-4x4"
   | "legacy-6x14"
   | "current-10x31"
@@ -154,14 +171,17 @@ export function detectCliCommandProfileSchema(value: unknown): CliCommandProfile
   const input = value as Record<string, unknown>;
   if (!Array.isArray(input.heads) || !Array.isArray(input.wires)) return "invalid";
   const heads: unknown[] = input.heads, wires: unknown[] = input.wires;
+  if (heads.length === CLI_COMMAND_HEADS.length && wires.length === CLI_COMMAND_WIRES.length
+    && CLI_COMMAND_HEADS.every((name, index) => heads[index] === name)
+    && CLI_COMMAND_WIRES.every((name, index) => wires[index] === name)) return "current-11x34";
   if (heads.length === 10 && wires.length === 31
-    && CLI_COMMAND_HEADS.every((name, index) => heads[index] === name)
-    && CLI_COMMAND_WIRES.every((name, index) => wires[index] === name)) return "current-10x31";
+    && STAGE0_HEADS.every((name, index) => heads[index] === name)
+    && CURRENT_10X31_WIRES.every((name, index) => wires[index] === name)) return "current-10x31";
   if (heads.length === 10 && wires.length === 30
-    && CLI_COMMAND_HEADS.every((name, index) => heads[index] === name)
+    && STAGE0_HEADS.every((name, index) => heads[index] === name)
     && LEGACY_10X30_WIRES.every((name, index) => wires[index] === name)) return "rejected-10x30";
   if (heads.length === 10 && wires.length === 32
-    && CLI_COMMAND_HEADS.every((name, index) => heads[index] === name)) return "rejected-10x32";
+    && STAGE0_HEADS.every((name, index) => heads[index] === name)) return "rejected-10x32";
   if (heads.length === 6 && wires.length === 14
     && LEGACY_6X14_HEADS.every(name => heads.includes(name))
     && LEGACY_6X14_WIRES.every(name => wires.includes(name))) return "legacy-6x14";
@@ -187,8 +207,9 @@ export function zeroCliCommandProfile(): CliCommandProfile {
 export function validateCliCommandProfile(value: unknown): CliCommandProfile {
   const input = expectRecord(value, "shared command profile");
   const schema = detectCliCommandProfileSchema(input);
+  if (schema === "current-10x31") throw new TypeError("10x31 command profile must be migrated to the Stage 1 11x34 schema with migrateCliCommandProfileStage0ToStage1");
   if (schema === "rejected-10x30") throw new TypeError("10x30 command profile must be migrated to the 31-wire schema with migrateCliCommandProfileV10x30");
-  if (schema === "rejected-10x32") throw new TypeError("The deprecated 32-wire search profile shape is rejected; the current contract is 10x31");
+  if (schema === "rejected-10x32") throw new TypeError("The deprecated 32-wire search profile shape is rejected; the current contract is 11x34");
   if (schema === "legacy-6x14") throw new TypeError("Legacy 6x14 command profile must use migrateCliCommandProfileV6");
   if (schema === "legacy-4x4") throw new TypeError("Legacy 4x4 command profile must use migrateLegacyCliCommandProfile");
   exactKeys(input, PROFILE_KEYS, "shared command profile");
@@ -210,7 +231,7 @@ export function validateCliCommandProfile(value: unknown): CliCommandProfile {
   });
 }
 
-/** Explicit offline migration from the previous 6x14 shared profile to the current 10x31 schema. */
+/** Explicit offline migration from the previous 6x14 shared profile to the current 11x34 schema. */
 export function migrateCliCommandProfileV6(value: unknown): CliCommandProfile {
   const legacy = expectRecord(value, "legacy 6x14 command profile");
   exactKeys(legacy, PROFILE_KEYS, "legacy 6x14 command profile");
@@ -237,8 +258,8 @@ export function migrateCliCommandProfileV6(value: unknown): CliCommandProfile {
   });
 }
 
-/** Explicit offline migration from the saved 10x30 profile to the current 10x31 schema.
- *  Existing 30 columns are copied by name; the new search.nameNeedleSegment column is zero-filled.
+/** Explicit offline migration from the saved 10x30 profile to the current 11x34 schema.
+ *  Existing 30 columns are copied by name; the new search.nameNeedleSegment and Stage 1 columns are zero-filled.
  */
 export function migrateCliCommandProfileV10x30(value: unknown): CliCommandProfile {
   const legacy = expectRecord(value, "10x30 command profile");
@@ -246,11 +267,39 @@ export function migrateCliCommandProfileV10x30(value: unknown): CliCommandProfil
   if (legacy.contract !== "cli.command-policy.v1" || legacy.calibration !== "uncalibrated" || legacy.adoption !== "not_applied") {
     throw new TypeError("10x30 command profile contract/status is invalid");
   }
-  const heads = namedSequence(legacy.heads, CLI_COMMAND_HEADS, "10x30 command heads");
-  namedSequence(legacy.properties, CLI_COMMAND_PROPERTIES, "10x30 command properties");
-  namedSequence(legacy.predicates, CLI_COMMAND_PREDICATES, "10x30 command predicates");
+  const heads = namedSequence(legacy.heads, STAGE0_HEADS, "10x30 command heads");
+  namedSequence(legacy.properties, LEGACY_10X30_PROPERTIES, "10x30 command properties");
+  namedSequence(legacy.predicates, LEGACY_10X30_PREDICATES, "10x30 command predicates");
   const legacyWires = namedSequence(legacy.wires, LEGACY_10X30_WIRES, "10x30 command wires");
   const weights = finiteMatrix(legacy.weights, heads.length, legacyWires.length);
+  const stage0 = {
+    contract: "cli.command-policy.v1",
+    heads: [...STAGE0_HEADS],
+    properties: [...LEGACY_10X30_PROPERTIES],
+    predicates: [...LEGACY_10X30_PREDICATES],
+    wires: [...CURRENT_10X31_WIRES],
+    weights: STAGE0_HEADS.map(head => CURRENT_10X31_WIRES.map(wire => {
+      const column = legacyWires.indexOf(wire);
+      return column < 0 ? 0 : weights[heads.indexOf(head)]![column]!;
+    })),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+  return migrateCliCommandProfileStage0ToStage1(stage0);
+}
+
+/** Explicit offline migration from the Stage 0 10x31 profile to the current Stage 1 11x34 schema. */
+export function migrateCliCommandProfileStage0ToStage1(value: unknown): CliCommandProfile {
+  const legacy = expectRecord(value, "10x31 command profile");
+  exactKeys(legacy, PROFILE_KEYS, "10x31 command profile");
+  if (legacy.contract !== "cli.command-policy.v1" || legacy.calibration !== "uncalibrated" || legacy.adoption !== "not_applied") {
+    throw new TypeError("10x31 command profile contract/status is invalid");
+  }
+  const heads = namedSequence(legacy.heads, STAGE0_HEADS, "10x31 command heads");
+  namedSequence(legacy.properties, LEGACY_10X30_PROPERTIES, "10x31 command properties");
+  namedSequence(legacy.predicates, LEGACY_10X30_PREDICATES, "10x31 command predicates");
+  const wires = namedSequence(legacy.wires, CURRENT_10X31_WIRES, "10x31 command wires");
+  const weights = finiteMatrix(legacy.weights, heads.length, wires.length);
   return validateCliCommandProfile({
     contract: "cli.command-policy.v1",
     heads: [...CLI_COMMAND_HEADS],
@@ -258,12 +307,23 @@ export function migrateCliCommandProfileV10x30(value: unknown): CliCommandProfil
     predicates: [...CLI_COMMAND_PREDICATES],
     wires: [...CLI_COMMAND_WIRES],
     weights: CLI_COMMAND_HEADS.map(head => CLI_COMMAND_WIRES.map(wire => {
-      const column = legacyWires.indexOf(wire);
-      return column < 0 ? 0 : weights[heads.indexOf(head)]![column]!;
+      const row = heads.indexOf(head), column = wires.indexOf(wire);
+      return row < 0 || column < 0 ? 0 : weights[row]![column]!;
     })),
     calibration: "uncalibrated",
     adoption: "not_applied",
   });
+}
+
+/** Unified offline migration entry from any retired or previous shape to the current 11x34 schema. */
+export function migrateCliCommandProfileToCurrent(value: unknown): CliCommandProfile {
+  const schema = detectCliCommandProfileSchema(value);
+  if (schema === "current-11x34") return validateCliCommandProfile(value);
+  if (schema === "current-10x31") return migrateCliCommandProfileStage0ToStage1(value);
+  if (schema === "rejected-10x30") return migrateCliCommandProfileV10x30(value);
+  if (schema === "legacy-6x14") return migrateCliCommandProfileV6(value);
+  if (schema === "legacy-4x4") return migrateLegacyCliCommandProfile(value);
+  throw new TypeError("Command profile schema is not a recognized migration source");
 }
 
 

@@ -12,16 +12,14 @@ const { createCliFilesystemSandbox, runCliEntrySearchGoal } = await import(
 );
 const { runCliReadCompositionGoal } = await import("nnanything/cli-read");
 const { runCliContentSearchGoal } = await import("nnanything/cli-content-search");
-const { migrateCliCommandProfileV10x30 } = await import("nnanything/cli-goal");
+const { migrateCliCommandProfileToCurrent } = await import("nnanything/cli-goal");
 
 const profilePath = process.env.NN_CLI_COMMAND_PROFILE;
 if (profilePath === undefined || profilePath.length === 0) {
   throw new Error("NN_CLI_COMMAND_PROFILE is required");
 }
 const rawProfile = JSON.parse(await readFile(profilePath, "utf8"));
-const profile = rawProfile.wires?.length === 30
-  ? await migrateCliCommandProfileV10x30(rawProfile)
-  : rawProfile;
+const profile = migrateCliCommandProfileToCurrent(rawProfile);
 
 function goal(target, threshold = 100) {
   return { kind: "counter", target, threshold };

@@ -9,16 +9,20 @@ import {
 } from "../adapters/cli/filesystem-sandbox.js";
 import {
   CLI_COMMAND_HEADS,
+  CLI_COMMAND_WIRES,
   cliCommandFeatures,
   type CliCommandHead,
 } from "../filters/cli-command-policy.js";
 import {
   CWD_PROPERTY,
   ENTRIES_PROPERTY,
+  LINK_TARGET_PROPERTY,
   PATH_ABSOLUTE_PROPERTY,
   PATH_NAME_PROPERTY,
   PATH_PARENT_PROPERTY,
+  PATH_PHYSICAL_PROPERTY,
   PATH_RELATIVE_PROPERTY,
+  requiredHead,
   validateGoal,
   type EntryRef,
   type FilePropertyGoal,
@@ -50,6 +54,7 @@ export type Batch1CommandCase =
   | "path-relative"
   | "path-parts-parent"
   | "path-parts-name"
+  | "path-realpath"
   | "inspect-exists"
   | "inspect-type"
   | "inspect-size"
@@ -57,7 +62,9 @@ export type Batch1CommandCase =
   | "inspect-owner"
   | "inspect-times"
   | "inspect-link-target"
-  | "inspect-entry-identity";
+  | "inspect-entry-identity"
+  | "inspect-resolved-target"
+  | "inspect-resolved-target-broken";
 
 export type CommandCase = LegacyCommandCase | Batch1CommandCase;
 
@@ -65,7 +72,8 @@ export type Batch1Query =
   | Readonly<{ kind: "path.resolve"; base: PathRef; input: string }>
   | Readonly<{ kind: "path.relative"; from: PathRef; to: PathRef }>
   | Readonly<{ kind: "path.parts"; property: typeof PATH_PARENT_PROPERTY | typeof PATH_NAME_PROPERTY; path: PathRef }>
-  | Readonly<{ kind: "inspect"; property: InspectProperty; ref: InspectRef; followSymlinks: boolean }>;
+  | Readonly<{ kind: "path.realpath"; ref: InspectRef }>
+  | Readonly<{ kind: "inspect"; property: InspectProperty; ref: InspectRef; followSymlinks: boolean; requirementKind?: "observed" | "resolvedTarget" }>;
 
 type PathFixtureBase = Readonly<{
   id: string;
@@ -87,19 +95,28 @@ type PathFixtureParts = Readonly<{
 
 type InspectRefKind = "cli.path" | "cli.entry" | "cli.file" | "cli.directory";
 
+export type PathFixtureRealpath = Readonly<{
+  id: string;
+  path: string;
+  refKind: InspectRefKind;
+}>;
+
 export type InspectFixture = Readonly<{
   id: string;
   property: InspectProperty;
-  state: "a" | "b";
+  state: "a" | "b" | "c" | "d";
   path: string;
   refKind: InspectRefKind;
   followSymlinks: boolean;
+  requirementKind?: "observed" | "resolvedTarget";
+  brokenTarget?: boolean;
 }>;
 
 export type Batch1PathFixtures = Readonly<{
   resolve: readonly PathFixtureBase[];
   relative: readonly PathFixtureRelative[];
   parts: readonly PathFixtureParts[];
+  realpath?: readonly PathFixtureRealpath[];
   inspect: readonly InspectFixture[];
   symlinks: readonly Readonly<{ path: string; target: string }>[];
 }>;
@@ -154,6 +171,7 @@ const BATCH1_CASES: readonly Batch1CommandCase[] = [
   "path-relative",
   "path-parts-parent",
   "path-parts-name",
+  "path-realpath",
   "inspect-exists",
   "inspect-type",
   "inspect-size",
@@ -162,6 +180,8 @@ const BATCH1_CASES: readonly Batch1CommandCase[] = [
   "inspect-times",
   "inspect-link-target",
   "inspect-entry-identity",
+  "inspect-resolved-target",
+  "inspect-resolved-target-broken",
 ];
 
 type CaseExpectation = Readonly<{
@@ -188,6 +208,7 @@ const BATCH1_CASE_EXPECTATION: Readonly<Record<Batch1CommandCase, CaseExpectatio
   "path-relative": { head: "path.relative", status: "achieved", satisfaction: 100 },
   "path-parts-parent": { head: "path.parts", status: "achieved", satisfaction: 100 },
   "path-parts-name": { head: "path.parts", status: "achieved", satisfaction: 100 },
+  "path-realpath": { head: "path.realpath", status: "achieved", satisfaction: 100 },
   "inspect-exists": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
   "inspect-type": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
   "inspect-size": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
@@ -196,6 +217,8 @@ const BATCH1_CASE_EXPECTATION: Readonly<Record<Batch1CommandCase, CaseExpectatio
   "inspect-times": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
   "inspect-link-target": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
   "inspect-entry-identity": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-resolved-target": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
+  "inspect-resolved-target-broken": { head: "entry.inspect", status: "unmet", satisfaction: 0 },
 });
 
 const ZERO_FACTS: PropertyFacts = Object.freeze({
@@ -255,11 +278,17 @@ function pathFamily(input: PathFamilyInput): CommandScenario {
   const folderName = `folder-${input.token}`;
   const itemLinkName = `item-${input.token}.link`;
   const brokenLinkName = `broken-${input.token}.link`;
+  const dirLinkName = `dir-${input.token}.link`;
+  const hop1LinkName = `hop1-${input.token}.link`;
+  const hop2LinkName = `hop2-${input.token}.link`;
   const nestedName = "nested";
   const targetFolder = join(input.target, folderName);
   const targetNested = join(input.target, nestedName);
   const targetNestedLeaf = join(targetNested, `leaf-${input.token}.txt`);
   const startAnchor = join(input.start, anchorName);
+  const startDirLink = join(input.start, dirLinkName);
+  const startHop1Link = join(input.start, hop1LinkName);
+  const startHop2Link = join(input.start, hop2LinkName);
   const rootPath = "/";
   const trailingTarget = `${input.target}/`;
   const virtual = `/virtual/${input.token.replaceAll("/", "-")}`;
@@ -272,6 +301,13 @@ function pathFamily(input: PathFamilyInput): CommandScenario {
     directorySet.add(normalized);
   };
   [input.start, input.target, targetFolder, targetNested].forEach(add);
+
+  const realpathFixtures: readonly PathFixtureRealpath[] = [
+    { id: "realpath-a", path: startDirLink, refKind: "cli.path" },
+    { id: "realpath-b", path: join(input.target, itemLinkName), refKind: "cli.entry" },
+    { id: "realpath-c", path: startAnchor, refKind: "cli.file" },
+    { id: "realpath-d", path: startHop1Link, refKind: "cli.path" },
+  ];
 
   const inspect: readonly InspectFixture[] = [
     { id: "exists-a", property: "file.property.exists", state: "a", path: join(input.target, filledName), refKind: "cli.path", followSymlinks: false },
@@ -290,6 +326,10 @@ function pathFamily(input: PathFamilyInput): CommandScenario {
     { id: "link-target-b", property: "file.property.link.target", state: "b", path: join(input.target, brokenLinkName), refKind: "cli.path", followSymlinks: false },
     { id: "identity-a", property: "file.property.entry.identity", state: "a", path: join(input.target, filledName), refKind: "cli.file", followSymlinks: false },
     { id: "identity-b", property: "file.property.entry.identity", state: "b", path: targetFolder, refKind: "cli.directory", followSymlinks: false },
+    { id: "resolved-target-a", property: "file.property.link.target", state: "a", path: join(input.target, itemLinkName), refKind: "cli.path", followSymlinks: true, requirementKind: "resolvedTarget" },
+    { id: "resolved-target-b", property: "file.property.link.target", state: "b", path: startDirLink, refKind: "cli.entry", followSymlinks: true, requirementKind: "resolvedTarget" },
+    { id: "link-target-c", property: "file.property.link.target", state: "c", path: startDirLink, refKind: "cli.entry", followSymlinks: false, requirementKind: "observed" },
+    { id: "resolved-target-d", property: "file.property.link.target", state: "d", path: join(input.target, brokenLinkName), refKind: "cli.path", followSymlinks: true, requirementKind: "resolvedTarget", brokenTarget: true },
   ];
 
   return {
@@ -346,10 +386,14 @@ function pathFamily(input: PathFamilyInput): CommandScenario {
         { id: "parts-name-b", property: PATH_NAME_PROPERTY, path: trailingTarget },
         { id: "parts-name-c", property: PATH_NAME_PROPERTY, path: rootPath },
       ],
+      realpath: realpathFixtures,
       inspect,
       symlinks: [
         { path: join(input.target, itemLinkName), target: filledName },
         { path: join(input.target, brokenLinkName), target: `missing-${input.token}-target` },
+        { path: startDirLink, target: relative(input.start, targetFolder) },
+        { path: startHop2Link, target: anchorName },
+        { path: startHop1Link, target: hop2LinkName },
       ],
     },
   };
@@ -391,6 +435,13 @@ function legacySamplesFor(scene: CommandScenario): readonly CommandSample[] {
   });
 }
 
+function inspectFixtureCase(item: InspectFixture): Batch1CommandCase {
+  if (item.requirementKind === "resolvedTarget") {
+    return item.brokenTarget ? "inspect-resolved-target-broken" : "inspect-resolved-target";
+  }
+  return inspectCase(item.property);
+}
+
 function batch1SamplesFor(scene: CommandScenario, queries: ReadonlyMap<string, Batch1Query>): readonly CommandSample[] {
   const fixtures = scene.pathFixtures;
   if (!fixtures) throw new TypeError(`Batch1 scenario ${scene.id} is missing path fixtures`);
@@ -402,8 +453,13 @@ function batch1SamplesFor(scene: CommandScenario, queries: ReadonlyMap<string, B
       fixture: item,
       query: queries.get(item.id),
     })),
+    ...(fixtures.realpath ?? []).map(item => ({
+      case: "path-realpath" as const,
+      fixture: item,
+      query: queries.get(item.id),
+    })),
     ...fixtures.inspect.map(item => ({
-      case: inspectCase(item.property),
+      case: inspectFixtureCase(item),
       fixture: item,
       query: queries.get(item.id),
     })),
@@ -471,6 +527,7 @@ export function prepareCliCommandDataset(value: unknown, partitions: readonly Co
     sceneMap.set(item.id, item);
   }
   const ids = new Set<string>();
+  const featureGoldByKey = new Map<string, CliCommandHead>();
   const samples = dataset.samples.map(raw => {
     const item = expectRecord(raw, "command sample") as unknown as CommandSample;
     const scene = sceneMap.get(item.scenarioId);
@@ -488,10 +545,30 @@ export function prepareCliCommandDataset(value: unknown, partitions: readonly Co
     }
     if (batch1) {
       if (item.query === undefined) throw new TypeError("Batch1 sample requires a typed query");
-      validateGoal(sampleGoal(item, scene));
     } else if (item.query !== undefined) {
       throw new TypeError("Legacy command sample must not contain a Batch1 query");
     }
+    const validated = validateGoal(sampleGoal(item, scene));
+    const facts = sampleFacts(item);
+    const required = requiredHead({
+      registered: validated.registered,
+      unboundDirectory: validated.unboundDirectory,
+      goal: validated.goal,
+      facts,
+    });
+    if (item.expectedHead !== required) {
+      throw new TypeError("Sample expectation conflicts with requiredHead");
+    }
+    const features = sampleFeatures(item, scene);
+    if (features.length !== CLI_COMMAND_WIRES.length || features.some(value => value !== 0 && value !== 1)) {
+      throw new TypeError(`Sample feature vector must contain ${CLI_COMMAND_WIRES.length} binary values`);
+    }
+    const featureKey = features.join(",");
+    const previousHead = featureGoldByKey.get(featureKey);
+    if (previousHead !== undefined && previousHead !== item.expectedHead) {
+      throw new TypeError("Conflicting gold heads for identical feature vector");
+    }
+    featureGoldByKey.set(featureKey, item.expectedHead);
     if (!CLI_COMMAND_HEADS.includes(item.expectedHead)) throw new TypeError("Sample head is outside the shared head table");
     ids.add(item.id);
     return item;
@@ -567,6 +644,24 @@ export function sampleGoal(sample: CommandSample, scene: CommandScenario): FileP
         requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
       });
     }
+    if (sample.query.kind === "path.realpath") {
+      return Object.freeze({
+        kind: "file.property",
+        property: PATH_PHYSICAL_PROPERTY,
+        target: sample.query.ref,
+        requirement: Object.freeze({ kind: "observed", freshness: "this_run" }),
+      });
+    }
+    if (sample.query.requirementKind === "resolvedTarget"
+      || sample.case === "inspect-resolved-target"
+      || sample.case === "inspect-resolved-target-broken") {
+      return Object.freeze({
+        kind: "file.property",
+        property: LINK_TARGET_PROPERTY,
+        target: Object.freeze({ kind: "cli.entry-query", ref: sample.query.ref, followSymlinks: sample.query.followSymlinks }),
+        requirement: Object.freeze({ kind: "matches", predicate: Object.freeze({ kind: "resolvedTarget" }) }),
+      });
+    }
     return Object.freeze({
       kind: "file.property",
       property: sample.query.property,
@@ -639,6 +734,20 @@ async function bindPathFixtures(
       path: sandbox.bindPath(session, sceneAbsolute(sandbox.scenarioRoot, item.path)),
     }));
   }
+  for (const item of fixtures.realpath ?? []) {
+    const absolute = sceneAbsolute(sandbox.scenarioRoot, item.path);
+    const ref: InspectRef = item.refKind === "cli.path"
+      ? sandbox.bindPath(session, absolute)
+      : item.refKind === "cli.entry"
+        ? await sandbox.bindEntry(session, absolute) as EntryRef
+        : item.refKind === "cli.file"
+          ? await sandbox.bindFile(session, absolute) as FileRef
+          : await sandbox.bindDirectoryObject(session, absolute) as ObservedDirectoryRef;
+    queries.set(item.id, Object.freeze({
+      kind: "path.realpath",
+      ref,
+    }));
+  }
   for (const item of fixtures.inspect) {
     const absolute = sceneAbsolute(sandbox.scenarioRoot, item.path);
     const ref: InspectRef = item.refKind === "cli.path"
@@ -653,6 +762,7 @@ async function bindPathFixtures(
       property: item.property,
       ref,
       followSymlinks: item.followSymlinks,
+      ...(item.requirementKind === "resolvedTarget" ? { requirementKind: "resolvedTarget" as const } : {}),
     }));
   }
   return queries;
@@ -699,6 +809,7 @@ export async function makeCliCommandFixture(options: Readonly<{
           resolve: scene.pathFixtures.resolve.length,
           relative: scene.pathFixtures.relative.length,
           parts: scene.pathFixtures.parts.length,
+          realpath: (scene.pathFixtures.realpath ?? []).length,
           inspect: scene.pathFixtures.inspect.length,
         },
       });

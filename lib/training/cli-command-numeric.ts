@@ -88,7 +88,11 @@ export async function fitCliCommandProfile(input: Readonly<{
           timing.gradientRowEpochs += 1;
           timing.totalRowPasses += 1;
         }
-        weights = weights.map((weight, index) => Math.fround(weight - input.learningRate * gradient[index]! / rows.length));
+        weights = weights.map((weight, index) =>
+          gradient[index]! === 0
+            ? weight
+            : Math.fround(weight - input.learningRate * gradient[index]! / rows.length),
+        );
         if (!weights.every(Number.isFinite)) throw new Error("Non-finite shared command weights");
         timing.completedEpochs += 1;
         timing.trainEpochGradMs += performance.now() - epochStarted;

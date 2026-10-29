@@ -30,9 +30,7 @@ const prepared = policy.prepareCliCandidatePreferenceDataset(trainRows);
 
 const rawProfile = JSON.parse(await readFile(profilePath, "utf8"));
 const schema = policy.detectCliCommandProfileSchema(rawProfile);
-const initial = schema === "rejected-10x30"
-  ? policy.migrateCliCommandProfileV10x30(rawProfile)
-  : policy.validateCliCommandProfile(rawProfile);
+const initial = policy.migrateCliCommandProfileToCurrent(rawProfile);
 
 const fit = await policy.fitCliCandidateNamePreference({
   initial,

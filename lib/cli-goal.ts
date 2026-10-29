@@ -175,6 +175,7 @@ function requiredEffectsForOperation(
     case "cwd.get":
     case "directory.list":
     case "entry.inspect":
+    case "path.realpath":
     case "file.read.lines":
       return OBSERVE_EFFECTS;
     case "directory.search.entries":

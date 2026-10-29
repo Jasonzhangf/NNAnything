@@ -89,7 +89,7 @@ test("F4 comparison reports a root-only mismatch", async () => {
     observationCount: 3,
     bytesReadTotal: 64,
     duplicateReads: 0,
-    decisionTrace: [{ ordinal: 1, forced: false, candidateNames: ["a"], selectedName: "a", selectedFeatures: Array(31).fill(0) }],
+    decisionTrace: [{ ordinal: 1, forced: false, candidateNames: ["a"], selectedName: "a", selectedFeatures: Array(34).fill(0) }],
   };
   const right = {
     ...left,
@@ -111,6 +111,7 @@ test("candidate-preference task runs through the shared training workflow", {
   await mkdir(outputRoot);
   try {
     const initial = policy.zeroCliCommandProfile();
+    const nameWireIndex = initial.wires.indexOf("search.nameNeedleSegment");
     const receipt = await policy.runCliCommandTraining({
       task: "candidate-preference",
       preferenceRows: [{
@@ -119,8 +120,8 @@ test("candidate-preference task runs through the shared training workflow", {
         partition: "train",
         preferredName: "needle",
         otherName: "other",
-        preferredFeatures: Array.from({ length: 31 }, (_, index) => index === 29 ? 1 : 0),
-        otherFeatures: Array(31).fill(0),
+        preferredFeatures: Array.from({ length: 34 }, (_, index) => index === nameWireIndex ? 1 : 0),
+        otherFeatures: Array(34).fill(0),
         evidenceRefs: ["one:dispatch:1"],
       }],
       initial,
@@ -136,7 +137,7 @@ test("candidate-preference task runs through the shared training workflow", {
     assert.equal(receipt.fullyVerified, false);
     assert.equal(receipt.dataset.validPairCount, 1);
     assert.equal(receipt.execution.correct, 1);
-    assert.equal(receipt.trainable.frozenParameterCount, 309);
+    assert.equal(receipt.trainable.frozenParameterCount, 373);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

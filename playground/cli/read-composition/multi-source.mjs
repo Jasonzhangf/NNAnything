@@ -12,12 +12,8 @@ const env = Object.freeze(Object.fromEntries(envNames.map(name => {
   if (typeof value !== "string" || value.length === 0) throw new Error(`${name} is required`);
   return [name, value];
 })));
-// A 10x30 profile predates the search.nameNeedleSegment wire; the runtime entry rejects that
-// shape by contract, so this caller migrates it by name first. A 10x31 profile passes through.
 const rawProfile = JSON.parse(await readFile(env.NN_CLI_COMMAND_PROFILE, "utf8"));
-const profile = rawProfile.wires?.length === 30
-  ? await (await import("nnanything/cli-goal")).migrateCliCommandProfileV10x30(rawProfile)
-  : rawProfile;
+const profile = await (await import("nnanything/cli-goal")).migrateCliCommandProfileToCurrent(rawProfile);
 const limits = Object.freeze({ maxTransitions: 64, maxDepth: 4, maxDerivedGoals: 12 });
 
 const GOOD = "GOOD";

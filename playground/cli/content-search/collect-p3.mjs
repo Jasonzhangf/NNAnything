@@ -37,11 +37,14 @@ const armKinds = argument("arms", "natural,forced").split(",");
 
 const candidateProfilePath = process.env.NN_CLI_COMMAND_PROFILE;
 if (typeof candidateProfilePath !== "string" || candidateProfilePath.length === 0) {
-  throw new Error("NN_CLI_COMMAND_PROFILE must point at the saved 10x30 candidate to migrate to t0");
+  throw new Error("NN_CLI_COMMAND_PROFILE must point at a saved command policy candidate");
 }
 const sourceProfile = JSON.parse(await readFile(candidateProfilePath, "utf8"));
-const t0Profile = policy.migrateCliCommandProfileV10x30(sourceProfile);
-if (t0Profile.wires.length !== 31) throw new Error("migrated t0 profile must be 31-wire");
+const t0Profile = policy.migrateCliCommandProfileToCurrent(sourceProfile);
+if (t0Profile.heads.length !== 11 || t0Profile.wires.length !== 34
+  || t0Profile.weights.length !== 11 || t0Profile.weights.some(row => row.length !== 34)) {
+  throw new Error("migrated t0 profile must be current 11x34");
+}
 
 const NAME_COLUMN = t0Profile.wires.indexOf("search.nameNeedleSegment");
 const slot0Name = episode => episode.names[0];
@@ -155,7 +158,7 @@ for (const partitionId of partitionIds) {
   for (const episode of p3PartitionEpisodes(partitionId)) {
     for (const arm of armKinds) {
       if (!["natural", "forced"].includes(arm)) throw new TypeError(`unknown arm ${arm}`);
-      const profileReference = `${candidateProfilePath}#migrateCliCommandProfileV10x30`;
+      const profileReference = `${candidateProfilePath}#migrateCliCommandProfileToCurrent`;
       const run = await runArm(episode, arm, profileReference);
       const domain = run.result.domain;
       const state = run.state;
@@ -319,8 +322,8 @@ const sampleDocument = {
   schemaVersion: "p3-content-search-samples.v2",
   runId,
   generatedAt: new Date().toISOString(),
-  profileReference: `${candidateProfilePath}#migrateCliCommandProfileV10x30`,
-  wire: { name: "search.nameNeedleSegment", column: NAME_COLUMN, dimensions: 31 },
+  profileReference: `${candidateProfilePath}#migrateCliCommandProfileToCurrent`,
+  wire: { name: "search.nameNeedleSegment", column: NAME_COLUMN, dimensions: 34 },
   samples,
   evidence: {
     dispatches: Object.fromEntries(dispatches.entries()),

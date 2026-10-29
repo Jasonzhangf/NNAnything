@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -80,6 +80,24 @@ function emptyState(session) {
   return { session: session.sessionId, cwdObservation: null, directoryListing: null };
 }
 
+function physicalPathGoal(ref) {
+  return {
+    kind: "file.property",
+    property: "file.property.path.physical",
+    target: ref,
+    requirement: { kind: "observed", freshness: "this_run" },
+  };
+}
+
+function resolvedTargetGoal(ref, followSymlinks) {
+  return {
+    kind: "file.property",
+    property: "file.property.link.target",
+    target: { kind: "cli.entry-query", ref, followSymlinks },
+    requirement: { kind: "matches", predicate: { kind: "resolvedTarget" } },
+  };
+}
+
 function observedPathValue(result, key) {
   const knowledge = result?.observed_state_after?.pathKnowledge ?? {};
   const aliases = { absolute: "absolutePath", relative: "relativePath" };
@@ -88,23 +106,37 @@ function observedPathValue(result, key) {
     ?? result?.evidence?.[resolvedKey] ?? result?.evidence?.value?.[resolvedKey];
 }
 
-const TEN_HEADS = [
+const ELEVEN_HEADS = [
   "unsupported", "DEFER", "NOOP", "pwd", "cd", "ls",
-  "path.resolve", "path.relative", "path.parts", "entry.inspect",
+  "path.resolve", "path.relative", "path.parts", "path.realpath", "entry.inspect",
 ];
-const THIRTY_ONE_WIRES = [
-  "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
+const FIFTEEN_PROPERTIES = [
   "property.path.absolute", "property.path.relative", "property.path.parent", "property.path.name",
+  "property.path.physical",
   "property.exists", "property.type", "property.directory.entries", "property.size",
   "property.mode", "property.owner", "property.times", "property.link.target",
   "property.entry.identity", "property.relation.sessionCwd",
+];
+const NINE_PREDICATES = [
   "predicate.observe.absolute", "predicate.observe.relative", "predicate.observe.parts",
-  "predicate.observe.inspect", "predicate.observe.sessionCwd", "predicate.equals.sessionCwd",
-  "predicate.observe.entries",
+  "predicate.observe.physical", "predicate.observe.inspect", "predicate.observe.resolvedTarget",
+  "predicate.observe.sessionCwd", "predicate.equals.sessionCwd", "predicate.observe.entries",
+];
+const THIRTY_FOUR_WIRES = [
+  "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
+  ...FIFTEEN_PROPERTIES,
+  ...NINE_PREDICATES,
   "state.hasFreshEvidence", "state.knownValue", "state.requiredConditionHolds", "state.hasDestinationRef",
   "search.nameNeedleSegment",
   "state.requiredConditionHolds*state.hasFreshEvidence",
 ];
+const TEN_HEADS_10X31 = ELEVEN_HEADS.filter(head => head !== "path.realpath");
+const STAGE1_NEW_WIRES = [
+  "property.path.physical",
+  "predicate.observe.physical",
+  "predicate.observe.resolvedTarget",
+];
+const THIRTY_ONE_WIRES_10X31 = THIRTY_FOUR_WIRES.filter(wire => !STAGE1_NEW_WIRES.includes(wire));
 const SIX_HEADS = ["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"];
 const FOURTEEN_WIRES = [
   "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
@@ -128,25 +160,16 @@ function directoryQuery(name = "child") {
   };
 }
 
-test("R01 profile registers ten shared heads, thirty-one ordered wires and a 10x31 matrix", async () => {
+test("R01 profile registers eleven shared heads, thirty-four ordered wires and an 11x34 matrix", async () => {
   const module = await api();
   const profile = module.zeroCliCommandProfile();
-  assert.deepEqual(profile.heads, TEN_HEADS);
-  assert.deepEqual(profile.properties, [
-    "property.path.absolute", "property.path.relative", "property.path.parent", "property.path.name",
-    "property.exists", "property.type", "property.directory.entries", "property.size",
-    "property.mode", "property.owner", "property.times", "property.link.target",
-    "property.entry.identity", "property.relation.sessionCwd",
-  ]);
-  assert.deepEqual(profile.predicates, [
-    "predicate.observe.absolute", "predicate.observe.relative", "predicate.observe.parts",
-    "predicate.observe.inspect", "predicate.observe.sessionCwd", "predicate.equals.sessionCwd",
-    "predicate.observe.entries",
-  ]);
-  assert.deepEqual(profile.wires, THIRTY_ONE_WIRES);
-  assert.equal(profile.weights.length, 10);
-  assert.equal(profile.weights.every(row => row.length === 31), true);
-  assert.equal(profile.weights.flat().length, 310);
+  assert.deepEqual(profile.heads, ELEVEN_HEADS);
+  assert.deepEqual(profile.properties, FIFTEEN_PROPERTIES);
+  assert.deepEqual(profile.predicates, NINE_PREDICATES);
+  assert.deepEqual(profile.wires, THIRTY_FOUR_WIRES);
+  assert.equal(profile.weights.length, 11);
+  assert.equal(profile.weights.every(row => row.length === 34), true);
+  assert.equal(profile.weights.flat().length, 374);
 });
 
 test("legacy four-by-four migration copies its named cross block into the current schema", async () => {
@@ -165,8 +188,8 @@ test("legacy four-by-four migration copies its named cross block into the curren
     adoption: "not_applied",
   };
   const migrated = migrateLegacyCliCommandProfile(legacy);
-  assert.deepEqual(migrated.heads, TEN_HEADS);
-  assert.deepEqual(migrated.wires, THIRTY_ONE_WIRES);
+  assert.deepEqual(migrated.heads, ELEVEN_HEADS);
+  assert.deepEqual(migrated.wires, THIRTY_FOUR_WIRES);
   const legacyHeads = ["unsupported", "pwd", "cd", "ls"];
   const legacyWires = ["bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory"];
   for (const [legacyRow, head] of legacyHeads.entries()) {
@@ -179,12 +202,51 @@ test("legacy four-by-four migration copies its named cross block into the curren
   for (const head of ["DEFER", "NOOP"]) {
     assert.deepEqual(migrated.weights[migrated.heads.indexOf(head)].slice(0, 4), [0, 0, 0, 0]);
   }
-  for (const head of TEN_HEADS) {
+  for (const head of ELEVEN_HEADS) {
     const row = migrated.weights[migrated.heads.indexOf(head)];
-    for (const [column, wire] of THIRTY_ONE_WIRES.entries()) {
+    for (const [column, wire] of THIRTY_FOUR_WIRES.entries()) {
       if (!legacyHeads.includes(head) || !legacyWires.includes(wire)) assert.equal(row[column], 0, `${head}/${wire} must be zero-filled`);
     }
   }
+});
+
+test("Stage 0 10x31 migrates to Stage 1 11x34 by exact head and wire name", async () => {
+  const module = await api();
+  const weights = Array.from({ length: TEN_HEADS_10X31.length }, (_, row) =>
+    Array.from({ length: THIRTY_ONE_WIRES_10X31.length }, (_, column) => (row + 1) * 1000 + column));
+  const stage0 = {
+    contract: "cli.command-policy.v1",
+    heads: TEN_HEADS_10X31,
+    properties: FIFTEEN_PROPERTIES.filter(property => property !== "property.path.physical"),
+    predicates: NINE_PREDICATES.filter(predicate =>
+      predicate !== "predicate.observe.physical" && predicate !== "predicate.observe.resolvedTarget"),
+    wires: THIRTY_ONE_WIRES_10X31,
+    weights,
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+  assert.throws(() => module.validateCliCommandProfile(stage0), /10x31|migrat/i);
+  const migrated = module.migrateCliCommandProfileStage0ToStage1(stage0);
+  assert.deepEqual(migrated.heads, ELEVEN_HEADS);
+  assert.deepEqual(migrated.wires, THIRTY_FOUR_WIRES);
+  assert.equal(migrated.weights.flat().length, 374);
+  for (const head of TEN_HEADS_10X31) {
+    for (const wire of THIRTY_ONE_WIRES_10X31) {
+      assert.equal(
+        migrated.weights[migrated.heads.indexOf(head)][migrated.wires.indexOf(wire)],
+        stage0.weights[stage0.heads.indexOf(head)][stage0.wires.indexOf(wire)],
+        `${head}/${wire} must survive migration`,
+      );
+    }
+  }
+  for (const head of ELEVEN_HEADS) {
+    for (const wire of STAGE1_NEW_WIRES) {
+      assert.equal(migrated.weights[migrated.heads.indexOf(head)][migrated.wires.indexOf(wire)], 0);
+    }
+  }
+  assert.deepEqual(migrated.weights[migrated.heads.indexOf("path.realpath")], Array(34).fill(0));
+  assert.deepEqual(module.migrateCliCommandProfileToCurrent(stage0), migrated);
+  assert.deepEqual(module.migrateCliCommandProfileToCurrent(migrated), migrated);
 });
 
 test("legacy Goal kinds and old 4x4 runtime profiles are rejected before OS effects", async t => {
@@ -919,10 +981,14 @@ test("R21 new observed path requests re-execute despite old or forged knowledge 
   assert.deepEqual(refreshed.invocation, ["path.resolve", base, "../truth"]);
   assert.equal(observedPathValue(refreshed, "absolute"), "/truth");
 
-  const unknown = await policy.step({
+  const unknown = await module.createCliCommandPolicy({
+    profile: witnessProfile(module, "unsupported"),
+    sandbox,
+    session,
+  }).step({
     goal: {
       kind: "file.property",
-      property: "file.property.path.physical",
+      property: "file.property.content.bytes",
       target: pathRef(sandbox, session, "/a"),
       requirement: { kind: "observed", freshness: "this_run" },
     },
@@ -959,24 +1025,6 @@ test("R22 unregistered inspect equals or predicates stay unsupported and a wrong
   assert.equal(unsupported.satisfaction, null);
   assert.equal(unsupported.invocation, null);
   assert.equal(unsupported.execution_result.executorInvoked, false);
-
-  const physical = await module.createCliCommandPolicy({
-    profile: witnessProfile(module, "unsupported"),
-    sandbox,
-    session,
-  }).step({
-    goal: {
-      kind: "file.property",
-      property: "file.property.path.physical",
-      target: ref,
-      requirement: { kind: "observed", freshness: "this_run" },
-    },
-    satisfactionThreshold: 0,
-    state: emptyState(session),
-  });
-  assert.equal(physical.status, "unknown");
-  assert.equal(physical.satisfaction, null);
-  assert.equal(physical.invocation, null);
 
   const wrongPair = await module.createCliCommandPolicy({
     profile: witnessProfile(module, "unsupported"),
@@ -1020,4 +1068,192 @@ test("R22 unregistered inspect equals or predicates stay unsupported and a wrong
   assert.equal(wrongHead.invocation, null);
   assert.equal(wrongHead.execution_result.executorInvoked, false);
   assert.deepEqual(sandbox.getSession(session), before);
+});
+
+test("P1 path.realpath resolves physical links and preserves missing, loop and stale failures", async t => {
+  const module = await api();
+  const { sandbox, session } = await fixture(t);
+  const start = join(sandbox.scenarioRoot, "start");
+  const valid = join(start, "current");
+  const dangling = join(start, "dangling");
+  const loopA = join(start, "loop-a");
+  const loopB = join(start, "loop-b");
+  await symlink("child/item.txt", valid);
+  await symlink("missing-target", dangling);
+  await symlink("loop-b", loopA);
+  await symlink("loop-a", loopB);
+
+  const validRef = pathRef(sandbox, session, valid);
+  const validResult = await module.createCliCommandPolicy({
+    profile: witnessProfile(module, "path.realpath"),
+    sandbox,
+    session,
+  }).step({
+    goal: physicalPathGoal(validRef),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual(validResult.invocation, ["path.realpath", validRef]);
+  assert.deepEqual([validResult.status, validResult.satisfaction], ["achieved", 100]);
+  assert.equal(validResult.reason, "physical_path_observed");
+  assert.equal(validResult.execution_result.executorInvoked, true);
+  assert.equal(validResult.observed_state_after.pathKnowledge.kind, "path.realpath");
+  assert.equal(validResult.observed_state_after.pathKnowledge.physicalPath, await realpath(valid));
+  assert.equal(validResult.observed_state_after.pathKnowledge.entryExists, true);
+  assert.equal(validResult.observed_state_after.pathKnowledge.resolvedTargetExists, true);
+  assert.equal(validResult.observed_state_after.pathKnowledge.errno, null);
+  assert.equal(validResult.evidence.value, await realpath(valid));
+
+  for (const [name, errno] of [["dangling", "ENOENT"], ["loop-a", "ELOOP"]]) {
+    const ref = pathRef(sandbox, session, join(start, name));
+    const result = await module.createCliCommandPolicy({
+      profile: witnessProfile(module, "path.realpath"),
+      sandbox,
+      session,
+    }).step({
+      goal: physicalPathGoal(ref),
+      satisfactionThreshold: 100,
+      state: emptyState(session),
+    });
+    assert.deepEqual([result.status, result.satisfaction], ["failed", 0], `${name} must fail rather than fall back lexically`);
+    assert.equal(result.reason, "physical_path_unavailable");
+    assert.equal(result.execution_result.receipt?.execution?.error?.code, errno);
+  }
+
+  const observed = await sandbox.bindFile(session, join(start, "child/item.txt"));
+  await rename(join(start, "child/item.txt"), join(start, "child/moved.txt"));
+  await writeFile(join(start, "child/item.txt"), "replacement");
+  const stale = await module.createCliCommandPolicy({
+    profile: witnessProfile(module, "path.realpath"),
+    sandbox,
+    session,
+  }).step({
+    goal: physicalPathGoal(observed),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual([stale.status, stale.satisfaction], ["rejected", 0]);
+  assert.equal(stale.reason, "execution_rejected");
+  assert.equal(stale.execution_result.receipt?.execution?.error?.code, "STALE_REFERENCE");
+  assert.equal(stale.execution_result.executorInvoked, false);
+});
+
+test("P2 resolvedTarget separates invalid follow, non-link, valid target and broken target", async t => {
+  const module = await api();
+  const { sandbox, session } = await fixture(t);
+  const start = join(sandbox.scenarioRoot, "start");
+  const valid = join(start, "target-link");
+  const dangling = join(start, "dangling-target-link");
+  const regular = join(start, "child/item.txt");
+  await symlink("child/item.txt", valid);
+  await symlink("missing-target", dangling);
+  const policy = module.createCliCommandPolicy({
+    profile: witnessProfile(module, "entry.inspect"),
+    sandbox,
+    session,
+  });
+
+  const invalid = await policy.step({
+    goal: resolvedTargetGoal(pathRef(sandbox, session, valid), false),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual([invalid.status, invalid.satisfaction], ["rejected", 0]);
+  assert.equal(invalid.reason, "resolved_target_requires_follow_symlinks");
+  assert.equal(invalid.invocation, null);
+  assert.equal(invalid.execution_result.executorInvoked, false);
+  assert.equal(invalid.execution_result.receipt, null);
+
+  const nonLink = await policy.step({
+    goal: resolvedTargetGoal(pathRef(sandbox, session, regular), true),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual([nonLink.status, nonLink.satisfaction], ["unknown", null]);
+  assert.equal(nonLink.reason, "attribute_not_applicable");
+  assert.equal(nonLink.execution_result.executorInvoked, true);
+  assert.equal(nonLink.execution_result.receipt?.execution?.status, "succeeded");
+
+  const achieved = await policy.step({
+    goal: resolvedTargetGoal(pathRef(sandbox, session, valid), true),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual([achieved.status, achieved.satisfaction], ["achieved", 100]);
+  assert.equal(achieved.reason, "resolved_target_observed");
+  assert.equal(achieved.execution_result.executorInvoked, true);
+  assert.deepEqual(achieved.evidence.value, {
+    resolvedTargetExists: true,
+    targetType: "regular",
+    targetIdentity: achieved.observed_state_after.entryKnowledge.identity.dev === null ? null : {
+      dev: achieved.observed_state_after.entryKnowledge.identity.dev,
+      ino: achieved.observed_state_after.entryKnowledge.identity.ino,
+    },
+  });
+
+  const broken = await policy.step({
+    goal: resolvedTargetGoal(pathRef(sandbox, session, dangling), true),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual([broken.status, broken.satisfaction], ["unmet", 0]);
+  assert.equal(broken.reason, "resolved_target_missing");
+  assert.equal(broken.execution_result.executorInvoked, true);
+  assert.equal(broken.observed_state_after.entryKnowledge.entryExists, true);
+  assert.equal(broken.observed_state_after.entryKnowledge.resolvedTargetExists, false);
+  assert.equal(broken.observed_state_after.entryKnowledge.errno, "ENOENT");
+});
+
+test("P2 resolvedTarget keeps an issued E-reference broken target as unmet", async t => {
+  const module = await api();
+  const { sandbox, session } = await fixture(t);
+  const start = join(sandbox.scenarioRoot, "start");
+  const dangling = join(start, "observed-dangling-link");
+  await symlink("missing-target", dangling);
+  const ref = await sandbox.bindEntry(session, dangling);
+  assert.equal(ref.kind, "cli.entry");
+  assert.equal(ref.type, "symlink");
+  const beforeSession = sandbox.getSession(session);
+  const beforeEntries = (await readdir(start)).sort();
+  const policy = module.createCliCommandPolicy({
+    profile: witnessProfile(module, "entry.inspect"),
+    sandbox,
+    session,
+  });
+
+  const broken = await policy.step({
+    goal: resolvedTargetGoal(ref, true),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.equal(broken.policy.selectedHead, "entry.inspect");
+  assert.deepEqual([broken.status, broken.satisfaction], ["unmet", 0]);
+  assert.equal(broken.reason, "resolved_target_missing");
+  assert.equal(broken.execution_result.executorInvoked, true);
+  assert.equal(broken.execution_result.receipt?.execution.status, "succeeded");
+  assert.equal(broken.observed_state_after.entryKnowledge.entryExists, true);
+  assert.equal(broken.observed_state_after.entryKnowledge.resolvedTargetExists, false);
+  assert.equal(broken.observed_state_after.entryKnowledge.errno, "ENOENT");
+  assert.equal(broken.observed_state_after.entryKnowledge.type, null);
+  assert.deepEqual(sandbox.getSession(session), beforeSession);
+  assert.deepEqual((await readdir(start)).sort(), beforeEntries);
+
+  await rm(dangling);
+  const disappeared = await policy.step({
+    goal: resolvedTargetGoal(ref, true),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual([disappeared.status, disappeared.satisfaction], ["failed", 0]);
+  assert.equal(disappeared.execution_result.executorInvoked, false);
+  assert.equal(disappeared.execution_result.receipt?.execution.error.code, "ENOENT");
+});
+
+test("operation applicability remains deterministic for current observe-only operations", async () => {
+  const module = await api();
+  for (const type of ["regular", "directory", "symlink", "fifo", "socket", "character_device", "block_device", "other"]) {
+    assert.equal(module.evaluateOperationApplicability(type, "entry.inspect"), "appropriate");
+    assert.equal(module.evaluateOperationApplicability(type, "path.realpath"), "appropriate");
+  }
+  assert.equal(module.evaluateOperationApplicability(null, "entry.inspect"), "unknown");
 });

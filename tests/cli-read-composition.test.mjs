@@ -45,11 +45,8 @@ async function api() {
 
 async function profile() {
   const raw = JSON.parse(await readFile(profilePath(), "utf8"));
-  if (raw.wires?.length === 30) {
-    const { migrateCliCommandProfileV10x30 } = await import("nnanything/cli-goal");
-    return migrateCliCommandProfileV10x30(raw);
-  }
-  return raw;
+  const { migrateCliCommandProfileToCurrent } = await import("nnanything/cli-goal");
+  return migrateCliCommandProfileToCurrent(raw);
 }
 
 function countingIo() {
