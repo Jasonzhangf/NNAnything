@@ -21,6 +21,7 @@ import {
   CWD_PROPERTY,
   ENTRIES_PROPERTY,
   PATH_ABSOLUTE_PROPERTY,
+  PATH_PHYSICAL_PROPERTY,
   PATH_RELATIVE_PROPERTY,
   type EntryRef,
   type FilePropertyGoal,
@@ -283,6 +284,22 @@ async function batch1GoalFor(
       requirement: observed,
     });
   }
+  if (query.kind === "path.realpath") {
+    const fixture = (fixtures.realpath ?? []).find(item => item.id === sample.variant);
+    if (fixture === undefined) throw new TypeError(`Missing realpath fixture for ${sample.id}`);
+    const absolutePath = sceneAbsolute(sandbox.scenarioRoot, fixture.path);
+    let ref: InspectRef;
+    if (fixture.refKind === "cli.path") ref = sandbox.bindPath(session, absolutePath);
+    else if (fixture.refKind === "cli.entry") ref = await sandbox.bindEntry(session, absolutePath) as EntryRef;
+    else if (fixture.refKind === "cli.file") ref = await sandbox.bindFile(session, absolutePath) as FileRef;
+    else ref = await sandbox.bindDirectoryObject(session, absolutePath) as ObservedDirectoryRef;
+    return Object.freeze({
+      kind: "file.property",
+      property: PATH_PHYSICAL_PROPERTY,
+      target: ref,
+      requirement: observed,
+    });
+  }
   const fixture = fixtures.inspect.find(item => item.id === sample.variant);
   if (fixture === undefined) throw new TypeError(`Missing inspect fixture for ${sample.id}`);
   const absolutePath = sceneAbsolute(sandbox.scenarioRoot, fixture.path);
@@ -291,11 +308,16 @@ async function batch1GoalFor(
   else if (fixture.refKind === "cli.entry") ref = await sandbox.bindEntry(session, absolutePath) as EntryRef;
   else if (fixture.refKind === "cli.file") ref = await sandbox.bindFile(session, absolutePath) as FileRef;
   else ref = await sandbox.bindDirectoryObject(session, absolutePath) as ObservedDirectoryRef;
+  const requirement = query.requirementKind === "resolvedTarget"
+    || sample.case === "inspect-resolved-target"
+    || sample.case === "inspect-resolved-target-broken"
+    ? Object.freeze({ kind: "matches" as const, predicate: Object.freeze({ kind: "resolvedTarget" as const }) })
+    : observed;
   return Object.freeze({
     kind: "file.property",
     property: query.property,
     target: Object.freeze({ kind: "cli.entry-query", ref, followSymlinks: query.followSymlinks }),
-    requirement: observed,
+    requirement,
   });
 }
 
@@ -365,6 +387,14 @@ function effectsOk(
       return expectedOutcome && transition.policy.selectedHead === sample.expectedHead
         && invocation?.[0] === "path.parts" && transition.execution_result.executorInvoked && sessionUnchanged
         && observation?.kind === "path.parts";
+    case "path-realpath":
+      return expectedOutcome && transition.policy.selectedHead === sample.expectedHead
+        && before.grantedEffects.includes("filesystem.read") && before.grantedEffects.includes("process.exec")
+        && invocation?.[0] === "path.realpath" && transition.execution_result.executorInvoked && sessionUnchanged
+        && observation?.kind === "path.realpath"
+        && typeof observation.snapshot.physicalPath === "string"
+        && observation.snapshot.entryExists === true
+        && observation.snapshot.resolvedTargetExists === true;
     case "inspect-exists":
     case "inspect-type":
     case "inspect-size":
@@ -373,6 +403,8 @@ function effectsOk(
     case "inspect-times":
     case "inspect-link-target":
     case "inspect-entry-identity":
+    case "inspect-resolved-target":
+    case "inspect-resolved-target-broken":
       return expectedOutcome && transition.policy.selectedHead === sample.expectedHead
         && before.grantedEffects.includes("filesystem.read") && before.grantedEffects.includes("process.exec")
         && invocation?.[0] === "entry.inspect" && transition.execution_result.executorInvoked && sessionUnchanged

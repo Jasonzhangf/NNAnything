@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   readFile,
+  rm,
   writeFile,
 } from 'node:fs/promises';
 import { dirname, join, posix } from 'node:path';
@@ -23,16 +24,14 @@ const execFileAsync = promisify(execFile);
 const profilePath = process.env.NN_CLI_COMMAND_PROFILE;
 if (!profilePath) throw new Error('NN_CLI_COMMAND_PROFILE is required; no candidate default is allowed');
 const rawCandidate = JSON.parse(await readFile(profilePath, 'utf8'));
-const candidate = rawCandidate.wires?.length === 30
-  ? api.migrateCliCommandProfileV10x30(rawCandidate)
-  : rawCandidate;
+const candidate = api.migrateCliCommandProfileToCurrent(rawCandidate);
 assert.deepEqual(candidate.heads, [
   'unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls',
-  'path.resolve', 'path.relative', 'path.parts', 'entry.inspect',
+  'path.resolve', 'path.relative', 'path.parts', 'path.realpath', 'entry.inspect',
 ]);
-assert.equal(candidate.wires.length, 31);
-assert.equal(candidate.weights.length, 10);
-assert.ok(candidate.weights.every(row => row.length === 31));
+assert.equal(candidate.wires.length, 34);
+assert.equal(candidate.weights.length, 11);
+assert.ok(candidate.weights.every(row => row.length === 34));
 assert.equal(candidate.calibration, 'uncalibrated');
 assert.equal(candidate.adoption, 'not_applied');
 
@@ -69,6 +68,18 @@ function observationGoal(property, target) {
 
 function inspectGoal(property, ref, followSymlinks) {
   return observationGoal(property, entryQuery(ref, followSymlinks));
+}
+
+function resolvedTargetGoal(ref, followSymlinks) {
+  return Object.freeze({
+    kind: 'file.property',
+    property: 'file.property.link.target',
+    target: entryQuery(ref, followSymlinks),
+    requirement: Object.freeze({
+      kind: 'matches',
+      predicate: Object.freeze({ kind: 'resolvedTarget' }),
+    }),
+  });
 }
 
 function cwdObservedGoal(session) {
@@ -571,6 +582,211 @@ registerCase('inspect-property', 'S40', 'entry.identity keeps dev, ino, nlink an
   }
 });
 
+registerCase('realpath', 'S41', 'path.realpath on P reference with symlinked ancestor and dotdot', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const ref = pathRef(scene.sandbox, scene.primary, join(scene.paths.dirLink, '..', 'nested', 'deep.txt'));
+    const transition = await assertPathTransition(
+      scene,
+      scene.primary,
+      observationGoal('file.property.path.physical', ref),
+      { head: 'path.realpath', invocation: ['path.realpath', ref] },
+    );
+    const knowledge = transition.observed_state_after.pathKnowledge;
+    assert.equal(knowledge.kind, 'path.realpath');
+    assert.equal(knowledge.physicalPath, scene.paths.deepFile);
+    assert.equal(knowledge.entryExists, true);
+    assert.equal(knowledge.resolvedTargetExists, true);
+    assert.equal(knowledge.errno, null);
+    assert.notEqual(knowledge.resolvedIdentity.dev, null);
+    assert.notEqual(knowledge.resolvedIdentity.ino, null);
+    assert.equal(transition.evidence.value, scene.paths.deepFile);
+    return { refKind: ref.kind, physicalPath: knowledge.physicalPath };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('realpath', 'S42', 'path.realpath on E reference for 2-hop symlink resolves final file', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const ref = await scene.sandbox.bindEntry(scene.primary, scene.paths.hopLink);
+    const transition = await assertPathTransition(
+      scene,
+      scene.primary,
+      observationGoal('file.property.path.physical', ref),
+      { head: 'path.realpath', invocation: ['path.realpath', ref] },
+    );
+    const knowledge = transition.observed_state_after.pathKnowledge;
+    assert.equal(knowledge.kind, 'path.realpath');
+    assert.equal(knowledge.physicalPath, scene.paths.file);
+    assert.equal(knowledge.entryExists, true);
+    assert.equal(knowledge.resolvedTargetExists, true);
+    assert.equal(knowledge.errno, null);
+    assert.equal(transition.evidence.value, scene.paths.file);
+    return { refKind: ref.kind, physicalPath: knowledge.physicalPath };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('realpath', 'S43', 'path.realpath on observed D reference resolves physical directory', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const ref = await scene.sandbox.bindDirectoryObject(scene.primary, scene.paths.nested);
+    const transition = await assertPathTransition(
+      scene,
+      scene.primary,
+      observationGoal('file.property.path.physical', ref),
+      { head: 'path.realpath', invocation: ['path.realpath', ref] },
+    );
+    const knowledge = transition.observed_state_after.pathKnowledge;
+    assert.equal(knowledge.kind, 'path.realpath');
+    assert.equal(knowledge.physicalPath, scene.paths.nested);
+    assert.equal(knowledge.entryExists, true);
+    assert.equal(knowledge.resolvedTargetExists, true);
+    assert.equal(knowledge.errno, null);
+    assert.equal(transition.evidence.value, scene.paths.nested);
+    return { refKind: ref.kind, physicalPath: knowledge.physicalPath };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('realpath', 'S44', 'path.realpath on F reference resolves physical regular file', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const ref = await scene.sandbox.bindFile(scene.primary, scene.paths.deepFile);
+    const transition = await assertPathTransition(
+      scene,
+      scene.primary,
+      observationGoal('file.property.path.physical', ref),
+      { head: 'path.realpath', invocation: ['path.realpath', ref] },
+    );
+    const knowledge = transition.observed_state_after.pathKnowledge;
+    assert.equal(knowledge.kind, 'path.realpath');
+    assert.equal(knowledge.physicalPath, scene.paths.deepFile);
+    assert.equal(knowledge.entryExists, true);
+    assert.equal(knowledge.resolvedTargetExists, true);
+    assert.equal(knowledge.errno, null);
+    assert.equal(transition.evidence.value, scene.paths.deepFile);
+    return { refKind: ref.kind, physicalPath: knowledge.physicalPath };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('inspect-resolved-target', 'S45', 'resolvedTarget follow=true on valid file symlink achieves targetType regular', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const beforeSession = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.link);
+    const transition = await policyFor(scene).step({
+      goal: resolvedTargetGoal(ref, true),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'entry.inspect');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'achieved');
+    assert.equal(transition.satisfaction, 100);
+    assert.equal(transition.reason, 'resolved_target_observed');
+    assert.deepEqual(transition.invocation, ['entry.inspect', ref, true]);
+    assert.equal(transition.execution_result.executorInvoked, true);
+    assert.equal(transition.evidence.value?.resolvedTargetExists, true);
+    assert.equal(transition.evidence.value?.targetType, 'regular');
+    assert.notEqual(transition.evidence.value?.targetIdentity?.dev, null);
+    assert.notEqual(transition.evidence.value?.targetIdentity?.ino, null);
+    const knowledge = entryKnowledge(transition);
+    assert.equal(knowledge.type, 'regular');
+    assert.equal(knowledge.observedWith, 'stat');
+    assert.equal(knowledge.resolvedTargetExists, true);
+    await unchanged(scene, scene.primary, beforeSession, beforeTree);
+    return transition.evidence.value;
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('inspect-resolved-target', 'S46', 'resolvedTarget follow=true on directory symlink E reference achieves targetType directory', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const beforeSession = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = await scene.sandbox.bindEntry(scene.primary, scene.paths.dirLink);
+    const transition = await policyFor(scene).step({
+      goal: resolvedTargetGoal(ref, true),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'entry.inspect');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'achieved');
+    assert.equal(transition.satisfaction, 100);
+    assert.equal(transition.reason, 'resolved_target_observed');
+    assert.deepEqual(transition.invocation, ['entry.inspect', ref, true]);
+    assert.equal(transition.execution_result.executorInvoked, true);
+    assert.equal(transition.evidence.value?.resolvedTargetExists, true);
+    assert.equal(transition.evidence.value?.targetType, 'directory');
+    const knowledge = entryKnowledge(transition);
+    assert.equal(knowledge.type, 'directory');
+    assert.equal(knowledge.observedWith, 'stat');
+    assert.equal(knowledge.resolvedTargetExists, true);
+    await unchanged(scene, scene.primary, beforeSession, beforeTree);
+    return transition.evidence.value;
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('inspect-resolved-target', 'S47', 'resolvedTarget follow=true on broken symlink returns unmet/0 after real execution', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const beforeSession = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.brokenLink);
+    const transition = await policyFor(scene).step({
+      goal: resolvedTargetGoal(ref, true),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'entry.inspect');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'unmet');
+    assert.equal(transition.satisfaction, 0);
+    assert.equal(transition.reason, 'resolved_target_missing');
+    assert.deepEqual(transition.invocation, ['entry.inspect', ref, true]);
+    assert.equal(transition.execution_result.executorInvoked, true);
+    assert.equal(transition.evidence.errno, 'ENOENT');
+    const knowledge = entryKnowledge(transition);
+    assert.equal(knowledge.entryExists, true);
+    assert.equal(knowledge.resolvedTargetExists, false);
+    assert.equal(knowledge.type, null);
+    assert.equal(knowledge.errno, 'ENOENT');
+    await unchanged(scene, scene.primary, beforeSession, beforeTree);
+    return { status: transition.status, satisfaction: transition.satisfaction, errno: knowledge.errno };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('inspect-resolved-target', 'S48', 'paired same-link observe.inspect follow=false achieves raw linkTarget', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const ref = await scene.sandbox.bindEntry(scene.primary, scene.paths.dirLink);
+    const transition = await assertInspectTransition(scene, scene.primary, 'file.property.link.target', ref, false);
+    assert.equal(transition.evidence.value, 'nested');
+    const knowledge = entryKnowledge(transition);
+    assert.equal(knowledge.type, 'symlink');
+    assert.equal(knowledge.linkTarget, 'nested');
+    assert.equal(knowledge.observedWith, 'lstat');
+    return { linkTarget: knowledge.linkTarget, observedWith: knowledge.observedWith };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
 registerCase('probe', 'P01', 'broken target keeps ENOENT and no pseudo type', async () => {
   const scene = await createIndependentScene(api, { after: () => {} });
   try {
@@ -813,8 +1029,8 @@ registerCase('probe', 'P10', 'unregistered property and predicate pair is unsupp
       state: emptyState(scene.primary),
     });
     assert.equal(transition.policy.selectedHead, 'unsupported');
-    assert.deepEqual(transition.policy.scores, new Array(10).fill(0));
-    assert.deepEqual(transition.policy.probabilities, new Array(10).fill(0));
+    assert.deepEqual(transition.policy.scores, new Array(11).fill(0));
+    assert.deepEqual(transition.policy.probabilities, new Array(11).fill(0));
     assert.equal(transition.policy_error, null);
     assert.equal(transition.status, 'unknown');
     assert.equal(transition.satisfaction, null);
@@ -828,21 +1044,13 @@ registerCase('probe', 'P10', 'unregistered property and predicate pair is unsupp
   }
 });
 
-registerCase('probe', 'P11', 'unregistered physical property is unsupported', async () => {
+registerCase('probe', 'P11', 'read-only physical path applies to special entry types', async () => {
   const scene = await createIndependentScene(api, { after: () => {} });
   try {
-    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.file);
-    const transition = await policyFor(scene).step({
-      goal: observationGoal('file.property.path.physical', ref),
-      satisfactionThreshold: 100,
-      state: emptyState(scene.primary),
-    });
-    assert.equal(transition.policy.selectedHead, 'unsupported');
-    assert.equal(transition.status, 'unknown');
-    assert.equal(transition.satisfaction, null);
-    assert.equal(transition.invocation, null);
-    assert.equal(transition.execution_result.executorInvoked, false);
-    return { head: 'unsupported', property: 'file.property.path.physical' };
+    for (const type of ['fifo', 'socket', 'character_device', 'block_device', 'other']) {
+      assert.equal(api.evaluateOperationApplicability(type, 'path.realpath'), 'appropriate');
+    }
+    return { operation: 'path.realpath', types: 'read-only-special' };
   } finally {
     await scene.cleanup();
   }
@@ -992,6 +1200,201 @@ registerCase('probe', 'P16', 'guard preserves unexpected_head and policy_error',
   }
 });
 
+registerCase('probe', 'P17', 'path.realpath on circular symlink fails with ELOOP and no fake physicalPath', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const before = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.loopA);
+    const transition = await policyFor(scene).step({
+      goal: observationGoal('file.property.path.physical', ref),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'path.realpath');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'failed');
+    assert.equal(transition.satisfaction, 0);
+    assert.equal(transition.reason, 'physical_path_unavailable');
+    assert.equal(transition.execution_result.executorInvoked, true);
+    assert.equal(receiptErrorCode(transition), 'ELOOP');
+    assert.equal(transition.observed_state_after.pathKnowledge ?? null, null);
+    await unchanged(scene, scene.primary, before, beforeTree);
+    return { errno: 'ELOOP', status: transition.status, satisfaction: transition.satisfaction };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P18', 'path.realpath on dangling symlink fails with ENOENT and no fake physicalPath', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const before = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.brokenLink);
+    const transition = await policyFor(scene).step({
+      goal: observationGoal('file.property.path.physical', ref),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'path.realpath');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'failed');
+    assert.equal(transition.satisfaction, 0);
+    assert.equal(transition.reason, 'physical_path_unavailable');
+    assert.equal(transition.execution_result.executorInvoked, true);
+    assert.equal(receiptErrorCode(transition), 'ENOENT');
+    assert.equal(transition.observed_state_after.pathKnowledge ?? null, null);
+    await unchanged(scene, scene.primary, before, beforeTree);
+    return { errno: 'ENOENT', status: transition.status, satisfaction: transition.satisfaction };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P19', 'path.realpath on replaced inode rejects as STALE_REFERENCE before helper execution', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const ref = await scene.sandbox.bindFile(scene.primary, scene.paths.file);
+    await rm(scene.paths.file);
+    await writeFile(scene.paths.file, 'replaced-payload');
+    const transition = await policyFor(scene).step({
+      goal: observationGoal('file.property.path.physical', ref),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'path.realpath');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'rejected');
+    assert.equal(transition.satisfaction, 0);
+    assert.equal(transition.execution_result.executorInvoked, false);
+    assert.equal(receiptErrorCode(transition), 'STALE_REFERENCE');
+    return { error: 'STALE_REFERENCE', status: transition.status, executorInvoked: false };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P20', 'resolvedTarget follow=true on missing path fails with ENOENT vs broken symlink unmet/0', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const before = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const missingRef = pathRef(scene.sandbox, scene.primary, scene.paths.missing);
+    const missingTransition = await policyFor(scene).step({
+      goal: resolvedTargetGoal(missingRef, true),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(missingTransition.policy.selectedHead, 'entry.inspect');
+    assert.equal(missingTransition.status, 'unmet');
+    assert.equal(missingTransition.satisfaction, 0);
+    assert.equal(missingTransition.reason, 'resolved_target_missing');
+    assert.equal(missingTransition.execution_result.executorInvoked, true);
+    assert.equal(entryKnowledge(missingTransition).entryExists, false);
+    assert.equal(entryKnowledge(missingTransition).errno, 'ENOENT');
+
+    const brokenRef = pathRef(scene.sandbox, scene.primary, scene.paths.brokenLink);
+    const brokenTransition = await policyFor(scene).step({
+      goal: resolvedTargetGoal(brokenRef, true),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(brokenTransition.policy.selectedHead, 'entry.inspect');
+    assert.equal(brokenTransition.status, 'unmet');
+    assert.equal(brokenTransition.satisfaction, 0);
+    assert.equal(brokenTransition.reason, 'resolved_target_missing');
+    assert.equal(brokenTransition.execution_result.executorInvoked, true);
+    assert.equal(entryKnowledge(brokenTransition).entryExists, true);
+    assert.equal(entryKnowledge(brokenTransition).resolvedTargetExists, false);
+    await unchanged(scene, scene.primary, before, beforeTree);
+    return { missingEntryExists: false, brokenEntryExists: true, status: 'unmet' };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P21', 'resolvedTarget with illegal followSymlinks=false rejects at bind without invoking executor', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const before = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.link);
+    const transition = await policyFor(scene).step({
+      goal: resolvedTargetGoal(ref, false),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'entry.inspect');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'rejected');
+    assert.equal(transition.satisfaction, 0);
+    assert.equal(transition.reason, 'resolved_target_requires_follow_symlinks');
+    assert.equal(transition.invocation, null);
+    assert.equal(transition.execution_result.status, 'rejected');
+    assert.equal(transition.execution_result.executorInvoked, false);
+    assert.equal(transition.observed_state_after.entryKnowledge ?? null, null);
+    await unchanged(scene, scene.primary, before, beforeTree);
+    return { status: transition.status, reason: transition.reason, executorInvoked: false };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P22', 'resolvedTarget follow=true on regular file executes and evaluates to unknown/null attribute_not_applicable', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const before = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.file);
+    const transition = await policyFor(scene).step({
+      goal: resolvedTargetGoal(ref, true),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'entry.inspect');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'unknown');
+    assert.equal(transition.satisfaction, null);
+    assert.equal(transition.reason, 'attribute_not_applicable');
+    assert.deepEqual(transition.invocation, ['entry.inspect', ref, true]);
+    assert.equal(transition.execution_result.executorInvoked, true);
+    const knowledge = entryKnowledge(transition);
+    assert.equal(knowledge.type, 'regular');
+    assert.equal(knowledge.observedWith, 'stat');
+    await unchanged(scene, scene.primary, before, beforeTree);
+    return { status: transition.status, satisfaction: transition.satisfaction, reason: transition.reason };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P23', 'entry.inspect exists follow=true on circular symlink fails with ELOOP and does not fabricate exists=false', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const before = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const ref = pathRef(scene.sandbox, scene.primary, scene.paths.loopA);
+    const transition = await policyFor(scene).step({
+      goal: inspectGoal('file.property.exists', ref, true),
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(transition.policy.selectedHead, 'entry.inspect');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'failed');
+    assert.equal(transition.satisfaction, 0);
+    assert.equal(transition.execution_result.executorInvoked, true);
+    assert.equal(receiptErrorCode(transition), 'ELOOP');
+    assert.equal(transition.evidence.value, undefined);
+    assert.equal(transition.observed_state_after.entryKnowledge ?? null, null);
+    await unchanged(scene, scene.primary, before, beforeTree);
+    return { errno: 'ELOOP', status: transition.status, satisfaction: transition.satisfaction };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
 after(async () => {
   const passed = rows.filter(row => row.result === 'PASS').length;
   const failed = rows.filter(row => row.result === 'FAIL').length;
@@ -1024,8 +1427,9 @@ after(async () => {
     failed,
     reportPath,
   })}`);
-  assert.equal(summary.scenarioCount, 40);
-  assert.equal(summary.probeCount, 16);
-  assert.equal(rows.length, 56);
+  assert.equal(summary.scenarioCount, 48);
+  assert.equal(summary.probeCount, 23);
+  assert.equal(rows.length, 71);
+  assert.equal(unverified.length, 5);
 });
 

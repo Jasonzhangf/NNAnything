@@ -21,27 +21,50 @@ async function playgroundEntries(dir) {
   return found;
 }
 
+const MIGRATION_HELPERS = [
+  "migrateCliCommandProfileV10x30",
+  "migrateCliCommandProfileToCurrent",
+];
+
+function isProfileConsumerSource(source) {
+  const readsEnv = source.includes("process.env.NN_CLI_COMMAND_PROFILE")
+    || source.includes("env.NN_CLI_COMMAND_PROFILE");
+  return readsEnv && source.includes("JSON.parse(await readFile");
+}
+
+function hasExplicitMigration(source) {
+  return MIGRATION_HELPERS.some(name => source.includes(name));
+}
+
 test("every playground consumer that parses NN_CLI_COMMAND_PROFILE migrates a 10x30 profile", async () => {
   const files = await playgroundEntries(join(REPO, "playground"));
   const parsers = [];
   for (const file of files) {
     const source = await readFile(file, "utf8");
-    if (!source.includes("NN_CLI_COMMAND_PROFILE")) continue;
-    // Consumers that parse the profile file themselves hand the parsed object to a runtime entry,
-    // which rejects a 10x30 shape. Consumers that pass only the path to a library that migrates
-    // internally are not part of this seam.
-    if (!source.includes("JSON.parse(await readFile")) continue;
+    // A real consumer reads the profile path from NN_CLI_COMMAND_PROFILE (directly or through a
+    // process.env-derived object). A printed command line that merely contains the env name is not
+    // a consumer; train.mjs reads --initial-source and migrates it with the current named helper.
+    if (!isProfileConsumerSource(source)) continue;
     parsers.push({ file, source });
   }
   assert.ok(parsers.length > 0, "expected playground consumers that parse the shared command profile");
   const missing = parsers
-    .filter(({ source }) => !source.includes("migrateCliCommandProfileV10x30"))
+    .filter(({ source }) => !hasExplicitMigration(source))
     .map(({ file }) => file.slice(REPO.length));
   assert.deepEqual(
     missing,
     [],
     "these consumers parse the command profile without the explicit 10x30 migration",
   );
+});
+
+test("the consumer guard still flags a profile consumer with no migration", () => {
+  const unmigrated = [
+    "const profilePath = process.env.NN_CLI_COMMAND_PROFILE;",
+    "const rawProfile = JSON.parse(await readFile(profilePath, \"utf8\"));",
+  ].join("\n");
+  assert.equal(isProfileConsumerSource(unmigrated), true);
+  assert.equal(hasExplicitMigration(unmigrated), false);
 });
 
 test("the entry-search consumer runs end to end against the saved 10x30 candidate", async (t) => {
