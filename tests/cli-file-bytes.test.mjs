@@ -7,6 +7,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   rename,
   rm,
@@ -34,6 +35,48 @@ const O_EXCL = constants.O_EXCL;
 const O_TRUNC = constants.O_TRUNC;
 const O_RDWR = constants.O_RDWR;
 
+const MIB = 1024 * 1024;
+
+const FAULT_PRELOAD_SOURCE = `
+const fs = require("node:fs");
+const mode = process.env.NN_P5_FAULT_MODE;
+const failReadCall = Number(process.env.NN_P5_FAULT_READ_CALL || "0");
+const target = process.env.NN_P5_FAULT_TARGET;
+const targetFds = new Set();
+const originalOpenSync = fs.openSync;
+
+fs.openSync = function (path) {
+  const fd = originalOpenSync.apply(this, arguments);
+  if (path === target) targetFds.add(fd);
+  return fd;
+};
+
+if (mode === "read-eio") {
+  const originalReadSync = fs.readSync;
+  let fileReads = 0;
+  fs.readSync = function (fd) {
+    if (targetFds.has(fd)) {
+      fileReads += 1;
+      if (fileReads === failReadCall) {
+        throw Object.assign(new Error("injected read failure"), { code: "EIO" });
+      }
+    }
+    return originalReadSync.apply(this, arguments);
+  };
+} else if (mode === "exit-after-write") {
+  const originalWriteSync = fs.writeSync;
+  let exited = false;
+  fs.writeSync = function (fd) {
+    const result = originalWriteSync.apply(this, arguments);
+    if (!exited && targetFds.has(fd)) {
+      exited = true;
+      process.exit(0);
+    }
+    return result;
+  };
+}
+`;
+
 function typedBytes(value) {
   const bytes = Buffer.isBuffer(value) ? value : Buffer.from(value);
   return Object.freeze({
@@ -58,6 +101,43 @@ async function regularFile(root, name, contents) {
   const path = join(root, name);
   await writeFile(path, contents);
   return { path, identity: await identity(path) };
+}
+
+async function sparseFile(root, name, size) {
+  const path = join(root, name);
+  const handle = await open(path, "w");
+  try {
+    await handle.truncate(size);
+  } finally {
+    await handle.close();
+  }
+  return { path, identity: await identity(path) };
+}
+
+async function runWithHelperFault(root, request, mode, readCall = 0) {
+  const preload = join(root, ".p5-fault-preload.cjs");
+  await writeFile(preload, FAULT_PRELOAD_SOURCE);
+  const previousOptions = process.env.NODE_OPTIONS;
+  const previousMode = process.env.NN_P5_FAULT_MODE;
+  const previousReadCall = process.env.NN_P5_FAULT_READ_CALL;
+  const previousTarget = process.env.NN_P5_FAULT_TARGET;
+  const options = [previousOptions, `--require=${preload}`].filter(Boolean);
+  process.env.NODE_OPTIONS = options.join(" ");
+  process.env.NN_P5_FAULT_MODE = mode;
+  process.env.NN_P5_FAULT_READ_CALL = String(readCall);
+  process.env.NN_P5_FAULT_TARGET = request.targetPath;
+  try {
+    return await run(request);
+  } finally {
+    if (previousOptions === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = previousOptions;
+    if (previousMode === undefined) delete process.env.NN_P5_FAULT_MODE;
+    else process.env.NN_P5_FAULT_MODE = previousMode;
+    if (previousReadCall === undefined) delete process.env.NN_P5_FAULT_READ_CALL;
+    else process.env.NN_P5_FAULT_READ_CALL = previousReadCall;
+    if (previousTarget === undefined) delete process.env.NN_P5_FAULT_TARGET;
+    else process.env.NN_P5_FAULT_TARGET = previousTarget;
+  }
 }
 
 async function run(request) {
@@ -270,6 +350,112 @@ test("append post-read loss stays unknown and forbids replay", async t => {
   assert.equal(verdict.replayForbidden, true);
   assert.equal(simulated.effectsObserved.bytesWritten, 6);
   assert.equal(simulated.effectsObserved.mutationCommitted, true);
+});
+
+test("pre-read EIO reaches the receipt and performs no mutation", async t => {
+  const root = await scene(t);
+  const target = await regularFile(root, "pre-read-eio.bin", "unchanged");
+
+  const result = await runWithHelperFault(root, {
+    operation: "file.replace",
+    workspaceRoot: root,
+    targetPath: target.path,
+    expectedIdentity: target.identity,
+    content: typedBytes("changed"),
+  }, "read-eio", 1);
+
+  assert.equal(result.executorInvoked, true);
+  assert.equal(result.receipt.status, "failed");
+  assert.equal(result.receipt.errorCode, "PRE_READ_INCOMPLETE");
+  assert.equal(result.receipt.errno, "EIO");
+  assert.equal(result.receipt.effectsObserved.attempted, false);
+  assert.equal(result.receipt.effectsObserved.mutationCommitted, false);
+  assert.equal(result.receipt.effectsObserved.bytesWritten, 0);
+  assert.equal(await readFile(target.path, "utf8"), "unchanged");
+});
+
+test("post-read EIO keeps committed effects and forbids replay", async t => {
+  const root = await scene(t);
+  const target = await regularFile(root, "post-read-eio.bin", "hello");
+  const suffix = typedBytes(" again");
+
+  const result = await runWithHelperFault(root, {
+    operation: "file.append",
+    workspaceRoot: root,
+    targetPath: target.path,
+    expectedIdentity: target.identity,
+    content: suffix,
+  }, "read-eio", 2);
+
+  assert.equal(result.executorInvoked, true);
+  assert.equal(result.receipt.status, "unknown");
+  assert.equal(result.receipt.errorCode, "POST_READ_FAILED");
+  assert.equal(result.receipt.errno, "EIO");
+  assert.equal(result.receipt.effectsObserved.attempted, true);
+  assert.equal(result.receipt.effectsObserved.mutationCommitted, true);
+  assert.equal(result.receipt.effectsObserved.bytesWritten, 6);
+  assert.equal(await readFile(target.path, "utf8"), "hello again");
+
+  const verdict = verifyFileAppendReceipt(result.receipt, suffix);
+  assert.equal(verdict.status, "unknown");
+  assert.equal(verdict.satisfaction, null);
+  assert.equal(verdict.replayForbidden, true);
+});
+
+test("lost append receipt stays unknown and forbids replay", async t => {
+  const root = await scene(t);
+  const target = await regularFile(root, "append-receipt-loss.bin", "hello");
+  const suffix = typedBytes(" again");
+
+  const result = await runWithHelperFault(root, {
+    operation: "file.append",
+    workspaceRoot: root,
+    targetPath: target.path,
+    expectedIdentity: target.identity,
+    content: suffix,
+  }, "exit-after-write", 0);
+
+  assert.equal(result.executorInvoked, true);
+  assert.equal(result.stdout, "");
+  assert.equal(result.receipt.status, "unknown");
+  assert.equal(result.receipt.errorCode, "IO_ERROR");
+  assert.equal(result.receipt.effectsObserved.attempted, true);
+  assert.equal(result.receipt.effectsObserved.mutationCommitted, null);
+  assert.equal(result.receipt.effectsObserved.modifiedPaths, null);
+  assert.equal(result.receipt.effectsObserved.createdPaths, null);
+  assert.equal(result.receipt.effectsObserved.bytesWritten, null);
+  assert.equal(result.receipt.bytesWritten, null);
+  assert.equal(await readFile(target.path, "utf8"), "hello again");
+
+  const verdict = verifyFileAppendReceipt(result.receipt, suffix);
+  assert.equal(verdict.status, "unknown");
+  assert.equal(verdict.satisfaction, null);
+  assert.equal(verdict.replayForbidden, true);
+});
+
+test("64 MiB copy is rejected before destination creation", async t => {
+  const root = await scene(t);
+  const source = await sparseFile(root, "large-source.bin", 64 * MIB);
+  const destination = join(root, "large-copy.bin");
+
+  const result = await run({
+    operation: "file.copy",
+    workspaceRoot: root,
+    sourcePath: source.path,
+    expectedSourceIdentity: source.identity,
+    destinationParentPath: root,
+    expectedParentIdentity: await identity(root),
+    destinationName: basename(destination),
+  });
+
+  assert.equal(result.executorInvoked, true);
+  assert.equal(result.receipt.status, "rejected");
+  assert.equal(result.receipt.errorCode, "RESPONSE_TOO_LARGE");
+  assert.equal(result.receipt.errno, null);
+  assert.equal(result.receipt.effectsObserved.attempted, false);
+  assert.equal(result.receipt.effectsObserved.mutationCommitted, false);
+  assert.equal(result.receipt.effectsObserved.bytesWritten, 0);
+  await assert.rejects(readFile(destination), error => error.code === "ENOENT");
 });
 
 test("file.truncate shortens and preserves the retained prefix", async t => {

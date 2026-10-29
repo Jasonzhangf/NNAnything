@@ -3,6 +3,7 @@ import type { BigIntStats } from "node:fs";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import {
+  FILE_BYTES_HELPER_OUTPUT_LIMIT_BYTES,
   validateFileBytesHelperRequest,
   type CliFileBytesEffectsObserved,
   type CliFileBytesErrorCode,
@@ -13,6 +14,12 @@ import {
 } from "./file-bytes.js";
 
 type ExistingRequest = Extract<CliFileBytesHelperRequest, { operation: "file.replace" | "file.write" | "file.append" | "file.truncate" }>;
+type SnapshotCompletion = Readonly<{
+  snapshot: CliFileByteSnapshot | null;
+  errno: string | null;
+}>;
+
+const RECEIPT_JSON_MARGIN_BYTES = BigInt(1024 * 1024);
 
 function codeOf(error: unknown): string | null {
   if (error !== null && (typeof error === "object" || typeof error === "function") && "code" in error) {
@@ -39,6 +46,52 @@ function effects(
     modifiedPaths: Object.freeze([...modifiedPaths]),
     createdPaths: Object.freeze([...createdPaths]),
     bytesWritten,
+  });
+}
+
+function base64EncodedLength(bytes: bigint): bigint {
+  return ((bytes + 2n) / 3n) * 4n;
+}
+
+function responseWouldExceedLimit(snapshotSizes: readonly bigint[]): boolean {
+  let bytes = RECEIPT_JSON_MARGIN_BYTES;
+  for (const size of snapshotSizes) bytes += base64EncodedLength(size);
+  return bytes > BigInt(FILE_BYTES_HELPER_OUTPUT_LIMIT_BYTES);
+}
+
+function expectedPostMutationSize(request: ExistingRequest, preSize: bigint): bigint {
+  switch (request.operation) {
+    case "file.replace":
+      return BigInt(request.content.byteLength);
+    case "file.write": {
+      if (request.content.byteLength === 0) return preSize;
+      const end = BigInt(request.offset) + BigInt(request.content.byteLength);
+      return end > preSize ? end : preSize;
+    }
+    case "file.append":
+      return preSize + BigInt(request.content.byteLength);
+    case "file.truncate":
+      return BigInt(request.length);
+  }
+}
+
+function responseTooLargeReceipt(
+  operation: CliFileBytesOperation,
+  flags: number,
+): CliFileBytesHelperReceipt {
+  return makeReceipt({
+    operation,
+    status: "rejected",
+    errorCode: "RESPONSE_TOO_LARGE",
+    errno: null,
+    message: "operation response would exceed the helper output limit",
+    openFlagsUsed: flags,
+    preWriteSnapshot: null,
+    postWriteSnapshot: null,
+    sourceSnapshot: null,
+    destinationSnapshot: null,
+    bytesWritten: 0,
+    effectsObserved: effects(false, false, [], [], 0),
   });
 }
 
@@ -115,11 +168,14 @@ function snapshot(fd: number, stats: BigIntStats): CliFileByteSnapshot {
   });
 }
 
-function completeSnapshot(fd: number, stats: BigIntStats): CliFileByteSnapshot | null {
+function completeSnapshot(fd: number, stats: BigIntStats): SnapshotCompletion {
   const base = snapshot(fd, stats);
   const read = readExactSnapshotBytes(fd, base.size);
-  if (!read.ok) return null;
-  return Object.freeze({ ...base, bytesBase64: read.buf.toString("base64") });
+  if (!read.ok) return { snapshot: null, errno: read.errno };
+  return {
+    snapshot: Object.freeze({ ...base, bytesBase64: read.buf.toString("base64") }),
+    errno: null,
+  };
 }
 
 function mapOpenError(code: string | null, operation: CliFileBytesOperation): CliFileBytesErrorCode {
@@ -256,16 +312,23 @@ function openExisting(
     };
   }
 
-  const pre = completeSnapshot(fd, stats);
-  if (pre === null) {
+  if (responseWouldExceedLimit([stats.size, expectedPostMutationSize(request, stats.size)])) {
+    close(fd);
+    return { receipt: responseTooLargeReceipt(request.operation, flags) };
+  }
+
+  const preResult = completeSnapshot(fd, stats);
+  if (preResult.snapshot === null) {
     close(fd);
     return {
       receipt: makeReceipt({
         operation: request.operation,
         status: "failed",
         errorCode: "PRE_READ_INCOMPLETE",
-        errno: null,
-        message: "pre-mutation snapshot was incomplete",
+        errno: preResult.errno,
+        message: preResult.errno === null
+          ? "pre-mutation snapshot was incomplete"
+          : `pre-mutation snapshot read failed: ${preResult.errno}`,
         openFlagsUsed: flags,
         preWriteSnapshot: null,
         postWriteSnapshot: null,
@@ -277,7 +340,7 @@ function openExisting(
     };
   }
 
-  return { fd, pre, flags };
+  return { fd, pre: preResult.snapshot, flags };
 }
 
 function finishExisting(
@@ -308,15 +371,17 @@ function finishExisting(
       effectsObserved,
     });
   }
-  const post = completeSnapshot(fd, stats);
+  const postResult = completeSnapshot(fd, stats);
   close(fd);
-  if (post === null) {
+  if (postResult.snapshot === null) {
     return makeReceipt({
       operation,
       status: "unknown",
       errorCode: "POST_READ_FAILED",
-      errno: null,
-      message: "post-mutation snapshot was incomplete",
+      errno: postResult.errno,
+      message: postResult.errno === null
+        ? "post-mutation snapshot was incomplete"
+        : `post-mutation snapshot read failed: ${postResult.errno}`,
       openFlagsUsed: flags,
       preWriteSnapshot: pre,
       postWriteSnapshot: null,
@@ -334,7 +399,7 @@ function finishExisting(
     message: null,
     openFlagsUsed: flags,
     preWriteSnapshot: pre,
-    postWriteSnapshot: post,
+    postWriteSnapshot: postResult.snapshot,
     sourceSnapshot: null,
     destinationSnapshot: null,
     bytesWritten,
@@ -358,7 +423,7 @@ function existingMutationFailure(
   } catch {
     stats = null;
   }
-  const post = stats === null ? null : completeSnapshot(fd, stats);
+  const post = stats === null ? null : completeSnapshot(fd, stats).snapshot;
   close(fd);
   return makeReceipt({
     operation,
@@ -580,15 +645,22 @@ function copy(request: Extract<CliFileBytesHelperRequest, { operation: "file.cop
     });
   }
 
-  const pre = completeSnapshot(srcFd, sourceStats);
-  if (pre === null) {
+  if (responseWouldExceedLimit([sourceStats.size, sourceStats.size, sourceStats.size])) {
+    close(srcFd);
+    return responseTooLargeReceipt("file.copy", flags);
+  }
+
+  const preResult = completeSnapshot(srcFd, sourceStats);
+  if (preResult.snapshot === null) {
     close(srcFd);
     return makeReceipt({
       operation: "file.copy",
       status: "failed",
       errorCode: "PRE_READ_INCOMPLETE",
-      errno: null,
-      message: "pre-copy source snapshot was incomplete",
+      errno: preResult.errno,
+      message: preResult.errno === null
+        ? "pre-copy source snapshot was incomplete"
+        : `pre-copy source snapshot read failed: ${preResult.errno}`,
       openFlagsUsed: flags,
       preWriteSnapshot: null,
       postWriteSnapshot: null,
@@ -598,6 +670,7 @@ function copy(request: Extract<CliFileBytesHelperRequest, { operation: "file.cop
       effectsObserved: effects(false, false, [], [], 0),
     });
   }
+  const pre = preResult.snapshot;
 
   let parentStats: BigIntStats;
   try {
@@ -789,19 +862,24 @@ function copy(request: Extract<CliFileBytesHelperRequest, { operation: "file.cop
       effectsObserved: effects(true, true, [], [destPath], bytesWritten),
     });
   }
-  const sourceSnapshot = completeSnapshot(srcFd, sourceStatsAfter);
+  const sourceSnapshotResult = completeSnapshot(srcFd, sourceStatsAfter);
+  const sourceSnapshot = sourceSnapshotResult.snapshot;
+  let postReadErrno = sourceSnapshotResult.errno;
   let destStatsAfter: BigIntStats;
   try {
     destStatsAfter = fs.fstatSync(destFd, { bigint: true });
   } catch (error) {
     close(destFd);
     close(srcFd);
+    const errno = postReadErrno ?? codeOf(error);
     return makeReceipt({
       operation: "file.copy",
       status: "unknown",
       errorCode: "POST_READ_FAILED",
-      errno: codeOf(error),
-      message: messageOf(error),
+      errno,
+      message: postReadErrno === null
+        ? messageOf(error)
+        : `post-copy source snapshot read failed: ${postReadErrno}`,
       openFlagsUsed: flags,
       preWriteSnapshot: pre,
       postWriteSnapshot: null,
@@ -811,7 +889,11 @@ function copy(request: Extract<CliFileBytesHelperRequest, { operation: "file.cop
       effectsObserved: effects(true, true, [], [destPath], bytesWritten),
     });
   }
-  const destinationSnapshot = completeSnapshot(destFd, destStatsAfter);
+  const destinationSnapshotResult = completeSnapshot(destFd, destStatsAfter);
+  const destinationSnapshot = destinationSnapshotResult.snapshot;
+  if (destinationSnapshotResult.errno !== null && postReadErrno === null) {
+    postReadErrno = destinationSnapshotResult.errno;
+  }
   close(destFd);
   close(srcFd);
   if (sourceSnapshot === null || destinationSnapshot === null) {
@@ -819,8 +901,10 @@ function copy(request: Extract<CliFileBytesHelperRequest, { operation: "file.cop
       operation: "file.copy",
       status: "unknown",
       errorCode: "POST_READ_FAILED",
-      errno: null,
-      message: "post-copy snapshot was incomplete",
+      errno: postReadErrno,
+      message: postReadErrno === null
+        ? "post-copy snapshot was incomplete"
+        : `post-copy snapshot read failed: ${postReadErrno}`,
       openFlagsUsed: flags,
       preWriteSnapshot: pre,
       postWriteSnapshot: null,

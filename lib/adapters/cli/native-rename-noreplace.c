@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,6 +10,7 @@ static int no_replace_rename(const char *source, const char *destination) {
 }
 #elif defined(__linux__)
 #include <fcntl.h>
+#include <linux/fs.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 static int no_replace_rename(const char *source, const char *destination) {

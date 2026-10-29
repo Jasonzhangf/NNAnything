@@ -42,6 +42,7 @@ export type CliFileBytesErrorCode =
   | "PERMISSION_DENIED"
   | "PRE_READ_INCOMPLETE"
   | "POST_READ_FAILED"
+  | "RESPONSE_TOO_LARGE"
   | "IO_ERROR";
 
 export type CliFileBytesHelperRequest =
@@ -86,10 +87,10 @@ export type CliFileBytesHelperRequest =
 
 export type CliFileBytesEffectsObserved = Readonly<{
   attempted: boolean;
-  mutationCommitted: boolean;
-  modifiedPaths: readonly string[];
-  createdPaths: readonly string[];
-  bytesWritten: number;
+  mutationCommitted: boolean | null;
+  modifiedPaths: readonly string[] | null;
+  createdPaths: readonly string[] | null;
+  bytesWritten: number | null;
 }>;
 
 export type CliFileBytesHelperReceipt = Readonly<{
@@ -104,7 +105,7 @@ export type CliFileBytesHelperReceipt = Readonly<{
   postWriteSnapshot: CliFileByteSnapshot | null;
   sourceSnapshot: CliFileByteSnapshot | null;
   destinationSnapshot: CliFileByteSnapshot | null;
-  bytesWritten: number;
+  bytesWritten: number | null;
   effectsObserved: CliFileBytesEffectsObserved;
 }>;
 
@@ -127,6 +128,7 @@ export type CliFileBytesHelperRun = Readonly<{
 }>;
 
 const helperPath = fileURLToPath(new URL("./file-bytes-helper.js", import.meta.url));
+export const FILE_BYTES_HELPER_OUTPUT_LIMIT_BYTES = 256 * 1024 * 1024;
 const OPERATIONS = Object.freeze([
   "file.replace",
   "file.write",
@@ -311,7 +313,7 @@ function rejectedReceipt(
   });
 }
 
-function failedReceipt(
+function unknownReceipt(
   op: CliFileBytesOperation,
   errorCode: CliFileBytesErrorCode,
   errno: string | null,
@@ -320,7 +322,7 @@ function failedReceipt(
   return Object.freeze({
     ok: false,
     operation: op,
-    status: "failed",
+    status: "unknown",
     errorCode,
     errno,
     message,
@@ -329,8 +331,14 @@ function failedReceipt(
     postWriteSnapshot: null,
     sourceSnapshot: null,
     destinationSnapshot: null,
-    bytesWritten: 0,
-    effectsObserved: Object.freeze({ ...noEffects, attempted: true }),
+    bytesWritten: null,
+    effectsObserved: Object.freeze({
+      attempted: true,
+      mutationCommitted: null,
+      modifiedPaths: null,
+      createdPaths: null,
+      bytesWritten: null,
+    }),
   });
 }
 
@@ -414,7 +422,7 @@ export async function runFileBytesHelper(value: unknown): Promise<CliFileBytesHe
     const child = execFile(
       process.execPath,
       [...argv],
-      { shell: false, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+      { shell: false, encoding: "utf8", maxBuffer: FILE_BYTES_HELPER_OUTPUT_LIMIT_BYTES },
       (error, stdout, stderr) => {
         const parsed = parseReceipt(error === null ? stdout : (stderr || stdout));
         if (parsed !== null) {
@@ -437,7 +445,7 @@ export async function runFileBytesHelper(value: unknown): Promise<CliFileBytesHe
         const message = error !== null
           ? (stderr.trim() || error.message)
           : "file bytes helper returned an invalid response";
-        const receipt = failedReceipt(request.operation, "IO_ERROR", code, message);
+        const receipt = unknownReceipt(request.operation, "IO_ERROR", code, message);
         resolveRun(Object.freeze({
           receipt,
           executorInvoked: true,
@@ -471,7 +479,7 @@ function unmetVerdict(receipt: CliFileBytesHelperReceipt): CliFileBytesVerdict {
   return Object.freeze({
     status: "unmet",
     satisfaction: 0,
-    replayForbidden: receipt.effectsObserved.mutationCommitted,
+    replayForbidden: receipt.effectsObserved.mutationCommitted === true,
   });
 }
 
@@ -535,7 +543,7 @@ export function verifyFileAppendReceipt(
   receipt: CliFileBytesHelperReceipt,
   expectedSuffix: TypedBytes,
 ): CliFileBytesVerdict {
-  if (receipt.errorCode === "POST_READ_FAILED") return unknownVerdict();
+  if (receipt.errorCode === "POST_READ_FAILED" || receipt.status === "unknown") return unknownVerdict();
   const oldBuf = snapshotBuffer(receipt.preWriteSnapshot);
   const newBuf = snapshotBuffer(receipt.postWriteSnapshot);
   const suffixBuf = Buffer.from(expectedSuffix.base64, "base64");
@@ -590,8 +598,8 @@ export function verifyFileCopyReceipt(receipt: CliFileBytesHelperReceipt): CliFi
   const valid =
     receipt.status === "succeeded"
     && receipt.operation === "file.copy"
-    && receipt.effectsObserved.createdPaths.length === 1
-    && receipt.effectsObserved.mutationCommitted
+    && receipt.effectsObserved.createdPaths?.length === 1
+    && receipt.effectsObserved.mutationCommitted === true
     && sourceUnchanged
     && destinationMatchesSource;
   return valid ? achievedVerdict() : unmetVerdict(receipt);
