@@ -2053,3 +2053,9 @@ Bob 请 master 统一执行「完整 milestone 审查」，master 不接：`l2-c
 - 同批提交支撑交叉引用的既有评审内容：`docs/cli-training-roadmap.md` §3.1/§3.2/§7–12 的 S0–S12 / P1–P6 盘点与阶段矩阵、统一语义设计模板（`.agents/skills/nnanything-training/references/semantic-design-template.md` 及 `SKILL.md` 引用）、Alice 二层编程组合设计 `docs/cli-programming-compositions.md`。
 - 内容边界：原生单命令递归搜索取代模型自展开遍历；三层覆盖 `slotReceipt.coverage` / `domain.coverage` / 根满足度分离；T12/T14a-c 预算监督退役且原失败回执保留；浏览器范围扩展四事实与成对反例 6A/6B。正式搜索训练仍 `NOT_READY`，需另行提交样本/分区/配方与固定入口审核。
 - 纯文档（10 文件，422 insertions / 14 deletions），无产品代码、权重、gold、阈值、采用或图拓扑改动；`git diff --check` clean。文档提交 `8aa1b27`，push `origin/main` 后核对远端。
+
+2026-10-29 master 按巡检 `m1793259456935-373` 收口「纠偏文档已交付后的就绪状态」并分类三档事实（只读核对，无新派单）：
+- 已完成并接受：搜索专项 A36 `36/36`、B96 `96/96`、C12 formal12-r2 `12/12`（`search-specialist-c12-recursive` 已 force-close，回执 `cleanup-final-search-specialist-c12-recursive-1793166710830`）；搜索纠偏 7 份文档 Alice r2 PASS，main 提交 `8aa1b27`；CLI helper P4/P5/P6 里程碑并入 main `95f0ab1`；native-line 四头首阶段 6 探针 + 12 例组合（`native-line-four-head-composition/delivery-r2.md`、`master-verification-r2.md`）真实 PASS 12/12、独立 oracle 12/12、sandbox opens/closes/spawns 11/11/11，边界为固定切片、非通用递归搜索。
+- 只等审计/集成：Phase A（`cli-p1-p2-phase-a-product` rev16，Emma）三处评价入口缺口已补齐并零训练步核验（46 场景 + 23 探针 = 71，5 项 UNVERIFIED 单列；`phase-a-emma/result.md`），等 Alice 终审准入与 Phase B 放行，Phase B 仍 `NOT_READY`；`p3-b-relation-prep`（`2e0d7f3`，clean，领先 main 1 个提交，`lib/filters/cli-entry-select-relation.ts` 未进 main）Alice 已接受工程切片，按原树保留待里程碑评审后集成。
+- 可并行派发：当前无可派执行合同。P4/P5 有效修订正文缺失已交 Emma 原研究线程恢复；正式搜索训练与 Phase B 均 `NOT_READY`；`cli-p1-p2-closure` 仍由 Emma 单 writer 持有，Phase B r1（numeric 零梯度修复后）须待其释放。
+- L4 四头 Astra 设计审查（`.agent-collab/review/l2-four-head-astra-design`，commit `3854b60`）唯 1 条 P2（映射边界）属 advisory；其 remediation `docs/l2-four-head-experiment.md` §5「实施投影补充」已于 `88fa6a6` 并入 main。四头 MVP 按 board 决策 `P1–P6 基础优先` 后置，尚未到实现/评审边界，故该 P2 无需现在单独出 finding 复核回执；待 MVP 到边界再随受影响验证复核。main 树 clean 于 `47a6b51`。本轮无代码/训练/权重/gold/阈值/采用改动，无新 worktree，无 dispatch。
