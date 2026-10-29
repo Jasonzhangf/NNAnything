@@ -2072,3 +2072,17 @@ Bob 请 master 统一执行「完整 milestone 审查」，master 不接：`l2-c
 - board `cli-p1-p2-phase-a-product` 已由 Emma 更新至 rev17（`m1793264456378-474`），next_step 反映 Phase B r1 完成与 Jenny 集成收口。
 
 本轮无代码改动（note 唯一 owner 更正），无训练/权重/gold/阈值/采用改动，无新 worktree，无 dispatch。main 树 clean 于 `cc7b099`（更正前）。
+
+## 2026-10-29 Stage1/B 集成收口：三项 P1 全闭合，整体里程碑 Review PASS，已合入 main
+
+fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A 有效 E 引用断链到达 `unmet/0` 终点、P1-B 共享 profile 11x34 升级按名迁移旧 consumer。定点复核 `review-p1-p2-b-fix-r1` 判 P1-A CLOSED，但 P1-B 残留新 P1：`train-p3.mjs`/`fit-p3.mjs` 报告引用已被删除的 `schema` 变量，构成 ReferenceError。
+
+修复 `c802b16`（2 文件各一行）恢复 `const schema = detectCliCommandProfileSchema(rawProfile)`。定向复核 `review-p1-p2-b-fix-r1-r1`（scope `c802b16`、base `be57ddd`）exit 0、`findings=[]`，PASS。三轮 Review 原件归档 `.worker-runs/cli-p1-p2-b-integration-fix-review/review-evidence/`。
+
+集成：main `e4d348a` 非快进合并 `codex/cli-p1-p2-b-integration`（`c802b16`）得 `bf997ae`（57 文件、`+6450/-557`，含 Stage1 11x34、P3-B 关系选择与三项 P1 修复），已 push `origin/main`，远端核对同为 `bf997ae`。
+
+合并态验证：`npm run build` exit 0（layout + tsc）；CLI 定点 `node --test tests/cli-entry-select-relation.test.mjs tests/cli-public-consumer-profile.test.mjs` 25 pass / 0 fail / 1 skip（1 skip 需外部 `NN_CLI_COMMAND_PROFILE` 资产）。`npm run test:full` 需显式真实资产 env，本环境未提供，属记录基线的资产门禁，非本合并回归；其余行为证据复用 fix-r1 各套件。
+
+清理：按 SESE 移除 `cli-p1-p2-b-integration`、`cli-p1-p2-closure`、`p3-b-relation-prep` 三棵自有 worktree（三支均已为 main 祖先、clean、无活动进程，树内仅 README 占位、无真实权重/结果），`worktree prune` 后确认路径不存在，并删除三条已合并分支。`cg1-tool-adaptation`、`l2-four-head-mvp` 为他 owner dirty 树，按 PROTECTED_HOLD 保留未动。当前共 3 棵 worktree，低于上限。
+
+边界：Stage1 候选 `7e34901c` 与 P3-B 候选 `39427f5c` 仍 `uncalibrated/not_applied`、`fullyVerified=false`；本轮未重训、未改权重/gold/阈值/采用。T12 退役原始失败回执原样保留为历史事实（`budget_exhausted` vs `interrupted`），未改断言或预算掩盖。此前「真实未闭合项」三项现全部处置：P1-A/P1-B 已独立复核闭合、31+2 改动已提交、已 merge/push、T12 按退役处置。
