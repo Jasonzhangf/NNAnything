@@ -2093,3 +2093,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 审计：Alice —— 任务完成与阶段/整体完成均须 Alice 审计；原有技术独立 Review 不替代 Alice 完成审计。每个阶段/整体完成时，Jenny 主动交合同、实际产物、原始验收证据及剩余边界；Alice 事件驱动审计，无需定时催办。取消 Alice 定时巡检不等于取消任何审核职责。
 - 计划/研究：Emma。
 - Stage2 交接顺序：产品切片（A2-Product）交回后先交 Alice 审计；Alice 通过且 writer 明确释放后，才按既有合同交 Emma 做数据/固定入口准备（A2-Research-Prep 的 A2-1/A2-2/A2-3）；正式训练（Phase B2）仍须 Alice 准入批准。
+
+## 2026-10-29 P3 Stage2 A2-Product 完成并交 Alice 阶段审计
+
+- GCM worker（PID 80462，`codex exec --profile gcm`）在独占树 `/Volumes/Intel/playground/nnanything/p3-stage2-policy-prep`（branch `codex/p3-stage2-policy-prep`，base main `f65d72e`）交付 A2-Product 8 文件切片：`lib/cli-goal.ts`、`lib/filters/cli-command-policy.ts`、`lib/filters/cli-file-property.ts`、`lib/filters/cli-state.ts`、`lib/nodes/cli-command.ts`、`tests/cli-command.test.mjs`、`tests/cli-file-property.test.mjs`、`tests/cli-command-p3-select.test.mjs`（新建）。stage2-13x38 为 13 heads × 38 wires = 494 参数，迁移 374 copied + 120 zero-filled；directory.select/file.select 经注入 `entrySelectProfiles` 执行，缺 profile 抛 TypeError；后置映射 achieved/100、unmet/0、unknown/null、rejected/0；`entrySelection` 按 (parentPath, sessionRevision, targetType, name) 键并在 cd revision bump 失效。
+- 我在 worker 退出后以单 writer 独立复跑门禁：`npm run build` exit 0；`npm run typecheck` exit 0；`node --test tests/cli-file-property.test.mjs tests/cli-command.test.mjs tests/cli-command-p3-select.test.mjs` = 45 tests / 45 pass / 0 fail / 0 skip；`git diff --check` 干净；改动恰 8 文件，无禁用文件（未触碰 lib/training、cli-command-training、command-learning、cli-path-primitives-independent）。
+- 边界：未跑训练/数据/reload；Track B 权重只读作夹具；无硬编码相等选择或默认权重；worker 未 commit（提交/合并/push 由 Jenny 负责）。已知缺口：selection 的 `insufficient_evidence`（部分覆盖）与 `invalid_input`（重复候选）分支已实现并有 relation 单测，本公共沙箱切片无法构造部分/重复 listing，未做黑盒覆盖，留 A2-Research-Prep 外部套件。
+- 已向 Alice 发 Stage2 阶段审计请求（durable `m1793288816321-962`；desktop bridge 通知超时，消息已记录，Alice 下次 `collab recv` 读取）。Alice PASS 且显式释放 `p3-stage2-policy-prep` 单 writer 后，才把同一棵树交 Emma 做 A2-Research-Prep（A2-1/A2-2/A2-3 七文件）；正式 Stage2 拟合仍需 Alice 另行准入。Emma 上条消息写的 `cli-p3-stage2` 路径有误，实际为 `p3-stage2-policy-prep`。
+- 同时 Alice 已审计 PASS P3 Stage2 研究准备合同与 P4/P5/P6 Part2 产品合同（Emma 汇总 `m1793286987818-923`，Alice `m1793286792551-918`）：P4 stage3-19x61 1159 参数 A3-Product 9 文件、P5 stage4-25x69 1725 参数 A4-Product 9 文件、P6 stage5-28x72 2016 参数 A5-Product 10 文件（新增 `lib/adapters/cli/entry-inspection.ts` 纳秒运输 owner），各 7 文件研究准备；按 Stage3→P5、Stage4→P6 与旧树关闭的真实依赖派发，依赖未到不抢共享 writer，不重做 helper、不重训已接受候选。P6 缺 Ns 归 unknown/null 零重放，非 unmet。
+- 本轮无训练/权重/gold/阈值/采用改动；Stage2 工作记录在 run 目录，未新增独立 board 任务。
