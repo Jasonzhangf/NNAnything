@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
@@ -1202,6 +1202,51 @@ test("P2 resolvedTarget separates invalid follow, non-link, valid target and bro
   assert.equal(broken.observed_state_after.entryKnowledge.entryExists, true);
   assert.equal(broken.observed_state_after.entryKnowledge.resolvedTargetExists, false);
   assert.equal(broken.observed_state_after.entryKnowledge.errno, "ENOENT");
+});
+
+test("P2 resolvedTarget keeps an issued E-reference broken target as unmet", async t => {
+  const module = await api();
+  const { sandbox, session } = await fixture(t);
+  const start = join(sandbox.scenarioRoot, "start");
+  const dangling = join(start, "observed-dangling-link");
+  await symlink("missing-target", dangling);
+  const ref = await sandbox.bindEntry(session, dangling);
+  assert.equal(ref.kind, "cli.entry");
+  assert.equal(ref.type, "symlink");
+  const beforeSession = sandbox.getSession(session);
+  const beforeEntries = (await readdir(start)).sort();
+  const policy = module.createCliCommandPolicy({
+    profile: witnessProfile(module, "entry.inspect"),
+    sandbox,
+    session,
+  });
+
+  const broken = await policy.step({
+    goal: resolvedTargetGoal(ref, true),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.equal(broken.policy.selectedHead, "entry.inspect");
+  assert.deepEqual([broken.status, broken.satisfaction], ["unmet", 0]);
+  assert.equal(broken.reason, "resolved_target_missing");
+  assert.equal(broken.execution_result.executorInvoked, true);
+  assert.equal(broken.execution_result.receipt?.execution.status, "succeeded");
+  assert.equal(broken.observed_state_after.entryKnowledge.entryExists, true);
+  assert.equal(broken.observed_state_after.entryKnowledge.resolvedTargetExists, false);
+  assert.equal(broken.observed_state_after.entryKnowledge.errno, "ENOENT");
+  assert.equal(broken.observed_state_after.entryKnowledge.type, null);
+  assert.deepEqual(sandbox.getSession(session), beforeSession);
+  assert.deepEqual((await readdir(start)).sort(), beforeEntries);
+
+  await rm(dangling);
+  const disappeared = await policy.step({
+    goal: resolvedTargetGoal(ref, true),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.deepEqual([disappeared.status, disappeared.satisfaction], ["failed", 0]);
+  assert.equal(disappeared.execution_result.executorInvoked, false);
+  assert.equal(disappeared.execution_result.receipt?.execution.error.code, "ENOENT");
 });
 
 test("operation applicability remains deterministic for current observe-only operations", async () => {

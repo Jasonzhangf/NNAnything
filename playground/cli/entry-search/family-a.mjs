@@ -18,12 +18,8 @@ const PROFILE_PATH = process.env.NN_CLI_COMMAND_PROFILE;
 if (typeof PROFILE_PATH !== "string" || PROFILE_PATH.length === 0) {
   throw new Error("NN_CLI_COMMAND_PROFILE must name the existing cli.command-policy.v1 candidate");
 }
-// A 10x30 profile predates the search.nameNeedleSegment wire; the runtime entry rejects that
-// shape by contract, so this caller migrates it by name first. A 10x31 profile passes through.
 const rawProfile = JSON.parse(await readFile(PROFILE_PATH, "utf8"));
-const PROFILE = rawProfile.wires?.length === 30
-  ? await (await import("nnanything/cli-goal")).migrateCliCommandProfileV10x30(rawProfile)
-  : rawProfile;
+const PROFILE = await (await import("nnanything/cli-goal")).migrateCliCommandProfileToCurrent(rawProfile);
 const LIMITS = Object.freeze({ maxTransitions: 20, maxDepth: 4, maxDerivedGoals: 8 });
 
 function request(directory, requestId, name, type) {

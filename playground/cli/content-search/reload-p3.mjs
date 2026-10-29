@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 const search = await import("nnanything/cli-content-search");
+const policy = await import("nnanything/cli-goal");
 const { atomicStepViews, decisionExecutions } = await import("./p3-recovery.mjs");
 
 const SCAN = Object.freeze({
@@ -503,13 +504,11 @@ async function main() {
   } catch (error) {
     throw new TypeError(`profile is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const schema = search.detectCliCommandProfileSchema(rawProfile);
-  if (schema !== "current-10x31") {
-    throw new TypeError(`profile schema must be current-10x31; detected ${schema}; no fallback profile was used`);
-  }
-  const profile = search.validateCliCommandProfile(rawProfile);
-  if (profile.wires.length !== 31 || profile.weights.length !== 10 || profile.weights.some(row => row.length !== 31)) {
-    throw new TypeError("profile did not validate as a 10x31 matrix");
+  const schema = policy.detectCliCommandProfileSchema(rawProfile);
+  const profile = policy.migrateCliCommandProfileToCurrent(rawProfile);
+  if (profile.heads.length !== 11 || profile.wires.length !== 34
+    || profile.weights.length !== 11 || profile.weights.some(row => row.length !== 34)) {
+    throw new TypeError("profile did not validate as the current 11x34 matrix");
   }
 
   const casesStat = await stat(casesPath);

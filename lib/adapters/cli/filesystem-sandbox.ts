@@ -1357,7 +1357,11 @@ async function executeEntryInspect(state: SandboxState, call: SemanticEntryInspe
   if (result.observation.snapshot.errno !== null && result.observation.snapshot.errno !== "ENOENT") {
     return failedReceipt(call, before, state, runId, result.observation.snapshot.errno, `Entry inspection failed with ${result.observation.snapshot.errno}`, "observe", true);
   }
-  if (ref.kind !== "cli.path" && result.observation.snapshot.errno === "ENOENT") {
+  const observedBrokenTarget = ref.kind === "cli.entry"
+    && result.observation.snapshot.entryExists === true
+    && result.observation.snapshot.entryKind === "symlink"
+    && result.observation.snapshot.resolvedTargetExists === false;
+  if (ref.kind !== "cli.path" && result.observation.snapshot.errno === "ENOENT" && !observedBrokenTarget) {
     return failedReceipt(call, before, state, runId, "ENOENT", "Observed reference target resolution failed", "observe", true);
   }
   const observation: EntryInspectObservation = Object.freeze({

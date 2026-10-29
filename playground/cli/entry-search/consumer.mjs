@@ -10,12 +10,7 @@ if (typeof profileFile !== "string" || profileFile.length === 0) {
   throw new Error("NN_CLI_COMMAND_PROFILE is required");
 }
 const rawProfile = JSON.parse(await readFile(profileFile, "utf8"));
-// A saved 10x30 profile predates the search.nameNeedleSegment wire. The runtime entry rejects it
-// by contract, so the caller migrates explicitly before handing it over; a current 10x31 profile
-// passes through unchanged.
-const profile = rawProfile.wires?.length === 30
-  ? await (await import("nnanything/cli-goal")).migrateCliCommandProfileV10x30(rawProfile)
-  : rawProfile;
+const profile = await (await import("nnanything/cli-goal")).migrateCliCommandProfileToCurrent(rawProfile);
 const limits = Object.freeze({ maxTransitions: 20, maxDepth: 4, maxDerivedGoals: 8 });
 
 function request(directory, requestId, name, type) {

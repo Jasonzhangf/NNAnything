@@ -7,8 +7,7 @@ import { createCliSession } from "nnanything/cli";
 import {
   createCliCommandPolicy,
   createCliFilesystemSandbox,
-  migrateCliCommandProfileStage0ToStage1,
-  migrateCliCommandProfileV10x30,
+  migrateCliCommandProfileToCurrent,
 } from "nnanything/cli-goal";
 import { runRecursiveGoal } from "nnanything/recursive-goal";
 
@@ -530,11 +529,7 @@ export async function runCwdScenarios({
   }
   const profileTextBefore = await readFile(profilePath, "utf8");
   const rawProfile = JSON.parse(profileTextBefore);
-  const profile = rawProfile.wires?.length === 30
-    ? migrateCliCommandProfileV10x30(rawProfile)
-    : rawProfile.wires?.length === 31
-      ? migrateCliCommandProfileStage0ToStage1(rawProfile)
-      : rawProfile;
+  const profile = migrateCliCommandProfileToCurrent(rawProfile);
   await mkdir(fixtureParent, { recursive: true });
   const fixtureRoot = await mkdtemp(join(fixtureParent, "nnanything-recursive-cwd-"));
   const scenarios = [];

@@ -11,7 +11,6 @@ import {
   createCliFilesystemSandbox,
   isBatch1CommandCase,
   makeCliCommandFixture,
-  migrateCliCommandProfileStage0ToStage1,
   migrateCliCommandProfileToCurrent,
   prepareCliCandidatePreferenceDataset,
   prepareCliCommandDataset,
@@ -441,9 +440,6 @@ try {
   const rawSource = JSON.parse(await readFile(initialSource, "utf8"));
   const initial = migrateCliCommandProfileToCurrent(rawSource, stage);
   validateCliCommandProfile(initial, stage);
-  if (Array.isArray(rawSource.heads) && rawSource.heads.length === 10 && Array.isArray(rawSource.wires) && rawSource.wires.length === 31) {
-    assert.deepEqual(migrateCliCommandProfileStage0ToStage1(rawSource), initial);
-  }
   const migrationCheck = verifyNamedMigration(rawSource, initial);
   const rawP3Samples = JSON.parse(await readFile(p3PreferenceSamplesPath, "utf8"));
   const mappedP3Rows = (rawP3Samples.preferenceRows ?? []).map(row =>
