@@ -4,25 +4,26 @@ import { mkdtemp, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const TEN_HEADS = [
+const ELEVEN_HEADS = [
   'unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls',
-  'path.resolve', 'path.relative', 'path.parts', 'entry.inspect',
+  'path.resolve', 'path.relative', 'path.parts', 'path.realpath', 'entry.inspect',
 ];
-const TEN_PROPERTIES = [
+const FIFTEEN_PROPERTIES = [
   'property.path.absolute', 'property.path.relative', 'property.path.parent', 'property.path.name',
+  'property.path.physical',
   'property.exists', 'property.type', 'property.directory.entries', 'property.size',
   'property.mode', 'property.owner', 'property.times', 'property.link.target',
   'property.entry.identity', 'property.relation.sessionCwd',
 ];
-const SEVEN_PREDICATES = [
+const NINE_PREDICATES = [
   'predicate.observe.absolute', 'predicate.observe.relative', 'predicate.observe.parts',
-  'predicate.observe.inspect', 'predicate.observe.sessionCwd', 'predicate.equals.sessionCwd',
-  'predicate.observe.entries',
+  'predicate.observe.physical', 'predicate.observe.inspect', 'predicate.observe.resolvedTarget',
+  'predicate.observe.sessionCwd', 'predicate.equals.sessionCwd', 'predicate.observe.entries',
 ];
-const THIRTY_ONE_WIRES = [
+const THIRTY_FOUR_WIRES = [
   'bias', 'goalObserveCwd', 'goalSetCwd', 'goalListDirectory',
-  ...TEN_PROPERTIES,
-  ...SEVEN_PREDICATES,
+  ...FIFTEEN_PROPERTIES,
+  ...NINE_PREDICATES,
   'state.hasFreshEvidence', 'state.knownValue', 'state.requiredConditionHolds',
   'state.hasDestinationRef', 'search.nameNeedleSegment',
   'state.requiredConditionHolds*state.hasFreshEvidence',
@@ -67,15 +68,15 @@ test('shared command profile expands named weights without reinterpreting old ro
     adoption: 'not_applied',
   };
   const extended = api.migrateCliCommandProfileV6(legacy);
-  assert.deepEqual(extended.heads, TEN_HEADS);
-  assert.deepEqual(extended.properties, TEN_PROPERTIES);
-  assert.deepEqual(extended.predicates, SEVEN_PREDICATES);
-  assert.deepEqual(extended.wires, THIRTY_ONE_WIRES);
-  assert.equal(extended.weights.length, 10);
-  assert.equal(extended.weights.every(row => row.length === 31), true);
-  assert.equal(extended.weights.flat().length, 310);
-  for (const [rowIndex, head] of TEN_HEADS.entries()) {
-    for (const [columnIndex, wire] of THIRTY_ONE_WIRES.entries()) {
+  assert.deepEqual(extended.heads, ELEVEN_HEADS);
+  assert.deepEqual(extended.properties, FIFTEEN_PROPERTIES);
+  assert.deepEqual(extended.predicates, NINE_PREDICATES);
+  assert.deepEqual(extended.wires, THIRTY_FOUR_WIRES);
+  assert.equal(extended.weights.length, 11);
+  assert.equal(extended.weights.every(row => row.length === 34), true);
+  assert.equal(extended.weights.flat().length, 374);
+  for (const [rowIndex, head] of ELEVEN_HEADS.entries()) {
+    for (const [columnIndex, wire] of THIRTY_FOUR_WIRES.entries()) {
       const legacyRow = LEGACY_HEADS.indexOf(head);
       const legacyColumn = LEGACY_WIRES.indexOf(wire);
       const expected = legacyRow < 0 || legacyColumn < 0 ? 0 : legacy.weights[legacyRow][legacyColumn];

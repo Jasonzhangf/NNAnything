@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { lstat, readlink, stat } from "node:fs/promises";
+import { lstat, readlink, realpath, stat } from "node:fs/promises";
 import { posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expectRecord } from "../../core/schema.js";
@@ -46,6 +46,7 @@ export type LegacyDirectoryRef = Readonly<{
 }>;
 
 export type EntrySnapshot = Readonly<{
+  entryKind: EntryKind | null;
   kind: EntryKind | null;
   dev: bigint | null;
   ino: bigint | null;
@@ -71,6 +72,7 @@ export type EntrySnapshot = Readonly<{
 }>;
 
 export type ObservedEntrySnapshot = Readonly<{
+  entryKind: EntryKind | null;
   kind: EntryKind | null;
   dev: OsInteger;
   ino: OsInteger;
@@ -97,9 +99,15 @@ export type EntryInspectRequest = Readonly<{
   followSymlinks: boolean;
 }>;
 
+export type PathRealpathRequest = Readonly<{
+  operation: "path.realpath";
+  absolutePath: string;
+}>;
+
 export type EntryInspectHelperObservation = Readonly<{
   kind: "entry.inspect";
   request: EntryInspectRequest;
+  entryKind: EntryKind | null;
   executable: string;
   helperPath: string;
   argv: readonly [string, string];
@@ -112,6 +120,31 @@ export type EntryInspectHelperObservation = Readonly<{
 
 export type EntryInspectHelperResult =
   | Readonly<{ ok: true; observation: EntryInspectHelperObservation }>
+  | Readonly<{ ok: false; error: CliFailure }>;
+
+export type ObservedRealpathSnapshot = Readonly<{
+  physicalPath: string | null;
+  entryExists: boolean | null;
+  resolvedTargetExists: boolean | null;
+  resolvedIdentity: Readonly<{ dev: OsInteger; ino: OsInteger }> | null;
+  errno: string | null;
+}>;
+
+export type PathRealpathHelperObservation = Readonly<{
+  kind: "path.realpath";
+  request: PathRealpathRequest;
+  executable: string;
+  helperPath: string;
+  argv: readonly [string, string];
+  stdin: string;
+  stdout: string;
+  stderr: string;
+  exitCode: 0;
+  snapshot: ObservedRealpathSnapshot;
+}>;
+
+export type PathRealpathHelperResult =
+  | Readonly<{ ok: true; observation: PathRealpathHelperObservation }>
   | Readonly<{ ok: false; error: CliFailure }>;
 
 type BigIntStatsLike = Readonly<{
@@ -266,6 +299,7 @@ function emptySnapshot(input: Readonly<{
   resolvedTargetExists: boolean | null;
 }>): EntrySnapshot {
   return Object.freeze({
+    entryKind: null,
     kind: null,
     dev: null,
     ino: null,
@@ -294,6 +328,7 @@ function emptySnapshot(input: Readonly<{
 function fromStats(
   stats: BigIntStatsLike,
   kind: EntryKind,
+  entryKind: EntryKind,
   observedWith: ObservedWith,
   entryExists: boolean,
   resolvedTargetExists: boolean | null,
@@ -301,6 +336,7 @@ function fromStats(
   errno: string | null,
 ): EntrySnapshot {
   return Object.freeze({
+    entryKind,
     kind,
     dev: stats.dev,
     ino: stats.ino,
@@ -361,16 +397,27 @@ export async function readEntrySnapshot(absolutePathValue: string, followSymlink
   }
 
   if (!followSymlinks) {
-    return fromStats(own, ownKind, "lstat", true, null, linkTarget, linkErrno);
+    return fromStats(own, ownKind, ownKind, "lstat", true, null, linkTarget, linkErrno);
   }
 
+  let sourceLinkTarget: string | null = null;
+  let sourceLinkErrno: string | null = null;
+  if (ownKind === "symlink") {
+    try {
+      sourceLinkTarget = await readlink(path);
+    } catch (error) {
+      sourceLinkErrno = errorCode(error);
+      if (sourceLinkErrno === null) throw error;
+    }
+  }
   try {
     const target = await stat(path, { bigint: true });
-    return fromStats(target, classify(target), "stat", true, true, null, null);
+    return fromStats(target, classify(target), ownKind, "stat", true, true, sourceLinkTarget, sourceLinkErrno);
   } catch (error) {
     const code = errorCode(error);
     if (code === null) throw error;
     return Object.freeze({
+      entryKind: ownKind,
       kind: null,
       dev: null,
       ino: null,
@@ -388,7 +435,7 @@ export async function readEntrySnapshot(absolutePathValue: string, followSymlink
       mtimeNs: null,
       ctimeNs: null,
       birthtimeNs: null,
-      linkTarget: null,
+      linkTarget: sourceLinkTarget,
       errno: code,
       entryExists: true,
       resolvedTargetExists: code === "ENOENT" ? false : null,
@@ -404,6 +451,7 @@ function toOsInteger(value: bigint | null): OsInteger {
 
 export function toObservedEntrySnapshot(snapshot: EntrySnapshot): ObservedEntrySnapshot {
   return Object.freeze({
+    entryKind: snapshot.entryKind,
     kind: snapshot.kind,
     dev: toOsInteger(snapshot.dev),
     ino: toOsInteger(snapshot.ino),
@@ -427,7 +475,8 @@ export function toObservedEntrySnapshot(snapshot: EntrySnapshot): ObservedEntryS
 
 function readObservedSnapshot(value: unknown): ObservedEntrySnapshot {
   const snapshot = expectRecord(value, "entry snapshot");
-  exactKeys(snapshot, ["kind", "dev", "ino", "nlink", "rdev", "size", "mode", "uid", "gid", "atimeMs", "mtimeMs", "ctimeMs", "birthtimeMs", "linkTarget", "errno", "entryExists", "resolvedTargetExists", "observedWith"], "entry snapshot");
+  exactKeys(snapshot, ["entryKind", "kind", "dev", "ino", "nlink", "rdev", "size", "mode", "uid", "gid", "atimeMs", "mtimeMs", "ctimeMs", "birthtimeMs", "linkTarget", "errno", "entryExists", "resolvedTargetExists", "observedWith"], "entry snapshot");
+  if (snapshot.entryKind !== null) entryKind(snapshot.entryKind, "entry snapshot entryKind");
   if (snapshot.kind !== null) entryKind(snapshot.kind, "entry snapshot kind");
   if (snapshot.observedWith !== null && snapshot.observedWith !== "stat" && snapshot.observedWith !== "lstat") {
     throw new TypeError("entry snapshot observedWith is invalid");
@@ -438,6 +487,7 @@ function readObservedSnapshot(value: unknown): ObservedEntrySnapshot {
     if (snapshot[key] !== null && typeof snapshot[key] !== "boolean") throw new TypeError(`entry snapshot ${key} is invalid`);
   }
   return Object.freeze({
+    entryKind: snapshot.entryKind as EntryKind | null,
     kind: snapshot.kind as EntryKind | null,
     dev: osInteger(snapshot.dev, "entry snapshot dev"),
     ino: osInteger(snapshot.ino, "entry snapshot ino"),
@@ -468,6 +518,16 @@ export function readEntryInspectRequest(value: unknown): EntryInspectRequest {
     operation: "entry.inspect",
     absolutePath: absolutePath(request.absolutePath, "entry inspect request absolutePath"),
     followSymlinks: request.followSymlinks,
+  });
+}
+
+export function readPathRealpathRequest(value: unknown): PathRealpathRequest {
+  const request = expectRecord(value, "path.realpath helper request");
+  exactKeys(request, ["operation", "absolutePath"], "path.realpath helper request");
+  if (request.operation !== "path.realpath") throw new TypeError("Expected a path.realpath helper request");
+  return Object.freeze({
+    operation: "path.realpath",
+    absolutePath: absolutePath(request.absolutePath, "path.realpath helper request absolutePath"),
   });
 }
 
@@ -506,6 +566,39 @@ function parseSuccessReceipt(value: string): ObservedEntrySnapshot {
   return readObservedSnapshot(receipt.snapshot);
 }
 
+function readObservedRealpathSnapshot(value: unknown): ObservedRealpathSnapshot {
+  const snapshot = expectRecord(value, "path.realpath snapshot");
+  exactKeys(snapshot, ["entryExists", "errno", "physicalPath", "resolvedIdentity", "resolvedTargetExists"], "path.realpath snapshot");
+  if (snapshot.errno !== null) nonEmpty(snapshot.errno, "path.realpath snapshot errno");
+  if (snapshot.physicalPath !== null) absolutePath(snapshot.physicalPath, "path.realpath snapshot physicalPath");
+  for (const key of ["entryExists", "resolvedTargetExists"] as const) {
+    if (snapshot[key] !== null && typeof snapshot[key] !== "boolean") throw new TypeError(`path.realpath snapshot ${key} is invalid`);
+  }
+  let resolvedIdentity: ObservedRealpathSnapshot["resolvedIdentity"] = null;
+  if (snapshot.resolvedIdentity !== null) {
+    const identity = expectRecord(snapshot.resolvedIdentity, "path.realpath resolvedIdentity");
+    exactKeys(identity, ["dev", "ino"], "path.realpath resolvedIdentity");
+    resolvedIdentity = Object.freeze({
+      dev: osInteger(identity.dev, "path.realpath resolvedIdentity.dev"),
+      ino: osInteger(identity.ino, "path.realpath resolvedIdentity.ino"),
+    });
+  }
+  return Object.freeze({
+    physicalPath: snapshot.physicalPath as string | null,
+    entryExists: snapshot.entryExists as boolean | null,
+    resolvedTargetExists: snapshot.resolvedTargetExists as boolean | null,
+    resolvedIdentity,
+    errno: snapshot.errno as string | null,
+  });
+}
+
+function parseRealpathSuccessReceipt(value: string): ObservedRealpathSnapshot {
+  const receipt = expectRecord(JSON.parse(value), "path.realpath helper receipt");
+  exactKeys(receipt, ["ok", "snapshot"], "path.realpath helper receipt");
+  if (receipt.ok !== true) throw new TypeError("Path realpath helper did not report success");
+  return readObservedRealpathSnapshot(receipt.snapshot);
+}
+
 export async function runEntryInspectHelper(input: Readonly<{
   absolutePath: string;
   followSymlinks: boolean;
@@ -539,6 +632,7 @@ export async function runEntryInspectHelper(input: Readonly<{
             observation: Object.freeze({
               kind: "entry.inspect",
               request,
+              entryKind: snapshot.entryKind,
               executable: process.execPath,
               helperPath,
               argv,
@@ -555,6 +649,112 @@ export async function runEntryInspectHelper(input: Readonly<{
         resolve(helperFailure(receipt ?? {
           code: errorCode(error) ?? "HELPER_FAILED",
           message: stderr.trim() || error.message,
+        }));
+      },
+    );
+    child.stdin?.end(stdin);
+  });
+}
+
+async function readRealpathSnapshot(absolutePathValue: string): Promise<ObservedRealpathSnapshot> {
+  const path = absolutePath(absolutePathValue, "path.realpath absolutePath");
+  try {
+    await lstat(path, { bigint: true });
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === null) throw error;
+    return Object.freeze({
+      physicalPath: null,
+      entryExists: code === "ENOENT" ? false : null,
+      resolvedTargetExists: code === "ENOENT" ? false : null,
+      resolvedIdentity: null,
+      errno: code,
+    });
+  }
+  try {
+    const physicalPath = await realpath(path, { encoding: "utf8" });
+    const target = await stat(physicalPath, { bigint: true });
+    return Object.freeze({
+      physicalPath,
+      entryExists: true,
+      resolvedTargetExists: true,
+      resolvedIdentity: Object.freeze({
+        dev: toOsInteger(target.dev),
+        ino: toOsInteger(target.ino),
+      }),
+      errno: null,
+    });
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === null) throw error;
+    return Object.freeze({
+      physicalPath: null,
+      entryExists: true,
+      resolvedTargetExists: code === "ENOENT" ? false : null,
+      resolvedIdentity: null,
+      errno: code,
+    });
+  }
+}
+
+export async function runRealpathHelperSnapshot(absolutePathValue: string): Promise<ObservedRealpathSnapshot> {
+  return readRealpathSnapshot(absolutePathValue);
+}
+
+export async function runPathRealpathHelper(input: Readonly<{
+  absolutePath: string;
+}>): Promise<PathRealpathHelperResult> {
+  const request = readPathRealpathRequest({ operation: "path.realpath", absolutePath: input.absolutePath });
+  const stdin = `${JSON.stringify(request)}\n`;
+  const argv = Object.freeze([helperPath, "path.realpath"] as const);
+  return new Promise(resolve => {
+    const child = execFile(
+      process.execPath,
+      [...argv],
+      { shell: false, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error === null) {
+          let snapshot: ObservedRealpathSnapshot;
+          try {
+            snapshot = parseRealpathSuccessReceipt(stdout);
+          } catch (decodeError) {
+            resolve(Object.freeze({
+              ok: false,
+              error: Object.freeze({
+                operation: "path.realpath",
+                stage: "observe",
+                code: "INVALID_HELPER_RESPONSE",
+                message: decodeError instanceof Error ? decodeError.message : String(decodeError),
+              }),
+            }));
+            return;
+          }
+          resolve(Object.freeze({
+            ok: true,
+            observation: Object.freeze({
+              kind: "path.realpath",
+              request,
+              executable: process.execPath,
+              helperPath,
+              argv,
+              stdin,
+              stdout,
+              stderr,
+              exitCode: 0,
+              snapshot,
+            }),
+          }));
+          return;
+        }
+        const receipt = parseFailureReceipt(stderr.trim());
+        resolve(Object.freeze({
+          ok: false,
+          error: Object.freeze({
+            operation: "path.realpath",
+            stage: "observe",
+            code: receipt?.code ?? errorCode(error) ?? "HELPER_FAILED",
+            message: receipt?.message ?? (stderr.trim() || error.message),
+          }),
         }));
       },
     );

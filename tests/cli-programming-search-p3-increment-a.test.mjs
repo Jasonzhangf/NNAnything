@@ -153,8 +153,8 @@ test("R4 experiment condition never changes the candidate feature vector", async
     experimentCondition: "forced",
   });
   assert.deepEqual(forced, natural);
-  assert.deepEqual(natural, Array.from({ length: 31 }, (_, index) => index === module.zeroCliCommandProfile().wires.indexOf("search.nameNeedleSegment") ? 1 : 0));
-  assert.deepEqual(module.cliCandidateFeatures("a-PX000001.ts", "KX000001"), Array(31).fill(0));
+  assert.deepEqual(natural, Array.from({ length: 34 }, (_, index) => index === module.zeroCliCommandProfile().wires.indexOf("search.nameNeedleSegment") ? 1 : 0));
+  assert.deepEqual(module.cliCandidateFeatures("a-PX000001.ts", "KX000001"), Array(34).fill(0));
 });
 
 test("R5 a forced first candidate is consumed and does not permanently pin the next selection", async t => {
@@ -184,38 +184,69 @@ test("R5 a forced first candidate is consumed and does not permanently pin the n
   assert.equal(weighted.domain.deliberateSuboptimal, true);
 });
 
-test("R6 the runtime accepts only the explicit 10x31 contract and rejects retired 30/32 shapes", async () => {
+test("R6 the runtime accepts only the explicit 11x34 contract and rejects unmigrated 30/31 and retired 32 shapes", async () => {
   const module = await policyApi();
   const current = module.zeroCliCommandProfile();
-  assert.equal(current.wires.length, 31);
-  assert.equal(current.weights.flat().length, 310);
+  assert.equal(current.heads.length, 11);
+  assert.equal(current.wires.length, 34);
+  assert.equal(current.weights.flat().length, 374);
   assert.deepEqual(module.validateCliCommandProfile(current).wires, current.wires);
 
+  const stage1NewWires = new Set([
+    "property.path.physical",
+    "predicate.observe.physical",
+    "predicate.observe.resolvedTarget",
+  ]);
+  const stage0Heads = current.heads.filter(head => head !== "path.realpath");
+  const stage0Properties = current.properties.filter(prop => prop !== "property.path.physical");
+  const stage0Predicates = current.predicates.filter(
+    pred => pred !== "predicate.observe.physical" && pred !== "predicate.observe.resolvedTarget",
+  );
+  const stage0Wires = current.wires.filter(wire => !stage1NewWires.has(wire));
+
+  const old30Wires = stage0Wires.filter(wire => wire !== "search.nameNeedleSegment");
   const old30 = {
-    ...current,
-    wires: current.wires.filter(wire => wire !== "search.nameNeedleSegment"),
-    weights: current.weights.map(row =>
-      row.filter((_, index) => current.wires[index] !== "search.nameNeedleSegment")
-        .map((_, index) => index + 1)),
+    contract: "cli.command-policy.v1",
+    heads: stage0Heads,
+    properties: stage0Properties,
+    predicates: stage0Predicates,
+    wires: old30Wires,
+    weights: stage0Heads.map((_, row) => old30Wires.map((__, col) => row * 100 + col + 1)),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
   };
   assert.equal(old30.wires[29], "state.requiredConditionHolds*state.hasFreshEvidence");
   assert.throws(() => module.validateCliCommandProfile(old30), /migrateCliCommandProfileV10x30/);
   const migrated = module.migrateCliCommandProfileV10x30(old30);
-  assert.equal(migrated.wires.length, 31);
-  assert.equal(migrated.weights.flat().length, 310);
+  assert.equal(migrated.heads.length, 11);
+  assert.equal(migrated.wires.length, 34);
+  assert.equal(migrated.weights.flat().length, 374);
   for (let column = 0; column < 30; column += 1) {
     const wire = old30.wires[column];
     const migratedColumn = migrated.wires.indexOf(wire);
     for (let row = 0; row < 10; row += 1) {
-      assert.equal(migrated.weights[row][migratedColumn], old30.weights[row][column], `${wire} copied by name`);
+      const migratedRow = migrated.heads.indexOf(old30.heads[row]);
+      assert.equal(migrated.weights[migratedRow][migratedColumn], old30.weights[row][column], `${wire} copied by name`);
     }
   }
   for (const row of migrated.weights) assert.equal(row[migrated.wires.indexOf("search.nameNeedleSegment")], 0);
 
-  const bad32 = {
-    ...current,
-    wires: [...current.wires, "search.nameNeedleSegment*observedFailure"],
-    weights: current.weights.map(row => [...row, 0]),
+  const old31 = {
+    contract: "cli.command-policy.v1",
+    heads: stage0Heads,
+    properties: stage0Properties,
+    predicates: stage0Predicates,
+    wires: stage0Wires,
+    weights: stage0Heads.map((_, row) => stage0Wires.map((__, col) => row * 100 + col + 1)),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
   };
-  assert.throws(() => module.validateCliCommandProfile(bad32), /32-wire|10x31/);
+  assert.throws(() => module.validateCliCommandProfile(old31), /migrateCliCommandProfileStage0ToStage1/);
+
+  const bad32 = {
+    ...old31,
+    wires: [...old31.wires, "search.nameNeedleSegment*observedFailure"],
+    weights: old31.weights.map(row => [...row, 0]),
+  };
+  assert.throws(() => module.validateCliCommandProfile(bad32), /32-wire|11x34/);
 });

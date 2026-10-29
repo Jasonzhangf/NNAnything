@@ -14,6 +14,7 @@ export const PATH_ABSOLUTE_PROPERTY = "file.property.path.absolute" as const;
 export const PATH_RELATIVE_PROPERTY = "file.property.path.relative" as const;
 export const PATH_PARENT_PROPERTY = "file.property.path.parent" as const;
 export const PATH_NAME_PROPERTY = "file.property.path.name" as const;
+export const PATH_PHYSICAL_PROPERTY = "file.property.path.physical" as const;
 export const EXISTS_PROPERTY = "file.property.exists" as const;
 export const TYPE_PROPERTY = "file.property.type" as const;
 export const CWD_PROPERTY = "file.property.relation.sessionCwd" as const;
@@ -39,6 +40,7 @@ export const REGISTERED_PROPERTIES = Object.freeze([
   PATH_RELATIVE_PROPERTY,
   PATH_PARENT_PROPERTY,
   PATH_NAME_PROPERTY,
+  PATH_PHYSICAL_PROPERTY,
   EXISTS_PROPERTY,
   TYPE_PROPERTY,
   ENTRIES_PROPERTY,
@@ -54,7 +56,9 @@ export const REGISTERED_PREDICATES = Object.freeze([
   "predicate.observe.absolute",
   "predicate.observe.relative",
   "predicate.observe.parts",
+  "predicate.observe.physical",
   "predicate.observe.inspect",
+  "predicate.observe.resolvedTarget",
   "predicate.observe.sessionCwd",
   "predicate.equals.sessionCwd",
   "predicate.observe.entries",
@@ -138,6 +142,13 @@ export type PathPartsGoal = Readonly<{
   requirement: Readonly<{ kind: "observed"; freshness: "this_run" }>;
 }>;
 
+export type PathPhysicalGoal = Readonly<{
+  kind: "file.property";
+  property: typeof PATH_PHYSICAL_PROPERTY;
+  target: InspectRef;
+  requirement: Readonly<{ kind: "observed"; freshness: "this_run" }>;
+}>;
+
 export type EntryInspectQuery = Readonly<{
   kind: "cli.entry-query";
   ref: InspectRef;
@@ -155,6 +166,16 @@ export type InspectGoal = Readonly<{
   requirement: Readonly<{ kind: "observed"; freshness: "this_run" }>;
 }>;
 
+export type ResolvedTargetGoal = Readonly<{
+  kind: "file.property";
+  property: typeof LINK_TARGET_PROPERTY;
+  target: EntryInspectQuery;
+  requirement: Readonly<{
+    kind: "matches";
+    predicate: Readonly<{ kind: "resolvedTarget" }>;
+  }>;
+}>;
+
 export type GenericFilePropertyGoal = Readonly<{
   kind: "file.property";
   property: string;
@@ -162,14 +183,24 @@ export type GenericFilePropertyGoal = Readonly<{
   requirement: Readonly<Record<string, unknown>>;
 }>;
 
-export type RegisteredGoal = CwdGoal | EntriesGoal | PathAbsoluteGoal | PathRelativeGoal | PathPartsGoal | InspectGoal;
+export type RegisteredGoal = CwdGoal | EntriesGoal | PathAbsoluteGoal | PathRelativeGoal | PathPartsGoal
+  | PathPhysicalGoal | InspectGoal | ResolvedTargetGoal;
 export type FilePropertyGoal = RegisteredGoal | GenericFilePropertyGoal;
+
+export function isResolvedTargetGoal(goal: FilePropertyGoal): goal is ResolvedTargetGoal {
+  if (goal.property !== LINK_TARGET_PROPERTY) return false;
+  const requirement = goal.requirement;
+  if (requirement.kind !== "matches") return false;
+  const predicate = requirement.predicate;
+  return predicate !== null && typeof predicate === "object" && "kind" in predicate && predicate.kind === "resolvedTarget";
+}
 
 export type ValidatedGoal = Readonly<{
   goal: FilePropertyGoal;
   registered: boolean;
   predicate: RegisteredPredicate | null;
   unboundDirectory: boolean;
+  bindingError: string | null;
 }>;
 
 export type PropertyRequest = Readonly<{
@@ -181,6 +212,7 @@ export type PropertyRequest = Readonly<{
 export type ValidatedPropertyRequest = PropertyRequest & Readonly<{
   registered: boolean;
   unboundDirectory: boolean;
+  bindingError: string | null;
 }>;
 
 export type PropertyFacts = Readonly<{
@@ -457,6 +489,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
         registered: true,
         predicate: "predicate.observe.sessionCwd",
         unboundDirectory: false,
+        bindingError: null,
       });
     }
     if (requirement.kind === "equals") {
@@ -472,6 +505,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
         registered: true,
         predicate: "predicate.equals.sessionCwd",
         unboundDirectory: isDirectoryQuery(expected),
+        bindingError: null,
       });
     }
     throw new TypeError("sessionCwd requirement must be observed or equals");
@@ -491,6 +525,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
       registered: true,
       predicate: "predicate.observe.entries",
       unboundDirectory: isDirectoryQuery(target),
+      bindingError: null,
     });
   }
 
@@ -502,6 +537,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
       registered: true,
       predicate: "predicate.observe.absolute",
       unboundDirectory: false,
+      bindingError: null,
     });
   }
 
@@ -513,6 +549,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
       registered: true,
       predicate: "predicate.observe.relative",
       unboundDirectory: false,
+      bindingError: null,
     });
   }
 
@@ -524,6 +561,39 @@ export function validateGoal(value: unknown): ValidatedGoal {
       registered: true,
       predicate: "predicate.observe.parts",
       unboundDirectory: false,
+      bindingError: null,
+    });
+  }
+
+  if (property === PATH_PHYSICAL_PROPERTY && requirement.kind === "observed") {
+    const target = validateInspectRef(input.target, "path.physical target");
+    const observed = observedRequirement(requirement, "path.physical observed requirement");
+    return Object.freeze({
+      goal: Object.freeze({ kind: "file.property", property: PATH_PHYSICAL_PROPERTY, target, requirement: observed }),
+      registered: true,
+      predicate: "predicate.observe.physical",
+      unboundDirectory: false,
+      bindingError: null,
+    });
+  }
+
+  if (property === LINK_TARGET_PROPERTY && requirement.kind === "matches") {
+    exactKeys(requirement, ["kind", "predicate"], "resolvedTarget requirement");
+    const predicate = expectRecord(requirement.predicate, "resolvedTarget predicate");
+    exactKeys(predicate, ["kind"], "resolvedTarget predicate");
+    if (predicate.kind !== "resolvedTarget") throw new TypeError("link.target matches predicate must be resolvedTarget");
+    const target = validateEntryInspectQuery(input.target);
+    return Object.freeze({
+      goal: Object.freeze({
+        kind: "file.property",
+        property: LINK_TARGET_PROPERTY,
+        target,
+        requirement: Object.freeze({ kind: "matches", predicate: Object.freeze({ kind: "resolvedTarget" }) }),
+      }),
+      registered: true,
+      predicate: "predicate.observe.resolvedTarget",
+      unboundDirectory: false,
+      bindingError: target.followSymlinks ? null : "resolved_target_requires_follow_symlinks",
     });
   }
 
@@ -535,6 +605,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
       registered: true,
       predicate: "predicate.observe.inspect",
       unboundDirectory: false,
+      bindingError: null,
     });
   }
 
@@ -544,6 +615,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
     registered: false,
     predicate: null,
     unboundDirectory: false,
+    bindingError: null,
   });
 }
 
@@ -562,6 +634,7 @@ export function validatePropertyRequest(value: unknown, session: SessionRef): Va
   if (pathKnowledge?.kind === "path.resolve") stateRefs.push(pathKnowledge.base);
   if (pathKnowledge?.kind === "path.relative") stateRefs.push(pathKnowledge.from, pathKnowledge.to);
   if (pathKnowledge?.kind === "path.parts") stateRefs.push(pathKnowledge.path);
+  if (pathKnowledge?.kind === "path.realpath") stateRefs.push(pathKnowledge.ref);
   if (state.entryKnowledge !== null && state.entryKnowledge !== undefined) stateRefs.push(state.entryKnowledge.query.ref);
   for (const ref of stateRefs) {
     if (ref.scenarioId !== session.scenarioId || ref.sessionId !== session.sessionId) {
@@ -603,6 +676,7 @@ export function validatePropertyRequest(value: unknown, session: SessionRef): Va
     state,
     registered: validated.registered,
     unboundDirectory: validated.unboundDirectory,
+    bindingError: validated.bindingError,
   });
 }
 
@@ -611,11 +685,13 @@ export function predicateOf(goal: FilePropertyGoal): RegisteredPredicate | null 
     const cwd = goal as CwdGoal;
     return cwd.requirement.kind === "observed" ? "predicate.observe.sessionCwd" : "predicate.equals.sessionCwd";
   }
+  if (isResolvedTargetGoal(goal)) return "predicate.observe.resolvedTarget";
   if (goal.requirement.kind !== "observed") return null;
   if (goal.property === ENTRIES_PROPERTY) return "predicate.observe.entries";
   if (goal.property === PATH_ABSOLUTE_PROPERTY) return "predicate.observe.absolute";
   if (goal.property === PATH_RELATIVE_PROPERTY) return "predicate.observe.relative";
   if (goal.property === PATH_PARENT_PROPERTY || goal.property === PATH_NAME_PROPERTY) return "predicate.observe.parts";
+  if (goal.property === PATH_PHYSICAL_PROPERTY) return "predicate.observe.physical";
   if (INSPECT_PROPERTIES.includes(goal.property as InspectProperty)) return "predicate.observe.inspect";
   return null;
 }
@@ -715,7 +791,8 @@ export function requiredHead(input: Readonly<{
   unboundDirectory: boolean;
   goal: FilePropertyGoal;
   facts: PropertyFacts;
-}>): "unsupported" | "DEFER" | "NOOP" | "pwd" | "cd" | "ls" | "path.resolve" | "path.relative" | "path.parts" | "entry.inspect" {
+}>): "unsupported" | "DEFER" | "NOOP" | "pwd" | "cd" | "ls"
+  | "path.resolve" | "path.relative" | "path.parts" | "path.realpath" | "entry.inspect" {
   if (!input.registered) return "unsupported";
   if (input.unboundDirectory) return "DEFER";
   if (input.goal.property === CWD_PROPERTY) {
@@ -726,5 +803,15 @@ export function requiredHead(input: Readonly<{
   if (input.goal.property === PATH_ABSOLUTE_PROPERTY) return "path.resolve";
   if (input.goal.property === PATH_RELATIVE_PROPERTY) return "path.relative";
   if (input.goal.property === PATH_PARENT_PROPERTY || input.goal.property === PATH_NAME_PROPERTY) return "path.parts";
+  if (input.goal.property === PATH_PHYSICAL_PROPERTY) return "path.realpath";
   return "entry.inspect";
+}
+
+export type OperationName = "entry.inspect" | "path.realpath";
+
+/** Deterministic applicability by already-observed entry type. Read-only metadata observation applies to every supported type. */
+export function evaluateOperationApplicability(entryType: EntryType | null, operation: OperationName): "appropriate" | "inappropriate" | "unknown" {
+  if (!["entry.inspect", "path.realpath"].includes(operation)) return "unknown";
+  if (entryType === null) return "unknown";
+  return ENTRY_TYPES.includes(entryType) ? "appropriate" : "unknown";
 }

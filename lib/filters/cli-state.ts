@@ -54,6 +54,17 @@ export type PathKnowledge = Readonly<
       sourceRun: string;
       sessionRevision: number;
     }
+  | {
+      kind: "path.realpath";
+      ref: InspectRef;
+      physicalPath: string | null;
+      entryExists: boolean | null;
+      resolvedTargetExists: boolean | null;
+      resolvedIdentity: Readonly<{ dev: OsInteger; ino: OsInteger }> | null;
+      errno: string | null;
+      sourceRun: string;
+      sessionRevision: number;
+    }
 >;
 
 export type EntryKnowledge = Readonly<{
@@ -393,7 +404,35 @@ export function validatePathKnowledge(value: unknown): PathKnowledge {
       sessionRevision: nonnegativeInteger(knowledge.sessionRevision, "path.parts knowledge sessionRevision"),
     });
   }
-  throw new TypeError("state.pathKnowledge.kind must be path.resolve, path.relative, or path.parts");
+  if (knowledge.kind === "path.realpath") {
+    exactKeys(
+      knowledge,
+      ["entryExists", "errno", "kind", "physicalPath", "ref", "resolvedIdentity", "resolvedTargetExists", "sessionRevision", "sourceRun"],
+      "path.realpath knowledge",
+    );
+    for (const key of ["entryExists", "resolvedTargetExists"] as const) {
+      if (knowledge[key] !== null && typeof knowledge[key] !== "boolean") {
+        throw new TypeError(`path.realpath knowledge ${key} must be boolean or null`);
+      }
+    }
+    if (knowledge.errno !== null && (typeof knowledge.errno !== "string" || knowledge.errno.length === 0)) {
+      throw new TypeError("path.realpath knowledge errno must be a non-empty string or null");
+    }
+    return Object.freeze({
+      kind: "path.realpath",
+      ref: validateInspectRef(knowledge.ref, "path.realpath knowledge ref"),
+      physicalPath: knowledge.physicalPath === null ? null : absolutePath(knowledge.physicalPath, "path.realpath knowledge physicalPath"),
+      entryExists: knowledge.entryExists as boolean | null,
+      resolvedTargetExists: knowledge.resolvedTargetExists as boolean | null,
+      resolvedIdentity: knowledge.resolvedIdentity === null
+        ? null
+        : validateObjectIdentity(knowledge.resolvedIdentity, "path.realpath knowledge resolvedIdentity"),
+      errno: knowledge.errno as string | null,
+      sourceRun: nonEmpty(knowledge.sourceRun, "path.realpath knowledge sourceRun"),
+      sessionRevision: nonnegativeInteger(knowledge.sessionRevision, "path.realpath knowledge sessionRevision"),
+    });
+  }
+  throw new TypeError("state.pathKnowledge.kind must be path.resolve, path.relative, path.parts, or path.realpath");
 }
 
 export function validateEntryKnowledge(value: unknown): EntryKnowledge {

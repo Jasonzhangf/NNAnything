@@ -90,6 +90,8 @@ export async function createIndependentScene(api, t, options = {}) {
       deepFile: join(start, 'nested', 'deep.txt'),
       missing: join(start, 'missing.txt'),
       link: join(start, 'file-link'),
+      hopLink: join(start, 'hop-link'),
+      dirLink: join(start, 'dir-link'),
       brokenLink: join(start, 'broken-link'),
       loopA: join(start, 'loop-a'),
       loopB: join(start, 'loop-b'),
@@ -99,6 +101,8 @@ export async function createIndependentScene(api, t, options = {}) {
     };
 
     await symlink('file.txt', paths.link);
+    await symlink('file-link', paths.hopLink);
+    await symlink('nested', paths.dirLink);
     await symlink('missing-target', paths.brokenLink);
     await symlink('loop-b', paths.loopA);
     await symlink('loop-a', paths.loopB);

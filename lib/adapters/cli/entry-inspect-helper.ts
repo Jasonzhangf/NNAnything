@@ -1,4 +1,10 @@
-import { readEntryInspectRequest, readEntrySnapshot, toObservedEntrySnapshot } from "./entry-inspection.js";
+import {
+  readEntryInspectRequest,
+  readEntrySnapshot,
+  readPathRealpathRequest,
+  runRealpathHelperSnapshot,
+  toObservedEntrySnapshot,
+} from "./entry-inspection.js";
 
 function writeFailure(error: unknown): void {
   const candidate = error !== null && (typeof error === "object" || typeof error === "function") && "code" in error
@@ -14,12 +20,22 @@ function writeFailure(error: unknown): void {
 }
 
 async function main(): Promise<void> {
-  if (process.argv.length !== 3 || process.argv[2] !== "entry.inspect") {
-    throw Object.assign(new TypeError("Usage: entry-inspect-helper.js entry.inspect < typed-json-stdin"), { code: "EINVAL" });
+  if (process.argv.length !== 3 || (process.argv[2] !== "entry.inspect" && process.argv[2] !== "path.realpath")) {
+    throw Object.assign(new TypeError("Usage: entry-inspect-helper.js entry.inspect|path.realpath < typed-json-stdin"), { code: "EINVAL" });
   }
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  const request = readEntryInspectRequest(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+  const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (process.argv[2] === "path.realpath") {
+    const request = readPathRealpathRequest(parsed);
+    const snapshot = await runRealpathHelperSnapshot(request.absolutePath);
+    if (snapshot.errno !== null && snapshot.errno !== "ENOENT") {
+      throw Object.assign(new Error(`Path realpath failed with ${snapshot.errno}`), { code: snapshot.errno });
+    }
+    process.stdout.write(`${JSON.stringify({ ok: true, snapshot })}\n`);
+    return;
+  }
+  const request = readEntryInspectRequest(parsed);
   const snapshot = await readEntrySnapshot(request.absolutePath, request.followSymlinks);
   if (snapshot.errno !== null && snapshot.errno !== "ENOENT") {
     throw Object.assign(new Error(`Entry inspection failed with ${snapshot.errno}`), { code: snapshot.errno });
