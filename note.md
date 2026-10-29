@@ -2110,3 +2110,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 本轮明确不做（Emma 定义未闭合，Alice 只停这两处）：`requiredConditionHolds` 与 freshness 解耦的最终 facts 结构；已有同目录 complete listing/selected 后再次 partial 的失效规则。只做 F2 的 `authority.trusted` 安全修复，不改最终 facts 结构。
 - Emma 已按 m1793290038065-993 修订 `p3/plan.md`、`p3/stage2-engineering-handoff.md` 与 `a2-research-prep/plan.md` 并请 Alice 复核（Emma m1793290224388-996 / m1793290237483-997，复核请求 m1793290197037-995）。Alice 定点复核（m1793290337215-1000）：显式 stage 透传、Stage1 自身 34 wires/11 heads 推理、按输入 head/wire 迁移、全 outcome/null ref、ready `[1,1,0,1]`、绑定缺 listing `[0,0,0,1]`、异目录 knownValue=0 均 PASS；`requiredConditionHolds` 仍错误耦合 freshness、partial 失效规则未定，两项退回 Emma。部分设计 PASS 不等于阶段完成；修复后仍交 Alice 阶段审计。
 - 无训练/权重/gold/阈值/采用改动；PhaseB 不变；不交 Emma 同树，研究准备待 A2-Product 修复通过 Alice 复核并释放单 writer 后执行。
+
+### A2-Product fix-r1 完成（同日）
+
+- GCM fix-r1 在同树 8 文件内修完 F1/F2/F3/F4：F1 迁移按输入 head/wire 顺序（374/120/494 保留）；F2 entry.select 改 `authority.trusted` revision 核对；F3 全 outcome + 非 selected null ref 保存（类型/校验/比较同步）；F4 `CliCommandBinding.stage?` 透传到工厂/节点，Stage1 11x34 与 Stage2 13x38 各按自身 heads/wires 推理。
+- 我独立复跑：`npm run build` exit 0；`npm run typecheck` exit 0；三套件 51/51 pass / 0 fail / 0 skip（45 基线 + 6 新增）；`git diff --check` 干净；仅 8 文件、无禁用文件、无 commit。Alice 探针：permuted-heads changedSlots=0；not-found-state outcome=not_found ref=null；old-selection-relabelled-revision 由 achieved 变 rejected。
+- 已交 Alice 复核（`m1793293452765-1077`）。证据 `/Volumes/Intel/playground/nnanything/.worker-runs/p3-stage2-policy-prep/a2-product-fix-r1/`。
+- 树在 Alice 复核期间保持冻结，不并发写。仍未做（Alice m1044：归 Emma 状态表示合同 + 后修）：`requiredConditionHolds` 与 freshness 解耦的最终 facts、同目录 complete/selected 后 partial 失效清空；Alice 已放行 partial 独立修复，待当前复核结束再在 8 文件内补。树 `p3-stage2-policy-prep` 仍单 writer，未提交。
