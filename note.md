@@ -2086,3 +2086,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 清理：按 SESE 移除 `cli-p1-p2-b-integration`、`cli-p1-p2-closure`、`p3-b-relation-prep` 三棵自有 worktree（三支均已为 main 祖先、clean、无活动进程，树内仅 README 占位、无真实权重/结果），`worktree prune` 后确认路径不存在，并删除三条已合并分支。`cg1-tool-adaptation`、`l2-four-head-mvp` 为他 owner dirty 树，按 PROTECTED_HOLD 保留未动。当前共 3 棵 worktree，低于上限。
 
 边界：Stage1 候选 `7e34901c` 与 P3-B 候选 `39427f5c` 仍 `uncalibrated/not_applied`、`fullyVerified=false`；本轮未重训、未改权重/gold/阈值/采用。T12 退役原始失败回执原样保留为历史事实（`budget_exhausted` vs `interrupted`），未改断言或预算掩盖。此前「真实未闭合项」三项现全部处置：P1-A/P1-B 已独立复核闭合、31+2 改动已提交、已 merge/push、T12 按退役处置。
+
+## 2026-10-29 职责分工确认（用户明确；唯一 owner 本 note.md 当前责任说明）
+
+- 推进（事务性）：Jenny —— 按已审计计划派单、进度、资源、执行交接与集成交付；不代拟计划（计划归 Emma），不代 Alice 接受阶段或整体完成。
+- 审计：Alice —— 任务完成与阶段/整体完成均须 Alice 审计；原有技术独立 Review 不替代 Alice 完成审计。每个阶段/整体完成时，Jenny 主动交合同、实际产物、原始验收证据及剩余边界；Alice 事件驱动审计，无需定时催办。取消 Alice 定时巡检不等于取消任何审核职责。
+- 计划/研究：Emma。
+- Stage2 交接顺序：产品切片（A2-Product）交回后先交 Alice 审计；Alice 通过且 writer 明确释放后，才按既有合同交 Emma 做数据/固定入口准备（A2-Research-Prep 的 A2-1/A2-2/A2-3）；正式训练（Phase B2）仍须 Alice 准入批准。
