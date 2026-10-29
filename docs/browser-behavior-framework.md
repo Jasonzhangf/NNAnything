@@ -54,6 +54,10 @@ Observe由首次请求、网页相关变化、目标scope变化与必要后验�
 
 可见与完全遮挡过滤只影响本次候选资格。部分露出保留已观测区域。缺测为unknown，不按不可见删除。保留原槽位、节点、排除原因和关系证据；不可见不自动作为L1负例，离屏对象不自动失去通过滚动被发现的可能性。
 
+单次视口快照并行候选评估与跨视口/异步批次原生范围扩展边界（2026-10-29 搜索训练纠偏同步，见 [search-page-abstraction.md](search-page-abstraction.md)）：
+1. **单次视口快照内一次性并行评估（禁止 DOM 逐节点自展开步进）**：每次 `dom-observation` 快照一次性提取当前前景可见/部分露出的全部候选并并行完成 L1/候选评估；严禁构造沿着 DOM 树 `firstChild -> nextSibling` 逐步移动游标的单节点自展开动作，也严禁在页面已有可用站内搜索框时跳过搜索框去逐个点击导航链接穷举全站。
+2. **跨视口/折叠区/异步批次的原生范围扩展与四事实分离**：当且仅当当前快照未满足目标且存在未观测范围时，才通过 `scroll`、`activateLoadMoreOrNextPage`、`setExpanded` 或有界等待 `dom.reobserve` 扩展范围。后验必须显式分离动作机械效果（`actionMechanicalEffect`）、当前滚动几何边界（`atGeometryBoundary: scroll.y >= scroll.maxY`）、有明确观测来源的异步加载状态（`requestState: loading | settled | error | unknown`）与结果集真正终端证据（`collectionTerminal`）。仅未见“下一页/加载更多”控件或未见 spinner 时必须保持 `unknown`（不补 `hasMore = false` 或 `settled`）；`collectionTerminal = false` 仅表示终点未获证实，不充作“已知尚有更多”的负监督，原始 `unknown` 事实保留。
+
 操作仅为原生鼠标、键盘、文字输入、滚轮和必要拖拽。DOM只读可用于观测及绑定；禁止用`.click()`、写`.value`、脚本设滚动位置、调用站点函数/API、直接下载请求代替人类输入。原生或浏览器输入接口是否符合该合同须以实际后端验收，不因API名字是click/fill就自动符合。
 
 ### 3.1 最小 read/input typed 交接

@@ -1,6 +1,6 @@
 # 文件语义语言：精确单操作与首个模糊训练设计
 
-状态：语义目录设计，2026-10-19。起点为 macOS/POSIX。本文定义完整操作与组合语言；当前运行API实现typed `file.property`的PWD/CD/LS/`path.resolve`/`path.relative`/`path.parts`/`entry.inspect`及控制结果；其余条目仍是设计，不扩大运行授权。基础cwd/path/attributes观测以[CLI M0合同](cli-foundation.md)为准。
+状态：语义目录设计，2026-10-19（2026-10-28 同步基础语义盘点状态）。起点为 macOS/POSIX。本文定义完整操作与组合语言；当前运行API已实现 typed `file.property` 的 PWD/CD/LS/`path.resolve`/`path.relative`/`path.parts`/`entry.inspect` 及控制结果，沙盒已实现受信字节范围读 `file.read` 与原生行读 `file.read.lines`，只读组合入口 `nnanything/cli-search`、`nnanything/cli-content-search`、`nnanything/cli-read` 已接入；其余创建/修改/权限/链接操作仍是设计，不扩大运行授权。全部既有基础语义与 S0–S12 的四分类盘点（已验证可复用 / 确定性无需拟合 / 需要训练且原语就绪 / 缺执行原语）及首批基础训练详细设计统一维护于[Shell训练全路线](cli-training-roadmap.md)第3节与第7–9节。基础cwd/path/attributes观测以[CLI M0合同](cli-foundation.md)为准。
 
 用户顺序：先总结精确单操作，再设计一个最低层次的模糊任务。自然语言识别、help 文档学习、组合规划与“进入目录”的完整执行均不属于本轮。
 
@@ -44,7 +44,7 @@
 | `path.resolve` | `base: AbsolutePath, input: PathText` | 词法绝对路径及父路径 | 非法路径；不检查存在性；绝对 input 不依赖 base | 独立函数 `kind:'path'`／`interpretCliPath`；沿用 M0 合同 |
 | `entry.inspect` | `path: E/D/F/P, follow_symlinks: boolean` | 类型、大小、mode/uid/gid、OS 时间；不跟随时可返回链接文本；保留来源引用证据 | ENOENT、EACCES、stale；stat/lstat 明确区分 | 0.3.0 已实现：typed E/D/F/P 绑定与完整 inspect 属性接入统一运行入口 |
 | `directory.list` | `session: SessionRef, directory: DirectoryRef` | 直接子条目及覆盖状态；包括点开头名称，不含 `.`/`..` | 不是目录、拒权、读取未完成；不递归 | typed `directory.list` 映射为未来设计；当前共享模型仍输出 `["ls", D]`，由固定编译结构化helper执行 |
-| `file.read` | `file: AbsolutePath, offset: uint, length: uint` | 从指定字节位置读取，返回 Bytes、实际长度和 EOF | 不是普通文件、拒权、IO 失败；不隐式文本解码 | 设计态 |
+| `file.read` | `file: ObservedObjectRef, offset: uint, length: uint` | 从指定字节位置读取，返回 Bytes、实际长度、`eof`（短读）与 `end_observed`（真实文件末尾） | 不是普通文件、拒权、stale、IO 失败；不隐式文本解码 | 沙盒 `file.read` 与 `nnanything/cli-read` 已实现；共享 `cli.command-policy.v1` 未注册 `file.read` head，四头基础读取训练见 [cli-training-roadmap.md](cli-training-roadmap.md) §7 |
 | `cwd.set` | `session: SessionRef, directory: AbsolutePath` | 设置该 session 后续操作的 cwd，并返回成功后的 cwd | 不是目录、目录不可进入；失败不得报告已进入 | 模型输出 `["cd", D]`，固定CD脚本+提交S+PWD验证 |
 | `directory.create` | `path: AbsolutePath` | 新建一个目录 | 父目录不存在、目标已存在、拒权；不递归补父目录 | 设计态 |
 | `file.create` | `path: AbsolutePath` | 以 create-new 方式建立空普通文件 | 目标已存在、父目录不存在、拒权；不覆盖 | 设计态 |
@@ -62,7 +62,7 @@
 
 ### 2.1 目录、路径和共享条目操作补全
 
-以下与上表共同构成当前常见 POSIX 文件系统操作设计目录。S 是 session 引用，D/F/E 是目录/文件/条目引用；P 是明确的目标绝对路径。引用必须绑定观测、路径及对象类型，不能因名称或扩展名猜类型。M0、PWD/CD/LS 与 `path.resolve`/`path.relative`/`path.parts`/`entry.inspect` 已实现；其余操作均未实现。`mode` 是 POSIX 权限位，`owner` 是明确 uid/gid；不提供任意 flags 或 shell 文本。
+以下与上表共同构成当前常见 POSIX 文件系统操作设计目录。S 是 session 引用，D/F/E 是目录/文件/条目引用；P 是明确的目标绝对路径。引用必须绑定观测、路径及对象类型，不能因名称或扩展名猜类型。M0、PWD/CD/LS、`path.resolve`/`path.relative`/`path.parts`/`entry.inspect` 及沙盒受信读取 `file.read`/`file.read.lines` 已实现；其余目录/文件修改、链接创建与权限设置操作均未实现。`mode` 是 POSIX 权限位，`owner` 是明确 uid/gid；不提供任意 flags 或 shell 文本。
 
 | 需求/操作 | 必要输入 | 实际结果与验收 | 边界/反例 |
 | --- | --- | --- | --- |
@@ -88,7 +88,7 @@
 | 目录组合 Goal | 组合 Action | 完成与失败条件 |
 | --- | --- | --- |
 | 创建多级目录 | path.parts/inspect → 按父子顺序 directory.create | 所需链均为目录；已有目录可作为明确的既有状态，已有文件冲突；不越过范围 |
-| 遍历/搜索树 | directory.list → 明确深度/范围的下一目录批次 → 语义匹配 | 不默认跟随链接；记录已覆盖与未访问范围，拒权不算已完整搜索 |
+| 递归搜索目录树（名称/路径） | 原生 `cli.command.search`（`find -P`）一次性递归子树 → 必要时对命中项 `entry.inspect` / `followUpRead` | 递归由原生命令自身完成，模型不逐层发 `directory.list` 自展开 `pendingDirectories` 队列，不设人工步数/深度预算作为搜索语义标签；区分单槽位 `slotReceipt.coverage`、全请求 `domain.coverage` 与根 Goal 满足度（`one` 在主域 `s0` 完整命中早停跳过 `s1` 时 `domain.coverage = "partial"` 且 `achieved/100`；`all` 受阻或 `one` 零命中受阻时返回 `unknown/null`） |
 | 复制目录树 | list/inspect → create → file.copy/link.create → 核对目标树 | 源保留，目标 create-new；保留结构、字节和链接文本，不默认承诺 ACL/xattr 保真；失败返回已创建清单，不静默清除部分结果 |
 | 删除目录树 | list/inspect → 后序 entry.remove | 显式树目标与授权；不跟随链接，保留已删/未删清单；部分删除不能回报原状态未变 |
 | 目录统计/比较 | 完整遍历 → 汇总/配对实际条目 | 覆盖不完整时返回部分结果；目录 stat 大小不是子树大小 |
@@ -113,7 +113,7 @@
 | 硬链接 `file.link` | source F、destination P | 同一文件系统共享同一实际对象的证据 | 不复制字节；跨设备失败；不同于 link.create；删除一名称不证明内容被销毁 |
 | 权限/归属/时间 | 复用 entry.mode/owner/times.set | 读回实际属性 | 不从属性设置推断用户已具备某操作权限 |
 | 文件比较 | 分段 file.read → 比较字节 | 报告相等/不同/未完成 | 不引入 checksum 清单；未读完整不能报告全部相等 |
-| 文本处理/内容搜索 | file.read → 显式解码/匹配 → 带来源的内容结果 | 编码、范围、匹配语义明确，字节来源可追踪 | 非文本不强行解码；不是命令 stdout 自由文本解析 |
+| 文本处理/内容搜索 | 跨文件/子树内容搜索走原生 `cli.command.search`（`grep -R -I -n -F --` / `rg --json --no-config -F --`）→ 必要时对命中文件受控 `file.read`；已知单文件缓冲区过滤复用纯函数 `cli-content-search` | 原生命令一次性返回匹配文件与行号/偏移，模型不将未知目录树或大文件拆成多步 `ls -> 分块 file.read` 自展开扫描；单槽位命令覆盖、全请求 `domain.coverage` 与根满足度三层分离 | 非文本不强行解码；不把控制器步数预算当搜索语义分支 |
 
 文件保存、日志追加、整理/归档按以下有限组合终点映射；三项都保留源/目标证据、实际部分副作用，不隐式覆盖或回滚。
 
@@ -138,6 +138,22 @@ cwd.set(session=S, directory="/workspace/humanagent")
 这是三个分别可以调用的操作，不是本轮要训练的一条组合序列。模型调用 `["cd", D]` 是单次调用的参数序列，不是多步规划。CD 后的 PWD 验证是固定 harness 事务，不等于模型学会了调度组合。`cwd.set` 不负责寻找名称为 humanagent 的对象；搜索范围和目标消歧也不隐藏在它内部。独立子进程中的 `cd` 不会自动改变父进程或别的 session。
 
 精确的 `path.resolve(cwd,input)` 可以先训练和评估，但不能把它的确定性输出称为模糊选择能力。
+
+### 3.1 名称搜索与内容搜索的原生命令契约（2026-10-29 搜索训练纠偏同步）
+
+1. **原生命令递归，禁止模型自展开遍历**：
+   - 目录子树下的文件名称搜索（`queryKind: "path"`）与文件内容搜索（`queryKind: "content"`）统一对齐已交付的 `nnanything/cli-search`（`lib/filters/cli-command-search.ts` 与 `lib/adapters/cli/command-search.ts`），由原生 CLI 命令（`find -P`、`grep -R -I -n -F --`、`rg --json --no-config -F --`）一次性完成递归遍历。
+   - 模型只学习选择搜索命令、绑定参数槽位（主域 `s0`、备选域 `s1`、精确匹配谓词）以及在命中后按 `followUpRead` 要求对命中文件发起受控只读 `file.read` / `entry.inspect`；**严禁模型逐步发 `ls -> entry.inspect -> cd -> 分块 file.read` 维护 `pendingDirectories` 队列自展开目录树，也严禁将 `maxDirectoryDepth` 或 `transitionBudget` 作为搜索语义标签或完成门槛**。
+   - 单目录纯函数过滤（`lib/filters/cli-entry-search.ts`）与单文件已加载缓冲区过滤（`lib/filters/cli-content-search.ts`）仅作为已观测单目录条目或单文件受控读取后的确定性过滤辅助保留，不冒充递归搜索训练或执行机制。
+
+### 3.2 三层覆盖与根 Goal 满足度分离（C2 契约）
+
+1. **单槽位命令执行覆盖（`slotReceipt.coverage: "complete" | "partial"`）**：仅由该槽位（`s0` 或 `s1`）原生子进程回执（`exitCode`、`stderr`、`timedOut`、`stdoutTruncated`、`unterminatedRemainderBytes`、`parseIncomplete`）决定。
+2. **全请求候选域覆盖（`domain.coverage: "complete" | "partial" | null`）**：综合已执行槽位的 `slotReceipt.coverage` 与显式多槽位搜索状态（如 `s1` 是否已搜索）。
+3. **根 Goal 满足度（`status / resolution / satisfaction`）**：
+   - 当 `cardinality === "one"` 在主域 `s0` 完整执行且获得满足全部条件（含必要 `followUpRead`）的可信命中、并因 `one` 存在性已满足而合法早停跳过备选域 `s1` 时：`s0.coverage = "complete"`，全请求 `domain.coverage = "partial"`（`reasons = ["unsearched_fallback_scope_early_stop"]`），而根目标返回 **`status = "achieved"`, `resolution = "matched"`, `satisfaction = 100`**。
+   - 当 `cardinality === "all"` 未覆盖全部启用槽位/遇 `slotReceipt.coverage === "partial"`，或 `cardinality === "one"` 在 `0` 命中（或命中槽位截断/跟进读取残缺）下遇 `EACCES` / `stdout_max_bytes_exceeded` / `timeout` 时：返回 **`status = "unknown"`, `satisfaction = null`**（有命中时 `resolution = "partial"`，无命中时 `"insufficient_evidence"`）。
+   - 当全部启用槽位均完整执行（`domain.coverage = "complete"`）且 `0` 命中时：返回 **`status = "not_satisfied"`, `resolution = "not_found"`, `satisfaction = 0`**。
 
 ## 4. 第一个最低层次的模糊任务：目录目标绑定
 

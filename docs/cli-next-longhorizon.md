@@ -51,3 +51,18 @@ CLI精确名称查找已完成authority修复与主线集成，集成提交a854b
 从最新origin/main创建`/Volumes/Intel/playground/nnanything/cli-read-composition`独占树，分支前缀codex/；开树前正常盘点同域旧资源，旧entry-search已关闭，不重新创建其历史路径。可修改CLI adapter、对应filter/node、领域训练与测试/docs；不能修改browser、lib/core或lib/workflow/recursive-goal。发现通用缺口给父owner最小公开复现，继续无依赖工作。
 
 只在自有文件系统沙盒操作，不读用户私有文件，不提权建设备。训练沿显式Handwired根和现有CLI公开consumer，共享policy一份不分裂。note.md由父owner汇总，过程用独占外置run，避免与浏览器并发改共享笔记。不能覆盖他人dirty状态或强删资源。
+
+## 2026-10-29 搜索训练纠偏：P1–P3 与 SC 原生命令搜索衔接边界（表 2.3-A / 2.3-B 精确二分）
+
+依据已通过 Alice 定点复核的 `/Volumes/Intel/playground/nnanything-runs/cli-search-training-correction-20261029/cli-search-design-r2.md`（审核结论见同目录 `alice-review-r2.md` 顶节）：
+
+1. **退役/暂停的自展开搜索监督与步数预算项（表 2.3-A）**：
+   - 跨目录树的文件名称搜索与文件内容搜索统一由 SC 原生命令搜索（`nnanything/cli-search`：`find -P` / `grep -R -I -n -F --` / `rg --json --no-config -F --` + 命中后受控 `followUpRead`）一次性递归完成；不再训练或评测模型通过 `ls -> entry.inspect -> cd -> 分块 file.read` 维护 `pendingDirectories` 队列逐层自展开目录树。
+   - `playground/cli/content-search/consumer.mjs` 与 `independent-family.mjs` 中的控制器步数预算中断用例 `P2-T12`，以及人工目录深度步进用例 `P2-T14a/b/c`（`maxDirectoryDepth = 0/1/2`）退出递归搜索语义监督与完成门槛。
+   - `/Volumes/Intel/playground/nnanything-runs/cli-p1-p2-stage1/receipt-unblock/new-consumer-p2.json` 与 `new-family-p2.json`（及同目录 `notes.md`、`run1-consumer.err`、`run2-family.err`）中记录的 `T12` 真实失败（`actual: budget_exhausted` vs `expected: interrupted`）原样保留为历史事实，绝不宣布该失败已通过或篡改回执；非搜索闭环集成范围由 Jenny 按本二分边界独立裁定。
+2. **完整保留的有效原子行为、按名迁移拷贝、合法训练更新与指定不变性回归门禁（表 2.3-B）**：
+   - **Stage 0 基础原子能力**：`262` 样本、`tests/cli-command-training.test.mjs`、`tests/cli-filesystem-evaluation.test.mjs`、`tests/cli-filesystem-independent.test.mjs`（`56/56`）与 `playground/cli/command-learning/reload.mjs` 完整保留。
+   - **按名迁移、合法训练更新与指定 P3 系数保持**：从持久可读基线 `ba10a538`（`fb73d4a0` 仅标为历史记录）按名拷贝 310 个同名 `head × wire` 位置、新位置补零；训练按原配方允许非零梯度位置合法更新（如 `ba10a538 -> 7e34901c` 中 300 个位置合法更新，不设“310 参数全冻结”门槛）；`train.mjs` 第 211 行检查的指定 P3 系数 `entry.inspect × search.nameNeedleSegment` 及精确零梯度位置保持 `delta === 0` 不因精度转换漂移，24 对偏好回归（`tests/cli-programming-search-p3-*.test.mjs` `24/24`）完整保留，且不将该系数包装为原生目录递归搜索能力。
+   - **单目录/单文件确定性边界与原生搜索回归**：`tests/cli-entry-search.test.mjs`（`30/30`）、`tests/cli-content-search.test.mjs`（`17/17`）、`tests/cli-file-read*.test.mjs`、`playground/cli/read-composition/independent-family.mjs`（`27/27`）、`playground/cli/content-search/{consumer,independent-family}.mjs` 中除 `T12`/自展开外的精确匹配与只读无副作用检查，以及 `tests/cli-command-search-sandbox.test.mjs`（`8/8`）和 `tests/cli-command-search.test.mjs`（`18/18`）全部保留。
+3. **三层覆盖与根满足度契约（C2）**：
+   - 分离单槽位进程覆盖 `slotReceipt.coverage`、全请求候选域覆盖 `domain.coverage` 与根 Goal 满足度：`cardinality: "one"` 在 `s0` 完整命中（含必要 `followUpRead`）并早停跳过 `s1` 时返回 `status = "achieved", resolution = "matched", satisfaction = 100, domain.coverage = "partial", reasons = ["unsearched_fallback_scope_early_stop"]`；`all` 受阻或 `one` 零命中受阻时返回 `status = "unknown", satisfaction = null`。正式搜索训练仍需具体样本/分区/各头 I/O/配方预算/具名分母/固定入口另经 Alice 审核与 Jenny 派单。
