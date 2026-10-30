@@ -192,7 +192,7 @@ ignore的监督目标是“是否需要作为agent独立交互／读取目标”
 用户明确分工，本项目所有派发与推进遵守：
 
 - 方案（概要设计、详细设计）：Emma 完成；Alice 审阅。Jenny 不代拟计划。
-- 训练设计与训练方案：Emma 与 Alice 负责，不交给 GCM worker 执行；不以 Emma/Alice 暂离或不可用为由阻塞计划或审计，其工作独立持续。
+- 训练设计与训练方案：只由 Emma 与 Alice 负责，GCM worker 不参与；Emma/Alice 不在或不可用时该设计工作即为不可用，不得交 GCM 代替。其余已授权且不依赖该设计的方向继续并发，不串行等空。
 - 执行（训练执行、常规工程、不用费劲的工作）：GCM worker（`codex exec --profile gcm`）。
 - Jenny 只做事务性推进：按已通过 Alice 审计的计划与合同派发 GCM worker；不代拟方案，不代 Alice 做阶段完成或整体完成的审计。每个阶段/整体完成须交 Alice 审计（技术独立 Review 不替代），通过且 writer 明确释放后再交下一责任方。
 
