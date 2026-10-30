@@ -2191,3 +2191,8 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Browser F3/Phase A：Emma 完成 13 research-prep 文件并释放 writer；Alice 审计判 NEEDS_REVISION 五项（`fullyVerified` 保持 false 并单列 `localSuiteStatus`；移除 compare 内未批准 40-epoch shuffledLabels；补 assess train/dev 100%、逐行 reload 一致、失败 downstream `not_run` 非零退出；`priorHandwired` 用真实 handwired 决策并与 zeroProfiles 分离；`train.mjs` 正式模式显式参数校验零拟合拒绝）。原树单 writer 已交回 Emma 做窄修与零拟合验证，Phase B NOT_READY；普通 GCM 不介入 trainer/evaluator。审计 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/research-prep-f3/alice-phase-a-completion-audit.md`。
 - 用户已授权编程目标 MVP 三项目标实验（U 收集符号用法 / V 追值 / M 按明确方案传播修改）。Alice 概要交接 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/p3/alice-programming-goal-mvp-design-handoff.md`，已交 Emma 详细设计与样本获取；先 U 最小切片，V/M 可并行设计。每个切片经 Alice 审计且依赖就绪后我再派执行；M1 仅自有合成 repo，跨文件写待明确增量合同；不启动训练或让 GCM 临场写研究入口。不占 Browser/Sandbox writer。
 - CLI 沙盒 r2：Alice 部分放行 D1-01/02/03、D2-02/03 的 S2 准备与 author-debug，余 37 景/3 探针返修设计；已交 Emma 落定三文件并修剩余精确发现。无 S3/训练/采用授权。
+
+## 2026-10-29 编程目标范围收敛为调用深度 MVP；Browser F3 r2 已交 Alice 复审
+
+- 用户明确先完成「给定符号入口按深度查调用关系」训练 MVP，之后才做其余编程目标。唯一范围 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/p3/alice-call-depth-mvp-scope.md`，已交 Emma 详细设计与采样；不推进追值/一般用法收集/修改传播。本 MVP 完成后才推进其余。已有 P4/Browser/沙盒继续。
+- Browser F3 Phase A r2：Emma 完成五项窄修，build/typecheck/零拟合/91 项测试通过，未拟合、未消费 F7/F8；已释放 `browser-stage1-semantics` writer 并请 Alice 复审。r2 回执 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/research-prep-f3/emma-f3-research-prep-r2-receipt.md`，零拟合 `/Volumes/Intel/playground/nnanything-runs/browser-stage1-20261029/phase-a-validation-r2/`。
