@@ -1,6 +1,15 @@
 import type {ActionObservation, SingleActionControl} from './single-action-contract.js';
 import type {BrowserObservationError, BrowserObservationFeedback, BrowserObservationObligation} from './action-observation.js';
 import type {RecursiveGoalLimits} from '../../workflow/recursive-goal/contracts.js';
+import type {BrowserInputTargetFacts} from './input-contract.js';
+import type {
+  BrowserInputPolicyProfile,
+  BrowserInputPolicyPrediction,
+  BrowserQueryRelationPrediction,
+  BrowserQueryRelationProfile,
+  BrowserStepPolicyPrediction,
+  BrowserStepPolicyProfile,
+} from '../../filters/browser-stage1-policy.js';
 
 export type BrowserSearchPhase = 'root' | 'input' | 'submitted' | 'results';
 export type BrowserSearchItemRole = 'main' | 'auxiliary' | 'unknown';
@@ -21,8 +30,16 @@ export interface BrowserSearchBindings {
   readonly resultScopeRef: string;
   readonly collectionRef: string;
 }
+export interface BrowserSearchRangeFacts {
+  readonly actionMechanicalEffect: 'displaced_or_triggered' | 'no_change' | 'not_attempted';
+  readonly atGeometryBoundary: ActionObservation<boolean>;
+  readonly requestState: ActionObservation<'loading' | 'settled' | 'error'>;
+  readonly hasMore: ActionObservation<boolean>;
+  readonly collectionTerminal: boolean;
+}
 export interface BrowserSearchObservation extends SingleActionControl {
   readonly scopeRef: string;
+  readonly target?: BrowserInputTargetFacts;
   readonly input: {
     readonly ref: string;
     readonly tag: 'input' | 'textarea' | 'contenteditable' | 'unknown';
@@ -50,6 +67,7 @@ export interface BrowserSearchObservation extends SingleActionControl {
     }[];
     readonly batch: ActionObservation<string>;
   };
+  readonly rangeExpansion: BrowserSearchRangeFacts;
   readonly evidence: readonly {readonly id: string; readonly source: string; readonly fact: unknown}[];
 }
 export interface BrowserSearchSubmissionBaseline {
@@ -71,16 +89,22 @@ export interface BrowserSearchRequest {
   readonly limits?: RecursiveGoalLimits;
   readonly maxResultReads?: number;
 }
-export type BrowserSearchAction = 'input' | 'submit' | 'read';
+export type BrowserSearchAction = 'input' | 'submit' | 'read' | 'expand_range';
 export interface BrowserSearchDecision {
   readonly kind: 'selected' | 'defer';
   readonly action: BrowserSearchAction | null;
+  readonly queryRelation?: BrowserQueryRelationPrediction;
+  readonly step?: BrowserStepPolicyPrediction;
+  readonly input?: BrowserInputPolicyPrediction;
 }
 export interface BrowserSearchDecisionBinding {
   readonly id: string;
   readonly source: 'handwired' | 'model';
   readonly select: (input: {readonly goal: BrowserSearchGoal; readonly state: BrowserSearchState;
     readonly bindings: BrowserSearchBindings}) => BrowserSearchDecision | Promise<BrowserSearchDecision>;
+  readonly inputPolicyProfile?: BrowserInputPolicyProfile;
+  readonly queryRelationProfile?: BrowserQueryRelationProfile;
+  readonly stepPolicyProfile?: BrowserStepPolicyProfile;
 }
 export interface BrowserSearchNativeReceipt {
   readonly dispatched: boolean;
@@ -90,7 +114,7 @@ export interface BrowserSearchNativeReceipt {
   readonly source: string;
 }
 export interface BrowserSearchInvocation extends SingleActionControl {
-  readonly kind: 'input' | 'submit';
+  readonly kind: 'input' | 'submit' | 'expand_range';
   readonly targetRef: string;
   readonly value: string | null;
 }
@@ -116,6 +140,7 @@ export interface BrowserSearchResources {
   readonly currentControl: () => SingleActionControl | Promise<SingleActionControl>;
   readonly nativeInputText: (invocation: BrowserSearchInvocation) => Promise<BrowserSearchNativeReceipt>;
   readonly nativeSubmit: (invocation: BrowserSearchInvocation) => Promise<BrowserSearchNativeReceipt>;
+  readonly nativeExpandRange?: (invocation: BrowserSearchInvocation) => Promise<BrowserSearchNativeReceipt>;
   readonly collect: (episode: BrowserSearchEpisode) => Promise<void>;
   readonly collectRoot?: (report: unknown) => Promise<void>;
   readonly signal?: AbortSignal;

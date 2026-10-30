@@ -1,7 +1,8 @@
 import {expectRecord} from '../../core/schema.js';
 import type {ActionObservation} from './single-action-contract.js';
+import {readBrowserInputTargetFacts} from './input-contract.js';
 import type {BrowserSearchBindings, BrowserSearchGoal, BrowserSearchObservation, BrowserSearchRequest,
-  BrowserSearchState, BrowserSearchSubmissionBaseline} from './search-contract.js';
+  BrowserSearchRangeFacts, BrowserSearchState, BrowserSearchSubmissionBaseline} from './search-contract.js';
 
 const text = (value: unknown): value is string => typeof value === 'string' && value.length > 0;
 function fact(value: unknown, kind: 'string' | 'boolean', ids: ReadonlySet<string>): void {
@@ -16,6 +17,95 @@ function refFact(value: unknown, ids: ReadonlySet<string>): void {
   fact(value, 'string', ids);
   const row = expectRecord(value, 'search reference fact');
   if (row.status === 'observed' && !text(row.value)) throw new TypeError('Search reference must be non-empty');
+}
+function readRequestState(value: unknown, ids: ReadonlySet<string>): 'loading' | 'settled' | 'error' | 'unknown' {
+  const row = expectRecord(value, 'search range request state');
+  if (row.status === 'unknown') {
+    if (!text(row.reason)) throw new TypeError('Search range request state requires a reason when unknown');
+    return 'unknown';
+  }
+  if (row.status !== 'observed' || !['loading', 'settled', 'error'].includes(String(row.value))
+    || !Array.isArray(row.evidenceRefs) || row.evidenceRefs.length === 0
+    || row.evidenceRefs.some(id => typeof id !== 'string' || !ids.has(id))) {
+    throw new TypeError('Search range request state requires a typed value and local evidence');
+  }
+  return row.value as 'loading' | 'settled' | 'error';
+}
+function batchComplete(collection: BrowserSearchObservation['collection']): boolean {
+  if (collection.batch.status !== 'observed' || collection.batch.value === null) return false;
+  return collection.items.every(item => item.collectionRef !== collection.ref
+    || (item.role !== 'unknown' && item.text.status === 'observed'));
+}
+export function isSameCheckedResultBatch(
+  checkedObs: BrowserSearchObservation,
+  currentObs: BrowserSearchObservation,
+  goal: BrowserSearchGoal,
+): boolean {
+  if (checkedObs.request !== 'settled' || currentObs.request !== 'settled') return false;
+  if (checkedObs.access !== 'available' || currentObs.access !== 'available') return false;
+  if (!['current', 'empty'].includes(checkedObs.display)
+    || checkedObs.display !== currentObs.display) return false;
+  if (!batchComplete(checkedObs.collection) || !batchComplete(currentObs.collection)) return false;
+  if (
+    checkedObs.documentRef !== currentObs.documentRef
+    || checkedObs.scopeRef !== currentObs.scopeRef
+    || checkedObs.collection.ref !== currentObs.collection.ref
+    || checkedObs.collection.scopeRef !== currentObs.collection.scopeRef
+    || currentObs.collection.ref !== goal.collectionRef
+  ) {
+    return false;
+  }
+  const sameObserved = <T>(left: ActionObservation<T>, right: ActionObservation<T>): boolean =>
+    left.status === 'observed' && right.status === 'observed' && left.value === right.value;
+  if (
+    !sameObserved(checkedObs.submittedQuery, currentObs.submittedQuery)
+    || !sameObserved(checkedObs.submittedRequestRef, currentObs.submittedRequestRef)
+    || !sameObserved(checkedObs.resultsFor, currentObs.resultsFor)
+    || !sameObserved(checkedObs.resultsRequestRef, currentObs.resultsRequestRef)
+    || !sameObserved(checkedObs.collection.requestRef, currentObs.collection.requestRef)
+    || !sameObserved(checkedObs.collection.batch, currentObs.collection.batch)
+  ) {
+    return false;
+  }
+  if (checkedObs.collection.items.length !== currentObs.collection.items.length) return false;
+  for (let i = 0; i < checkedObs.collection.items.length; i += 1) {
+    const a = checkedObs.collection.items[i]!;
+    const b = currentObs.collection.items[i]!;
+    if (
+      a.ref !== b.ref
+      || a.collectionRef !== b.collectionRef
+      || a.role === 'unknown'
+      || b.role === 'unknown'
+      || a.role !== b.role
+      || !sameObserved(a.text, b.text)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+function readRangeExpansion(value: unknown, ids: ReadonlySet<string>,
+  collection: BrowserSearchObservation['collection']): BrowserSearchRangeFacts {
+  const row = expectRecord(value, 'search range expansion');
+  if (!['displaced_or_triggered', 'no_change', 'not_attempted'].includes(String(row.actionMechanicalEffect))) {
+    throw new TypeError('Search range actionMechanicalEffect is invalid');
+  }
+  fact(row.atGeometryBoundary, 'boolean', ids);
+  fact(row.hasMore, 'boolean', ids);
+  const requestState = readRequestState(row.requestState, ids);
+  const requestSettled = requestState === 'settled';
+  const hasMoreFalse = (row.hasMore as { status: string; value?: unknown }).status === 'observed'
+    && (row.hasMore as { value?: unknown }).value === false;
+  // Derived only: atGeometryBoundary is an independent geometry fact and is
+  // deliberately absent from this predicate (BP11b).
+  const collectionTerminal = requestSettled && hasMoreFalse && batchComplete(collection);
+  return {
+    actionMechanicalEffect: row.actionMechanicalEffect as BrowserSearchRangeFacts['actionMechanicalEffect'],
+    atGeometryBoundary: row.atGeometryBoundary as ActionObservation<boolean>,
+    requestState: row.requestState as BrowserSearchRangeFacts['requestState'],
+    hasMore: row.hasMore as ActionObservation<boolean>,
+    collectionTerminal,
+  };
 }
 export function captureSubmissionBaseline(observation: BrowserSearchObservation): BrowserSearchSubmissionBaseline {
   const submittedRequestRef=observation.submittedRequestRef.status==='observed'?observation.submittedRequestRef.value:null;
@@ -66,7 +156,19 @@ export function readBrowserSearchObservation(value: unknown): BrowserSearchObser
     }
     members.add(item.ref);fact(item.text,'string',ids);
   }
-  return value as BrowserSearchObservation;
+  const rangeExpansion = readRangeExpansion(row.rangeExpansion, ids, {
+    ref: collection.ref as string,
+    scopeRef: collection.scopeRef as string,
+    requestRef: collection.requestRef as ActionObservation<string>,
+    batch: collection.batch as ActionObservation<string>,
+    items: collection.items as BrowserSearchObservation['collection']['items'],
+  });
+  const target = row.target === undefined ? undefined : readBrowserInputTargetFacts(row.target, ids);
+  return {
+    ...(row as unknown as BrowserSearchObservation),
+    rangeExpansion,
+    ...(target === undefined ? {} : { target }),
+  };
 }
 export function readBrowserSearchState(value: unknown): BrowserSearchState {
   const row=expectRecord(value,'browser search state');

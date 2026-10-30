@@ -4,6 +4,8 @@ import {
   stableNodeRefFor,
   type StableNodeRefRegistry,
 } from "../../../lib/adapters/browser/live-dom.js";
+import { observeBrowserSingleAction } from "../../../lib/adapters/browser/single-action-observation.js";
+import { DEFAULT_BASIC_KIND_PROFILE } from "../../../lib/filters/basic-kinds.js";
 
 export interface InputTargetConfig {
   readonly documentRef: string;
@@ -31,12 +33,13 @@ function valueOf(element: Element, type: string): string | null {
 
 function observeOnce(config: InputTargetConfig, revision: number): unknown {
   if (!registry) registry = createStableNodeRefRegistry("b-input");
+  const observationId = `${config.documentRef}:${revision}`;
   const snapshot = observeLiveDom({
     document,
     window,
     registry,
     excludeRoot: null,
-    snapshotRef: `${config.documentRef}:${revision}`,
+    snapshotRef: observationId,
     documentRef: config.documentRef,
     readContent: true,
   });
@@ -54,6 +57,28 @@ function observeOnce(config: InputTargetConfig, revision: number): unknown {
   const evidence = snapshot.evidence.get(registryRef);
   const node = snapshot.observation.nodes.find(item => item.nodeRef === registryRef);
   if (!evidence || !node) throw new Error("bound target evidence missing");
+
+  const pageScope = document.body;
+  if (!(pageScope instanceof Element)) throw new Error("document body is unavailable");
+  const actionSnapshot = observeBrowserSingleAction({
+    document,
+    window,
+    registry,
+    scope: pageScope,
+    regions: [],
+    documentRef: config.documentRef,
+    observationId,
+    revision,
+    l1Profile: DEFAULT_BASIC_KIND_PROFILE,
+  });
+  const actionTarget = actionSnapshot.elements.find(item => item.ref === registryRef);
+  if (!actionTarget) throw new Error("bound target executable hit facts missing");
+  const evidenceRefs = (fact: typeof actionTarget.hit | typeof actionTarget.point): readonly string[] =>
+    fact.status === "observed" ? fact.evidenceRefs : [];
+  const hitRefs = [...evidenceRefs(actionTarget.hit), ...evidenceRefs(actionTarget.point)];
+  const hitEvidence = actionSnapshot.evidence
+    .filter(item => hitRefs.includes(item.id))
+    .map(item => ({ id: item.id, source: item.source, fact: item.fact }));
 
   const evidenceId = `${config.documentRef}:${config.targetRef}:${revision}`;
   const observed = <T,>(value: T, refs: readonly string[]) =>
@@ -98,6 +123,8 @@ function observeOnce(config: InputTargetConfig, revision: number): unknown {
     editable: editableKnown ? observed(editableValue, [evidenceId]) : unknown("editable_not_probed"),
     activeElementRef: activeElementRef === null ? observed(null, [evidenceId]) : observed(activeElementRef, [evidenceId]),
     activeElementFocus: activeElementFocus === null ? observed(null, [evidenceId]) : observed(activeElementFocus, [evidenceId]),
+    executableHit: actionTarget.hit,
+    point: actionTarget.point,
   };
 
   const neighbors = config.neighborRefs.map(item => {
@@ -113,7 +140,7 @@ function observeOnce(config: InputTargetConfig, revision: number): unknown {
   return {
     documentRef: config.documentRef,
     scopeRef: config.scopeRef,
-    observationId: `${config.documentRef}:${revision}`,
+    observationId,
     revision,
     target,
     neighbors,
@@ -123,6 +150,7 @@ function observeOnce(config: InputTargetConfig, revision: number): unknown {
         source: "browser.input.live-dom.v1",
         fact: { kind: "live-input-observation", documentRef: config.documentRef, targetRef },
       },
+      ...hitEvidence,
     ],
   };
 }

@@ -156,6 +156,32 @@ fixture的字段role、item key和结构属于应用源/teacher，不能作为�
 
 浏览器共享观察义务类型由`lib/adapters/browser/action-observation.ts`维护，包含本步条件、方法、对象、scope、必需事实和当前性，反馈记录义务是否完成、证据、未满足事实和观察错误。状态仍只存本步newState，不在反馈内复制第二份。具体读取/等待预算在领域请求与现有controller分别持有。观察义务完成不是业务Goal达成，缺失项不能被分数或执行回执覆盖。执行器错误后的只读后验不改变原始执行错误、dispatch或effects知识；旧结果读取兼容不伪造已完成观察。
 
+## P3/P4 权威、逐步轨迹与终点证据（2026-10-29 r4 合同）
+
+本节落实 Alice 通过的两份 r4 审计与 `emma-p3-p4-domain-contract-r4.md`。它只描述运行合同，不授权训练、候选加载、F3 evaluator、Phase B 或采用。
+
+### 权限交叉与零派发
+
+- 每个原子 episode 的有效权限是 `resources.grantedEffects` 与可选 skill ceiling `input.grantedEffects` 的交集；`browser.read` 是必需项。
+- `input`、`submit`、`read`、`expand_range` 分别要求 `browser.nativeInputText`、`browser.nativeSubmit`、`browser.read`、`browser.nativeExpandRange`；只有方法存在不算授权，`expand_range` 还必须有 `resources.nativeExpandRange`。
+- `operation.apply` 节点的 effects 由 `expectedSkillAction` 决定：`input` 声明 nativeInputText，`submit` 声明 nativeSubmit，`read` 声明 read，`expand_range` 声明 nativeExpandRange，`noop` 为空；编译时只使用有效权限内的声明。
+- 必需 effect 的检查无条件使用有效权限；可选 `input.grantedEffects` ceiling 只能收窄 `resources.grantedEffects`，不能补授权或跳过检查。缺失必需 effect 返回 `permission_denied`，零派发。
+- 错误 phase、过期 skill/observation、缺失 effect、缺少 native 扩展能力都停在 typed failure，`dispatchState='not_dispatched'`，零次原生执行。
+
+### 单一推理 owner 与轨迹
+
+- `resolveBrowserSearchDecision` 是 model 分支唯一推理 owner；完整保留 `input`、`queryRelation` 与 `step` 的 head/features/scores 轨迹。`index===1` 的 query relation 只计算一次，经 `precomputedQueryRelation` 传入，不在 step 前重算。
+- 每个 atomic action 产生一个 episode；`maxResultReads` 是 read 的原始上限，不因其他动作增加。checked batch 以 `observationId===checkedObservationId` 与 `isSameCheckedResultBatch` 的正向事实认定，不按 revision/observationId 或同 id 短路。
+
+### 终点、缺失证据与进度
+
+- results NOOP 统一按无条件 `if(noop)` 形成 State：不调用任何执行器；只有已检查批次保留 `checkedObservationId`，未读批次保持 null 并由 `searchPhaseFact` 拒绝满足。
+- 终点 `collectionTerminal` 只在 request settled、`hasMore===false` 且批次完整时由 `search-observation.ts` 单一推导；loading、unknown 与几何触底都不是完成。
+- `measureProgress` 只在“新满足”或“已检查批次前进”时为 improved；仅 revision 或 observationId 变化不算进度。
+- 扩展前后分别读取 `#request-state` 的 `data-batch-ref`/`data-request-status`、滚动容器与集合身份。视觉位移、批次变化（即使滚动未变）或 loading 触发都是机械 effect；只有前后事实完整且都未变时才记 `no_change`/`effectKnowledge='none'`，缺少任一侧事实保持 `unknown`。
+
+精确选择器：滚动容器 `#result-scroll-box`（legacy 用 `document.scrollingElement`）；请求/批次 `#request-state`（`config.selectors.requestState`）；业务集合身份与条目 `#catalog-table`/`#split-main-list`（`config.selectors.collection`）。集合元素不得承载 `data-batch-ref` 或 `data-request-status`。
+
 ## 验收和后续缺口
 
 自动检查公开HTTP资源边界、配置与同核渲染；浏览器黑盒用原生键鼠验证六表示、三个输入宿主以及延迟竞态、空/错误恢复/阻断/无效入口、分页重置和邻字段不变。根事实、阶段事实及覆盖分别记录，具名分母保存在[note.md](../note.md)。

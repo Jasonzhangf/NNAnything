@@ -1,6 +1,35 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { runBrowserInputGoal } from "nnanything/browser-input";
+import { createBrowserInputPolicyProfile } from "nnanything/browser-input";
+
+const INPUT_WEIGHTS = [
+  [-9, 0, 2, 0, 2, 0, 2, 2, -4, 2, -6, 0, 2],
+  [-3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0],
+  [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+];
+
+function modelResources(f, options = {}) {
+  const resources = f.resources;
+  const decision = {
+    id: "browser.input-text-policy.v1",
+    source: "model",
+    profile: createBrowserInputPolicyProfile(INPUT_WEIGHTS),
+  };
+  return {
+    ...resources,
+    decision,
+    ...(options.target
+      ? {
+          observe: async () => {
+            const observation = await resources.observe();
+            observation.target = {...observation.target, ...options.target};
+            return observation;
+          },
+        }
+      : {}),
+  };
+}
 
 const observed = (value, evidenceRefs) => ({ status: "observed", value, evidenceRefs });
 const unknown = reason => ({ status: "unknown", reason });
@@ -325,6 +354,50 @@ test("I24 unsupported hosts are refused as unknown and never dispatched", async 
     assert.equal(episode.goalFact, "unknown");
     assert.equal(episode.refusal.code, "unsupported_host");
     assert.equal(episode.canContinue, false);
+  }
+});
+
+test("B-S1.1 model: executableHit=false with unequal value defers with zero writes", async () => {
+  const f = fixture();
+  const resources = modelResources(f, {
+    target: {executableHit: observed(false, ["evidence-1"]), point: unknown("no_hit_point")},
+  });
+  const episode = await runBrowserInputGoal(request(), resources);
+  assert.deepEqual(f.actions, []);
+  assert.equal(episode.dispatchState, "not_dispatched");
+  assert.equal(episode.textWriteCount, 0);
+  assert.equal(episode.goalFact, "unsatisfied");
+  assert.equal(episode.refusal.code, "precondition_unsatisfied");
+  assert.ok(episode.executionErrors.some(error => error.message.includes("execution precondition")));
+});
+
+test("B-S1.1 model: executableHit unknown defers with zero writes", async () => {
+  const f = fixture();
+  const resources = modelResources(f, {
+    target: {executableHit: unknown("executable_hit_unmeasured"), point: unknown("executable_hit_point_unmeasured")},
+  });
+  const episode = await runBrowserInputGoal(request(), resources);
+  assert.deepEqual(f.actions, []);
+  assert.equal(episode.dispatchState, "not_dispatched");
+  assert.equal(episode.textWriteCount, 0);
+  assert.equal(episode.goalFact, "unknown");
+  assert.equal(episode.refusal.code, "decision_deferred");
+});
+
+test("B-S1.1 model: valueEqual (1,1) wins over readonly, occlusion and unknown hit", async () => {
+  for (const target of [
+    {readonlyState: observed("readonly", ["evidence-1"])},
+    {executableHit: observed(false, ["evidence-1"]), point: unknown("no_hit_point")},
+    {executableHit: unknown("executable_hit_unmeasured"), point: unknown("executable_hit_point_unmeasured")},
+  ]) {
+    const f = fixture({initialValue: "新文本"});
+    const resources = modelResources(f, {target});
+    const episode = await runBrowserInputGoal(request(), resources);
+    assert.deepEqual(f.actions, []);
+    assert.equal(episode.goalFact, "satisfied");
+    assert.equal(episode.satisfaction, 100);
+    assert.equal(episode.textWriteCount, 0);
+    assert.equal(episode.dispatchState, "not_dispatched");
   }
 });
 

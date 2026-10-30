@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {searchPhaseFact} from 'nnanything/browser-search';
+import {createBrowserQueryRelationProfile, predictBrowserQueryRelation} from 'nnanything/browser-search';
+
+const QUERY_RELATION_WEIGHTS = [
+  [-5.0, 0, 2, 2, -6, 0, 0, 0, 0, 0, 0, 2, 0, 0],
+  [-9.5, 0, 0, 0, 4, 1, 0, 0, 1, 2, 0, 4, 0, -10],
+  [-2.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10],
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+];
+
+const queryGoal = {
+  kind: 'BrowserSearch',
+  query: '露营',
+  collectionRef: 'main',
+  containsText: '装备',
+  minimumMatches: 1,
+  coverage: 'visible_batch',
+  phase: 'submitted',
+};
 
 const bindings = {
   documentRef: 'search-doc',
@@ -54,6 +72,13 @@ function observation(overrides = {}) {
       items: [
         {ref: 'item-1', collectionRef: 'main', role: 'main', text: observed('露营装备清单', id)},
       ],
+    },
+    rangeExpansion: {
+      actionMechanicalEffect: 'not_attempted',
+      atGeometryBoundary: {status: 'unknown', reason: 'not_attempted'},
+      requestState: {status: 'unknown', reason: 'no_positive_request_state_source'},
+      hasMore: {status: 'unknown', reason: 'no_positive_terminal_control_source'},
+      collectionTerminal: false,
     },
     evidence: [{id, source: 'association-test', fact: {}}],
     ...overrides,
@@ -175,4 +200,124 @@ test('auxiliary role does not count even when it points at the main collection r
     },
   });
   assert.equal(searchPhaseFact({...goal, minimumMatches: 2}, value, value.observationId, baseline), 'unsatisfied');
+});
+
+function rangeFacts(overrides = {}) {
+  return {
+    actionMechanicalEffect: 'not_attempted',
+    atGeometryBoundary: {status: 'unknown', reason: 'not_attempted'},
+    requestState: {status: 'unknown', reason: 'no_positive_request_state_source'},
+    hasMore: {status: 'unknown', reason: 'no_positive_terminal_control_source'},
+    collectionTerminal: false,
+    ...overrides,
+  };
+}
+
+function relationState(value, baselineValue, beforeBaseline, override = {}) {
+  const base = observation({
+    submittedQuery: observed('露营', 'relation-state:evidence'),
+    submittedRequestRef: observed(value, 'relation-state:evidence'),
+    resultsRequestRef: observed(value, 'relation-state:evidence'),
+    collection: {
+      ref: 'main',
+      scopeRef: 'results',
+      requestRef: observed(value, 'relation-state:evidence'),
+      batch: observed('batch-new', 'relation-state:evidence'),
+      items: [{ref: 'item-1', collectionRef: 'main', role: 'main', text: observed('露营装备清单', 'relation-state:evidence')}],
+    },
+    ...(override.access === undefined ? {} : {access: override.access}),
+    ...(override.display === undefined ? {} : {display: override.display}),
+  });
+  const created = override.requestState === undefined
+    ? base
+    : {...base, rangeExpansion: {...base.rangeExpansion,
+      requestState: {status: 'observed', value: override.requestState, evidenceRefs: ['relation-state:evidence']}}};
+  return {
+    observation: created,
+    checkedObservationId: created.observationId,
+    submissionBaseline: {
+      submittedRequestRef: beforeBaseline,
+      resultsRequestRef: beforeBaseline,
+      batchRef: 'batch-old',
+      observedSubmission: true,
+    },
+  };
+}
+
+function predictRelation(state) {
+  return predictBrowserQueryRelation(state, queryGoal, createBrowserQueryRelationProfile(QUERY_RELATION_WEIGHTS));
+}
+
+test('B-S1.2 relation: strict current association needs new instance and new batch', () => {
+  const state = relationState('request-new', 'request-new', 'request-old', {
+    requestState: 'settled',
+  });
+  assert.equal(predictRelation(state).head, 'results_associated_active');
+});
+
+test('B-S1.2 relation: old response reference cannot be satisfied', () => {
+  const state = relationState('request-new', 'request-new', 'request-old', {
+    requestState: 'settled',
+  });
+  const value = {...state.observation, resultsRequestRef: observed('request-other', 'relation-other:evidence'),
+    collection: {...state.observation.collection, requestRef: observed('request-other', 'relation-other:evidence')}};
+  assert.equal(predictRelation({...state, observation: value}).head, 'submitted_pending_or_stale');
+});
+
+test('B-S1.2 relation: old batch cannot be satisfied', () => {
+  const state = relationState('request-new', 'request-new', 'request-old', {
+    requestState: 'settled',
+  });
+  const value = {...state.observation, collection: {...state.observation.collection,
+    batch: observed('batch-old', 'relation-old-batch:evidence')}};
+  assert.equal(predictRelation({...state, observation: value}).head, 'submitted_pending_or_stale');
+});
+
+test('B-S1.2 relation: missing reference stays insufficient_or_conflict', () => {
+  const state = relationState('request-new', 'request-new', 'request-old', {});
+  const value = {...state.observation,
+    submittedRequestRef: {status: 'unknown', reason: 'request_instance_not_observable'},
+    resultsRequestRef: {status: 'unknown', reason: 'request_instance_not_observable'},
+    collection: {...state.observation.collection,
+      requestRef: {status: 'unknown', reason: 'request_instance_not_observable'}}};
+  assert.equal(predictRelation({...state, observation: value}).head, 'insufficient_or_conflict');
+});
+
+test('B-S1.2 relation: empty with login_required is insufficient_or_conflict, never satisfied', () => {
+  const state = relationState('request-new', 'request-new', 'request-old', {
+    requestState: 'settled',
+    access: 'login_required',
+    display: 'empty',
+  });
+  assert.equal(predictRelation(state).head, 'insufficient_or_conflict');
+});
+
+test('B-S1.2 relation: unknown request state without loading stays insufficient_or_conflict', () => {
+  const state = relationState('request-new', 'request-new', 'request-old', {});
+  assert.equal(predictRelation(state).head, 'insufficient_or_conflict');
+});
+
+test('range expansion collectionTerminal never requires geometry boundary', () => {
+  const observationId = 'observation-nonbottom-term:evidence';
+  const value = observation({
+    observationId: 'observation-nonbottom-term',
+    request: 'settled',
+    display: 'current',
+    collection: {
+      ref: 'main',
+      scopeRef: 'results',
+      requestRef: observed('request-new', observationId),
+      batch: observed('batch-new', observationId),
+      items: [{ref: 'item-1', collectionRef: 'main', role: 'main', text: observed('露营装备清单', observationId)}],
+    },
+    rangeExpansion: {
+      actionMechanicalEffect: 'displaced_or_triggered',
+      atGeometryBoundary: observed(false, observationId),
+      requestState: {status: 'observed', value: 'settled', evidenceRefs: [observationId]},
+      hasMore: {status: 'observed', value: false, evidenceRefs: [observationId]},
+      collectionTerminal: true,
+    },
+  });
+  assert.equal(value.rangeExpansion.collectionTerminal, true);
+  assert.equal(value.rangeExpansion.atGeometryBoundary.value, false);
 });
