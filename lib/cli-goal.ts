@@ -16,6 +16,7 @@ import {
 } from "./filters/cli-state.js";
 import {
   expectedDirectoryOf,
+  isEntrySelectGoal,
   validateGoal,
   validatePropertyRequest,
 } from "./filters/cli-file-property.js";
@@ -100,6 +101,7 @@ export type {
   CliCommandSample,
   CliCommandStatus,
   CliCommandTransition,
+  CliEntrySelectProfiles,
 } from "./nodes/cli-command.js";
 export * from "./adapters/cli/filesystem-sandbox.js";
 export * from "./adapters/cli/directory-listing.js";
@@ -120,7 +122,7 @@ export function createCliCommandPolicy(
   binding: CliCommandBinding,
   authority?: EvidenceAuthority,
 ): CliCommandPolicy {
-  const profile = validateCliCommandProfile(binding.profile) as CliCommandProfile;
+  const profile = validateCliCommandProfile(binding.profile, binding.stage)!;
   // Validate the explicit session now; later steps read its current snapshot.
   binding.sandbox.getSession(binding.session);
   const resolvedAuthority: EvidenceAuthority = authority ?? createEvidenceAuthority();
@@ -129,7 +131,10 @@ export function createCliCommandPolicy(
     .then(graph => compileWorkflow(graph, { nodeDefinitions: definitions, profiles: { "cli-command-policy": profile } }));
   return Object.freeze({
     async step(request: CliCommandRequest): Promise<CliCommandTransition> {
-      validatePropertyRequest(request, binding.session);
+      const validated = validatePropertyRequest(request, binding.session);
+      if (isEntrySelectGoal(validated.goal) && binding.entrySelectProfiles === undefined) {
+        throw new TypeError("Stage 2 entry selection requires validated directory and regular EntrySelectProfile instances");
+      }
       const runId = randomUUID();
       const result = await runWorkflow(await compiled, createWorkflowInputEvent({
         runId,
@@ -596,7 +601,7 @@ export async function runCliCommandTraining(
   resources: CliCommandTrainingResources,
 ): Promise<CliCommandTrainingReceipt | CliCandidatePreferenceTrainingReceipt> {
   const diagnostics = { partialPaths: {} as Partial<Record<string, string>> };
-  const definitions = createCliCommandTrainingNodes(resources, binding => createCliCommandPolicy(binding), diagnostics);
+  const definitions = createCliCommandTrainingNodes(resources, (binding, authority) => createCliCommandPolicy(binding, authority), diagnostics);
   const graph = await loadWorkflow({ configPath: configPath("cli-filesystem-training"), allowedRoot });
   const compiled = compileWorkflow(graph, {
     nodeDefinitions: definitions,

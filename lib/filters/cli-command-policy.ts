@@ -8,6 +8,8 @@ import {
   legacyWires,
   predicateOf,
   propertyOf,
+  selectorTargetTypeOf,
+  isEntrySelectGoal,
   type FilePropertyGoal,
   type PropertyFacts,
   type RegisteredPredicate,
@@ -28,6 +30,8 @@ export const CLI_COMMAND_HEADS = Object.freeze([
   "path.parts",
   "path.realpath",
   "entry.inspect",
+  "directory.select",
+  "file.select",
 ] as const);
 export type CliCommandHead = typeof CLI_COMMAND_HEADS[number];
 
@@ -41,6 +45,10 @@ export type CliCommandWire =
   | "goalListDirectory"
   | CliCommandProperty
   | CliCommandPredicate
+  | "predicate.select.entry"
+  | "selectorTargetType.unspecified"
+  | "selectorTargetType.regular"
+  | "selectorTargetType.directory"
   | "state.hasFreshEvidence"
   | "state.knownValue"
   | "state.requiredConditionHolds"
@@ -59,6 +67,9 @@ export const CLI_COMMAND_WIRES: readonly CliCommandWire[] = Object.freeze([
   "goalListDirectory",
   ...CLI_COMMAND_PROPERTIES,
   ...CLI_COMMAND_PREDICATES,
+  "selectorTargetType.unspecified",
+  "selectorTargetType.regular",
+  "selectorTargetType.directory",
   "state.hasFreshEvidence",
   "state.knownValue",
   "state.requiredConditionHolds",
@@ -86,14 +97,23 @@ export type CliCommandPrediction = Readonly<{
 }>;
 
 const PROFILE_KEYS = ["adoption", "calibration", "contract", "heads", "predicates", "properties", "weights", "wires"] as const;
-const STAGE0_HEADS = Object.freeze(CLI_COMMAND_HEADS.filter(head => head !== "path.realpath")) as readonly CliCommandHead[];
+const STAGE2_NEW_HEADS = ["directory.select", "file.select"] as const;
+const STAGE0_HEADS = Object.freeze(CLI_COMMAND_HEADS.filter(head =>
+  head !== "path.realpath" && head !== "directory.select" && head !== "file.select")) as readonly CliCommandHead[];
 const STAGE1_NEW_WIRES = Object.freeze([
   "property.path.physical",
   "predicate.observe.physical",
   "predicate.observe.resolvedTarget",
 ] as const);
+const STAGE2_NEW_WIRES = Object.freeze([
+  "predicate.select.entry",
+  "selectorTargetType.unspecified",
+  "selectorTargetType.regular",
+  "selectorTargetType.directory",
+] as const);
 const CURRENT_10X31_WIRES = Object.freeze(
-  CLI_COMMAND_WIRES.filter(wire => !STAGE1_NEW_WIRES.includes(wire as typeof STAGE1_NEW_WIRES[number])),
+  CLI_COMMAND_WIRES.filter(wire => !STAGE1_NEW_WIRES.includes(wire as typeof STAGE1_NEW_WIRES[number])
+    && !STAGE2_NEW_WIRES.includes(wire as typeof STAGE2_NEW_WIRES[number])),
 ) as readonly CliCommandWire[];
 const LEGACY_10X30_WIRES = Object.freeze(
   CURRENT_10X31_WIRES.filter(wire => wire !== "search.nameNeedleSegment"),
@@ -103,7 +123,8 @@ const LEGACY_10X30_PROPERTIES = Object.freeze(
 ) as readonly CliCommandProperty[];
 const LEGACY_10X30_PREDICATES = Object.freeze(
   CLI_COMMAND_PREDICATES.filter(predicate =>
-    predicate !== "predicate.observe.physical" && predicate !== "predicate.observe.resolvedTarget"),
+    predicate !== "predicate.observe.physical" && predicate !== "predicate.observe.resolvedTarget"
+    && predicate !== "predicate.select.entry"),
 ) as readonly CliCommandPredicate[];
 const LEGACY_HEADS = ["unsupported", "pwd", "cd", "ls"] as const;
 const LEGACY_WIRES = ["bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory"] as const;
@@ -126,12 +147,23 @@ const LEGACY_6X14_WIRES = [
 ] as const;
 export type CliCommandProfileSchema =
   | "current-11x34"
+  | "current-13x38"
   | "legacy-4x4"
   | "legacy-6x14"
   | "current-10x31"
   | "rejected-10x30"
   | "rejected-10x32"
   | "invalid";
+
+const STAGE1_HEADS = Object.freeze(CLI_COMMAND_HEADS.filter(head =>
+  head !== "directory.select" && head !== "file.select")) as readonly CliCommandHead[];
+const STAGE1_PREDICATES = Object.freeze(CLI_COMMAND_PREDICATES.filter(predicate =>
+  predicate !== "predicate.select.entry")) as readonly CliCommandPredicate[];
+const STAGE1_WIRES = Object.freeze(CLI_COMMAND_WIRES.filter(wire =>
+  !STAGE2_NEW_WIRES.includes(wire as typeof STAGE2_NEW_WIRES[number]))) as readonly CliCommandWire[];
+
+export const STAGE2_PROFILE_DIMENSIONS = Object.freeze({ heads: 13, wires: 38, parameters: 494 });
+export type CliCommandStageId = "stage1-11x34" | "stage2-13x38";
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[], label: string): void {
   if (Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
@@ -171,9 +203,14 @@ export function detectCliCommandProfileSchema(value: unknown): CliCommandProfile
   const input = value as Record<string, unknown>;
   if (!Array.isArray(input.heads) || !Array.isArray(input.wires)) return "invalid";
   const heads: unknown[] = input.heads, wires: unknown[] = input.wires;
+  // Stage 2 current shape (13 heads x 38 wires) is the canonical schema.
   if (heads.length === CLI_COMMAND_HEADS.length && wires.length === CLI_COMMAND_WIRES.length
     && CLI_COMMAND_HEADS.every((name, index) => heads[index] === name)
-    && CLI_COMMAND_WIRES.every((name, index) => wires[index] === name)) return "current-11x34";
+    && CLI_COMMAND_WIRES.every((name, index) => wires[index] === name)) return "current-13x38";
+  // Stage 1 shape (11 heads x 34 wires) remains a recognized current schema.
+  if (heads.length === 11 && wires.length === 34
+    && STAGE1_HEADS.every((name, index) => heads[index] === name)
+    && STAGE1_WIRES.every((name, index) => wires[index] === name)) return "current-11x34";
   if (heads.length === 10 && wires.length === 31
     && STAGE0_HEADS.every((name, index) => heads[index] === name)
     && CURRENT_10X31_WIRES.every((name, index) => wires[index] === name)) return "current-10x31";
@@ -204,14 +241,72 @@ export function zeroCliCommandProfile(): CliCommandProfile {
   });
 }
 
-export function validateCliCommandProfile(value: unknown): CliCommandProfile {
+function validateStage1Profile(input: Record<string, unknown>): CliCommandProfile {
+  exactKeys(input, PROFILE_KEYS, "stage1-11x34 command profile");
+  if (input.contract !== "cli.command-policy.v1") throw new TypeError("Invalid command profile contract");
+  if (input.calibration !== "uncalibrated" || input.adoption !== "not_applied") throw new TypeError("Invalid command profile status");
+  sameSequence(input.heads, STAGE1_HEADS, "stage1-11x34 command heads");
+  sameSequence(input.properties, CLI_COMMAND_PROPERTIES, "stage1-11x34 command properties");
+  sameSequence(input.predicates, STAGE1_PREDICATES, "stage1-11x34 command predicates");
+  sameSequence(input.wires, STAGE1_WIRES, "stage1-11x34 command wires");
+  return Object.freeze({
+    contract: "cli.command-policy.v1",
+    heads: Object.freeze([...STAGE1_HEADS]),
+    properties: Object.freeze([...CLI_COMMAND_PROPERTIES]),
+    predicates: Object.freeze([...STAGE1_PREDICATES]),
+    wires: Object.freeze([...STAGE1_WIRES]),
+    weights: finiteMatrix(input.weights, STAGE1_HEADS.length, STAGE1_WIRES.length),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  });
+}
+
+/** Validate against the schema of the explicitly requested stage. The default stage is the
+ *  current Stage 2 `stage2-13x38`; an explicit `stage1-11x34` keeps Stage 1 consumers working
+ *  without forcing them onto the Stage 2 matrix. */
+export function validateCliCommandProfile(value: unknown, stage: CliCommandStageId = "stage2-13x38"): CliCommandProfile {
   const input = expectRecord(value, "shared command profile");
+  if (stage !== "stage1-11x34" && stage !== "stage2-13x38") {
+    throw new TypeError("Command profile stage must be stage1-11x34 or stage2-13x38");
+  }
   const schema = detectCliCommandProfileSchema(input);
+  if (stage === "stage1-11x34") {
+    if (schema === "current-11x34") return validateStage1Profile(input);
+    if (schema === "current-13x38") throw new TypeError("Profile is the Stage 2 13x38 schema, not the requested stage1-11x34 schema");
+    if (schema === "current-10x31") throw new TypeError("10x31 command profile must be migrated to the Stage 1 11x34 schema with migrateCliCommandProfileStage0ToStage1");
+    if (schema === "rejected-10x30") throw new TypeError("10x30 command profile must be migrated to the 31-wire schema with migrateCliCommandProfileV10x30");
+    if (schema === "rejected-10x32") throw new TypeError("The deprecated 32-wire search profile shape is rejected; the current contract is 13x38");
+    if (schema === "legacy-6x14") throw new TypeError("Legacy 6x14 command profile must use migrateCliCommandProfileV6");
+    if (schema === "legacy-4x4") throw new TypeError("Legacy 4x4 command profile must use migrateLegacyCliCommandProfile");
+    throw new TypeError("Command profile schema is not recognized");
+  }
   if (schema === "current-10x31") throw new TypeError("10x31 command profile must be migrated to the Stage 1 11x34 schema with migrateCliCommandProfileStage0ToStage1");
   if (schema === "rejected-10x30") throw new TypeError("10x30 command profile must be migrated to the 31-wire schema with migrateCliCommandProfileV10x30");
   if (schema === "rejected-10x32") throw new TypeError("The deprecated 32-wire search profile shape is rejected; the current contract is 11x34");
   if (schema === "legacy-6x14") throw new TypeError("Legacy 6x14 command profile must use migrateCliCommandProfileV6");
   if (schema === "legacy-4x4") throw new TypeError("Legacy 4x4 command profile must use migrateLegacyCliCommandProfile");
+  if (schema === "current-11x34") {
+    throw new TypeError("Stage 1 11x34 command profile must be migrated to the Stage 2 13x38 schema with migrateCliCommandProfileStage1ToStage2");
+  }
+  if (schema === "current-13x38") {
+    exactKeys(input, PROFILE_KEYS, "shared command profile");
+    if (input.contract !== "cli.command-policy.v1") throw new TypeError("Invalid command profile contract");
+    if (input.calibration !== "uncalibrated" || input.adoption !== "not_applied") throw new TypeError("Invalid command profile status");
+    sameSequence(input.heads, CLI_COMMAND_HEADS, "command heads");
+    sameSequence(input.properties, CLI_COMMAND_PROPERTIES, "command properties");
+    sameSequence(input.predicates, CLI_COMMAND_PREDICATES, "command predicates");
+    sameSequence(input.wires, CLI_COMMAND_WIRES, "command wires");
+    return Object.freeze({
+      contract: "cli.command-policy.v1",
+      heads: Object.freeze([...CLI_COMMAND_HEADS]),
+      properties: Object.freeze([...CLI_COMMAND_PROPERTIES]),
+      predicates: Object.freeze([...CLI_COMMAND_PREDICATES]),
+      wires: Object.freeze([...CLI_COMMAND_WIRES]),
+      weights: finiteMatrix(input.weights, CLI_COMMAND_HEADS.length, CLI_COMMAND_WIRES.length),
+      calibration: "uncalibrated",
+      adoption: "not_applied",
+    });
+  }
   exactKeys(input, PROFILE_KEYS, "shared command profile");
   if (input.contract !== "cli.command-policy.v1") throw new TypeError("Invalid command profile contract");
   if (input.calibration !== "uncalibrated" || input.adoption !== "not_applied") throw new TypeError("Invalid command profile status");
@@ -318,12 +413,51 @@ export function migrateCliCommandProfileStage0ToStage1(value: unknown): CliComma
 /** Unified offline migration entry from any retired or previous shape to the current 11x34 schema. */
 export function migrateCliCommandProfileToCurrent(value: unknown): CliCommandProfile {
   const schema = detectCliCommandProfileSchema(value);
-  if (schema === "current-11x34") return validateCliCommandProfile(value);
+  if (schema === "current-13x38") return validateCliCommandProfile(value);
+  if (schema === "current-11x34") return migrateCliCommandProfileStage1ToStage2(value);
   if (schema === "current-10x31") return migrateCliCommandProfileStage0ToStage1(value);
   if (schema === "rejected-10x30") return migrateCliCommandProfileV10x30(value);
   if (schema === "legacy-6x14") return migrateCliCommandProfileV6(value);
   if (schema === "legacy-4x4") return migrateLegacyCliCommandProfile(value);
   throw new TypeError("Command profile schema is not a recognized migration source");
+}
+
+/** Explicit offline migration from the Stage 1 11x34 profile to the Stage 2 13x38 schema.
+ *  All 374 existing (head, wire) positions are copied by exact name; the two new
+ *  heads (directory.select, file.select) and four new wires
+ *  (predicate.select.entry, selectorTargetType.unspecified/regular/directory) are
+  * zero-filled, totaling 494 parameters. */
+export function migrateCliCommandProfileStage1ToStage2(value: unknown): CliCommandProfile {
+  const legacy = expectRecord(value, "11x34 command profile");
+  exactKeys(legacy, PROFILE_KEYS, "11x34 command profile");
+  if (legacy.contract !== "cli.command-policy.v1" || legacy.calibration !== "uncalibrated" || legacy.adoption !== "not_applied") {
+    throw new TypeError("11x34 command profile contract/status is invalid");
+  }
+  const heads = namedSequence(legacy.heads, STAGE1_HEADS, "11x34 command heads");
+  namedSequence(legacy.properties, CLI_COMMAND_PROPERTIES, "11x34 command properties");
+  namedSequence(legacy.predicates, STAGE1_PREDICATES, "11x34 command predicates");
+  const legacyWires = namedSequence(legacy.wires, STAGE1_WIRES, "11x34 command wires");
+  const legacyWeights = finiteMatrix(legacy.weights, STAGE1_HEADS.length, legacyWires.length);
+  let copiedByName = 0, zeroFilledNewSlots = 0;
+  const weights = CLI_COMMAND_HEADS.map(head => CLI_COMMAND_WIRES.map(wire => {
+    const row = heads.indexOf(head), column = legacyWires.indexOf(wire);
+    if (row >= 0 && column >= 0) { copiedByName += 1; return legacyWeights[row]![column]!; }
+    zeroFilledNewSlots += 1;
+    return 0;
+  }));
+  if (copiedByName !== 374) throw new TypeError(`Expected 374 named slots copied, got ${copiedByName}`);
+  if (zeroFilledNewSlots !== 120) throw new TypeError(`Expected 120 zero-filled slots, got ${zeroFilledNewSlots}`);
+  if (weights.flat().length !== 494) throw new TypeError("Stage 2 profile must contain 494 parameters");
+  return validateCliCommandProfile({
+    contract: "cli.command-policy.v1",
+    heads: [...CLI_COMMAND_HEADS],
+    properties: [...CLI_COMMAND_PROPERTIES],
+    predicates: [...CLI_COMMAND_PREDICATES],
+    wires: [...CLI_COMMAND_WIRES],
+    weights,
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  });
 }
 
 
@@ -360,17 +494,25 @@ export function migrateLegacyCliCommandProfile(value: unknown): CliCommandProfil
   return migrateCliCommandProfileV6(expanded);
 }
 
-export function cliCommandFeatures(goal: FilePropertyGoal, facts: PropertyFacts): readonly number[] {
+function cliCommandFeatureVector(
+  goal: FilePropertyGoal,
+  facts: PropertyFacts,
+  wires: readonly CliCommandWire[],
+): readonly number[] {
   const legacy = legacyWires(goal);
   const property = propertyOf(goal), predicate = predicateOf(goal);
   const propertyWire = property === null ? null : `property.${property.slice("file.property.".length)}`;
-  return Object.freeze(CLI_COMMAND_WIRES.map(wire => {
+  const selectorTargetType = selectorTargetTypeOf(goal);
+  return Object.freeze(wires.map(wire => {
     if (wire === "bias") return 1;
     if (wire === "goalObserveCwd") return legacy.goalObserveCwd;
     if (wire === "goalSetCwd") return legacy.goalSetCwd;
     if (wire === "goalListDirectory") return legacy.goalListDirectory;
     if (wire.startsWith("property.")) return propertyWire === wire ? 1 : 0;
     if (wire.startsWith("predicate.")) return predicate === wire ? 1 : 0;
+    if (wire === "selectorTargetType.unspecified") return selectorTargetType[0];
+    if (wire === "selectorTargetType.regular") return selectorTargetType[1];
+    if (wire === "selectorTargetType.directory") return selectorTargetType[2];
     if (wire === "state.hasFreshEvidence") return facts.hasFreshEvidence;
     if (wire === "state.knownValue") return facts.knownValue;
     if (wire === "state.requiredConditionHolds") return facts.requiredConditionHolds;
@@ -380,6 +522,10 @@ export function cliCommandFeatures(goal: FilePropertyGoal, facts: PropertyFacts)
   }));
 }
 
+export function cliCommandFeatures(goal: FilePropertyGoal, facts: PropertyFacts): readonly number[] {
+  return cliCommandFeatureVector(goal, facts, CLI_COMMAND_WIRES);
+}
+
 /** Candidate name-relation wire: one basename segment after extension removal equals the needle, case-sensitively. */
 export function searchNameNeedleSegment(name: string, needle: string): number {
   const base = name.slice(0, name.length - extname(name).length);
@@ -387,8 +533,12 @@ export function searchNameNeedleSegment(name: string, needle: string): number {
 }
 
 /** Candidate scoring context: all head-selection wires are zero; only search.nameNeedleSegment is populated. */
-export function cliCandidateFeatures(name: string, needle: string): readonly number[] {
-  return Object.freeze(CLI_COMMAND_WIRES.map(wire => wire === "search.nameNeedleSegment" ? searchNameNeedleSegment(name, needle) : 0));
+export function cliCandidateFeatures(
+  name: string,
+  needle: string,
+  wires: readonly CliCommandWire[] = CLI_COMMAND_WIRES,
+): readonly number[] {
+  return Object.freeze(wires.map(wire => wire === "search.nameNeedleSegment" ? searchNameNeedleSegment(name, needle) : 0));
 }
 
 /** Candidate utility uses only the entry.inspect row and the new name-relation column. */
@@ -404,8 +554,10 @@ export function predictCliCommand(
   facts: PropertyFacts,
   value: CliCommandProfile,
   registered = true,
+  stage: CliCommandStageId = "stage2-13x38",
 ): CliCommandPrediction {
-  const profile = validateCliCommandProfile(value), features = cliCommandFeatures(goal, facts);
+  const profile = validateCliCommandProfile(value, stage);
+  const features = cliCommandFeatureVector(goal, facts, profile.wires);
   if (!registered) {
     const empty = Object.freeze(Array<number>(profile.heads.length).fill(0));
     return Object.freeze({

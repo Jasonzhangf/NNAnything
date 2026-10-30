@@ -1,10 +1,10 @@
 # file.property：Shell 文件属性目标与状态转换
 
-状态：2026-10-19 设计合同。0.2.0 的 PWD/CD/LS 三个 `file.property` 切片已接入统一运行入口；本批 0.3.0 新增 `path.resolve`、`path.relative`、`path.parts` 与 `entry.inspect` 的合同、30 列共享矩阵和两张持久图的节点载荷升级。0.3.0 已由 I2–I7 实施完成并有运行证据：合并最新 origin/main 后全仓 761/761、独立套件 56/56（40 场景+16 探针）、旧独立套件回归 34/34；当前候选 `35bd5ad9-15dc-409e-9001-bcab24f75398` 保持 `uncalibrated/not_applied`。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
+状态：实施与设计合同。当前权威共享命令合同已演进至 **Stage 2（`stage2-13x38`）**：**13 个 head、38 条 wire、13×38 = 494 参数**（在 Stage 1 `stage1-11x34` 基础上新增 `directory.select`、`file.select` 两个执行 head 与 `predicate.select.entry`、`selectorTargetType.unspecified/regular/directory` 四条 selector wire，经 `migrateCliCommandProfileStage1ToStage2` 按名复制 374 项、补零 120 项；Stage 1 `stage1-11x34` 仍作为显式旧边界按自身 11×34 矩阵推理）。Stage 2 正式候选 `4e7e39ca-bd72-4785-a719-c621112159b8` 已完成 8N8E 训练图 370 条样本真实执行、新进程回载 370/370、P3 偏好回归 24/24（`weightDelta=0`）与外部独立套件 95/95（保留 5 项固定 `UNVERIFIED`；首跑失败候选 `4e249c32-0809-4016-beb6-5b3d336a9f16` 及原错例证据完整保留），候选保持 `uncalibrated/not_applied`、训练报告保持 `fullyVerified=false`。**历史阶段记录**：0.2.0 的 PWD/CD/LS `6×14` 切片、0.3.0 批次1 的 `10×30` 矩阵（候选 `35bd5ad9-15dc-409e-9001-bcab24f75398`，262 条样本，独立套件 56/56）、P3 的 `10×31` 矩阵（候选 `fb73d4a0-cb66-4008-afa0-5569b2cdfcdc`）与 Stage 1 的 `11×34` 矩阵（候选 `7e34901c-68ca-401f-ab40-72189f4e904d`，310 条样本，独立套件 71/71）均作为历史基线保留。用户收敛：不零散编辑目标，全部采用 `file.property.xxx`。路径、目录、普通文件及 Linux 特殊文件共享属性目标与状态转换模型；CLI 是取得观测或产生状态变化的 Action。操作目录仍由 [cli-semantic-operations.md](cli-semantic-operations.md)维护，调用合同由 [cli-call-contract.md](cli-call-contract.md)维护。
 
 ## 1. 唯一目标形式
 
-单目录直接子项精确名称查找的最小组合设计见[精确查找设计](cli-entry-search-design.md)。它细化本合同`directory.entries matches entrySelector`的组合切片，尚未实现；组合入口派生已有observed原子子Goal，不将未来P3学习型select.entry或根matches登记成当前原子policy已支持能力。
+单目录直接子项精确名称查找的多步组合见[精确查找设计](cli-entry-search-design.md)（`nnanything/cli-search`）；单目录已观测 listing 上的原子 `directory.entries matches entrySelector`（`predicate.select.entry`）已在当前 Stage 2（`stage2-13x38`）通过 `directory.select` / `file.select` 与只读注入的 Track B 关系 profile（目录选择为 `cli.directory-select-relation.v1`，普通文件选择为 `cli.file-select-relation.v1`）接入共享 6N5E `cli-file-property` 图（未观测或过期 listing 仍进入 `DEFER`，不隐式扫描磁盘）。
 
 ```ts
 type FilePropertyGoal = {
@@ -97,7 +97,7 @@ type Request = {
 | 内容/用途判断 | content.format/role 的指定关系observed；100 | 真实文件证据 → parser或独立模型 → 对照复核真值，保留未知 | 同后缀不同内容、配置示例与生效配置、生成源码角色重叠 |
 | 操作条件 | operation.applicability 对指定操作observed；100 | 类型/状态及声明能力 → 判断 → 独立合同/执行证据核对 | mode当实际权限、设备按普通文件处理、缺测当允许 |
 
-训练复用[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。两张图与源码绑定均为`0.3.0.0000`，10 head × 30 wire 已运行并有训练与独立验证证据。[完整训练设计](cli-property-training-design.md)中的B对象绑定、P属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见[命令调用设计](cli-command-design.md)，并不表示这些单元已有运行实现或训练结果。
+训练复用[cli-filesystem-training.graph.json](../workflows/cli-filesystem-training.graph.json)：按场景家族划train/dev/verification，真实拟合、候选保存/回载、独立执行与旧能力回归。两张图与源码绑定均为`0.3.0.0000`，当前权威矩阵为 Stage 2 `stage2-13x38`（13 head × 38 wire = 494 参数，含只读 Track B `cli.directory-select-relation.v1` / `cli.file-select-relation.v1` 关系评分注入）并保留 Stage 1 `stage1-11x34`（11×34 = 374 参数）旧边界；历史 `10×30` 与 `10×31` 证据保留为历史基线。[完整训练设计](cli-property-training-design.md)中的后续 P4–P6 属性效果策略、R用途关系、C组合下一步属于未来扩展。P与C只扩展同一`cli.command-policy.v1`共享命令矩阵，B与R为独立概念关系模型，不选择命令；未来设计不覆盖当前运行图。固定确定函数不强训。具体固定harness及操作回执见[命令调用设计](cli-command-design.md)，并不表示这些后续写/字节/元数据单元已全部接入共享策略训练。
 
 每单元按 [project-design](../workflows/project-design.graph.json) 完成四元素、SESE和最小必要性准入，按 [model-evolution](../workflows/model-evolution.graph.json) 自动采样、复核、训练及采用，回归/冲突交大模型裁决。采用条件只引用 [model-evolution.md](model-evolution.md)，不建平行门槛。真实OS效果、动作选择、参数绑定和知识判断分别计分。
 
@@ -107,11 +107,11 @@ type Request = {
 
 现有 `observe_cwd/set_cwd/list_directory` 旧 Goal 已由本轮迁移显式退役；运行入口拒绝旧 Goal 对象。PWD/CD/LS 只接受本节第6条的 `file.property` typed 请求，不新增同义 Goal。
 
-设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前已实现：0.2.0 的六个属性算子与 `cli-file-property` 运行绑定、PWD/CD/LS 的 typed 请求/统一结果、单 profile 显式迁移与真实拟合/回载。批次1的四个新 head、typed E/D/F/P 引用和完整 inspect 属性同样已接入运行入口。当前未实现：B对象查找与训练、目录/文件变更等其余操作、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
+设计已覆盖普通路径/目录/文件操作映射、B/P/R/C内部数值设计和独立验收计划。当前已实现：0.2.0 的六个属性算子与 `cli-file-property` 运行绑定、PWD/CD/LS 的 typed 请求/统一结果、批次1的四个新 head（`path.resolve`、`path.relative`、`path.parts`、`entry.inspect`）、typed E/D/F/P 引用与完整 inspect 属性、Stage 1 的 `path.realpath`（`stage1-11x34`）以及当前 Stage 2 的单目录 `directory.select`/`file.select` 与 Track B 纯关系评分（`stage2-13x38`，494 参数）。当前未接入共享命令矩阵：P4–P6 目录/文件变更与字节/元数据操作训练、R用途模型、自动使用采样/采用/裁决执行链。Linux设备/FIFO/socket已定义观测与普通操作的类型拒绝终点；专用创建/设备协议、挂载/ACL等沿命令设计第5节显式范围，不把当前macOS普通文件实测扩展为Linux设备覆盖。设计不授权对用户文件或设备执行破坏操作。
 
 ## 6. 0.2.0 已实施切片：PWD/CD/LS typed 请求与统一结果（2026-10-19）
 
-本节是0.2.0运行实现的准入正文，与 `docs/cli-filesystem-training.md` §0.1、`docs/cli-call-contract.md` §1.1 共同生效。本节只覆盖 0.2.0 切片的 sessionCwd observed/equals 与 directory.entries observed；0.3.0 的路径原语与 `entry.inspect` 已实施并接入运行入口，其合同、实现状态与证据见第7节。
+本节是0.2.0运行实现的准入正文，与 `docs/cli-filesystem-training.md` §0.1、`docs/cli-call-contract.md` §1.1 共同生效。本节只覆盖 0.2.0 切片的 sessionCwd observed/equals 与 directory.entries observed；0.3.0 批次1、Stage 1 与当前 Stage 2（`stage2-13x38`）的路径原语、`entry.inspect`、`path.realpath` 与 `directory.select`/`file.select` 已实施并接入运行入口，其合同、实现状态与证据见第7节。
 
 ### 6.1 可导入请求形状
 
@@ -153,7 +153,7 @@ type Request = {
 };
 ```
 
-`SessionRef` 与 `DirectoryRef` 复用 `lib/adapters/cli/filesystem-sandbox.ts` 的 typed 形状。`SessionCwdQuery` 不允许 `path`、`cwd` 或答案字段；`DirectoryRef` 的 `path` 相对当前 session 解析。`DirectoryQuery` 的 `scopes` 是显式数组，`selector.type` 固定为 `directory`，`cardinality` 固定为 `one`。本轮不实现 B 查找，任何合法 `DirectoryQuery` 都形成 typed 未绑定缺口并进入 `DEFER`，不扫描磁盘。
+`SessionRef` 与 `DirectoryRef` 复用 `lib/adapters/cli/filesystem-sandbox.ts` 的 typed 形状。`SessionCwdQuery` 不允许 `path`、`cwd` 或答案字段；`DirectoryRef` 的 `path` 相对当前 session 解析。`DirectoryQuery` 的 `scopes` 是显式数组，`selector.type` 固定为 `directory`，`cardinality` 固定为 `one`。任何未绑定的 `DirectoryQuery` 形成 typed 未绑定缺口并进入 `DEFER`，不扫描磁盘。
 
 `ExplicitFileState` 保留显式 `session` 与 `cwdObservation`/`directoryListing` 槽位。`CwdKnowledge` 与 `DirectoryKnowledge` 增加 `revision` 与 `sourceRun`，由唯一中性合同 owner 校验；它们不包含 caller 自封的 `trusted` 位。
 
@@ -183,7 +183,7 @@ type Request = {
 
 ### 6.4 统一结果与调用边界
 
-公开 `createCliCommandPolicy({ profile, sandbox, session, onSample? })` 返回的 `.step(request)` 只接受 `{ goal, satisfactionThreshold, state }`。结果至少包含：
+公开 `createCliCommandPolicy({ profile, sandbox, session, onSample?, stage?, entrySelectProfiles? })` 返回的 `.step(request)` 只接受 `{ goal, satisfactionThreshold, state }`。结果至少包含：
 
 ```text
 goal, satisfactionThreshold, state_before, action, invocation,
@@ -195,19 +195,27 @@ satisfaction, status, reason, evidence, collection_result
 
 边界唯一选择：非法 schema、额外答案字段、坏 ref、跨 session 矛盾、旧 Goal kind 或旧 4×4 profile 直接抛 `TypeError`，零 OS 副作用；结构合法但未注册的 property/predicate 返回 `unsupported` 控制结果。guard 在策略选择后拒绝不可执行/不符合目标约束的 head，保留原 `policy_error`，不改选正确 head、不 mask logits、不把错误计成功。
 
-## 7. 0.3.0 批次1合同：路径原语与条目检查
+## 7. 0.3.0 路径原语、条目检查与当前 Stage 2（`stage2-13x38`）合同
 
-本节合同正文已由 I2–I7 实现：gate/红测、typed 语义、adapter、工作流封装、训练与独立验收均已完成。图文件与 `lib/nodes/*` 的实现版本均为 `0.3.0.0000`。
+本节合同正文已由批次1（I2–I7）、Stage 1（`stage1-11x34`）与当前 Stage 2（`stage2-13x38`）依次实现：gate/红测、typed 语义、adapter、工作流封装、训练与独立验收均已完成。图文件与 `lib/nodes/*` 的实现版本均为 `0.3.0.0000`。
 
-### 7.1 注册切片与共享矩阵
+### 7.1 注册切片与共享矩阵（当前 `stage2-13x38` 与历史阶段）
 
-0.3.0 注册 10 个 head，顺序固定为 `unsupported,DEFER,NOOP,pwd,cd,ls,path.resolve,path.relative,path.parts,entry.inspect`。`path.realpath` 不注册，也不预留空行。
+**当前权威合同（`stage2-13x38`）**：注册 **13 个 head、38 条 wire，矩阵为 `13×38 = 494` 参数**。
+- 13 个 head 顺序固定为：`unsupported,DEFER,NOOP,pwd,cd,ls,path.resolve,path.relative,path.parts,path.realpath,entry.inspect,directory.select,file.select`（其中 `path.realpath` 在 Stage 1 加入，`directory.select` 与 `file.select` 在 Stage 2 加入）。
+- property 块按属性目录次序注册 **15 列**：`path.absolute`、`path.relative`、`path.parent`、`path.name`、`path.physical`、`exists`、`type`、`directory.entries`、`size`、`mode`、`owner`、`times`、`link.target`、`entry.identity`、`relation.sessionCwd`。
+- predicate 块按顺序注册 **10 列**：`observe.absolute`、`observe.relative`、`observe.parts`、`observe.physical`、`observe.inspect`、`observe.resolvedTarget`、`observe.sessionCwd`、`equals.sessionCwd`、`observe.entries`、`select.entry`。
+- `selectorTargetType` 块注册 **3 列**：`selectorTargetType.unspecified`、`selectorTargetType.regular`、`selectorTargetType.directory`。
+- state 块为 **4 列**（`state.hasFreshEvidence`、`state.knownValue`、`state.requiredConditionHolds`、`state.hasDestinationRef`），search 为 **1 列**（`search.nameNeedleSegment`），交互项为 **1 列**（`state.requiredConditionHolds*state.hasFreshEvidence`）；`hasSessionRef` 保持常量，不注册。
+- property 与 predicate 的 wire 名沿用现有前缀，分别为 `property.<后缀>` 与 `predicate.<标签>`。因此 `F = 4 + 15 + 10 + 3 + 4 + 1 + 1 = 38`、`K = 13`，当前矩阵为 `13×38 = 494` 参数。
 
-property 块按属性目录次序注册 14 列：`path.absolute`、`path.relative`、`path.parent`、`path.name`、`exists`、`type`、`directory.entries`、`size`、`mode`、`owner`、`times`、`link.target`、`entry.identity`、`relation.sessionCwd`。predicate 块按 P1→P2→P3 顺序注册 7 列：`observe.absolute`、`observe.relative`、`observe.parts`、`observe.inspect`、`observe.sessionCwd`、`equals.sessionCwd`、`observe.entries`。state 块仍为 4 列，交互项 1 列；`hasSessionRef` 保持常量，不注册。
+**命名迁移 `11×34 -> 13×38` 与 Stage 1 旧边界**：
+- 从 Stage 1（`stage1-11x34`，11 head × 34 wire = 374 参数）迁移到当前 Stage 2（`stage2-13x38`）由 `migrateCliCommandProfileStage1ToStage2` 显式执行：**全部 374 个已有 `(head, wire)` 交叉位置按精确名称原值复制**，新增 `directory.select`、`file.select` 两个 head 与 `predicate.select.entry`、`selectorTargetType.unspecified/regular/directory` 四条 selector wire 共 **120 个位置补零**，合计 **494 参数**（`374 + 120 = 494`）。零填充只保证结构兼容，不证明 softmax 无回归。
+- Stage 1（`stage1-11x34`，不含 `directory.select`/`file.select` 及上述四条 selector wire，共 `11×34 = 374` 参数）仍作为显式旧边界（传入 `stage: "stage1-11x34"`）按自身 11×34 矩阵推理，不静默降级或自动混用。
 
-property 与 predicate 的 wire 名沿用现有前缀，分别为 `property.<后缀>` 与 `predicate.<标签>`。因此 `F=4+14+7+4+1=30`、`K=10`，矩阵为 `10×30=300`。旧 `6×14=84` 交叉块按 name 原值复制，其余 216 个位置补零；`unsupported,DEFER,NOOP,pwd,cd,ls` 之外的四个新 head 不复制任何旧行。零填充只保证结构兼容，不证明 softmax 无回归。
+**历史矩阵记录（不再作为当前默认矩阵）**：0.3.0 批次1 基础矩阵注册 10 个 head（不含 `path.realpath`、`directory.select`、`file.select`）与 30 条 wire（14 列 property、7 列 predicate，不含 `path.physical`、`observe.physical`、`observe.resolvedTarget`、`select.entry`、`selectorTargetType` 与 `search.nameNeedleSegment`），共 `10×30 = 300` 参数（从旧 `6×14 = 84` 按名复制 84 项、其余 216 项补零）；P3 增量 A 在 `10×30` 上追加 `search.nameNeedleSegment` 形成 `10×31 = 310` 参数；Stage 1 从 `10×31` 按名复制 310 项并补零 64 项形成 `11×34 = 374` 参数。
 
-本批不注册 `observedType`、`requiredTargetType`、`selectorTargetType`、`combination` 块，不注册 `followSymlinks` wire，也不注册 `hasSessionRef`。`followSymlinks` 只作为 `entry.inspect` 的 typed 执行参数。`path.physical`、`observe.physical`、`observe.resolvedTarget` 与 `file.property.links` 均不在本批词表。
+当前 Stage 2 已注册 `selectorTargetType`、`predicate.select.entry`、`path.physical`、`observe.physical`、`observe.resolvedTarget`、`path.realpath`、`directory.select` 与 `file.select`。当前仍不注册 `observedType`、`requiredTargetType`、`combination` 块，不注册 `followSymlinks` wire、`hasSessionRef` 或 `file.property.links`；`followSymlinks` 只作为 `entry.inspect` 的 typed 执行参数。
 
 ### 7.2 typed 引用与身份
 
@@ -239,7 +247,7 @@ type ObservedObjectRef = Readonly<{
 
 旧 D 的四字段形状 `{kind:"cli.directory",scenarioId,sessionId,path}` 继续服务旧 `cd`/`ls`。它缺少对象身份时用于 `inspect` 必须返回 unknown 与 `binding_identity_missing`，不得静默降级为 P，也不得用遗留路径继续执行。`followSymlinks=true` 时先 `lstat` 核对来源条目身份，再 `stat` 目标；链接自身身份与解析目标身份分别保存，不能直接把链接自身 ino 与目标 ino 比较。session revision 变化、身份/类型不再匹配或引用过期时返回 stale/rejected，不猜测新对象。
 
-事件与校验契约：两张持久图的端口事件名保留 `cli.*.v1`，不因本次载荷扩展改名；`cli.file-property.*` 与 `cli.command.training.*` 的 `operator_version` 与对应 `NodeDefinition.version` 均已同步为 `0.3.0.0000`，并用显式联合类型重新编译；不能把旧 6×14 形状当运行兼容。运行 schema 校验按本节的显式联合类型升级，不接受旧 6×14 形状、不按行索引猜兼容，也不复用未注册的 property/predicate 对。新增 `cli.path`、`cli.entry` 与 `cli.file` 引用由版本化验证器识别；旧四字段 D 之外的多余字段按非法 schema 拒绝。
+事件与校验契约：两张持久图的端口事件名保留 `cli.*.v1`，不因本次载荷扩展改名；`cli.file-property.*` 与 `cli.command.training.*` 的 `operator_version` 与对应 `NodeDefinition.version` 均已同步为 `0.3.0.0000`，并用显式联合类型重新编译；不能把旧 6×14 形状当运行兼容。运行 schema 校验按本节的显式联合类型升级，默认校验 `stage2-13x38`（并支持显式 `stage1-11x34` 旧边界），不接受未迁移的旧 6×14/10×30/10×31 形状、不按行索引猜兼容，也不复用未注册的 property/predicate 对。新增 `cli.path`、`cli.entry` 与 `cli.file` 引用由版本化验证器识别；旧四字段 D 之外的多余字段按非法 schema 拒绝。
 
 ### 7.3 entry.inspect 属性值
 

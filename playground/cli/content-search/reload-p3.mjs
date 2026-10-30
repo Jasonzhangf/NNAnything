@@ -505,10 +505,23 @@ async function main() {
     throw new TypeError(`profile is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
   const schema = policy.detectCliCommandProfileSchema(rawProfile);
-  const profile = policy.migrateCliCommandProfileToCurrent(rawProfile);
-  if (profile.heads.length !== 11 || profile.wires.length !== 34
-    || profile.weights.length !== 11 || profile.weights.some(row => row.length !== 34)) {
-    throw new TypeError("profile did not validate as the current 11x34 matrix");
+  if (schema === "current-11x34" || schema === "current-13x38") {
+    var stage = schema === "current-11x34" ? "stage1-11x34" : "stage2-13x38";
+    var profile = policy.validateCliCommandProfile(rawProfile, stage);
+  } else if (schema === "current-10x31" || schema === "rejected-10x30" || schema === "legacy-6x14" || schema === "legacy-4x4") {
+    const migrated = policy.migrateCliCommandProfileToCurrent(rawProfile);
+    var stage = "stage2-13x38";
+    var profile = policy.detectCliCommandProfileSchema(migrated) === "current-11x34"
+      ? policy.migrateCliCommandProfileStage1ToStage2(migrated)
+      : policy.validateCliCommandProfile(migrated, stage);
+  } else {
+    throw new TypeError(`unsupported command profile schema for reload-p3: ${String(schema)}`);
+  }
+  const expectedHeads = stage === "stage1-11x34" ? 11 : 13;
+  const expectedWires = stage === "stage1-11x34" ? 34 : 38;
+  if (profile.heads.length !== expectedHeads || profile.wires.length !== expectedWires
+    || profile.weights.length !== expectedHeads || profile.weights.some(row => row.length !== expectedWires)) {
+    throw new TypeError(`profile did not validate as the expected ${expectedHeads}x${expectedWires} matrix`);
   }
 
   const casesStat = await stat(casesPath);
@@ -546,6 +559,7 @@ async function main() {
         modifiedAt: profileStat.mtime.toISOString(),
       },
       schema,
+      stage,
       contract: profile.contract,
       heads: profile.heads.length,
       wires: profile.wires.length,

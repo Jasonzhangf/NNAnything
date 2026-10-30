@@ -1,4 +1,5 @@
 import { expectRecord } from "../core/schema.js";
+import { posix } from "node:path";
 import type { DirectoryRef, SessionRef } from "../adapters/cli/filesystem-sandbox.js";
 import type {
   EntryKind,
@@ -62,6 +63,7 @@ export const REGISTERED_PREDICATES = Object.freeze([
   "predicate.observe.sessionCwd",
   "predicate.equals.sessionCwd",
   "predicate.observe.entries",
+  "predicate.select.entry",
 ] as const);
 
 export type RegisteredProperty = typeof REGISTERED_PROPERTIES[number];
@@ -176,6 +178,30 @@ export type ResolvedTargetGoal = Readonly<{
   }>;
 }>;
 
+export type SelectorTargetType = "unspecified" | "regular" | "directory";
+
+export type EntrySelectorSpec = Readonly<{
+  name: string;
+  parent: string;
+  type?: SelectorTargetType;
+}>;
+
+export type EntrySelectorPredicate = Readonly<{
+  kind: "entrySelector";
+  selector: EntrySelectorSpec;
+  cardinality: "one";
+}>;
+
+export type EntriesSelectGoal = Readonly<{
+  kind: "file.property";
+  property: typeof ENTRIES_PROPERTY;
+  target: DirectoryObjectRef | DirectoryQuery;
+  requirement: Readonly<{
+    kind: "matches";
+    predicate: EntrySelectorPredicate;
+  }>;
+}>;
+
 export type GenericFilePropertyGoal = Readonly<{
   kind: "file.property";
   property: string;
@@ -184,7 +210,7 @@ export type GenericFilePropertyGoal = Readonly<{
 }>;
 
 export type RegisteredGoal = CwdGoal | EntriesGoal | PathAbsoluteGoal | PathRelativeGoal | PathPartsGoal
-  | PathPhysicalGoal | InspectGoal | ResolvedTargetGoal;
+  | PathPhysicalGoal | InspectGoal | ResolvedTargetGoal | EntriesSelectGoal;
 export type FilePropertyGoal = RegisteredGoal | GenericFilePropertyGoal;
 
 export function isResolvedTargetGoal(goal: FilePropertyGoal): goal is ResolvedTargetGoal {
@@ -440,6 +466,51 @@ function isDirectoryQuery(value: unknown): value is DirectoryQuery {
     && (value as Record<string, unknown>).relation === "entrySelector";
 }
 
+function validateEntrySelector(value: unknown, label: string): EntrySelectorSpec {
+  const selector = expectRecord(value, label);
+  const keys = Object.keys(selector);
+  if (keys.some(key => key !== "name" && key !== "parent" && key !== "type")
+    || !Object.hasOwn(selector, "name") || !Object.hasOwn(selector, "parent")) {
+    throw new TypeError(`${label} must contain name, parent and an optional type`);
+  }
+  if (typeof selector.name !== "string") throw new TypeError(`${label}.name must be a string`);
+  if (typeof selector.parent !== "string") throw new TypeError(`${label}.parent must be a string`);
+  let type: SelectorTargetType | undefined;
+  if (selector.type !== undefined) {
+    if (typeof selector.type !== "string") throw new TypeError(`${label}.type must be a string`);
+    type = selector.type as SelectorTargetType;
+  }
+  return Object.freeze({
+    name: selector.name,
+    parent: selector.parent,
+    ...(type === undefined ? {} : { type }),
+  });
+}
+
+function entrySelectorBindingError(selector: EntrySelectorSpec, cardinality: string): string | null {
+  if (selector.name.length === 0 || selector.name === "." || selector.name === ".."
+    || selector.name.includes("/") || selector.name.includes("\0")) return "invalid_entry_selector";
+  if (selector.parent.length === 0 || !posix.isAbsolute(selector.parent) || selector.parent.includes("\0")) return "invalid_entry_selector";
+  if (cardinality !== "one") return "invalid_selector_cardinality";
+  return null;
+}
+
+export function selectorTargetTypeOf(goal: FilePropertyGoal): readonly [0 | 1, 0 | 1, 0 | 1] {
+  if (!isEntrySelectGoal(goal)) return Object.freeze([1, 0, 0]);
+  const type = goal.requirement.predicate.selector.type;
+  if (type === "regular") return Object.freeze([0, 1, 0]);
+  if (type === "directory") return Object.freeze([0, 0, 1]);
+  return Object.freeze([1, 0, 0]);
+}
+
+export function isEntrySelectGoal(goal: FilePropertyGoal): goal is EntriesSelectGoal {
+  if (goal.property !== ENTRIES_PROPERTY) return false;
+  const requirement = goal.requirement;
+  if (requirement.kind !== "matches" || requirement.predicate === null || typeof requirement.predicate !== "object") return false;
+  const predicate = requirement.predicate as Record<string, unknown>;
+  return predicate.kind === "entrySelector";
+}
+
 function isSessionCwdQuery(value: unknown): value is SessionCwdQuery {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     && (value as Record<string, unknown>).kind === "cli.file-query"
@@ -511,8 +582,7 @@ export function validateGoal(value: unknown): ValidatedGoal {
     throw new TypeError("sessionCwd requirement must be observed or equals");
   }
 
-  if (property === ENTRIES_PROPERTY) {
-    if (requirement.kind !== "observed") throw new TypeError("directory.entries only supports observed requirement");
+  if (property === ENTRIES_PROPERTY && requirement.kind === "observed") {
     const observed = observedRequirement(requirement, "directory.entries observed requirement");
     const target = isDirectoryRef(input.target)
       ? validateDirectoryObjectRef(input.target, "directory.entries target")
@@ -526,6 +596,37 @@ export function validateGoal(value: unknown): ValidatedGoal {
       predicate: "predicate.observe.entries",
       unboundDirectory: isDirectoryQuery(target),
       bindingError: null,
+    });
+  }
+
+  if (property === ENTRIES_PROPERTY && requirement.kind === "matches") {
+    const predicate = expectRecord(requirement.predicate, "directory.entries matches requirement");
+    exactKeys(predicate, ["kind", "selector", "cardinality"], "directory.entries matches requirement");
+    if (predicate.kind !== "entrySelector") throw new TypeError("directory.entries matches predicate must be entrySelector");
+    const selector = validateEntrySelector(predicate.selector, "directory.entries matches selector");
+    const cardinality = predicate.cardinality;
+    if (typeof cardinality !== "string" || cardinality.length === 0) throw new TypeError("directory.entries matches cardinality must be a non-empty string");
+    const target = isDirectoryRef(input.target)
+      ? validateDirectoryObjectRef(input.target, "directory.entries target")
+      : isDirectoryQuery(input.target)
+        ? validateDirectoryQuery(input.target)
+        : null;
+    if (target === null) throw new TypeError("directory.entries select target must be a directory reference or directory query");
+    const selectorError = entrySelectorBindingError(selector, cardinality);
+    return Object.freeze({
+      goal: Object.freeze({
+        kind: "file.property",
+        property: ENTRIES_PROPERTY,
+        target,
+        requirement: Object.freeze({
+          kind: "matches",
+          predicate: Object.freeze({ kind: "entrySelector", selector, cardinality: "one" }),
+        }),
+      }),
+      registered: selector.type === "regular" || selector.type === "directory",
+      predicate: "predicate.select.entry",
+      unboundDirectory: isDirectoryQuery(target),
+      bindingError: selectorError,
     });
   }
 
@@ -686,6 +787,7 @@ export function predicateOf(goal: FilePropertyGoal): RegisteredPredicate | null 
     return cwd.requirement.kind === "observed" ? "predicate.observe.sessionCwd" : "predicate.equals.sessionCwd";
   }
   if (isResolvedTargetGoal(goal)) return "predicate.observe.resolvedTarget";
+  if (isEntrySelectGoal(goal)) return "predicate.select.entry";
   if (goal.requirement.kind !== "observed") return null;
   if (goal.property === ENTRIES_PROPERTY) return "predicate.observe.entries";
   if (goal.property === PATH_ABSOLUTE_PROPERTY) return "predicate.observe.absolute";
@@ -753,6 +855,8 @@ export function computePropertyFacts(input: Readonly<{
     observation: directoryKnowledge.evidence,
   });
 
+  const selectionKnowledge = isEntrySelectGoal(goal) ? state.entrySelection ?? null : null;
+
   if (goal.property === CWD_PROPERTY && (goal as CwdGoal).requirement.kind === "equals") {
     const known = cwdOrigin ? 1 : 0;
     const condition = known === 1 && expectedPhysical !== null && cwdKnowledge!.physicalCwd === expectedPhysical ? 1 : 0;
@@ -766,6 +870,56 @@ export function computePropertyFacts(input: Readonly<{
       }) ? 1 : 0;
     return Object.freeze({ hasFreshEvidence: fresh as 0 | 1, knownValue: known as 0 | 1,
       requiredConditionHolds: condition as 0 | 1, hasDestinationRef: hasDestinationRef as 0 | 1 });
+  }
+  if (isEntrySelectGoal(goal)) {
+    const selector = goal.requirement.predicate.selector;
+    const activeListing = directoryKnowledge !== null
+      && directoryKnowledge.physicalDirectory === selector.parent
+      && authority.trusted({
+        kind: "directory.list",
+        session: session.sessionId,
+        revision: directoryKnowledge.revision,
+        runId: directoryKnowledge.sourceRun,
+        observation: directoryKnowledge.evidence,
+      })
+      ? directoryKnowledge
+      : null;
+    const listingKnown = activeListing !== null ? 1 : 0;
+    const listingFresh = activeListing !== null
+      && activeListing.revision === revision
+      && authority.trusted({
+        kind: "directory.list",
+        session: session.sessionId,
+        revision: activeListing.revision,
+        runId: activeListing.sourceRun,
+        observation: activeListing.evidence,
+      }) ? 1 : 0;
+    const activeSelection = selectionKnowledge !== null
+      && activeListing !== null
+      && selectionKnowledge.sessionRevision === activeListing.revision
+      && selectionKnowledge.parentPath === selector.parent
+      && selectionKnowledge.sourceRun !== null
+      && authority.trusted({
+        kind: "entry.select",
+        session: session.sessionId,
+        revision: selectionKnowledge.sessionRevision,
+        runId: selectionKnowledge.sourceRun,
+        observation: selectionKnowledge,
+      })
+      ? selectionKnowledge
+      : null;
+    const satisfied = activeSelection !== null
+      && activeSelection.outcome === "selected"
+      && activeSelection.reason === "unique_match"
+      && activeSelection.ref !== null
+      && activeSelection.name === selector.name
+      && activeSelection.targetType === selector.type;
+    return Object.freeze({
+      hasFreshEvidence: listingFresh as 0 | 1,
+      knownValue: listingKnown as 0 | 1,
+      requiredConditionHolds: (satisfied ? 1 : 0) as 0 | 1,
+      hasDestinationRef: hasDestinationRef as 0 | 1,
+    });
   }
   if (goal.property === ENTRIES_PROPERTY) {
     return Object.freeze({ hasFreshEvidence: 0, knownValue: directoryOrigin ? 1 : 0,
@@ -782,7 +936,11 @@ export function legacyWires(goal: FilePropertyGoal): Readonly<{ goalObserveCwd: 
       ? { goalObserveCwd: 1, goalSetCwd: 0, goalListDirectory: 0 }
       : { goalObserveCwd: 0, goalSetCwd: 1, goalListDirectory: 0 };
   }
-  if (goal.property === ENTRIES_PROPERTY) return { goalObserveCwd: 0, goalSetCwd: 0, goalListDirectory: 1 };
+  if (goal.property === ENTRIES_PROPERTY) {
+    return isEntrySelectGoal(goal)
+      ? { goalObserveCwd: 0, goalSetCwd: 0, goalListDirectory: 0 }
+      : { goalObserveCwd: 0, goalSetCwd: 0, goalListDirectory: 1 };
+  }
   return { goalObserveCwd: 0, goalSetCwd: 0, goalListDirectory: 0 };
 }
 
@@ -792,12 +950,18 @@ export function requiredHead(input: Readonly<{
   goal: FilePropertyGoal;
   facts: PropertyFacts;
 }>): "unsupported" | "DEFER" | "NOOP" | "pwd" | "cd" | "ls"
-  | "path.resolve" | "path.relative" | "path.parts" | "path.realpath" | "entry.inspect" {
+  | "path.resolve" | "path.relative" | "path.parts" | "path.realpath" | "entry.inspect"
+  | "directory.select" | "file.select" {
   if (!input.registered) return "unsupported";
   if (input.unboundDirectory) return "DEFER";
   if (input.goal.property === CWD_PROPERTY) {
     if ((input.goal as CwdGoal).requirement.kind === "observed") return "pwd";
     return input.facts.hasFreshEvidence === 1 && input.facts.requiredConditionHolds === 1 ? "NOOP" : "cd";
+  }
+  if (isEntrySelectGoal(input.goal)) {
+    if (input.facts.hasFreshEvidence === 1 && input.facts.requiredConditionHolds === 1) return "NOOP";
+    if (input.facts.hasFreshEvidence !== 1) return "DEFER";
+    return input.goal.requirement.predicate.selector.type === "directory" ? "directory.select" : "file.select";
   }
   if (input.goal.property === ENTRIES_PROPERTY) return "ls";
   if (input.goal.property === PATH_ABSOLUTE_PROPERTY) return "path.resolve";
