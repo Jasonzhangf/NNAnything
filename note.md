@@ -2144,3 +2144,35 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Alice 首审拒绝把未验收 trainer/evaluator authoring 派给普通 GCM（回执 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/research-prep-f3/alice-gcm-contract-audit.md`），并要求闭合 13 文件编号、接管条件、写锁进程角色判定与 6N6E `partition-to-compare` 边。
 - Emma 已出 r2（`research-prep-f3/gcm-f3-research-prep-task.md`）：13 个研究准备文件由 Emma 亲自实现并完成 Phase A 零拟合验证，授权研究 agents 按文件 owner 参与。Alice 已复核 r2 PASS（`m1793323174837-1949`），设计保持 PASS。
 - 前置未满足：P3/P4 产品 worker 仍在 `browser-stage1-semantics` 运行。其结束并释放写锁后，我在同一棵树把写锁交 Emma。Phase B 仍待准备完成证据与明确放行；CLI B2 独立继续。
+
+## 2026-10-29 Browser P3/P4 原生复验与 CLI B2 r2 放行
+
+### Browser P3/P4 产品
+
+- GCM 单 writer 在 `/Volumes/Intel/playground/nnanything/browser-stage1-semantics` 完成 P3/P4 产品实现并退出，未 commit/merge/push，未触碰训练、候选、权重、gold 或 core。回执 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/product-p3p4-worker/result.md` 与 `note.md`。
+- worker 侧：build/typecheck exit 0，五个 node 套件 84/84（71 旧 + 13 新）；原生 B-Input/B-Search 因 GCM sandbox 本地 TCP bind/connect EPERM 标 UNVERIFIED。
+- 我在 socket-capable 本机、worker 退出后以单 writer 复验：build/typecheck exit 0，84/84 稳定；B-Input 原生 52/52 pass；B-Search 原生两次均 40 pass / 4 FAIL / 0 unverified。四条失败为 A/C05、A/C13、B/C05、B/C13，`failedChecks` 只有 `root`：期望 `root=unknown`，实际 `root=unsatisfied`（`results=unsatisfied`、`satisfaction=0`）。
+- 原生证据 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/jenny-native-verify/`；逐例 `/tmp/jenny-bsearch-verify2/rows.jsonl`。已交 Alice 审计 root fact 语义及 worker 的权限 guard 兼容决定（`lib/nodes/browser-search.ts:82-98`，guard 约 170 行附近）。
+
+### CLI Stage2 B2 r2
+
+- B2 r1 门禁失败后，Alice 首轮审计判 NEEDS_REVISION（原失败行被替换、训练/评价参数虚构、内存优化来源未清）；Emma 按 4 项窄修交 r2，并保持 append-only 方案。Alice 已放行 `alice-b2-r2-preparation-release.md` 与 `alice-b2-r2-preparation-completion-audit.md`。
+- r2 准备：`p3-stage2-policy-prep` 内 358 保留 + 12 追加 = 370（246 train + 124 development），双分母 original 358=238+120 与 expanded 246+124 校验通过；`reload-p3` 固定入口接受 13x38，并保留旧 10x31 `ba10a538` 无拟合回归；全部零拟合、零 commit/merge/push。回执 `p3/emma-b2-r2-prep-receipt.md` 与 `cli-p3-stage2/phase-a2-validation-r2/validation-receipt.json`。
+- Alice 放行单次正式 200 epochs / lr 0.1。Emma 已正式释放 `p3-stage2-policy-prep` 写锁（0 运行进程）。我已派一次性 GCM：合同 `/Volumes/Intel/playground/nnanything-runs/cli-p3-stage2/gcm-b2-r2-execution-task.md`，启动证据 `gcm-b2-r2-task/launch-shell.log`。范围只跑 `train.mjs --mode train`（内置 fresh reload 与 p3-preference 回归），失败即停，不跑外部 95 与 reload-p3，不重试、不调参、不改码。
+- 后续顺序：Step1 三道硬门通过后，我在 socket-capable 环境固定 95 例（71 历史 + 24 Stage 2，保留 P31 原失败来源与 6 项 UNVERIFIED），再跑 P3 natural/forced-first；任一门失败停止下游并交 Alice。
+
+## 2026-10-29 CLI Stage2 B2 r2 通过；Browser P3/P4 findings 关闭；F3 交 Emma
+
+### CLI Stage2 B2 r2
+
+- 正式 run `4e7e39ca-bd72-4785-a719-c621112159b8` exit 0：train 246/246、development 124/124；original 358 为 238/238 与 120/120，append-only 12 为 8/8 与 4/4；13 个 head 全部 `regressed=0`；reload 370/370、failed 0、unverified 0；p3-preference 24/24、`weightDelta=0`（`2.9020536351949002`）。候选保持 `uncalibrated/not_applied`、`fullyVerified=false`、`verification.status=not_provided`。
+- Jenny socket-capable 复验：外部独立套件 95/95 通过，保留 5 项固定 `UNVERIFIED`；P31 pass；P3 natural 与 forced-first 各 24/24 exit 0。首跑失败 run `4e249c32-0809-4016-beb6-5b3d336a9f16` 的原错证据保留。
+- Alice 阶段审计 PASS（`p3/alice-b2-r2-stage-completion-audit.md`）。独立 milestone Review r1 仅 1 条 P1：三份权威合同仍写旧 10x30/10x31 且否定 selector wire。Emma 仅窄修三份文档；Jenny 提交 `bf7b24a`（`docs(cli): align Stage2 contracts with 13x38`），工作树 `p3-stage2-policy-prep` HEAD 含该提交、代码/测试/权重/gold 未变。
+- Review r2 关闭旧 P1，但发现两项新文档事实差额：P1 `cli.entry-select.v1` 不是运行 contract，实际只接受 `cli.directory-select-relation.v1` 与 `cli.file-select-relation.v1`（training.md:289,318、semantics.md:7,100、call-contract.md:7）；P2 首跑失败 ID 误写为 `4e249c32-8943-4908-80e6-5c5c758a0836`，实际目录为 `4e249c32-0809-4016-beb6-5b3d336a9f16`（training.md:3,338、semantics.md:3、call-contract.md:3）。已交 Emma 窄修，不重训、不改断言/阈值/分母；修完 commit 后复审。
+
+### Browser P3/P4 与 F3
+
+- P3/P4 窄修 GCM 完成：必需 effect 守卫无条件（`lib/nodes/browser-search.ts:168`），删除兼容例外；新增无 `grantedEffects` ceiling 的公开 direct-call 拒绝用例（`tests/browser-search-workflow.test.mjs:307-335`）；成功 expand fixture 显式授予 `browser.nativeExpandRange`；`cases.mjs` 仅 C05/C13 两条 root 期望 `unknown -> unsatisfied`（numstat 2 2）。
+- Jenny 原生复验：build/typecheck exit 0，五个 node 套件 85/85；B-Input 原生 52/52，B-Search 原生 44/44，fail 0、unverified 0，C05/C13 四行无失败。证据 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/jenny-native-verify-r2/`。
+- Alice 已复核实际 guard、公开拒绝反例、仅两行 oracle diff 与原生 rows，P3/P4 findings 全部关闭，阶段 PASS 追加到 `alice-p3p4-product-completion-audit.md`。已按 Alice 指令将同一脏树 `browser-stage1-semantics` 的单 writer 交 Emma，执行已 PASS 的 F3/Phase A Research-Prep；13 文件 authoring 归 Emma，普通 GCM 只跑验收后的固定入口；Phase B 与 fitted candidate 未放行。
+- 资源核对：NNAnything `git worktree list` 共 5 个（含主树），低于上限 10；`.git/hooks` 仅有 `*.sample`，`core.hooksPath` 未设置，未安装自定义 worktree 上限 hook。已回复 CEO。
