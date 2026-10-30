@@ -20,6 +20,10 @@ import {
   readBrowserInputObservation,
   readBrowserInputRequest,
 } from "../adapters/browser/input-contract.js";
+import {
+  predictBrowserInputPolicy,
+  readBrowserInputPolicyProfile,
+} from "../filters/browser-stage1-policy.js";
 
 const ports = ["request", "observed", "recognized", "decision", "receipt", "reobserved", "verified", "ended"].map(name => ({
   name: `${name}_event`,
@@ -40,7 +44,7 @@ function sameControl(observation: BrowserInputObservation, control: BrowserInput
 interface InputStage {
   readonly request: ReturnType<typeof readBrowserInputRequest>;
   readonly action: "input";
-  readonly decisionSource: { readonly id: string; readonly source: "handwired" };
+  readonly decisionSource: { readonly id: string; readonly source: "handwired" | "model" };
   readonly beforeState: BrowserInputObservation | null;
   readonly invocation: BrowserInputInvocation | null;
   readonly receipt: BrowserInputNativeReceipt | null;
@@ -60,6 +64,14 @@ interface NativeTransportError extends Error {
 
 const BEFORE_STATE_REFUSALS = new Set(["precondition_unsatisfied", "permission_denied", "focus_not_on_target"]);
 const UNKNOWN_FACT_REFUSALS = new Set(["stale_binding", "object_rebuilt", "unsupported_host", "sensitive_host_denied"]);
+
+function deferUnmeasured(stage: InputStage, message: string): InputStage {
+  return {
+    ...stage,
+    refusal: { code: "decision_deferred", message },
+    executionErrors: [...stage.executionErrors, { code: "decision_deferred", message }],
+  };
+}
 
 function stageError(stage: InputStage, code: string, text: string): InputStage {
   return {
@@ -174,7 +186,9 @@ export function createBrowserInputEpisodeNodes(resources: BrowserInputResources)
         s = {
           request,
           action: "input",
-          decisionSource: { id: "browser.input.handwired.v1", source: "handwired" },
+          decisionSource: resources.decision === undefined
+            ? { id: "browser.input.handwired.v1", source: "handwired" }
+            : { id: resources.decision.id, source: resources.decision.source },
           beforeState: null,
           invocation: null,
           receipt: null,
@@ -224,8 +238,14 @@ export function createBrowserInputEpisodeNodes(resources: BrowserInputResources)
       }
       if (index === 1 && s.beforeState !== null && s.executionErrors.length === 0) {
         const target = s.beforeState.target;
+        const model = s.decisionSource.source === "model";
         if (target.connected.status !== "observed" || target.connected.value !== true) s = stageError(s, "precondition_unsatisfied", "Target connectedness is not observed");
         else if (target.currentRef.status !== "observed" || target.currentRef.value !== s.request.bindings.targetRef) s = stageError(s, "stale_binding", "Bound DOM object identity is not confirmed");
+        else if (model) {
+          // The deterministic guard stops at object identity. Host shape,
+          // editability and hit facts are owned by B-S1.1 wires so an
+          // already-equal value can still be a satisfied NOOP.
+        }
         else if (target.host.status !== "observed" || target.type.status !== "observed" || target.contentEditable.status !== "observed") s = stageError(s, "precondition_unsatisfied", "Target host facts are unknown");
         else if (target.host.value === "contenteditable" || target.contentEditable.value === true) s = stageError(s, "unsupported_host", "contenteditable hosts are not supported");
         else if (target.host.value !== "input" || target.type.value !== "text") s = stageError(s, "unsupported_host", "Only ordinary input type=text is supported");
@@ -241,22 +261,51 @@ export function createBrowserInputEpisodeNodes(resources: BrowserInputResources)
         return context.emit(s);
       }
       if (index === 2 && s.beforeState !== null && s.executionErrors.length === 0) {
-        const alreadySatisfied = s.beforeState.target.value.status === "observed"
-          && s.beforeState.target.value.value === s.request.goal.targetText;
-        if (!alreadySatisfied) {
+        if (s.decisionSource.source === "model") {
           const before = s.beforeState;
-          s = {
-            ...s,
-            invocation: {
-              kind: "input",
-              targetRef: s.request.bindings.targetRef,
-              value: s.request.goal.targetText,
-              documentRef: before.documentRef,
-              scopeRef: before.scopeRef,
-              observationId: before.observationId,
-              revision: before.revision,
-            },
-          };
+          const profile = readBrowserInputPolicyProfile(resources.decision!.profile);
+          const prediction = predictBrowserInputPolicy(before, s.request.goal.targetText,
+            s.request.bindings.sensitive === true, profile);
+          if (prediction.head === "INPUT") {
+            s = {
+              ...s,
+              invocation: {
+                kind: "input",
+                targetRef: s.request.bindings.targetRef,
+                value: s.request.goal.targetText,
+                documentRef: before.documentRef,
+                scopeRef: before.scopeRef,
+                observationId: before.observationId,
+                revision: before.revision,
+              },
+            };
+          } else if (prediction.head === "DEFER") {
+            const target = before.target;
+            const unmeasured = [target.value, target.editable, target.executableHit,
+              target.host, target.type, target.nativeDisabled, target.ariaDisabled, target.readonlyState]
+              .some(fact => fact.status !== "observed");
+            s = unmeasured
+              ? deferUnmeasured(s, "B-S1.1 deferred because a required execution fact is unmeasured")
+              : stageError(s, "precondition_unsatisfied", "B-S1.1 deferred because an execution precondition failed");
+          }
+        } else {
+          const alreadySatisfied = s.beforeState.target.value.status === "observed"
+            && s.beforeState.target.value.value === s.request.goal.targetText;
+          if (!alreadySatisfied) {
+            const before = s.beforeState;
+            s = {
+              ...s,
+              invocation: {
+                kind: "input",
+                targetRef: s.request.bindings.targetRef,
+                value: s.request.goal.targetText,
+                documentRef: before.documentRef,
+                scopeRef: before.scopeRef,
+                observationId: before.observationId,
+                revision: before.revision,
+              },
+            };
+          }
         }
         return context.emit(s);
       }
@@ -364,6 +413,13 @@ export async function runBrowserInputEpisode(input: unknown, resources: BrowserI
     || typeof resources.currentControl !== "function"
     || typeof resources.nativeInputText !== "function") {
     throw new TypeError("Explicit browser input resources are required");
+  }
+  if (resources.decision !== undefined) {
+    if (typeof resources.decision.id !== "string" || resources.decision.id.length === 0
+      || (resources.decision.source !== "handwired" && resources.decision.source !== "model")) {
+      throw new TypeError("Invalid browser input decision binding");
+    }
+    if (resources.decision.source === "model") readBrowserInputPolicyProfile(resources.decision.profile);
   }
   const definition = await loadWorkflow({
     configPath: fileURLToPath(new URL("../../workflows/browser-input.workflow.json", import.meta.url)),

@@ -1,9 +1,26 @@
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
-import {test} from 'node:test';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {after, test} from 'node:test';
+import {readBrowserSearchObservation} from 'nnanything/browser-search';
 import {CASE_ROWS, materializeConfig} from '../playground/browser/search/cases.mjs';
 import {familyBSearch} from '../playground/browser/search-fixture/family-b/data.mjs';
 import {renderFamilyBPage} from '../playground/browser/search-fixture/family-b/page.mjs';
+
+// native-io reads BSEARCH_CASE_DIR at import time. Give it a neutral case
+// config so buildObservation can be exercised without CDP or a live fixture.
+const nativeCaseDir = await mkdtemp(join(tmpdir(), 'bsearch-native-target-'));
+await writeFile(join(nativeCaseDir, 'case.json'), JSON.stringify({selectors: {}, bindings: {}}));
+const previousCaseDir = process.env.BSEARCH_CASE_DIR;
+process.env.BSEARCH_CASE_DIR = nativeCaseDir;
+process.env.BSEARCH_READ_TIMEOUT_MS = '1000';
+const {buildObservation} = await import('../playground/browser/search/native-io.mjs');
+after(async () => {
+  if (previousCaseDir === undefined) delete process.env.BSEARCH_CASE_DIR;
+  else process.env.BSEARCH_CASE_DIR = previousCaseDir;
+  await rm(nativeCaseDir, {recursive: true, force: true});
+});
 
 test('the two-family matrix keeps 22 independent runs per family', () => {
   assert.equal(CASE_ROWS.length, 22);
@@ -63,4 +80,117 @@ test('native IO reads only the per-case binding and keeps read-only observation 
   assert.match(source, /Input\.insertText/);
   assert.doesNotMatch(source, /materializeExpected|CASE_ROWS|rows\.jsonl/);
   assert.doesNotMatch(source, /\.focus\s*\(|\.click\s*\(|requestSubmit\s*\(|dispatchEvent\s*\(/);
+});
+
+test('native search observation carries a typed, resolvable input target with real hit facts', () => {
+  const raw = {
+    documentRef: 'search-doc',
+    scopeRef: 'search-scope',
+    inputRef: 'query',
+    submitRef: 'submit',
+    collectionRef: 'main',
+    resultScopeRef: 'results',
+    inputTag: 'input',
+    inputType: 'text',
+    inputValue: '露营',
+    editable: true,
+    submittedQuery: null,
+    resultsQuery: null,
+    submittedRequestRef: null,
+    resultsRequestRef: null,
+    collectionRequestRef: null,
+    batch: null,
+    request: 'unknown',
+    display: 'none',
+    access: 'available',
+    atGeometryBoundary: null,
+    hasMore: null,
+    items: [],
+    target: {
+      present: true,
+      ref: 'query',
+      connected: true,
+      currentRef: 'query',
+      host: 'input',
+      contentEditable: false,
+      type: 'text',
+      value: '露营',
+      placeholder: null,
+      nativeDisabled: false,
+      ariaDisabled: null,
+      nativeReadonly: false,
+      ariaReadonly: null,
+      readonlyState: 'editable',
+      editable: true,
+      activeElementRef: null,
+      activeElementFocus: false,
+      hit: {status: 'observed', value: true},
+      point: {status: 'observed', value: {x: 42, y: 73}},
+    },
+  };
+  const built = buildObservation(raw, 3);
+  assert.ok(built.target, 'native observation must include the input target');
+  const parsed = readBrowserSearchObservation(built);
+  assert.equal(parsed.target.ref, 'query');
+  assert.equal(parsed.target.value.value, '露营');
+  assert.equal(parsed.target.executableHit.status, 'observed');
+  assert.equal(parsed.target.executableHit.value, true);
+  assert.equal(parsed.target.point.value.x, 42);
+  const refs = [...parsed.target.executableHit.evidenceRefs, ...parsed.target.point.evidenceRefs];
+  assert.ok(refs.length > 0, 'hit and point facts must carry local evidence');
+  for (const ref of refs) {
+    assert.ok(parsed.evidence.some(item => item.id === ref), `evidence ${ref} must resolve`);
+  }
+  assert.equal(parsed.target.value.evidenceRefs.length, 1);
+});
+
+test('native search target stays unknown when hit cannot be measured, never fabricates false', () => {
+  const raw = {
+    documentRef: 'search-doc',
+    scopeRef: 'search-scope',
+    inputRef: 'query',
+    submitRef: 'submit',
+    collectionRef: 'main',
+    resultScopeRef: 'results',
+    inputTag: 'input',
+    inputType: 'text',
+    inputValue: '露营',
+    editable: true,
+    submittedQuery: null,
+    resultsQuery: null,
+    submittedRequestRef: null,
+    resultsRequestRef: null,
+    collectionRequestRef: null,
+    batch: null,
+    request: 'unknown',
+    display: 'none',
+    access: 'available',
+    atGeometryBoundary: null,
+    hasMore: null,
+    items: [],
+    target: {
+      present: true,
+      ref: 'query',
+      connected: true,
+      currentRef: 'query',
+      host: 'input',
+      contentEditable: false,
+      type: 'text',
+      value: '露营',
+      placeholder: null,
+      nativeDisabled: false,
+      ariaDisabled: null,
+      nativeReadonly: false,
+      ariaReadonly: null,
+      readonlyState: 'editable',
+      editable: true,
+      activeElementRef: null,
+      activeElementFocus: false,
+      hit: {status: 'unknown', reason: 'elementsFromPoint_failed'},
+      point: {status: 'unknown', reason: 'native_hit_point_unavailable'},
+    },
+  };
+  const parsed = readBrowserSearchObservation(buildObservation(raw, 4));
+  assert.equal(parsed.target.executableHit.status, 'unknown');
+  assert.equal(parsed.target.point.status, 'unknown');
 });

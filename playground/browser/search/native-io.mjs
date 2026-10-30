@@ -84,8 +84,8 @@ function observeFn(config) {
   const sel = config.selectors;
   const input = document.querySelector(sel.input);
   const submission = document.querySelector(sel.submittedState);
-  const requestState = document.querySelector(sel.requestState);
-  const collection = document.querySelector(sel.collection);
+  const requestState = document.querySelector(config.selectors?.requestState ?? '#request-state');
+  const collection = document.querySelector(config.selectors?.collection ?? '#catalog-table, #split-main-list');
   const attr = (el, name) => {
     const value = el && el.getAttribute(name);
     return value == null || value === '' ? null : value;
@@ -93,10 +93,147 @@ function observeFn(config) {
   const omitRefs = !!(config.projection && config.projection.omitRequestRefs);
   const unread = new Set((config.projection && config.projection.unreadItemIndexes) || []);
   const elements = collection ? Array.from(collection.querySelectorAll(sel.mainItems)) : [];
+  const scrollBox = document.querySelector('#result-scroll-box');
+  // Range geometry is measured only on the contract-bound #result-scroll-box.
+  // Never fall back to document.scrollingElement/documentElement: an absent
+  // container and a failed measurement are distinct honest unknowns.
+  let atGeometryBoundary = null;
+  let geometryReason = null;
+  if (scrollBox) {
+    const clientHeight = scrollBox.clientHeight;
+    const scrollHeight = scrollBox.scrollHeight;
+    const scrollTop = scrollBox.scrollTop;
+    if (Number.isFinite(clientHeight) && Number.isFinite(scrollHeight) && Number.isFinite(scrollTop)
+      && clientHeight > 0 && scrollHeight > 0) {
+      atGeometryBoundary = scrollTop + clientHeight >= scrollHeight - 1;
+    } else {
+      geometryReason = 'scroll_container_geometry_measurement_failed';
+    }
+  } else {
+    geometryReason = 'scroll_container_absent';
+  }
+  // hasMore comes only from real explicit terminal evidence: data-has-more on
+  // the request state, the collection terminal banner, or the load-more control.
+  // Absent controls never synthesize a false terminal.
+  let hasMore = null;
+  const requestHasMore = attr(requestState, 'data-has-more');
+  if (requestHasMore === 'true' || requestHasMore === 'false') {
+    hasMore = requestHasMore === 'true';
+  } else {
+    const terminalBanner = document.querySelector('#collection-terminal-banner');
+    const loadMore = document.querySelector('#load-more');
+    const bannerHasMore = attr(terminalBanner, 'data-has-more');
+    const bannerTerminal = attr(terminalBanner, 'data-terminal');
+    if (bannerHasMore === 'false' || bannerTerminal === 'true') {
+      hasMore = false;
+    } else if (attr(loadMore, 'data-has-more') === 'true') {
+      hasMore = true;
+    }
+  }
   const items = elements.map((el, index) => ({
     index,
     text: unread.has(index) ? null : (el.textContent || '').trim(),
   }));
+  const rectOf = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  };
+  const intersect = (a, b) => {
+    const x = Math.max(a.x, b.x);
+    const y = Math.max(a.y, b.y);
+    return { x, y, width: Math.max(0, Math.min(a.x + a.width, b.x + b.width) - x),
+      height: Math.max(0, Math.min(a.y + a.height, b.y + b.height) - y) };
+  };
+  const positive = (r) => r.width > 0 && r.height > 0;
+  // Exposed rectangle = element box clipped by scrolling ancestors and the viewport,
+  // then the top hit is taken from document.elementsFromPoint (single-action semantics).
+  const exposedRectOf = (el) => {
+    let rect = rectOf(el);
+    for (let a = el.parentElement; a; a = a.parentElement) {
+      const style = getComputedStyle(a);
+      if ([style.overflow, style.overflowX, style.overflowY].some(v => v && v !== 'visible')) {
+        rect = intersect(rect, rectOf(a));
+      }
+    }
+    const width = window.innerWidth || document.documentElement.clientWidth || 0;
+    const height = window.innerHeight || document.documentElement.clientHeight || 0;
+    return intersect(rect, { x: 0, y: 0, width, height });
+  };
+  const hitCandidates = (rect) => {
+    const points = [];
+    const seen = new Set();
+    const fractions = [[0.5, 0.5], [0.5, 0.1], [0.9, 0.5], [0.5, 0.9], [0.1, 0.5],
+      [0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9]];
+    for (const [fx, fy] of fractions) {
+      const point = { x: rect.x + rect.width * fx, y: rect.y + rect.height * fy };
+      const key = `${point.x},${point.y}`;
+      if (!seen.has(key)) { seen.add(key); points.push(point); }
+    }
+    return points;
+  };
+  const measureHit = (el) => {
+    if (typeof document.elementsFromPoint !== 'function') {
+      return { hit: { status: 'unknown', reason: 'elementsFromPoint_unavailable' },
+        point: { status: 'unknown', reason: 'native_hit_point_unavailable' } };
+    }
+    const exposed = exposedRectOf(el);
+    if (!positive(exposed)) {
+      return { hit: { status: 'observed', value: false }, point: { status: 'unknown', reason: 'no_hit_point' } };
+    }
+    for (const point of hitCandidates(exposed)) {
+      let hits;
+      try {
+        hits = Array.from(document.elementsFromPoint(point.x, point.y));
+      } catch {
+        return { hit: { status: 'unknown', reason: 'elementsFromPoint_failed' },
+          point: { status: 'unknown', reason: 'native_hit_point_unavailable' } };
+      }
+      const top = hits[0];
+      if (top && (top === el || el.contains(top))) {
+        return { hit: { status: 'observed', value: true }, point: { status: 'observed', value: point } };
+      }
+    }
+    return { hit: { status: 'observed', value: false }, point: { status: 'unknown', reason: 'no_hit_point' } };
+  };
+  const measureTarget = () => {
+    if (!input) return { present: false, reason: 'input_missing' };
+    const tag = input.tagName.toLowerCase();
+    const host = tag === 'input' || tag === 'textarea' ? tag
+      : (input.isContentEditable || input.getAttribute('contenteditable') === 'true') ? 'contenteditable' : 'unknown';
+    const type = tag === 'input' ? (input.getAttribute('type') || 'text') : tag;
+    const ariaValue = (el, name) => {
+      const raw = el.getAttribute(name);
+      return raw === 'true' ? true : raw === 'false' ? false : null;
+    };
+    const ariaDisabled = ariaValue(input, 'aria-disabled');
+    const ariaReadonly = ariaValue(input, 'aria-readonly');
+    const nativeReadonly = input.readOnly === true;
+    const readonlyState = nativeReadonly ? (ariaReadonly === false ? 'conflict' : 'readonly')
+      : ariaReadonly === true ? 'conflict' : 'editable';
+    const active = document.activeElement === input;
+    const hitFacts = measureHit(input);
+    return {
+      present: true,
+      ref: config.bindings.inputRef,
+      connected: input.isConnected === true,
+      currentRef: config.bindings.inputRef,
+      host,
+      contentEditable: host === 'contenteditable' || input.getAttribute('contenteditable') === 'true',
+      type,
+      value: type === 'password' || type === 'file' ? null : input.value,
+      placeholder: input.getAttribute('placeholder'),
+      nativeDisabled: input.disabled === true,
+      ariaDisabled,
+      nativeReadonly,
+      ariaReadonly,
+      readonlyState,
+      editable: !(input.disabled || input.readOnly),
+      activeElementRef: active ? config.bindings.inputRef : null,
+      activeElementFocus: active,
+      hit: hitFacts.hit,
+      point: hitFacts.point,
+    };
+  };
   return {
     documentRef: config.bindings.documentRef,
     scopeRef: config.bindings.scopeRef,
@@ -117,11 +254,15 @@ function observeFn(config) {
     request: attr(requestState, 'data-request-status') || 'unknown',
     display: attr(requestState, 'data-display') || 'unknown',
     access: attr(requestState, 'data-access') || 'unknown',
+    atGeometryBoundary,
+    geometryReason,
+    hasMore,
     items,
+    target: measureTarget(),
   };
 }
 
-function buildObservation(raw, revision) {
+export function buildObservation(raw, revision, rangeEffect = 'not_attempted') {
   const observationId = `search-observation-${revision}`;
   const evidence = [];
   const mark = (key, fact) => {
@@ -139,6 +280,13 @@ function buildObservation(raw, revision) {
     if (value === null || value === undefined) return { status: 'unknown', reason: 'not_observable' };
     return { status: 'observed', value: Boolean(value), evidenceRefs: [id] };
   };
+  const rangeRequestState = ['loading', 'settled', 'error'].includes(raw.request)
+    ? { status: 'observed', value: raw.request, evidenceRefs: [mark('range.requestState', { value: raw.request })] }
+    : { status: 'unknown', reason: 'no_positive_request_state_source' };
+  const rangeGeometry = raw.atGeometryBoundary === null || raw.atGeometryBoundary === undefined
+    ? { status: 'unknown', reason: raw.geometryReason ?? 'not_measured' }
+    : { status: 'observed', value: Boolean(raw.atGeometryBoundary), evidenceRefs: [mark('range.geometry', { value: raw.atGeometryBoundary })] };
+  const rangeHasMore = boolFact(raw.hasMore, 'range.hasMore');
   const items = raw.items.map((item, index) => ({
     ref: `${raw.collectionRef}-item-${index}`,
     collectionRef: raw.collectionRef,
@@ -147,6 +295,42 @@ function buildObservation(raw, revision) {
       ? { status: 'unknown', reason: 'not_read' }
       : { status: 'observed', value: item.text, evidenceRefs: [mark(`item.${index}`, { value: item.text })] },
   }));
+  const observedTargetFact = (key, value) => {
+    const id = mark(`target.${key}`, { value });
+    return { status: 'observed', value, evidenceRefs: [id] };
+  };
+  const unknownTargetFact = (reason) => ({ status: 'unknown', reason });
+  const nullableTargetFact = (key, value) => value === null || value === undefined
+    ? observedTargetFact(key, null) : observedTargetFact(key, value);
+  const buildTarget = (t) => {
+    if (!t || t.present !== true) return undefined;
+    return {
+      ref: t.ref,
+      connected: observedTargetFact('connected', t.connected === true),
+      currentRef: observedTargetFact('currentRef', t.currentRef),
+      host: observedTargetFact('host', t.host),
+      contentEditable: observedTargetFact('contentEditable', t.contentEditable === true),
+      type: observedTargetFact('type', t.type),
+      value: t.value === null || t.value === undefined
+        ? unknownTargetFact('value_not_observable') : observedTargetFact('value', String(t.value)),
+      placeholder: nullableTargetFact('placeholder', t.placeholder),
+      nativeDisabled: observedTargetFact('nativeDisabled', t.nativeDisabled === true),
+      ariaDisabled: nullableTargetFact('ariaDisabled', t.ariaDisabled),
+      nativeReadonly: observedTargetFact('nativeReadonly', t.nativeReadonly === true),
+      ariaReadonly: nullableTargetFact('ariaReadonly', t.ariaReadonly),
+      readonlyState: observedTargetFact('readonlyState', t.readonlyState),
+      editable: observedTargetFact('editable', t.editable === true),
+      activeElementRef: nullableTargetFact('activeElementRef', t.activeElementRef),
+      activeElementFocus: observedTargetFact('activeElementFocus', t.activeElementFocus === true),
+      executableHit: t.hit && t.hit.status === 'observed'
+        ? observedTargetFact('executableHit', t.hit.value === true)
+        : unknownTargetFact(t.hit && t.hit.reason ? t.hit.reason : 'native_hit_unassessed'),
+      point: t.point && t.point.status === 'observed' && t.point.value
+        ? observedTargetFact('point', { x: t.point.value.x, y: t.point.value.y })
+        : unknownTargetFact(t.point && t.point.reason ? t.point.reason : 'native_hit_point_unavailable'),
+    };
+  };
+  const target = buildTarget(raw.target);
   return {
     documentRef: raw.documentRef,
     scopeRef: raw.scopeRef,
@@ -174,8 +358,44 @@ function buildObservation(raw, revision) {
       batch: stringFact(raw.batch, 'collection.batch'),
       items,
     },
+    rangeExpansion: {
+      actionMechanicalEffect: rangeEffect,
+      atGeometryBoundary: rangeGeometry,
+      requestState: rangeRequestState,
+      hasMore: rangeHasMore,
+      collectionTerminal: false,
+    },
+    ...(target === undefined ? {} : { target }),
     evidence,
   };
+}
+
+export function classifyRangeEffect(before, after) {
+  const beforeScrollTop = before?.scrollTop ?? null;
+  const afterScrollTop = after?.scrollTop ?? null;
+  const beforeBatch = before?.batch ?? null;
+  const afterBatch = after?.batch ?? null;
+  const beforeRequestStatus = before?.requestStatus ?? null;
+  const afterRequestStatus = after?.requestStatus ?? null;
+
+  const displaced = beforeScrollTop !== null && afterScrollTop !== null
+    && afterScrollTop !== beforeScrollTop;
+  const batchChanged = beforeBatch !== null && afterBatch !== null
+    && afterBatch !== beforeBatch;
+  const loadingTriggered = beforeRequestStatus !== null && beforeRequestStatus !== 'loading'
+    && afterRequestStatus === 'loading';
+  const hasMechanicalEffect = displaced || batchChanged || loadingTriggered;
+  const factsComplete = beforeScrollTop !== null && afterScrollTop !== null
+    && beforeBatch !== null && afterBatch !== null
+    && beforeRequestStatus !== null && afterRequestStatus !== null;
+
+  if (hasMechanicalEffect) {
+    return { hasMechanicalEffect, factsComplete, rangeEffect: 'displaced_or_triggered', effectKnowledge: 'known' };
+  }
+  if (!factsComplete) {
+    return { hasMechanicalEffect, factsComplete, rangeEffect: 'not_attempted', effectKnowledge: 'unknown' };
+  }
+  return { hasMechanicalEffect, factsComplete, rangeEffect: 'no_change', effectKnowledge: 'none' };
 }
 
 function waitFn(selector, timeoutMs) {
@@ -217,7 +437,18 @@ async function clickPoint(cdp, selector) {
   }
 }
 
-export async function createResources() {
+// Default native IO grant for a single search batch: read/input/submit/write.
+// Browser range expansion is an explicit opt-in only; callers that need it
+// pass browser.nativeExpandRange through options.grantedEffects.
+const DEFAULT_GRANTED_EFFECTS = ['browser.read', 'browser.nativeInputText', 'browser.nativeSubmit', 'filesystem.write'];
+
+export function createGrantedEffects(options = {}) {
+  const explicit = options?.grantedEffects;
+  const extra = explicit == null ? [] : [...explicit];
+  return new Set([...DEFAULT_GRANTED_EFFECTS, ...extra]);
+}
+
+export async function createResources(options = {}) {
   const target = await createOwnTarget();
   let cdp = null;
   const state = {
@@ -226,6 +457,7 @@ export async function createResources() {
     latest: null,
     dispatched: false,
     submitted: false,
+    rangeEffect: 'not_attempted',
     preludeReceipts: [],
     mutationReceipts: [],
     targetId: target.id,
@@ -280,7 +512,8 @@ export async function createResources() {
       if (config.projection.observeFailAfterSubmit && state.submitted) throw new Error('injected: post-submit read failure');
       state.revision += 1;
       const raw = await evaluate(`(${observeFn.toString()})(${JSON.stringify(config)})`);
-      const observation = buildObservation(raw, state.revision);
+      const observation = buildObservation(raw, state.revision, state.rangeEffect);
+      state.rangeEffect = 'not_attempted';
       state.latest = observation;
       if (!state.first) state.first = observation;
       if (config.projection.stalePost && state.dispatched) {
@@ -294,6 +527,7 @@ export async function createResources() {
       return { documentRef: state.latest.documentRef, observationId: state.latest.observationId, revision: state.latest.revision };
     };
     const readResults = async () => {
+      state.rangeEffect = 'not_attempted';
       const observation = await observe();
       if (observation.request !== 'loading' && observation.display !== 'partial') return observation;
       // Observe the visible result region so an early aside/main change is not
@@ -302,6 +536,7 @@ export async function createResources() {
       return observe();
     };
     const nativeInputText = async (invocation) => {
+      state.rangeEffect = 'not_attempted';
       if (config.projection.rejectInputWithoutBody) {
         return { dispatched: false, ok: false, effectKnowledge: 'none', source: 'cdp.Input', error: null };
       }
@@ -312,6 +547,7 @@ export async function createResources() {
       return receipt;
     };
     const nativeSubmit = async () => {
+      state.rangeEffect = 'not_attempted';
       const receipt = await performSubmit();
       state.mutationReceipts.push({ action: 'submit', dispatchState: 'dispatched', ...receipt });
       state.dispatched = true;
@@ -319,11 +555,71 @@ export async function createResources() {
       if (config.projection.throwAfterSubmit) throw new Error('injected: transport error after native submit dispatch');
       return receipt;
     };
+    const nativeExpandRange = async () => {
+      state.rangeEffect = 'not_attempted';
+      const readExpandSnapshot = () =>
+        evaluate(`(() => {
+          const s = document.querySelector('#result-scroll-box');
+          const req = document.querySelector(${JSON.stringify(config.selectors?.requestState ?? '#request-state')});
+          const attr = (el, name) => {
+            const v = el && el.getAttribute(name);
+            return v == null || v === '' ? null : v;
+          };
+          const rawStatus = attr(req, 'data-request-status');
+          let geometryReason = null;
+          let atGeometryBoundary = null;
+          if (s) {
+            const clientHeight = s.clientHeight;
+            const scrollHeight = s.scrollHeight;
+            const scrollTop = s.scrollTop;
+            if (Number.isFinite(clientHeight) && Number.isFinite(scrollHeight) && Number.isFinite(scrollTop)
+              && clientHeight > 0 && scrollHeight > 0) {
+              atGeometryBoundary = scrollTop + clientHeight >= scrollHeight - 1;
+            } else {
+              geometryReason = 'scroll_container_geometry_measurement_failed';
+            }
+          } else {
+            geometryReason = 'scroll_container_absent';
+          }
+          return {
+            scrollTop: atGeometryBoundary === null ? null : s ? s.scrollTop : null,
+            batch: attr(req, 'data-batch-ref'),
+            requestStatus: ['loading', 'settled', 'error'].includes(rawStatus) ? rawStatus : null,
+            atGeometryBoundary,
+            geometryReason,
+          };
+        })()`);
+      const before = await readExpandSnapshot();
+      await cdp.call('Input.dispatchMouseEvent', {
+        type: 'mouseWheel', x: 480, y: 420, deltaX: 0, deltaY: 640,
+      });
+      await delay(config.postExpandDelayMs ?? 160);
+      state.dispatched = true;
+      try {
+        const after = await readExpandSnapshot();
+        const classified = classifyRangeEffect(before, after);
+        state.rangeEffect = classified.rangeEffect;
+        const receipt = {
+          dispatched: true, ok: true, effectKnowledge: classified.effectKnowledge,
+          source: 'cdp.Input', error: null,
+        };
+        state.mutationReceipts.push({ action: 'expand_range', dispatchState: 'dispatched', ...receipt });
+        return receipt;
+      } catch (err) {
+        state.rangeEffect = 'not_attempted';
+        const receipt = {
+          dispatched: true, ok: false, effectKnowledge: 'unknown', source: 'cdp.Input',
+          error: { code: 'native_expand_failed', message: err instanceof Error ? err.message : String(err) },
+        };
+        state.mutationReceipts.push({ action: 'expand_range', dispatchState: 'unknown', ...receipt });
+        return receipt;
+      }
+    };
 
     state.cdp = cdp;
     globalThis.__bSearchState = state;
     return {
-      grantedEffects: new Set(['browser.read', 'browser.nativeInputText', 'browser.nativeSubmit', 'filesystem.write']),
+      grantedEffects: createGrantedEffects(options),
       decision: {
         id: 'browser.search.handwired.v1',
         source: 'handwired',
@@ -334,6 +630,7 @@ export async function createResources() {
       currentControl,
       nativeInputText,
       nativeSubmit,
+      nativeExpandRange,
       collect: async () => {},
       collectRoot: async () => {},
     };
@@ -354,7 +651,7 @@ export async function close() {
       await state.cdp.evaluate(`(${waitFn.toString()})(${JSON.stringify('#late-state')}, ${Math.max(READ_TIMEOUT_MS, 2000)})`, true);
     }
     const raw = await state.cdp.evaluate(`(${observeFn.toString()})(${JSON.stringify(config)})`);
-    const finalObservation = buildObservation(raw, state.revision + 1);
+    const finalObservation = buildObservation(raw, state.revision + 1, state.rangeEffect);
     const neighborValue = await state.cdp.evaluate(`document.querySelector(${JSON.stringify(config.neighborSelector)})?.value ?? null`);
     const lateValue = await state.cdp.evaluate(`document.querySelector('#late-state')?.getAttribute('data-late-request-ref') ?? ''`);
     sideEffects = {

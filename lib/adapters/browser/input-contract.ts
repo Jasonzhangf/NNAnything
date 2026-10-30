@@ -1,5 +1,6 @@
 import type { BrowserObservationError, BrowserObservationFeedback, BrowserObservationObligation } from "./action-observation.js";
 import type { ActionObservation } from "./single-action-contract.js";
+import type { BrowserInputPolicyProfile } from "../../filters/browser-stage1-policy.js";
 import { expectRecord } from "../../core/schema.js";
 
 export type BrowserInputHostTag = "input" | "textarea" | "contenteditable" | "unknown";
@@ -35,6 +36,8 @@ export interface BrowserInputTargetFacts {
   readonly editable: ActionObservation<boolean>;
   readonly activeElementRef: ActionObservation<string | null>;
   readonly activeElementFocus: ActionObservation<boolean>;
+  readonly executableHit: ActionObservation<boolean>;
+  readonly point: ActionObservation<{ readonly x: number; readonly y: number }>;
 }
 
 export interface BrowserInputNeighborFacts {
@@ -108,7 +111,7 @@ export interface BrowserInputEpisode {
   readonly goal: BrowserInputGoal;
   readonly bindings: BrowserInputBindings;
   readonly action: "input";
-  readonly decisionSource: { readonly id: string; readonly source: "handwired" };
+  readonly decisionSource: { readonly id: string; readonly source: "handwired" | "model" };
   readonly dispatchState: "not_dispatched" | "dispatched" | "unknown";
   readonly effectKnowledge: "none" | "known" | "unknown";
   readonly textWriteCount: 0 | 1;
@@ -131,7 +134,14 @@ export interface BrowserInputResources {
   readonly observe: (obligation: BrowserObservationObligation) => Promise<BrowserInputObservation>;
   readonly currentControl: () => BrowserInputControl | Promise<BrowserInputControl>;
   readonly nativeInputText: (invocation: BrowserInputInvocation) => Promise<BrowserInputNativeReceipt>;
+  readonly decision?: BrowserInputDecisionBinding;
   readonly signal?: AbortSignal;
+}
+
+export interface BrowserInputDecisionBinding {
+  readonly id: string;
+  readonly source: "handwired" | "model";
+  readonly profile?: BrowserInputPolicyProfile;
 }
 
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0;
@@ -191,22 +201,40 @@ function readNullableBoolean(value: unknown): boolean | null {
   return value === null ? null : typeof value === "boolean" ? value : (() => { throw new TypeError("Input nullable boolean is invalid"); })();
 }
 
-export function readBrowserInputObservation(value: unknown): BrowserInputObservation {
-  const row = expectRecord(value, "browser input observation");
-  if (![row.documentRef, row.scopeRef, row.observationId].every(text)
-    || !Number.isSafeInteger(row.revision) || Number(row.revision) < 0
-    || !Array.isArray(row.evidence) || !Array.isArray(row.neighbors)) {
-    throw new TypeError("Invalid browser input observation identity");
+function readPoint(value: unknown): { readonly x: number; readonly y: number } {
+  const row = expectRecord(value, "input point");
+  if (typeof row.x !== "number" || !Number.isFinite(row.x)
+    || typeof row.y !== "number" || !Number.isFinite(row.y)) {
+    throw new TypeError("Input point requires finite x and y");
   }
-  const ids = new Set<string>();
-  for (const raw of row.evidence) {
-    const item = expectRecord(raw, "input evidence");
-    if (!text(item.id) || ids.has(item.id) || !text(item.source) || !Object.hasOwn(item, "fact")) {
-      throw new TypeError("Invalid input evidence");
-    }
-    ids.add(item.id);
+  return { x: row.x, y: row.y };
+}
+
+function readOptionalFact<T>(
+  value: unknown,
+  label: string,
+  read: (value: unknown) => ActionObservation<T>,
+): ActionObservation<T> {
+  if (value === undefined) return { status: "unknown", reason: `${label}_unmeasured` };
+  return read(value);
+}
+
+function readPointFact(value: unknown, ids: ReadonlySet<string>): ActionObservation<{ readonly x: number; readonly y: number }> {
+  const row = expectRecord(value, "input point fact");
+  if (row.status === "unknown") {
+    if (!text(row.reason)) throw new TypeError("Input unknown point fact requires a reason");
+    return { status: "unknown", reason: row.reason };
   }
-  const target = expectRecord(row.target, "input target");
+  if (row.status !== "observed") throw new TypeError("Input point fact status must be observed or unknown");
+  if (!Array.isArray(row.evidenceRefs) || row.evidenceRefs.length === 0
+    || row.evidenceRefs.some(id => typeof id !== "string" || !ids.has(id))) {
+    throw new TypeError("Input observed point fact requires local evidence");
+  }
+  return { status: "observed", value: readPoint(row.value), evidenceRefs: row.evidenceRefs };
+}
+
+export function readBrowserInputTargetFacts(value: unknown, ids: ReadonlySet<string>): BrowserInputTargetFacts {
+  const target = expectRecord(value, "input target");
   if (!text(target.ref)) throw new TypeError("Input target ref is required");
   const currentRef = readFact<string>(target.currentRef, "string", ids, false, readString);
   if (currentRef.status === "observed" && currentRef.value === null) {
@@ -233,9 +261,38 @@ export function readBrowserInputObservation(value: unknown): BrowserInputObserva
     editable: readFact<boolean>(target.editable, "boolean", ids, false, Boolean),
     activeElementRef: readFact<string | null>(target.activeElementRef, "string", ids, true, readNullableString),
     activeElementFocus: readFact<boolean>(target.activeElementFocus, "boolean", ids, false, Boolean),
+    executableHit: readOptionalFact(
+      target.executableHit,
+      "executable_hit",
+      value => readFact<boolean>(value, "boolean", ids, false, Boolean),
+    ),
+    point: readOptionalFact(
+      target.point,
+      "executable_hit_point",
+      value => readPointFact(value, ids),
+    ),
   };
+  return targetFacts;
+}
+
+export function readBrowserInputObservation(value: unknown): BrowserInputObservation {
+  const row = expectRecord(value, "browser input observation");
+  if (![row.documentRef, row.scopeRef, row.observationId].every(text)
+    || !Number.isSafeInteger(row.revision) || Number(row.revision) < 0
+    || !Array.isArray(row.evidence) || !Array.isArray(row.neighbors)) {
+    throw new TypeError("Invalid browser input observation identity");
+  }
+  const ids = new Set<string>();
+  for (const raw of row.evidence) {
+    const item = expectRecord(raw, "input evidence");
+    if (!text(item.id) || ids.has(item.id) || !text(item.source) || !Object.hasOwn(item, "fact")) {
+      throw new TypeError("Invalid input evidence");
+    }
+    ids.add(item.id);
+  }
+  const targetFacts = readBrowserInputTargetFacts(row.target, ids);
   const neighborRefs = new Set<string>();
-  const neighbors = row.neighbors.map((raw, index) => {
+  const neighbors = (row.neighbors as unknown[]).map((raw, index) => {
     const item = expectRecord(raw, `input neighbor[${index}]`);
     if (!text(item.ref) || neighborRefs.has(item.ref)) throw new TypeError("Input neighbor refs must be unique");
     neighborRefs.add(item.ref);

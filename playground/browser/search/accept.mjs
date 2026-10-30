@@ -19,6 +19,8 @@ function argAfter(name, fallback) {
 const familyArg = argAfter('--family', 'all');
 const cdp = argAfter('--cdp', '');
 const origin = argAfter('--origin', argAfter('--fixture-origin', ''));
+const decisionProfile = argAfter('--decision-profile', process.env.BSEARCH_DECISION_PROFILE_DIR ?? '');
+const resolvedDecisionProfile = decisionProfile ? resolve(decisionProfile) : '';
 const out = resolve(argAfter('--out', resolve(process.cwd(), 'b-search-acceptance')));
 const resultReads = Number(process.env.BSEARCH_RESULT_READS ?? '8');
 if (!Number.isSafeInteger(resultReads) || resultReads < 1) {
@@ -335,7 +337,15 @@ for (const family of families) {
     let runResult;
     try {
       const started = Date.now();
-      const result = await execFileAsync(process.execPath, [runEntry, '--request', requestPath, '--io', ioEntry], {
+      const runArgs = [
+        runEntry,
+        '--request',
+        requestPath,
+        '--io',
+        ioEntry,
+        ...(resolvedDecisionProfile ? ['--decision-profile', resolvedDecisionProfile] : []),
+      ];
+      const result = await execFileAsync(process.execPath, runArgs, {
         cwd: repo,
         env: {
           ...process.env,
@@ -344,6 +354,7 @@ for (const family of families) {
           BSEARCH_CASE_DIR: caseDir,
           BSEARCH_RESULT_READS: process.env.BSEARCH_RESULT_READS ?? '8',
           BSEARCH_READ_TIMEOUT_MS: process.env.BSEARCH_READ_TIMEOUT_MS ?? '1000',
+          ...(resolvedDecisionProfile ? { BSEARCH_DECISION_PROFILE_DIR: resolvedDecisionProfile } : {}),
         },
         maxBuffer: 24 * 1024 * 1024,
         timeout: 45000,
