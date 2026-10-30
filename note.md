@@ -2222,3 +2222,8 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Alice fix-r3 定点审计 PASS（独立公开 consumer 23/23 exit 0，复用 127/127 与 build/typecheck）：F1/F2/F3 及后续漏项关闭，A3-Product 阶段 PASS；原 writer 已释放。
 - 已按已批准合同 `phase-a-independent-helper-contract.md` 第 3 节与 `emma-stage2-upstream-binding-and-a3-prep-spec.md` 第 3 节交 Emma 同树 `cli-p4-stage3` 完成 A3-Research-Prep 七个研究文件与 A3-1/A3-2/A3-3 零拟合验证（`completedEpochs=0`、`trainingSteps=0`），交 Alice 审计；正式 B3 仍待研究准备 PASS 后由 Jenny 再派。产品 9 文件脏态保留，未 commit/merge/push。
 - W0a Prep-1B：Emma 已落盘六文件并通过 build/typecheck/11 项测试（Prep-1A 6 + Prep-1B 5），回执 `emma-w0a-prep1b-verification-receipt.md`；Alice 首轮审计发现 confirmed Gold 冲突未拦截与 Stage2 正式数据准入未接入两项缺口，已退 Emma 原六文件定点修，未派正式训练或集成。
+
+### Prep-1B 首轮审计返修通过，整体 Review r1 未过（1 条 P1）
+
+- Emma 修复 F1/F2 两项缺口并通过全部 12 项测试（Prep-1A 6 + Prep-1B 6），未覆盖原 smoke 候选产物；Alice 复核 PASS（`alice-browser-use-design-audit.md` Prep-1B F1/F2 复核节），明确仅离线工具链准备、Capture-1C/正式训练未放行，安排完整 milestone 独立 Review 及既定集成清理。
+- Jenny 派完整 milestone Review r1（`w0a-prep1b-milestone-review-r1`，mode=base、base=c6959b4，六个未提交文件）：结论 FAIL、1 条 P1。Finding 在 `playground/browser/weibo-filtered-dom/w0a/evaluate-w0a-independent.mjs` 第 826 行附近：`one_shot_verification` 只设内存 `oneShotHoldoutConsumed`，不读/不写持久消费回执，四个终态路径均 `writeFileSync` 覆写 `outReport`，可重跑同一留出集并重打分。要求持久 append-only 消费记录、打开/打分前检查、已消费数据集（含 admission/threshold 失败后）拒绝、新回执原子落盘不覆写旧记录、补公开重复消费反例。完整 review.final.md 复制到 `prep1b-review/w0a-prep1b-milestone-review-r1.final.md`，已交 Emma 原六文件定点修，待复核；未 commit/merge/push、未重训、未动 gold/weights。
