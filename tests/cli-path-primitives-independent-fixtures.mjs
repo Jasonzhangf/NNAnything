@@ -62,6 +62,7 @@ export async function createIndependentScene(api, t, options = {}) {
     sandbox = await api.createCliFilesystemSandbox({
       root,
       ownerGrantedEffects: ['filesystem.write'],
+      ...(options.listingObserver === undefined ? {} : { listingObserver: options.listingObserver }),
       recipe: {
         scenarioId,
         entries: [
@@ -69,6 +70,17 @@ export async function createIndependentScene(api, t, options = {}) {
           { path: 'start/dir', kind: 'directory' },
           { path: 'start/nested', kind: 'directory' },
           { path: 'sibling', kind: 'directory' },
+          { path: 'sibling/select-sandbox', kind: 'directory' },
+          { path: 'sibling/select-sandbox/alpha-dir', kind: 'directory' },
+          { path: 'sibling/select-sandbox/humanagent', kind: 'directory' },
+          { path: 'sibling/select-sandbox/with space dir', kind: 'directory' },
+          { path: "sibling/select-sandbox/quote'dir", kind: 'directory' },
+          { path: 'sibling/select-sandbox/.hidden-dir', kind: 'directory' },
+          { path: 'sibling/select-sandbox/notes.txt', kind: 'file', contents: 'opaque notes' },
+          { path: 'sibling/select-sandbox/empty.bin', kind: 'file', contents: '' },
+          { path: 'sibling/select-sandbox/with space.txt', kind: 'file', contents: 'space file' },
+          { path: "sibling/select-sandbox/quote'file.txt", kind: 'file', contents: 'quote file' },
+          { path: 'sibling/select-sandbox/.hidden-file', kind: 'file', contents: 'hidden file' },
           { path: 'start/file.txt', kind: 'file', contents: 'payload' },
           { path: 'start/nested/deep.txt', kind: 'file', contents: 'deep' },
         ],
@@ -82,8 +94,12 @@ export async function createIndependentScene(api, t, options = {}) {
     const primary = sandbox.bindSession('primary');
     const secondary = sandbox.bindSession('secondary');
     const start = sandbox.getSession(primary).cwd;
+    const sibling = sandbox.getSession(secondary).cwd;
+    const selectSandbox = join(sibling, 'select-sandbox');
     const paths = {
       start,
+      sibling,
+      selectSandbox,
       directory: join(start, 'dir'),
       file: join(start, 'file.txt'),
       nested: join(start, 'nested'),
@@ -98,6 +114,10 @@ export async function createIndependentScene(api, t, options = {}) {
       fifo: join(start, 'named-pipe'),
       socket: join(start, 'local.sock'),
       bigFile: join(start, 'big.bin'),
+      selectLinkToDir: join(selectSandbox, 'link-to-dir'),
+      selectLinkToFile: join(selectSandbox, 'link-to-file'),
+      selectDanglingLink: join(selectSandbox, 'dangling-link'),
+      selectFifo: join(selectSandbox, 'select-fifo'),
     };
 
     await symlink('file.txt', paths.link);
@@ -107,6 +127,10 @@ export async function createIndependentScene(api, t, options = {}) {
     await symlink('loop-b', paths.loopA);
     await symlink('loop-a', paths.loopB);
     await execFileAsync('mkfifo', [paths.fifo]);
+    await symlink('alpha-dir', paths.selectLinkToDir);
+    await symlink('notes.txt', paths.selectLinkToFile);
+    await symlink('missing-select-target', paths.selectDanglingLink);
+    await execFileAsync('mkfifo', [paths.selectFifo]);
 
     try {
       await new Promise((resolve, reject) => {

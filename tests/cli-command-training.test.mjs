@@ -8,7 +8,24 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const api = () => import("../dist/cli-goal.js");
+const relation = () => import("../dist/filters/cli-entry-select-relation.js");
 const execFileAsync = promisify(execFile);
+
+const TEST_RELATION_WEIGHTS = Object.freeze([-2.217413902282715, 0.7973229289054871, 0.7973229289054871, 0.7973229289054871]);
+
+async function makeTestEntrySelectProfiles() {
+  const { validateEntrySelectProfile, zeroEntrySelectProfile } = await relation();
+  return Object.freeze({
+    directory: validateEntrySelectProfile({
+      ...zeroEntrySelectProfile("directory"),
+      weights: TEST_RELATION_WEIGHTS,
+    }),
+    regular: validateEntrySelectProfile({
+      ...zeroEntrySelectProfile("regular"),
+      weights: TEST_RELATION_WEIGHTS,
+    }),
+  });
+}
 
 function scenario(id, partition, sourceGroup = id) {
   return {
@@ -213,7 +230,7 @@ test("zero-epoch fit preserves the explicit named migration", async () => {
   });
   const frozen = await fitCliCommandProfile({
     initial,
-    rows: [{ features: Array(34).fill(0), expectedHead: "pwd" }],
+    rows: [{ features: Array(38).fill(0), expectedHead: "pwd" }],
     handwiredRoot: "/backend/is/not/loaded/for/frozen/epochs",
     epochs: 0,
     learningRate: 0.1,
@@ -222,7 +239,7 @@ test("zero-epoch fit preserves the explicit named migration", async () => {
   assert.equal(frozen.timing.completedEpochs, 0);
   assert.equal(frozen.timing.gradientRowEpochs, 0);
   assert.equal(frozen.timing.backendLoadMs, 0);
-  assert.equal(frozen.timing.trainableParamCount, 374);
+  assert.equal(frozen.timing.trainableParamCount, 494);
 });
 
 test("real Handwired fit changes shared parameters and reports training work", {
@@ -244,7 +261,7 @@ test("real Handwired fit changes shared parameters and reports training work", {
   assert.equal(fit.timing.processedRowCount, rows.length);
   assert.equal(fit.timing.gradientRowEpochs, 20 * rows.length);
   assert.equal(fit.timing.totalRowPasses, 20 * rows.length);
-  assert.equal(fit.timing.trainableParamCount, 374);
+  assert.equal(fit.timing.trainableParamCount, 494);
   assert.ok(fit.timing.fitTotalMs >= 0);
   for (const row of rows) {
     assert.equal(predictCliCommand(row.goal, row.facts, fit.profile).selectedHead, row.expectedHead);
@@ -270,7 +287,7 @@ test("missing Handwired backend fails explicitly and retains zero completed epoc
   );
 });
 
-test("R02 explicit 6x14 to 11x34 expansion copies all 84 existing values by name and zero-fills the rest", async () => {
+test("R02 explicit 6x14 and 11x34 to 13x38 expansions copy all existing values by name and zero-fill the rest", async () => {
   const module = await api();
   const sixHeads = ["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"];
   const fourteenWires = [
@@ -290,20 +307,18 @@ test("R02 explicit 6x14 to 11x34 expansion copies all 84 existing values by name
     calibration: "uncalibrated",
     adoption: "not_applied",
   };
-  assert.equal(
-    typeof module.migrateCliCommandProfileV6,
-    "function",
-    "R02 needs the public explicit 6x14 -> 11x34 expansion tool migrateCliCommandProfileV6(profile6x14)",
-  );
+  assert.equal(typeof module.migrateCliCommandProfileV6, "function");
+  assert.equal(typeof module.migrateCliCommandProfileStage1ToStage2, "function");
   const expanded = module.migrateCliCommandProfileV6(legacy);
   assert.deepEqual(expanded.heads, [
     "unsupported", "DEFER", "NOOP", "pwd", "cd", "ls",
     "path.resolve", "path.relative", "path.parts", "path.realpath", "entry.inspect",
+    "directory.select", "file.select",
   ]);
-  assert.equal(expanded.wires.length, 34);
-  assert.equal(expanded.weights.length, 11);
-  assert.equal(expanded.weights.every(row => row.length === 34), true);
-  assert.equal(expanded.weights.flat().length, 374);
+  assert.equal(expanded.wires.length, 38);
+  assert.equal(expanded.weights.length, 13);
+  assert.equal(expanded.weights.every(row => row.length === 38), true);
+  assert.equal(expanded.weights.flat().length, 494);
 
   let copied = 0;
   for (const [legacyRow, head] of sixHeads.entries()) {
@@ -318,9 +333,9 @@ test("R02 explicit 6x14 to 11x34 expansion copies all 84 existing values by name
   }
   assert.equal(copied, 84);
 
-  for (const head of ["path.resolve", "path.relative", "path.parts", "path.realpath", "entry.inspect"]) {
+  for (const head of ["path.resolve", "path.relative", "path.parts", "path.realpath", "entry.inspect", "directory.select", "file.select"]) {
     const row = expanded.heads.indexOf(head);
-    assert.deepEqual(expanded.weights[row], Array(34).fill(0));
+    assert.deepEqual(expanded.weights[row], Array(38).fill(0));
   }
   for (const head of sixHeads) {
     const row = expanded.heads.indexOf(head);
@@ -329,17 +344,53 @@ test("R02 explicit 6x14 to 11x34 expansion copies all 84 existing values by name
       assert.equal(expanded.weights[row][expanded.wires.indexOf(wire)], 0, `${head}/${wire} must be zero-filled`);
     }
   }
+
+  // Also verify 11x34 -> 13x38 named migration preserves all 374 slots and zero-fills 120 new slots
+  const stage1Heads = [
+    "unsupported", "DEFER", "NOOP", "pwd", "cd", "ls",
+    "path.resolve", "path.relative", "path.parts", "path.realpath", "entry.inspect",
+  ];
+  const stage1Wires = expanded.wires.filter(
+    wire => !["predicate.select.entry", "selectorTargetType.unspecified", "selectorTargetType.regular", "selectorTargetType.directory"].includes(wire),
+  );
+  assert.equal(stage1Wires.length, 34);
+  const p3ExactWeight = 2.9020536351949002;
+  const stage1Profile = {
+    contract: "cli.command-policy.v1",
+    heads: stage1Heads,
+    properties: expanded.properties,
+    predicates: expanded.predicates.filter(p => p !== "predicate.select.entry"),
+    wires: stage1Wires,
+    weights: stage1Heads.map((head, r) =>
+      stage1Wires.map((wire, c) =>
+        head === "entry.inspect" && wire === "search.nameNeedleSegment"
+          ? p3ExactWeight
+          : r * 100 + c + 1,
+      ),
+    ),
+    calibration: "uncalibrated",
+    adoption: "not_applied",
+  };
+  const stage2Migrated = module.migrateCliCommandProfileStage1ToStage2(stage1Profile);
+  assert.equal(stage2Migrated.heads.length, 13);
+  assert.equal(stage2Migrated.wires.length, 38);
+  assert.equal(stage2Migrated.weights.flat().length, 494);
+  const inspectRow = stage2Migrated.heads.indexOf("entry.inspect");
+  const nameCol = stage2Migrated.wires.indexOf("search.nameNeedleSegment");
+  assert.equal(stage2Migrated.weights[inspectRow][nameCol], p3ExactWeight);
+  assert.equal(stage2Migrated.weights[inspectRow][nameCol] - p3ExactWeight, 0);
 });
 
-test("R24 public consumer reloads a 11x34 candidate in a new process and reports fitted=false", async () => {
+test("R24 public consumer reloads a 13x38 candidate in a new process and reports fitted=false", async () => {
   const module = await api();
+  const entrySelectProfiles = await makeTestEntrySelectProfiles();
   const root = await mkdtemp(join(tmpdir(), "nn-command-reload-shape-"));
   try {
     const profile = module.zeroCliCommandProfile();
-    assert.equal(profile.heads.length, 11);
-    assert.equal(profile.wires.length, 34);
-    assert.equal(profile.weights.length, 11);
-    assert.equal(profile.weights.every(row => row.length === 34), true);
+    assert.equal(profile.heads.length, 13);
+    assert.equal(profile.wires.length, 38);
+    assert.equal(profile.weights.length, 13);
+    assert.equal(profile.weights.every(row => row.length === 38), true);
 
     const fixtureRoot = join(root, "fixture");
     await mkdir(fixtureRoot);
@@ -347,15 +398,30 @@ test("R24 public consumer reloads a 11x34 candidate in a new process and reports
     const profilePath = join(root, "candidate.json");
     const datasetPath = join(root, "samples.json");
     const reportPath = join(root, "report.json");
+    const bDirPath = join(root, "b-directory.json");
+    const bFilePath = join(root, "b-file.json");
     await writeFile(profilePath, JSON.stringify(profile, null, 2) + "\n");
     await writeFile(datasetPath, JSON.stringify(dataset, null, 2) + "\n");
     await writeFile(reportPath, JSON.stringify({ profile }, null, 2) + "\n");
+    await writeFile(bDirPath, JSON.stringify(entrySelectProfiles.directory, null, 2) + "\n");
+    await writeFile(bFilePath, JSON.stringify(entrySelectProfiles.regular, null, 2) + "\n");
 
     const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
     const reloadScript = join(repositoryRoot, "playground/cli/command-learning/reload.mjs");
     const { stdout } = await execFileAsync(
       process.execPath,
-      [reloadScript, "--stage", "stage1-11x34", profilePath, datasetPath, reportPath],
+      [
+        reloadScript,
+        "--stage",
+        "stage2-13x38",
+        "--b-directory-profile",
+        bDirPath,
+        "--b-file-profile",
+        bFilePath,
+        profilePath,
+        datasetPath,
+        reportPath,
+      ],
       {
         cwd: repositoryRoot,
         encoding: "utf8",
@@ -391,8 +457,9 @@ test("R24 public consumer reloads a 11x34 candidate in a new process and reports
   }
 });
 
-test("F3 training execution constructs the batch1 and stage1 typed goals and evaluates their real effects", async () => {
+test("F3 training execution constructs the batch1, stage1, and stage2 typed goals and evaluates their real effects", async () => {
   const module = await api();
+  const entrySelectProfiles = await makeTestEntrySelectProfiles();
   const root = await mkdtemp(join(tmpdir(), "nn-batch1-training-execution-"));
   try {
     const fixtureRoot = join(root, "fixture");
@@ -409,6 +476,10 @@ test("F3 training execution constructs the batch1 and stage1 typed goals and eva
       ["inspect-size", "file.property.size", "entry.inspect", "achieved", 100],
       ["inspect-resolved-target", "file.property.link.target", "entry.inspect", "achieved", 100],
       ["inspect-resolved-target-broken", "file.property.link.target", "entry.inspect", "unmet", 0],
+      ["select-entry-dir-ready", "file.property.directory.entries", "directory.select", "achieved", 100],
+      ["select-entry-file-ready", "file.property.directory.entries", "file.select", "achieved", 100],
+      ["select-entry-dir-not-found", "file.property.directory.entries", "directory.select", "unmet", 0],
+      ["select-entry-dir-satisfied-noop", "file.property.directory.entries", "NOOP", "achieved", 100],
     ];
     for (const [sampleCase, property, head, expectedStatus, expectedSatisfaction] of cases) {
       const sample = dataset.samples.find(candidate => candidate.case === sampleCase);
@@ -427,15 +498,19 @@ test("F3 training execution constructs the batch1 and stage1 typed goals and eva
         sample,
         scene,
         witness,
-        binding => module.createCliCommandPolicy(binding),
+        (binding, authority) => module.createCliCommandPolicy(binding, authority),
         evidencePath,
         { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction },
+        { entrySelectProfiles },
       );
       assert.equal(result.transition.goal.kind, "file.property");
       assert.equal(result.transition.goal.property, property, `${sampleCase} must use its typed property`);
       if (sampleCase === "inspect-resolved-target" || sampleCase === "inspect-resolved-target-broken") {
         assert.equal(result.transition.goal.requirement.kind, "matches");
         assert.equal(result.transition.goal.requirement.predicate.kind, "resolvedTarget");
+      } else if (sampleCase.startsWith("select-entry-")) {
+        assert.equal(result.transition.goal.requirement.kind, "matches");
+        assert.equal(result.transition.goal.requirement.predicate.kind, "entrySelector");
       } else {
         assert.equal(result.transition.goal.requirement.kind, "observed");
         assert.equal(result.transition.goal.requirement.freshness, "this_run");
@@ -444,6 +519,8 @@ test("F3 training execution constructs the batch1 and stage1 typed goals and eva
         assert.equal(result.transition.goal.target.kind, "cli.path-query");
       } else if (head === "path.parts" || head === "path.realpath") {
         assert.equal(result.transition.goal.target.kind, "cli.path");
+      } else if (sampleCase.startsWith("select-entry-")) {
+        assert.equal(result.transition.goal.target.kind, "cli.directory");
       } else {
         assert.equal(result.transition.goal.target.kind, "cli.entry-query");
         assert.equal(typeof result.transition.goal.target.followSymlinks, "boolean");
@@ -451,9 +528,59 @@ test("F3 training execution constructs the batch1 and stage1 typed goals and eva
       assert.equal(result.selectedHead, head);
       assert.equal(result.status, expectedStatus);
       assert.equal(result.satisfaction, expectedSatisfaction);
-      assert.equal(result.effectsOk, true, `${sampleCase} must pass its batch1/stage1 effect contract`);
+      assert.equal(result.factsMatched, true, `${sampleCase} must match runtime PropertyFacts`);
+      assert.equal(result.featuresMatched, true, `${sampleCase} must match 38-wire feature vector`);
+      assert.equal(result.effectsOk, true, `${sampleCase} must pass its batch1/stage1/stage2 effect contract`);
       assert.equal(result.sideEffectsOk, true);
     }
+
+    // Verify all 3 bound DEFER listing states (unobserved [0,0,0,1], stale_listing [0,1,0,1], stale_selected [0,1,1,1])
+    const deferSamples = dataset.samples.filter(candidate => candidate.case === "select-entry-dir-unobserved");
+    assert.equal(deferSamples.length, 12);
+    assert.equal(deferSamples.filter(candidate => candidate.variant === "select-entry-dir-unobserved").length, 6);
+    assert.equal(deferSamples.filter(candidate => candidate.variant === "select-entry-dir-unobserved-stale").length, 6);
+    const seenFacts = new Set();
+    for (const sample of deferSamples) {
+      const scene = sceneById.get(sample.scenarioId);
+      const profile = module.zeroCliCommandProfile();
+      const deferRow = profile.heads.indexOf("DEFER");
+      const witness = {
+        ...profile,
+        weights: profile.weights.map((weights, index) =>
+          index === deferRow ? weights.map((weight, column) => column === 0 ? 10 : weight) : [...weights]),
+      };
+      const result = await module.executeCliCommandTrainingSample(
+        sample,
+        scene,
+        witness,
+        (binding, authority) => module.createCliCommandPolicy(binding, authority),
+        evidencePath,
+        { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction },
+        { entrySelectProfiles },
+      );
+      assert.equal(result.selectedHead, "DEFER");
+      assert.equal(result.factsMatched, true);
+      assert.equal(result.featuresMatched, true);
+      assert.equal(result.effectsOk, true);
+      seenFacts.add(
+        `[${result.actualFacts.hasFreshEvidence},${result.actualFacts.knownValue},${result.actualFacts.requiredConditionHolds},${result.actualFacts.hasDestinationRef}]`,
+      );
+    }
+    assert.deepEqual([...seenFacts].sort(), ["[0,0,0,1]", "[0,1,0,1]", "[0,1,1,1]"]);
+
+    // Verify missing entrySelectProfiles throws TypeError (no embedded fallback)
+    const selectSample = dataset.samples.find(candidate => candidate.case === "select-entry-dir-ready");
+    await assert.rejects(
+      module.executeCliCommandTrainingSample(
+        selectSample,
+        sceneById.get(selectSample.scenarioId),
+        module.zeroCliCommandProfile(),
+        (binding, authority) => module.createCliCommandPolicy(binding, authority),
+        evidencePath,
+        { status: selectSample.expectedStatus, satisfaction: selectSample.expectedSatisfaction },
+      ),
+      TypeError,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -496,4 +623,200 @@ test("zero-gradient inherited parameters preserve exact IEEE-754 float64 value w
     `zero-gradient inherited parameter must remain exact (${exactInheritedValue}), got ${fittedValue} (delta=${fittedValue - exactInheritedValue})`,
   );
   assert.equal(fittedValue - exactInheritedValue, 0);
+});
+
+test("R1 executeCliCommandTrainingSample honors custom 1-argument and throwing factory callbacks without bypass", async () => {
+  const module = await api();
+  const root = await mkdtemp(join(tmpdir(), "nn-r1-factory-contract-"));
+  try {
+    const fixtureRoot = join(root, "fixture");
+    await mkdir(fixtureRoot);
+    const { dataset } = await module.makeCliCommandFixture({ root: fixtureRoot, extended: false, stage: "stage1-11x34" });
+    const sample = dataset.samples.find(candidate => candidate.case === "cwd-observed");
+    assert.ok(sample);
+    const scene = dataset.scenarios.find(candidate => candidate.id === sample.scenarioId);
+    assert.ok(scene);
+    const evidencePath = join(root, "executions.jsonl");
+    await writeFile(evidencePath, "");
+    const baseStage2 = module.zeroCliCommandProfile();
+    const stage1Wires = baseStage2.wires.filter(
+      wire => !["predicate.select.entry", "selectorTargetType.unspecified", "selectorTargetType.regular", "selectorTargetType.directory"].includes(wire),
+    );
+    const baseProfile = module.validateCliCommandProfile({
+      contract: "cli.command-policy.v1",
+      heads: baseStage2.heads.filter(head => head !== "directory.select" && head !== "file.select"),
+      properties: baseStage2.properties,
+      predicates: baseStage2.predicates.filter(pred => pred !== "predicate.select.entry"),
+      wires: stage1Wires,
+      weights: Array.from({ length: 11 }, () => Array(34).fill(0)),
+      calibration: "uncalibrated",
+      adoption: "not_applied",
+    }, "stage1-11x34");
+    const pwdIdx = baseProfile.heads.indexOf("pwd");
+    const profile = {
+      ...baseProfile,
+      weights: baseProfile.weights.map((row, index) => (index === pwdIdx ? row.map((v, col) => (col === 0 ? 10 : v)) : [...row])),
+    };
+
+    let oneArgFactoryCalls = 0;
+    const oneArgFactory = binding => {
+      oneArgFactoryCalls += 1;
+      return module.createCliCommandPolicy(binding);
+    };
+    assert.equal(oneArgFactory.length, 1);
+    const row = await module.executeCliCommandTrainingSample(
+      sample,
+      scene,
+      profile,
+      oneArgFactory,
+      evidencePath,
+      { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction },
+      { stage: "stage1-11x34" },
+    );
+    assert.equal(oneArgFactoryCalls, 2);
+    assert.equal(row.selectedHead, "pwd");
+    assert.equal(row.effectsOk, true);
+    assert.equal(typeof row.setupWallTimeMs, "number");
+    assert.equal(typeof row.candidateStepWallTimeMs, "number");
+    assert.equal(typeof row.totalWallTimeMs, "number");
+
+    const throwingFactory = _binding => {
+      throw new Error("custom_factory_sentinel_error");
+    };
+    await assert.rejects(
+      module.executeCliCommandTrainingSample(
+        sample,
+        scene,
+        profile,
+        throwingFactory,
+        evidencePath,
+        { status: sample.expectedStatus, satisfaction: sample.expectedSatisfaction },
+        { stage: "stage1-11x34" },
+      ),
+      /custom_factory_sentinel_error/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("R2 stage1-11x34 and stage2-13x38 fixture and dataset preparation enforce 310/34-wire vs 370 (358+12)/38-wire contracts", async () => {
+  const module = await api();
+  const root = await mkdtemp(join(tmpdir(), "nn-r2-stage-routing-"));
+  try {
+    const stage1Root = join(root, "stage1");
+    const stage2Root = join(root, "stage2");
+    await mkdir(stage1Root);
+    await mkdir(stage2Root);
+
+    const stage1Fixture = await module.makeCliCommandFixture({ root: stage1Root, extended: true, stage: "stage1-11x34" });
+    assert.equal(stage1Fixture.dataset.samples.length, 310);
+    assert.equal(stage1Fixture.dataset.samples.some(sample => sample.case.startsWith("select-entry-")), false);
+    const preparedStage1 = module.prepareCliCommandDataset(stage1Fixture.dataset, ["train", "development"], "stage1-11x34");
+    assert.equal(preparedStage1.samples.length, 310);
+    assert.equal(preparedStage1.train.length + preparedStage1.development.length, 310);
+    assert.equal(
+      preparedStage1.samples.every(sample => module.sampleFeatures(sample, preparedStage1.scenes.get(sample.scenarioId), "stage1-11x34").length === 34),
+      true,
+    );
+
+    const stage2Fixture = await module.makeCliCommandFixture({ root: stage2Root, extended: true, stage: "stage2-13x38" });
+    assert.equal(stage2Fixture.dataset.samples.length, 370);
+    assert.equal(stage2Fixture.dataset.samples.filter(sample => !sample.id.endsWith("-unobserved-stale")).length, 358);
+    assert.equal(stage2Fixture.dataset.samples.filter(sample => sample.id.endsWith("-unobserved-stale")).length, 12);
+    assert.equal(stage2Fixture.dataset.samples.filter(sample => sample.case.startsWith("select-entry-")).length, 60);
+    const preparedStage2 = module.prepareCliCommandDataset(stage2Fixture.dataset, ["train", "development"], "stage2-13x38");
+    assert.equal(preparedStage2.samples.length, 370);
+    assert.equal(preparedStage2.train.length, 246);
+    assert.equal(preparedStage2.development.length, 124);
+    assert.equal(preparedStage2.train.filter(sample => !sample.id.endsWith("-unobserved-stale")).length, 238);
+    assert.equal(preparedStage2.development.filter(sample => !sample.id.endsWith("-unobserved-stale")).length, 120);
+    assert.equal(preparedStage2.train.filter(sample => sample.id.endsWith("-unobserved-stale")).length, 8);
+    assert.equal(preparedStage2.development.filter(sample => sample.id.endsWith("-unobserved-stale")).length, 4);
+    assert.equal(preparedStage2.train.length + preparedStage2.development.length, 370);
+    assert.equal(
+      preparedStage2.samples.every(sample => module.sampleFeatures(sample, preparedStage2.scenes.get(sample.scenarioId), "stage2-13x38").length === 38),
+      true,
+    );
+
+    assert.throws(
+      () => module.prepareCliCommandDataset(stage2Fixture.dataset, ["train", "development"], "stage1-11x34"),
+      /Stage 1 dataset must not contain Stage 2 entry.select samples/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("R3 public runCliCommandTraining 8N8E workflow executes Stage 2 entry.select with epochs=0 and zero fitting", async () => {
+  const module = await api();
+  const root = await mkdtemp(join(tmpdir(), "nn-r3-public-8n8e-zero-epoch-"));
+  try {
+    const fixtureRoot = join(root, "fixture");
+    const outputRoot = join(root, "output");
+    await mkdir(fixtureRoot);
+    await mkdir(outputRoot);
+    const { dataset } = await module.makeCliCommandFixture({ root: fixtureRoot, extended: true, stage: "stage2-13x38" });
+    const stage2SelectSubset = {
+      ...dataset,
+      samples: dataset.samples.filter(sample =>
+        sample.case === "select-entry-dir-ready" || sample.case === "select-entry-file-ready",
+      ),
+    };
+    assert.equal(stage2SelectSubset.samples.length, 12);
+
+    const entrySelectProfiles = await makeTestEntrySelectProfiles();
+
+    const base = module.zeroCliCommandProfile();
+    const weights = base.weights.map(row => [...row]);
+    weights[11][28] = -4;
+    weights[11][29] = -10;
+    weights[11][30] = -10;
+    weights[11][31] = 4;
+    weights[11][32] = 4;
+    weights[11][35] = 2;
+    weights[11][37] = -6;
+    weights[12][28] = -4;
+    weights[12][29] = -10;
+    weights[12][30] = 4;
+    weights[12][31] = -10;
+    weights[12][32] = 4;
+    weights[12][35] = 2;
+    weights[12][37] = -6;
+    const witnessProfile = module.validateCliCommandProfile({
+      ...base,
+      weights: weights.map(row => Object.freeze(row)),
+    }, "stage2-13x38");
+
+    const receipt = await module.runCliCommandTraining({
+      dataset: stage2SelectSubset,
+      initial: witnessProfile,
+      initialSource: null,
+      epochs: 0,
+      learningRate: 0.1,
+      stage: "stage2-13x38",
+      entrySelectProfiles,
+    }, {
+      handwiredRoot: root,
+      outputRoot,
+      grantedEffects: ["filesystem.read", "filesystem.write"],
+      entrySelectProfiles,
+    });
+    assert.equal(receipt.accepted, true);
+    assert.equal(receipt.fullyVerified, false);
+    assert.equal(receipt.timing.completedEpochs, 0);
+    assert.equal(receipt.timing.gradientRowEpochs, 0);
+    assert.equal(receipt.timing.totalRowPasses, 0);
+    assert.equal(receipt.timing.backendLoadMs, 0);
+    assert.equal(receipt.timing.circuitBuildMs, 0);
+    assert.equal(receipt.timing.trainEpochGradMs, 0);
+    assert.equal(receipt.comparison.train.count, 8);
+    assert.equal(receipt.comparison.train.correct, 8);
+    assert.equal(receipt.comparison.development.count, 4);
+    assert.equal(receipt.comparison.development.correct, 4);
+    assert.equal(typeof receipt.timing.perHeadSetupWallTimeMs["directory.select"], "number");
+    assert.equal(typeof receipt.timing.perHeadCandidateStepWallTimeMs["file.select"], "number");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

@@ -8,6 +8,7 @@ const ELEVEN_HEADS = [
   'unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls',
   'path.resolve', 'path.relative', 'path.parts', 'path.realpath', 'entry.inspect',
 ];
+const THIRTEEN_HEADS = [...ELEVEN_HEADS, 'directory.select', 'file.select'];
 const FIFTEEN_PROPERTIES = [
   'property.path.absolute', 'property.path.relative', 'property.path.parent', 'property.path.name',
   'property.path.physical',
@@ -20,10 +21,21 @@ const NINE_PREDICATES = [
   'predicate.observe.physical', 'predicate.observe.inspect', 'predicate.observe.resolvedTarget',
   'predicate.observe.sessionCwd', 'predicate.equals.sessionCwd', 'predicate.observe.entries',
 ];
+const TEN_PREDICATES = [...NINE_PREDICATES, 'predicate.select.entry'];
 const THIRTY_FOUR_WIRES = [
   'bias', 'goalObserveCwd', 'goalSetCwd', 'goalListDirectory',
   ...FIFTEEN_PROPERTIES,
   ...NINE_PREDICATES,
+  'state.hasFreshEvidence', 'state.knownValue', 'state.requiredConditionHolds',
+  'state.hasDestinationRef', 'search.nameNeedleSegment',
+  'state.requiredConditionHolds*state.hasFreshEvidence',
+];
+const STAGE2_SELECTOR_WIRES = ['selectorTargetType.unspecified', 'selectorTargetType.regular', 'selectorTargetType.directory'];
+const THIRTY_EIGHT_WIRES = [
+  'bias', 'goalObserveCwd', 'goalSetCwd', 'goalListDirectory',
+  ...FIFTEEN_PROPERTIES,
+  ...TEN_PREDICATES,
+  ...STAGE2_SELECTOR_WIRES,
   'state.hasFreshEvidence', 'state.knownValue', 'state.requiredConditionHolds',
   'state.hasDestinationRef', 'search.nameNeedleSegment',
   'state.requiredConditionHolds*state.hasFreshEvidence',
@@ -68,15 +80,15 @@ test('shared command profile expands named weights without reinterpreting old ro
     adoption: 'not_applied',
   };
   const extended = api.migrateCliCommandProfileV6(legacy);
-  assert.deepEqual(extended.heads, ELEVEN_HEADS);
+  assert.deepEqual(extended.heads, THIRTEEN_HEADS);
   assert.deepEqual(extended.properties, FIFTEEN_PROPERTIES);
-  assert.deepEqual(extended.predicates, NINE_PREDICATES);
-  assert.deepEqual(extended.wires, THIRTY_FOUR_WIRES);
-  assert.equal(extended.weights.length, 11);
-  assert.equal(extended.weights.every(row => row.length === 34), true);
-  assert.equal(extended.weights.flat().length, 374);
-  for (const [rowIndex, head] of ELEVEN_HEADS.entries()) {
-    for (const [columnIndex, wire] of THIRTY_FOUR_WIRES.entries()) {
+  assert.deepEqual(extended.predicates, TEN_PREDICATES);
+  assert.deepEqual(extended.wires, THIRTY_EIGHT_WIRES);
+  assert.equal(extended.weights.length, 13);
+  assert.equal(extended.weights.every(row => row.length === 38), true);
+  assert.equal(extended.weights.flat().length, 494);
+  for (const [rowIndex, head] of THIRTEEN_HEADS.entries()) {
+    for (const [columnIndex, wire] of THIRTY_EIGHT_WIRES.entries()) {
       const legacyRow = LEGACY_HEADS.indexOf(head);
       const legacyColumn = LEGACY_WIRES.indexOf(wire);
       const expected = legacyRow < 0 || legacyColumn < 0 ? 0 : legacy.weights[legacyRow][legacyColumn];
@@ -84,6 +96,164 @@ test('shared command profile expands named weights without reinterpreting old ro
     }
   }
   assert.throws(() => api.validateCliCommandProfile({ ...extended, weights: [[1, 2], [3, 4]] }));
+});
+
+test('Stage 1 11x34 migrates to Stage 2 13x38 by name with named-slot rejections', async () => {
+  const api = await import('nnanything/cli-goal');
+  const stage1Wires = THIRTY_EIGHT_WIRES.filter(wire =>
+    wire !== 'predicate.select.entry' && !STAGE2_SELECTOR_WIRES.includes(wire));
+  assert.equal(stage1Wires.length, 34);
+  const stage1 = {
+    contract: 'cli.command-policy.v1',
+    heads: ELEVEN_HEADS,
+    properties: FIFTEEN_PROPERTIES,
+    predicates: NINE_PREDICATES,
+    wires: stage1Wires,
+    weights: Array.from({ length: ELEVEN_HEADS.length }, (_, row) =>
+      Array.from({ length: stage1Wires.length }, (_, column) => row * 100 + column + 1)),
+    calibration: 'uncalibrated',
+    adoption: 'not_applied',
+  };
+  assert.equal(api.detectCliCommandProfileSchema(stage1), 'current-11x34');
+  assert.throws(() => api.validateCliCommandProfile(stage1), /11x34|migrat/i);
+  const migrated = api.migrateCliCommandProfileStage1ToStage2(stage1);
+  assert.equal(api.detectCliCommandProfileSchema(migrated), 'current-13x38');
+  assert.deepEqual(migrated.heads, THIRTEEN_HEADS);
+  assert.deepEqual(migrated.predicates, TEN_PREDICATES);
+  assert.deepEqual(migrated.wires, THIRTY_EIGHT_WIRES);
+  assert.equal(migrated.weights.length, 13);
+  assert.equal(migrated.weights.every(row => row.length === 38), true);
+  assert.equal(migrated.weights.flat().length, 494);
+  let copied = 0, zeroFilled = 0;
+  for (const [row, head] of THIRTEEN_HEADS.entries()) {
+    for (const [column, wire] of THIRTY_EIGHT_WIRES.entries()) {
+      const sourceRow = ELEVEN_HEADS.indexOf(head);
+      const sourceColumn = stage1Wires.indexOf(wire);
+      if (sourceRow >= 0 && sourceColumn >= 0) {
+        copied += 1;
+        assert.equal(migrated.weights[row][column], stage1.weights[sourceRow][sourceColumn], `${head}/${wire} must copy by name`);
+      } else {
+        zeroFilled += 1;
+        assert.equal(migrated.weights[row][column], 0, `${head}/${wire} must be zero-filled`);
+      }
+    }
+  }
+  assert.equal(copied, 374);
+  assert.equal(zeroFilled, 120);
+  const stage1Profile = api.validateCliCommandProfile(stage1, 'stage1-11x34');
+  assert.deepEqual(stage1Profile.heads, ELEVEN_HEADS);
+  assert.deepEqual(stage1Profile.wires, stage1Wires);
+  assert.equal(stage1Profile.weights.length, 11);
+  assert.equal(stage1Profile.weights.every(row => row.length === 34), true);
+  assert.equal(stage1Profile.weights.flat().length, 374);
+  assert.throws(() => api.validateCliCommandProfile(stage1, 'stage2-13x38'), /11x34|migrat/i);
+  assert.throws(() => api.validateCliCommandProfile(migrated, 'stage1-11x34'), /stage1-11x34/);
+  assert.throws(() => api.validateCliCommandProfile(stage1, 'stage3'), /stage/i);
+  assert.deepEqual(api.migrateCliCommandProfileToCurrent(stage1), migrated);
+  assert.deepEqual(api.migrateCliCommandProfileToCurrent(migrated), migrated);
+  assert.deepEqual(api.STAGE2_PROFILE_DIMENSIONS, { heads: 13, wires: 38, parameters: 494 });
+});
+
+test('named migration preserves every old slot when heads and weights are permuted together', async () => {
+  const api = await import('nnanything/cli-goal');
+  const stage1Wires = THIRTY_EIGHT_WIRES.filter(wire =>
+    wire !== 'predicate.select.entry' && !STAGE2_SELECTOR_WIRES.includes(wire));
+  const base = {
+    contract: 'cli.command-policy.v1',
+    heads: ELEVEN_HEADS,
+    properties: FIFTEEN_PROPERTIES,
+    predicates: NINE_PREDICATES,
+    wires: stage1Wires,
+    weights: Array.from({ length: ELEVEN_HEADS.length }, (_, row) =>
+      Array.from({ length: stage1Wires.length }, (_, column) => row * 100 + column + 1)),
+    calibration: 'uncalibrated',
+    adoption: 'not_applied',
+  };
+  const permuted = {
+    ...base,
+    heads: [...base.heads].reverse(),
+    weights: [...base.weights].reverse(),
+  };
+  const migrated = api.migrateCliCommandProfileStage1ToStage2(permuted);
+  let changed = 0;
+  for (let row = 0; row < base.heads.length; row += 1) {
+    for (let column = 0; column < base.wires.length; column += 1) {
+      const targetHead = base.heads[row];
+      const targetWire = base.wires[column];
+      const migratedRow = THIRTEEN_HEADS.indexOf(targetHead);
+      const migratedColumn = THIRTY_EIGHT_WIRES.indexOf(targetWire);
+      if (migrated.weights[migratedRow][migratedColumn] !== base.weights[row][column]) changed += 1;
+    }
+  }
+  assert.equal(changed, 0, 'permuting heads and weights together must not move any copied value');
+  assert.equal(api.detectCliCommandProfileSchema(migrated), 'current-13x38');
+});
+
+test('Stage 1 11x34 binding runs inference on its own heads and wires', async () => {
+  const api = await import('nnanything/cli-goal');
+  const stage1Wires = THIRTY_EIGHT_WIRES.filter(wire =>
+    wire !== 'predicate.select.entry' && !STAGE2_SELECTOR_WIRES.includes(wire));
+  const stage1 = {
+    contract: 'cli.command-policy.v1',
+    heads: ELEVEN_HEADS,
+    properties: FIFTEEN_PROPERTIES,
+    predicates: NINE_PREDICATES,
+    wires: stage1Wires,
+    weights: Array.from({ length: ELEVEN_HEADS.length }, () => Array(stage1Wires.length).fill(0)),
+    calibration: 'uncalibrated',
+    adoption: 'not_applied',
+  };
+  assert.equal(api.validateCliCommandProfile(stage1, 'stage1-11x34').weights.flat().length, 374);
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'nn-stage1-binding-')));
+  let sandbox;
+  try {
+    sandbox = await api.createCliFilesystemSandbox({ root, ownerGrantedEffects: ['filesystem.write'], recipe: {
+      scenarioId: 'stage1-binding', entries: [
+        { path: 'start', kind: 'directory' },
+        { path: 'target', kind: 'directory' },
+      ], sessions: [{ id: 's', cwd: 'start', grantedEffects: ['filesystem.read', 'process.exec', 'session.write'] }],
+    } });
+    const session = sandbox.bindSession('s');
+    const policy = api.createCliCommandPolicy({ profile: forceHead(stage1, 'pwd'), stage: 'stage1-11x34', sandbox, session });
+    const result = await policy.step({ goal: { kind: 'file.property', property: 'file.property.relation.sessionCwd',
+      target: { kind: 'cli.file-query', relation: 'sessionCwd', session },
+      requirement: { kind: 'observed', freshness: 'this_run' } },
+      satisfactionThreshold: 100, state: { session: 's', cwdObservation: null, directoryListing: null } });
+    assert.deepEqual(result.invocation, ['pwd']);
+    assert.equal(result.status, 'achieved');
+    assert.equal(result.policy.selectedHead, 'pwd');
+    assert.equal(result.policy.features.length, 34);
+  } finally { if (sandbox) await sandbox.cleanup(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('default Stage 2 binding still rejects an unmigrated Stage 1 profile', async () => {
+  const api = await import('nnanything/cli-goal');
+  const stage1Wires = THIRTY_EIGHT_WIRES.filter(wire =>
+    wire !== 'predicate.select.entry' && !STAGE2_SELECTOR_WIRES.includes(wire));
+  const stage1 = {
+    contract: 'cli.command-policy.v1',
+    heads: ELEVEN_HEADS,
+    properties: FIFTEEN_PROPERTIES,
+    predicates: NINE_PREDICATES,
+    wires: stage1Wires,
+    weights: Array.from({ length: ELEVEN_HEADS.length }, () => Array(stage1Wires.length).fill(0)),
+    calibration: 'uncalibrated',
+    adoption: 'not_applied',
+  };
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'nn-stage1-default-')));
+  let sandbox;
+  try {
+    sandbox = await api.createCliFilesystemSandbox({ root, ownerGrantedEffects: ['filesystem.write'], recipe: {
+      scenarioId: 'stage1-default', entries: [
+        { path: 'start', kind: 'directory' },
+      ], sessions: [{ id: 's', cwd: 'start', grantedEffects: ['filesystem.read', 'process.exec', 'session.write'] }],
+    } });
+    const session = sandbox.bindSession('s');
+    assert.throws(
+      () => api.createCliCommandPolicy({ profile: stage1, sandbox, session }),
+      /11x34|migrat/i,
+    );
+  } finally { if (sandbox) await sandbox.cleanup(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('one profile emits shell heads with typed positional parameters and real effects', async () => {

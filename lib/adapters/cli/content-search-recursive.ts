@@ -27,7 +27,6 @@ import type {
   CliCommandSample,
   CliCommandTransition,
 } from "../../nodes/cli-command.js";
-import { cliCandidateFeatures, type CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { PathRef } from "../../filters/cli-file-property.js";
 import type {
   CliFilesystemSandbox,
@@ -80,8 +79,13 @@ import {
   listingFactFromTransition,
 } from "../../filters/cli-content-search.js";
 import {
+  cliCandidateFeatures,
   cliCandidateUtility,
+  detectCliCommandProfileSchema,
   validateCliCommandProfile,
+  type CliCommandProfile,
+  type CliCommandStageId,
+  type CliCommandWire,
 } from "../../filters/cli-command-policy.js";
 
 export const CONTENT_ROOT_COMPOSITE_SKILL = "content-search.composite";
@@ -618,13 +622,14 @@ function chooseUnstarted(
   order: ContentSearchOrder,
   needle: string,
   onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
+  wires?: readonly CliCommandWire[],
 ): ContentSearchCandidateFact | undefined {
   const eligible = candidates.filter(needsInspect);
   if (eligible.length === 0) return undefined;
   const observed = () => Object.freeze(eligible.map(candidate => Object.freeze({
     name: candidate.name,
     path: candidate.path,
-    features: cliCandidateFeatures(candidate.name, needle),
+    features: cliCandidateFeatures(candidate.name, needle, wires),
   })));
   const emitDecision = (selected: ContentSearchCandidateFact, forced: boolean) => {
     if (onDecision === undefined) return;
@@ -671,6 +676,7 @@ function nextAction(
   order?: ContentSearchOrder,
   needle?: string,
   onDecision?: (decision: Omit<ContentSearchDecisionObservation, "ordinal">) => void,
+  wires?: readonly CliCommandWire[],
 ): NextAction {
   if (state.directories.length === 0 && state.listing === null) {
     return Object.freeze({ kind: "list" });
@@ -728,6 +734,7 @@ function nextAction(
         order ?? { kind: "lexicographic" },
         needle ?? "",
         onDecision,
+        wires,
       );
   if (toInspect !== undefined) {
     return Object.freeze({ kind: "inspect", candidate: toInspect });
@@ -773,7 +780,7 @@ async function derive(
   const action = cursor === null
     ? Object.freeze({ kind: "list" as const })
     : nextAction(input.state, cursor.phase, scan, duplicateReadProbe,
-        candidate => cliCandidateUtility(profile, candidate.name, needle), order, needle, onDecision);
+        candidate => cliCandidateUtility(profile, candidate.name, needle), order, needle, onDecision, profile.wires);
   const ordinal = input.conditions.length;
   if (action.kind === "list") {
     return Object.freeze({
@@ -1280,9 +1287,12 @@ function readAtomicReceiptFromSandbox(
 }
 
 export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
-  const profile = validateCliCommandProfile(input.profile);
+  const schema = detectCliCommandProfileSchema(input.profile);
+  const stage: CliCommandStageId = schema === "current-11x34" ? "stage1-11x34" : "stage2-13x38";
+  const profile = validateCliCommandProfile(input.profile, stage);
   const policy = createCliCommandPolicy({
     profile,
+    stage,
     sandbox: input.sandbox,
     session: input.session,
     ...(input.onSample === undefined ? {} : { onSample: input.onSample }),

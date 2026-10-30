@@ -12,6 +12,8 @@ import {
   CLI_COMMAND_WIRES,
   cliCommandFeatures,
   type CliCommandHead,
+  type CliCommandStageId,
+  type CliCommandWire,
 } from "../filters/cli-command-policy.js";
 import {
   CWD_PROPERTY,
@@ -64,16 +66,47 @@ export type Batch1CommandCase =
   | "inspect-link-target"
   | "inspect-entry-identity"
   | "inspect-resolved-target"
-  | "inspect-resolved-target-broken";
+  | "inspect-resolved-target-broken"
+  | "select-entry-dir-ready"
+  | "select-entry-file-ready"
+  | "select-entry-dir-not-found"
+  | "select-entry-file-not-found"
+  | "select-entry-dir-unobserved"
+  | "select-entry-file-unobserved"
+  | "select-entry-dir-satisfied-noop"
+  | "select-entry-file-satisfied-noop";
 
 export type CommandCase = LegacyCommandCase | Batch1CommandCase;
+
+export type EntrySelectListingState =
+  | "ready"
+  | "unobserved"
+  | "stale_listing"
+  | "stale_selected"
+  | "satisfied";
+
+export type EntrySelectFixture = Readonly<{
+  id: string;
+  case: Batch1CommandCase;
+  targetType: "directory" | "regular";
+  selectorName: string;
+  listingState: EntrySelectListingState;
+}>;
 
 export type Batch1Query =
   | Readonly<{ kind: "path.resolve"; base: PathRef; input: string }>
   | Readonly<{ kind: "path.relative"; from: PathRef; to: PathRef }>
   | Readonly<{ kind: "path.parts"; property: typeof PATH_PARENT_PROPERTY | typeof PATH_NAME_PROPERTY; path: PathRef }>
   | Readonly<{ kind: "path.realpath"; ref: InspectRef }>
-  | Readonly<{ kind: "inspect"; property: InspectProperty; ref: InspectRef; followSymlinks: boolean; requirementKind?: "observed" | "resolvedTarget" }>;
+  | Readonly<{ kind: "inspect"; property: InspectProperty; ref: InspectRef; followSymlinks: boolean; requirementKind?: "observed" | "resolvedTarget" }>
+  | Readonly<{
+      kind: "entry.select";
+      target: DirectoryRef;
+      parent: string;
+      targetType: "directory" | "regular";
+      selectorName: string;
+      listingState: EntrySelectListingState;
+    }>;
 
 type PathFixtureBase = Readonly<{
   id: string;
@@ -118,6 +151,7 @@ export type Batch1PathFixtures = Readonly<{
   parts: readonly PathFixtureParts[];
   realpath?: readonly PathFixtureRealpath[];
   inspect: readonly InspectFixture[];
+  entrySelect?: readonly EntrySelectFixture[];
   symlinks: readonly Readonly<{ path: string; target: string }>[];
 }>;
 
@@ -182,6 +216,14 @@ const BATCH1_CASES: readonly Batch1CommandCase[] = [
   "inspect-entry-identity",
   "inspect-resolved-target",
   "inspect-resolved-target-broken",
+  "select-entry-dir-ready",
+  "select-entry-file-ready",
+  "select-entry-dir-not-found",
+  "select-entry-file-not-found",
+  "select-entry-dir-unobserved",
+  "select-entry-file-unobserved",
+  "select-entry-dir-satisfied-noop",
+  "select-entry-file-satisfied-noop",
 ];
 
 type CaseExpectation = Readonly<{
@@ -219,6 +261,14 @@ const BATCH1_CASE_EXPECTATION: Readonly<Record<Batch1CommandCase, CaseExpectatio
   "inspect-entry-identity": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
   "inspect-resolved-target": { head: "entry.inspect", status: "achieved", satisfaction: 100 },
   "inspect-resolved-target-broken": { head: "entry.inspect", status: "unmet", satisfaction: 0 },
+  "select-entry-dir-ready": { head: "directory.select", status: "achieved", satisfaction: 100 },
+  "select-entry-file-ready": { head: "file.select", status: "achieved", satisfaction: 100 },
+  "select-entry-dir-not-found": { head: "directory.select", status: "unmet", satisfaction: 0 },
+  "select-entry-file-not-found": { head: "file.select", status: "unmet", satisfaction: 0 },
+  "select-entry-dir-unobserved": { head: "DEFER", status: "unknown", satisfaction: null },
+  "select-entry-file-unobserved": { head: "DEFER", status: "unknown", satisfaction: null },
+  "select-entry-dir-satisfied-noop": { head: "NOOP", status: "achieved", satisfaction: 100 },
+  "select-entry-file-satisfied-noop": { head: "NOOP", status: "achieved", satisfaction: 100 },
 });
 
 const ZERO_FACTS: PropertyFacts = Object.freeze({
@@ -332,6 +382,40 @@ function pathFamily(input: PathFamilyInput): CommandScenario {
     { id: "resolved-target-d", property: "file.property.link.target", state: "d", path: join(input.target, brokenLinkName), refKind: "cli.path", followSymlinks: true, requirementKind: "resolvedTarget", brokenTarget: true },
   ];
 
+  const dirUnobservedState: EntrySelectListingState =
+    input.id === "train-path-flat" || input.id === "development-path-siblings"
+      ? "unobserved"
+      : input.id === "train-path-deep"
+        ? "stale_listing"
+        : "stale_selected";
+  const fileUnobservedState: EntrySelectListingState =
+    input.id === "train-path-flat"
+      ? "unobserved"
+      : input.id === "train-path-deep" || input.id === "development-path-siblings"
+        ? "stale_listing"
+        : "stale_selected";
+  const dirComplementaryStaleState: EntrySelectListingState =
+    dirUnobservedState === "stale_listing" ? "stale_selected" : "stale_listing";
+  const fileComplementaryStaleState: EntrySelectListingState =
+    input.id === "development-path-siblings"
+      ? "unobserved"
+      : fileUnobservedState === "stale_listing"
+        ? "stale_selected"
+        : "stale_listing";
+
+  const entrySelect: readonly EntrySelectFixture[] = [
+    { id: "select-entry-dir-ready", case: "select-entry-dir-ready", targetType: "directory", selectorName: folderName, listingState: "ready" },
+    { id: "select-entry-file-ready", case: "select-entry-file-ready", targetType: "regular", selectorName: filledName, listingState: "ready" },
+    { id: "select-entry-dir-not-found", case: "select-entry-dir-not-found", targetType: "directory", selectorName: `absent-dir-${input.token}`, listingState: "ready" },
+    { id: "select-entry-file-not-found", case: "select-entry-file-not-found", targetType: "regular", selectorName: `absent-file-${input.token}.txt`, listingState: "ready" },
+    { id: "select-entry-dir-unobserved", case: "select-entry-dir-unobserved", targetType: "directory", selectorName: folderName, listingState: dirUnobservedState },
+    { id: "select-entry-file-unobserved", case: "select-entry-file-unobserved", targetType: "regular", selectorName: filledName, listingState: fileUnobservedState },
+    { id: "select-entry-dir-satisfied-noop", case: "select-entry-dir-satisfied-noop", targetType: "directory", selectorName: folderName, listingState: "satisfied" },
+    { id: "select-entry-file-satisfied-noop", case: "select-entry-file-satisfied-noop", targetType: "regular", selectorName: filledName, listingState: "satisfied" },
+    { id: "select-entry-dir-unobserved-stale", case: "select-entry-dir-unobserved", targetType: "directory", selectorName: folderName, listingState: dirComplementaryStaleState },
+    { id: "select-entry-file-unobserved-stale", case: "select-entry-file-unobserved", targetType: "regular", selectorName: filledName, listingState: fileComplementaryStaleState },
+  ];
+
   return {
     id: input.id,
     sourceGroup: input.id,
@@ -388,6 +472,7 @@ function pathFamily(input: PathFamilyInput): CommandScenario {
       ],
       realpath: realpathFixtures,
       inspect,
+      entrySelect,
       symlinks: [
         { path: join(input.target, itemLinkName), target: filledName },
         { path: join(input.target, brokenLinkName), target: `missing-${input.token}-target` },
@@ -442,7 +527,11 @@ function inspectFixtureCase(item: InspectFixture): Batch1CommandCase {
   return inspectCase(item.property);
 }
 
-function batch1SamplesFor(scene: CommandScenario, queries: ReadonlyMap<string, Batch1Query>): readonly CommandSample[] {
+function batch1SamplesFor(
+  scene: CommandScenario,
+  queries: ReadonlyMap<string, Batch1Query>,
+  stage: CliCommandStageId = "stage2-13x38",
+): readonly CommandSample[] {
   const fixtures = scene.pathFixtures;
   if (!fixtures) throw new TypeError(`Batch1 scenario ${scene.id} is missing path fixtures`);
   const grouped = [
@@ -463,6 +552,11 @@ function batch1SamplesFor(scene: CommandScenario, queries: ReadonlyMap<string, B
       fixture: item,
       query: queries.get(item.id),
     })),
+    ...(stage === "stage1-11x34" ? [] : (fixtures.entrySelect ?? []).map(item => ({
+      case: item.case,
+      fixture: item,
+      query: queries.get(item.id),
+    }))),
   ];
   return grouped.map(({ case: name, fixture, query }) => {
     if (!query) throw new TypeError(`Missing bound query for ${scene.id}/${fixture.id}`);
@@ -497,7 +591,25 @@ export function isBatch1CommandCase(value: unknown): value is Batch1CommandCase 
   return typeof value === "string" && BATCH1_CASES.includes(value as Batch1CommandCase);
 }
 
-export function prepareCliCommandDataset(value: unknown, partitions: readonly CommandPartition[] = ["train", "development"]) {
+const STAGE2_ONLY_WIRES = new Set<CliCommandWire>([
+  "predicate.select.entry",
+  "selectorTargetType.unspecified",
+  "selectorTargetType.regular",
+  "selectorTargetType.directory",
+]);
+const STAGE1_COMMAND_WIRES: readonly CliCommandWire[] = Object.freeze(
+  CLI_COMMAND_WIRES.filter(wire => !STAGE2_ONLY_WIRES.has(wire)),
+);
+
+export function prepareCliCommandDataset(
+  value: unknown,
+  partitions: readonly CommandPartition[] = ["train", "development"],
+  stage: CliCommandStageId = "stage2-13x38",
+) {
+  if (stage !== "stage1-11x34" && stage !== "stage2-13x38") {
+    throw new TypeError("Command dataset stage must be stage1-11x34 or stage2-13x38");
+  }
+  const expectedWires = stage === "stage1-11x34" ? STAGE1_COMMAND_WIRES : CLI_COMMAND_WIRES;
   const dataset = expectRecord(value, "command dataset");
   if ((dataset.version !== 2 && dataset.version !== 3) || !Array.isArray(dataset.scenarios) || !Array.isArray(dataset.samples)) {
     throw new TypeError("Invalid command dataset");
@@ -545,6 +657,9 @@ export function prepareCliCommandDataset(value: unknown, partitions: readonly Co
     }
     if (batch1) {
       if (item.query === undefined) throw new TypeError("Batch1 sample requires a typed query");
+      if (stage === "stage1-11x34" && item.query.kind === "entry.select") {
+        throw new TypeError("Stage 1 dataset must not contain Stage 2 entry.select samples");
+      }
     } else if (item.query !== undefined) {
       throw new TypeError("Legacy command sample must not contain a Batch1 query");
     }
@@ -559,9 +674,9 @@ export function prepareCliCommandDataset(value: unknown, partitions: readonly Co
     if (item.expectedHead !== required) {
       throw new TypeError("Sample expectation conflicts with requiredHead");
     }
-    const features = sampleFeatures(item, scene);
-    if (features.length !== CLI_COMMAND_WIRES.length || features.some(value => value !== 0 && value !== 1)) {
-      throw new TypeError(`Sample feature vector must contain ${CLI_COMMAND_WIRES.length} binary values`);
+    const features = sampleFeatures(item, scene, stage);
+    if (features.length !== expectedWires.length || features.some(value => value !== 0 && value !== 1)) {
+      throw new TypeError(`Sample feature vector must contain ${expectedWires.length} binary values`);
     }
     const featureKey = features.join(",");
     const previousHead = featureGoldByKey.get(featureKey);
@@ -602,6 +717,20 @@ function directoryQuery(name: string) {
 }
 
 export function sampleFacts(sample: CommandSample): PropertyFacts {
+  if (sample.query?.kind === "entry.select") {
+    switch (sample.query.listingState) {
+      case "unobserved":
+        return Object.freeze({ hasFreshEvidence: 0, knownValue: 0, requiredConditionHolds: 0, hasDestinationRef: 1 });
+      case "stale_listing":
+        return Object.freeze({ hasFreshEvidence: 0, knownValue: 1, requiredConditionHolds: 0, hasDestinationRef: 1 });
+      case "stale_selected":
+        return Object.freeze({ hasFreshEvidence: 0, knownValue: 1, requiredConditionHolds: 1, hasDestinationRef: 1 });
+      case "ready":
+        return Object.freeze({ hasFreshEvidence: 1, knownValue: 1, requiredConditionHolds: 0, hasDestinationRef: 1 });
+      case "satisfied":
+        return Object.freeze({ hasFreshEvidence: 1, knownValue: 1, requiredConditionHolds: 1, hasDestinationRef: 1 });
+    }
+  }
   if (!isLegacyCase(sample.case)) return ZERO_FACTS;
   const facts: Record<LegacyCommandCase, PropertyFacts> = {
     "cwd-observed": { hasFreshEvidence: 0, knownValue: 0, requiredConditionHolds: 0, hasDestinationRef: 0 },
@@ -620,6 +749,25 @@ export function sampleFacts(sample: CommandSample): PropertyFacts {
 
 export function sampleGoal(sample: CommandSample, scene: CommandScenario): FilePropertyGoal {
   if (sample.query !== undefined) {
+    if (sample.query.kind === "entry.select") {
+      return Object.freeze({
+        kind: "file.property",
+        property: ENTRIES_PROPERTY,
+        target: sample.query.target,
+        requirement: Object.freeze({
+          kind: "matches",
+          predicate: Object.freeze({
+            kind: "entrySelector",
+            selector: Object.freeze({
+              name: sample.query.selectorName,
+              parent: sample.query.parent,
+              type: sample.query.targetType,
+            }),
+            cardinality: "one",
+          }),
+        }),
+      });
+    }
     if (sample.query.kind === "path.resolve") {
       return Object.freeze({
         kind: "file.property",
@@ -698,8 +846,18 @@ export function sampleGoal(sample: CommandSample, scene: CommandScenario): FileP
   });
 }
 
-export function sampleFeatures(sample: CommandSample, scene: CommandScenario): readonly number[] {
-  return cliCommandFeatures(sampleGoal(sample, scene), sampleFacts(sample));
+export function sampleFeatures(
+  sample: CommandSample,
+  scene: CommandScenario,
+  stage: CliCommandStageId = "stage2-13x38",
+): readonly number[] {
+  const full = cliCommandFeatures(sampleGoal(sample, scene), sampleFacts(sample));
+  if (stage === "stage1-11x34") {
+    return Object.freeze(
+      CLI_COMMAND_WIRES.flatMap((wire, index) => (STAGE2_ONLY_WIRES.has(wire) ? [] : [full[index]!])),
+    );
+  }
+  return full;
 }
 
 function sceneAbsolute(sceneRoot: string, path: string): string {
@@ -765,6 +923,24 @@ async function bindPathFixtures(
       ...(item.requirementKind === "resolvedTarget" ? { requirementKind: "resolvedTarget" as const } : {}),
     }));
   }
+  if ((fixtures.entrySelect ?? []).length > 0) {
+    const targetAbsolute = join(sandbox.scenarioRoot, scene.targetPath);
+    const targetDirectory = await sandbox.bindDirectory(
+      session,
+      relative(sandbox.getSession(session).cwd, targetAbsolute) || ".",
+    );
+    const targetPhysical = await realpath(targetAbsolute);
+    for (const item of fixtures.entrySelect ?? []) {
+      queries.set(item.id, Object.freeze({
+        kind: "entry.select",
+        target: targetDirectory,
+        parent: targetPhysical,
+        targetType: item.targetType,
+        selectorName: item.selectorName,
+        listingState: item.listingState,
+      }));
+    }
+  }
   return queries;
 }
 
@@ -772,7 +948,9 @@ export async function makeCliCommandFixture(options: Readonly<{
   root: string;
   partitions?: readonly ("train" | "development")[];
   extended?: boolean;
+  stage?: CliCommandStageId;
 }>) {
+  const stage: CliCommandStageId = options.stage ?? "stage2-13x38";
   const partitions = options.partitions ?? ["train", "development"];
   const selectedLegacy = legacyScenarios.filter(scene => (partitions as readonly CommandPartition[]).includes(scene.partition));
   const selectedBatch1 = options.extended === true
@@ -798,7 +976,7 @@ export async function makeCliCommandFixture(options: Readonly<{
       }
       const queries = await bindPathFixtures(sandbox, scene);
       datasetScenes.push(scene);
-      if (scene.familyKind === "batch1") datasetSamples.push(...batch1SamplesFor(scene, queries));
+      if (scene.familyKind === "batch1") datasetSamples.push(...batch1SamplesFor(scene, queries, stage));
       else datasetSamples.push(...legacySamplesFor(scene));
       teacherEvidence.push({
         scenarioId: scene.id,
@@ -811,6 +989,7 @@ export async function makeCliCommandFixture(options: Readonly<{
           parts: scene.pathFixtures.parts.length,
           realpath: (scene.pathFixtures.realpath ?? []).length,
           inspect: scene.pathFixtures.inspect.length,
+          entrySelect: stage === "stage1-11x34" ? 0 : (scene.pathFixtures.entrySelect ?? []).length,
         },
       });
     } finally { await sandbox.cleanup(); }
@@ -821,6 +1000,6 @@ export async function makeCliCommandFixture(options: Readonly<{
     teacherEvidence,
     samples: datasetSamples,
   };
-  prepareCliCommandDataset(dataset, partitions);
+  prepareCliCommandDataset(dataset, partitions, stage);
   return { dataset, teacherEvidence };
 }

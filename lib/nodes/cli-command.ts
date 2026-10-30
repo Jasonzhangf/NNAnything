@@ -12,15 +12,17 @@ import type {
   SessionSnapshot,
   SemanticCallReceipt,
 } from "../adapters/cli/filesystem-sandbox.js";
-import type { DirectoryListObservation } from "../adapters/cli/directory-listing.js";
+import type { DirectoryListObservation, DirectoryListingEntry } from "../adapters/cli/directory-listing.js";
 import type { PwdObservation } from "../adapters/cli/observation.js";
 import {
   computePropertyFacts,
   expectedDirectoryOf,
+  isEntrySelectGoal,
   isResolvedTargetGoal,
   requiredHead,
   validatePropertyRequest,
   type CwdGoal,
+  type EntriesSelectGoal,
   type EntryInspectQuery,
   type FilePropertyGoal,
   type InspectGoal,
@@ -36,17 +38,28 @@ import {
   type ValidatedPropertyRequest,
 } from "../filters/cli-file-property.js";
 import {
+  resolveEntrySelectSet,
+  validateEntrySelectProfile,
+  type EntrySelectProfile,
+  type EntrySelectSelector,
+  type EntrySelectSetResolution,
+  type EntrySelectTargetType,
+  type ObservedCandidateInput,
+} from "../filters/cli-entry-select-relation.js";
+import {
   predictCliCommand,
   validateCliCommandProfile,
   type CliCommandHead,
   type CliCommandPrediction,
   type CliCommandProfile,
+  type CliCommandStageId,
 } from "../filters/cli-command-policy.js";
 import {
   createEvidenceAuthority,
   type CwdKnowledge,
   type DirectoryKnowledge,
   type EntryKnowledge,
+  type EntrySelectionOutcome,
   type EvidenceAuthority,
   type ExplicitFileState,
   type PathKnowledge,
@@ -62,7 +75,8 @@ export type CliCommandInvocation =
   | readonly ["path.relative", PathRef, PathRef]
   | readonly ["path.parts", PathRef]
   | readonly ["path.realpath", InspectRef]
-  | readonly ["entry.inspect", InspectRef, boolean];
+  | readonly ["entry.inspect", InspectRef, boolean]
+  | readonly ["directory.select" | "file.select", EntrySelectSelector, readonly ObservedCandidateInput[], "complete" | "partial"];
 
 export type CliCommandPolicyError = Readonly<{ expectedHead: CliCommandHead; selectedHead: CliCommandHead }>;
 export type CliCommandDefer = Readonly<{ code: "binding_unresolved"; detail: string }>;
@@ -140,11 +154,14 @@ export type CliCommandSample = Readonly<{
 
 export type CliCommandBinding = Readonly<{
   profile: CliCommandProfile;
+  stage?: CliCommandStageId;
   sandbox: CliFilesystemSandbox;
   session: SessionRef;
+  entrySelectProfiles?: CliEntrySelectProfiles;
   onSample?: (sample: CliCommandSample) => void | Promise<void>;
 }>;
 
+export type CliEntrySelectProfiles = Readonly<{ directory: EntrySelectProfile; regular: EntrySelectProfile }>;
 type BoundContext = Readonly<{
   request: ValidatedPropertyRequest;
   session: SessionRef;
@@ -166,6 +183,7 @@ type ExecutedContext = SelectedContext & Readonly<{
   invocation: CliCommandInvocation | null;
   call: SemanticCallReceipt["call"] | null;
   receipt: SemanticCallReceipt | null;
+  selection: EntrySelectSetResolution | null;
   execution_result: CliCommandExecutionResult;
   session_after: SessionSnapshot;
 }>;
@@ -468,7 +486,7 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
     return {
       satisfaction: 0,
       status: "rejected",
-      reason: input.bindingError === "resolved_target_requires_follow_symlinks"
+      reason: input.bindingError === "resolved_target_requires_follow_symlinks" || isEntrySelectGoal(input.request.goal)
         ? input.bindingError
         : "directory_binding_failed",
       evidence: Object.freeze({ ...common }),
@@ -476,7 +494,21 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
     };
   }
   if (!input.registered) {
-    return { satisfaction: null, status: "unknown", reason: "unsupported_property", evidence: Object.freeze({ ...common }), defer: null };
+    const selector = isEntrySelectGoal(input.request.goal)
+      ? input.request.goal.requirement.predicate.selector.type
+      : undefined;
+    return {
+      satisfaction: null,
+      status: "unknown",
+      reason: "unsupported_property",
+      evidence: Object.freeze({
+        ...common,
+        ...(isEntrySelectGoal(input.request.goal)
+          ? { selectorTargetType: selector === undefined ? "selector_target_type_unspecified" : "unsupported_selector_target_type" }
+          : {}),
+      }),
+      defer: null,
+    };
   }
   if (input.policy_error !== null) {
     return { satisfaction: 0, status: "rejected", reason: "unexpected_head", evidence: Object.freeze({ ...common }), defer: null };
@@ -494,10 +526,22 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
     return {
       satisfaction: 100,
       status: "achieved",
-      reason: "fresh_equality_noop",
+      reason: isEntrySelectGoal(input.request.goal) ? "already_satisfied" : "fresh_equality_noop",
       evidence: Object.freeze({ ...common, fresh: input.facts.hasFreshEvidence, condition: input.facts.requiredConditionHolds }),
       defer: null,
     };
+  }
+  if (input.execution_result.status === "deferred") {
+    return {
+      satisfaction: null,
+      status: "unknown",
+      reason: isEntrySelectGoal(input.request.goal) ? "listing_unobserved" : "binding_unresolved",
+      evidence: Object.freeze({ ...common }),
+      defer: Object.freeze({ code: "binding_unresolved", detail: "Directory listing evidence is required before entry selection" }),
+    };
+  }
+  if (isEntrySelectGoal(input.request.goal)) {
+    return entrySelectOutcome(input);
   }
   const observation = input.receipt?.execution.status === "succeeded" ? input.receipt.execution.observation : null;
   const physicalGoal = input.request.goal.property === "file.property.path.physical"
@@ -710,9 +754,69 @@ function evaluateOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisf
   return { satisfaction: null, status: "unknown", reason: "unsupported_property", evidence: Object.freeze({ ...common }), defer: null };
 }
 
+function entrySelectTargetType(goal: EntriesSelectGoal): EntrySelectTargetType {
+  return goal.requirement.predicate.selector.type === "directory" ? "directory" : "regular";
+}
+
+function entrySelectSelectorOf(goal: EntriesSelectGoal, parent: string): EntrySelectSelector {
+  return Object.freeze({ name: goal.requirement.predicate.selector.name, type: entrySelectTargetType(goal), parent });
+}
+
+function entrySelectCandidates(directory: string, entries: readonly DirectoryListingEntry[]): readonly ObservedCandidateInput[] {
+  return Object.freeze(entries.map(entry => Object.freeze({
+    ref: entry.path,
+    path: entry.path,
+    name: entry.name,
+    type: entry.type,
+    parent: directory,
+  })));
+}
+
+function entrySelectOutcome(input: ObservedContext): Pick<EvaluatedContext, "satisfaction" | "status" | "reason" | "evidence" | "defer"> {
+  const common = {
+    facts: input.facts,
+    requiredHead: input.requiredHead,
+    selectedHead: input.policy.selectedHead,
+    bindingError: input.bindingError,
+    executionStatus: input.execution_result.status,
+    selection: input.selection?.outcome ?? null,
+  } as const;
+  const resolution = input.selection;
+  if (resolution === null) {
+    return { satisfaction: null, status: "unknown", reason: "insufficient_listing_evidence", evidence: Object.freeze({ ...common }), defer: null };
+  }
+  if (resolution.outcome === "selected") {
+    return { satisfaction: 100, status: "achieved", reason: "entry_selected", evidence: Object.freeze({ ...common, ref: resolution.ref }), defer: null };
+  }
+  if (resolution.outcome === "not_found") {
+    return { satisfaction: 0, status: "unmet", reason: "entry_not_found", evidence: Object.freeze({ ...common }), defer: null };
+  }
+  if (resolution.outcome === "invalid_input") {
+    return { satisfaction: 0, status: "rejected", reason: "invalid_candidate_set", evidence: Object.freeze({ ...common }), defer: null };
+  }
+  if (resolution.outcome === "conflict") {
+    return { satisfaction: null, status: "unknown", reason: "multiple_matches_in_single_parent", evidence: Object.freeze({ ...common }), defer: null };
+  }
+  return { satisfaction: null, status: "unknown", reason: "insufficient_listing_evidence", evidence: Object.freeze({ ...common }), defer: null };
+}
+
+function entrySelectionStateOutcome(outcome: EntrySelectSetResolution["outcome"]): EntrySelectionOutcome {
+  if (outcome === "selected") return "selected";
+  if (outcome === "not_found") return "not_found";
+  if (outcome === "invalid_input") return "rejected";
+  if (outcome === "conflict") return "conflict";
+  return "insufficient_evidence";
+}
+
 export function createCliFilePropertyNodes(binding: CliCommandBinding, authority: EvidenceAuthority = createEvidenceAuthority()): readonly NodeDefinition[] {
-  const profile = validateCliCommandProfile(binding.profile);
+  const profile = validateCliCommandProfile(binding.profile, binding.stage)!;
   const { sandbox, session } = binding;
+  const entrySelectProfiles = binding.entrySelectProfiles === undefined
+    ? null
+    : Object.freeze({
+        directory: validateEntrySelectProfile(binding.entrySelectProfiles.directory),
+        regular: validateEntrySelectProfile(binding.entrySelectProfiles.regular),
+      });
   return [
     {
       operator: "cli.file-property.bind",
@@ -729,12 +833,17 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
           try { expectedPhysical = (await sandbox.resolveDirectory(expected)).physicalPath; }
           catch (error) { bindingError = error instanceof Error ? error.message : String(error); }
         }
+        let resolvedBindingError = request.bindingError ?? bindingError;
+        if (resolvedBindingError === null && expectedPhysical !== null && isEntrySelectGoal(request.goal)
+          && expectedPhysical !== request.goal.requirement.predicate.selector.parent) {
+          resolvedBindingError = "selector_parent_mismatch";
+        }
         return context.emit({
           request,
           session,
           session_before: before,
           expectedPhysical,
-          bindingError: request.bindingError ?? bindingError,
+          bindingError: resolvedBindingError,
           registered: request.registered,
           unboundDirectory: request.unboundDirectory,
         });
@@ -757,7 +866,7 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
           expectedPhysical: raw.expectedPhysical,
         });
         const required = requiredHead({ registered: raw.registered, unboundDirectory: raw.unboundDirectory, goal: raw.request.goal, facts });
-        const policy = predictCliCommand(raw.request.goal, facts, profile, raw.registered);
+        const policy = predictCliCommand(raw.request.goal, facts, profile, raw.registered, binding.stage);
         const policy_error = policy.selectedHead === required ? null : Object.freeze({ expectedHead: required, selectedHead: policy.selectedHead });
         return context.emit({ ...raw, facts, requiredHead: required, policy, policy_error });
       },
@@ -772,10 +881,11 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
         const selected = context.inputs[0]!.payload as unknown as SelectedContext;
         const before = selected.session_before;
         let invocation: CliCommandInvocation | null = null, call: SemanticCallReceipt["call"] | null = null, receipt: SemanticCallReceipt | null = null;
+        let selection: EntrySelectSetResolution | null = null;
         let result: CliCommandExecutionResult;
         if (selected.bindingError !== null) {
           result = executionResult("rejected",
-            selected.bindingError === "resolved_target_requires_follow_symlinks"
+            selected.bindingError === "resolved_target_requires_follow_symlinks" || isEntrySelectGoal(selected.request.goal)
               ? selected.bindingError
               : "directory_binding_failed",
             null, false, selected.bindingError);
@@ -790,6 +900,9 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
         } else {
           const head = selected.policy.selectedHead;
           const goal = selected.request.goal;
+          if ((head === "directory.select" || head === "file.select") && entrySelectProfiles === null) {
+            throw new TypeError("Stage 2 entry selection requires validated directory and regular EntrySelectProfile instances");
+          }
           try {
             if (head === "pwd") {
               invocation = Object.freeze(["pwd"] as const);
@@ -837,20 +950,35 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
                 operation: "entry.inspect",
                 parameters: Object.freeze({ ref: target.ref, followSymlinks: target.followSymlinks }),
               });
+            } else if (head === "directory.select" || head === "file.select") {
+              const entryGoal = goal as EntriesSelectGoal;
+              const listing = selected.request.state.directoryListing;
+              if (listing === null) throw new TypeError("Entry selection requires an observed directory listing");
+              const coverage = listing.coverage;
+              const selector = entrySelectSelectorOf(entryGoal, listing.physicalDirectory);
+              const candidates = entrySelectCandidates(listing.physicalDirectory, listing.entries);
+              const entryProfile = head === "directory.select" ? entrySelectProfiles!.directory : entrySelectProfiles!.regular;
+              selection = resolveEntrySelectSet(selector, candidates, coverage, entryProfile);
+              invocation = Object.freeze([head, selector, candidates, coverage] as const);
             } else {
               throw new TypeError(`Unsupported executable head: ${head}`);
             }
-            receipt = await sandbox.execute(call);
-            const status = receiptExecutionStatus(receipt);
-            result = executionResult(status,
-              status === "succeeded" ? "executed" : status === "rejected" ? "execution_rejected" : "execution_failed",
-              receipt, receipt.execution.executorInvoked,
-              receipt.status === "failed" && receipt.execution.status === "failed" ? receipt.execution.error.message : null);
+            if (selection !== null) {
+              const status = selection.outcome === "invalid_input" ? "rejected" : "succeeded";
+              result = executionResult(status, status === "rejected" ? "invalid_candidate_set" : "relation_resolved", null, true, null);
+            } else {
+              receipt = await sandbox.execute(call);
+              const status = receiptExecutionStatus(receipt);
+              result = executionResult(status,
+                status === "succeeded" ? "executed" : status === "rejected" ? "execution_rejected" : "execution_failed",
+                receipt, receipt.execution.executorInvoked,
+                receipt.status === "failed" && receipt.execution.status === "failed" ? receipt.execution.error.message : null);
+            }
           } catch (error) {
             result = executionResult("failed", "execution_threw", null, false, error instanceof Error ? error.message : String(error));
           }
         }
-        return context.emit({ ...selected, invocation, call, receipt, execution_result: result, session_after: sandbox.getSession(session) });
+        return context.emit({ ...selected, invocation, call, receipt, selection, execution_result: result, session_after: sandbox.getSession(session) });
       },
     },
     {
@@ -873,16 +1001,39 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
               runId: executed.receipt.execution.runId,
               observation,
             });
-          } else if (observation.kind === "directory.list" && unchanged(executed.session_before, executed.session_after)
-            && observation.coverage === "complete" && observation.errors.length === 0 && observation.entries.every(entry => entry.type !== "unknown")) {
-            observed = Object.freeze({ ...observed, directoryListing: directoryKnowledge(observation, executed.session_before.revision, executed.receipt.execution.runId) });
-            authority.record({
-              kind: "directory.list",
-              session: session.sessionId,
-              revision: executed.session_before.revision,
-              runId: executed.receipt.execution.runId,
-              observation,
-            });
+          } else if (observation.kind === "directory.list" && unchanged(executed.session_before, executed.session_after)) {
+            const complete = observation.coverage === "complete"
+              && observation.errors.length === 0
+              && observation.entries.every(entry => entry.type !== "unknown");
+            if (complete) {
+              const listing = directoryKnowledge(observation, executed.session_before.revision, executed.receipt.execution.runId);
+              const previousSelection = observed.entrySelection ?? null;
+              observed = Object.freeze({
+                ...observed,
+                directoryListing: listing,
+                ...(previousSelection !== null && previousSelection.sessionRevision !== listing.revision
+                  ? { entrySelection: null }
+                  : {}),
+              });
+              authority.record({
+                kind: "directory.list",
+                session: session.sessionId,
+                revision: executed.session_before.revision,
+                runId: executed.receipt.execution.runId,
+                observation,
+              });
+            } else {
+              const previousSelection = observed.entrySelection ?? null;
+              const sameDirectory = observed.directoryListing !== null
+                && observed.directoryListing.physicalDirectory === observation.physicalDirectory;
+              const sameParent = previousSelection !== null
+                && previousSelection.parentPath === observation.physicalDirectory;
+              observed = Object.freeze({
+                ...observed,
+                ...(sameDirectory ? { directoryListing: null } : {}),
+                ...(sameParent ? { entrySelection: null } : {}),
+              });
+            }
           } else if ((observation.kind === "path.resolve" || observation.kind === "path.relative" || observation.kind === "path.parts" || observation.kind === "path.realpath")
             && unchanged(executed.session_before, executed.session_after)) {
             observed = Object.freeze({
@@ -920,6 +1071,41 @@ export function createCliFilePropertyNodes(binding: CliCommandBinding, authority
               });
             }
           }
+        }
+        if (executed.selection !== null && isEntrySelectGoal(executed.request.goal)) {
+          const selector = executed.request.goal.requirement.predicate.selector;
+          const runId = context.runId;
+          const outcome = entrySelectionStateOutcome(executed.selection.outcome);
+          const ref = outcome === "selected"
+            ? typeof executed.selection.ref === "string"
+              ? executed.selection.ref
+              : executed.selection.ref === null
+                ? null
+                : JSON.stringify(executed.selection.ref)
+            : null;
+          const observation = Object.freeze({
+            parentPath: selector.parent,
+            name: selector.name,
+            targetType: selector.type ?? "unspecified",
+            outcome,
+            ref,
+            reason: executed.selection.reason,
+          });
+          authority.record({
+            kind: "entry.select",
+            session: session.sessionId,
+            revision: executed.session_before.revision,
+            runId,
+            observation,
+          });
+          observed = Object.freeze({
+            ...observed,
+            entrySelection: Object.freeze({
+              ...observation,
+              sessionRevision: executed.session_before.revision,
+              sourceRun: runId,
+            }),
+          });
         }
         return context.emit({
           ...executed,

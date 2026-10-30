@@ -20,20 +20,64 @@ import {
 } from './cli-path-primitives-independent-fixtures.mjs';
 
 const api = await import('nnanything/cli-goal');
+const {
+  entrySelectFeatures,
+  predictEntrySelectRelation,
+  resolveEntrySelectSet,
+  validateEntrySelectProfile,
+  zeroEntrySelectProfile,
+} = await import('../dist/filters/cli-entry-select-relation.js');
+const {
+  validateEntrySelectionKnowledge,
+} = await import('../dist/filters/cli-state.js');
 const execFileAsync = promisify(execFile);
+const stage = process.env.NN_CLI_COMMAND_STAGE ?? 'stage2-13x38';
+if (stage !== 'stage1-11x34' && stage !== 'stage2-13x38') {
+  throw new TypeError(`Unsupported NN_CLI_COMMAND_STAGE: ${String(stage)}`);
+}
+const profileRole = process.env.NN_CLI_PROFILE_ROLE ?? 'trained_candidate';
 const profilePath = process.env.NN_CLI_COMMAND_PROFILE;
-if (!profilePath) throw new Error('NN_CLI_COMMAND_PROFILE is required; no candidate default is allowed');
+if (!profilePath) throw new TypeError('NN_CLI_COMMAND_PROFILE is required; no candidate default is allowed');
 const rawCandidate = JSON.parse(await readFile(profilePath, 'utf8'));
-const candidate = api.migrateCliCommandProfileToCurrent(rawCandidate);
-assert.deepEqual(candidate.heads, [
-  'unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls',
-  'path.resolve', 'path.relative', 'path.parts', 'path.realpath', 'entry.inspect',
-]);
-assert.equal(candidate.wires.length, 34);
-assert.equal(candidate.weights.length, 11);
-assert.ok(candidate.weights.every(row => row.length === 34));
+const candidate = api.validateCliCommandProfile(rawCandidate, stage);
+const expectedHeads = stage === 'stage2-13x38'
+  ? [
+      'unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls',
+      'path.resolve', 'path.relative', 'path.parts', 'path.realpath', 'entry.inspect',
+      'directory.select', 'file.select',
+    ]
+  : [
+      'unsupported', 'DEFER', 'NOOP', 'pwd', 'cd', 'ls',
+      'path.resolve', 'path.relative', 'path.parts', 'path.realpath', 'entry.inspect',
+    ];
+const expectedWires = stage === 'stage2-13x38' ? 38 : 34;
+assert.deepEqual(candidate.heads, expectedHeads);
+assert.equal(candidate.wires.length, expectedWires);
+assert.equal(candidate.weights.length, expectedHeads.length);
+assert.ok(candidate.weights.every(row => row.length === expectedWires));
 assert.equal(candidate.calibration, 'uncalibrated');
 assert.equal(candidate.adoption, 'not_applied');
+
+let entrySelectProfiles = undefined;
+const bDirectoryProfilePath = process.env.NN_CLI_B_DIRECTORY_PROFILE ?? null;
+const bFileProfilePath = process.env.NN_CLI_B_FILE_PROFILE ?? null;
+if (stage === 'stage2-13x38') {
+  if (!bDirectoryProfilePath || !bFileProfilePath) {
+    throw new TypeError('Stage 2 independent suite requires explicit NN_CLI_B_DIRECTORY_PROFILE and NN_CLI_B_FILE_PROFILE disk paths; embedded fallback weights are forbidden');
+  }
+  const directoryProfile = validateEntrySelectProfile(JSON.parse(await readFile(bDirectoryProfilePath, 'utf8')));
+  const fileProfile = validateEntrySelectProfile(JSON.parse(await readFile(bFileProfilePath, 'utf8')));
+  assert.equal(directoryProfile.contract, 'cli.directory-select-relation.v1');
+  assert.equal(fileProfile.contract, 'cli.file-select-relation.v1');
+  assert.equal(directoryProfile.calibration, 'uncalibrated');
+  assert.equal(directoryProfile.adoption, 'not_applied');
+  assert.equal(fileProfile.calibration, 'uncalibrated');
+  assert.equal(fileProfile.adoption, 'not_applied');
+  entrySelectProfiles = Object.freeze({
+    directory: directoryProfile,
+    regular: fileProfile,
+  });
+}
 
 const startedAt = new Date().toISOString();
 const reportPath = process.env.NN_I7_REPORT
@@ -103,8 +147,14 @@ function cwdEqualsGoal(session, directory) {
   });
 }
 
-function policyFor(scene, profile = candidate, session = scene.primary) {
-  return api.createCliCommandPolicy({ profile, sandbox: scene.sandbox, session });
+function policyFor(scene, profile = candidate, session = scene.primary, authority = undefined) {
+  return api.createCliCommandPolicy({
+    profile,
+    stage,
+    sandbox: scene.sandbox,
+    session,
+    ...(entrySelectProfiles === undefined ? {} : { entrySelectProfiles }),
+  }, authority);
 }
 
 function rawPathRef(scene, path, session = scene.primary) {
@@ -1029,8 +1079,8 @@ registerCase('probe', 'P10', 'unregistered property and predicate pair is unsupp
       state: emptyState(scene.primary),
     });
     assert.equal(transition.policy.selectedHead, 'unsupported');
-    assert.deepEqual(transition.policy.scores, new Array(11).fill(0));
-    assert.deepEqual(transition.policy.probabilities, new Array(11).fill(0));
+    assert.deepEqual(transition.policy.scores, new Array(candidate.heads.length).fill(0));
+    assert.deepEqual(transition.policy.probabilities, new Array(candidate.heads.length).fill(0));
     assert.equal(transition.policy_error, null);
     assert.equal(transition.status, 'unknown');
     assert.equal(transition.satisfaction, null);
@@ -1395,19 +1445,759 @@ registerCase('probe', 'P23', 'entry.inspect exists follow=true on circular symli
   }
 });
 
+function entrySelectGoal(target, name, type, parent, cardinality = 'one') {
+  return Object.freeze({
+    kind: 'file.property',
+    property: 'file.property.directory.entries',
+    target,
+    requirement: Object.freeze({
+      kind: 'matches',
+      predicate: Object.freeze({
+        kind: 'entrySelector',
+        selector: Object.freeze({
+          name,
+          parent,
+          ...(type === undefined ? {} : { type }),
+        }),
+        cardinality,
+      }),
+    }),
+  });
+}
+
+async function setupSelectSandbox(scene, session = scene.primary) {
+  const authority = api.createEvidenceAuthority();
+  const targetRef = await scene.sandbox.bindDirectory(session, '../sibling/select-sandbox');
+  const parentPhysical = scene.paths.selectSandbox;
+  const lsPolicy = policyFor(scene, forcedHeadProfile('ls'), session, authority);
+  const lsStep = await lsPolicy.step({
+    goal: observationGoal('file.property.directory.entries', targetRef),
+    satisfactionThreshold: 100,
+    state: emptyState(session),
+  });
+  assert.equal(lsStep.status, 'achieved');
+  assert.equal(lsStep.satisfaction, 100);
+  return {
+    authority,
+    targetRef,
+    parentPhysical,
+    listingState: lsStep.observed_state_after,
+  };
+}
+
+const stage2PositiveScenarios = [
+  ['S49', 'directory.select unique match on humanagent', 'directory', 'humanagent', 'directory.select'],
+  ['S50', 'directory.select unique match on directory with spaces', 'directory', 'with space dir', 'directory.select'],
+  ['S51', 'directory.select unique match on directory with single quote', 'directory', "quote'dir", 'directory.select'],
+  ['S52', 'directory.select unique match on dot-prefixed directory', 'directory', '.hidden-dir', 'directory.select'],
+  ['S53', 'file.select unique match on notes.txt', 'regular', 'notes.txt', 'file.select'],
+  ['S54', 'file.select unique match on empty regular file', 'regular', 'empty.bin', 'file.select'],
+  ['S55', 'file.select unique match on regular file with spaces', 'regular', 'with space.txt', 'file.select'],
+  ['S56', 'file.select unique match on dot-prefixed regular file', 'regular', '.hidden-file', 'file.select'],
+];
+
+for (const [id, title, targetType, selectorName, expectedHead] of stage2PositiveScenarios) {
+  registerCase('entry-select', id, title, async () => {
+    const scene = await createIndependentScene(api, { after: () => {} });
+    try {
+      const beforeSession = scene.sandbox.getSession(scene.primary);
+      const beforeTree = await treeSnapshot(scene.root);
+      const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+      const transition = await policyFor(scene, candidate, scene.primary, authority).step({
+        goal: entrySelectGoal(targetRef, selectorName, targetType, parentPhysical),
+        satisfactionThreshold: 100,
+        state: listingState,
+      });
+      assert.equal(transition.policy.selectedHead, expectedHead);
+      assert.equal(transition.policy_error, null);
+      assert.equal(transition.status, 'achieved');
+      assert.equal(transition.satisfaction, 100);
+      assert.equal(transition.reason, 'entry_selected');
+      assert.equal(transition.execution_result.executorInvoked, true);
+      assert.equal(transition.observed_state_after.entrySelection?.outcome, 'selected');
+      assert.equal(transition.observed_state_after.entrySelection?.ref, join(parentPhysical, selectorName));
+      await unchanged(scene, scene.primary, beforeSession, beforeTree);
+      return {
+        head: transition.policy.selectedHead,
+        status: transition.status,
+        ref: transition.observed_state_after.entrySelection?.ref,
+      };
+    } finally {
+      await scene.cleanup();
+    }
+  });
+}
+
+const stage2NotFoundScenarios = [
+  ['S57', 'directory.select when target name is absent', 'directory', 'absent-dir', 'directory.select'],
+  ['S58', 'file.select when target name is absent', 'regular', 'absent-file.txt', 'file.select'],
+  ['S59', 'directory.select when matching name is a regular file', 'directory', 'notes.txt', 'directory.select'],
+  ['S60', 'file.select when matching name is a directory', 'regular', 'humanagent', 'file.select'],
+  ['S61', 'directory.select when matching name is a symlink', 'directory', 'link-to-dir', 'directory.select'],
+  ['S62', 'file.select when matching name is a symlink or FIFO', 'regular', 'link-to-file', 'file.select'],
+];
+
+for (const [id, title, targetType, selectorName, expectedHead] of stage2NotFoundScenarios) {
+  registerCase('entry-select', id, title, async () => {
+    const scene = await createIndependentScene(api, { after: () => {} });
+    try {
+      const beforeSession = scene.sandbox.getSession(scene.primary);
+      const beforeTree = await treeSnapshot(scene.root);
+      const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+      const transition = await policyFor(scene, candidate, scene.primary, authority).step({
+        goal: entrySelectGoal(targetRef, selectorName, targetType, parentPhysical),
+        satisfactionThreshold: 100,
+        state: listingState,
+      });
+      assert.equal(transition.policy.selectedHead, expectedHead);
+      assert.equal(transition.policy_error, null);
+      assert.equal(transition.status, 'unmet');
+      assert.equal(transition.satisfaction, 0);
+      assert.equal(transition.reason, 'entry_not_found');
+      assert.equal(transition.execution_result.executorInvoked, true);
+      assert.equal(transition.observed_state_after.entrySelection?.outcome, 'not_found');
+      assert.equal(transition.observed_state_after.entrySelection?.ref, null);
+      if (id === 'S62') {
+        const fifoTransition = await policyFor(scene, candidate, scene.primary, authority).step({
+          goal: entrySelectGoal(targetRef, 'select-fifo', 'regular', parentPhysical),
+          satisfactionThreshold: 100,
+          state: listingState,
+        });
+        assert.equal(fifoTransition.policy.selectedHead, 'file.select');
+        assert.equal(fifoTransition.status, 'unmet');
+        assert.equal(fifoTransition.satisfaction, 0);
+        assert.equal(fifoTransition.reason, 'entry_not_found');
+      }
+      await unchanged(scene, scene.primary, beforeSession, beforeTree);
+      return {
+        head: transition.policy.selectedHead,
+        status: transition.status,
+        reason: transition.reason,
+      };
+    } finally {
+      await scene.cleanup();
+    }
+  });
+}
+
+const stage2NoopScenarios = [
+  ['S63', 'directory.select repeated on already-satisfied entrySelection state at same session revision', 'directory', 'humanagent', 'directory.select'],
+  ['S64', 'file.select repeated on already-satisfied entrySelection state at same session revision', 'regular', 'notes.txt', 'file.select'],
+];
+
+for (const [id, title, targetType, selectorName, firstHead] of stage2NoopScenarios) {
+  registerCase('entry-select', id, title, async () => {
+    const scene = await createIndependentScene(api, { after: () => {} });
+    try {
+      const beforeSession = scene.sandbox.getSession(scene.primary);
+      const beforeTree = await treeSnapshot(scene.root);
+      const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+      const policy = policyFor(scene, candidate, scene.primary, authority);
+      const goal = entrySelectGoal(targetRef, selectorName, targetType, parentPhysical);
+      const first = await policy.step({
+        goal,
+        satisfactionThreshold: 100,
+        state: listingState,
+      });
+      assert.equal(first.policy.selectedHead, firstHead);
+      assert.equal(first.status, 'achieved');
+      assert.equal(first.satisfaction, 100);
+
+      const repeated = await policy.step({
+        goal,
+        satisfactionThreshold: 100,
+        state: first.observed_state_after,
+      });
+      assert.equal(repeated.policy.selectedHead, 'NOOP');
+      assert.equal(repeated.policy_error, null);
+      assert.equal(repeated.status, 'achieved');
+      assert.equal(repeated.satisfaction, 100);
+      assert.equal(repeated.reason, 'already_satisfied');
+      assert.equal(repeated.invocation, null);
+      assert.equal(repeated.execution_result.status, 'noop');
+      assert.equal(repeated.execution_result.executorInvoked, false);
+      await unchanged(scene, scene.primary, beforeSession, beforeTree);
+      return {
+        firstHead: first.policy.selectedHead,
+        repeatedHead: repeated.policy.selectedHead,
+        reason: repeated.reason,
+      };
+    } finally {
+      await scene.cleanup();
+    }
+  });
+}
+
+registerCase('probe', 'P24', 'P3-PROBE-INVALID-NAME rejects invalid selector.name or non-absolute selector.parent at bind', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const beforeSession = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+    const policy = policyFor(scene, candidate, scene.primary, authority);
+    for (const badName of ['', '.', '..', 'a/b', 'a\0b']) {
+      const res = await policy.step({
+        goal: entrySelectGoal(targetRef, badName, 'directory', parentPhysical),
+        satisfactionThreshold: 100,
+        state: listingState,
+      });
+      assert.equal(res.status, 'rejected');
+      assert.equal(res.satisfaction, 0);
+      assert.equal(res.reason, 'invalid_entry_selector');
+      assert.equal(res.invocation, null);
+      assert.equal(res.execution_result.executorInvoked, false);
+    }
+    const nonAbsoluteParent = await policy.step({
+      goal: entrySelectGoal(targetRef, 'humanagent', 'directory', 'relative/parent'),
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(nonAbsoluteParent.status, 'rejected');
+    assert.equal(nonAbsoluteParent.satisfaction, 0);
+    assert.equal(nonAbsoluteParent.reason, 'invalid_entry_selector');
+    assert.equal(nonAbsoluteParent.execution_result.executorInvoked, false);
+    await unchanged(scene, scene.primary, beforeSession, beforeTree);
+    return { status: 'rejected', reason: 'invalid_entry_selector', executorInvoked: false };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P25', 'P3-PROBE-INVALID-CARDINALITY and selector_parent_mismatch reject at bind', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const beforeSession = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+    const policy = policyFor(scene, candidate, scene.primary, authority);
+    const badCardinality = await policy.step({
+      goal: entrySelectGoal(targetRef, 'humanagent', 'directory', parentPhysical, 'all'),
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(badCardinality.status, 'rejected');
+    assert.equal(badCardinality.satisfaction, 0);
+    assert.equal(badCardinality.reason, 'invalid_selector_cardinality');
+    assert.equal(badCardinality.execution_result.executorInvoked, false);
+
+    const parentMismatch = await policy.step({
+      goal: entrySelectGoal(targetRef, 'humanagent', 'directory', scene.paths.start),
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(parentMismatch.status, 'rejected');
+    assert.equal(parentMismatch.satisfaction, 0);
+    assert.equal(parentMismatch.reason, 'selector_parent_mismatch');
+    assert.equal(parentMismatch.execution_result.executorInvoked, false);
+    await unchanged(scene, scene.primary, beforeSession, beforeTree);
+    return { cardinality: badCardinality.reason, mismatch: parentMismatch.reason };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P26', 'P3-PROBE-UNSUPPORTED-SYMLINK-TYPE routes selector.type symlink to unsupported', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const beforeSession = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+    const transition = await policyFor(scene, candidate, scene.primary, authority).step({
+      goal: entrySelectGoal(targetRef, 'link-to-dir', 'symlink', parentPhysical),
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(transition.policy.selectedHead, 'unsupported');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'unknown');
+    assert.equal(transition.satisfaction, null);
+    assert.equal(transition.reason, 'unsupported_property');
+    assert.equal(transition.evidence.selectorTargetType, 'unsupported_selector_target_type');
+    assert.equal(transition.invocation, null);
+    assert.equal(transition.execution_result.executorInvoked, false);
+    await unchanged(scene, scene.primary, beforeSession, beforeTree);
+    return { head: transition.policy.selectedHead, detail: transition.evidence.selectorTargetType };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P27', 'P3-PROBE-UNSPECIFIED-TYPE routes omitted selector.type to unsupported', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const beforeSession = scene.sandbox.getSession(scene.primary);
+    const beforeTree = await treeSnapshot(scene.root);
+    const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+    const transition = await policyFor(scene, candidate, scene.primary, authority).step({
+      goal: entrySelectGoal(targetRef, 'humanagent', undefined, parentPhysical),
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(transition.policy.selectedHead, 'unsupported');
+    assert.equal(transition.policy_error, null);
+    assert.equal(transition.status, 'unknown');
+    assert.equal(transition.satisfaction, null);
+    assert.equal(transition.reason, 'unsupported_property');
+    assert.equal(transition.evidence.selectorTargetType, 'selector_target_type_unspecified');
+    assert.equal(transition.invocation, null);
+    assert.equal(transition.execution_result.executorInvoked, false);
+    await unchanged(scene, scene.primary, beforeSession, beforeTree);
+    return { head: transition.policy.selectedHead, detail: transition.evidence.selectorTargetType };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P28', 'P3-PROBE-PARTIAL-COVERAGE verifies direct B partial precedence and outer complete->select->partial->defer invalidation', async () => {
+  // (a) Direct unit B with coverage === 'partial' across |M| === 0, |M| === 1, and |M| > 1
+  const selector = { name: 'humanagent', type: 'directory', parent: '/p' };
+  const zeroMatch = resolveEntrySelectSet(
+    selector,
+    [{ ref: '/p/alpha', path: '/p/alpha', name: 'alpha', type: 'directory', parent: '/p' }],
+    'partial',
+    entrySelectProfiles.directory,
+  );
+  const oneMatch = resolveEntrySelectSet(
+    selector,
+    [{ ref: '/p/humanagent', path: '/p/humanagent', name: 'humanagent', type: 'directory', parent: '/p' }],
+    'partial',
+    entrySelectProfiles.directory,
+  );
+  const multiMatch = resolveEntrySelectSet(
+    selector,
+    [
+      { ref: '/p/alpha', path: '/p/alpha', name: 'alpha', type: 'directory', parent: '/p' },
+      { ref: '/p/humanagent', path: '/p/humanagent', name: 'humanagent', type: 'directory', parent: '/p' },
+    ],
+    'partial',
+    zeroEntrySelectProfile('directory'),
+  );
+  for (const res of [zeroMatch, oneMatch, multiMatch]) {
+    assert.equal(res.outcome, 'insufficient_evidence');
+    assert.equal(res.reason, 'coverage_partial');
+    assert.equal(res.ref, null);
+  }
+
+  // (b) Outer cli-file-property workflow: complete ls -> select.entry (achieved/100) -> same-directory partial ls -> select.entry (DEFER)
+  let returnPartial = false;
+  const scene = await createIndependentScene(api, { after: () => {} }, {
+    listingObserver: async input => {
+      const result = await api.runDirectoryListHelper(input);
+      if (!result.ok || !returnPartial) return result;
+      const physicalDirectory = result.observation.physicalDirectory;
+      return {
+        ok: true,
+        observation: {
+          ...result.observation,
+          coverage: 'partial',
+          entries: [
+            ...result.observation.entries,
+            { name: 'flaky', path: join(physicalDirectory, 'flaky'), type: 'unknown' },
+          ],
+          errors: [{ name: 'flaky', code: 'EIO', message: 'synthetic partial probe' }],
+        },
+      };
+    },
+  });
+  try {
+    const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+    const policy = policyFor(scene, candidate, scene.primary, authority);
+    const selectGoal = entrySelectGoal(targetRef, 'humanagent', 'directory', parentPhysical);
+    const selectedStep = await policy.step({
+      goal: selectGoal,
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(selectedStep.policy.selectedHead, 'directory.select');
+    assert.equal(selectedStep.status, 'achieved');
+    assert.equal(selectedStep.satisfaction, 100);
+    assert.equal(selectedStep.observed_state_after.entrySelection?.outcome, 'selected');
+
+    returnPartial = true;
+    const lsPolicy = policyFor(scene, forcedHeadProfile('ls'), scene.primary, authority);
+    const partialLsStep = await lsPolicy.step({
+      goal: observationGoal('file.property.directory.entries', targetRef),
+      satisfactionThreshold: 100,
+      state: selectedStep.observed_state_after,
+    });
+    assert.equal(partialLsStep.status, 'unknown');
+    assert.equal(partialLsStep.satisfaction, null);
+    assert.equal(partialLsStep.reason, 'partial_coverage');
+    assert.equal(partialLsStep.observed_state_after.directoryListing, null);
+    assert.equal(partialLsStep.observed_state_after.entrySelection, null);
+
+    const afterPartialSelect = await policy.step({
+      goal: selectGoal,
+      satisfactionThreshold: 100,
+      state: partialLsStep.observed_state_after,
+    });
+    assert.equal(afterPartialSelect.policy.selectedHead, 'DEFER');
+    assert.equal(afterPartialSelect.status, 'unknown');
+    assert.equal(afterPartialSelect.satisfaction, null);
+    assert.equal(afterPartialSelect.reason, 'listing_unobserved');
+    assert.equal(afterPartialSelect.execution_result.executorInvoked, false);
+    assert.deepEqual(afterPartialSelect.evidence.facts, {
+      hasFreshEvidence: 0,
+      knownValue: 0,
+      requiredConditionHolds: 0,
+      hasDestinationRef: 1,
+    });
+    return {
+      directPartialReasons: [zeroMatch.reason, oneMatch.reason, multiMatch.reason],
+      outerAfterPartialHead: afterPartialSelect.policy.selectedHead,
+    };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+registerCase('probe', 'P29', 'P3-PROBE-UNKNOWN-CANDIDATE-TYPE returns insufficient_evidence unknown/null without coercing missing wire to 0', async () => {
+  const selector = { name: 'notes.txt', type: 'regular', parent: '/p' };
+  const unknownCandidate = { ref: '/p/notes.txt', path: '/p/notes.txt', name: 'notes.txt', type: 'unknown', parent: '/p' };
+  assert.equal(entrySelectFeatures(selector, unknownCandidate), null);
+  const predictedUnknown = predictEntrySelectRelation(selector, unknownCandidate, entrySelectProfiles.regular);
+  assert.equal(predictedUnknown.status, 'unknown');
+  assert.equal(predictedUnknown.features, null);
+  assert.equal(predictedUnknown.logit, null);
+  assert.equal(predictedUnknown.score, null);
+  assert.equal(predictedUnknown.relation, null);
+
+  const directUnknown = resolveEntrySelectSet(
+    selector,
+    [unknownCandidate],
+    'complete',
+    entrySelectProfiles.regular,
+  );
+  assert.equal(directUnknown.outcome, 'insufficient_evidence');
+  assert.equal(directUnknown.status, 'unknown');
+  assert.equal(directUnknown.satisfaction, null);
+  assert.equal(directUnknown.reason, 'unknown_comparison');
+  assert.equal(directUnknown.ref, null);
+
+  const knowledge = validateEntrySelectionKnowledge({
+    parentPath: '/p',
+    name: 'notes.txt',
+    targetType: 'regular',
+    outcome: directUnknown.outcome,
+    ref: directUnknown.ref,
+    reason: directUnknown.reason,
+    sessionRevision: 0,
+    sourceRun: 'probe-p29',
+  });
+  assert.equal(knowledge.outcome, 'insufficient_evidence');
+  assert.equal(knowledge.ref, null);
+  assert.equal(knowledge.reason, 'unknown_comparison');
+  return {
+    features: predictedUnknown.features,
+    directStatus: directUnknown.status,
+    directReason: directUnknown.reason,
+    projectedOutcome: knowledge.outcome,
+    projectedRef: knowledge.ref,
+  };
+});
+
+registerCase('probe', 'P30', 'P3-PROBE-DUPLICATE-ENTITY verifies multiple_matches_in_single_parent conflict and duplicate ref invalid_input rejection', async () => {
+  const selector = { name: 'humanagent', type: 'directory', parent: '/p' };
+  const duplicateEntityRes = resolveEntrySelectSet(
+    selector,
+    [
+      { ref: '/p/h1', path: '/p/humanagent', name: 'humanagent', type: 'directory', parent: '/p' },
+      { ref: '/p/h2', path: '/p/humanagent', name: 'humanagent', type: 'directory', parent: '/p' },
+    ],
+    'complete',
+    entrySelectProfiles.directory,
+  );
+  assert.equal(duplicateEntityRes.outcome, 'invalid_input');
+  assert.equal(duplicateEntityRes.reason, 'duplicate_entity');
+
+  const duplicateRefRes = resolveEntrySelectSet(
+    selector,
+    [
+      { ref: '/p/humanagent', path: '/p/humanagent', name: 'humanagent', type: 'directory', parent: '/p' },
+      { ref: '/p/humanagent', path: '/p/humanagent', name: 'humanagent', type: 'directory', parent: '/p' },
+    ],
+    'complete',
+    entrySelectProfiles.directory,
+  );
+  assert.equal(duplicateRefRes.outcome, 'invalid_input');
+  assert.equal(duplicateRefRes.reason, 'duplicate_ref');
+
+  const conflictScene = await createIndependentScene(api, { after: () => {} });
+  const duplicateScene = await createIndependentScene(api, { after: () => {} }, {
+    listingObserver: async input => {
+      const result = await api.runDirectoryListHelper(input);
+      if (!result.ok) return result;
+      const first = result.observation.entries[0];
+      return {
+        ok: true,
+        observation: {
+          ...result.observation,
+          entries: [first, ...result.observation.entries],
+        },
+      };
+    },
+  });
+  try {
+    const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(conflictScene);
+    const conflictPolicy = api.createCliCommandPolicy(
+      {
+        profile: candidate,
+        sandbox: conflictScene.sandbox,
+        session: conflictScene.primary,
+        entrySelectProfiles: {
+          directory: zeroEntrySelectProfile('directory'),
+          regular: zeroEntrySelectProfile('regular'),
+        },
+      },
+      authority,
+    );
+    const conflictStep = await conflictPolicy.step({
+      goal: entrySelectGoal(targetRef, 'humanagent', 'directory', parentPhysical),
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(conflictStep.policy.selectedHead, 'directory.select');
+    assert.equal(conflictStep.status, 'unknown');
+    assert.equal(conflictStep.satisfaction, null);
+    assert.equal(conflictStep.reason, 'multiple_matches_in_single_parent');
+    assert.equal(conflictStep.evidence.selection, 'conflict');
+    assert.equal(conflictStep.observed_state_after.entrySelection?.outcome, 'conflict');
+    assert.equal(conflictStep.observed_state_after.entrySelection?.ref, null);
+
+    const dupCtx = await setupSelectSandbox(duplicateScene);
+    const invalidStep = await policyFor(
+      duplicateScene,
+      candidate,
+      duplicateScene.primary,
+      dupCtx.authority,
+    ).step({
+      goal: entrySelectGoal(dupCtx.targetRef, 'humanagent', 'directory', dupCtx.parentPhysical),
+      satisfactionThreshold: 100,
+      state: dupCtx.listingState,
+    });
+    assert.equal(invalidStep.policy.selectedHead, 'directory.select');
+    assert.equal(invalidStep.status, 'rejected');
+    assert.equal(invalidStep.satisfaction, 0);
+    assert.equal(invalidStep.reason, 'invalid_candidate_set');
+    assert.equal(invalidStep.observed_state_after.entrySelection?.outcome, 'rejected');
+    assert.equal(invalidStep.observed_state_after.entrySelection?.reason, 'duplicate_ref');
+    return {
+      conflictReason: conflictStep.reason,
+      duplicateEntityReason: duplicateEntityRes.reason,
+      duplicateRefReason: invalidStep.reason,
+    };
+  } finally {
+    await conflictScene.cleanup();
+    await duplicateScene.cleanup();
+  }
+});
+
+registerCase('probe', 'P31', 'P3-PROBE-STALE-LISTING verifies unobserved, untampered/tampered stale listing, Stale Combination A [0,1,1,1]->DEFER, and Stale Combination B [1,1,0,1]->select', async () => {
+  const scene = await createIndependentScene(api, { after: () => {} });
+  try {
+    const { authority, targetRef, parentPhysical, listingState } = await setupSelectSandbox(scene);
+    const policy = policyFor(scene, candidate, scene.primary, authority);
+    const goalAtR0 = entrySelectGoal(targetRef, 'humanagent', 'directory', parentPhysical);
+
+    // (a) Unobserved listing [0,0,0,1] -> DEFER
+    const unobservedStep = await policy.step({
+      goal: goalAtR0,
+      satisfactionThreshold: 100,
+      state: emptyState(scene.primary),
+    });
+    assert.equal(unobservedStep.policy.selectedHead, 'DEFER');
+    assert.equal(unobservedStep.status, 'unknown');
+    assert.equal(unobservedStep.satisfaction, null);
+    assert.equal(unobservedStep.reason, 'listing_unobserved');
+    assert.equal(unobservedStep.execution_result.executorInvoked, false);
+    assert.deepEqual(unobservedStep.evidence.facts, {
+      hasFreshEvidence: 0,
+      knownValue: 0,
+      requiredConditionHolds: 0,
+      hasDestinationRef: 1,
+    });
+
+    // Execute first selection at revision r_0 so we have both listingState (r_0) and selectedState (r_0)
+    const selectedAtR0 = await policy.step({
+      goal: goalAtR0,
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(selectedAtR0.policy.selectedHead, 'directory.select');
+    assert.equal(selectedAtR0.status, 'achieved');
+
+    // Advance session revision to r_1 via cd
+    const startDirRef = await scene.sandbox.bindDirectory(scene.primary, '.');
+    const moved = await scene.sandbox.execute({
+      operation: 'cwd.set',
+      parameters: { session: scene.primary, directory: startDirRef },
+    });
+    assert.equal(moved.execution.status, 'succeeded');
+    const targetRefAtR1 = await scene.sandbox.bindDirectory(scene.primary, '../sibling/select-sandbox');
+    const goalAtR1 = entrySelectGoal(targetRefAtR1, 'humanagent', 'directory', parentPhysical);
+    const r1 = scene.sandbox.getSession(scene.primary).revision;
+    assert.ok(r1 > listingState.directoryListing.revision);
+
+    // (b) Untampered stale listing [0,1,0,1] -> DEFER, and tampered directoryListing.revision -> [0,0,0,1] -> DEFER
+    const staleListingStep = await policy.step({
+      goal: goalAtR1,
+      satisfactionThreshold: 100,
+      state: listingState,
+    });
+    assert.equal(staleListingStep.policy.selectedHead, 'DEFER');
+    assert.equal(staleListingStep.status, 'unknown');
+    assert.equal(staleListingStep.reason, 'listing_unobserved');
+    assert.equal(staleListingStep.execution_result.executorInvoked, false);
+    assert.deepEqual(staleListingStep.evidence.facts, {
+      hasFreshEvidence: 0,
+      knownValue: 1,
+      requiredConditionHolds: 0,
+      hasDestinationRef: 1,
+    });
+
+    const tamperedListingState = {
+      ...listingState,
+      directoryListing: {
+        ...listingState.directoryListing,
+        revision: r1,
+      },
+    };
+    const tamperedListingStep = await policy.step({
+      goal: goalAtR1,
+      satisfactionThreshold: 100,
+      state: tamperedListingState,
+    });
+    assert.equal(tamperedListingStep.policy.selectedHead, 'DEFER');
+    assert.equal(tamperedListingStep.status, 'unknown');
+    assert.equal(tamperedListingStep.execution_result.executorInvoked, false);
+    assert.deepEqual(tamperedListingStep.evidence.facts, {
+      hasFreshEvidence: 0,
+      knownValue: 0,
+      requiredConditionHolds: 0,
+      hasDestinationRef: 1,
+    });
+
+    // (c) Stale Combination A: old listing + old selected entry both at r_0 < r_1 -> [0,1,1,1] -> DEFER
+    const staleComboAStep = await policy.step({
+      goal: goalAtR1,
+      satisfactionThreshold: 100,
+      state: selectedAtR0.observed_state_after,
+    });
+    assert.equal(staleComboAStep.policy.selectedHead, 'DEFER');
+    assert.equal(staleComboAStep.status, 'unknown');
+    assert.equal(staleComboAStep.satisfaction, null);
+    assert.equal(staleComboAStep.reason, 'listing_unobserved');
+    assert.equal(staleComboAStep.defer?.code, 'binding_unresolved');
+    assert.equal(staleComboAStep.execution_result.executorInvoked, false);
+    assert.deepEqual(staleComboAStep.evidence.facts, {
+      hasFreshEvidence: 0,
+      knownValue: 1,
+      requiredConditionHolds: 1,
+      hasDestinationRef: 1,
+    });
+
+    // (d) Stale Combination B: fresh listing at r_1 + old selected entry from r_0 -> activeSelection normalized to null -> [1,1,0,1] -> directory.select
+    const lsPolicy = policyFor(scene, forcedHeadProfile('ls'), scene.primary, authority);
+    const freshLsAtR1 = await lsPolicy.step({
+      goal: observationGoal('file.property.directory.entries', targetRefAtR1),
+      satisfactionThreshold: 100,
+      state: selectedAtR0.observed_state_after,
+    });
+    assert.equal(freshLsAtR1.status, 'achieved');
+    assert.equal(freshLsAtR1.observed_state_after.entrySelection, null);
+
+    const splicedStaleComboB = {
+      ...freshLsAtR1.observed_state_after,
+      entrySelection: selectedAtR0.observed_state_after.entrySelection,
+    };
+    const comboBStep = await policy.step({
+      goal: goalAtR1,
+      satisfactionThreshold: 100,
+      state: splicedStaleComboB,
+    });
+    assert.equal(comboBStep.policy.selectedHead, 'directory.select');
+    assert.equal(comboBStep.status, 'achieved');
+    assert.equal(comboBStep.satisfaction, 100);
+    assert.equal(comboBStep.execution_result.executorInvoked, true);
+    assert.deepEqual(comboBStep.evidence.facts, {
+      hasFreshEvidence: 1,
+      knownValue: 1,
+      requiredConditionHolds: 0,
+      hasDestinationRef: 1,
+    });
+
+    const tamperedComboB = {
+      ...freshLsAtR1.observed_state_after,
+      entrySelection: {
+        ...selectedAtR0.observed_state_after.entrySelection,
+        sessionRevision: r1,
+      },
+    };
+    const tamperedComboBStep = await policy.step({
+      goal: goalAtR1,
+      satisfactionThreshold: 100,
+      state: tamperedComboB,
+    });
+    assert.equal(tamperedComboBStep.policy.selectedHead, 'directory.select');
+    assert.equal(tamperedComboBStep.status, 'achieved');
+    assert.equal(tamperedComboBStep.satisfaction, 100);
+    assert.equal(tamperedComboBStep.execution_result.executorInvoked, true);
+    assert.deepEqual(tamperedComboBStep.evidence.facts, {
+      hasFreshEvidence: 1,
+      knownValue: 1,
+      requiredConditionHolds: 0,
+      hasDestinationRef: 1,
+    });
+
+    return {
+      unobserved: unobservedStep.policy.selectedHead,
+      staleListing: staleListingStep.policy.selectedHead,
+      staleComboA: staleComboAStep.policy.selectedHead,
+      staleComboB: comboBStep.policy.selectedHead,
+    };
+  } finally {
+    await scene.cleanup();
+  }
+});
+
+const STAGE2_SCENARIO_IDS = new Set([
+  'S49', 'S50', 'S51', 'S52', 'S53', 'S54', 'S55', 'S56',
+  'S57', 'S58', 'S59', 'S60', 'S61', 'S62', 'S63', 'S64',
+]);
+const STAGE2_PROBE_IDS = new Set([
+  'P24', 'P25', 'P26', 'P27', 'P28', 'P29', 'P30', 'P31',
+]);
+
 after(async () => {
   const passed = rows.filter(row => row.result === 'PASS').length;
   const failed = rows.filter(row => row.result === 'FAIL').length;
+  const historicalRows = rows.filter(row => !STAGE2_SCENARIO_IDS.has(row.id) && !STAGE2_PROBE_IDS.has(row.id));
+  const stage2Rows = rows.filter(row => STAGE2_SCENARIO_IDS.has(row.id) || STAGE2_PROBE_IDS.has(row.id));
   const summary = {
-    suite: 'batch1-i7-independent-verification',
+    suite: 'batch1-i7-and-stage2-independent-verification',
+    stage,
     profilePath,
+    profileProvenance: {
+      fitted: profileRole === 'trained_candidate',
+      role: profileRole,
+      notATrainedCapabilityResult: profileRole !== 'trained_candidate',
+    },
     profile: {
       contract: candidate.contract,
       calibration: candidate.calibration,
       adoption: candidate.adoption,
       heads: candidate.heads.length,
       wires: candidate.wires.length,
+      parameters: candidate.heads.length * candidate.wires.length,
     },
+    trackBProfiles: stage === 'stage2-13x38'
+      ? {
+          directoryProfilePath: bDirectoryProfilePath,
+          fileProfilePath: bFileProfilePath,
+          directoryContract: entrySelectProfiles.directory.contract,
+          fileContract: entrySelectProfiles.regular.contract,
+        }
+      : null,
     startedAt,
     finishedAt: new Date().toISOString(),
     scenarioCount: rows.filter(row => row.category !== 'probe').length,
@@ -1415,21 +2205,40 @@ after(async () => {
     passed,
     failed,
     skipped: 0,
+    fullyVerified: false,
+    unseenFeatureCapabilityVerified: false,
+    historicalKnownRegression: {
+      total: historicalRows.length,
+      passed: historicalRows.filter(row => row.result === 'PASS').length,
+      failed: historicalRows.filter(row => row.result === 'FAIL').length,
+      stage0: 56,
+      stage1: 15,
+    },
+    stage2NewExternal: {
+      total: stage2Rows.length,
+      passed: stage2Rows.filter(row => row.result === 'PASS').length,
+      failed: stage2Rows.filter(row => row.result === 'FAIL').length,
+      scenarios: rows.filter(row => STAGE2_SCENARIO_IDS.has(row.id)).length,
+      probes: rows.filter(row => STAGE2_PROBE_IDS.has(row.id)).length,
+    },
     unverified,
     rows: [...rows].sort((left, right) => left.id.localeCompare(right.id)),
   };
   await mkdir(dirname(reportPath), { recursive: true });
   await writeFile(reportPath, `${JSON.stringify(summary, null, 2)}\n`, { flag: 'wx' });
   console.log(`I7_SUITE_REPORT ${JSON.stringify({
+    stage,
+    profileRole,
     scenarioCount: summary.scenarioCount,
     probeCount: summary.probeCount,
     passed,
     failed,
     reportPath,
   })}`);
-  assert.equal(summary.scenarioCount, 48);
-  assert.equal(summary.probeCount, 23);
-  assert.equal(rows.length, 71);
+  assert.equal(summary.scenarioCount, 64);
+  assert.equal(summary.probeCount, 31);
+  assert.equal(rows.length, 95);
+  assert.equal(summary.historicalKnownRegression.total, 71);
+  assert.equal(summary.stage2NewExternal.total, 24);
   assert.equal(unverified.length, 5);
 });
-

@@ -110,6 +110,7 @@ const ELEVEN_HEADS = [
   "unsupported", "DEFER", "NOOP", "pwd", "cd", "ls",
   "path.resolve", "path.relative", "path.parts", "path.realpath", "entry.inspect",
 ];
+const THIRTEEN_HEADS = [...ELEVEN_HEADS, "directory.select", "file.select"];
 const FIFTEEN_PROPERTIES = [
   "property.path.absolute", "property.path.relative", "property.path.parent", "property.path.name",
   "property.path.physical",
@@ -122,6 +123,7 @@ const NINE_PREDICATES = [
   "predicate.observe.physical", "predicate.observe.inspect", "predicate.observe.resolvedTarget",
   "predicate.observe.sessionCwd", "predicate.equals.sessionCwd", "predicate.observe.entries",
 ];
+const TEN_PREDICATES = [...NINE_PREDICATES, "predicate.select.entry"];
 const THIRTY_FOUR_WIRES = [
   "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
   ...FIFTEEN_PROPERTIES,
@@ -130,13 +132,26 @@ const THIRTY_FOUR_WIRES = [
   "search.nameNeedleSegment",
   "state.requiredConditionHolds*state.hasFreshEvidence",
 ];
-const TEN_HEADS_10X31 = ELEVEN_HEADS.filter(head => head !== "path.realpath");
+const THIRTY_EIGHT_WIRES = [
+  "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
+  ...FIFTEEN_PROPERTIES,
+  ...TEN_PREDICATES,
+  "selectorTargetType.unspecified", "selectorTargetType.regular", "selectorTargetType.directory",
+  "state.hasFreshEvidence", "state.knownValue", "state.requiredConditionHolds", "state.hasDestinationRef",
+  "search.nameNeedleSegment",
+  "state.requiredConditionHolds*state.hasFreshEvidence",
+];
+const TEN_HEADS_10X31 = THIRTEEN_HEADS.filter(head => head !== "path.realpath" && head !== "directory.select" && head !== "file.select");
 const STAGE1_NEW_WIRES = [
   "property.path.physical",
   "predicate.observe.physical",
   "predicate.observe.resolvedTarget",
 ];
-const THIRTY_ONE_WIRES_10X31 = THIRTY_FOUR_WIRES.filter(wire => !STAGE1_NEW_WIRES.includes(wire));
+const STAGE2_NEW_WIRES = [
+  "predicate.select.entry",
+  "selectorTargetType.unspecified", "selectorTargetType.regular", "selectorTargetType.directory",
+];
+const THIRTY_ONE_WIRES_10X31 = THIRTY_EIGHT_WIRES.filter(wire => !STAGE1_NEW_WIRES.includes(wire) && !STAGE2_NEW_WIRES.includes(wire));
 const SIX_HEADS = ["unsupported", "DEFER", "NOOP", "pwd", "cd", "ls"];
 const FOURTEEN_WIRES = [
   "bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory",
@@ -160,16 +175,16 @@ function directoryQuery(name = "child") {
   };
 }
 
-test("R01 profile registers eleven shared heads, thirty-four ordered wires and an 11x34 matrix", async () => {
+test("R01 profile registers thirteen shared heads, thirty-eight ordered wires and a 13x38 matrix", async () => {
   const module = await api();
   const profile = module.zeroCliCommandProfile();
-  assert.deepEqual(profile.heads, ELEVEN_HEADS);
+  assert.deepEqual(profile.heads, THIRTEEN_HEADS);
   assert.deepEqual(profile.properties, FIFTEEN_PROPERTIES);
-  assert.deepEqual(profile.predicates, NINE_PREDICATES);
-  assert.deepEqual(profile.wires, THIRTY_FOUR_WIRES);
-  assert.equal(profile.weights.length, 11);
-  assert.equal(profile.weights.every(row => row.length === 34), true);
-  assert.equal(profile.weights.flat().length, 374);
+  assert.deepEqual(profile.predicates, TEN_PREDICATES);
+  assert.deepEqual(profile.wires, THIRTY_EIGHT_WIRES);
+  assert.equal(profile.weights.length, 13);
+  assert.equal(profile.weights.every(row => row.length === 38), true);
+  assert.equal(profile.weights.flat().length, 494);
 });
 
 test("legacy four-by-four migration copies its named cross block into the current schema", async () => {
@@ -188,8 +203,8 @@ test("legacy four-by-four migration copies its named cross block into the curren
     adoption: "not_applied",
   };
   const migrated = migrateLegacyCliCommandProfile(legacy);
-  assert.deepEqual(migrated.heads, ELEVEN_HEADS);
-  assert.deepEqual(migrated.wires, THIRTY_FOUR_WIRES);
+  assert.deepEqual(migrated.heads, THIRTEEN_HEADS);
+  assert.deepEqual(migrated.wires, THIRTY_EIGHT_WIRES);
   const legacyHeads = ["unsupported", "pwd", "cd", "ls"];
   const legacyWires = ["bias", "goalObserveCwd", "goalSetCwd", "goalListDirectory"];
   for (const [legacyRow, head] of legacyHeads.entries()) {
@@ -202,15 +217,15 @@ test("legacy four-by-four migration copies its named cross block into the curren
   for (const head of ["DEFER", "NOOP"]) {
     assert.deepEqual(migrated.weights[migrated.heads.indexOf(head)].slice(0, 4), [0, 0, 0, 0]);
   }
-  for (const head of ELEVEN_HEADS) {
+  for (const head of THIRTEEN_HEADS) {
     const row = migrated.weights[migrated.heads.indexOf(head)];
-    for (const [column, wire] of THIRTY_FOUR_WIRES.entries()) {
+    for (const [column, wire] of THIRTY_EIGHT_WIRES.entries()) {
       if (!legacyHeads.includes(head) || !legacyWires.includes(wire)) assert.equal(row[column], 0, `${head}/${wire} must be zero-filled`);
     }
   }
 });
 
-test("Stage 0 10x31 migrates to Stage 1 11x34 by exact head and wire name", async () => {
+test("Stage 0 10x31 migrates to Stage 2 13x38 by exact head and wire name", async () => {
   const module = await api();
   const weights = Array.from({ length: TEN_HEADS_10X31.length }, (_, row) =>
     Array.from({ length: THIRTY_ONE_WIRES_10X31.length }, (_, column) => (row + 1) * 1000 + column));
@@ -218,8 +233,9 @@ test("Stage 0 10x31 migrates to Stage 1 11x34 by exact head and wire name", asyn
     contract: "cli.command-policy.v1",
     heads: TEN_HEADS_10X31,
     properties: FIFTEEN_PROPERTIES.filter(property => property !== "property.path.physical"),
-    predicates: NINE_PREDICATES.filter(predicate =>
-      predicate !== "predicate.observe.physical" && predicate !== "predicate.observe.resolvedTarget"),
+    predicates: TEN_PREDICATES.filter(predicate =>
+      predicate !== "predicate.observe.physical" && predicate !== "predicate.observe.resolvedTarget"
+      && predicate !== "predicate.select.entry"),
     wires: THIRTY_ONE_WIRES_10X31,
     weights,
     calibration: "uncalibrated",
@@ -227,9 +243,9 @@ test("Stage 0 10x31 migrates to Stage 1 11x34 by exact head and wire name", asyn
   };
   assert.throws(() => module.validateCliCommandProfile(stage0), /10x31|migrat/i);
   const migrated = module.migrateCliCommandProfileStage0ToStage1(stage0);
-  assert.deepEqual(migrated.heads, ELEVEN_HEADS);
-  assert.deepEqual(migrated.wires, THIRTY_FOUR_WIRES);
-  assert.equal(migrated.weights.flat().length, 374);
+  assert.deepEqual(migrated.heads, THIRTEEN_HEADS);
+  assert.deepEqual(migrated.wires, THIRTY_EIGHT_WIRES);
+  assert.equal(migrated.weights.flat().length, 494);
   for (const head of TEN_HEADS_10X31) {
     for (const wire of THIRTY_ONE_WIRES_10X31) {
       assert.equal(
@@ -239,12 +255,18 @@ test("Stage 0 10x31 migrates to Stage 1 11x34 by exact head and wire name", asyn
       );
     }
   }
-  for (const head of ELEVEN_HEADS) {
+  for (const head of THIRTEEN_HEADS) {
     for (const wire of STAGE1_NEW_WIRES) {
       assert.equal(migrated.weights[migrated.heads.indexOf(head)][migrated.wires.indexOf(wire)], 0);
     }
   }
-  assert.deepEqual(migrated.weights[migrated.heads.indexOf("path.realpath")], Array(34).fill(0));
+  for (const head of THIRTEEN_HEADS) {
+    for (const wire of STAGE2_NEW_WIRES) {
+      if (wire.startsWith("predicate.")) continue;
+      assert.equal(migrated.weights[migrated.heads.indexOf(head)][migrated.wires.indexOf(wire)], 0, `${head}/${wire} must be zero-filled`);
+    }
+  }
+  assert.deepEqual(migrated.weights[migrated.heads.indexOf("path.realpath")], Array(38).fill(0));
   assert.deepEqual(module.migrateCliCommandProfileToCurrent(stage0), migrated);
   assert.deepEqual(module.migrateCliCommandProfileToCurrent(migrated), migrated);
 });
@@ -1256,4 +1278,79 @@ test("operation applicability remains deterministic for current observe-only ope
     assert.equal(module.evaluateOperationApplicability(type, "path.realpath"), "appropriate");
   }
   assert.equal(module.evaluateOperationApplicability(null, "entry.inspect"), "unknown");
+});
+
+function selectGoal({ name = "humanagent", parent = "/work/start/work", type = "directory", cardinality = "one", omitType = false } = {}) {
+  return {
+    kind: "file.property",
+    property: "file.property.directory.entries",
+    target: { kind: "cli.directory", scenarioId: "s", sessionId: "s", path: "work" },
+    requirement: {
+      kind: "matches",
+      predicate: {
+        kind: "entrySelector",
+        selector: { name, parent, ...(omitType ? {} : { type }) },
+        cardinality,
+      },
+    },
+  };
+}
+
+test("select.entry goal registers predicate.select.entry, selector target wires and pre-execution guards", async () => {
+  const module = await api();
+  const directory = module.validateGoal(selectGoal());
+  assert.equal(directory.registered, true);
+  assert.equal(directory.predicate, "predicate.select.entry");
+  assert.equal(directory.bindingError, null);
+  assert.equal(directory.unboundDirectory, false);
+  assert.equal(module.predicateOf(directory.goal), "predicate.select.entry");
+  assert.deepEqual(module.legacyWires(directory.goal), { goalObserveCwd: 0, goalSetCwd: 0, goalListDirectory: 0 });
+  assert.deepEqual(module.selectorTargetTypeOf(directory.goal), [0, 0, 1]);
+  assert.deepEqual(module.selectorTargetTypeOf(module.validateGoal(selectGoal({ type: "regular" })).goal), [0, 1, 0]);
+
+  const unspecified = module.validateGoal(selectGoal({ omitType: true }));
+  assert.equal(unspecified.registered, false);
+  assert.equal(unspecified.bindingError, null);
+  assert.deepEqual(module.selectorTargetTypeOf(unspecified.goal), [1, 0, 0]);
+  const symlink = module.validateGoal(selectGoal({ type: "symlink" }));
+  assert.equal(symlink.registered, false);
+  assert.deepEqual(module.selectorTargetTypeOf(symlink.goal), [1, 0, 0]);
+
+  for (const name of ["", ".", "..", "a/b", "a\u0000b"]) {
+    assert.equal(module.validateGoal(selectGoal({ name })).bindingError, "invalid_entry_selector", `${JSON.stringify(name)} must be rejected`);
+  }
+  for (const parent of ["", "start/work", "/start/\u0000"]) {
+    assert.equal(module.validateGoal(selectGoal({ parent })).bindingError, "invalid_entry_selector", `${JSON.stringify(parent)} must be rejected`);
+  }
+  assert.equal(module.validateGoal(selectGoal({ cardinality: "all" })).bindingError, "invalid_selector_cardinality");
+
+  const facts = { hasFreshEvidence: 1, knownValue: 1, requiredConditionHolds: 0, hasDestinationRef: 1 };
+  const features = module.cliCommandFeatures(directory.goal, facts);
+  assert.equal(features.length, THIRTY_EIGHT_WIRES.length);
+  assert.equal(features[THIRTY_EIGHT_WIRES.indexOf("predicate.select.entry")], 1);
+  assert.deepEqual(
+    ["selectorTargetType.unspecified", "selectorTargetType.regular", "selectorTargetType.directory"]
+      .map(wire => features[THIRTY_EIGHT_WIRES.indexOf(wire)]),
+    [0, 0, 1],
+  );
+  assert.equal(features[THIRTY_EIGHT_WIRES.indexOf("goalListDirectory")], 0);
+  assert.equal(features[THIRTY_EIGHT_WIRES.indexOf("property.directory.entries")], 1);
+});
+
+test("select.entry required head switches between unsupported, DEFER, NOOP and typed select", async () => {
+  const module = await api();
+  const unobserved = { hasFreshEvidence: 0, knownValue: 0, requiredConditionHolds: 0, hasDestinationRef: 1 };
+  const fresh = { hasFreshEvidence: 1, knownValue: 1, requiredConditionHolds: 0, hasDestinationRef: 1 };
+  const satisfied = { hasFreshEvidence: 1, knownValue: 1, requiredConditionHolds: 1, hasDestinationRef: 1 };
+  const head = (goal, facts, registered = true, unboundDirectory = false) =>
+    module.requiredHead({ registered, unboundDirectory, goal, facts });
+
+  const directory = module.validateGoal(selectGoal());
+  assert.equal(head(directory.goal, fresh), "directory.select");
+  assert.equal(head(directory.goal, unobserved), "DEFER");
+  assert.equal(head(directory.goal, satisfied), "NOOP");
+  assert.equal(head(module.validateGoal(selectGoal({ type: "regular" })).goal, fresh), "file.select");
+  assert.equal(head(module.validateGoal(selectGoal({ omitType: true })).goal, fresh, false), "unsupported");
+  assert.equal(head(directory.goal, unobserved, true, true), "DEFER");
+  assert.equal(head(directory.goal, fresh).length > 0, true);
 });

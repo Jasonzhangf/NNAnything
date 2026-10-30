@@ -10,6 +10,22 @@ import type {
 } from "./cli-file-property.js";
 import { validateCliCwd } from "./cli-path.js";
 
+export type EntrySelectionOutcome = "selected" | "not_found" | "insufficient_evidence" | "conflict" | "rejected";
+
+export type EntrySelectionObservation = Readonly<{
+  parentPath: string;
+  name: string;
+  targetType: "unspecified" | "regular" | "directory";
+  outcome: EntrySelectionOutcome;
+  ref: string | null;
+  reason: string | null;
+}>;
+
+export type EntrySelectionKnowledge = EntrySelectionObservation & Readonly<{
+  sessionRevision: number;
+  sourceRun: string;
+}>;
+
 export type CwdKnowledge = Readonly<{
   physicalCwd: string;
   evidence: PwdObservation;
@@ -92,6 +108,7 @@ export type ExplicitFileState = Readonly<{
   directoryListing: DirectoryKnowledge | null;
   pathKnowledge?: PathKnowledge | null;
   entryKnowledge?: EntryKnowledge | null;
+  entrySelection?: EntrySelectionKnowledge | null;
 }>;
 
 function nonEmpty(value: unknown, label: string): string {
@@ -262,6 +279,38 @@ function sameDirectoryObservation(left: DirectoryListObservation, right: Directo
     && left.coverage === right.coverage
     && sameEntries(left.entries, right.entries)
     && sameErrors(left.errors, right.errors);
+}
+
+function sameEntrySelectObservation(left: EntrySelectObservation, right: EntrySelectObservation): boolean {
+  return left.parentPath === right.parentPath
+    && left.name === right.name
+    && left.targetType === right.targetType
+    && left.outcome === right.outcome
+    && left.ref === right.ref
+    && left.reason === right.reason;
+}
+
+function validateEntrySelectObservation(value: unknown): EntrySelectObservation {
+  const observation = expectRecord(value, "entry.select observation");
+  exactKeys(observation, ["name", "outcome", "parentPath", "reason", "ref", "targetType"], "entry.select observation");
+  const outcome = observation.outcome;
+  if (!["selected", "not_found", "insufficient_evidence", "conflict", "rejected"].includes(outcome as string)) {
+    throw new TypeError("entry.select observation outcome must be a registered selection outcome");
+  }
+  if (observation.targetType !== "unspecified" && observation.targetType !== "regular" && observation.targetType !== "directory") {
+    throw new TypeError("entry.select observation targetType must be unspecified, regular, or directory");
+  }
+  if (observation.reason !== null && (typeof observation.reason !== "string" || observation.reason.length === 0)) {
+    throw new TypeError("entry.select observation reason must be a non-empty string or null");
+  }
+  return Object.freeze({
+    parentPath: absolutePath(observation.parentPath, "entry.select observation parentPath"),
+    name: nonEmpty(observation.name, "entry.select observation name"),
+    targetType: observation.targetType as EntrySelectObservation["targetType"],
+    outcome: outcome as EntrySelectionOutcome,
+    ref: selectionRef(observation.ref, outcome as EntrySelectionOutcome, "entry.select observation ref"),
+    reason: observation.reason as string | null,
+  });
 }
 
 export function validatePwdObservation(value: unknown): PwdObservation {
@@ -504,9 +553,9 @@ export function validateEntryKnowledge(value: unknown): EntryKnowledge {
 
 export function validateExplicitFileState(value: unknown): ExplicitFileState {
   const state = expectRecord(value, "property state");
-  const keys = ["session", "cwdObservation", "directoryListing"], allowed = [...keys, "pathKnowledge", "entryKnowledge"];
+  const keys = ["session", "cwdObservation", "directoryListing"], allowed = [...keys, "pathKnowledge", "entryKnowledge", "entrySelection"];
   if (Object.keys(state).some(key => !allowed.includes(key)) || keys.some(key => !Object.hasOwn(state, key))) {
-    throw new TypeError(`property state must contain ${keys.join(", ")} and optional pathKnowledge, entryKnowledge`);
+    throw new TypeError(`property state must contain ${keys.join(", ")} and optional pathKnowledge, entryKnowledge, entrySelection`);
   }
   return Object.freeze({
     session: nonEmpty(state.session, "state.session"),
@@ -514,6 +563,47 @@ export function validateExplicitFileState(value: unknown): ExplicitFileState {
     directoryListing: state.directoryListing === null ? null : validateDirectoryKnowledge(state.directoryListing),
     pathKnowledge: state.pathKnowledge === undefined || state.pathKnowledge === null ? null : validatePathKnowledge(state.pathKnowledge),
     entryKnowledge: state.entryKnowledge === undefined || state.entryKnowledge === null ? null : validateEntryKnowledge(state.entryKnowledge),
+    ...(state.entrySelection === undefined || state.entrySelection === null
+      ? {}
+      : { entrySelection: validateEntrySelectionKnowledge(state.entrySelection) }),
+  });
+}
+
+function selectionRef(value: unknown, outcome: EntrySelectionOutcome, label: string): string | null {
+  if (outcome === "selected") {
+    if (typeof value === "string") return nonEmpty(value, label);
+    throw new TypeError(`${label} must be a non-empty string reference for a selected entry`);
+  }
+  if (value !== null) throw new TypeError(`${label} must be null when outcome is ${outcome}`);
+  return null;
+}
+
+export function validateEntrySelectionKnowledge(value: unknown): EntrySelectionKnowledge {
+  const knowledge = expectRecord(value, "state.entrySelection");
+  const keys = Object.keys(knowledge);
+  if (keys.some(key => key !== "name" && key !== "outcome" && key !== "parentPath" && key !== "reason" && key !== "ref" && key !== "sessionRevision" && key !== "sourceRun" && key !== "targetType")
+    || !["name", "outcome", "parentPath", "ref", "sessionRevision", "sourceRun", "targetType"].every(key => Object.hasOwn(knowledge, key))) {
+    throw new TypeError("state.entrySelection must contain name, outcome, parentPath, ref, sessionRevision, sourceRun, targetType and an optional reason");
+  }
+  const outcome = knowledge.outcome;
+  if (!["selected", "not_found", "insufficient_evidence", "conflict", "rejected"].includes(outcome as string)) {
+    throw new TypeError("state.entrySelection.outcome must be a registered selection outcome");
+  }
+  if (knowledge.targetType !== "unspecified" && knowledge.targetType !== "regular" && knowledge.targetType !== "directory") {
+    throw new TypeError("state.entrySelection.targetType must be unspecified, regular, or directory");
+  }
+  if (knowledge.reason !== null && (typeof knowledge.reason !== "string" || knowledge.reason.length === 0)) {
+    throw new TypeError("state.entrySelection.reason must be a non-empty string or null");
+  }
+  return Object.freeze({
+    parentPath: absolutePath(knowledge.parentPath, "state.entrySelection.parentPath"),
+    name: nonEmpty(knowledge.name, "state.entrySelection.name"),
+    targetType: knowledge.targetType as EntrySelectionKnowledge["targetType"],
+    outcome: outcome as EntrySelectionOutcome,
+    ref: selectionRef(knowledge.ref, outcome as EntrySelectionOutcome, "state.entrySelection.ref"),
+    reason: knowledge.reason as string | null,
+    sessionRevision: nonnegativeInteger(knowledge.sessionRevision, "state.entrySelection.sessionRevision"),
+    sourceRun: nonEmpty(knowledge.sourceRun, "state.entrySelection.sourceRun"),
   });
 }
 
@@ -531,7 +621,25 @@ export type EvidenceRecord =
       revision: number;
       runId: string;
       observation: DirectoryListObservation;
-    }>;
+    }>
+  | EntrySelectEvidenceRecord;
+
+export type EntrySelectObservation = Readonly<{
+  parentPath: string;
+  name: string;
+  targetType: "unspecified" | "regular" | "directory";
+  outcome: EntrySelectionOutcome;
+  ref: string | null;
+  reason: string | null;
+}>;
+
+export type EntrySelectEvidenceRecord = Readonly<{
+  kind: "entry.select";
+  session: string;
+  revision: number;
+  runId: string;
+  observation: EntrySelectObservation;
+}>;
 
 export type EvidenceAuthority = Readonly<{
   record(value: EvidenceRecord): void;
@@ -543,6 +651,9 @@ function sameObservation(left: EvidenceRecord, right: EvidenceRecord): boolean {
   if (left.kind === "pwd" && right.kind === "pwd") return samePwdObservation(left.observation, right.observation);
   if (left.kind === "directory.list" && right.kind === "directory.list") {
     return sameDirectoryObservation(left.observation, right.observation);
+  }
+  if (left.kind === "entry.select" && right.kind === "entry.select") {
+    return sameEntrySelectObservation(left.observation, right.observation);
   }
   return false;
 }
@@ -558,6 +669,10 @@ export function createEvidenceAuthority(): EvidenceAuthority {
         records.set(key, Object.freeze({ ...value, observation: validatePwdObservation(value.observation) }));
         return;
       }
+    if (value.kind === "entry.select") {
+      records.set(key, Object.freeze({ ...value, observation: validateEntrySelectObservation(value.observation) }));
+      return;
+    }
       records.set(key, Object.freeze({ ...value, observation: validateListingEvidence(value.observation) }));
     },
     known(value: EvidenceRecord) {
