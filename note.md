@@ -2117,3 +2117,30 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 我独立复跑：`npm run build` exit 0；`npm run typecheck` exit 0；三套件 51/51 pass / 0 fail / 0 skip（45 基线 + 6 新增）；`git diff --check` 干净；仅 8 文件、无禁用文件、无 commit。Alice 探针：permuted-heads changedSlots=0；not-found-state outcome=not_found ref=null；old-selection-relabelled-revision 由 achieved 变 rejected。
 - 已交 Alice 复核（`m1793293452765-1077`）。证据 `/Volumes/Intel/playground/nnanything/.worker-runs/p3-stage2-policy-prep/a2-product-fix-r1/`。
 - 树在 Alice 复核期间保持冻结，不并发写。仍未做（Alice m1044：归 Emma 状态表示合同 + 后修）：`requiredConditionHolds` 与 freshness 解耦的最终 facts、同目录 complete/selected 后 partial 失效清空；Alice 已放行 partial 独立修复，待当前复核结束再在 8 文件内补。树 `p3-stage2-policy-prep` 仍单 writer，未提交。
+
+## 2026-10-29 A2-Product fix-r3 完成，Alice PASS 并释放产品 writer；Emma 设计 r2 已交 Alice 复核
+
+- GCM fix-r3 在 `p3-stage2-policy-prep` 同一树内完成 R2-A 修复：entry-select 分支改为用 listing 自身 revision/sourceRun/observation 调 `authority.trusted`，不再只依赖 `directoryOrigin`/`authority.known`。`directoryOrigin`、`ENTRIES_PROPERTY`、freshness 与选择归一化未改；无新 wire/迁移/训练/采用。
+- 我独立核对源码与证据：最终仅 8 个允许文件；公开反例真实旧 listing `[0,1,0,1] -> DEFER`、仅改 revision 伪造 `[0,0,0,1] -> DEFER`，均 `listing_unobserved` 且 executor 未调用；m1079 与 P28 保留。四门 `build/typecheck/三测试/diff --check` exit 0，54/54 pass、0 fail、0 skip。证据在 `/Volumes/Intel/playground/nnanything/.worker-runs/p3-stage2-policy-prep/a2-product-fix-r3/`。
+- 保留全套 r2 原始日志：1820 tests、1637 pass、144 fail、1 cancelled、38 skipped；fix-r3 未重跑 full suite，旧失败分类留给完整 milestone 边界。
+- Alice 已回执 `R2-A CLOSED`，F1-F4/R2-A/R2-B 全关闭，A2-Product 产品阶段 PASS，批准确认原执行者退出后释放产品 writer，保留同树 8 文件、不删除树；回执 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/p3/alice-a2-product-completion-audit.md`。
+- Emma 已按 Alice 两份 `NEEDS_REVISION` 审计完成 R1-R5 与 B1-B5 修订，回执 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/revisions/emma-design-r2-receipt.md`；正文真源 `p3/a2-research-prep-plan.md`、`p3/stage2-engineering-handoff.md`、`browser-stage1/plan.md`。已请 Alice 定点复核并授权 PASS 后直接同树交 Emma 7 个研究文件（不重审产品阶段）。
+- PhaseB 仍 `NOT_READY`。P4/P5/P6 Part2 产品合同已有 Alice PASS，但按依赖分别等待 Stage2/Stage3/Stage4 交付与旧树关闭，暂不抢共享 writer。
+- 本轮 Jenny 无产品代码修改；GCM fix-r3 未 commit/push；main 树 clean。Emma/Alice 的下一动作是上述设计复核与产品 writer 交接，等 Alice 定点复核回执后继续派发，不空转。
+
+## 2026-10-29 CLI Stage2 B2 首次正式运行：拟合门禁失败，证据固定并交 Emma 诊断、Alice 裁决
+
+- 派单与边界：GCM 只执行固定配方（合同 `/Volumes/Intel/playground/nnanything-runs/cli-p3-stage2/gcm-b2-execution-task.md`，runner PID 71896，树 `/Volumes/Intel/playground/nnanything/p3-stage2-policy-prep`，HEAD `f65d72e`）。Emma 已正式释放该树写锁。全程只写 run 目录，退出码 1。
+- 训练真实执行：run `4e249c32-0809-4016-beb6-5b3d336a9f16`，200/200 epochs，lr 0.1，494 参数（13 heads × 38 wires），gradientRowEpochs 47600，loss 0.50098 → 0.25315。train 232/238、development 117/120，`accepted=false`、`fullyVerified=false`、`uncalibrated`、`not_applied`；未产出 `reload.json`。
+- 唯一失败族：`select-entry-dir-unobserved` 1/4、`select-entry-file-unobserved` 1/4（development 1/2 与 0/2）。九条错行全部期望 `DEFER`，实际选 `directory.select`/`file.select`；byError `unexpected_head` train 6/6、development 3/3 全错，guard 判 effectsOk=false。原错固定：`train.mjs:1279` "Stage 2 fit/evaluation did not pass acceptance gate"，`fit=failed, reload=not_run, p3PreferenceRegression=not_run`。
+- 迁移证据：`directory.select`/`file.select` 两行与 4 列新 wire 初始全零，拟合后仅这两个新 head 非零；witness profile 未作初始值，Stage1 与 Track B 未重拟合。
+- 外部 95 例独立套件（用真实候选，报告 `independent-95-report.json`）：94 通过。probe P31 STALE-LISTING 的 Stale Combination A 期望 `DEFER` 得到 `directory.select`，与拟合门禁同族。after hook 断言 unverified=5 实得 6，第 6 项为 GCM sandbox 的 Unix socket listen EPERM，属执行环境限制，原断言保留不改。
+- P3 相关回归未成立：`reload-p3` 只接受 11x34 并拒绝 13x38 Stage2 候选，且分派 argv 缺 `--condition`，未产出 P3 报告。已请 Emma 定义 Stage 2 P3 回归的既定入口与矩阵形状，再由我按合同重派，GCM 不自选口径。
+- 产品树未动：`git status --short` 前后一致（15 条既有 A2 条目，`diff` 为空），无源码/测试/trainer/evaluator/gold 改动，未 commit、merge、push，未 adopt，未跑 F7/F8。证据 `.../gcm-b2-task/result.md`、`note.md`、`train.stderr.log`、`independent-95.stdout.log`。
+- 交接：已交 Emma（设计 owner，`m1793323809409-1961`）做根因与最小修订并交 Alice 审计；已交 Alice（`m1793323828001-1963`）裁决本门禁失败候选是否继续诊断测量、socket 环境项处理、以及是否先修订设计再重跑。审计 PASS 后才重派 GCM，不调参、不改门槛与分母。
+
+## 2026-10-29 Browser F3 研究准备：r2 合同 PASS，authoring 归 Emma，GCM 只跑已验收固定入口
+
+- Alice 首审拒绝把未验收 trainer/evaluator authoring 派给普通 GCM（回执 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/research-prep-f3/alice-gcm-contract-audit.md`），并要求闭合 13 文件编号、接管条件、写锁进程角色判定与 6N6E `partition-to-compare` 边。
+- Emma 已出 r2（`research-prep-f3/gcm-f3-research-prep-task.md`）：13 个研究准备文件由 Emma 亲自实现并完成 Phase A 零拟合验证，授权研究 agents 按文件 owner 参与。Alice 已复核 r2 PASS（`m1793323174837-1949`），设计保持 PASS。
+- 前置未满足：P3/P4 产品 worker 仍在 `browser-stage1-semantics` 运行。其结束并释放写锁后，我在同一棵树把写锁交 Emma。Phase B 仍待准备完成证据与明确放行；CLI B2 独立继续。
