@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-10-30 W0a Prep-1B 离线准备已集成 main；P4 A3-Research-Prep 首审返修
+
+W0a Prep-1B（六文件离线工具链）已合入 main：merge `ca0e77e`，特性提交 `c7c913c`（base `c6959b4`，前置 Prep-1A），已推送 `origin/main`。独立 milestone Review r1 FAIL 一项 P1：`one_shot_verification` 只写内存标记，无持久 append-only 消费回执，四次终止路径以 `writeFileSync` 覆盖 `outReport`，同一留出集可被重复评分。Emma 修复为持久 append-only `one-shot-verification-consumed.jsonl` 与非覆盖 `wx` 回执：打分前读取既有消费记录并拒绝重放，保留原回执不变，新增 `replay_rejected_before_open` 事件；测试同时经 API 与 CLI 子进程二次调用，覆盖准入失败、阈值失败与通过后三类留出集。Review r2 PASS（findings=[]，scope `base=c6959b4`），原件在 `browser-stage1/prep1b-review/`。自检 `npm run build`/`typecheck` exit 0、Prep-1B 6/6。范围仅离线准备：未正式训练、未采用权重、未改 gold，`test:full` 未跑保留 UNVERIFIED；Capture-1C 与正式训练未放行。worktree 与分支按 SESE 回收。
+
+P4 A3-Research-Prep 已交 Alice 首审，结论 NEEDS_REVISION（`p4/alice-audit.md` 最新节），三项入口缺口交 Emma 同树研究文件单 writer 修复：R1 评价用途由新增六行是否全零推断，显式 `NN_CLI_PROFILE_ROLE=trained_candidate` 也不改变强制补跑与 24/24 豁免分支；R2 P3 偏好失败未非零停止，且缺 `phase-b3-summary.json`/`failedGates`/下游 `not_run` 与原错回执；R3 B3 命令合同与实际 `reload.mjs` 解析入口不符并重复执行回载。A3-Product 已 PASS 不重开；B3 正式训练保持 NOT_READY，不重训 Stage 2/B。
+
 ## 2026-10-29 编程目标收敛为调用深度 MVP；Browser Phase A r2 PASS，Phase B 已派 GCM
 
 用户收敛当前编程训练范围为「给定符号入口、沿被调用方向、按指定深度查调用关系」MVP，唯一 scope 为 `cli-foundation-concurrent-design-20261028/p3/alice-call-depth-mvp-scope.md`；追值、一般用法收集、修改传播的设计与样本投入停止，MVP 完成后再做其余。Emma 已交 `emma-call-depth-mvp-design.md` 与 `emma-call-depth-mvp-sampling.md`，Alice 首审 NEEDS_REVISION（8 项：四头答案泄漏、迁移依据不成立、符号绑定不能靠全仓同名定义补全、输出语义与深度闭包未闭合、权限/范围、独立 oracle 与样本边界、公平对照与完整门槛、实施/训练合同缺口），已交 Emma 修订；未派实现或拟合。
