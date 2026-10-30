@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-10-29 编程目标收敛为调用深度 MVP；Browser Phase A r2 PASS，Phase B 已派 GCM
+
+用户收敛当前编程训练范围为「给定符号入口、沿被调用方向、按指定深度查调用关系」MVP，唯一 scope 为 `cli-foundation-concurrent-design-20261028/p3/alice-call-depth-mvp-scope.md`；追值、一般用法收集、修改传播的设计与样本投入停止，MVP 完成后再做其余。Emma 已交 `emma-call-depth-mvp-design.md` 与 `emma-call-depth-mvp-sampling.md`，Alice 首审 NEEDS_REVISION（8 项：四头答案泄漏、迁移依据不成立、符号绑定不能靠全仓同名定义补全、输出语义与深度闭包未闭合、权限/范围、独立 oracle 与样本边界、公平对照与完整门槛、实施/训练合同缺口），已交 Emma 修订；未派实现或拟合。
+
+Browser F3 Phase A r2：Alice 对照 r1 五项 finding 逐项关闭，PASS（`browser-stage1/research-prep-f3/alice-phase-a-completion-audit.md` r2 节）。固定 Phase B（`train.mjs --mode train --handwired-root /Volumes/extension/code/handwired --epochs 200 --learning-rate 0.1`）已由 Jenny 派 GCM 在 `browser-stage1-semantics` 树执行，输出 root `browser-stage1-20261029/training-output`（无旧正式运行）；仅当 `acceptedForDownstreamEvaluation=true` 才由同一 worker 跑 `verify-independent-cases.mjs --mode evaluate-candidate`，原生 CDP 黑盒验收 `accept.mjs --family all` 由编排者在宿主执行。
+
+CLI 沙盒使用 Stage S2 五例烟测 5/5 通过（D1-01/02/03、D2-02/03），其余 37 景与 3 工程探针保持 not_run。Alice 审后接受五例公共输出，但 D1-03 模型评价/返回与根结果差异需 Emma 解释分账，handoff 的 API/续接与未实际生效的外部 timeout 已定点交回 Emma；S3 全套未放行，保留原失败，禁止按模型 5/5 改 oracle 追过。
+
+P4 A3-Product GCM 仍在 `cli-p4-stage3` 树运行；主树 `73561d3` 干净。角色分工（Emma 设计、Alice 审计、Jenny 事务派发、GCM 执行）已由 `beed774` 持久化于 AGENTS.md。
+
 ## 2026-10-28 SC CLI 命令级递归查找产品接入已集成 main
 
 SC（`nnanything/cli-command-search` → `runCliCommandSearchGoal`）正式产品接入里程碑已集成 main（merge `e528e51`，特性提交 `f7e23a7`、`3687e62`、`db79bf4`，base `62ba681`）。范围是单命令子树 `directory.search.entries` / `directory.search.content`、受控 `file.read` / `file.read.lines`、`s0/s1` 双槽位与 `continuation`；新增 5N4E SESE `workflows/cli-command-search.graph.json`，复用 `runRecursiveGoal`、`filesystem-sandbox` 和 `l2-hybrid-package`，未改共享控制器、预算语义、权重、gold、阈值、采用或训练。
