@@ -2176,3 +2176,9 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Jenny 原生复验：build/typecheck exit 0，五个 node 套件 85/85；B-Input 原生 52/52，B-Search 原生 44/44，fail 0、unverified 0，C05/C13 四行无失败。证据 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/jenny-native-verify-r2/`。
 - Alice 已复核实际 guard、公开拒绝反例、仅两行 oracle diff 与原生 rows，P3/P4 findings 全部关闭，阶段 PASS 追加到 `alice-p3p4-product-completion-audit.md`。已按 Alice 指令将同一脏树 `browser-stage1-semantics` 的单 writer 交 Emma，执行已 PASS 的 F3/Phase A Research-Prep；13 文件 authoring 归 Emma，普通 GCM 只跑验收后的固定入口；Phase B 与 fitted candidate 未放行。
 - 资源核对：NNAnything `git worktree list` 共 5 个（含主树），低于上限 10；`.git/hooks` 仅有 `*.sample`，`core.hooksPath` 未设置，未安装自定义 worktree 上限 hook。已回复 CEO。
+
+## 2026-10-29 CLI Stage2 milestone 独立 Review 通过并集成 main
+
+- Review r3（`stage2-milestone-review-3`）空 findings：Review r2 的 P1（`cli.entry-select.v1` 非运行 contract）与 P2（首跑失败 UUID 误写）已闭合，三份文档零残留，`directory.select`/`file.select` 分别对应 `cli.directory-select-relation.v1`/`cli.file-select-relation.v1`。Emma 窄修三文档，Jenny 提交 `aea4f24`。
+- 合入 `main`：merge commit `80cd125`（`merge: integrate CLI Stage2 13x38 milestone`），合并后 `npm run build` exit 0、`npm run typecheck` exit 0；受影响 CLI 套件 64 pass（`cli-path-primitives-independent` 需显式 profile 另跑）；Stage 2 独立套件以 4e7e39ca 候选 + `directory-candidate.json`/`file-candidate.json` 运行 95/95 pass（64 scenario + 31 probe，P31 stale listing 全通过）。已 `git push origin main`，远端 `80cd125` 与本地一致。
+- 已通知 Alice 做 Stage2 milestone 最终交付审计；审计回执接收并确认证据后，再移除 `p3-stage2-policy-prep` worktree，并派已批准的 P4 A3 产品合同。当前 `browser-stage1-semantics` 已交 Emma 做 F3/Phase A 准备；CLI 新沙盒设计 Alice 判 NEEDS_REVISION 已退 Emma，不阻塞既有交付。
