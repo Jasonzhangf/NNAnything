@@ -2206,3 +2206,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
 - 用户明确先完成「给定符号入口按深度查调用关系」训练 MVP，之后才做其余编程目标。唯一范围 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/p3/alice-call-depth-mvp-scope.md`，已交 Emma 详细设计与采样；不推进追值/一般用法收集/修改传播。本 MVP 完成后才推进其余。已有 P4/Browser/沙盒继续。
 - Browser F3 Phase A r2：Emma 完成五项窄修，build/typecheck/零拟合/91 项测试通过，未拟合、未消费 F7/F8；已释放 `browser-stage1-semantics` writer 并请 Alice 复审。r2 回执 `/Volumes/Intel/playground/nnanything-runs/cli-foundation-concurrent-design-20261028/browser-stage1/research-prep-f3/emma-f3-research-prep-r2-receipt.md`，零拟合 `/Volumes/Intel/playground/nnanything-runs/browser-stage1-20261029/phase-a-validation-r2/`。
+
+## 2026-10-30 Browser Stage1 milestone 独立 Review 通过并集成 main
+
+- Review r2（`browser-stage1-milestone-review-r2`，mode=base、base=`924980b`）空 findings，controller 判 pass/`controller_no_blocking_findings`；候选树 HEAD `9015a49`，28 文件（18 改 + 10 增/目录）。
+- 集成前发现候选自带一条真实失败：`tests/browser-stage1-semantics.test.mjs` 中 `recursive condition scope denial stops the expand skill at dispatch` 期望 `effect_denied`/dispatch，实际为 `evidence_unavailable`/aggregation/root（19 tests、18 pass、1 fail，在干净 `9015a49` 上复现）。根因：无 `browser.nativeExpandRange` 授权时 `search-recursive` 不注册 expand 技能，`canExpandRange=false`，不存在 dispatch。Alice 裁决 B：只修测试预期，不改 adapter/core 权限门禁（`alice-phase-b-completion-audit.md` 集成前测试裁决节，`m1793358758339-2792`）。
+- 测试窄修提交 `5fc2114`：断言改为无 `effect_denied`、存在 `evidence_unavailable`、`stage=aggregation`、`origin.skillId=browser.search.root`，保留 `expandCalls=0` 并断言 `rootEvaluation.result=unsatisfied`。定向复审 `browser-stage1-test-fix-review-r1` 空 findings、pass；同文件 19/19，相关四套件 63/63。
+- 合入 `main`：`0e80eae`（milestone）与 `a551de6`（测试预期修正）；合并树 `npm run build` exit 0、`npm run typecheck` exit 0、四套件 63/63。已 `git push origin main`，远端 `a551de6` 与本地一致。
+- 清理：`browser-stage1-semantics` worktree 已移除且路径确认不存在，分支 `codex/browser-stage1-verify-fixture` 已删除；现 worktree 6 个（含主树），低于上限 10。候选权重状态不变，仍 `not_applied/uncalibrated`、`fullyVerified=false`，历史 36/44、40/44 与原 FAIL 证据保留。
