@@ -2214,3 +2214,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 测试窄修提交 `5fc2114`：断言改为无 `effect_denied`、存在 `evidence_unavailable`、`stage=aggregation`、`origin.skillId=browser.search.root`，保留 `expandCalls=0` 并断言 `rootEvaluation.result=unsatisfied`。定向复审 `browser-stage1-test-fix-review-r1` 空 findings、pass；同文件 19/19，相关四套件 63/63。
 - 合入 `main`：`0e80eae`（milestone）与 `a551de6`（测试预期修正）；合并树 `npm run build` exit 0、`npm run typecheck` exit 0、四套件 63/63。已 `git push origin main`，远端 `a551de6` 与本地一致。
 - 清理：`browser-stage1-semantics` worktree 已移除且路径确认不存在，分支 `codex/browser-stage1-verify-fixture` 已删除；现 worktree 6 个（含主树），低于上限 10。候选权重状态不变，仍 `not_applied/uncalibrated`、`fullyVerified=false`，历史 36/44、40/44 与原 FAIL 证据保留。
+
+## 2026-10-30 P4 A3-Product fix-r3 阶段 PASS；同树交 Emma 研究准备；Prep-1B 返修中
+
+- Alice fix-r2 复核仍 F2 未闭合（`file.create` 只列 size 却比较 kind、`link.create` 未列 kind、`file.link` 未列 source kind），给出完整三值判定修正入口并明确只修 `evaluateMutationOutcome`、不再扩表。Jenny 派原树唯一 writer 做 fix-r3：只改 `lib/nodes/cli-command.ts` 与 `tests/cli-p4-mutation-workflow.test.mjs`，删除 `REQUIRED_POST_ATTRIBUTES/requiredPostAttributes/postSnapshotReadState` 表驱动预检，按逐条件 true/false/unknown 三值合取重写（任 false 即 unmet、无 false 有 unknown 即 unknown、全 true 才 achieved；ENOENT 缺失不被 kind null 遮挡；两端共同比较任一缺测即 unknown；已测冲突仍 unmet）。
+- 门禁回执 `/Volumes/Intel/playground/nnanything/.worker-runs/cli-p4-stage3/a3-product-fix-r3/result.md`：build exit 0、typecheck exit 0、四文件 127/127、`git diff --check` exit 0；Jenny 独立复跑同四文件 127/127、build/typecheck 0、diff 0。四反例全绿（`file.create`/`link.create`/`file.link` source kind 缺测均 unknown，`file.create` kind 非 regular + size 缺测仍 unmet）。
+- Alice fix-r3 定点审计 PASS（独立公开 consumer 23/23 exit 0，复用 127/127 与 build/typecheck）：F1/F2/F3 及后续漏项关闭，A3-Product 阶段 PASS；原 writer 已释放。
+- 已按已批准合同 `phase-a-independent-helper-contract.md` 第 3 节与 `emma-stage2-upstream-binding-and-a3-prep-spec.md` 第 3 节交 Emma 同树 `cli-p4-stage3` 完成 A3-Research-Prep 七个研究文件与 A3-1/A3-2/A3-3 零拟合验证（`completedEpochs=0`、`trainingSteps=0`），交 Alice 审计；正式 B3 仍待研究准备 PASS 后由 Jenny 再派。产品 9 文件脏态保留，未 commit/merge/push。
+- W0a Prep-1B：Emma 已落盘六文件并通过 build/typecheck/11 项测试（Prep-1A 6 + Prep-1B 5），回执 `emma-w0a-prep1b-verification-receipt.md`；Alice 首轮审计发现 confirmed Gold 冲突未拦截与 Stage2 正式数据准入未接入两项缺口，已退 Emma 原六文件定点修，未派正式训练或集成。
