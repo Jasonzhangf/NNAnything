@@ -700,7 +700,7 @@ test('public recursive search runs submit, read, expand, second read, then termi
   assert.equal(episodes.at(-1).state.checkedObservationId, episodes.at(-1).state.observation.observationId);
 });
 
-test('recursive condition scope denial stops the expand skill at dispatch', async () => {
+test('recursive condition without the expand grant keeps expand unregistered and stops at aggregation', async () => {
   const modelInput = zeros(3, 13);
   modelInput[1][0] = 1;
   const relationWeights = [
@@ -786,15 +786,21 @@ test('recursive condition scope denial stops the expand skill at dispatch', asyn
     maxResultReads: 2,
   }, resources);
   assert.equal(response.kind, 'run_result');
-  const denied = response.report.errors.find(error => error.code === 'effect_denied');
-  assert.ok(denied, JSON.stringify(response.report.errors.map(error => ({
+  const errors = response.report.errors.map(error => ({
     code: error.code,
     stage: error.stage,
     origin: error.origin,
-  }))));
-  assert.equal(denied.stage, 'dispatch');
-  assert.equal(denied.origin.skillId, 'browser.search.results.expand');
+  }));
+  // Without browser.nativeExpandRange the search adapter does not register the expand skill at all,
+  // so there is no dispatch to deny. The run must stop with an unavailable-evidence aggregation
+  // error attributed to the root search skill, and the expand executor must never be called.
+  assert.equal(errors.some(error => error.code === 'effect_denied'), false, JSON.stringify(errors));
+  const unavailable = response.report.errors.find(error => error.code === 'evidence_unavailable');
+  assert.ok(unavailable, JSON.stringify(errors));
+  assert.equal(unavailable.stage, 'aggregation');
+  assert.equal(unavailable.origin.skillId, 'browser.search.root');
   assert.equal(expandCalls, 0);
+  assert.equal(response.report.rootEvaluation.result, 'unsatisfied');
 });
 
 test('native expansion reads the scroll box and request-state element instead of collection identity', async () => {
