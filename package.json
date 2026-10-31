@@ -38,6 +38,10 @@
       "types": "./dist/cli-read.d.ts",
       "import": "./dist/cli-read.js"
     },
+    "./cli-call-depth": {
+      "types": "./dist/cli-call-depth.d.ts",
+      "import": "./dist/cli-call-depth.js"
+    },
     "./cli-content-search": {
       "types": "./dist/cli-content-search.d.ts",
       "import": "./dist/cli-content-search.js"
