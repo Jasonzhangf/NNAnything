@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-10-31 CD-1 调用深度确定性 MVP 已集成 main
+
+调用深度 CD-1（给定文件/符号入口，沿被调用方向按深度展开）确定性 MVP 已合入 main：PR #1，merge `7bc07aa`，特性提交 `a5386c7`，base `634b220`。公开入口 `nnanything/cli-call-depth` -> `runCliCalleeCallGraphGoal`；实现文件 `lib/cli-call-depth.ts`、`lib/adapters/cli/call-depth-contract.ts`、`lib/adapters/cli/call-depth-recursive.ts`、`lib/filters/cli-call-depth-policy.ts`，公开 consumer `playground/cli/call-depth-mvp/smoke-consumer.mjs`，黑盒 `tests/cli-call-depth-mvp.test.mjs`；`package.json` 注册 `./cli-call-depth`。复用既有 recursive-goal 控制器、CLI filesystem sandbox 与纯 policy，不改共享控制器、权重、gold、阈值或采用。
+
+Carol 阶段 PASS：F2 最近词法绑定修复后 F1/F2/F3 全关（`cli-foundation-concurrent-design-20261028/p3/alice-call-depth-mvp-design-audit-r4.md` 顶部）。独立 milestone Review 三轮：r1 FAIL 三项 P1（.mjs -> .mts 映射、`import type` 默认导入、`export *` barrel 两跳上限），修复后 r2 FAIL 一项 P1（type-space-only 链误判为 EXPORT_NAME_NOT_FOUND）；r3 PASS、findings=[]、scope `base=origin/main`。全程单 writer、原树、`workspace-write` 边界；run 证据在 `/Volumes/Intel/playground/nnanything/.worker-runs/cli-call-depth-cd1/`（run-7..run-9），Review 原件在 `reviews/`。
+
+验收：`npm run build` exit 0、`npm run typecheck` exit 0、受影响黑盒 42/42、原审计探针 9/9 不变。全仓 `test:full` 未作为证据：无关浏览器/训练套件在沙箱外写 `nnanything-runs/` 触发 EPERM，保留原失败，不冒称全仓通过。当前范围仅给定文件/符号入口的调用展开，不含任意入口搜索、全引用覆盖、训练或优于 shell。worktree 与分支按 SESE 回收。
+
 ## 2026-10-31 P4 M2 单次正式实验执行 FAIL；CD-1 实现暂停待权限复核；Capture-1C 已解阻并集成
 
 P4 M2 入口审计 PASS 与 writer 释放证据已核对（`p4/alice-audit.md` 顶部 2026-10-31 节、m1793430349888-541、m1793430629317-548）。Emma 的 M2 四文件入口实现已在原树 `cli-p4-stage3`；确认无同任务进程后只派一次 GCM，复用 `phase-b3-r2/result.md` 命令并仅加 `--contract-scoped-stage3-mask` 与 `phase-b3-m2/training-output`，200 轮/.1 不变。命令 exit 1，`runId=1b6af9a9-ef01-4a00-b606-7f6e54945ab0`，200 epochs/78000 steps；mask 检查为 71 可训练/1088 冻结、冻结槽变更 0，但 fit 失败，reload/P3/independent 均 `not_run`。Carol 已直接核对 summary 与 586 逐例并写入阶段 FAIL 审计（m1793431364251-567）；已交 Emma 仅用固定证据分析的新研究合同，不重训、不扩结构。
