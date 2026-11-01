@@ -7,7 +7,7 @@
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,6 +85,7 @@ async function selectFiles(
   const skipped: FileFailure[] = [];
   const failed: FileFailure[] = [];
   const seen = new Set<string>();
+  let physicalRepo: string | null = null;
 
   for (const rawEntry of entries) {
     const file = rawEntry.replace(/\\/g, "/");
@@ -94,19 +95,47 @@ async function selectFiles(
     }
     seen.add(abs);
 
-    let stats;
-    try {
-      stats = await lstat(abs);
-    } catch (error) {
-      failed.push({ file, reason: `stat_failed: ${(error as Error).message}` });
+    const components = file.split("/");
+    let current = repoAbs;
+    let finalIsFile = false;
+    let rejected = false;
+    let index = 0;
+    for (const component of components) {
+      current = path.join(current, component);
+      let stats;
+      try {
+        stats = await lstat(current);
+      } catch (error) {
+        failed.push({ file, reason: `stat_failed: ${(error as Error).message}` });
+        rejected = true;
+        break;
+      }
+      if (stats.isSymbolicLink()) {
+        skipped.push({ file, reason: "symlink_not_followed" });
+        rejected = true;
+        break;
+      }
+      if (index === components.length - 1) {
+        finalIsFile = stats.isFile();
+      }
+      index += 1;
+    }
+    if (rejected) {
       continue;
     }
-    if (stats.isSymbolicLink()) {
-      skipped.push({ file, reason: "symlink_not_followed" });
-      continue;
-    }
-    if (!stats.isFile()) {
+    if (!finalIsFile) {
       skipped.push({ file, reason: "not_regular_file" });
+      continue;
+    }
+    try {
+      physicalRepo ??= await realpath(repoAbs);
+      const physicalFile = await realpath(current);
+      if (physicalFile !== physicalRepo && !physicalFile.startsWith(physicalRepo + path.sep)) {
+        skipped.push({ file, reason: "outside_repo" });
+        continue;
+      }
+    } catch (error) {
+      failed.push({ file, reason: `realpath_failed: ${(error as Error).message}` });
       continue;
     }
     files.push(file);
@@ -320,7 +349,7 @@ export async function runKotlinSymbolTable(
   const partial = scopeFilesFailed.length > 0 || selected.skipped.length > 0 || psiErrorFiles.length > 0;
   const notes = Object.freeze([
     `ignorePolicy=${request.ignorePolicy}`,
-    "symlinks are never followed; duplicate file entries are deduplicated by physical path",
+    "symlinks are never followed in any path component; duplicate file entries are deduplicated by resolved path",
     `peakJvmUsedBytes=${payload.peakJvmUsedBytes}; jvmMaxMemoryBytes=${payload.jvmMaxMemoryBytes}`,
     "semanticBinding=false; no binding or call edges are produced",
   ]);

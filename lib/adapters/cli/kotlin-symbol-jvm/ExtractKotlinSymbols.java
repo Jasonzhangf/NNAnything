@@ -8,15 +8,21 @@ import org.jetbrains.kotlin.com.intellij.psi.PsiErrorElement;
 import org.jetbrains.kotlin.config.CompilerConfiguration;
 import org.jetbrains.kotlin.lexer.KtTokens;
 import org.jetbrains.kotlin.psi.KtClass;
+import org.jetbrains.kotlin.psi.KtClassBody;
+import org.jetbrains.kotlin.psi.KtClassInitializer;
 import org.jetbrains.kotlin.psi.KtClassOrObject;
 import org.jetbrains.kotlin.psi.KtEnumEntry;
 import org.jetbrains.kotlin.psi.KtFile;
+import org.jetbrains.kotlin.psi.KtFunctionLiteral;
+import org.jetbrains.kotlin.psi.KtLambdaExpression;
 import org.jetbrains.kotlin.psi.KtModifierListOwner;
 import org.jetbrains.kotlin.psi.KtNamedFunction;
 import org.jetbrains.kotlin.psi.KtObjectDeclaration;
 import org.jetbrains.kotlin.psi.KtParameter;
+import org.jetbrains.kotlin.psi.KtPrimaryConstructor;
 import org.jetbrains.kotlin.psi.KtProperty;
 import org.jetbrains.kotlin.psi.KtPsiFactory;
+import org.jetbrains.kotlin.psi.KtSecondaryConstructor;
 import org.jetbrains.kotlin.psi.KtTreeVisitorVoid;
 import org.jetbrains.kotlin.psi.KtTypeAlias;
 
@@ -198,11 +204,20 @@ public final class ExtractKotlinSymbols {
     private static OwnerInfo ownerOf(PsiElement declaration) {
         PsiElement parent = declaration.getParent();
         while (parent != null) {
-            if (parent instanceof KtNamedFunction) {
-                return new OwnerInfo(true, null);
+            if (parent instanceof KtClassBody) {
+                PsiElement container = parent.getParent();
+                if (container instanceof KtClassOrObject) {
+                    return new OwnerInfo(false, (KtClassOrObject) container);
+                }
+                return new OwnerInfo(false, null);
             }
-            if (parent instanceof KtClassOrObject) {
-                return new OwnerInfo(false, (KtClassOrObject) parent);
+            if (parent instanceof KtNamedFunction
+                    || parent instanceof KtClassInitializer
+                    || parent instanceof KtPrimaryConstructor
+                    || parent instanceof KtSecondaryConstructor
+                    || parent instanceof KtLambdaExpression
+                    || parent instanceof KtFunctionLiteral) {
+                return new OwnerInfo(true, null);
             }
             parent = parent.getParent();
         }
@@ -225,6 +240,12 @@ public final class ExtractKotlinSymbols {
                 if (name != null) {
                     reversed.add("function:" + name);
                 }
+            } else if (parent instanceof KtClassInitializer) {
+                reversed.add("init");
+            } else if (parent instanceof KtPrimaryConstructor || parent instanceof KtSecondaryConstructor) {
+                reversed.add("constructor");
+            } else if (parent instanceof KtLambdaExpression) {
+                reversed.add("lambda");
             }
             parent = parent.getParent();
         }

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { lstatSync, readdirSync } from "node:fs";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -280,6 +282,66 @@ test("scopes: member method vs local function with the same short name", async (
   assert.equal(topLevel?.declaredIn, "file");
 });
 
+test("scopes: init/lambda/constructor locals keep local_scope and lexical evidence", async () => {
+  const outcome = await runKotlinSymbolTable(request(["local-scopes"]));
+  const all = symbols(outcome);
+
+  const expectedLocals = [
+    {
+      name: "initLocal",
+      lexicalScope: ["package:fixture.local_scopes", "class:C", "init"],
+    },
+    {
+      name: "lambdaLocal",
+      lexicalScope: ["package:fixture.local_scopes", "class:C", "lambda"],
+    },
+    {
+      name: "constructorLocal",
+      lexicalScope: ["package:fixture.local_scopes", "class:C", "constructor"],
+    },
+    {
+      name: "inner",
+      lexicalScope: ["package:fixture.local_scopes", "class:C", "function:outer"],
+    },
+  ];
+
+  for (const expected of expectedLocals) {
+    const entry = all.find(item => item.name === expected.name);
+    assert.ok(entry, `${expected.name} must be present`);
+    assert.equal(entry?.kind, "function");
+    assert.equal(entry?.ownerType, null);
+    assert.equal(entry?.ownerKind, null);
+    assert.equal(entry?.declaredIn, "local_scope");
+    assert.deepEqual([...entry.lexicalScope], expected.lexicalScope);
+  }
+
+  const outer = all.find(item => item.name === "outer");
+  assert.equal(outer?.kind, "method");
+  assert.equal(outer?.ownerType, "C");
+
+  const localClass = all.find(item => item.name === "Inner");
+  assert.equal(localClass?.kind, "class");
+  assert.equal(localClass?.ownerType, null);
+  assert.equal(localClass?.declaredIn, "local_scope");
+  assert.deepEqual([...localClass.lexicalScope], [
+    "package:fixture.local_scopes",
+    "class:C",
+    "function:owner",
+  ]);
+
+  const localMember = all.find(item => item.name === "localMember");
+  assert.equal(localMember?.kind, "method");
+  assert.equal(localMember?.ownerType, "Inner");
+  assert.equal(localMember?.ownerKind, "class");
+  assert.equal(localMember?.declaredIn, "class_body");
+  assert.deepEqual([...localMember.lexicalScope], [
+    "package:fixture.local_scopes",
+    "class:C",
+    "function:owner",
+    "class:Inner",
+  ]);
+});
+
 test("properties: constructor val/var and extension properties are covered", async () => {
   const outcome = await runKotlinSymbolTable(request(["properties"]));
   const all = symbols(outcome);
@@ -368,4 +430,43 @@ test("adapter: deduplicates duplicate file entries and rejects unsupported ignor
 test("adapter factory returns a callable symbols entry", () => {
   const adapter = createKotlinSymbolTableAdapter();
   assert.equal(typeof adapter.symbols, "function");
+});
+
+test("adapter: rejects final and parent symlinks without reading outside symbols", async t => {
+  const parent = await realpath(await mkdtemp(join(tmpdir(), "nnanything-kotlin-symlink-")));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+
+  const repo = join(parent, "repo");
+  const outside = join(parent, "outside");
+  await mkdir(repo);
+  await mkdir(outside);
+  await writeFile(join(repo, "Normal.kt"), "package fixture.symlink_adapter\n\nfun normalInside() {}\n");
+  await writeFile(join(outside, "External.kt"), "package fixture.symlink_adapter\n\nfun outsideRepo() {}\n");
+  await symlink(outside, join(repo, "linked"), "dir");
+  await symlink(join(outside, "External.kt"), join(repo, "final-link.kt"), "file");
+
+  const outcome = await runKotlinSymbolTable({
+    repo,
+    language: "kotlin",
+    scope: [".", "linked"],
+    files: ["Normal.kt", "linked/External.kt", "final-link.kt"],
+    ignorePolicy: "no_ignore",
+  });
+
+  assert.equal(outcome.status, "ok");
+  if (outcome.status !== "ok") return;
+
+  assert.deepEqual(outcome.result.symbols.map(entry => entry.name), ["normalInside"]);
+  assert.equal(outcome.result.symbols.some(entry => entry.name === "outsideRepo"), false);
+  assert.equal(outcome.result.symbols.some(entry => entry.file === "linked/External.kt"), false);
+  assert.equal(outcome.result.symbols.some(entry => entry.file === "final-link.kt"), false);
+  assert.equal(outcome.result.coverage.scopeFilesParsed, 1);
+  assert.equal(outcome.result.coverage.partial, true);
+  assert.deepEqual(
+    outcome.result.coverage.skipped.map(entry => entry.file).sort(),
+    ["final-link.kt", "linked/External.kt"],
+  );
+  for (const entry of outcome.result.coverage.skipped) {
+    assert.equal(entry.reason, "symlink_not_followed");
+  }
 });
