@@ -43,7 +43,7 @@ export const GLOBAL_WHITELIST = new Set([
   "Promise", "Symbol", "RegExp", "Date", "Error", "TypeError", "Map", "Set",
   "WeakMap", "WeakSet", "Reflect", "Proxy", "Intl", "parseInt", "parseFloat",
   "isNaN", "isFinite", "encodeURIComponent", "decodeURIComponent", "setTimeout",
-  "clearTimeout", "setInterval", "clearInterval", "queueMicrotask", "Buffer",
+  "clearTimeout", "setInterval", "clearInterval", "queueMicrotask", "BigInt", "Buffer",
   "process", "URL",
 ]);
 
@@ -98,6 +98,22 @@ function unwrapParens(node: ts.Expression): ts.Expression {
     current = current.expression;
   }
   return current;
+}
+
+function forEachBindingIdentifier(
+  name: ts.BindingName,
+  visit: (identifier: ts.Identifier) => void,
+): void {
+  if (ts.isIdentifier(name)) {
+    visit(name);
+    return;
+  }
+  if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      forEachBindingIdentifier(element.name, visit);
+    }
+  }
 }
 
 function rootIdentifierOf(expression: ts.Expression): ts.Identifier | null {
@@ -470,9 +486,9 @@ export type RawCallsite = Readonly<{
 function paramScope(params: readonly ts.ParameterDeclaration[]): Map<string, LexicalBinding> {
   const scope = new Map<string, LexicalBinding>();
   for (const param of params) {
-    if (ts.isIdentifier(param.name)) {
-      scope.set(param.name.text, Object.freeze({ kind: "noncallable" as const, reason: "LEXICAL_PARAM_OR_VARIABLE_CALL" }));
-    }
+    forEachBindingIdentifier(param.name, identifier => {
+      scope.set(identifier.text, Object.freeze({ kind: "noncallable" as const, reason: "LEXICAL_PARAM_OR_VARIABLE_CALL" }));
+    });
   }
   return scope;
 }
@@ -500,23 +516,28 @@ function blockScope(
     }
     if (ts.isVariableStatement(stmt)) {
       for (const declaration of stmt.declarationList.declarations) {
-        if (!ts.isIdentifier(declaration.name)) continue;
-        if (declaration.initializer !== undefined && callableExpression(declaration.initializer)) {
-          const core = unwrapParens(declaration.initializer);
-          const chain = chainOf(declaration.name.text, callerChain);
-          const kind = ts.isArrowFunction(core) ? "arrow" : "function";
-          const decl = makeDecl(
-            info.sourceFile,
-            info.relPath,
-            declaration.name.text,
-            chain,
-            kind,
-            variableSpan(info.sourceFile, declaration),
-            declaration,
-          );
-          scope.set(declaration.name.text, Object.freeze({ kind: "callable" as const, decl }));
+        if (ts.isIdentifier(declaration.name)) {
+          if (declaration.initializer !== undefined && callableExpression(declaration.initializer)) {
+            const core = unwrapParens(declaration.initializer);
+            const chain = chainOf(declaration.name.text, callerChain);
+            const kind = ts.isArrowFunction(core) ? "arrow" : "function";
+            const decl = makeDecl(
+              info.sourceFile,
+              info.relPath,
+              declaration.name.text,
+              chain,
+              kind,
+              variableSpan(info.sourceFile, declaration),
+              declaration,
+            );
+            scope.set(declaration.name.text, Object.freeze({ kind: "callable" as const, decl }));
+          } else {
+            scope.set(declaration.name.text, Object.freeze({ kind: "noncallable" as const, reason: "LEXICAL_PARAM_OR_VARIABLE_CALL" }));
+          }
         } else {
-          scope.set(declaration.name.text, Object.freeze({ kind: "noncallable" as const, reason: "LEXICAL_PARAM_OR_VARIABLE_CALL" }));
+          forEachBindingIdentifier(declaration.name, identifier => {
+            scope.set(identifier.text, Object.freeze({ kind: "noncallable" as const, reason: "LEXICAL_PARAM_OR_VARIABLE_CALL" }));
+          });
         }
       }
       continue;
@@ -536,12 +557,12 @@ function enclosingShadowBindings(
     if (!bindings.has(name)) bindings.set(name, binding);
   };
   const addParam = (param: ts.ParameterDeclaration): void => {
-    if (ts.isIdentifier(param.name)) {
-      remember(param.name.text, Object.freeze({
+    forEachBindingIdentifier(param.name, identifier => {
+      remember(identifier.text, Object.freeze({
         kind: "noncallable" as const,
         reason: "LEXICAL_PARAM_OR_VARIABLE_CALL",
       }));
-    }
+    });
   };
   const addFunction = (stmt: ts.FunctionDeclaration): void => {
     if (stmt.name === undefined) return;
@@ -551,20 +572,28 @@ function enclosingShadowBindings(
     }
   };
   const addVariable = (declaration: ts.VariableDeclaration): void => {
-    if (!ts.isIdentifier(declaration.name)) return;
-    const callable = declaration.initializer !== undefined && callableExpression(declaration.initializer);
-    if (callable) {
-      const decl = declarationByNode.get(declaration)
-        ?? declarationByNode.get(variableSpan(info.sourceFile, declaration));
-      if (decl !== undefined) {
-        remember(declaration.name.text, Object.freeze({ kind: "callable" as const, decl }));
-        return;
+    if (ts.isIdentifier(declaration.name)) {
+      const callable = declaration.initializer !== undefined && callableExpression(declaration.initializer);
+      if (callable) {
+        const decl = declarationByNode.get(declaration)
+          ?? declarationByNode.get(variableSpan(info.sourceFile, declaration));
+        if (decl !== undefined) {
+          remember(declaration.name.text, Object.freeze({ kind: "callable" as const, decl }));
+          return;
+        }
       }
+      remember(declaration.name.text, Object.freeze({
+        kind: "noncallable" as const,
+        reason: "LEXICAL_PARAM_OR_VARIABLE_CALL",
+      }));
+      return;
     }
-    remember(declaration.name.text, Object.freeze({
-      kind: "noncallable" as const,
-      reason: "LEXICAL_PARAM_OR_VARIABLE_CALL",
-    }));
+    forEachBindingIdentifier(declaration.name, identifier => {
+      remember(identifier.text, Object.freeze({
+        kind: "noncallable" as const,
+        reason: "LEXICAL_PARAM_OR_VARIABLE_CALL",
+      }));
+    });
   };
   let node: ts.Node | undefined = bodyNode.parent;
   while (node !== undefined) {
@@ -641,6 +670,7 @@ export function extractCallsites(
           callerChain,
         }));
       }
+      visit(callee, activeScope);
       for (const argument of node.arguments) {
         const argumentCore = unwrapParens(argument);
         if (ts.isArrowFunction(argumentCore) || ts.isFunctionExpression(argumentCore)) continue;

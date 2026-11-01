@@ -348,6 +348,46 @@ test("CD1-T7 nearest inner parameter wins over a farther top-level function", as
   assert.deepEqual(unresolvedOf(result), [{ kind: "unresolved_dynamic", code: "LEXICAL_PARAM_OR_VARIABLE_CALL" }]);
 });
 
+const CHAINED_CALL = "function a(){ return { b: () => 1 }; } export function entry(){ return a().b(); }";
+
+test("CD1-T10 chained calls extract the inner callee once", async t => {
+  const entries = [{ path: "src/entry.ts", kind: "file", contents: CHAINED_CALL }];
+  const { result } = await runFixture(t, entries, goal("src/entry.ts", "entry", 3), { requestId: "cd1-t10-chained-call" });
+  const entryId = nodeId("src/entry.ts", "entry", namedFunctionSpan(CHAINED_CALL, "entry"));
+  const aId = nodeId("src/entry.ts", "a", namedFunctionSpan(CHAINED_CALL, "a"));
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(nodeIds(result), [entryId, aId].sort());
+  assert.deepEqual(edgePairs(result), [`${entryId} -> ${aId}`]);
+  assert.deepEqual(unresolvedOf(result), [{ kind: "unresolved_dynamic", code: "UNRESOLVED_CALLEE_EXPRESSION" }]);
+});
+
+const DESTRUCTURED_BINDINGS = "export function entry(){ const opened = { handle: { read: () => 1 } }; const { handle: reader } = opened; const [next] = [() => 2]; reader.read(); next(); }";
+
+test("CD1-T10 object and array destructuring bind variable leaves", async t => {
+  const entries = [{ path: "src/entry.ts", kind: "file", contents: DESTRUCTURED_BINDINGS }];
+  const { result } = await runFixture(t, entries, goal("src/entry.ts", "entry", 3), { requestId: "cd1-t10-destructured-bindings" });
+  const entryId = nodeId("src/entry.ts", "entry", namedFunctionSpan(DESTRUCTURED_BINDINGS, "entry"));
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(nodeIds(result), [entryId]);
+  assert.deepEqual(edgePairs(result), []);
+  assert.deepEqual(unresolvedOf(result), [
+    { kind: "unresolved_dynamic", code: "LEXICAL_PARAM_OR_VARIABLE_CALL" },
+    { kind: "unresolved_dynamic", code: "LEXICAL_PARAM_OR_VARIABLE_CALL" },
+  ]);
+});
+
+const BUILTIN_BIGINT = "export function entry(){ return BigInt(1); }";
+
+test("CD1-T10 BigInt is an unshadowed builtin global", async t => {
+  const entries = [{ path: "src/entry.ts", kind: "file", contents: BUILTIN_BIGINT }];
+  const { result } = await runFixture(t, entries, goal("src/entry.ts", "entry", 3), { requestId: "cd1-t10-bigint" });
+  const entryId = nodeId("src/entry.ts", "entry", namedFunctionSpan(BUILTIN_BIGINT, "entry"));
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(nodeIds(result), [entryId]);
+  assert.deepEqual(edgePairs(result), []);
+  assert.deepEqual(unresolvedOf(result), [{ kind: "out_of_scope_external", code: "UNSHADOWED_BUILTIN_GLOBAL" }]);
+});
+
 // ---------------------------------------------------------------------------
 // CD1-T1: exact depth truncation d in {0,1,2,3} and .js -> .ts resolution.
 // ---------------------------------------------------------------------------
