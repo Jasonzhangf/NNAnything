@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-01 语言批次 A r3 集成；值流 repair-r1 并发推进并纳入最小内存要求
+
+- 语言批次 A 已完成：显式 `--language`、文本候选、真实 parser 回执、声明名称 token 归因和二次读取失败显式化均已合入 main，merge `fd648ff`。Carol r2 的 definition 全函数跨度与二次读取静默回退两项 finding 由修复 r3 闭合，David 独立复核 PASS。
+- 集成态复验：`npm run build` exit 0、`npm run typecheck` exit 0、语言 A 与三套 call-depth 回归 67/67 PASS；`package-lock.json` 根包补齐 `nn-code`/`nn-call-depth` bin，与 `package.json` 一致。
+- 值流 repair-r1 仍在原树 `cli-value-flow-mvp` 由原 GCM 单 writer 执行，未重启、未另开 writer。当前已闭合深嵌套栈溢出、大文件分块读取和部分来源/去向验证，V2 全量 sink 查询仍超时；worker 正在按真实耗时/候选增长剖析，继续根因 A-F。
+- 用户新增的最小必要内存要求已落 `cd1-live-comparison-20261031/carol-valueflow-memory-requirements.md`，并纳入原 repair-r1 后续交回合同：必须交完整语义结果、峰值内存、阶段工作集与规模增长证据；3072 MiB 下不 OOM 不是优化达标。补充合同见 `.worker-runs/cli-value-flow-mvp/repair-r1-memory-addendum.md`。
+
 ## 2026-10-31 CD-1 调用深度确定性 MVP 已集成 main
 
 调用深度 CD-1（给定文件/符号入口，沿被调用方向按深度展开）确定性 MVP 已合入 main：PR #1，merge `7bc07aa`，特性提交 `a5386c7`，base `634b220`。公开入口 `nnanything/cli-call-depth` -> `runCliCalleeCallGraphGoal`；实现文件 `lib/cli-call-depth.ts`、`lib/adapters/cli/call-depth-contract.ts`、`lib/adapters/cli/call-depth-recursive.ts`、`lib/filters/cli-call-depth-policy.ts`，公开 consumer `playground/cli/call-depth-mvp/smoke-consumer.mjs`，黑盒 `tests/cli-call-depth-mvp.test.mjs`；`package.json` 注册 `./cli-call-depth`。复用既有 recursive-goal 控制器、CLI filesystem sandbox 与纯 policy，不改共享控制器、权重、gold、阈值或采用。
