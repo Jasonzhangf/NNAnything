@@ -74,6 +74,7 @@ export type CallGraphNodeFact = Readonly<{
   minDepth: number;
   bodyExtracted: boolean;
   declSpan: DeclSpan;
+  nameSpan: DeclSpan;
   fileObjectRef: ObservedObjectRef | null;
 }>;
 

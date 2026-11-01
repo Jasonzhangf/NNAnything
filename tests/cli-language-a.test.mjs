@@ -366,6 +366,77 @@ test("unresolved callsite is unknown with callsite evidence, not other_binding",
   assert.equal(otherFile.disposition, "unclassified");
 });
 
+test("definition attribution uses the declaration name token, not the whole function body", async t => {
+  const root = await makeRepo(t);
+  const source = "export function entry(){\n // entry in comment\n return helper(\"entry\");\n}\nfunction helper(value: string){ return value; }\n";
+  await write(join(root, "src", "entry.ts"), source);
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.ts",
+    "--entry-symbol", "entry",
+    "--max-depth", "1",
+    "--scope", "src",
+    "--compact",
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.status, "achieved");
+  const byPosition = (line, column) => payload.textCandidates.find(candidate =>
+    candidate.filePath === "src/entry.ts"
+    && candidate.line === line
+    && candidate.column === column);
+
+  const declaration = byPosition(1, 17);
+  assert.ok(declaration, JSON.stringify(payload.textCandidates));
+  assert.equal(declaration.disposition, "definition");
+
+  const comment = byPosition(2, 5);
+  assert.ok(comment, "comment candidate is present");
+  assert.notEqual(comment.disposition, "definition", "comment text must not be the definition");
+
+  const string = byPosition(3, 17);
+  assert.ok(string, "string candidate is present");
+  assert.notEqual(string.disposition, "definition", "string text must not be the definition");
+});
+
+test("same-name unresolved call inside the entry body stays unknown, not definition", async t => {
+  const root = await makeRepo(t);
+  const source = "export function entry(){\n return obj.entry();\n}\n";
+  await write(join(root, "src", "entry.ts"), source);
+  const positions = identifierPositions(source, "entry");
+  assert.equal(positions.length, 2, "fixture has one declaration and one unresolved property name");
+  const declaration = positions[0];
+  const unresolved = positions[1];
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.ts",
+    "--entry-symbol", "entry",
+    "--max-depth", "2",
+    "--scope", "src",
+    "--compact",
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.unresolvedCallsites.length, 1);
+  const unresolvedFact = payload.unresolvedCallsites[0];
+  assert.equal(unresolvedFact.calleeExpr, "obj.entry");
+
+  const declarationCandidate = payload.textCandidates.find(candidate =>
+    candidate.filePath === "src/entry.ts"
+    && candidate.line === declaration.line
+    && candidate.column === declaration.column);
+  assert.ok(declarationCandidate, "declaration candidate is present");
+  assert.equal(declarationCandidate.disposition, "definition");
+
+  const unresolvedCandidate = payload.textCandidates.find(candidate =>
+    candidate.filePath === "src/entry.ts"
+    && candidate.line === unresolved.line
+    && candidate.column === unresolved.column);
+  assert.ok(unresolvedCandidate, "unresolved callsite candidate is present");
+  assert.equal(unresolvedCandidate.disposition, "unknown");
+  assert.ok(unresolvedCandidate.evidenceRefs.includes(`callsite:${unresolvedFact.callerId}`));
+});
+
 test("run log records requested language, actual parser and both coverage dimensions", async t => {
   const root = await makeRepo(t);
   await write(join(root, "src", "main.rs"), "fn entry() {}\n");

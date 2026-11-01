@@ -22,6 +22,7 @@ export type DeclInfo = Readonly<{
   chain: string;
   name: string;
   span: DeclSpan;
+  nameSpan: DeclSpan;
   kind: DeclKind;
   file: string;
   node: ts.Node;
@@ -183,6 +184,25 @@ function bodyAndParams(node: ts.Node): { body?: ts.ConciseBody; params?: readonl
   return {};
 }
 
+// The exact span of the declaration's name token. Text-scan candidates that
+// equal the symbol name are only `definition` when they sit inside this token,
+// so a comment or string inside the function body can never be mistaken for
+// the declaration. Anonymous declarations carry no name token: use a
+// zero-width span at the declaration start, which no real candidate matches.
+function declNameSpanOf(
+  sourceFile: ts.SourceFile,
+  nameNode: ts.Node | undefined,
+  anchor: ts.Node,
+): DeclSpan {
+  if (nameNode === undefined) {
+    const at = lineColOf(sourceFile, anchor.getStart(sourceFile));
+    return Object.freeze({ startLine: at.line, startColumn: at.column, endLine: at.line, endColumn: at.column });
+  }
+  const start = lineColOf(sourceFile, nameNode.getStart(sourceFile));
+  const end = lineColOf(sourceFile, nameNode.getEnd());
+  return Object.freeze({ startLine: start.line, startColumn: start.column, endLine: end.line, endColumn: end.column });
+}
+
 function makeDecl(
   sourceFile: ts.SourceFile,
   file: string,
@@ -191,12 +211,14 @@ function makeDecl(
   kind: DeclKind,
   node: ts.Node,
   bodyNode: ts.Node = node,
+  nameNode?: ts.Node,
 ): DeclInfo {
   const shape = bodyAndParams(bodyNode);
   const base = {
     chain,
     name,
     span: declSpanOf(sourceFile, node),
+    nameSpan: declNameSpanOf(sourceFile, nameNode, node),
     kind,
     file,
     node,
@@ -227,6 +249,7 @@ export type ValueExport = Readonly<{
   chain: string;
   originFile: string;
   span: DeclSpan;
+  nameSpan: DeclSpan;
   kind: DeclKind;
   node: ts.Node;
   ambient: boolean;
@@ -273,6 +296,7 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
       chain: decl.chain,
       originFile: decl.file,
       span: decl.span,
+      nameSpan: decl.nameSpan,
       kind: decl.kind,
       node: decl.node,
       ambient: decl.body === undefined,
@@ -289,6 +313,8 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
         chain,
         node.body === undefined ? "ambient" : "function",
         node,
+        node,
+        node.name,
       );
       remember(decl);
       if (node.body !== undefined) {
@@ -304,6 +330,8 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
         "default",
         "default-function",
         node,
+        node,
+        node.name,
       );
       remember(decl);
       rememberExport("default", decl);
@@ -324,6 +352,7 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
           kind,
           variableSpan(info.sourceFile, node),
           node,
+          node.name,
         ));
       }
       return;
@@ -375,6 +404,7 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
             "value",
             variableSpan(info.sourceFile, declaration),
             declaration,
+            declaration.name,
           );
           remember(decl);
           rememberExport(declaration.name.text, decl);
@@ -392,6 +422,8 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
         stmt.name.text,
         "class",
         stmt,
+        stmt,
+        stmt.name,
       );
       remember(decl);
       rememberExport(isDefaultModifier(stmt) ? "default" : stmt.name.text, decl);
@@ -514,6 +546,8 @@ function blockScope(
         chain,
         stmt.body === undefined ? "ambient" : "function",
         stmt,
+        stmt,
+        stmt.name,
       );
       scope.set(stmt.name.text, Object.freeze({ kind: "callable" as const, decl }));
       continue;
@@ -533,6 +567,7 @@ function blockScope(
               kind,
               variableSpan(info.sourceFile, declaration),
               declaration,
+              declaration.name,
             );
             scope.set(declaration.name.text, Object.freeze({ kind: "callable" as const, decl }));
           } else {
@@ -817,6 +852,7 @@ function valueExportToDecl(exportValue: ValueExport): DeclInfo {
     chain: exportValue.chain,
     name: exportValue.name,
     span: exportValue.span,
+    nameSpan: exportValue.nameSpan,
     kind: exportValue.kind,
     file: exportValue.originFile,
     node: exportValue.node,
@@ -906,6 +942,7 @@ export function resolveModuleExport(
         chain: branch.decl.chain,
         originFile: branch.originFile,
         span: branch.decl.span,
+        nameSpan: branch.decl.nameSpan,
         kind: branch.decl.kind,
         node: branch.decl.node,
         ambient: branch.decl.body === undefined,

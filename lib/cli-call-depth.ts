@@ -483,7 +483,7 @@ function classifyTextCandidate(
   for (const node of result.nodes) {
     if (node.filePath === candidate.filePath
       && node.symbolName === candidate.matchedText
-      && spanContains(node.declSpan, candidate.span)) {
+      && spanContains(node.nameSpan, candidate.span)) {
       return Object.freeze({ ...candidate, disposition: "definition" });
     }
   }
