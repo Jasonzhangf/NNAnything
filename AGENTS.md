@@ -2,9 +2,7 @@
 
 ## 符号查询与调用关系探索
 
-排障、审计流程或追踪 TypeScript/JavaScript 函数调用关系时，从已知函数继续找被调用方，优先使用全局 `nn-code` Skill（`/Users/fanzhang/.agents/skills/nn-code/SKILL.md`），一次获取结构化 callee call graph。不默认用多轮 `rg`/`sed` 逐层展开；优化目标覆盖整个模型调用过程（组织命令、等待结果、下一轮推理），不只比较命令执行耗时。仅定位一个定义或入口尚未知时可用精确搜索；获得入口后切回 `nn-code`。
-
-`nn-code calls` 返回的 `unresolvedCallsites` 是预期静态边界（动态调用、外部模块、内置全局等），不是 bug；保留未知项并沿返回的精确跨度读取必要源码，不猜绑定、不静默丢弃。发现漏报、错连、分类错误或执行异常时，按 Skill 向 `NNAnything.Bob` 投递最小复现；正常边界不自动报 bug。不得将手工补齐的结果冒称为工具输出。
+排障、审计流程或追踪 TypeScript/JavaScript 函数调用关系，需要从已知函数继续找被调用方时，优先使用全局 `nn-code` Skill。发现结果遗漏、错误、执行异常，或能力边界阻断实际任务时，按该 Skill 处理和反馈。其余方法由已更新全局 Skill 唯一维护。
 
 ## 架构与目录写入边界
 
