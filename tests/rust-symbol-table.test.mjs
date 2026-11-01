@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -206,6 +208,94 @@ test("nested_modules.rs: same short name in different lexical scopes stays disti
   assert.deepEqual(scopes, ["crate", "crate/mod:outer", "crate/mod:outer/mod:inner"]);
   const ids = new Set(handles.map(entry => entry.symbolId));
   assert.equal(ids.size, 3);
+});
+
+test("block_local.rs: block-local declarations extracted with fn scope, same-name locals kept separate", async () => {
+  const out = await runOne(["src/block_local.rs"]);
+  assert.equal(out.status, "ok");
+  if (out.status !== "ok") return;
+
+  const outer = out.result.symbols.find(entry => entry.name === "outer");
+  assert.equal(outer?.kind, "function");
+  assert.deepEqual([...outer.lexicalScope], ["crate"]);
+
+  const inner = out.result.symbols.find(entry => entry.name === "inner");
+  assert.equal(inner?.kind, "function");
+  assert.deepEqual([...inner.lexicalScope], ["crate", "fn:outer"]);
+
+  const localS = out.result.symbols.find(entry => entry.name === "LocalS");
+  assert.equal(localS?.kind, "struct");
+  assert.deepEqual([...localS.lexicalScope], ["crate", "fn:holder"]);
+
+  const localM = out.result.symbols.find(entry => entry.name === "m");
+  assert.equal(localM?.kind, "method");
+  assert.equal(localM?.ownerType, "LocalS");
+  assert.equal(localM?.implTrait, null);
+  assert.deepEqual([...localM.lexicalScope], ["crate", "fn:holder", "impl:LocalS"]);
+
+  const dups = out.result.symbols.filter(entry => entry.name === "dup");
+  assert.equal(dups.length, 2);
+  const dupScopes = dups.map(entry => entry.lexicalScope.join("/")).sort();
+  assert.deepEqual(dupScopes, ["crate/fn:first", "crate/fn:second"]);
+  const dupIds = new Set(dups.map(entry => entry.symbolId));
+  assert.equal(dupIds.size, 2);
+  assert.notEqual(dups[0].declSpan.startLine, dups[1].declSpan.startLine);
+
+  assert.equal(out.result.coverage.partial, false);
+});
+
+test("symlink boundary: every symlink path component is skipped without following", async () => {
+  const base = mkdtempSync(join(tmpdir(), "rust-symbol-link-"));
+  const repo = join(base, "repo");
+  const outside = join(base, "outside");
+  mkdirSync(join(repo, "real"), { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  try {
+    writeFileSync(join(repo, "real", "normal.rs"), "pub fn normal_symbol() {}\n");
+    writeFileSync(join(outside, "external.rs"), "pub fn outside_repo() {}\n");
+    symlinkSync("real", join(repo, "link_in"));
+    symlinkSync("../outside", join(repo, "link_out"));
+    symlinkSync("real/normal.rs", join(repo, "file_link.rs"));
+
+    const out = await runRustSymbolTable({
+      repo,
+      language: "rust",
+      scope: ["real"],
+      files: [
+        "real/normal.rs",
+        "link_in/normal.rs",
+        "link_out/external.rs",
+        "file_link.rs",
+      ],
+    });
+    assert.equal(out.status, "ok");
+    if (out.status !== "ok") return;
+
+    const skipped = Object.fromEntries(out.result.coverage.skipped.map(entry => [entry.file, entry.reason]));
+    assert.deepEqual(skipped, {
+      "link_in/normal.rs": "SYMLINK_PATH_COMPONENT",
+      "link_out/external.rs": "SYMLINK_PATH_COMPONENT",
+      "file_link.rs": "SYMLINK_PATH_COMPONENT",
+    });
+
+    assert.equal(out.result.symbols.some(entry => entry.name === "outside_repo"), false);
+    assert.equal(out.result.symbols.some(entry => entry.file === "file_link.rs"), false);
+
+    const normalFiles = out.result.symbols
+      .filter(entry => entry.name === "normal_symbol")
+      .map(entry => entry.file)
+      .sort();
+    assert.deepEqual(normalFiles, ["real/normal.rs"]);
+
+    assert.equal(out.result.coverage.partial, true);
+    assert.deepEqual([...out.result.coverage.partialReasons], [
+      "link_in/normal.rs: SYMLINK_PATH_COMPONENT",
+      "link_out/external.rs: SYMLINK_PATH_COMPONENT",
+      "file_link.rs: SYMLINK_PATH_COMPONENT",
+    ]);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
 });
 
 test("cfg.rs: cfgConditional true and cfgAttributes preserved, non-cfg unaffected", async () => {

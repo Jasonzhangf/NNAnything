@@ -5,7 +5,7 @@
 // explicit list of repo-relative `.rs` files.
 
 import { spawn } from "node:child_process";
-import { readFile, lstat } from "node:fs/promises";
+import { readFile, lstat, realpath } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import path from "node:path";
 
@@ -233,6 +233,9 @@ class RustAstTreeStreamParser {
   }
 
   private containerLabel(frame: Frame): string | null {
+    if (frame.kindType === "Fn") {
+      return `fn:${frame.name ?? "?"}`;
+    }
     if (frame.kindType === "Impl") {
       const typeName = frame.ownerTypeText ?? "?";
       if (frame.implTraitText !== null) {
@@ -356,6 +359,12 @@ class RustAstTreeStreamParser {
         if (frame.name === null && indent === base + 12) {
           const match = IDENT_FIELD_RE.exec(trimmed);
           if (match !== null) frame.name = match[1] ?? null;
+        }
+        // Block-local legal declarations appear as `Stmt { kind: Item(...) }`
+        // inside the function body `Block.stmts[]`. The body block's
+        // `stmts: [` sits at base+20, so its item entries open at base+32.
+        if (frame.nestedIndent === null && indent === base + 20 && trimmed === "stmts: [") {
+          frame.nestedIndent = base + 32;
         }
         return;
       case "Struct":
@@ -640,6 +649,7 @@ export async function runRustSymbolTable(
       boundaries.push(...outcome.boundaries);
     } else if (outcome.kind === "skipped") {
       skipped.push({ file: relFile, reason: outcome.reason });
+      partialReasons.push(`${relFile}: ${outcome.reason}`);
     } else {
       failed.push({ file: relFile, reason: outcome.reason });
       partialReasons.push(`${relFile}: ${outcome.reason}`);
@@ -656,7 +666,7 @@ export async function runRustSymbolTable(
     scopeFilesParsed: parsedCount,
     scopeFilesFailed: Object.freeze(failed),
     skipped: Object.freeze(skipped),
-    partial: failed.length > 0,
+    partial: failed.length > 0 || skipped.length > 0,
     partialReasons: Object.freeze(partialReasons),
     truncated: false,
     parserInvocations: invocations,
@@ -692,6 +702,67 @@ function isInside(repoAbs: string, absFile: string): boolean {
   return relative.length > 0 && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
+function isContained(baseAbs: string, targetAbs: string): boolean {
+  const relative = path.relative(baseAbs, targetAbs);
+  if (relative === "") return true;
+  if (relative === ".." || relative.startsWith("../") || path.isAbsolute(relative)) {
+    return false;
+  }
+  return true;
+}
+
+type PathBoundaryCheck =
+  | Readonly<{ ok: true }>
+  | Readonly<{ kind: "skipped" | "failed"; reason: string }>;
+
+/**
+ * Checks every path component of an explicit repo-relative file before reading.
+ *
+ * The adapter only receives explicit file lists. Any component that is a
+ * symlink is skipped without following it, whether the target stays inside or
+ * outside the repo. The final component must be a regular file, and its
+ * resolved path must remain inside the repo root.
+ */
+async function checkPathBoundary(
+  repoAbs: string,
+  repoReal: string,
+  relFile: string,
+): Promise<PathBoundaryCheck> {
+  const parts = relFile.split("/");
+  let current = repoAbs;
+  for (let index = 0; index < parts.length; index += 1) {
+    current = path.join(current, parts[index] ?? "");
+    let stats;
+    try {
+      stats = await lstat(current);
+    } catch (error) {
+      return { kind: "failed", reason: `stat_failed: ${(error as Error).message}` };
+    }
+    if (stats.isSymbolicLink()) {
+      return { kind: "skipped", reason: "SYMLINK_PATH_COMPONENT" };
+    }
+    if (index < parts.length - 1) {
+      if (!stats.isDirectory()) {
+        return { kind: "failed", reason: "not_a_directory" };
+      }
+      continue;
+    }
+    if (!stats.isFile()) {
+      return { kind: "failed", reason: "not_a_regular_file" };
+    }
+  }
+  let resolvedFile: string;
+  try {
+    resolvedFile = await realpath(current);
+  } catch (error) {
+    return { kind: "failed", reason: `realpath_failed: ${(error as Error).message}` };
+  }
+  if (!isContained(repoReal, resolvedFile)) {
+    return { kind: "skipped", reason: "PATH_ESCAPES_REPO_ROOT" };
+  }
+  return { ok: true };
+}
+
 async function processOneFile(
   repoAbs: string,
   relFile: string,
@@ -703,17 +774,19 @@ async function processOneFile(
   if (!isInside(repoAbs, absFile)) {
     return { kind: "failed", reason: "path_escape", invocations: 0 };
   }
-  let stats;
+  let repoReal: string;
   try {
-    stats = await lstat(absFile);
+    repoReal = await realpath(repoAbs);
   } catch (error) {
-    return { kind: "failed", reason: `stat_failed: ${(error as Error).message}`, invocations: 0 };
+    return { kind: "failed", reason: `repo_realpath_failed: ${(error as Error).message}`, invocations: 0 };
   }
-  if (stats.isSymbolicLink()) {
-    return { kind: "skipped", reason: "symlink_not_followed", invocations: 0 };
-  }
-  if (!stats.isFile()) {
-    return { kind: "failed", reason: "not_a_regular_file", invocations: 0 };
+  const boundary = await checkPathBoundary(repoAbs, repoReal, relFile);
+  if ("ok" in boundary) {
+    // Path components are safe to read.
+  } else if (boundary.kind === "skipped") {
+    return { kind: "skipped", reason: boundary.reason, invocations: 0 };
+  } else {
+    return { kind: "failed", reason: boundary.reason, invocations: 0 };
   }
 
   let sourceContent: string;
