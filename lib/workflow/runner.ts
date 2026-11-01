@@ -9,6 +9,10 @@ import { expectNonEmptyString, expectRecord } from "../core/schema.js";
 // Failures remain internal dependency results, never successful business events.
 // Flowed drains the finite graph while dependent nodes avoid executing effects.
 type ArcResult = { event: EventEnvelope } | { failure: WorkflowRunFailure };
+// Flowed JSON-stringifies every task result for its audit log. Large payloads
+// must never cross that boundary as task results, so only a tiny reference is
+// passed through the engine and the real ArcResult stays local to this run.
+type FlowRef = { flowRef: string };
 
 function validateEvent(raw: unknown, port: EventPort, runId: string, producer: string, producerPort: string): EventEnvelope {
   const event = expectRecord(raw, "event");
@@ -28,6 +32,18 @@ function validateEvent(raw: unknown, port: EventPort, runId: string, producer: s
 export async function runWorkflow(compiled: CompiledWorkflow, inputEvent: EventEnvelope): Promise<WorkflowRunResult> {
   const events: EventEnvelope[] = [];
   const runId = inputEvent?.runId;
+  const arcValues = new Map<string, ArcResult>();
+  let nextRef = 0;
+  const storeArc = (value: ArcResult): FlowRef => {
+    const flowRef = `arc-result-${nextRef++}`;
+    arcValues.set(flowRef, value);
+    return { flowRef };
+  };
+  const resolveArc = (value: FlowRef): ArcResult => {
+    const resolved = arcValues.get(value.flowRef);
+    if (!resolved) throw new Error(`Missing flow ref ${value.flowRef}`);
+    return resolved;
+  };
   const failed = (failure: WorkflowRunFailure): WorkflowRunResult => ({ status: "failed", runId, error: failure, events });
   try {
     for (const node of compiled.graph.nodes) node.inputs.forEach((arc, index) => {
@@ -47,9 +63,9 @@ export async function runWorkflow(compiled: CompiledWorkflow, inputEvent: EventE
     const op = binding.definition;
     tasks[key] = { requires, provides: [outputKey], resolver: { name: key } };
     resolvers[key] = async params => {
-      const values = requires.map(input => params[input] as ArcResult);
+      const values = requires.map(input => resolveArc(params[input] as FlowRef));
       const upstreamFailure = values.find((value): value is { failure: WorkflowRunFailure } => "failure" in value);
-      if (upstreamFailure) return { [outputKey]: upstreamFailure };
+      if (upstreamFailure) return { [outputKey]: storeArc(upstreamFailure) };
       const inputs = values.map(value => (value as { event: EventEnvelope }).event);
       try {
         for (const effect of op.effects ?? []) if (!compiled.grantedEffects.has(effect)) throw new WorkflowRunError("unauthorized_effect", `Unauthorized effect ${effect}`, node.id);
@@ -75,16 +91,16 @@ export async function runWorkflow(compiled: CompiledWorkflow, inputEvent: EventE
           if (eventIds.has(event.eventId)) throw new Error("Reused eventId");
         } catch (error) { throw new WorkflowRunError("invalid_node_event", error instanceof Error ? error.message : String(error), node.id); }
         eventIds.add(event.eventId); events.push(event);
-        return { [outputKey]: { event } satisfies ArcResult };
+        return { [outputKey]: storeArc({ event }) };
       } catch (error) {
-        return { [outputKey]: { failure: { category: error instanceof WorkflowRunError ? error.category : "invalid_node_input", message: error instanceof Error ? error.message : String(error), nodeId: node.id } } satisfies ArcResult };
+        return { [outputKey]: storeArc({ failure: { category: error instanceof WorkflowRunError ? error.category : "invalid_node_input", message: error instanceof Error ? error.message : String(error), nodeId: node.id } }) };
       }
     };
   });
   try {
     const outputKey = arcKeys.get(compiled.outputArc.id)!;
-    const results = await FlowManager.run({ tasks, options: { resolverAutomapParams: true, resolverAutomapResults: true, throwErrorOnUnsolvableResult: true } }, { [arcKeys.get(compiled.entryArc.id)!]: { event: inputEvent } }, [outputKey], resolvers);
-    const output = results[outputKey] as ArcResult;
+    const results = await FlowManager.run({ tasks, options: { resolverAutomapParams: true, resolverAutomapResults: true, throwErrorOnUnsolvableResult: true } }, { [arcKeys.get(compiled.entryArc.id)!]: storeArc({ event: inputEvent }) }, [outputKey], resolvers);
+    const output = resolveArc(results[outputKey] as FlowRef);
     if ("failure" in output) return failed(output.failure);
     return { status: "completed", runId, outputEvent: output.event, events };
   } catch (error) { return failed({ category: "flow_execution_failed", message: error instanceof Error ? error.message : String(error) }); }
