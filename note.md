@@ -2289,3 +2289,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 下一步：派 GCM 在独占 worktree `cli-value-flow-mvp` 实现 `nn-code value-flow`（6 文件；`package.json`/`lib/cli-call-depth-bin.ts` 由 Jenny 集成）；Emma 设计 verbose+默认日志合并最小合同并做值流 train/dev 统计准备。
 - 用户新增方向（cli-adoption-request.md 首节「最新方向：未知关系交付、能力缺口样本与后训练」，m1793509306530-372）：查询在返回已证实关系同时按可观测证据输出结构化 unknownCallsites（调用点/表达式/模块线索/未知原因/缺失证据/覆盖状态），无证据留 unknown 不猜绑定；全局 SKILL.md 已直接更新「优先使用/未知继续检查/能力缺口反馈」条款，后续分发不得覆盖、项目 AGENTS 不复制细节；首个待复现实例为 OneStop orders.js≈247 行 `require('./admin-db')` 的 resolveMenuFactoryWait 归类 LEXICAL_PARAM_OR_VARIABLE_CALL（用户提供，未独立复验）。已把增量（结构化未知并入 verbose、CommonJS 字面量正反样本、确定性绑定≠训练、后训练样本/trainer/evaluator 设计）转 Emma，把该案例转 Bob 登记。
 - 值流产品实现 GCM 进行中（PID 13366，已新建 `lib/adapters/cli/value-flow-contract.ts`、`lib/filters/cli-value-flow-policy.ts`）；完成后核 build/typecheck/测试/黑盒再集成。
+
+## 2026-10-31 语言批次 A 派发；Rust 缺口登记；日志设计 L1 PASS
+
+- 用户收敛：先加显式 `--language`，不做自动全仓语言检测/多项目图；随后授权并发补 Rust，C++/JS 独立准备；计划更新加 kotlin/java/swift 词表与 E（Kotlin/Java）、F（Swift）独立批次。Android 按平台说明，不进 language 枚举。
+- Carol 交 `carol-log-learning-design.md`（默认日志→未知样本→后训练，8 节）。Jenny 独立审计 L1 日志工程 PASS（`jenny-log-learning-design-audit.md`），L2 未知消费、L3 固定后训练、L4 自动采用各自 gate，不随 L1 放行。实施待排入 A 之后的顺序 bin 批次。
+- Carol 交 `carol-language-batch-plan.md`（A-F 分批）。Jenny 非作者审计 `jenny-language-batch-audit.md`：A 立即可派，B/D/E/F 待 Emma 设计 + Carol 审计，C 归既有 CommonJS owner。
+- Batch A 合同 `gcm-nn-code-language-a-contract.md` 经 Carol PASS（补充 `carol-language-a-contract-audit.md`：kotlin/java/swift 合法未知、unsupported exit=3 且先文本搜索、TS/JS 也有清单、语言/文件冲突不送错解析器、日志记 requestedLanguage/parser/coverage、真实与合成 fixture 分开）。已派唯一 GCM（PID 30678，worktree `cli-language-a`，branch `codex/cli-language-a`，base `1bcbef3`），完成后核门禁再集成、合 main、全局安装复测。
+- Rust 能力缺口：Bob 已登记 `2469c4e`，保留 RouteCodex 原报告、四条原始日志与复现入口；A 只修语言边界表达，B 真实 Rust 调用关系验收后核销。
+- main 已由 `6dba379` 推进到 `1bcbef3` 并 push（含 note/AGENTS 文档提交），远端一致。
