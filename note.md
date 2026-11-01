@@ -2277,3 +2277,5 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 回归：新增 3 个 CD1-T10 反例，两测试文件 50/50；build/typecheck/install exit 0。worktree cd1-nn-code-accuracy 已清理（现 worktree 5）。Carol 审计请求 m1793507446919-329，待其判定 buglist 18b4e64/8cb8a50/BigInt 核销。
 - 残留：filesystem-sandbox.ts 无导出公开函数在静态图中到达 BigInt（BigInt 在 private sameOsInteger），故 BigInt 用 sameOsInteger 入口 + CD1-T10 黑盒验证，非公开导出入口字面覆盖。
 - verbose JSON：用户确认 --verbose 仅结构化 JSON 完整关系图，不做 Mermaid，合同需 Emma 设计、Carol 审计后实现（已交 Emma m1793506685562-309，排在值流 r4 三项修订之后）。
+
+- Carol 安装版独立验收通过（`carol-installed-accuracy-fix-acceptance.md`，m1793507501553-333）：readFileRange depth2/scope lib 与 sameOsInteger 入口，handle.read 分类、内层 close 独立调用点、两处 BigInt 分类均符合预期，`273657f` 改动与根因一致；允许按原范围核销 `8cb8a50`/`18b4e64` 及对应 BigInt，不外推整体 100%。已通知 Bob 核销。verbose JSON 设计继续，不混入本次修复完成。
