@@ -2305,3 +2305,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Batch A 合同 `gcm-nn-code-language-a-contract.md` 经 Carol PASS（补充 `carol-language-a-contract-audit.md`：kotlin/java/swift 合法未知、unsupported exit=3 且先文本搜索、TS/JS 也有清单、语言/文件冲突不送错解析器、日志记 requestedLanguage/parser/coverage、真实与合成 fixture 分开）。已派唯一 GCM（PID 30678，worktree `cli-language-a`，branch `codex/cli-language-a`，base `1bcbef3`），完成后核门禁再集成、合 main、全局安装复测。
 - Rust 能力缺口：Bob 已登记 `2469c4e`，保留 RouteCodex 原报告、四条原始日志与复现入口；A 只修语言边界表达，B 真实 Rust 调用关系验收后核销。
 - main 已由 `6dba379` 推进到 `1bcbef3` 并 push（含 note/AGENTS 文档提交），远端一致。
+
+## 2026-11-01 nn-code symbols 公共入口（Rust 第一批）合入 main
+
+- 完成度：`nn-code symbols --repo <path> --language rust --scope ...` 已可从全局安装 binary 运行，返回 `nnanything.cli-symbols.result.v1` 结构化符号表。这是用户首批要求中的“独立查询符号表”，不是调用深度关系，也不含组合训练返回。
+- 合入 main 的 commits：Rust 单文件 adapter 切片 merge `b12a529`（block-local 声明、四向 symlink 边界、nameSpan=null 原因、partialReasons 收敛），公共入口 merge 后续 commit（`lib/cli-symbols.ts` + `lib/cli-call-depth-bin.ts` 的 `symbols` 分支 + `tests/cli-symbols.test.mjs`）。
+- 验收证据：`npm run build`/`typecheck` exit 0；`tests/rust-symbol-table.test.mjs` 13/13；`tests/cli-symbols.test.mjs` 11/11；真实 RouteCodex `RS_SYM_REAL_1..7` 全命中；从 `/tmp` 与真实仓库 cwd 用全局 `/opt/homebrew/bin/nn-code symbols` 查询均命中（`hold_provider_error_return` declSpan 922:1-924:2）。回执 `gcm-nn-code-symbols-public-rust-result.md`。
+- 已推送：main 由 `48bd3ed` 推进到本 symbols 合并 commit 并 push；Rust/Kotlin 分支均已在 origin（Kotlin 分支 `codex/cli-kotlin-calls-e` 由本地补推保护）。
+- 未完成边界：`--ignore-policy` 首版仅 `no_ignore`，`respect_vcs_ignore` 显式拒绝不静默降级；`edition` 默认 2021 不读 `Cargo.toml`；宏定义/未展开调用只在 `macroBoundaries[]`；无类型推断、跨 crate 绑定、调用深度。Kotlin adapter 已通过 Carol PASS 但尚未合 main，缺 javac 构建接入与 JDK/PSI jar 可移植解析（当前候选仍含本机绝对路径），不并入本次 Rust 首批。
+- 阻塞：Collab daemon 自 10:02 起 `PROJECT_RUNTIME_UNAVAILABLE`（journal replay `master grant conflict`，binding `codex-session-303161...` 已有不同 grant），进入 degraded 只读降级。我按边界不重启 daemon、不改 journal；board/peer 状态不可查询，待用户侧维护恢复。已落盘的独立合同与直接 GCM 执行不受影响。

@@ -25,6 +25,7 @@ import {
   type CliCalleeCallGraphGoal,
 } from "./cli-call-depth.js";
 import { normalizeCallDepthLanguage } from "./adapters/cli/call-depth-contract.js";
+import { runCliSymbols } from "./cli-symbols.js";
 
 const CLI_NAME = "nn-code";
 const CALLS_SUBCOMMAND = "calls";
@@ -91,6 +92,11 @@ function buildUsageText(cliVersion: string): string {
     "",
     "Usage:",
     `  ${CLI_NAME} ${CALLS_SUBCOMMAND} --repo <path> --entry-file <repoRelativePath> --entry-symbol <symbol> --max-depth <${maxDepthUsage}> --scope <prefix> [options]`,
+    `  ${CLI_NAME} symbols --repo <path> --language <rust|rs> --scope <prefix> [options]`,
+    "",
+    `Subcommands:`,
+    `  ${CALLS_SUBCOMMAND}                      Deterministic read-only callee call graph (see below)`,
+    `  symbols                       Read-only Rust symbol declaration table; run "${CLI_NAME} symbols --help" for details`,
     "",
     `Required arguments (${CLI_NAME} ${CALLS_SUBCOMMAND}):`,
     "  --repo <path>                         Target repository root path (opened strictly read-only)",
@@ -741,6 +747,12 @@ async function main(): Promise<void> {
   }
 
   const rawArgv = process.argv.slice(2);
+
+  if (rawArgv[0] === "symbols") {
+    await runCliSymbols(rawArgv.slice(1), { cliVersion });
+    return;
+  }
+
   if (hasFlag(rawArgv, "--help") || hasFlag(rawArgv, "-h")) {
     process.stdout.write(`${buildUsageText(cliVersion)}\n`);
     process.exitCode = EXIT_CODES.achieved;
