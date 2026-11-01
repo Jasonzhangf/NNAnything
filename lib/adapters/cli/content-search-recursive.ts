@@ -58,6 +58,7 @@ import {
   type ContentSearchMismatchFact,
   type ContentSearchOrder,
   type ContentSearchReadFact,
+  type ContentSearchReadStateRef,
   type ContentSearchReadGoal,
   type ContentSearchReceiptPayload,
   type ContentSearchRequest,
@@ -1095,10 +1096,29 @@ function readFactFromReceipt(
  * scanned byte, so the recursive-goal engine consumes heap proportional to
  * (number of steps x number of scanned bytes). The scan already records the
  * match span and byte count in `scan`; downstream projections only read those
- * scalars, so the echoed bytes are dropped from the deposited state.
+ * scalars. The deposited state therefore keeps an explicit reference to the
+ * atomic read receipt instead of an empty byte string, so it cannot be mistaken
+ * for a real read of zero bytes.
  */
-function retainedReadFact(read: ContentSearchReadFact): ContentSearchReadFact {
-  return Object.freeze({ ...read, bytes: "" });
+function retainedReadFact(read: ContentSearchReadFact): ContentSearchReadStateRef {
+  return Object.freeze({
+    kind: "cli.content-search.read-state-ref.v1",
+    ref: read.ref,
+    sourceRun: read.sourceRun,
+    refSourceRun: read.refSourceRun,
+    revision: read.revision,
+    offset: read.offset,
+    length: read.length,
+    size: read.size,
+    attempt: read.attempt,
+    bytesRead: read.bytesRead,
+    eof: read.eof,
+    identity: read.identity,
+    bytesRef: Object.freeze({
+      kind: "cli.file.read.receipt.v1",
+      runId: read.sourceRun,
+    }),
+  });
 }
 
 function candidateIdentityStable(candidate: ContentSearchCandidateFact, read: ContentSearchReadFact): boolean {

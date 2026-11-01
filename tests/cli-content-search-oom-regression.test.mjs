@@ -108,14 +108,41 @@ test("directory text coverage keeps raw read bytes out of the deposited state", 
   const lastState = states[states.length - 1].value;
   const readCandidates = lastState.candidates.filter(candidate => candidate.read !== null);
   assert.ok(readCandidates.length >= 6, `expected read candidates, saw ${readCandidates.length}`);
-  for (const candidate of readCandidates) {
-    assert.equal(candidate.read.bytes, "", `raw read bytes retained in state for ${candidate.path}`);
-  }
 
   const readReceipts = result.response.report.atomicResults
     .map(atomic => atomic.sourceResult)
     .filter(source => source !== null && source.tag === "cli.file.read.receipt.v1");
   assert.ok(readReceipts.length >= 6, `expected read receipts, saw ${readReceipts.length}`);
+  const receiptRunIds = new Set(readReceipts.map(source => source.value.receipt.execution.runId));
+
+  for (const candidate of readCandidates) {
+    const read = candidate.read;
+    assert.equal(
+      read.kind,
+      "cli.content-search.read-state-ref.v1",
+      `state read for ${candidate.path} must use the explicit receipt reference`,
+    );
+    assert.ok(
+      !Object.hasOwn(read, "bytes"),
+      `empty bytes string used as state read for ${candidate.path}`,
+    );
+    assert.equal(read.bytesRef.kind, "cli.file.read.receipt.v1",
+      `state read for ${candidate.path} must reference the read receipt kind`);
+    assert.equal(typeof read.bytesRef.runId, "string");
+    assert.ok(read.bytesRef.runId.length > 0, `state read for ${candidate.path} must name a receipt run`);
+    assert.ok(receiptRunIds.has(read.bytesRef.runId),
+      `state read for ${candidate.path} references a missing receipt run ${read.bytesRef.runId}`);
+    assert.ok(read.bytesRead > 0, `state read for ${candidate.path} must retain the observed byte count`);
+    assert.equal(typeof read.offset, "number");
+    assert.equal(typeof read.length, "number");
+    assert.equal(typeof read.size, "number");
+    assert.equal(typeof read.eof, "boolean");
+    assert.ok(read.identity.dev !== null && read.identity.dev !== undefined,
+      `state read for ${candidate.path} must retain the device identity`);
+    assert.ok(read.identity.ino !== null && read.identity.ino !== undefined,
+      `state read for ${candidate.path} must retain the inode identity`);
+  }
+
   for (const source of readReceipts) {
     const observation = source.value.receipt.execution.observation;
     assert.equal(observation.kind, "file.read");

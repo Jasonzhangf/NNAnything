@@ -158,6 +158,35 @@ export type ContentSearchReadFact = Readonly<{
   identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
 }>;
 
+/**
+ * Persisted state representation of an observed read.
+ *
+ * The recursive-goal engine snapshots and clones the candidate state after
+ * every atomic step, so a raw file chunk must not live in the state. This type
+ * carries the read metadata that consumers need and an explicit reference to
+ * the atomic read receipt that holds the observed bytes. It is a reference,
+ * not an empty read: `bytesRef.runId` names the receipt whose
+ * `cli.file.read.receipt.v1` payload still contains the raw bytes.
+ */
+export type ContentSearchReadStateRef = Readonly<{
+  kind: "cli.content-search.read-state-ref.v1";
+  ref: ContentSearchFileRef;
+  sourceRun: string;
+  refSourceRun: string;
+  revision: number;
+  offset: number;
+  length: number;
+  size: number;
+  attempt: number;
+  bytesRead: number;
+  eof: boolean;
+  identity: Readonly<{ dev: OsInteger; ino: OsInteger }>;
+  bytesRef: Readonly<{
+    kind: "cli.file.read.receipt.v1";
+    runId: string;
+  }>;
+}>;
+
 export type ContentSearchCandidateOutcome =
   | "pending"
   | "matched"
@@ -201,7 +230,7 @@ export type ContentSearchCandidateFact = Readonly<{
   listedType: "file" | "directory" | "symlink" | "other" | "unknown";
   inspected: ContentSearchInspectedFact | null;
   fileRef: ContentSearchFileRef | null;
-  read: ContentSearchReadFact | null;
+  read: ContentSearchReadFact | ContentSearchReadStateRef | null;
   scan: ContentSearchScanFact | null;
   history: readonly ContentSearchHistoricalHitFact[];
   contains: boolean | null;
@@ -1051,11 +1080,20 @@ function readInspected(value: unknown, label: string): ContentSearchInspectedFac
   });
 }
 
-function readReadFact(value: unknown, label: string): ContentSearchReadFact {
+function readReadStateRef(value: unknown, label: string): ContentSearchReadStateRef {
   const input = record(value, label);
-  exactKeys(input, ["ref", "sourceRun", "refSourceRun", "revision", "offset", "length", "size", "attempt", "bytes", "bytesRead", "eof", "identity"], label);
+  exactKeys(input, ["kind", "ref", "sourceRun", "refSourceRun", "revision", "offset", "length", "size", "attempt", "bytesRead", "eof", "identity", "bytesRef"], label);
+  if (input.kind !== "cli.content-search.read-state-ref.v1") {
+    throw new TypeError(`${label}.kind must be cli.content-search.read-state-ref.v1`);
+  }
   if (typeof input.eof !== "boolean") throw new TypeError(`${label}.eof must be a boolean`);
+  const bytesRef = record(input.bytesRef, `${label}.bytesRef`);
+  exactKeys(bytesRef, ["kind", "runId"], `${label}.bytesRef`);
+  if (bytesRef.kind !== "cli.file.read.receipt.v1") {
+    throw new TypeError(`${label}.bytesRef.kind must be cli.file.read.receipt.v1`);
+  }
   return Object.freeze({
+    kind: "cli.content-search.read-state-ref.v1",
     ref: readFileRef(input.ref, `${label}.ref`),
     sourceRun: nonEmpty(input.sourceRun, `${label}.sourceRun`),
     refSourceRun: nonEmpty(input.refSourceRun, `${label}.refSourceRun`),
@@ -1064,11 +1102,22 @@ function readReadFact(value: unknown, label: string): ContentSearchReadFact {
     length: nonnegativeInteger(input.length, `${label}.length`),
     size: nonnegativeInteger(input.size, `${label}.size`),
     attempt: positiveInteger(input.attempt, `${label}.attempt`),
-    bytes: typeof input.bytes === "string" ? input.bytes : (() => { throw new TypeError(`${label}.bytes must be a string`); })(),
     bytesRead: nonnegativeInteger(input.bytesRead, `${label}.bytesRead`),
     eof: input.eof,
     identity: readIdentity(input.identity, `${label}.identity`),
+    bytesRef: Object.freeze({
+      kind: "cli.file.read.receipt.v1",
+      runId: nonEmpty(bytesRef.runId, `${label}.bytesRef.runId`),
+    }),
   });
+}
+
+function readCandidateRead(value: unknown, label: string): ContentSearchReadStateRef {
+  const input = record(value, label);
+  if (input.kind !== "cli.content-search.read-state-ref.v1") {
+    throw new TypeError(`${label} must be a cli.content-search.read-state-ref.v1 reference`);
+  }
+  return readReadStateRef(input, label);
 }
 
 function readIdentityKey(value: unknown, label: string): ContentSearchIdentityKey {
@@ -1170,7 +1219,7 @@ function readCandidate(value: unknown, label: string): ContentSearchCandidateFac
     listedType: input.listedType as ContentSearchCandidateFact["listedType"],
     inspected: input.inspected === null ? null : readInspected(input.inspected, `${label}.inspected`),
     fileRef: input.fileRef === null ? null : readFileRef(input.fileRef, `${label}.fileRef`),
-    read: input.read === null ? null : readReadFact(input.read, `${label}.read`),
+    read: input.read === null ? null : readCandidateRead(input.read, `${label}.read`),
     scan: input.scan === null ? null : readScanFact(input.scan, `${label}.scan`),
     history: Object.freeze((input.history as unknown[]).map((item, index) => readHistoricalHit(item, `${label}.history[${index}]`))),
     contains: input.contains as boolean | null,
