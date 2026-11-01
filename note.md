@@ -2279,3 +2279,4 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - verbose JSON：用户确认 --verbose 仅结构化 JSON 完整关系图，不做 Mermaid，合同需 Emma 设计、Carol 审计后实现（已交 Emma m1793506685562-309，排在值流 r4 三项修订之后）。
 
 - Carol 安装版独立验收通过（`carol-installed-accuracy-fix-acceptance.md`，m1793507501553-333）：readFileRange depth2/scope lib 与 sameOsInteger 入口，handle.read 分类、内层 close 独立调用点、两处 BigInt 分类均符合预期，`273657f` 改动与根因一致；允许按原范围核销 `8cb8a50`/`18b4e64` 及对应 BigInt，不外推整体 100%。已通知 Bob 核销。verbose JSON 设计继续，不混入本次修复完成。
+- Bob 核销回执（m1793507578169-338，已消费）：已按原范围关闭 `8cb8a50` 与 `18b4e64`，buglist 读取确认两项 closed；重查 resolveEntry depth 3 两处 `ts.getModifiers` 内外层均返回，BigInt 两处均 `UNSHADOWED_BUILTIN_GLOBAL`；buglist 全列表无独立 BigInt 条目，故无对应 ID 可关；先前挂起并持锁的两个自有追加进程已终止，buglist 恢复可用。Bob 明确该核销不代表全域准确率。
