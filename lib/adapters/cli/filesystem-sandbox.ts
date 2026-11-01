@@ -1845,6 +1845,13 @@ export async function createCliFilesystemSandbox(options: {
     throw error;
   }
 
+  return createSandboxHandle(state, { ownsScenarioRoot: true });
+}
+
+function createSandboxHandle(
+  state: SandboxState,
+  options: Readonly<{ readonly ownsScenarioRoot: boolean }>,
+): CliFilesystemSandbox {
   return Object.freeze({
     scenarioId: state.scenarioId,
     scenarioRoot: state.scenarioRoot,
@@ -1936,8 +1943,57 @@ export async function createCliFilesystemSandbox(options: {
     async cleanup() {
       if (!state.active) return Object.freeze({ removed: false, scenarioRoot: state.scenarioRoot });
       state.active = false;
+      if (!options.ownsScenarioRoot) {
+        return Object.freeze({ removed: false, scenarioRoot: state.scenarioRoot });
+      }
       await rm(state.scenarioRoot, { recursive: true, force: true });
       return Object.freeze({ removed: true, scenarioRoot: state.scenarioRoot });
     },
   });
+}
+
+export const DEFAULT_READ_ONLY_SCENARIO_ID = "live-repo" as const;
+export const DEFAULT_READ_ONLY_SESSION_ID = "live-read-only" as const;
+
+export async function createReadOnlyCliFilesystemSandbox(options: {
+  readonly root: string;
+  readonly scenarioId?: string;
+  readonly sessionId?: string;
+}): Promise<CliFilesystemSandbox> {
+  const input = expectRecord(options, "read-only sandbox options");
+  const allowed = [
+    "root",
+    ...(Object.hasOwn(input, "scenarioId") ? ["scenarioId"] : []),
+    ...(Object.hasOwn(input, "sessionId") ? ["sessionId"] : []),
+  ];
+  exactKeys(input, allowed, "read-only sandbox options");
+  const rootValue = nonEmpty(input.root, "read-only sandbox root");
+  if (!isAbsolute(rootValue)) throw new TypeError("read-only sandbox root must be absolute");
+  const scenarioId = Object.hasOwn(input, "scenarioId")
+    ? segment(input.scenarioId, "read-only sandbox scenarioId")
+    : DEFAULT_READ_ONLY_SCENARIO_ID;
+  const sessionId = Object.hasOwn(input, "sessionId")
+    ? nonEmpty(input.sessionId, "read-only sandbox sessionId")
+    : DEFAULT_READ_ONLY_SESSION_ID;
+  const physicalRoot = await realpath(rootValue);
+  const rootAttributes = await lstat(physicalRoot);
+  if (!rootAttributes.isDirectory()) throw new TypeError("read-only sandbox root must be a directory");
+
+  const state: SandboxState = {
+    root: physicalRoot,
+    scenarioId,
+    scenarioRoot: physicalRoot,
+    sessions: new Map([[sessionId, Object.freeze({
+      id: sessionId,
+      cwd: physicalRoot,
+      revision: 0,
+      grantedEffects: Object.freeze(["filesystem.read"] as const),
+    })]]),
+    grants: Object.freeze(["filesystem.read"] as const),
+    boundRefs: new Map(),
+    issuedDirectoryRefs: new Map(),
+    active: true,
+  };
+
+  return createSandboxHandle(state, { ownsScenarioRoot: false });
 }

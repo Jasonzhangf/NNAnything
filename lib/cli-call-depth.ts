@@ -194,7 +194,12 @@ export async function runCliCalleeCallGraphGoal(
   return deriveRunResult(goal.maxDepth, response, finalState);
 }
 
-export { createCliFilesystemSandbox } from "./adapters/cli/filesystem-sandbox.js";
+export {
+  createCliFilesystemSandbox,
+  createReadOnlyCliFilesystemSandbox,
+  DEFAULT_READ_ONLY_SCENARIO_ID,
+  DEFAULT_READ_ONLY_SESSION_ID,
+} from "./adapters/cli/filesystem-sandbox.js";
 export { readCalleeCallGraphGoal } from "./adapters/cli/call-depth-contract.js";
 export type {
   CallDepthRunResult,
