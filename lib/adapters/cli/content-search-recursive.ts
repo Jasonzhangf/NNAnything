@@ -58,6 +58,7 @@ import {
   type ContentSearchMismatchFact,
   type ContentSearchOrder,
   type ContentSearchReadFact,
+  type ContentSearchReadStateRef,
   type ContentSearchReadGoal,
   type ContentSearchReceiptPayload,
   type ContentSearchRequest,
@@ -1089,6 +1090,37 @@ function readFactFromReceipt(
   });
 }
 
+/**
+ * The engine snapshots and clones the candidate state after every atomic step.
+ * Retaining the raw file chunk here makes each snapshot grow with every
+ * scanned byte, so the recursive-goal engine consumes heap proportional to
+ * (number of steps x number of scanned bytes). The scan already records the
+ * match span and byte count in `scan`; downstream projections only read those
+ * scalars. The deposited state therefore keeps an explicit reference to the
+ * atomic read receipt instead of an empty byte string, so it cannot be mistaken
+ * for a real read of zero bytes.
+ */
+function retainedReadFact(read: ContentSearchReadFact): ContentSearchReadStateRef {
+  return Object.freeze({
+    kind: "cli.content-search.read-state-ref.v1",
+    ref: read.ref,
+    sourceRun: read.sourceRun,
+    refSourceRun: read.refSourceRun,
+    revision: read.revision,
+    offset: read.offset,
+    length: read.length,
+    size: read.size,
+    attempt: read.attempt,
+    bytesRead: read.bytesRead,
+    eof: read.eof,
+    identity: read.identity,
+    bytesRef: Object.freeze({
+      kind: "cli.file.read.receipt.v1",
+      runId: read.sourceRun,
+    }),
+  });
+}
+
 function candidateIdentityStable(candidate: ContentSearchCandidateFact, read: ContentSearchReadFact): boolean {
   if (candidate.fileRef === null) return false;
   const ref = candidate.fileRef;
@@ -1563,6 +1595,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
       const read = sandboxReceipt.status === "succeeded"
         ? readFactFromReceipt(sandboxReceipt, ref, sandboxReceipt.session_before.revision, goal.requirement.attempt)
         : null;
+      const retainedRead = read === null ? null : retainedReadFact(read);
       let nextState = stateWithCli(callback.state, callback.state.cli, callback.state.session);
       if (candidate !== undefined) {
         if (read !== null && read.bytesRead !== null) {
@@ -1585,7 +1618,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               code: null,
             }));
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               inspected: null,
               fileRef: candidate.fileRef,
               scan: null,
@@ -1609,7 +1642,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               code: null,
             }));
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               inspected: null,
               fileRef: candidate.fileRef,
               scan: null,
@@ -1631,7 +1664,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               code: null,
             }));
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               inspected: null,
               fileRef: candidate.fileRef,
               scan: null,
@@ -1664,7 +1697,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               ? null
               : Object.freeze({ line: firstMatch.line, column: firstMatch.column });
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               contains: shortRead ? null : matched ? true : negative ? false : null,
               outcome,
               scan,
