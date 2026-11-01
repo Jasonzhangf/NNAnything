@@ -2280,3 +2280,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
 - Carol 安装版独立验收通过（`carol-installed-accuracy-fix-acceptance.md`，m1793507501553-333）：readFileRange depth2/scope lib 与 sameOsInteger 入口，handle.read 分类、内层 close 独立调用点、两处 BigInt 分类均符合预期，`273657f` 改动与根因一致；允许按原范围核销 `8cb8a50`/`18b4e64` 及对应 BigInt，不外推整体 100%。已通知 Bob 核销。verbose JSON 设计继续，不混入本次修复完成。
 - Bob 核销回执（m1793507578169-338，已消费）：已按原范围关闭 `8cb8a50` 与 `18b4e64`，buglist 读取确认两项 closed；重查 resolveEntry depth 3 两处 `ts.getModifiers` 内外层均返回，BigInt 两处均 `UNSHADOWED_BUILTIN_GLOBAL`；buglist 全列表无独立 BigInt 条目，故无对应 ID 可关；先前挂起并持锁的两个自有追加进程已终止，buglist 恢复可用。Bob 明确该核销不代表全域准确率。
+
+## 2026-10-31 值流 r5 设计 PASS；新增默认调用日志要求；下一步实现与训练准备
+
+- 值流 r5 产品语义设计 Carol PASS（`carol-valueflow-r5-audit.md`，m1793508095053-353）：路径析取汇合、循环显式 may-provenance、worklist 到实际不动点且无隐藏步数限额均满足；允许 Jenny 按已有用户授权推进独立产品实现，Emma 并行准备样本与固定训练/评价入口。修改传播仍仅设计 PASS。
+- 值流训练局部未就绪：正式拟合前 Emma 须用实际 train/dev 样本（不接触 verification）交回固定提取器生成的特征分组/标签/配对统计，确认统计权重与评价分母，删除虚构可达保证（设计分布假设与条件熵下界不能证明有限模型可达）；固定 trainer/evaluator 自检验收后才能交 GCM。不删样本/改 gold/放宽阈值；不阻断产品实现与固定环境准备，不重新申请用户已授予的值流训练权限。
+- 用户新增调用日志要求（m1793508217557-357，合同 `cli-adoption-request.md` 首节）：默认开启首次调用有效过程证据，`--no-log` 关闭本次日志（不建日志/目录、不轮转、不伪造路径），启用时 10GB 容量上限按最旧已完成记录轮转并保护活动记录，明确并发/超大/磁盘错误可观测行为。与 verbose JSON 合并为单一日志任务单 writer：Emma 设计→Carol 审计→Jenny 实现并更新安装/全局 Skill/help。
+- 下一步：派 GCM 在独占 worktree `cli-value-flow-mvp` 实现 `nn-code value-flow`（6 文件；`package.json`/`lib/cli-call-depth-bin.ts` 由 Jenny 集成）；Emma 设计 verbose+默认日志合并最小合同并做值流 train/dev 统计准备。
