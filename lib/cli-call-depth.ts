@@ -626,6 +626,24 @@ export {
   DEFAULT_READ_ONLY_SESSION_ID,
 } from "./adapters/cli/filesystem-sandbox.js";
 export { readCalleeCallGraphGoal } from "./adapters/cli/call-depth-contract.js";
+export {
+  disabledUsageLog,
+  iterateVerifiedUsageLogCandidates,
+  iterateVerifiedUsageLogRuns,
+  projectValueFlowDecisionUsageEvent,
+  spoolVerifiedUsageLogCandidates,
+} from "./adapters/cli/nn-code-usage-log.js";
+export type {
+  CommittedRunFileInfo,
+  SpoolUsageLogCandidatesOptions,
+  SpoolUsageLogCandidatesReceipt,
+  UsageLogFileStatSnapshot,
+  UsageLogPoolSummary,
+  UsageLogStreamOptions,
+  ValueFlowDecisionProjectionInput,
+  VerifiedUsageLogCandidateItem,
+  VerifiedUsageLogRunDiagnosticItem,
+} from "./adapters/cli/nn-code-usage-log.js";
 export type {
   CallDepthRunResult,
   CallDepthState,
