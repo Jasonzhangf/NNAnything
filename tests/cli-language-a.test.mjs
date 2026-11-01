@@ -16,9 +16,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const binPath = join(repoRoot, "dist", "cli-call-depth-bin.js");
+
+function identifierPositions(source, name) {
+  const sourceFile = ts.createSourceFile("fixture.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const positions = [];
+  const visit = node => {
+    if (ts.isIdentifier(node) && node.text === name) {
+      const pos = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+      positions.push({ line: pos.line + 1, column: pos.character + 1 });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return positions;
+}
+
+function textAt(line, column, text) {
+  const lines = Array.from({ length: Math.max(line, 1) }, () => "");
+  lines[line - 1] = " ".repeat(column - 1) + text;
+  return `${lines.join("\n")}\n`;
+}
 
 function runBin(args, cwd) {
   const proc = spawnSync(process.execPath, [binPath, ...args], {
@@ -72,7 +93,7 @@ test("TS without --language keeps the old success path and now includes first-ro
   assert.equal(payload.coverage.semantic.parser, "typescript");
 });
 
-test("explicit typescript/ts and javascript/js aliases route to the supported parser", async t => {
+test("explicit typescript/ts and javascript/js aliases route without claiming a JS parser backend", async t => {
   const root = await makeRepo(t);
   await write(join(root, "src", "entry.ts"),
     "export function entry(){ return 1; }\n");
@@ -106,7 +127,10 @@ test("explicit typescript/ts and javascript/js aliases route to the supported pa
   assert.equal(jsRun.status, 0, jsRun.stderr);
   const jsPayload = JSON.parse(jsRun.stdout);
   assert.equal(jsPayload.requestedLanguage, "javascript");
-  assert.equal(jsPayload.actualParser, "javascript");
+  assert.equal(jsPayload.actualParser, "typescript");
+  assert.equal(jsPayload.coverage.semantic.parser, "typescript");
+  assert.equal(jsPayload.coverage.languageSupport.actualParser, "typescript");
+  assert.equal(jsPayload.coverage.languageSupport.requested, "javascript");
   assert.equal(jsPayload.status, "achieved");
 });
 
@@ -251,6 +275,95 @@ test("unsupported-language candidates cover multiple occurrences across files", 
   assert.deepEqual(payload.textCandidates.map(candidate => candidate.filePath).sort(), ["src/a.rs", "src/b.rs"]);
   assert.equal(payload.coverage.text.status, "complete");
   assert.equal(payload.coverage.text.matchedFiles, 2);
+});
+
+test("explicit javascript does not report a JavaScript parser backend", async t => {
+  const root = await makeRepo(t);
+  await write(join(root, "src", "entry.js"),
+    "export function entry(){ return 1; }\n");
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.js",
+    "--entry-symbol", "entry",
+    "--max-depth", "0",
+    "--scope", "src",
+    "--language", "javascript",
+    "--compact",
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.status, "achieved");
+  assert.equal(payload.requestedLanguage, "javascript");
+  assert.equal(payload.actualParser, "typescript");
+  assert.equal(payload.coverage.semantic.parser, "typescript");
+  assert.equal(payload.coverage.languageSupport.requested, "javascript");
+  assert.equal(payload.coverage.languageSupport.actualParser, "typescript");
+});
+
+test("same line/column text hit in a different file is not confirmed_call", async t => {
+  const root = await makeRepo(t);
+  const source = "export function entry(){ return helper(); }\nfunction helper(){ return entry(); }\n";
+  await write(join(root, "src", "entry.ts"), source);
+  const positions = identifierPositions(source, "entry");
+  assert.equal(positions.length, 2, "fixture has one declaration and one call");
+  const call = positions[1];
+  await write(join(root, "src", "other.ts"), textAt(call.line, call.column, "entry"));
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.ts",
+    "--entry-symbol", "entry",
+    "--max-depth", "2",
+    "--scope", "src",
+    "--compact",
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.status, "achieved");
+  const sameFile = payload.textCandidates.find(candidate =>
+    candidate.filePath === "src/entry.ts"
+    && candidate.line === call.line
+    && candidate.column === call.column);
+  assert.ok(sameFile, "same-file call candidate is present");
+  assert.equal(sameFile.disposition, "confirmed_call");
+  const otherFile = payload.textCandidates.find(candidate => candidate.filePath === "src/other.ts");
+  assert.ok(otherFile, "other-file candidate is present");
+  assert.equal(otherFile.line, call.line);
+  assert.equal(otherFile.column, call.column);
+  assert.notEqual(otherFile.disposition, "confirmed_call");
+  assert.equal(otherFile.disposition, "unclassified");
+});
+
+test("unresolved callsite is unknown with callsite evidence, not other_binding", async t => {
+  const root = await makeRepo(t);
+  const source = "export function entry(){ return helper(); }\nfunction helper(){ return obj.entry(); }\n";
+  await write(join(root, "src", "entry.ts"), source);
+  const positions = identifierPositions(source, "entry");
+  assert.equal(positions.length, 2, "fixture has one declaration and one unresolved property name");
+  const unresolved = positions[1];
+  await write(join(root, "src", "other.ts"), textAt(unresolved.line, unresolved.column, "entry"));
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.ts",
+    "--entry-symbol", "entry",
+    "--max-depth", "2",
+    "--scope", "src",
+    "--compact",
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.unresolvedCallsites.length, 1);
+  const unresolvedFact = payload.unresolvedCallsites[0];
+  assert.equal(unresolvedFact.calleeExpr, "obj.entry");
+  const sameFile = payload.textCandidates.find(candidate =>
+    candidate.filePath === "src/entry.ts"
+    && candidate.line === unresolved.line
+    && candidate.column === unresolved.column);
+  assert.ok(sameFile, "unresolved candidate is present");
+  assert.equal(sameFile.disposition, "unknown");
+  assert.ok(sameFile.evidenceRefs.includes(`callsite:${unresolvedFact.callerId}`));
+  const otherFile = payload.textCandidates.find(candidate => candidate.filePath === "src/other.ts");
+  assert.ok(otherFile, "other-file candidate is present");
+  assert.equal(otherFile.disposition, "unclassified");
 });
 
 test("run log records requested language, actual parser and both coverage dimensions", async t => {

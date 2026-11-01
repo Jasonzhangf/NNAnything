@@ -37,10 +37,13 @@ import {
   createReadOnlyContentSearchSandbox,
   runCliContentSearchGoal,
 } from "./cli-content-search.js";
-import type {
-  ContentSearchDomainProjection,
-  ContentSearchHitFact,
-} from "./adapters/cli/content-search-contract.js";
+import type { ContentSearchDomainProjection } from "./adapters/cli/content-search-contract.js";
+import {
+  expandTextHit,
+  recordTextExpansionFailure,
+  textCoverageStatus,
+} from "./adapters/cli/call-depth-text.js";
+import { CALL_DEPTH_ACTUAL_PARSER } from "./filters/cli-call-depth-policy.js";
 import {
   CLI_COMMAND_HEADS,
   CLI_COMMAND_PREDICATES,
@@ -160,7 +163,7 @@ function deriveRunResult(
     ? 0
     : finalState.nodes.reduce((max, node) => Math.max(max, node.minDepth), 0);
   const achievedDepth = finalState === null ? 0 : maxDepthOfNodes;
-  const actualParser = route.parserLanguage;
+  const actualParser = CALL_DEPTH_ACTUAL_PARSER;
   return Object.freeze({
     status,
     resolution,
@@ -270,124 +273,6 @@ function textFailureMessages(fact: ContentSearchDomainProjection["rootFact"]): r
   return Object.freeze([]);
 }
 
-function positionAt(bytes: Buffer, offset: number): Readonly<{ line: number; column: number }> {
-  let line = 1;
-  for (let index = 0; index < offset; index += 1) {
-    if (bytes[index] === 0x0a) line += 1;
-  }
-  const previousNewline = offset === 0 ? -1 : bytes.lastIndexOf(0x0a, offset - 1);
-  const lineStart = previousNewline + 1;
-  return Object.freeze({
-    line,
-    column: bytes.subarray(lineStart, offset).toString("utf8").length + 1,
-  });
-}
-
-function previewAt(bytes: Buffer, offset: number, needleLength: number): string {
-  const lineStart = bytes.lastIndexOf(0x0a, Math.max(0, offset - 1)) + 1;
-  const nextNewline = bytes.indexOf(0x0a, offset + needleLength);
-  const lineEnd = nextNewline === -1 ? bytes.length : nextNewline;
-  const line = bytes.subarray(lineStart, lineEnd).toString("utf8");
-  if (line.length <= 200) return line;
-  const column = bytes.subarray(lineStart, offset).toString("utf8").length;
-  const start = Math.max(0, column - 80);
-  return `${start > 0 ? "..." : ""}${line.slice(start, start + 200)}${start + 200 < line.length ? "..." : ""}`;
-}
-
-function textCandidate(
-  repoRoot: string,
-  hit: ContentSearchHitFact,
-  bytes: Buffer,
-  start: number,
-  needle: string,
-): CallDepthTextCandidate {
-  const absolutePath = hit.path;
-  const filePath = relative(repoRoot, absolutePath);
-  const matchedText = bytes.subarray(start, start + Buffer.byteLength(needle, "utf8")).toString("utf8");
-  const startPosition = positionAt(bytes, start);
-  const endPosition = positionAt(bytes, start + Buffer.byteLength(needle, "utf8"));
-  return Object.freeze({
-    candidateId: `text:${filePath}:${start}:${needle}`,
-    filePath,
-    line: startPosition.line,
-    column: startPosition.column,
-    span: Object.freeze({
-      startLine: startPosition.line,
-      startColumn: startPosition.column,
-      endLine: endPosition.line,
-      endColumn: endPosition.column,
-    }),
-    byteSpan: Object.freeze({ start, end: start + Buffer.byteLength(needle, "utf8") }),
-    matchedText,
-    preview: previewAt(bytes, start, Buffer.byteLength(needle, "utf8")),
-    matchedNeedle: needle,
-    disposition: "unclassified" as const,
-    evidenceRefs: Object.freeze([
-      `content-search:${hit.fileRef.sourceRun}`,
-      `file:${filePath}`,
-    ]),
-  });
-}
-
-function fallbackTextCandidate(
-  repoRoot: string,
-  hit: ContentSearchHitFact,
-): CallDepthTextCandidate {
-  const filePath = relative(repoRoot, hit.path);
-  const startColumn = hit.column;
-  return Object.freeze({
-    candidateId: `text:${filePath}:${hit.byteSpan.start}:${hit.needle}`,
-    filePath,
-    line: hit.line,
-    column: hit.column,
-    span: Object.freeze({
-      startLine: hit.line,
-      startColumn,
-      endLine: hit.line,
-      endColumn: startColumn + hit.needle.length,
-    }),
-    byteSpan: hit.byteSpan,
-    matchedText: hit.needle,
-    preview: "",
-    matchedNeedle: hit.needle,
-    disposition: "unclassified" as const,
-    evidenceRefs: Object.freeze([
-      `content-search:${hit.fileRef.sourceRun}`,
-      `file:${filePath}`,
-    ]),
-  });
-}
-
-async function expandTextHit(
-  repoRoot: string,
-  hit: ContentSearchHitFact,
-  sandbox: CliFilesystemSandbox,
-): Promise<readonly CallDepthTextCandidate[]> {
-  if (!hit.scanComplete || hit.size <= 0) return Object.freeze([fallbackTextCandidate(repoRoot, hit)]);
-  const receipt = await sandbox.execute({
-    operation: "file.read",
-    parameters: {
-      ref: hit.fileRef,
-      offset: 0,
-      length: hit.size,
-    },
-  });
-  if (receipt.execution.status !== "succeeded" || receipt.execution.observation.kind !== "file.read") {
-    return Object.freeze([fallbackTextCandidate(repoRoot, hit)]);
-  }
-  const bytes = Buffer.from(receipt.execution.observation.bytes, "base64");
-  const needleBytes = Buffer.from(hit.needle, "utf8");
-  const found: CallDepthTextCandidate[] = [];
-  let offset = 0;
-  while (offset <= bytes.length - needleBytes.length) {
-    const start = bytes.indexOf(needleBytes, offset);
-    if (start === -1) break;
-    found.push(textCandidate(repoRoot, hit, bytes, start, hit.needle));
-    offset = start + Math.max(1, needleBytes.length);
-  }
-  return Object.freeze(found.length > 0 ? found : [fallbackTextCandidate(repoRoot, hit)]);
-}
-
 async function collectTextSearch(
   goal: CliCalleeCallGraphGoal,
   resources: CallDepthResources,
@@ -488,9 +373,10 @@ async function collectTextSearch(
     errors.push(...textFailureMessages(domain.rootFact));
     for (const hit of domain.matches) {
       const expanded = await expandTextHit(textSandbox.scenarioRoot, hit, searchSandbox);
-      for (const candidate of expanded) {
+      for (const candidate of expanded.candidates) {
         byId.set(candidate.candidateId, candidate);
       }
+      complete = recordTextExpansionFailure(complete, errors, unreadFiles, expanded.failure);
     }
   }
 
@@ -500,9 +386,7 @@ async function collectTextSearch(
       : left.filePath < right.filePath ? -1 : 1
   );
   const uniqueErrors = [...new Set(errors)];
-  const status: CallDepthCoverage["text"]["status"] = complete
-    ? "complete"
-    : searched ? "partial" : "failed";
+  const status = textCoverageStatus(complete, searched);
   await textSandbox.cleanup();
   return Object.freeze({
     candidates: Object.freeze(candidates),
@@ -543,7 +427,7 @@ function coverageOf(
   semanticStatus: CallDepthCoverage["semantic"]["status"],
 ): CallDepthCoverage {
   const parserInvoked = semanticStatus === "complete" || semanticStatus === "partial";
-  const actualParser = parserInvoked ? route.parserLanguage : null;
+  const actualParser = parserInvoked ? CALL_DEPTH_ACTUAL_PARSER : null;
   return Object.freeze({
     scope: Object.freeze({
       paths: goal.scopePaths,
@@ -571,33 +455,51 @@ function coverageOf(
   });
 }
 
-function dispositionOf(
+function spanContains(
+  outer: CallDepthTextCandidate["span"],
+  inner: CallDepthTextCandidate["span"],
+): boolean {
+  const startsWithin = inner.startLine > outer.startLine
+    || (inner.startLine === outer.startLine && inner.startColumn >= outer.startColumn);
+  const endsWithin = inner.endLine < outer.endLine
+    || (inner.endLine === outer.endLine && inner.endColumn <= outer.endColumn);
+  return startsWithin && endsWithin;
+}
+
+function classifyTextCandidate(
   candidate: CallDepthTextCandidate,
   result: CallDepthRunResult,
-): CallDepthTextCandidate["disposition"] {
-  const inside = (span: Readonly<{ startLine: number; startColumn: number; endLine: number; endColumn: number }>) =>
-    candidate.line >= span.startLine
-    && candidate.line <= span.endLine
-    && (candidate.line !== span.startLine || candidate.column >= span.startColumn)
-    && (candidate.line !== span.endLine || candidate.column <= span.endColumn);
+): CallDepthTextCandidate {
+  const callerOf = (callerId: string) =>
+    result.nodes.find(node => node.nodeId === callerId) ?? null;
   for (const edge of result.edges) {
-    if (inside(edge.callsiteSpan)) {
-      return "confirmed_call";
+    const caller = callerOf(edge.callerId);
+    if (caller !== null
+      && caller.filePath === candidate.filePath
+      && spanContains(edge.callsiteSpan, candidate.span)) {
+      return Object.freeze({ ...candidate, disposition: "confirmed_call" });
     }
   }
   for (const node of result.nodes) {
     if (node.filePath === candidate.filePath
       && node.symbolName === candidate.matchedText
-      && inside(node.declSpan)) {
-      return "definition";
+      && spanContains(node.declSpan, candidate.span)) {
+      return Object.freeze({ ...candidate, disposition: "definition" });
     }
   }
   for (const unresolved of result.unresolvedCallsites) {
-    if (inside(unresolved.callsiteSpan)) {
-      return "other_binding";
+    const caller = callerOf(unresolved.callerId);
+    if (caller !== null
+      && caller.filePath === candidate.filePath
+      && spanContains(unresolved.callsiteSpan, candidate.span)) {
+      return Object.freeze({
+        ...candidate,
+        disposition: "unknown",
+        evidenceRefs: Object.freeze([...candidate.evidenceRefs, `callsite:${unresolved.callerId}`]),
+      });
     }
   }
-  return "unclassified";
+  return candidate;
 }
 
 function emptyCounters(): CallDepthRunResult["counters"] {
@@ -712,10 +614,7 @@ export async function runCliCalleeCallGraphGoal(
     parsed.status === "achieved" && parsed.resolution === "complete" ? "complete" : "partial";
   return Object.freeze({
     ...parsed,
-    textCandidates: Object.freeze(text.candidates.map(candidate => Object.freeze({
-      ...candidate,
-      disposition: dispositionOf(candidate, parsed),
-    }))),
+    textCandidates: Object.freeze(text.candidates.map(candidate => classifyTextCandidate(candidate, parsed))),
     coverage: coverageOf(goal, parsed.achievedDepth, finalState, route, text.coverage, semanticStatus),
   });
 }

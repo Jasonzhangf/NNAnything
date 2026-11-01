@@ -5,6 +5,10 @@
 import * as ts from "typescript";
 import type { DeclSpan } from "../adapters/cli/call-depth-contract.js";
 
+// The policy always parses with the TypeScript compiler API and ScriptKind.TS.
+// Report this real backend instead of the requested language route.
+export const CALL_DEPTH_ACTUAL_PARSER = "typescript" as const;
+
 export type DeclKind =
   | "function"
   | "arrow"
