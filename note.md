@@ -2269,3 +2269,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 未完成：policy 层 `18b4e64`/`8cb8a50`/`BigInt` 分类未修（Gate A1 范围外）；runLog 仍用 `summary+resultReceipt`，未替换为 `cli-adoption-plan.md` §3.3 `executionTrace`；Gate A3 独立 GCM 端到端未跑。均已在 `cd1-live-comparison-20261031/nn-code-adoption-delivery.md` 明确列出，不冒称完成。
 - 值流/修改传播设计：修改传播 r2 设计 PASS（仅设计，不授权实现/训练）；值流 r4 仍 NEEDS_REVISION 三项（路径析取汇合、删除无依据 `MAX_CFG_WORKLIST_STEPS=10000`、放宽准入需 train/dev 推导并单独审计），已交 Emma（NNAnything.Alice）修订交 Carol 复审（`m1793506303980-304`）。`7db2c6a` runPathRealpathHelper 已有源码，需据原验收回执核销 open 状态，不重复实现。
 - 清理：`cd1-cli-adoption` worktree 已合入后移除，现存 worktree 5 个（含主树）。
+
+## 2026-10-31 nn-code 基础准确性修复（8cb8a50/18b4e64/BigInt）合入 main
+
+- 用户决定基础正确性优先，verbose JSON 不延后基础修复。commit `273657f`（03a4445..273657f）修根因：GLOBAL_WHITELIST 补 BigInt；新增 forEachBindingIdentifier 递归展开对象/数组解构叶子到 paramScope/blockScope/enclosingShadowBindings；extractCallsites 记录 callsite 后 visit(callee) 递归内嵌 CallExpression。
+- 安装后真实入口复测（/tmp 跑全局 nn-code，未降 depth/scope）：18b4e64 file-content.ts:188 handle.read UNBOUND→LEXICAL_PARAM_OR_VARIABLE_CALL；8cb8a50 196 内层 handle.close() 已作为独立 CallExpression 出现，外层 .catch 保持 UNRESOLVED_CALLEE_EXPRESSION；BigInt filesystem-sandbox.ts:987 两处 UNBOUND→UNSHADOWED_BUILTIN_GLOBAL。
+- 回归：新增 3 个 CD1-T10 反例，两测试文件 50/50；build/typecheck/install exit 0。worktree cd1-nn-code-accuracy 已清理（现 worktree 5）。Carol 审计请求 m1793507446919-329，待其判定 buglist 18b4e64/8cb8a50/BigInt 核销。
+- 残留：filesystem-sandbox.ts 无导出公开函数在静态图中到达 BigInt（BigInt 在 private sameOsInteger），故 BigInt 用 sameOsInteger 入口 + CD1-T10 黑盒验证，非公开导出入口字面覆盖。
+- verbose JSON：用户确认 --verbose 仅结构化 JSON 完整关系图，不做 Mermaid，合同需 Emma 设计、Carol 审计后实现（已交 Emma m1793506685562-309，排在值流 r4 三项修订之后）。
