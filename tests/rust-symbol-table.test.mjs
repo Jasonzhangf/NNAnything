@@ -266,6 +266,33 @@ test("nested_blocks.rs: declarations in bare and conditional blocks keep the enc
   assert.equal(out.result.coverage.truncated, false);
 });
 
+test("same_name_nested.rs: direct, bare-block, and if-branch same-name fns stay distinct", async () => {
+  const out = await runOne(["src/same_name_nested.rs"]);
+  assert.equal(out.status, "ok");
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.symbols.length, 4);
+  assert.deepEqual(
+    out.result.symbols.map(entry => entry.name).sort(),
+    ["dup", "dup", "dup", "outer"],
+  );
+
+  const outer = out.result.symbols.find(entry => entry.name === "outer");
+  assert.equal(outer?.kind, "function");
+  assert.deepEqual([...outer.lexicalScope], ["crate"]);
+
+  const dups = out.result.symbols.filter(entry => entry.name === "dup");
+  assert.equal(dups.length, 3);
+  for (const dup of dups) {
+    assert.equal(dup.kind, "function");
+    assert.deepEqual([...dup.lexicalScope], ["crate", "fn:outer"]);
+  }
+  assert.equal(new Set(dups.map(entry => entry.symbolId)).size, 3);
+  assert.equal(new Set(dups.map(entry => entry.declSpan.startLine)).size, 3);
+  assert.equal(out.result.coverage.partial, false);
+  assert.equal(out.result.coverage.truncated, false);
+});
+
 test("nested_branches.rs: every block-bearing branch and arbitrary nesting is traversed", async () => {
   const out = await runOne(["src/nested_branches.rs"]);
   assert.equal(out.status, "ok");
