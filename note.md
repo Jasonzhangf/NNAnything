@@ -2260,3 +2260,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Capture-1C 第二文件：用户已授权通过 tmux 恢复 Emma/Alice 宿主（m1793434783374-614）——/exit 旧 AGY PID79137（已退出），以稳定 /Users/fanzhang/.local/bin/agy 恢复同一 conversation ecd7d796，新 PID52944；workspaceDirs 含项目根与 w0a-capture-1c-code。Alice 正按 r7.4 两文件合同以原生 read_file 完成此前受阻测试文件；仍 EPERM 则保留原错不绕过、不换工具、不 scratch 绕行、不 commit/不训练/P4 不新拟合。勿重复派 writer。
 - 长程 goal 已续订（appsdk goal subscribe，interval 600000，subscribed）；项目巡检 armed（PATROL_CADENCE_RUNTIME_GAP 仍报，因 PROJECT_PATROL_PROGRESS_NOT_RECORDED，属 cadence 缺口非阻塞）。
 - Capture-1C Code 集成完成：Carol 阶段 PASS（m1793436229153-651）后，独立 Reviewer（oauth/codex-auto-review，只读）PASS（findings=[]，scope base=origin/main commit=9efe1b2，证据 `browser-stage1/capture-1c-code-review/review-result.md`）。主树合入 `051023d`（特征 `822cb51`），build/typecheck exit 0，capture1c/prep1a/prep1b/browser-f07-content-reads 18/18 PASS；`git push origin main` 已同步 `051023d`；worktree `w0a-capture-1c-code` 已移除、分支已删，worktree 6 个。Live 采集/Gold/真实数据准入/正式训练未自动放行。
+
+## 2026-10-31 nn-code 全局 CLI 使用入口交付并集成（Gate A1→A2）
+
+- nn-code 交付：`package.json` 增 `nn-code` bin（保留 `nn-call-depth` 命令层别名），commit `c4c623f` 合入 main 并推送（`51f7676..c4c623f`）；`npm install -g .` 安装 `/opt/homebrew/bin/nn-code`；Skill 正文 `/Users/fanzhang/.agents/skills/nn-code/SKILL.md` + 软链 `/Users/fanzhang/.codex/skills/nn-code`；help 覆盖必填/可选参数、深度/scope、callee 方向、动态/未解析边界、退出码与日志路径；每次调用在 `~/.local/state/nn-code/runs/` 落盘并由 `runLogPath` 回显。主仓 typecheck exit 0、cli-call-depth 测试 47/47（live 5 + mvp 42）、`/tmp` 全局黑盒真实查询 achieved 且日志落盘。
+- 项目 AGENTS.md 已加本项目使用全局 nn-code Skill 的段落（`dd73e20`，`diff --check` 通过），仅限本项目，不改其他项目或全局强制规则。
+- reportbug 通道双向闭环：真实 bug（`handle.read` 解构误判 UNBOUND，对应 `18b4e64`/关联 `8cb8a50`）投递 `NNAnything.Bob`，`durable=true`、`msg_id=m1793506091356-295`；Bob 消费回执 `m1793506127455-297`，去重后追加到现有 buglist，未建重复条目。安装版仍复现两 bug（Carol `carol-nn-code-pending-usage-audit.md`），追加 buglist 因仓库锁暂未完成，Bob 保留证据。
+- 未完成：policy 层 `18b4e64`/`8cb8a50`/`BigInt` 分类未修（Gate A1 范围外）；runLog 仍用 `summary+resultReceipt`，未替换为 `cli-adoption-plan.md` §3.3 `executionTrace`；Gate A3 独立 GCM 端到端未跑。均已在 `cd1-live-comparison-20261031/nn-code-adoption-delivery.md` 明确列出，不冒称完成。
+- 值流/修改传播设计：修改传播 r2 设计 PASS（仅设计，不授权实现/训练）；值流 r4 仍 NEEDS_REVISION 三项（路径析取汇合、删除无依据 `MAX_CFG_WORKLIST_STEPS=10000`、放宽准入需 train/dev 推导并单独审计），已交 Emma（NNAnything.Alice）修订交 Carol 复审（`m1793506303980-304`）。`7db2c6a` runPathRealpathHelper 已有源码，需据原验收回执核销 open 状态，不重复实现。
+- 清理：`cd1-cli-adoption` worktree 已合入后移除，现存 worktree 5 个（含主树）。
