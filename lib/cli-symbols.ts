@@ -23,7 +23,9 @@ import {
   type UsageLogResult,
   type UsageLogRun,
 } from "./adapters/cli/nn-code-usage-log.js";
+import { runKotlinSymbolTable } from "./adapters/cli/kotlin-symbol-table-adapter.js";
 import { runRustSymbolTable } from "./adapters/cli/rust-symbol-table-adapter.js";
+import { validateKotlinSymbolRequest } from "./filters/kotlin-symbol-table-policy.js";
 import {
   validateRustSymbolRequest,
   type RustEdition,
@@ -33,25 +35,29 @@ export const SYMBOLS_REQUEST_SCHEMA = "nnanything.cli-symbols.request.v1";
 export const SYMBOLS_RESULT_SCHEMA = "nnanything.cli-symbols.result.v1";
 
 export const SYMBOLS_HELP_TEXT = [
-  "nn-code symbols - Rust symbol declaration table (read-only)",
+  "nn-code symbols - Rust and Kotlin symbol declaration tables (read-only)",
   "",
   "Usage:",
-  "  nn-code symbols --repo <path> --language <rust|rs> --scope <prefix> [options]",
+  "  nn-code symbols --repo <path> --language <rust|rs|kotlin|kt> --scope <prefix> [options]",
   "",
   "Required arguments:",
   "  --repo <path>          Target repository root (absolute or cwd-relative; read-only)",
-  "  --language <rust|rs>   Source language (only rust is supported in this slice)",
+  "  --language <rust|rs|kotlin|kt>   Source language (rust or kotlin)",
   "  --scope <prefix>       Repo-relative path; repeatable or comma-separated",
   "",
   "Optional arguments:",
   "  --symbol <name>        Exact short symbol name (case-sensitive, no fuzzy match)",
   "  --file <path>          Exact repo-relative file path (intersected with --symbol)",
-  "  --edition <2015|2018|2021|2024>            rustc edition (default 2021; Cargo.toml is not read)",
+  "  --edition <2015|2018|2021|2024>            rust-only edition (default 2021; Cargo.toml is not read)",
   "  --ignore-policy <no_ignore>                      default no_ignore (only no_ignore is supported)",
   "  --log-dir <dir>        Per-run usage log directory (env: NN_CODE_LOG_DIR)",
   "  --no-log               Disable persistent logging for this invocation",
   "  --compact              Emit single-line JSON on stdout",
   "  --help, -h             Show this help and exit 0",
+  "",
+  "Kotlin requires a JDK 17 and the four Kotlin compiler jars on disk. The java",
+  "binary and jars are resolved from NN_CODE_KOTLIN_JAVA_BIN / NN_CODE_KOTLIN_JARS,",
+  "JAVA_HOME, PATH, or the standard Gradle/Maven artifact caches.",
   "",
   "Not accepted (calls-only): --entry-file, --entry-symbol, --entry-lexical-path, --max-depth,",
   "                           --request-id, --diagnostics-file, --verbose",
@@ -61,7 +67,7 @@ export const SYMBOLS_HELP_TEXT = [
 ].join("\n");
 
 const EXIT_CODES = Object.freeze({ ok: 0, error: 1, rejected: 4 } as const);
-const SUPPORTED_LANGUAGES = Object.freeze(["rust", "rs"] as const);
+const SUPPORTED_LANGUAGES = Object.freeze(["rust", "rs", "kotlin", "kt"] as const);
 const EDITIONS: readonly RustEdition[] = Object.freeze(["2015", "2018", "2021", "2024"]);
 const IGNORE_POLICIES = Object.freeze(["no_ignore", "respect_vcs_ignore"] as const);
 // Discovery reuses the same regular-file condition the content-search contract
@@ -255,11 +261,15 @@ function parseSymbolsArgs(argv: readonly string[]): ParseOutcome {
       error: rejected("UNSUPPORTED_LANGUAGE", `unsupported language: ${language}`),
     };
   }
+  const kotlinLanguage = normalizedLanguage === "kotlin" || normalizedLanguage === "kt";
   if (symbol !== null && (symbol.length === 0 || /[\s\0]/.test(symbol))) {
     return { kind: "error", error: rejected("invalid_symbol", "symbol must be a non-empty name without whitespace") };
   }
   if (file !== null && file.length === 0) {
     return { kind: "error", error: rejected("invalid_file", "file must be a non-empty repo-relative path") };
+  }
+  if (kotlinLanguage && edition !== null) {
+    return { kind: "error", error: rejected("invalid_edition", "--edition is only supported for rust|rs") };
   }
   if (edition !== null && !EDITIONS.includes(edition as RustEdition)) {
     return { kind: "error", error: rejected("invalid_edition", "edition must be one of 2015|2018|2021|2024") };
@@ -395,6 +405,7 @@ async function walkScopeDirectory(
   repoReal: string,
   absDirectory: string,
   acc: DiscoveryAccumulator,
+  matches: (name: string) => boolean,
 ): Promise<void> {
   let directoryReal: string;
   try {
@@ -431,27 +442,36 @@ async function walkScopeDirectory(
       continue;
     }
     if (entry.type === "directory") {
-      await walkScopeDirectory(repoReal, entry.path, acc);
+      await walkScopeDirectory(repoReal, entry.path, acc, matches);
       continue;
     }
     if (entry.type !== "file") {
-      if (entry.name.endsWith(".rs")) {
+      if (matches(entry.name)) {
         const reason = `non_regular_entry:${entry.type}`;
         acc.skipped.push({ file: rel, reason });
         acc.partialReasons.push(`${rel}: ${reason}`);
       }
       continue;
     }
-    if (!entry.name.endsWith(".rs")) continue;
+    if (!matches(entry.name)) continue;
     const accepted = await inspectCandidate(repoReal, entry.path, rel, acc);
     if (accepted) acc.files.push(rel);
   }
 }
 
-async function discoverRustScopeFiles(
+function isRustSourceName(name: string): boolean {
+  return name.endsWith(".rs");
+}
+
+function isKotlinSourceName(name: string): boolean {
+  return name.endsWith(".kt") || name.endsWith(".kts");
+}
+
+async function discoverScopeFiles(
   repoAbs: string,
   repoReal: string,
   scope: readonly string[],
+  matches: (name: string) => boolean,
 ): Promise<DiscoveryOutcome> {
   const acc: DiscoveryAccumulator = {
     files: [],
@@ -472,14 +492,14 @@ async function discoverRustScopeFiles(
       continue;
     }
     if (checked.kind === "file") {
-      if (!entry.endsWith(".rs")) continue;
+      if (!matches(entry)) continue;
       const accepted = await inspectCandidate(repoReal, checked.abs, entry, acc);
       if (accepted) acc.files.push(entry);
       continue;
     }
     if (acc.seenScopeReal.has(checked.real)) continue;
     acc.seenScopeReal.add(checked.real);
-    await walkScopeDirectory(repoReal, checked.real, acc);
+    await walkScopeDirectory(repoReal, checked.real, acc, matches);
   }
   return {
     kind: "ok",
@@ -489,6 +509,22 @@ async function discoverRustScopeFiles(
       partialReasons: Object.freeze(acc.partialReasons),
     }),
   };
+}
+
+async function discoverRustScopeFiles(
+  repoAbs: string,
+  repoReal: string,
+  scope: readonly string[],
+): Promise<DiscoveryOutcome> {
+  return discoverScopeFiles(repoAbs, repoReal, scope, isRustSourceName);
+}
+
+async function discoverKotlinScopeFiles(
+  repoAbs: string,
+  repoReal: string,
+  scope: readonly string[],
+): Promise<DiscoveryOutcome> {
+  return discoverScopeFiles(repoAbs, repoReal, scope, isKotlinSourceName);
 }
 
 function mergeSkipped(first: readonly SkipRecord[], second: readonly SkipRecord[]): SkipRecord[] {
@@ -648,15 +684,26 @@ export async function runCliSymbols(
   };
 
   const repoAbs = resolve(process.cwd(), args.repo);
-  const validation = validateRustSymbolRequest({
-    repo: repoAbs,
-    language: "rust",
-    scope: [...args.scope],
-    files: [],
-    ...(args.symbol === null ? {} : { symbol: args.symbol }),
-    ...(args.file === null ? {} : { file: args.file }),
-    ...(args.edition === null ? {} : { edition: args.edition }),
-  });
+  const kotlinLanguage = args.language === "kotlin" || args.language === "kt";
+  const validation = kotlinLanguage
+    ? validateKotlinSymbolRequest({
+        repo: repoAbs,
+        language: "kotlin",
+        scope: [...args.scope],
+        files: [],
+        ...(args.symbol === null ? {} : { symbol: args.symbol }),
+        ...(args.file === null ? {} : { file: args.file }),
+        ignorePolicy: args.ignorePolicy ?? "no_ignore",
+      })
+    : validateRustSymbolRequest({
+        repo: repoAbs,
+        language: "rust",
+        scope: [...args.scope],
+        files: [],
+        ...(args.symbol === null ? {} : { symbol: args.symbol }),
+        ...(args.file === null ? {} : { file: args.file }),
+        ...(args.edition === null ? {} : { edition: args.edition }),
+      });
   if (!validation.ok) {
     await finishRejected(rejected(validation.error.reasonCode, validation.error.message));
     return;
@@ -694,7 +741,9 @@ export async function runCliSymbols(
     return;
   }
 
-  const discovered = await discoverRustScopeFiles(repoAbs, repoReal, request.scope);
+  const discovered = kotlinLanguage
+    ? await discoverKotlinScopeFiles(repoAbs, repoReal, request.scope)
+    : await discoverRustScopeFiles(repoAbs, repoReal, request.scope);
   if (discovered.kind === "rejected") {
     await finishRejected(discovered.error);
     return;
@@ -703,15 +752,25 @@ export async function runCliSymbols(
 
   let adapterOutcome;
   try {
-    adapterOutcome = await runRustSymbolTable({
-      repo: repoAbs,
-      language: "rust",
-      scope: [...request.scope],
-      files: [...discovery.files],
-      ...(args.symbol === null ? {} : { symbol: args.symbol }),
-      ...(args.file === null ? {} : { file: args.file }),
-      ...(args.edition === null ? {} : { edition: args.edition }),
-    });
+    adapterOutcome = kotlinLanguage
+      ? await runKotlinSymbolTable({
+          repo: repoAbs,
+          language: "kotlin",
+          scope: [...request.scope],
+          files: [...discovery.files],
+          ...(args.symbol === null ? {} : { symbol: args.symbol }),
+          ...(args.file === null ? {} : { file: args.file }),
+          ignorePolicy: args.ignorePolicy ?? "no_ignore",
+        })
+      : await runRustSymbolTable({
+          repo: repoAbs,
+          language: "rust",
+          scope: [...request.scope],
+          files: [...discovery.files],
+          ...(args.symbol === null ? {} : { symbol: args.symbol }),
+          ...(args.file === null ? {} : { file: args.file }),
+          ...(args.edition === null ? {} : { edition: args.edition }),
+        });
   } catch (error) {
     const logging = logRun === null ? failedUsageLog("LOG_WRITE_FAILED") : logRun.status();
     reportSymbolsError("execute", error, {
@@ -728,6 +787,7 @@ export async function runCliSymbols(
   }
 
   const base = adapterOutcome.result;
+  const macroBoundaries = "macroBoundaries" in base ? base.macroBoundaries.length : 0;
   const skipped = mergeSkipped(base.coverage.skipped, discovery.skipped);
   const partialReasons = mergeReasons(base.coverage.partialReasons, discovery.partialReasons);
   const coverage: Record<string, unknown> = {
@@ -743,16 +803,16 @@ export async function runCliSymbols(
       outcome: {
         stage: "completed",
         exitCode: EXIT_CODES.ok,
-        language: "rust",
+        language: base.language,
         symbols: base.symbols.length,
-        macroBoundaries: base.macroBoundaries.length,
+        macroBoundaries,
         partial: coverage.partial === true,
         skipped: skipped.length,
       },
       coverage,
       resultReceipt: {
         symbols: base.symbols.length,
-        macroBoundaries: base.macroBoundaries.length,
+        macroBoundaries,
         files: discovery.files.length,
       },
       error: null,

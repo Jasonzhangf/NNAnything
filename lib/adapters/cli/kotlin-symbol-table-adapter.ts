@@ -6,8 +6,9 @@
 // regular Kotlin files, never follows symlinks, and skips non-regular entries.
 
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { lstat, realpath } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,14 +30,15 @@ import {
   type KotlinVisibility,
 } from "../../filters/kotlin-symbol-table-policy.js";
 
-const JAVA_BIN = "/opt/homebrew/opt/openjdk@17/bin/java";
+const REQUIRED_KOTLIN_ARTIFACTS = Object.freeze([
+  "kotlin-compiler-embeddable",
+  "kotlin-stdlib",
+  "kotlinx-coroutines-core-jvm",
+  "trove4j",
+] as const);
 
-const KOTLIN_JARS = Object.freeze([
-  "/Users/fanzhang/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-compiler-embeddable/2.2.0/8cfa2b049a4006d94474296df4abd9b50f288821/kotlin-compiler-embeddable-2.2.0.jar",
-  "/Users/fanzhang/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/2.2.0/fdfc65fbc42fda253a26f61dac3c0aca335fae96/kotlin-stdlib-2.2.0.jar",
-  "/Users/fanzhang/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlinx/kotlinx-coroutines-core-jvm/1.8.0/ac1dc37a30a93150b704022f8d895ee1bd3a36b3/kotlinx-coroutines-core-jvm-1.8.0.jar",
-  "/Users/fanzhang/.gradle/caches/modules-2/files-2.1/org.jetbrains.intellij.deps/trove4j/1.0.20200330/3afb14d5f9ceb459d724e907a21145e8ff394f02/trove4j-1.0.20200330.jar",
-]);
+const CACHE_SEARCH_MAX_DIRECTORIES = 20_000;
+const CACHE_SEARCH_MAX_DEPTH = 8;
 
 export type KotlinSymbolTableAdapterOptions = Readonly<{
   javaBin?: string;
@@ -44,6 +46,130 @@ export type KotlinSymbolTableAdapterOptions = Readonly<{
   driverClassDir?: string;
   timeoutMs?: number;
 }>;
+
+function artifactVersion(base: string, name: string): string | null {
+  if (!base.startsWith(`${name}-`) || !base.endsWith(".jar")) return null;
+  const stem = base.slice(name.length + 1, -".jar".length);
+  if (stem.endsWith("-sources") || stem.endsWith("-javadoc") || stem.endsWith("-tests")) return null;
+  // Excludes sibling artifacts such as kotlin-stdlib-jdk8 whose remaining
+  // prefix is not a version number.
+  if (!/^[0-9]/.test(stem)) return null;
+  return stem;
+}
+
+function compareVersions(left: string, right: string): number {
+  const leftParts = left.split(".").map(Number);
+  const rightParts = right.split(".").map(Number);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftValue = leftParts[index] ?? 0;
+    const rightValue = rightParts[index] ?? 0;
+    if (leftValue !== rightValue) return leftValue - rightValue;
+  }
+  return 0;
+}
+
+function findOnPath(name: string): string | null {
+  const pathValue = process.env.PATH ?? "";
+  for (const dir of pathValue.split(path.delimiter)) {
+    if (dir.length === 0) continue;
+    const candidate = path.join(dir, name);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveJava(options: KotlinSymbolTableAdapterOptions): { path: string | null; label: string } {
+  if (options.javaBin !== undefined && options.javaBin.length > 0) {
+    return { path: options.javaBin, label: options.javaBin };
+  }
+  const explicit = process.env.NN_CODE_KOTLIN_JAVA_BIN;
+  if (explicit !== undefined && explicit.length > 0) {
+    return { path: explicit, label: explicit };
+  }
+  const javaHome = process.env.JAVA_HOME;
+  if (javaHome !== undefined && javaHome.length > 0) {
+    const candidate = path.join(javaHome, "bin", "java");
+    return { path: candidate, label: candidate };
+  }
+  const fromPath = findOnPath("java");
+  if (fromPath !== null) return { path: fromPath, label: fromPath };
+  return { path: null, label: "java" };
+}
+
+function cacheRoots(): readonly string[] {
+  const gradleHome = process.env.GRADLE_USER_HOME ?? path.join(homedir(), ".gradle");
+  return Object.freeze([
+    path.join(gradleHome, "caches", "modules-2", "files-2.1"),
+    path.join(homedir(), ".m2", "repository"),
+  ]);
+}
+
+function collectArtifactJars(root: string, buckets: Map<string, string[]>): void {
+  const stack: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  let scanned = 0;
+  while (stack.length > 0 && scanned < CACHE_SEARCH_MAX_DIRECTORIES) {
+    const current = stack.pop();
+    if (current === undefined) break;
+    let entries;
+    try {
+      entries = readdirSync(current.dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    scanned += 1;
+    if (current.depth >= CACHE_SEARCH_MAX_DEPTH) continue;
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const full = path.join(current.dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push({ dir: full, depth: current.depth + 1 });
+      } else if (entry.isFile()) {
+        for (const name of REQUIRED_KOTLIN_ARTIFACTS) {
+          if (artifactVersion(entry.name, name) !== null) {
+            const bucket = buckets.get(name) ?? [];
+            bucket.push(full);
+            buckets.set(name, bucket);
+          }
+        }
+      }
+    }
+  }
+}
+
+function preferNewest(candidates: readonly string[], artifactName: string): string | null {
+  if (candidates.length === 0) return null;
+  const ranked = candidates
+    .map(file => ({ file, version: artifactVersion(path.basename(file), artifactName) ?? "" }))
+    .sort((left, right) => compareVersions(right.version, left.version));
+  return ranked[0]?.file ?? null;
+}
+
+function resolveJars(options: KotlinSymbolTableAdapterOptions): { jars: string[]; missing: string[] } {
+  if (options.kotlinJars !== undefined && options.kotlinJars.length > 0) {
+    return { jars: [...options.kotlinJars], missing: [] };
+  }
+  const explicit = process.env.NN_CODE_KOTLIN_JARS;
+  if (explicit !== undefined && explicit.trim().length > 0) {
+    const jars = explicit.split(path.delimiter).map(value => value.trim()).filter(value => value.length > 0);
+    return { jars, missing: [] };
+  }
+
+  const buckets = new Map<string, string[]>();
+  for (const name of REQUIRED_KOTLIN_ARTIFACTS) buckets.set(name, []);
+  for (const root of cacheRoots()) {
+    if (!existsSync(root)) continue;
+    collectArtifactJars(root, buckets);
+  }
+  const jars: string[] = [];
+  const missing: string[] = [];
+  for (const name of REQUIRED_KOTLIN_ARTIFACTS) {
+    const chosen = preferNewest(buckets.get(name) ?? [], name);
+    if (chosen === null) missing.push(name);
+    else jars.push(chosen);
+  }
+  return { jars, missing };
+}
 
 type FileFailure = Readonly<{ file: string; reason: string }>;
 
@@ -292,17 +418,26 @@ export async function runKotlinSymbolTable(
     return Object.freeze({ status: "ok", result: projectKotlinSymbolTableResult(request, parser, Object.freeze([]), coverage) });
   }
 
-  const javaBin = options.javaBin ?? JAVA_BIN;
-  const jars = options.kotlinJars ?? KOTLIN_JARS;
+  const java = resolveJava(options);
+  const resolvedJars = resolveJars(options);
   const driverClassDir = options.driverClassDir
     ?? path.resolve(dirname(fileURLToPath(import.meta.url)), "kotlin-symbol-jvm");
-  const missing = [
-    ...(!existsSync(javaBin) ? [javaBin] : []),
-    ...jars.filter(jar => !existsSync(jar)),
-    ...(!existsSync(driverClassDir) ? [driverClassDir] : []),
-  ];
+  const javaBin = java.path;
+  const jars = resolvedJars.jars;
+  const missing: string[] = [];
+  if (javaBin === null) {
+    missing.push(java.label);
+  } else if (!existsSync(javaBin)) {
+    missing.push(javaBin);
+  }
+  missing.push(...resolvedJars.missing);
+  missing.push(...jars.filter(jar => !existsSync(jar)));
+  if (!existsSync(driverClassDir)) missing.push(driverClassDir);
   if (missing.length > 0) {
     return rejected("parser_unavailable", `missing JVM runtime: ${missing.join(", ")}`);
+  }
+  if (javaBin === null) {
+    return rejected("parser_unavailable", "missing JVM runtime: java");
   }
 
   const classpath = [driverClassDir, ...jars].join(path.delimiter);
