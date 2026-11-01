@@ -208,6 +208,7 @@ function rejectedInitial(goal: CliCalleeCallGraphGoal, snapshot: SessionSnapshot
     entryResolution: "ok" as const,
     entryNodeId: null,
     files: Object.freeze([]),
+    partialSources: Object.freeze([]),
     missingFiles: Object.freeze([]),
     nodes: Object.freeze([]),
     edges: Object.freeze([]),
@@ -246,6 +247,7 @@ export function buildInitialState(
     entryResolution: "ok" as const,
     entryNodeId: null,
     files: Object.freeze([]),
+    partialSources: Object.freeze([]),
     missingFiles: Object.freeze([]),
     nodes: Object.freeze([]),
     edges: Object.freeze([]),
@@ -1051,9 +1053,22 @@ export function createCallDepthAdapter(input: CallDepthAdapterInput): CallDepthA
 
         const observation: FileReadObservation = receipt.execution.observation;
         if (observation.end_observed !== true) {
+          const partialSource = Object.freeze({
+            relPath,
+            dev: observation.identity.dev,
+            ino: observation.identity.ino,
+            size: observation.size,
+            bytesRead: observation.bytesRead,
+            complete: false,
+            truncated: true,
+          });
           const next = withState(Object.freeze({
             ...before,
             stateId: stateIdFor(requestId, actionSequence),
+            partialSources: Object.freeze([
+              ...before.partialSources.filter(item => item.relPath !== relPath),
+              partialSource,
+            ]),
             pendingReads: Object.freeze(before.pendingReads.filter(item => item !== relPath)),
             truncated: true,
             termination: Object.freeze({ status: "unknown" as const, resolution: "insufficient_evidence" as const }),

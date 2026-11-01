@@ -1,10 +1,22 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { mkdir, realpath, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CALL_DEPTH_REQUEST_SCHEMA } from "./adapters/cli/call-depth-contract.js";
+import {
+  createUsageLogRun,
+  disabledUsageLog,
+  failedUsageLog,
+  isWithin,
+  projectCallDepthUsageEvents,
+  resolvePhysicalPath,
+  resolveUsageLogRoot,
+  USAGE_LOG_DEFAULT_SUBPATH,
+  type UsageLogResult,
+  type UsageLogRun,
+} from "./adapters/cli/nn-code-usage-log.js";
 import {
   createReadOnlyCliFilesystemSandbox,
   DEFAULT_READ_ONLY_SESSION_ID,
@@ -19,9 +31,8 @@ const CALLS_SUBCOMMAND = "calls";
 const DEFAULT_REQUEST_ID = "nn-code-calls-live";
 const VALID_MAX_DEPTHS = Object.freeze([0, 1, 2, 3] as const);
 const SUPPORTED_DIRECTION = "callee";
-const DEFAULT_LOG_SUBPATH = ".local/state/nn-code/runs";
-const LOG_DIR_ENV_NAME = "NN_CODE_LOG_DIR";
 const SKILL_ENTRY_PATH = "~/.agents/skills/nn-code/SKILL.md";
+const SEMANTIC_CONTRACT_VERSION = CALL_DEPTH_REQUEST_SCHEMA;
 const EXIT_CODES = Object.freeze({ achieved: 0, error: 1, unmet: 2, unknown: 3, rejected: 4, failed: 5 } as const);
 
 type CliStage = "args" | "init" | "execute" | "cleanup";
@@ -39,6 +50,8 @@ type ParsedArgs = {
   diagnosticsFile: string | null;
   logDir: string | null;
   compact: boolean;
+  noLog: boolean;
+  verbose: boolean;
 };
 
 type ParseResult = {
@@ -55,10 +68,10 @@ type LogWriteError = Readonly<{
   path: string | null;
 }>;
 
-type RunEcho = Readonly<{
+type ReportContext = Readonly<{
   cliVersion: string | null;
-  runId: string | null;
-  runLogPath: string | null;
+  runId: string;
+  logging: UsageLogResult;
   logWriteError: LogWriteError | null;
 }>;
 
@@ -99,8 +112,11 @@ function buildUsageText(cliVersion: string): string {
     "  --entry-lexical-path <chain>          Dot-separated lexical chain for nested functions (e.g. declarationsOf.walk)",
     `  --request-id <id>                     Request identifier (default: ${DEFAULT_REQUEST_ID})`,
     "  --log-dir <dir>                       Directory for per-run logs outside --repo",
-    `                                          (env: ${LOG_DIR_ENV_NAME}; default: ~/${DEFAULT_LOG_SUBPATH})`,
+    `                                          (env: NN_CODE_LOG_DIR; default: ~/${USAGE_LOG_DEFAULT_SUBPATH})`,
     "  --diagnostics-file <path>             Write opt-in deep diagnostics (finalState + response) outside --repo",
+    "                                          (user-owned export; not managed by the per-root rotation limit)",
+    "  --no-log                              Disable all persistent logging for this invocation",
+    "  --verbose                             Emit the full structured relation JSON plus coverage evidence",
     "  --compact                             Emit single-line JSON on stdout",
     "  --help, -h                            Show this help and exit 0",
     "",
@@ -126,9 +142,11 @@ function buildUsageText(cliVersion: string): string {
     '  5  status === "failed"    Workflow execution failed (stdout JSON)',
     '  1  CLI usage/init/runtime/cleanup error (structured {"error":{...}} on stderr)',
     "",
-    "Run Logs & Dedicated Agent Skill:",
-    `  - Per-run log location: ~/${DEFAULT_LOG_SUBPATH}/<timestamp>-<pid>-<id>.json`,
-    '    (Every stdout/stderr JSON response includes "runLogPath" pointing to the saved run log.)',
+    "Run Logs:",
+    `  - Per-run log location: ~/${USAGE_LOG_DEFAULT_SUBPATH}/<runId>.jsonl (JSONL: start, events, finish).`,
+    "  - Each selected log root has an independent 10,000,000,000 byte capacity. The oldest",
+    "    completed run is rotated first; active runs are never rotated.",
+    '  - stdout carries a "logging" field: { enabled, state, runLogPath, reason }.',
     `  - Agent usage & bug-reporting Skill: ${SKILL_ENTRY_PATH}`,
     "",
     "Examples:",
@@ -164,6 +182,15 @@ function extractOptionValues(argv: readonly string[], name: string): string[] {
   return values;
 }
 
+function hasFlag(argv: readonly string[], name: string): boolean {
+  return argv.includes(name);
+}
+
+function lastOptionValue(argv: readonly string[], name: string): string | null {
+  const values = extractOptionValues(argv, name);
+  return values.length > 0 ? values[values.length - 1] ?? null : null;
+}
+
 function parseArgs(argv: readonly string[]): ParseResult {
   let help = false;
   let repo: string | null = null;
@@ -177,6 +204,8 @@ function parseArgs(argv: readonly string[]): ParseResult {
   let diagnosticsFile: string | null = null;
   let logDir: string | null = null;
   let compact = false;
+  let noLog = false;
+  let verbose = false;
   const scopes: string[] = [];
 
   const normalized = argv[0] === CALLS_SUBCOMMAND || argv[0] === "call-depth" ? argv.slice(1) : argv;
@@ -189,6 +218,14 @@ function parseArgs(argv: readonly string[]): ParseResult {
     }
     if (arg === "--compact") {
       compact = true;
+      continue;
+    }
+    if (arg === "--no-log") {
+      noLog = true;
+      continue;
+    }
+    if (arg === "--verbose") {
+      verbose = true;
       continue;
     }
     const valueArg = arg === "--scope"
@@ -248,6 +285,9 @@ function parseArgs(argv: readonly string[]): ParseResult {
   }
 
   if (help) return { help };
+  if (noLog && (logDir !== null || diagnosticsFile !== null)) {
+    return { help, error: new TypeError("--no-log conflicts with --log-dir and --diagnostics-file") };
+  }
   if (repoCount > 1) return { help, error: new TypeError("duplicate --repo argument is not allowed") };
   if (repo === null || repo.length === 0) return { help, error: new TypeError("--repo is required") };
   if (entryFile === null || entryFile.length === 0) return { help, error: new TypeError("--entry-file is required") };
@@ -288,13 +328,10 @@ function parseArgs(argv: readonly string[]): ParseResult {
       diagnosticsFile,
       logDir,
       compact,
+      noLog,
+      verbose,
     },
   };
-}
-
-function isWithin(root: string, candidate: string): boolean {
-  const rel = relative(root, candidate);
-  return rel === "" || (rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel));
 }
 
 function errorCode(error: unknown): string | null {
@@ -325,44 +362,25 @@ function errorFact(stage: CliStage, error: unknown): Readonly<{
   });
 }
 
-async function resolveThroughNearestExistingAncestor(candidatePath: string): Promise<string> {
-  const absoluteCandidate = resolve(process.cwd(), candidatePath);
-  let current = absoluteCandidate;
-  while (true) {
-    try {
-      const physicalAncestor = await realpath(current);
-      const suffix = relative(current, absoluteCandidate);
-      return suffix.length === 0 ? physicalAncestor : resolve(physicalAncestor, suffix);
-    } catch (error) {
-      if (errorCode(error) !== "ENOENT") {
-        throw error;
-      }
-      const parent = dirname(current);
-      if (parent === current) {
-        throw new Error(`Unable to resolve physical ancestor for path: ${candidatePath}`);
-      }
-      current = parent;
-    }
-  }
-}
-
-function resolveRunLogDir(argLogDir: string | null): string {
-  if (argLogDir !== null && argLogDir.length > 0) {
-    return resolve(process.cwd(), argLogDir);
-  }
-  const envLogDir = process.env[LOG_DIR_ENV_NAME];
-  if (typeof envLogDir === "string" && envLogDir.length > 0) {
-    return resolve(process.cwd(), envLogDir);
-  }
-  const xdgStateHome = process.env.XDG_STATE_HOME;
-  if (typeof xdgStateHome === "string" && xdgStateHome.length > 0 && isAbsolute(xdgStateHome)) {
-    return join(xdgStateHome, "nn-code", "runs");
-  }
-  return join(homedir(), DEFAULT_LOG_SUBPATH);
+function logWriteErrorFromLogging(logging: UsageLogResult): LogWriteError | null {
+  const partialPersistenceFailure = logging.state === "partial"
+    && (logging.reason === "LOG_STORE_BUSY" || logging.reason === "LOG_CAPACITY_EXCEEDED");
+  if (logging.state !== "failed" && !partialPersistenceFailure) return null;
+  const code = logging.reason;
+  const message = logging.state === "failed"
+    ? (code ?? "log write failed")
+    : `usage log persistence was incomplete: ${code}`;
+  return Object.freeze({
+    stage: "log_write" as const,
+    name: "Error",
+    message,
+    code,
+    path: logging.runLogPath,
+  });
 }
 
 async function validateDiagnosticsPath(repoRoot: string, rawPath: string): Promise<void> {
-  const physicalTarget = await resolveThroughNearestExistingAncestor(rawPath);
+  const physicalTarget = await resolvePhysicalPath(rawPath);
   if (isWithin(repoRoot, physicalTarget)) {
     throw new TypeError("diagnostics file must not be written inside the target repository");
   }
@@ -420,16 +438,14 @@ function projectResult(
   };
 }
 
-function completedOutcome(result: CallDepthRunResult, exitCode: number): unknown {
+function coverageOf(result: CallDepthRunResult): Record<string, unknown> {
   return {
-    stage: "completed",
-    exitCode,
-    status: result.status,
-    resolution: result.resolution,
-    entryNodeId: result.entryNodeId,
-    entryResolution: result.finalState?.entryResolution ?? null,
-    requestedMaxDepth: result.requestedMaxDepth,
+    counters: result.counters,
+    nodesCount: result.nodes.length,
+    edgesCount: result.edges.length,
+    unresolvedCount: result.unresolvedCallsites.length,
     achievedDepth: result.achievedDepth,
+    requestedMaxDepth: result.requestedMaxDepth,
     requestedLanguage: result.requestedLanguage,
     actualParser: result.actualParser,
     supportedLanguages: result.supportedLanguages,
@@ -441,132 +457,28 @@ function completedOutcome(result: CallDepthRunResult, exitCode: number): unknown
   };
 }
 
-function summarize(result: CallDepthRunResult): unknown {
-  return {
-    nodesCount: result.nodes.length,
-    edgesCount: result.edges.length,
-    unresolvedCount: result.unresolvedCallsites.length,
-    textCandidatesCount: result.textCandidates.length,
-    requestedLanguage: result.requestedLanguage,
-    actualParser: result.actualParser,
-    textCoverage: result.coverage.text,
-    semanticCoverage: result.coverage.semantic,
-    counters: result.counters,
-  };
-}
-
-function resultReceipt(result: CallDepthRunResult): unknown {
-  return {
+function resultReceiptOf(result: CallDepthRunResult): Readonly<Record<string, unknown>> {
+  return Object.freeze({
     nodes: projectNodes(result.nodes),
     edges: result.edges,
     unresolvedCallsites: result.unresolvedCallsites,
     textCandidates: result.textCandidates,
-    coverage: result.coverage,
-  };
+  });
 }
 
-function sanitizedArgv(args: ParsedArgs | null): Record<string, unknown> {
-  if (args === null) {
-    return {
-      subcommand: CALLS_SUBCOMMAND,
-      repo: null,
-      entryFile: null,
-      entrySymbol: null,
-      entryLexicalPath: null,
-      maxDepth: null,
-      scopePaths: null,
-      requestId: null,
-      language: null,
-      diagnosticsFile: null,
-      logDir: null,
-      compact: false,
-    };
-  }
-  return {
-    subcommand: args.subcommand,
-    repo: args.repo,
+function typedRequest(args: ParsedArgs): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    kind: "cli.programming.callee_call_graph",
+    repoRoot: resolve(process.cwd(), args.repo),
     entryFile: args.entryFile,
     entrySymbol: args.entrySymbol,
-    entryLexicalPath: args.entryLexicalPath,
+    ...(args.entryLexicalPath === null ? {} : { entryLexicalPath: args.entryLexicalPath }),
     maxDepth: args.maxDepth,
+    direction: SUPPORTED_DIRECTION,
     scopePaths: args.scopePaths,
     requestId: args.requestId,
-    language: args.language,
-    diagnosticsFile: args.diagnosticsFile,
-    logDir: args.logDir,
-    compact: args.compact,
-  };
-}
-
-function buildRunLog(input: Readonly<{
-  cliVersion: string;
-  runId: string;
-  startedAt: string;
-  startedAtMs: number;
-  subcommand: string;
-  cwd: string;
-  sanitizedArgv: Record<string, unknown>;
-  repoRoot: string | null;
-  diagnosticsFilePath: string | null;
-  outcome: unknown;
-  summary: unknown | null;
-  resultReceipt: unknown | null;
-  error: unknown | null;
-}>): unknown {
-  const finishedAtMs = Date.now();
-  return {
-    schema: "nnanything.nn-code.run-log.v1",
-    subcommand: input.subcommand,
-    cliVersion: input.cliVersion,
-    runId: input.runId,
-    startedAt: input.startedAt,
-    finishedAt: new Date(finishedAtMs).toISOString(),
-    durationMs: finishedAtMs - input.startedAtMs,
-    cwd: input.cwd,
-    sanitizedArgv: input.sanitizedArgv,
-    repoRoot: input.repoRoot,
-    diagnosticsFilePath: input.diagnosticsFilePath,
-    outcome: input.outcome,
-    summary: input.summary,
-    resultReceipt: input.resultReceipt,
-    error: input.error,
-  };
-}
-
-async function writeRunLog(params: Readonly<{
-  logDir: string;
-  runId: string;
-  runLog: unknown;
-  protectedRepoRoots: readonly string[];
-  protectionFailure: unknown;
-}>): Promise<{ runLogPath: string | null; logWriteError: LogWriteError | null }> {
-  const candidateLogPath = join(params.logDir, `${params.runId}.json`);
-  try {
-    if (params.protectionFailure !== null) {
-      throw params.protectionFailure;
-    }
-    const physicalLogDir = await resolveThroughNearestExistingAncestor(params.logDir);
-    for (const repoRoot of params.protectedRepoRoots) {
-      if (isWithin(repoRoot, physicalLogDir)) {
-        throw Object.assign(new Error("Log directory must be outside target repository"), { code: "SANDBOX_ESCAPE" });
-      }
-    }
-    await mkdir(params.logDir, { recursive: true });
-    await writeFile(candidateLogPath, JSON.stringify(params.runLog, null, 2));
-    return { runLogPath: candidateLogPath, logWriteError: null };
-  } catch (error) {
-    const record = error as { code?: unknown };
-    return {
-      runLogPath: null,
-      logWriteError: Object.freeze({
-        stage: "log_write" as const,
-        name: error instanceof Error ? error.name : "Error",
-        message: error instanceof Error ? error.message : String(error),
-        code: typeof record.code === "string" ? record.code : null,
-        path: candidateLogPath,
-      }),
-    };
-  }
+    ...(args.language === null ? {} : { language: args.language }),
+  });
 }
 
 function exitCodeForStatus(status: CallDepthRunResult["status"]): number {
@@ -584,7 +496,7 @@ function warnLogWrite(logWriteError: LogWriteError): void {
   process.stderr.write(`${JSON.stringify({ warning: logWriteError })}\n`);
 }
 
-function reportError(stage: CliStage, error: unknown, echo: RunEcho): void {
+function reportError(stage: CliStage, error: unknown, context: ReportContext): void {
   const fact = errorFact(stage, error);
   const errorPayload: Record<string, unknown> = {
     stage: fact.stage,
@@ -593,117 +505,41 @@ function reportError(stage: CliStage, error: unknown, echo: RunEcho): void {
     code: fact.code,
     syscall: fact.syscall,
     path: fact.path,
-    cliVersion: echo.cliVersion,
-    runId: echo.runId,
-    runLogPath: echo.runLogPath,
+    cliVersion: context.cliVersion,
+    runId: context.runId,
+    runLogPath: context.logging.runLogPath,
+    logging: context.logging,
   };
-  if (echo.logWriteError !== null) {
-    errorPayload.logWriteError = echo.logWriteError;
+  if (context.logWriteError !== null) {
+    errorPayload.logWriteError = context.logWriteError;
   }
   process.stderr.write(`${JSON.stringify({ error: errorPayload })}\n`);
   process.exitCode = EXIT_CODES.error;
 }
 
-async function main(): Promise<void> {
-  const startedAtMs = Date.now();
-  const startedAt = new Date(startedAtMs).toISOString();
-  const runId = `${startedAt.replace(/[-:.]/g, "")}-${process.pid}-${randomUUID().slice(0, 8)}`;
+async function finishWithError(
+  logRun: UsageLogRun | null,
+  stage: CliStage,
+  error: unknown,
+  fallback: UsageLogResult,
+): Promise<UsageLogResult> {
+  if (logRun === null) return fallback;
+  await logRun.finish({
+    outcome: { stage, exitCode: EXIT_CODES.error },
+    coverage: null,
+    resultReceipt: null,
+    error: errorFact(stage, error),
+  });
+  return logRun.status();
+}
 
-  let cliVersion: string;
-  try {
-    cliVersion = readPackageVersion();
-  } catch (error) {
-    reportError("init", error, { cliVersion: null, runId, runLogPath: null, logWriteError: null });
-    return;
-  }
-
-  const rawArgv = process.argv.slice(2);
-  const rawRepos = extractOptionValues(rawArgv, "--repo");
-  const rawLogDirValues = extractOptionValues(rawArgv, "--log-dir");
-  const rawLogDir = rawLogDirValues.length > 0 ? rawLogDirValues[rawLogDirValues.length - 1] ?? null : null;
-
-  let parsedValue: ParsedArgs | null = null;
-  let logDir: string;
-  try {
-    logDir = resolveRunLogDir(rawLogDir);
-  } catch (error) {
-    reportError("args", error, { cliVersion, runId, runLogPath: null, logWriteError: null });
-    return;
-  }
-
-  const protectedRepoRoots: string[] = [];
-  let protectionFailure: unknown = null;
-  const repoCandidates = rawRepos.length > 0 ? rawRepos : [process.cwd()];
-  for (const candidate of repoCandidates) {
-    try {
-      protectedRepoRoots.push(await resolveThroughNearestExistingAncestor(candidate));
-    } catch (error) {
-      protectionFailure = error;
-      break;
-    }
-  }
-
-  const finalizeError = async (
-    stage: CliStage,
-    error: unknown,
-    repoRoot: string | null,
-    diagnosticsFilePath: string | null,
-  ): Promise<void> => {
-    const fact = errorFact(stage, error);
-    const runLog = buildRunLog({
-      cliVersion,
-      runId,
-      startedAt,
-      startedAtMs,
-      subcommand: CALLS_SUBCOMMAND,
-      cwd: process.cwd(),
-      sanitizedArgv: sanitizedArgv(parsedValue),
-      repoRoot,
-      diagnosticsFilePath,
-      outcome: { stage: fact.stage, exitCode: EXIT_CODES.error },
-      summary: null,
-      resultReceipt: null,
-      error: fact,
-    });
-    const { runLogPath, logWriteError } = await writeRunLog({
-      logDir,
-      runId,
-      runLog,
-      protectedRepoRoots,
-      protectionFailure,
-    });
-    if (logWriteError !== null) {
-      warnLogWrite(logWriteError);
-    }
-    reportError(stage, error, { cliVersion, runId, runLogPath, logWriteError });
-  };
-
-  let parsed: ReturnType<typeof parseArgs>;
-  try {
-    parsed = parseArgs(rawArgv);
-  } catch (error) {
-    await finalizeError("args", error, null, null);
-    return;
-  }
-
-  if (parsed.help) {
-    process.stdout.write(`${buildUsageText(cliVersion)}\n`);
-    process.exitCode = EXIT_CODES.achieved;
-    return;
-  }
-  if (parsed.error !== undefined) {
-    await finalizeError("args", parsed.error, null, null);
-    return;
-  }
-  if (parsed.value === undefined) {
-    await finalizeError("args", new TypeError("invalid arguments"), null, null);
-    return;
-  }
-
-  parsedValue = parsed.value;
-  const args = parsed.value;
-  logDir = resolveRunLogDir(args.logDir);
-
+async function executeQuery(
+  args: ParsedArgs,
+  logRun: UsageLogRun | null,
+  cliVersion: string,
+  runId: string,
+  fallbackLogging: UsageLogResult,
+): Promise<void> {
   const repoRoot = resolve(process.cwd(), args.repo);
   let sandbox;
   try {
@@ -712,11 +548,15 @@ async function main(): Promise<void> {
       sessionId: DEFAULT_READ_ONLY_SESSION_ID,
     });
   } catch (error) {
-    await finalizeError("init", error, null, null);
+    const logging = await finishWithError(logRun, "init", error, fallbackLogging);
+    reportError("init", error, {
+      cliVersion,
+      runId,
+      logging,
+      logWriteError: logWriteErrorFromLogging(logging),
+    });
     return;
   }
-
-  protectedRepoRoots.push(sandbox.scenarioRoot);
 
   if (args.diagnosticsFile !== null) {
     try {
@@ -725,10 +565,22 @@ async function main(): Promise<void> {
       try {
         await sandbox.cleanup();
       } catch (cleanupError) {
-        await finalizeError("cleanup", cleanupError, sandbox.scenarioRoot, null);
+        const logging = await finishWithError(logRun, "cleanup", cleanupError, fallbackLogging);
+        reportError("cleanup", cleanupError, {
+          cliVersion,
+          runId,
+          logging,
+          logWriteError: logWriteErrorFromLogging(logging),
+        });
         return;
       }
-      await finalizeError("args", error, sandbox.scenarioRoot, null);
+      const logging = await finishWithError(logRun, "args", error, fallbackLogging);
+      reportError("args", error, {
+        cliVersion,
+        runId,
+        logging,
+        logWriteError: logWriteErrorFromLogging(logging),
+      });
       return;
     }
   }
@@ -765,15 +617,34 @@ async function main(): Promise<void> {
 
   const repoPhysicalRoot: string = sandbox.scenarioRoot;
   if (cleanupError !== undefined) {
-    await finalizeError("cleanup", cleanupError, repoPhysicalRoot, args.diagnosticsFile);
+    const logging = await finishWithError(logRun, "cleanup", cleanupError, fallbackLogging);
+    reportError("cleanup", cleanupError, {
+      cliVersion,
+      runId,
+      logging,
+      logWriteError: logWriteErrorFromLogging(logging),
+    });
     return;
   }
   if (runError !== undefined) {
-    await finalizeError("execute", runError, repoPhysicalRoot, args.diagnosticsFile);
+    const logging = await finishWithError(logRun, "execute", runError, fallbackLogging);
+    reportError("execute", runError, {
+      cliVersion,
+      runId,
+      logging,
+      logWriteError: logWriteErrorFromLogging(logging),
+    });
     return;
   }
   if (result === undefined) {
-    await finalizeError("execute", new Error("call-depth run returned no result"), repoPhysicalRoot, args.diagnosticsFile);
+    const error = new Error("call-depth run returned no result");
+    const logging = await finishWithError(logRun, "execute", error, fallbackLogging);
+    reportError("execute", error, {
+      cliVersion,
+      runId,
+      logging,
+      logWriteError: logWriteErrorFromLogging(logging),
+    });
     return;
   }
 
@@ -787,34 +658,48 @@ async function main(): Promise<void> {
         response: result.response,
       });
     } catch (error) {
-      await finalizeError("args", error, repoPhysicalRoot, null);
+      const logging = await finishWithError(logRun, "args", error, fallbackLogging);
+      reportError("args", error, {
+        cliVersion,
+        runId,
+        logging,
+        logWriteError: logWriteErrorFromLogging(logging),
+      });
       return;
     }
   }
 
-  const exitCode = exitCodeForStatus(result.status);
-  const runLog = buildRunLog({
-    cliVersion,
-    runId,
-    startedAt,
-    startedAtMs,
-    subcommand: CALLS_SUBCOMMAND,
-    cwd: process.cwd(),
-    sanitizedArgv: sanitizedArgv(parsedValue),
-    repoRoot: repoPhysicalRoot,
-    diagnosticsFilePath,
-    outcome: completedOutcome(result, exitCode),
-    summary: summarize(result),
-    resultReceipt: resultReceipt(result),
-    error: null,
-  });
-  const { runLogPath, logWriteError } = await writeRunLog({
-    logDir,
-    runId,
-    runLog,
-    protectedRepoRoots,
-    protectionFailure,
-  });
+  if (logRun !== null) {
+    const events = projectCallDepthUsageEvents({
+      result,
+      repoRoot: repoPhysicalRoot,
+      reserveExcerptBytes: requested => logRun.reserveExcerptBytes(requested),
+    });
+    for (const event of events) {
+      const persisted = await logRun.event(event);
+      if (!persisted) break;
+    }
+    await logRun.finish({
+      outcome: {
+        stage: "completed",
+        exitCode: exitCodeForStatus(result.status),
+        status: result.status,
+        resolution: result.resolution,
+        entryNodeId: result.entryNodeId,
+        requestedMaxDepth: result.requestedMaxDepth,
+        achievedDepth: result.achievedDepth,
+        truncated: result.finalState?.truncated ?? false,
+        sourceConsistencyFailed: result.finalState?.sourceConsistencyFailed ?? false,
+        missingFiles: result.finalState?.missingFiles ?? [],
+      },
+      coverage: coverageOf(result),
+      resultReceipt: resultReceiptOf(result),
+      error: null,
+    });
+  }
+
+  const logging = logRun === null ? fallbackLogging : logRun.status();
+  const logWriteError = logWriteErrorFromLogging(logging);
   if (logWriteError !== null) {
     warnLogWrite(logWriteError);
   }
@@ -822,16 +707,178 @@ async function main(): Promise<void> {
   const payload: Record<string, unknown> = {
     cliVersion,
     runId,
-    runLogPath,
+    logging,
+    runLogPath: logging.runLogPath,
     ...projectResult(result, repoPhysicalRoot, args.requestId, args.scopePaths) as Record<string, unknown>,
   };
+  if (args.verbose) {
+    payload.coverage = coverageOf(result);
+  }
   if (logWriteError !== null) {
     payload.logWriteError = logWriteError;
   }
   process.stdout.write(`${JSON.stringify(payload, null, args.compact ? undefined : 2)}\n`);
-  process.exitCode = exitCode;
+  process.exitCode = exitCodeForStatus(result.status);
+}
+
+async function main(): Promise<void> {
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  const runId = `${startedAt.replace(/[-:.]/g, "")}-${process.pid}-${randomUUID().slice(0, 8)}`;
+
+  let cliVersion: string;
+  try {
+    cliVersion = readPackageVersion();
+  } catch (error) {
+    const logging = failedUsageLog("LOG_INIT_FAILED");
+    reportError("init", error, {
+      cliVersion: null,
+      runId,
+      logging,
+      logWriteError: logWriteErrorFromLogging(logging),
+    });
+    return;
+  }
+
+  const rawArgv = process.argv.slice(2);
+  if (hasFlag(rawArgv, "--help") || hasFlag(rawArgv, "-h")) {
+    process.stdout.write(`${buildUsageText(cliVersion)}\n`);
+    process.exitCode = EXIT_CODES.achieved;
+    return;
+  }
+
+  const noLog = hasFlag(rawArgv, "--no-log");
+  const rawLogDir = lastOptionValue(rawArgv, "--log-dir");
+  const rawDiagnostics = lastOptionValue(rawArgv, "--diagnostics-file");
+  if (noLog && (rawLogDir !== null || rawDiagnostics !== null)) {
+    reportError("args", new TypeError("--no-log conflicts with --log-dir and --diagnostics-file"), {
+      cliVersion,
+      runId,
+      logging: disabledUsageLog(),
+      logWriteError: null,
+    });
+    return;
+  }
+
+  const parsed = parseArgs(rawArgv);
+
+  const protectedRepoRoots: string[] = [];
+  let protectionError: unknown = null;
+  const rawRepos = extractOptionValues(rawArgv, "--repo");
+  const repoCandidates = rawRepos.length > 0 ? rawRepos : [process.cwd()];
+  for (const candidate of repoCandidates) {
+    try {
+      protectedRepoRoots.push(await resolvePhysicalPath(candidate));
+    } catch (error) {
+      protectionError = error;
+      break;
+    }
+  }
+
+  if (noLog) {
+    if (parsed.error !== undefined) {
+      reportError("args", parsed.error, {
+        cliVersion,
+        runId,
+        logging: disabledUsageLog(),
+        logWriteError: null,
+      });
+      return;
+    }
+    if (parsed.value === undefined) {
+      reportError("args", new TypeError("invalid arguments"), {
+        cliVersion,
+        runId,
+        logging: disabledUsageLog(),
+        logWriteError: null,
+      });
+      return;
+    }
+    await executeQuery(parsed.value, null, cliVersion, runId, disabledUsageLog());
+    return;
+  }
+
+  let logRun: UsageLogRun | null = null;
+  if (protectionError === null) {
+    let logRoot: string;
+    try {
+      logRoot = resolveUsageLogRoot(parsed.value?.logDir ?? rawLogDir);
+    } catch (error) {
+      reportError("args", error, {
+        cliVersion,
+        runId,
+        logging: failedUsageLog("LOG_INIT_FAILED"),
+        logWriteError: null,
+      });
+      return;
+    }
+    try {
+      logRun = createUsageLogRun({
+        root: logRoot,
+        runId,
+        protectedRoots: protectedRepoRoots,
+        pid: process.pid,
+        owner: `nn-code:${process.pid}`,
+      });
+    } catch (error) {
+      reportError("args", error, {
+        cliVersion,
+        runId,
+        logging: failedUsageLog("LOG_INIT_FAILED"),
+        logWriteError: null,
+      });
+      return;
+    }
+    await logRun.start({
+      request: parsed.value === undefined ? null : typedRequest(parsed.value),
+      cliVersion,
+      semanticContractVersion: SEMANTIC_CONTRACT_VERSION,
+      modelRef: null,
+    });
+  }
+
+  const effectiveLogging = (): UsageLogResult => {
+    if (protectionError !== null) {
+      return failedUsageLog(errorCode(protectionError) ?? "LOG_WRITE_FAILED");
+    }
+    return logRun?.status() ?? failedUsageLog("LOG_INIT_FAILED");
+  };
+
+  if (parsed.error !== undefined) {
+    const logging = logRun === null
+      ? effectiveLogging()
+      : await finishWithError(logRun, "args", parsed.error, effectiveLogging());
+    reportError("args", parsed.error, {
+      cliVersion,
+      runId,
+      logging,
+      logWriteError: logWriteErrorFromLogging(logging),
+    });
+    return;
+  }
+  if (parsed.value === undefined) {
+    const error = new TypeError("invalid arguments");
+    const logging = logRun === null
+      ? effectiveLogging()
+      : await finishWithError(logRun, "args", error, effectiveLogging());
+    reportError("args", error, {
+      cliVersion,
+      runId,
+      logging,
+      logWriteError: logWriteErrorFromLogging(logging),
+    });
+    return;
+  }
+
+  await executeQuery(parsed.value, logRun, cliVersion, runId, effectiveLogging());
 }
 
 main().catch(error => {
-  reportError("execute", error, { cliVersion: null, runId: null, runLogPath: null, logWriteError: null });
+  const logging = failedUsageLog("LOG_INIT_FAILED");
+  reportError("execute", error, {
+    cliVersion: null,
+    runId: "unknown",
+    logging,
+    logWriteError: null,
+  });
 });

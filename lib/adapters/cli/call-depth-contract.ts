@@ -112,6 +112,16 @@ export type CallDepthSourceFileFact = Readonly<{
   verifiedUnchangedAtClosure: boolean;
 }>;
 
+export type CallDepthPartialSourceFact = Readonly<{
+  relPath: string;
+  dev: OsInteger;
+  ino: OsInteger;
+  size: number;
+  bytesRead: number;
+  complete: false;
+  truncated: true;
+}>;
+
 export type CallDepthOpenCallsite = Readonly<{
   callerId: string;
   callsiteSpan: DeclSpan;
@@ -151,6 +161,7 @@ export type CallDepthState = Readonly<{
   entryResolution: "ok" | "entry_not_found" | "ambiguous_entry_symbol";
   entryNodeId: string | null;
   files: readonly CallDepthSourceFileFact[];
+  partialSources: readonly CallDepthPartialSourceFact[];
   missingFiles: readonly string[];
   nodes: readonly CallGraphNodeFact[];
   edges: readonly CallGraphResolvedEdgeFact[];
@@ -516,7 +527,7 @@ export function readCallDepthState(value: unknown): CallDepthState {
   if (!Array.isArray(session.grantedEffects)) throw new TypeError("state.session.grantedEffects must be an array");
   const counters = value.counters;
   if (!isRecord(counters)) throw new TypeError("call-depth state.counters must be an object");
-  for (const key of ["files", "missingFiles", "nodes", "edges", "unresolvedCallsites", "openCallsites", "pendingReads"] as const) {
+  for (const key of ["files", "partialSources", "missingFiles", "nodes", "edges", "unresolvedCallsites", "openCallsites", "pendingReads"] as const) {
     if (!Array.isArray(value[key])) throw new TypeError(`call-depth state.${key} must be an array`);
   }
   if (!isCallDepthMaxDepth(value.maxDepth)) throw new TypeError("call-depth state.maxDepth is invalid");
@@ -541,6 +552,7 @@ export function readCallDepthState(value: unknown): CallDepthState {
     entryResolution: value.entryResolution,
     entryNodeId: value.entryNodeId === null ? null : nonEmpty(value.entryNodeId, "state.entryNodeId"),
     files: value.files as readonly CallDepthSourceFileFact[],
+    partialSources: value.partialSources as readonly CallDepthPartialSourceFact[],
     missingFiles: value.missingFiles as readonly string[],
     nodes: value.nodes as readonly CallGraphNodeFact[],
     edges: value.edges as readonly CallGraphResolvedEdgeFact[],
