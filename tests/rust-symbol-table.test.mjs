@@ -96,7 +96,7 @@ test("policy: exact symbol and file filtering plus projection", () => {
     file: "src/kinds.rs",
     declSpan: { startLine: 20, startCol: 5, endLine: 20, endCol: 22 },
     nameSpan: null,
-    nameSpanSource: "null_reason: parser_ident_span_unavailable",
+    nameSpanSource: "null_reason: ast_dump_ident_has_no_span",
     lexicalScope: ["crate", "impl:Canvas"],
     projectModulePath: "unknown",
     ownerType: "Canvas",
@@ -295,7 +295,7 @@ test("nameSpan is null with a concrete source reason everywhere", async () => {
   if (out.status !== "ok") return;
   for (const symbol of out.result.symbols) {
     assert.equal(symbol.nameSpan, null);
-    assert.equal(symbol.nameSpanSource, "null_reason: parser_ident_span_unavailable");
+    assert.equal(symbol.nameSpanSource, "null_reason: ast_dump_ident_has_no_span");
   }
 });
 

@@ -440,7 +440,7 @@ class RustAstTreeStreamParser {
       file: this.relFile,
       declSpan,
       nameSpan: null,
-      nameSpanSource: "null_reason: parser_ident_span_unavailable",
+      nameSpanSource: "null_reason: ast_dump_ident_has_no_span",
       lexicalScope: Object.freeze(frame.lexicalScope.slice()),
       projectModulePath: "unknown",
       ownerType,
