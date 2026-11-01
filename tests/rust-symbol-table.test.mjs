@@ -244,6 +244,80 @@ test("block_local.rs: block-local declarations extracted with fn scope, same-nam
   assert.equal(out.result.coverage.partial, false);
 });
 
+test("nested_blocks.rs: declarations in bare and conditional blocks keep the enclosing fn scope", async () => {
+  const out = await runOne(["src/nested_blocks.rs"]);
+  assert.equal(out.status, "ok");
+  if (out.status !== "ok") return;
+
+  assert.deepEqual(
+    out.result.symbols.map(entry => entry.name).sort(),
+    ["conditional", "direct", "nested", "outer"],
+  );
+  for (const name of ["direct", "nested", "conditional"]) {
+    const symbol = out.result.symbols.find(entry => entry.name === name);
+    assert.equal(symbol?.kind, "function");
+    assert.equal(symbol?.ownerType, null);
+    assert.equal(symbol?.implTrait, null);
+    assert.deepEqual([...symbol.lexicalScope], ["crate", "fn:outer"]);
+  }
+  const outer = out.result.symbols.find(entry => entry.name === "outer");
+  assert.deepEqual([...outer.lexicalScope], ["crate"]);
+  assert.equal(out.result.coverage.partial, false);
+  assert.equal(out.result.coverage.truncated, false);
+});
+
+test("nested_branches.rs: every block-bearing branch and arbitrary nesting is traversed", async () => {
+  const out = await runOne(["src/nested_branches.rs"]);
+  assert.equal(out.status, "ok");
+  if (out.status !== "ok") return;
+
+  const expected = [
+    "BranchLocal",
+    "branch_method",
+    "branches",
+    "deep_branch",
+    "for_branch",
+    "if_branch",
+    "if_else",
+    "loop_branch",
+    "match_branch",
+    "repeated",
+    "repeated",
+    "while_branch",
+  ].sort();
+  assert.deepEqual(out.result.symbols.map(entry => entry.name).sort(), expected);
+
+  for (const name of [
+    "if_branch",
+    "if_else",
+    "loop_branch",
+    "while_branch",
+    "for_branch",
+    "match_branch",
+    "deep_branch",
+  ]) {
+    const symbol = out.result.symbols.find(entry => entry.name === name);
+    assert.equal(symbol?.kind, "function");
+    assert.deepEqual([...symbol.lexicalScope], ["crate", "fn:branches"]);
+  }
+
+  const repeated = out.result.symbols.filter(entry => entry.name === "repeated");
+  assert.equal(repeated.length, 2);
+  assert.equal(new Set(repeated.map(entry => entry.symbolId)).size, 2);
+  assert.notEqual(repeated[0].declSpan.startLine, repeated[1].declSpan.startLine);
+  assert.equal(out.result.symbols.find(entry => entry.name === "BranchLocal")?.kind, "struct");
+
+  const method = out.result.symbols.find(entry => entry.name === "branch_method");
+  assert.equal(method?.kind, "method");
+  assert.equal(method?.ownerType, "BranchLocal");
+  assert.equal(method?.implTrait, null);
+  assert.deepEqual(
+    [...method.lexicalScope],
+    ["crate", "fn:branches", "impl:BranchLocal"],
+  );
+  assert.equal(out.result.coverage.partial, false);
+});
+
 test("symlink boundary: every symlink path component is skipped without following", async () => {
   const base = mkdtempSync(join(tmpdir(), "rust-symbol-link-"));
   const repo = join(base, "repo");

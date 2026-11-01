@@ -95,6 +95,29 @@ test("clean scope reports partial false and exact code-point spans", () => {
   assert.equal(unicode.nameSpan, null);
 });
 
+test("public symbols entry extracts nested and conditional block declarations", () => {
+  const result = runSymbols([
+    "--repo", FIXTURES,
+    "--language", "rust",
+    "--scope", "src/nested_blocks.rs",
+    "--compact",
+    "--no-log",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = jsonOf(result);
+  assert.deepEqual(
+    payload.symbols.map(entry => entry.name).sort(),
+    ["conditional", "direct", "nested", "outer"],
+  );
+  for (const name of ["direct", "nested", "conditional"]) {
+    const symbol = payload.symbols.find(entry => entry.name === name);
+    assert.equal(symbol?.kind, "function");
+    assert.deepEqual(symbol?.lexicalScope, ["crate", "fn:outer"]);
+  }
+  assert.equal(payload.coverage.partial, false);
+  assert.equal(payload.coverage.truncated, false);
+});
+
 test("rust and rs language aliases both route to the rust adapter", () => {
   for (const language of ["rust", "rs"]) {
     const result = runSymbols([
