@@ -505,6 +505,7 @@ function analyze(
       minDepth: finalDepths.get(nodeId) ?? 0,
       bodyExtracted: extracted.has(nodeId),
       declSpan: record.decl.span,
+      nameSpan: record.decl.nameSpan,
       fileObjectRef: fileRefOf(state, record.decl.file),
     }))
     .sort((left, right) => (left.nodeId < right.nodeId ? -1 : left.nodeId > right.nodeId ? 1 : 0)));

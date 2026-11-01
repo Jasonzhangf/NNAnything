@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { runRecursiveGoal } from "./workflow/recursive-goal/module.js";
 import {
   createContentSearchAdapter,
@@ -37,10 +38,204 @@ import {
   matchesOf,
   negativesOf,
 } from "./filters/cli-content-search.js";
-import type { CliFilesystemSandbox, SessionRef, SessionSnapshot } from "./adapters/cli/filesystem-sandbox.js";
+import {
+  readSemanticCliCall,
+  type CliFilesystemSandbox,
+  type DirectoryRef,
+  type EntryInspectObservation,
+  type SemanticCallReceipt,
+  type SemanticCliCall,
+  type SemanticDirectoryListCall,
+  type SemanticEntryInspectCall,
+  type SessionRef,
+  type SessionSnapshot,
+} from "./adapters/cli/filesystem-sandbox.js";
+import { runDirectoryListHelper } from "./adapters/cli/directory-listing.js";
+import { runEntryInspectHelper } from "./adapters/cli/entry-inspection.js";
+import type { ObservedObjectRef, PathRef } from "./adapters/cli/entry-inspection.js";
 import type { CliCommandTransition } from "./nodes/cli-command.js";
 
 const RECURSIVE_REQUEST_SCHEMA = "nnanything.recursive-goal.request.v1" as const;
+
+function sessionOfRef(ref: Readonly<{ scenarioId: string; sessionId: string }>): SessionRef {
+  return Object.freeze({
+    kind: "cli.session" as const,
+    scenarioId: ref.scenarioId,
+    sessionId: ref.sessionId,
+  });
+}
+
+function failedSearchReceipt(
+  call: SemanticCliCall,
+  before: SessionSnapshot,
+  runId: string,
+  code: string,
+  message: string,
+): SemanticCallReceipt {
+  return Object.freeze({
+    call,
+    status: "failed",
+    session_before: before,
+    session_after: before,
+    execution: Object.freeze({
+      status: "failed",
+      runId,
+      executorInvoked: false,
+      error: Object.freeze({
+        operation: call.operation,
+        stage: "observe" as const,
+        code,
+        message,
+      }),
+    }),
+  });
+}
+
+async function executeListReceipt(
+  base: CliFilesystemSandbox,
+  call: SemanticDirectoryListCall,
+  before: SessionSnapshot,
+  runId: string,
+): Promise<SemanticCallReceipt> {
+  try {
+    const target = await base.resolveDirectory(call.parameters.directory as DirectoryRef);
+    const result = await runDirectoryListHelper({
+      configuredDirectory: target.configuredPath,
+      physicalDirectory: target.physicalPath,
+    });
+    if (!result.ok) {
+      return failedSearchReceipt(call, before, runId, result.error.code, result.error.message);
+    }
+    return Object.freeze({
+      call,
+      status: "succeeded",
+      session_before: before,
+      session_after: before,
+      execution: Object.freeze({
+        status: "succeeded",
+        runId,
+        executorInvoked: true,
+        observation: result.observation,
+      }),
+    });
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "EINVAL";
+    return failedSearchReceipt(
+      call,
+      before,
+      runId,
+      code,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+async function executeInspectReceipt(
+  base: CliFilesystemSandbox,
+  call: SemanticEntryInspectCall,
+  before: SessionSnapshot,
+  runId: string,
+): Promise<SemanticCallReceipt> {
+  const ref = call.parameters.ref;
+  try {
+    if (ref.kind === "cli.directory" && !("absolutePath" in ref)) {
+      return failedSearchReceipt(
+        call,
+        before,
+        runId,
+        "binding_identity_missing",
+        "Legacy directory references cannot be inspected",
+      );
+    }
+    const inspectRef = ref as PathRef | ObservedObjectRef;
+    const absolutePath = inspectRef.kind === "cli.path" ? inspectRef.path : inspectRef.absolutePath;
+    const observed = await base.bindEntry(sessionOfRef(ref), absolutePath);
+    const result = await runEntryInspectHelper({
+      absolutePath: observed.absolutePath,
+      followSymlinks: call.parameters.followSymlinks,
+    });
+    if (!result.ok) {
+      return failedSearchReceipt(call, before, runId, result.error.code, result.error.message);
+    }
+    if (result.observation.snapshot.errno !== null && result.observation.snapshot.errno !== "ENOENT") {
+      return failedSearchReceipt(
+        call,
+        before,
+        runId,
+        result.observation.snapshot.errno,
+        `Entry inspection failed with ${result.observation.snapshot.errno}`,
+      );
+    }
+    const observation: EntryInspectObservation = Object.freeze({
+      kind: "entry.inspect",
+      ref: inspectRef,
+      entryKind: result.observation.entryKind,
+      followSymlinks: call.parameters.followSymlinks,
+      configuredPath: observed.absolutePath,
+      executable: result.observation.executable,
+      helperPath: result.observation.helperPath,
+      argv: result.observation.argv,
+      stdin: result.observation.stdin,
+      stdout: result.observation.stdout,
+      stderr: result.observation.stderr,
+      exitCode: 0,
+      snapshot: result.observation.snapshot,
+    });
+    return Object.freeze({
+      call,
+      status: "succeeded",
+      session_before: before,
+      session_after: before,
+      execution: Object.freeze({
+        status: "succeeded",
+        runId,
+        executorInvoked: true,
+        observation,
+      }),
+    });
+  } catch (error) {
+    const code = typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "EINVAL";
+    return failedSearchReceipt(
+      call,
+      before,
+      runId,
+      code,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+/**
+ * Read-only content-search capability bridge.
+ *
+ * `createReadOnlyCliFilesystemSandbox` intentionally grants only
+ * `filesystem.read`, while the existing content-search contract requires
+ * `filesystem.read + process.exec` for `directory.list` and `entry.inspect`.
+ * The recursive search engine still owns traversal, candidate selection, scan
+ * state and read orchestration. This wrapper only supplies those two semantic
+ * observations through their existing adapters (`runDirectoryListHelper`,
+ * `runEntryInspectHelper`) so the read-only call-depth sandbox can reuse the
+ * same content-search contract instead of writing a second traversal loop.
+ */
+export function createReadOnlyContentSearchSandbox(base: CliFilesystemSandbox): CliFilesystemSandbox {
+  return Object.freeze({
+    ...base,
+    async execute(value: unknown): Promise<SemanticCallReceipt> {
+      const call = readSemanticCliCall(value);
+      if (call.operation === "directory.list") {
+        return executeListReceipt(base, call, base.getSession(call.parameters.session), randomUUID());
+      }
+      if (call.operation === "entry.inspect") {
+        return executeInspectReceipt(base, call, base.getSession(sessionOfRef(call.parameters.ref)), randomUUID());
+      }
+      return base.execute(call);
+    },
+  });
+}
 
 function initialState(
   sandbox: CliFilesystemSandbox,
