@@ -1089,6 +1089,18 @@ function readFactFromReceipt(
   });
 }
 
+/**
+ * The engine snapshots and clones the candidate state after every atomic step.
+ * Retaining the raw file chunk here makes each snapshot grow with every
+ * scanned byte, so the recursive-goal engine consumes heap proportional to
+ * (number of steps x number of scanned bytes). The scan already records the
+ * match span and byte count in `scan`; downstream projections only read those
+ * scalars, so the echoed bytes are dropped from the deposited state.
+ */
+function retainedReadFact(read: ContentSearchReadFact): ContentSearchReadFact {
+  return Object.freeze({ ...read, bytes: "" });
+}
+
 function candidateIdentityStable(candidate: ContentSearchCandidateFact, read: ContentSearchReadFact): boolean {
   if (candidate.fileRef === null) return false;
   const ref = candidate.fileRef;
@@ -1563,6 +1575,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
       const read = sandboxReceipt.status === "succeeded"
         ? readFactFromReceipt(sandboxReceipt, ref, sandboxReceipt.session_before.revision, goal.requirement.attempt)
         : null;
+      const retainedRead = read === null ? null : retainedReadFact(read);
       let nextState = stateWithCli(callback.state, callback.state.cli, callback.state.session);
       if (candidate !== undefined) {
         if (read !== null && read.bytesRead !== null) {
@@ -1585,7 +1598,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               code: null,
             }));
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               inspected: null,
               fileRef: candidate.fileRef,
               scan: null,
@@ -1609,7 +1622,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               code: null,
             }));
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               inspected: null,
               fileRef: candidate.fileRef,
               scan: null,
@@ -1631,7 +1644,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               code: null,
             }));
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               inspected: null,
               fileRef: candidate.fileRef,
               scan: null,
@@ -1664,7 +1677,7 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
               ? null
               : Object.freeze({ line: firstMatch.line, column: firstMatch.column });
             nextState = updateCandidate(nextState, candidate.path, {
-              read,
+              read: retainedRead,
               contains: shortRead ? null : matched ? true : negative ? false : null,
               outcome,
               scan,
