@@ -12,6 +12,7 @@ import {
   type CallDepthRunResult,
   type CliCalleeCallGraphGoal,
 } from "./cli-call-depth.js";
+import { normalizeCallDepthLanguage } from "./adapters/cli/call-depth-contract.js";
 
 const CLI_NAME = "nn-code";
 const CALLS_SUBCOMMAND = "calls";
@@ -34,6 +35,7 @@ type ParsedArgs = {
   maxDepth: number;
   scopePaths: readonly string[];
   requestId: string;
+  language: string | null;
   diagnosticsFile: string | null;
   logDir: string | null;
   compact: boolean;
@@ -88,6 +90,12 @@ function buildUsageText(cliVersion: string): string {
     '                                          matches relPath === prefix || relPath.startsWith(prefix + "/"))',
     "",
     "Optional arguments:",
+    "  --language <language>                 Explicit source language: typescript|ts, javascript|js.",
+    "                                        rust|rs, cpp|c++|cxx, kotlin|kt, java, swift are valid but",
+    "                                        currently return UNSUPPORTED_LANGUAGE with a real text scan.",
+    "                                        Omitted: keep the existing TypeScript/JavaScript parser and",
+    "                                        only check the entry-file extension; this is not automatic",
+    "                                        repository language detection.",
     "  --entry-lexical-path <chain>          Dot-separated lexical chain for nested functions (e.g. declarationsOf.walk)",
     `  --request-id <id>                     Request identifier (default: ${DEFAULT_REQUEST_ID})`,
     "  --log-dir <dir>                       Directory for per-run logs outside --repo",
@@ -165,6 +173,7 @@ function parseArgs(argv: readonly string[]): ParseResult {
   let entryLexicalPath: string | null = null;
   let maxDepth: number | null = null;
   let requestId: string | null = null;
+  let language: string | null = null;
   let diagnosticsFile: string | null = null;
   let logDir: string | null = null;
   let compact = false;
@@ -196,6 +205,8 @@ function parseArgs(argv: readonly string[]): ParseResult {
                 ? "maxDepth"
                 : arg === "--request-id"
                   ? "requestId"
+                  : arg === "--language"
+                    ? "language"
                   : arg === "--diagnostics-file"
                     ? "diagnosticsFile"
                     : arg === "--log-dir"
@@ -227,6 +238,8 @@ function parseArgs(argv: readonly string[]): ParseResult {
       maxDepth = Number(value);
     } else if (valueArg === "requestId") {
       requestId = value;
+    } else if (valueArg === "language") {
+      language = value;
     } else if (valueArg === "diagnosticsFile") {
       diagnosticsFile = value;
     } else if (valueArg === "logDir") {
@@ -244,6 +257,9 @@ function parseArgs(argv: readonly string[]): ParseResult {
   }
   if (maxDepth === null) return { help, error: new TypeError("--max-depth is required") };
   if (requestId !== null && requestId.length === 0) return { help, error: new TypeError("--request-id must not be empty") };
+  if (language !== null && normalizeCallDepthLanguage(language) === null) {
+    return { help, error: new TypeError(`unknown --language value: ${language}`) };
+  }
   if (diagnosticsFile !== null && diagnosticsFile.length === 0) {
     return { help, error: new TypeError("--diagnostics-file must not be empty") };
   }
@@ -268,6 +284,7 @@ function parseArgs(argv: readonly string[]): ParseResult {
       maxDepth,
       scopePaths: Object.freeze(scopePaths),
       requestId: requestId ?? DEFAULT_REQUEST_ID,
+      language,
       diagnosticsFile,
       logDir,
       compact,
@@ -386,6 +403,12 @@ function projectResult(
     entryNodeId: result.entryNodeId,
     requestedMaxDepth: result.requestedMaxDepth,
     achievedDepth: result.achievedDepth,
+    requestedLanguage: result.requestedLanguage,
+    actualParser: result.actualParser,
+    supportedLanguages: result.supportedLanguages,
+    reasonCode: result.reasonCode,
+    textCandidates: result.textCandidates,
+    coverage: result.coverage,
     entryResolution: result.finalState?.entryResolution ?? null,
     truncated: result.finalState?.truncated ?? false,
     sourceConsistencyFailed: result.finalState?.sourceConsistencyFailed ?? false,
@@ -407,6 +430,11 @@ function completedOutcome(result: CallDepthRunResult, exitCode: number): unknown
     entryResolution: result.finalState?.entryResolution ?? null,
     requestedMaxDepth: result.requestedMaxDepth,
     achievedDepth: result.achievedDepth,
+    requestedLanguage: result.requestedLanguage,
+    actualParser: result.actualParser,
+    supportedLanguages: result.supportedLanguages,
+    reasonCode: result.reasonCode,
+    coverage: result.coverage,
     truncated: result.finalState?.truncated ?? false,
     sourceConsistencyFailed: result.finalState?.sourceConsistencyFailed ?? false,
     missingFiles: result.finalState?.missingFiles ?? [],
@@ -418,6 +446,11 @@ function summarize(result: CallDepthRunResult): unknown {
     nodesCount: result.nodes.length,
     edgesCount: result.edges.length,
     unresolvedCount: result.unresolvedCallsites.length,
+    textCandidatesCount: result.textCandidates.length,
+    requestedLanguage: result.requestedLanguage,
+    actualParser: result.actualParser,
+    textCoverage: result.coverage.text,
+    semanticCoverage: result.coverage.semantic,
     counters: result.counters,
   };
 }
@@ -427,6 +460,8 @@ function resultReceipt(result: CallDepthRunResult): unknown {
     nodes: projectNodes(result.nodes),
     edges: result.edges,
     unresolvedCallsites: result.unresolvedCallsites,
+    textCandidates: result.textCandidates,
+    coverage: result.coverage,
   };
 }
 
@@ -441,6 +476,7 @@ function sanitizedArgv(args: ParsedArgs | null): Record<string, unknown> {
       maxDepth: null,
       scopePaths: null,
       requestId: null,
+      language: null,
       diagnosticsFile: null,
       logDir: null,
       compact: false,
@@ -455,6 +491,7 @@ function sanitizedArgv(args: ParsedArgs | null): Record<string, unknown> {
     maxDepth: args.maxDepth,
     scopePaths: args.scopePaths,
     requestId: args.requestId,
+    language: args.language,
     diagnosticsFile: args.diagnosticsFile,
     logDir: args.logDir,
     compact: args.compact,
@@ -714,7 +751,7 @@ async function main(): Promise<void> {
     const session = sandbox.bindSession(DEFAULT_READ_ONLY_SESSION_ID);
     result = await runCliCalleeCallGraphGoal(
       { requestId: args.requestId, rootGoal },
-      { sandbox, session },
+      { sandbox, session, language: args.language },
     );
   } catch (error) {
     runError = error;

@@ -29,7 +29,10 @@ export type CallDepthResolution =
   | "budget_exhausted"
   | "interrupted"
   | "rejected"
-  | "failed";
+  | "failed"
+  | "UNSUPPORTED_LANGUAGE"
+  | "LANGUAGE_MISMATCH"
+  | "FILE_TYPE_UNSUPPORTED";
 
 export type CallDepthMaxDepth = 0 | 1 | 2 | 3;
 
@@ -199,6 +202,104 @@ export type CallDepthReceiptPayload = Readonly<{
 
 export type CallDepthCursor = Readonly<{ phase: "execute" | "closed" }>;
 
+export const CALL_DEPTH_SUPPORTED_LANGUAGES = Object.freeze([
+  "typescript",
+  "javascript",
+] as const);
+
+export type CallDepthSupportedLanguage = typeof CALL_DEPTH_SUPPORTED_LANGUAGES[number];
+export type CallDepthRequestedLanguage =
+  | CallDepthSupportedLanguage
+  | "rust"
+  | "cpp"
+  | "kotlin"
+  | "java"
+  | "swift";
+
+export type CallDepthLanguageRoute = Readonly<{
+  requestedLanguage: CallDepthRequestedLanguage | null;
+  entryLanguage: CallDepthRequestedLanguage | null;
+  parserLanguage: CallDepthSupportedLanguage | null;
+  supported: boolean;
+  mismatch: boolean;
+  unsupportedEntryFileType: boolean;
+}>;
+
+export type CallDepthTextDisposition =
+  | "unclassified"
+  | "definition"
+  | "confirmed_call"
+  | "other_binding"
+  | "non_code"
+  | "unknown";
+
+export type CallDepthTextCandidate = Readonly<{
+  candidateId: string;
+  filePath: string;
+  line: number;
+  column: number;
+  span: DeclSpan;
+  byteSpan: Readonly<{ start: number; end: number }>;
+  matchedText: string;
+  preview: string;
+  matchedNeedle: string;
+  disposition: CallDepthTextDisposition;
+  evidenceRefs: readonly string[];
+}>;
+
+export type CallDepthTextCoverage = Readonly<{
+  complete: boolean;
+  status: "complete" | "partial" | "failed" | "not_run";
+  cardinality: "all";
+  recursion: "nested";
+  matchedFiles: number;
+  scannedFiles: number;
+  unresolvedFiles: number;
+  typeMismatches: number;
+  failures: readonly string[];
+  unreadFiles: readonly string[];
+  exclusions: Readonly<{
+    hiddenEntries: "included";
+    vcsIgnore: "not_applied";
+    binaryFiles: "not_classified";
+    symlinks: "not_followed";
+  }>;
+  scanConditions: Readonly<{
+    needle: string;
+    caseSensitive: true;
+    literal: true;
+    mustContain: true;
+  }>;
+}>;
+
+export type CallDepthSemanticCoverage = Readonly<{
+  complete: boolean;
+  status: "complete" | "partial" | "not_attempted" | "unsupported" | "mismatch" | "failed";
+  parser: CallDepthSupportedLanguage | null;
+  requestedMaxDepth: CallDepthMaxDepth;
+  achievedDepth: number;
+  depthBounded: true;
+  truncated: boolean;
+  sourceConsistencyFailed: boolean;
+}>;
+
+export type CallDepthCoverage = Readonly<{
+  scope: Readonly<{
+    paths: readonly string[];
+    entryFile: string;
+    scopePrefixMatch: true;
+  }>;
+  text: CallDepthTextCoverage;
+  semantic: CallDepthSemanticCoverage;
+  languageSupport: Readonly<{
+    requested: CallDepthRequestedLanguage | null;
+    entryFile: CallDepthRequestedLanguage | null;
+    supported: boolean;
+    supportedLanguages: readonly CallDepthSupportedLanguage[];
+    actualParser: CallDepthSupportedLanguage | null;
+  }>;
+}>;
+
 export type CallDepthRunResult = Readonly<{
   status: CallDepthStatus;
   resolution: CallDepthResolution;
@@ -209,9 +310,94 @@ export type CallDepthRunResult = Readonly<{
   edges: readonly CallGraphResolvedEdgeFact[];
   unresolvedCallsites: readonly CallDepthUnresolvedCallsite[];
   counters: CallDepthCounters;
+  requestedLanguage: CallDepthRequestedLanguage | null;
+  actualParser: CallDepthSupportedLanguage | null;
+  supportedLanguages: readonly CallDepthSupportedLanguage[];
+  textCandidates: readonly CallDepthTextCandidate[];
+  coverage: CallDepthCoverage;
+  reasonCode: string | null;
   finalState: CallDepthState | null;
   response: unknown;
 }>;
+
+const LANGUAGE_ALIASES: Readonly<Record<string, CallDepthRequestedLanguage>> = Object.freeze({
+  typescript: "typescript",
+  ts: "typescript",
+  javascript: "javascript",
+  js: "javascript",
+  rust: "rust",
+  rs: "rust",
+  cpp: "cpp",
+  "c++": "cpp",
+  cxx: "cpp",
+  kotlin: "kotlin",
+  kt: "kotlin",
+  java: "java",
+  swift: "swift",
+});
+
+const LANGUAGE_EXTENSIONS: Readonly<Record<CallDepthRequestedLanguage, readonly string[]>> = Object.freeze({
+  typescript: Object.freeze([".ts", ".tsx", ".mts", ".cts"]),
+  javascript: Object.freeze([".js", ".jsx", ".mjs", ".cjs"]),
+  rust: Object.freeze([".rs"]),
+  cpp: Object.freeze([".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx"]),
+  kotlin: Object.freeze([".kt", ".kts"]),
+  java: Object.freeze([".java"]),
+  swift: Object.freeze([".swift"]),
+});
+
+export function normalizeCallDepthLanguage(value: string): CallDepthRequestedLanguage | null {
+  return LANGUAGE_ALIASES[value.toLowerCase()] ?? null;
+}
+
+export function languageOfEntryFile(entryFile: string): CallDepthRequestedLanguage | null {
+  const lower = entryFile.toLowerCase();
+  for (const [language, extensions] of Object.entries(LANGUAGE_EXTENSIONS)) {
+    if (extensions.some(extension => lower.endsWith(extension))) {
+      return language as CallDepthRequestedLanguage;
+    }
+  }
+  return null;
+}
+
+export function routeCallDepthLanguage(
+  requestedLanguage: string | null,
+  entryFile: string,
+): CallDepthLanguageRoute {
+  const requested = requestedLanguage === null
+    ? null
+    : normalizeCallDepthLanguage(requestedLanguage);
+  if (requestedLanguage !== null && requested === null) {
+    throw new TypeError(`unknown --language value: ${requestedLanguage}`);
+  }
+  const entryLanguage = languageOfEntryFile(entryFile);
+  const parserLanguage = requested === "typescript" || requested === "javascript"
+    ? requested
+    : requested === null && (entryLanguage === "typescript" || entryLanguage === "javascript" || entryLanguage === null)
+      ? "typescript"
+      : null;
+  const supported = requested === null ? parserLanguage !== null : requested === "typescript" || requested === "javascript";
+  const mismatch = requested === null
+    ? false
+    : entryLanguage !== null && (
+        requested === "typescript"
+          ? entryLanguage !== "typescript" && entryLanguage !== "javascript"
+          : requested === "javascript"
+            ? entryLanguage !== "typescript" && entryLanguage !== "javascript"
+            : entryLanguage !== requested
+      );
+  return Object.freeze({
+    requestedLanguage: requested,
+    entryLanguage,
+    parserLanguage,
+    supported,
+    mismatch,
+    unsupportedEntryFileType: requested === null
+      && entryLanguage !== null
+      && entryLanguage !== "typescript"
+      && entryLanguage !== "javascript",
+  });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
