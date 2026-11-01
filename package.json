@@ -6,6 +6,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
+    "nn-code": "./dist/cli-call-depth-bin.js",
     "nn-call-depth": "./dist/cli-call-depth-bin.js"
   },
   "exports": {
