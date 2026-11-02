@@ -8,7 +8,7 @@ import { constants } from "node:fs";
 import { createReadStream } from "node:fs";
 import { lstat, mkdir, open, readdir, realpath, rename, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import * as readline from "node:readline";
 import type {
   CallDepthRunResult,
@@ -1684,7 +1684,8 @@ export async function spoolVerifiedUsageLogCandidates(
   for (const protectedRoot of options.protectedRoots) {
     const physicalProtectedRoot = await resolvePhysicalPath(protectedRoot);
     const rel = relative(physicalProtectedRoot, physicalBatchDir);
-    if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
+    const isParentEscape = rel === ".." || rel.startsWith(`..${sep}`);
+    if (rel === "" || (!isParentEscape && !isAbsolute(rel))) {
       throw taggedSpoolError(
         "STAGING_DIR_INSIDE_PROTECTED_TREE",
         `batchStagingDir must not be inside a protected source tree: ${resolvedBatchDir}`,

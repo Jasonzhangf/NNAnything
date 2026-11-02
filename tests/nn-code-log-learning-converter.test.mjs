@@ -1301,3 +1301,26 @@ test("13 staging inside a protected root is rejected before directory creation",
   assert.equal(receipt.committedRunCount, 1);
   await assert.rejects(() => lstat(inside), /ENOENT/);
 });
+
+test("14 dotdot-prefixed sibling name inside a protected root is rejected before directory creation", async t => {
+  const { spoolVerifiedUsageLogCandidates } = await cliApi();
+  const logRoot = await makeTempDir(t, "nn-code-protected-log-");
+  await writeUsageRun(logRoot, "run-protected", 1);
+  const protectedRoot = await makeTempDir(t, "nn-code-protected-tree-");
+  const dotDotChild = join(protectedRoot, "..cache");
+  const batchStagingDir = join(dotDotChild, "batch");
+
+  await assert.rejects(
+    () => spoolVerifiedUsageLogCandidates({
+      logRoot,
+      batchStagingDir,
+      protectedRoots: [protectedRoot],
+    }),
+    error => {
+      assert.equal(error.code, "STAGING_DIR_INSIDE_PROTECTED_TREE");
+      return true;
+    },
+  );
+  await assert.rejects(() => lstat(dotDotChild), /ENOENT/);
+  await assert.rejects(() => lstat(batchStagingDir), /ENOENT/);
+});
