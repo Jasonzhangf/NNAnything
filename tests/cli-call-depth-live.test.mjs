@@ -90,6 +90,7 @@ test("nn-code calls writes an external run log and echoes runLogPath", async t =
   assert.equal(payload.logging.runLogPath, logPath);
   assert.equal(payload.logging.reason, null);
   assert.equal(payload.status, "achieved");
+  assert.equal(payload.coverage.text.recursion, "nested");
   assert.equal("finalState" in payload, false, "stdout never dumps finalState");
   assert.equal("response" in payload, false, "stdout never dumps response");
 
@@ -105,6 +106,7 @@ test("nn-code calls writes an external run log and echoes runLogPath", async t =
   assert.equal(events[events.length - 1].kind, "finish");
   assert.equal(events[events.length - 1].outcome.status, "achieved");
   assert.equal(events[events.length - 1].outcome.exitCode, 0);
+  assert.equal(events[events.length - 1].coverage.coverage.text.recursion, "nested");
   assert.equal(events.filter(event => event.kind === "node_expanded").length, payload.nodes.length);
   events.forEach((event, index) => assert.equal(event.seq, index));
 });
@@ -125,6 +127,7 @@ test("file-scope text scan binds the parent directory and reports one complete m
   assert.equal(payload.status, "achieved");
   assert.equal(payload.coverage.text.complete, true);
   assert.equal(payload.coverage.text.status, "complete");
+  assert.equal(payload.coverage.text.recursion, "flat");
   assert.equal(payload.coverage.text.scannedFiles, 1);
   assert.equal(payload.coverage.text.matchedFiles, 1);
   assert.equal(payload.coverage.text.unresolvedFiles, 0);
@@ -137,6 +140,7 @@ test("file-scope text scan binds the parent directory and reports one complete m
   const finish = events[events.length - 1];
   assert.equal(finish.kind, "finish");
   assert.equal(finish.coverage.coverage.text.complete, true);
+  assert.equal(finish.coverage.coverage.text.recursion, "flat");
   assert.equal(finish.coverage.coverage.text.scannedFiles, 1);
   assert.equal(finish.coverage.coverage.text.matchedFiles, 1);
 });
@@ -157,11 +161,36 @@ test("file-scope text scan reports a structured no-match instead of a directory 
   assert.equal(payload.status, "unmet");
   assert.equal(payload.coverage.text.complete, true);
   assert.equal(payload.coverage.text.status, "complete");
+  assert.equal(payload.coverage.text.recursion, "flat");
   assert.equal(payload.coverage.text.scannedFiles, 1);
   assert.equal(payload.coverage.text.matchedFiles, 0);
   assert.equal(payload.coverage.text.unresolvedFiles, 0);
   assert.deepEqual(payload.coverage.text.failures, []);
   assert.equal(payload.textCandidates.length, 0);
+});
+
+test("mixed file and directory scopes report mixed text recursion", async t => {
+  const root = await makeRepo(t);
+  const logDir = await makeTempDir(t, "nn-code-mixed-scope-");
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.ts",
+    "--entry-symbol", "entry",
+    "--max-depth", "0",
+    "--scope", "src/entry.ts",
+    "--scope", "src",
+    "--log-dir", logDir,
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.status, "achieved");
+  assert.equal(payload.coverage.text.complete, true);
+  assert.equal(payload.coverage.text.recursion, "mixed");
+
+  const events = readJsonlText(await readFile(join(logDir, `${payload.runId}.jsonl`), "utf8"));
+  const finish = events[events.length - 1];
+  assert.equal(finish.kind, "finish");
+  assert.equal(finish.coverage.coverage.text.recursion, "mixed");
 });
 
 test("successful query with a live usage log lock reports partial and stderr", async t => {

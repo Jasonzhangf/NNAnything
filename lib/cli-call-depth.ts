@@ -31,6 +31,7 @@ import {
   type CallDepthState,
   type CallDepthSupportedLanguage,
   type CallDepthTextCandidate,
+  type CallDepthTextRecursion,
   type CliCalleeCallGraphGoal,
 } from "./adapters/cli/call-depth-contract.js";
 import {
@@ -276,6 +277,13 @@ function textFailureMessages(fact: ContentSearchDomainProjection["rootFact"]): r
   return Object.freeze([]);
 }
 
+function textRecursion(modes: ReadonlySet<CallDepthTextRecursion>): CallDepthTextRecursion {
+  const flat = modes.has("flat");
+  const nested = modes.has("nested");
+  if (flat && nested) return "mixed";
+  return flat ? "flat" : "nested";
+}
+
 async function collectTextSearch(
   goal: CliCalleeCallGraphGoal,
   resources: CallDepthResources,
@@ -301,6 +309,7 @@ async function collectTextSearch(
   let scannedFiles = 0;
   let unresolvedFiles = 0;
   let typeMismatches = 0;
+  const recursionModes = new Set<CallDepthTextRecursion>();
   const session = textSandbox.getSession(textSession);
   const scopes = [...new Set(goal.scopePaths)];
 
@@ -393,6 +402,7 @@ async function collectTextSearch(
       continue;
     }
     searched = true;
+    recursionModes.add(recursion);
     matchedFiles += domain.matches.length;
     scannedFiles += domain.denominators.candidatesScanned;
     unresolvedFiles += domain.denominators.candidatesUnresolved;
@@ -422,7 +432,7 @@ async function collectTextSearch(
       complete: complete && searched,
       status,
       cardinality: "all" as const,
-      recursion: "nested" as const,
+      recursion: textRecursion(recursionModes),
       matchedFiles,
       scannedFiles,
       unresolvedFiles,
