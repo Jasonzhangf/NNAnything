@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -206,7 +206,7 @@ test("four-way symlink boundary: final link, outside parent, inside parent all s
 test("unsupported language returns UNSUPPORTED_LANGUAGE, not entry_not_found", () => {
   const result = runSymbols([
     "--repo", FIXTURES,
-    "--language", "typescript",
+      "--language", "cobol",
     "--scope", "src",
     "--compact",
     "--no-log",
@@ -410,3 +410,154 @@ test("--log-dir writes one usage-log JSONL; --no-log disables persistence", () =
     rmSync(logDir, { recursive: true, force: true });
   }
 });
+
+test("java scope routes through the public symbols entry to the javac adapter", () => {
+  const repo = mkdtempSync(join(tmpdir(), "cli-symbols-java-"));
+  try {
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(
+      join(repo, "src", "Demo.java"),
+      [
+        "package demo;",
+        "public class Demo {",
+        "  private int count;",
+        "  public int increment(int step) { return count + step; }",
+        "}",
+        "",
+      ].join("\n"),
+    );
+    const result = runSymbols([
+      "--repo", repo,
+      "--language", "java",
+      "--scope", "src",
+      "--compact",
+      "--no-log",
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const payload = jsonOf(result);
+    assert.equal(payload.schema, "nnanything.cli-symbols.result.v1");
+    assert.equal(payload.language, "java");
+    assert.equal(payload.parser.backend, "javac_compiler_tree");
+    assert.equal(payload.parser.semanticBinding, false);
+    assert.deepEqual(payload.scope, ["src"]);
+    assert.equal(payload.coverage.ignorePolicy, "no_ignore");
+    assert.equal(payload.logging.state, "disabled");
+    const names = new Set(payload.symbols.map(entry => entry.name));
+    for (const expected of ["Demo", "count", "increment"]) {
+      assert.ok(names.has(expected), `missing symbol ${expected}`);
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("typescript scope routes through the public symbols entry to the AST adapter", () => {
+  const repo = mkdtempSync(join(tmpdir(), "cli-symbols-tsjs-"));
+  try {
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(
+      join(repo, "src", "demo.ts"),
+      [
+        "export interface Box { value: number; }",
+        "export function unwrap(box: Box): number { return box.value; }",
+        "export class Container { count = 0; add(step: number) { return this.count + step; } }",
+        "",
+      ].join("\n"),
+    );
+    for (const language of ["typescript", "ts"]) {
+      const result = runSymbols([
+        "--repo", repo,
+        "--language", language,
+        "--scope", "src",
+        "--compact",
+        "--no-log",
+      ]);
+      assert.equal(result.status, 0, `${language}: ${result.stderr}`);
+      const payload = jsonOf(result);
+      assert.equal(payload.language, "typescript");
+      assert.equal(payload.parser.backend, "typescript_compiler_ast");
+      assert.equal(payload.parser.semanticBinding, false);
+      const names = new Set(payload.symbols.map(entry => entry.name));
+      for (const expected of ["Box", "unwrap", "Container", "add"]) {
+        assert.ok(names.has(expected), `${language} missing symbol ${expected}`);
+      }
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("js alias routes to the javascript adapter", () => {
+  const repo = mkdtempSync(join(tmpdir(), "cli-symbols-js-"));
+  try {
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(
+      join(repo, "src", "demo.js"),
+      [
+        "const counter = 0;",
+        "function bump(step) { return counter + step; }",
+        "module.exports = { bump };",
+        "",
+      ].join("\n"),
+    );
+    const result = runSymbols([
+      "--repo", repo,
+      "--language", "js",
+      "--scope", "src",
+      "--compact",
+      "--no-log",
+    ]);
+    assert.equal(result.status, 0, result.stderr);
+    const payload = jsonOf(result);
+    assert.equal(payload.language, "javascript");
+    assert.equal(payload.parser.backend, "typescript_compiler_ast");
+    const names = new Set(payload.symbols.map(entry => entry.name));
+    for (const expected of ["counter", "bump"]) {
+      assert.ok(names.has(expected), `missing symbol ${expected}`);
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("swift scope routes to the swift adapter or reports the real missing toolchain", () => {
+  const repo = mkdtempSync(join(tmpdir(), "cli-symbols-swift-"));
+  try {
+    mkdirSync(join(repo, "src"), { recursive: true });
+    writeFileSync(
+      join(repo, "src", "demo.swift"),
+      [
+        "struct Point { var x: Int; func shifted(by d: Int) -> Point { return Point(x: x + d) } }",
+        "",
+      ].join("\n"),
+    );
+    const result = runSymbols([
+      "--repo", repo,
+      "--language", "swift",
+      "--scope", "src",
+      "--compact",
+      "--no-log",
+    ]);
+    const hasSwiftc = existsSync("/usr/bin/swiftc");
+    if (hasSwiftc) {
+      assert.equal(result.status, 0, result.stderr);
+      const payload = jsonOf(result);
+      assert.equal(payload.language, "swift");
+      assert.equal(payload.parser.backend, "swiftc_dump_parse");
+      const names = new Set(payload.symbols.map(entry => entry.name));
+      for (const expected of ["Point", "x", "shifted"]) {
+        assert.ok(names.has(expected), `missing symbol ${expected}`);
+      }
+    } else {
+      // The LayerFS Linux workspace ships without swiftc; the public entry must
+      // surface the real toolchain gap instead of a false success or empty table.
+      assert.equal(result.status, 4, result.stderr);
+      const payload = jsonOf(result);
+      assert.equal(payload.status, "rejected");
+      assert.equal(payload.reasonCode, "SWIFTC_UNAVAILABLE");
+    }
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+

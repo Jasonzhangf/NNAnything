@@ -92,11 +92,11 @@ function buildUsageText(cliVersion: string): string {
     "",
     "Usage:",
     `  ${CLI_NAME} ${CALLS_SUBCOMMAND} --repo <path> --entry-file <repoRelativePath> --entry-symbol <symbol> --max-depth <${maxDepthUsage}> --scope <prefix> [options]`,
-    `  ${CLI_NAME} symbols --repo <path> --language <rust|rs|kotlin|kt> --scope <prefix> [options]`,
+    `  ${CLI_NAME} symbols --repo <path> --language <lang> --scope <prefix> [options]`,
     "",
     `Subcommands:`,
     `  ${CALLS_SUBCOMMAND}                      Deterministic read-only callee call graph (see below)`,
-    `  symbols                       Read-only Rust/Kotlin symbol declaration table; run "${CLI_NAME} symbols --help" for details`,
+    `  symbols                       Read-only symbol declaration table; run "${CLI_NAME} symbols --help" for details`,
     "",
     `Required arguments (${CLI_NAME} ${CALLS_SUBCOMMAND}):`,
     "  --repo <path>                         Target repository root path (opened strictly read-only)",
@@ -894,3 +894,4 @@ main().catch(error => {
     logWriteError: null,
   });
 });
+

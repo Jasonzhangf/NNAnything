@@ -1,9 +1,10 @@
-// nn-code symbols: public subcommand for the Rust symbol-table slice.
+// nn-code symbols: public subcommand for the Rust, Kotlin, Java, TypeScript /
+// JavaScript and Swift symbol-table slices.
 //
 // This module owns the public entry: request validation, scope discovery
 // (entry.list + entry.inspect), exact filter handoff and the single
-// nnanything.cli-symbols.result.v1 exit. The language adapter only receives an
-// explicit list of repo-relative regular .rs files; it never performs
+// nnanything.cli-symbols.result.v1 exit. A language adapter only receives an
+// explicit list of repo-relative regular source files; it never performs
 // directory discovery itself.
 
 import { randomUUID } from "node:crypto";
@@ -25,7 +26,13 @@ import {
 } from "./adapters/cli/nn-code-usage-log.js";
 import { runKotlinSymbolTable } from "./adapters/cli/kotlin-symbol-table-adapter.js";
 import { runRustSymbolTable } from "./adapters/cli/rust-symbol-table-adapter.js";
+import { runJavaSymbolTable } from "./adapters/cli/java-symbol-table-adapter.js";
+import { runSwiftSymbolTable } from "./adapters/cli/swift-symbol-table-adapter.js";
+import { runTsJsSymbolTable } from "./adapters/cli/tsjs-symbol-table-adapter.js";
 import { validateKotlinSymbolRequest } from "./filters/kotlin-symbol-table-policy.js";
+import { validateJavaSymbolRequest } from "./filters/java-symbol-table-policy.js";
+import { validateSwiftSymbolRequest } from "./filters/swift-symbol-table-policy.js";
+import { validateTsJsSymbolRequest } from "./filters/tsjs-symbol-table-policy.js";
 import {
   validateRustSymbolRequest,
   type RustEdition,
@@ -35,14 +42,14 @@ export const SYMBOLS_REQUEST_SCHEMA = "nnanything.cli-symbols.request.v1";
 export const SYMBOLS_RESULT_SCHEMA = "nnanything.cli-symbols.result.v1";
 
 export const SYMBOLS_HELP_TEXT = [
-  "nn-code symbols - Rust and Kotlin symbol declaration tables (read-only)",
+  "nn-code symbols - Rust, Kotlin, Java, TypeScript/JavaScript and Swift symbol tables (read-only)",
   "",
   "Usage:",
-  "  nn-code symbols --repo <path> --language <rust|rs|kotlin|kt> --scope <prefix> [options]",
+  "  nn-code symbols --repo <path> --language <rust|rs|kotlin|kt|java|typescript|ts|javascript|js|swift> --scope <prefix> [options]",
   "",
   "Required arguments:",
   "  --repo <path>          Target repository root (absolute or cwd-relative; read-only)",
-  "  --language <rust|rs|kotlin|kt>   Source language (rust or kotlin)",
+  "  --language <lang>      Source language (rust|rs|kotlin|kt|java|typescript|ts|javascript|js|swift)",
   "  --scope <prefix>       Repo-relative path; repeatable or comma-separated",
   "",
   "Optional arguments:",
@@ -59,6 +66,9 @@ export const SYMBOLS_HELP_TEXT = [
   "binary and jars are resolved from NN_CODE_KOTLIN_JAVA_BIN / NN_CODE_KOTLIN_JARS,",
   "JAVA_HOME, PATH, or the standard Gradle/Maven artifact caches.",
   "",
+  "Java requires a JDK 17 runtime and the pre-built ExtractJavaSymbols driver",
+  "(node scripts/build-java-symbol-jvm.mjs). Swift requires /usr/bin/swiftc.",
+  "",
   "Not accepted (calls-only): --entry-file, --entry-symbol, --entry-lexical-path, --max-depth,",
   "                           --request-id, --diagnostics-file, --verbose",
   "",
@@ -67,7 +77,14 @@ export const SYMBOLS_HELP_TEXT = [
 ].join("\n");
 
 const EXIT_CODES = Object.freeze({ ok: 0, error: 1, rejected: 4 } as const);
-const SUPPORTED_LANGUAGES = Object.freeze(["rust", "rs", "kotlin", "kt"] as const);
+const SUPPORTED_LANGUAGES = Object.freeze([
+  "rust", "rs",
+  "kotlin", "kt",
+  "java",
+  "typescript", "ts",
+  "javascript", "js",
+  "swift",
+] as const);
 const EDITIONS: readonly RustEdition[] = Object.freeze(["2015", "2018", "2021", "2024"]);
 const IGNORE_POLICIES = Object.freeze(["no_ignore", "respect_vcs_ignore"] as const);
 // Discovery reuses the same regular-file condition the content-search contract
@@ -261,14 +278,13 @@ function parseSymbolsArgs(argv: readonly string[]): ParseOutcome {
       error: rejected("UNSUPPORTED_LANGUAGE", `unsupported language: ${language}`),
     };
   }
-  const kotlinLanguage = normalizedLanguage === "kotlin" || normalizedLanguage === "kt";
   if (symbol !== null && (symbol.length === 0 || /[\s\0]/.test(symbol))) {
     return { kind: "error", error: rejected("invalid_symbol", "symbol must be a non-empty name without whitespace") };
   }
   if (file !== null && file.length === 0) {
     return { kind: "error", error: rejected("invalid_file", "file must be a non-empty repo-relative path") };
   }
-  if (kotlinLanguage && edition !== null) {
+  if (!(normalizedLanguage === "rust" || normalizedLanguage === "rs") && edition !== null) {
     return { kind: "error", error: rejected("invalid_edition", "--edition is only supported for rust|rs") };
   }
   if (edition !== null && !EDITIONS.includes(edition as RustEdition)) {
@@ -467,6 +483,22 @@ function isKotlinSourceName(name: string): boolean {
   return name.endsWith(".kt") || name.endsWith(".kts");
 }
 
+function isJavaSourceName(name: string): boolean {
+  return name.endsWith(".java");
+}
+
+function isSwiftSourceName(name: string): boolean {
+  return name.endsWith(".swift");
+}
+
+function isTypeScriptSourceName(name: string): boolean {
+  return name.endsWith(".ts") || name.endsWith(".tsx") || name.endsWith(".mts") || name.endsWith(".cts");
+}
+
+function isJavaScriptSourceName(name: string): boolean {
+  return name.endsWith(".js") || name.endsWith(".jsx") || name.endsWith(".mjs") || name.endsWith(".cjs");
+}
+
 async function discoverScopeFiles(
   repoAbs: string,
   repoReal: string,
@@ -525,6 +557,38 @@ async function discoverKotlinScopeFiles(
   scope: readonly string[],
 ): Promise<DiscoveryOutcome> {
   return discoverScopeFiles(repoAbs, repoReal, scope, isKotlinSourceName);
+}
+
+async function discoverJavaScopeFiles(
+  repoAbs: string,
+  repoReal: string,
+  scope: readonly string[],
+): Promise<DiscoveryOutcome> {
+  return discoverScopeFiles(repoAbs, repoReal, scope, isJavaSourceName);
+}
+
+async function discoverSwiftScopeFiles(
+  repoAbs: string,
+  repoReal: string,
+  scope: readonly string[],
+): Promise<DiscoveryOutcome> {
+  return discoverScopeFiles(repoAbs, repoReal, scope, isSwiftSourceName);
+}
+
+async function discoverTypeScriptScopeFiles(
+  repoAbs: string,
+  repoReal: string,
+  scope: readonly string[],
+): Promise<DiscoveryOutcome> {
+  return discoverScopeFiles(repoAbs, repoReal, scope, isTypeScriptSourceName);
+}
+
+async function discoverJavaScriptScopeFiles(
+  repoAbs: string,
+  repoReal: string,
+  scope: readonly string[],
+): Promise<DiscoveryOutcome> {
+  return discoverScopeFiles(repoAbs, repoReal, scope, isJavaScriptSourceName);
 }
 
 function mergeSkipped(first: readonly SkipRecord[], second: readonly SkipRecord[]): SkipRecord[] {
@@ -685,25 +749,42 @@ export async function runCliSymbols(
 
   const repoAbs = resolve(process.cwd(), args.repo);
   const kotlinLanguage = args.language === "kotlin" || args.language === "kt";
+  const language = args.language;
+  const javaLanguage = language === "java";
+  const swiftLanguage = language === "swift";
+  const tsjsLanguage = language === "typescript" || language === "ts"
+    || language === "javascript" || language === "js";
+  const requestBase = {
+    repo: repoAbs,
+    scope: [...args.scope],
+    files: [],
+    ...(args.symbol === null ? {} : { symbol: args.symbol }),
+    ...(args.file === null ? {} : { file: args.file }),
+  };
   const validation = kotlinLanguage
     ? validateKotlinSymbolRequest({
-        repo: repoAbs,
+        ...requestBase,
         language: "kotlin",
-        scope: [...args.scope],
-        files: [],
-        ...(args.symbol === null ? {} : { symbol: args.symbol }),
-        ...(args.file === null ? {} : { file: args.file }),
         ignorePolicy: args.ignorePolicy ?? "no_ignore",
       })
-    : validateRustSymbolRequest({
-        repo: repoAbs,
-        language: "rust",
-        scope: [...args.scope],
-        files: [],
-        ...(args.symbol === null ? {} : { symbol: args.symbol }),
-        ...(args.file === null ? {} : { file: args.file }),
-        ...(args.edition === null ? {} : { edition: args.edition }),
-      });
+    : javaLanguage
+      ? validateJavaSymbolRequest({
+          ...requestBase,
+          language: "java",
+          ignorePolicy: args.ignorePolicy ?? "no_ignore",
+        })
+      : swiftLanguage
+        ? validateSwiftSymbolRequest({ ...requestBase, language: "swift" })
+        : tsjsLanguage
+          ? validateTsJsSymbolRequest({
+              ...requestBase,
+              language: language === "javascript" || language === "js" ? "javascript" : "typescript",
+            })
+          : validateRustSymbolRequest({
+              ...requestBase,
+              language: "rust",
+              ...(args.edition === null ? {} : { edition: args.edition }),
+            });
   if (!validation.ok) {
     await finishRejected(rejected(validation.error.reasonCode, validation.error.message));
     return;
@@ -743,7 +824,15 @@ export async function runCliSymbols(
 
   const discovered = kotlinLanguage
     ? await discoverKotlinScopeFiles(repoAbs, repoReal, request.scope)
-    : await discoverRustScopeFiles(repoAbs, repoReal, request.scope);
+    : javaLanguage
+      ? await discoverJavaScopeFiles(repoAbs, repoReal, request.scope)
+      : swiftLanguage
+        ? await discoverSwiftScopeFiles(repoAbs, repoReal, request.scope)
+        : tsjsLanguage
+          ? (language === "javascript" || language === "js")
+            ? await discoverJavaScriptScopeFiles(repoAbs, repoReal, request.scope)
+            : await discoverTypeScriptScopeFiles(repoAbs, repoReal, request.scope)
+          : await discoverRustScopeFiles(repoAbs, repoReal, request.scope);
   if (discovered.kind === "rejected") {
     await finishRejected(discovered.error);
     return;
@@ -762,15 +851,43 @@ export async function runCliSymbols(
           ...(args.file === null ? {} : { file: args.file }),
           ignorePolicy: args.ignorePolicy ?? "no_ignore",
         })
-      : await runRustSymbolTable({
-          repo: repoAbs,
-          language: "rust",
-          scope: [...request.scope],
-          files: [...discovery.files],
-          ...(args.symbol === null ? {} : { symbol: args.symbol }),
-          ...(args.file === null ? {} : { file: args.file }),
-          ...(args.edition === null ? {} : { edition: args.edition }),
-        });
+      : javaLanguage
+        ? await runJavaSymbolTable({
+            repo: repoAbs,
+            language: "java",
+            scope: [...request.scope],
+            files: [...discovery.files],
+            ...(args.symbol === null ? {} : { symbol: args.symbol }),
+            ...(args.file === null ? {} : { file: args.file }),
+            ignorePolicy: args.ignorePolicy ?? "no_ignore",
+          })
+        : swiftLanguage
+          ? await runSwiftSymbolTable({
+              repo: repoAbs,
+              language: "swift",
+              scope: [...request.scope],
+              files: [...discovery.files],
+              ...(args.symbol === null ? {} : { symbol: args.symbol }),
+              ...(args.file === null ? {} : { file: args.file }),
+            })
+          : tsjsLanguage
+            ? await runTsJsSymbolTable({
+                repo: repoAbs,
+                language: language === "javascript" || language === "js" ? "javascript" : "typescript",
+                scope: [...request.scope],
+                files: [...discovery.files],
+                ...(args.symbol === null ? {} : { symbol: args.symbol }),
+                ...(args.file === null ? {} : { file: args.file }),
+              })
+            : await runRustSymbolTable({
+                repo: repoAbs,
+                language: "rust",
+                scope: [...request.scope],
+                files: [...discovery.files],
+                ...(args.symbol === null ? {} : { symbol: args.symbol }),
+                ...(args.file === null ? {} : { file: args.file }),
+                ...(args.edition === null ? {} : { edition: args.edition }),
+              });
   } catch (error) {
     const logging = logRun === null ? failedUsageLog("LOG_WRITE_FAILED") : logRun.status();
     reportSymbolsError("execute", error, {
@@ -838,3 +955,4 @@ export async function runCliSymbols(
   );
   process.exitCode = EXIT_CODES.ok;
 }
+
