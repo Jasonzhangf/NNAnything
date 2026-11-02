@@ -1256,3 +1256,165 @@ test("CD1-T11 CJS Object.assign exports stay unresolved", async t => {
   assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
   assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
 });
+
+test("CD1-T11 CJS named export overwritten by unknown RHS invalidates old target", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports.foo = foo;",
+    "module.exports.foo = globalThis.dynamic;",
+  ].join("\n");
+  const entries = [
+    { path: "src/overwrite/caller.js", kind: "file", contents: caller },
+    { path: "src/overwrite/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/overwrite/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-named",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "overwritten export must not produce a resolved edge");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS exports.<name> overwrite follows the same invalidation rule", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "exports.foo = foo;",
+    "exports.foo = globalThis.dynamic;",
+  ].join("\n");
+  const entries = [
+    { path: "src/overwrite-exports/caller.js", kind: "file", contents: caller },
+    { path: "src/overwrite-exports/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/overwrite-exports/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-exports",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "the exports.<name> overwrite must not retain the old target");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS delete removes the old named export binding", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports.foo = foo;",
+    "delete module.exports.foo;",
+  ].join("\n");
+  const entries = [
+    { path: "src/delete-export/caller.js", kind: "file", contents: caller },
+    { path: "src/delete-export/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/delete-export/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-delete-export",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "the deleted export must not keep the old target");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS module.exports replacement followed by member overwrite invalidates old target", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports = { foo };",
+    "module.exports.foo = globalThis.dynamic;",
+  ].join("\n");
+  const entries = [
+    { path: "src/overwrite-replaced/caller.js", kind: "file", contents: caller },
+    { path: "src/overwrite-replaced/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/overwrite-replaced/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-replaced",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "post-replacement member overwrite must not restore the old target");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS namespace member overwritten by local assignment stays unresolved", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "ns.foo = globalThis.dynamic;",
+    "function entry() {",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports = { foo };",
+  ].join("\n");
+  const entries = [
+    { path: "src/namespace-overwrite/caller.js", kind: "file", contents: caller },
+    { path: "src/namespace-overwrite/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/namespace-overwrite/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-namespace",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "overwritten namespace member must not resolve to the original export");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});
+
+test("CD1-T11 CJS literal element member write invalidates the namespace member", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    'ns["foo"] = globalThis.dynamic;',
+    "function entry() {",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports = { foo };",
+  ].join("\n");
+  const entries = [
+    { path: "src/namespace-element-overwrite/caller.js", kind: "file", contents: caller },
+    { path: "src/namespace-element-overwrite/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/namespace-element-overwrite/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-namespace-element",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "the literal element write must invalidate the same member");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});

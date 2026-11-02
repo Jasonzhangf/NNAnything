@@ -228,6 +228,49 @@ function requireIsShadowed(info: SourceFileInfo, position: ts.Node): boolean {
   return false;
 }
 
+function staticNamespaceMemberWriteTarget(
+  expression: ts.Expression,
+): { local: string; member: string } | null {
+  const core = unwrapParens(expression);
+  if (ts.isPropertyAccessExpression(core) && ts.isIdentifier(core.expression)) {
+    if (!ts.isIdentifier(core.name) && !ts.isStringLiteral(core.name)) return null;
+    return { local: core.expression.text, member: core.name.text };
+  }
+  if (ts.isElementAccessExpression(core) && ts.isIdentifier(core.expression)) {
+    const argument = core.argumentExpression;
+    if (argument === undefined || !ts.isStringLiteralLike(argument)) return null;
+    return { local: core.expression.text, member: argument.text };
+  }
+  return null;
+}
+
+function namespaceMemberWriteNames(
+  declaration: ts.VariableDeclaration,
+  local: string,
+): readonly string[] {
+  const list = declaration.parent;
+  const statement = list === undefined ? undefined : list.parent;
+  const container = statement === undefined ? undefined : statement.parent;
+  if (container === undefined || (!ts.isSourceFile(container) && !ts.isBlock(container))) {
+    return Object.freeze([]);
+  }
+  const names = new Set<string>();
+  for (const candidate of container.statements) {
+    if (!ts.isExpressionStatement(candidate)) continue;
+    const expression = candidate.expression;
+    let target: ts.Expression | null = null;
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      target = expression.left;
+    } else if (ts.isDeleteExpression(expression)) {
+      target = expression.expression;
+    }
+    if (target === null) continue;
+    const hit = staticNamespaceMemberWriteTarget(target);
+    if (hit !== null && hit.local === local) names.add(hit.member);
+  }
+  return Object.freeze([...names]);
+}
+
 type CommonJsRequireBinding =
   | Readonly<{ specifier: string; form: "namespace"; local: string }>
   | Readonly<{
@@ -275,9 +318,16 @@ function lexicalBindingsForCommonJs(
   const cjs = commonJsRequireOf(info, declaration);
   if (cjs === null) return Object.freeze([]);
   if (cjs.form === "namespace") {
+    const invalidMembers = namespaceMemberWriteNames(declaration, cjs.local);
     return Object.freeze([Object.freeze([
       cjs.local,
-      Object.freeze({ kind: "module" as const, moduleSpecifier: cjs.specifier, exportName: "*", cjs: true }),
+      Object.freeze({
+        kind: "module" as const,
+        moduleSpecifier: cjs.specifier,
+        exportName: "*",
+        cjs: true,
+        invalidMembers,
+      }),
     ] as const)]);
   }
   return Object.freeze(cjs.bindings.map(binding => Object.freeze([
@@ -287,6 +337,7 @@ function lexicalBindingsForCommonJs(
       moduleSpecifier: cjs.specifier,
       exportName: binding.exportName,
       cjs: true,
+      invalidMembers: Object.freeze([]),
     }),
   ] as const)));
 }
@@ -715,12 +766,41 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
     }
   }
 
+  function collectNamedCjsAssignment(name: string, expression: ts.Expression): void {
+    const core = unwrapParens(expression);
+    if (ts.isIdentifier(core)) {
+      const local = localTopLevelDecl(core.text);
+      if (local !== undefined) cjsEntries.set(name, local);
+      else cjsEntries.delete(name);
+      return;
+    }
+    if (ts.isArrowFunction(core) || ts.isFunctionExpression(core)) {
+      const decl = makeCjsCallable(name, core);
+      remember(decl);
+      cjsEntries.set(name, decl);
+      return;
+    }
+    cjsEntries.delete(name);
+  }
+
   if (
     !scopeDeclaresIdentifier(info.sourceFile.statements, "module")
     && !scopeDeclaresIdentifier(info.sourceFile.statements, "exports")
   ) {
     for (const statement of info.sourceFile.statements) {
-      if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression)) continue;
+      if (!ts.isExpressionStatement(statement)) continue;
+      if (ts.isDeleteExpression(statement.expression)) {
+        const target = statement.expression.expression;
+        const moduleName = isModuleExportsNameAccess(target);
+        if (moduleName !== null) {
+          cjsEntries.delete(moduleName);
+          continue;
+        }
+        const exportsName = isExportsNameAccess(target);
+        if (!cjsReplaced && exportsName !== null) cjsEntries.delete(exportsName);
+        continue;
+      }
+      if (!ts.isBinaryExpression(statement.expression)) continue;
       if (statement.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
       const left = statement.expression.left;
       const right = statement.expression.right;
@@ -730,26 +810,10 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
         collectModuleExportsAssignment(right);
       } else if (isModuleExportsNameAccess(left) !== null) {
         const name = isModuleExportsNameAccess(left)!;
-        const core = unwrapParens(right);
-        if (ts.isIdentifier(core)) {
-          const local = localTopLevelDecl(core.text);
-          if (local !== undefined) cjsEntries.set(name, local);
-        } else if (ts.isArrowFunction(core) || ts.isFunctionExpression(core)) {
-          const decl = makeCjsCallable(name, core);
-          remember(decl);
-          cjsEntries.set(name, decl);
-        }
+        collectNamedCjsAssignment(name, right);
       } else if (!cjsReplaced && isExportsNameAccess(left) !== null) {
         const name = isExportsNameAccess(left)!;
-        const core = unwrapParens(right);
-        if (ts.isIdentifier(core)) {
-          const local = localTopLevelDecl(core.text);
-          if (local !== undefined) cjsEntries.set(name, local);
-        } else if (ts.isArrowFunction(core) || ts.isFunctionExpression(core)) {
-          const decl = makeCjsCallable(name, core);
-          remember(decl);
-          cjsEntries.set(name, decl);
-        }
+        collectNamedCjsAssignment(name, right);
       }
     }
   }
@@ -810,7 +874,13 @@ type MemberAccess =
 
 type LexicalBinding =
   | Readonly<{ kind: "callable"; decl: DeclInfo }>
-  | Readonly<{ kind: "module"; moduleSpecifier: string; exportName: string; cjs: boolean }>
+  | Readonly<{
+      kind: "module";
+      moduleSpecifier: string;
+      exportName: string;
+      cjs: boolean;
+      invalidMembers: readonly string[];
+    }>
   | Readonly<{ kind: "noncallable"; reason: string }>
   | Readonly<{ kind: "none" }>;
 
@@ -1372,6 +1442,9 @@ export function resolveCallsite(
           return { kind: "dynamic", reason: "UNRESOLVED_CALLEE_EXPRESSION" };
         }
         exportName = callsite.lexical.exportName;
+      }
+      if (callsite.lexical.invalidMembers.includes(exportName)) {
+        return { kind: "dynamic", reason: "CJS_NAMESPACE_MEMBER_OVERRIDDEN" };
       }
       const moduleResult = resolveModuleExport(store, resolvedFile.path, exportName, scopePaths, Object.freeze([]));
       if (moduleResult.kind === "pending") return moduleResult;
