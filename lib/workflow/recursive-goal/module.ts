@@ -2226,14 +2226,29 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     let receipt: AtomicReceipt<S, E, F, R>;
     try {
       const adapterReceipt = this.deps.adapter.validateAtomicReceipt(raw);
-      receipt = freezeSnapshot(
-        readAtomicReceipt(snapshotData(adapterReceipt), {
-          state: value => value as S,
-          evidencePayload: value => value as E,
-          effectFact: value => value as F,
-          receiptPayload: value => value as R,
-        }),
-      );
+      if (isPureFrozenDataGraph(adapterReceipt, this.pureFrozenNodes)) {
+        // Run the common receipt parser even on the sharing path. Only the
+        // snapshotData clone is skipped; freezing in place preserves the
+        // validated state sub-objects while making the parsed receipt shells
+        // immutable. Non-pure receipts keep the original clone-and-freeze path.
+        receipt = deepFreeze(
+          readAtomicReceipt(adapterReceipt, {
+            state: value => value as S,
+            evidencePayload: value => value as E,
+            effectFact: value => value as F,
+            receiptPayload: value => value as R,
+          }),
+        );
+      } else {
+        receipt = freezeSnapshot(
+          readAtomicReceipt(snapshotData(adapterReceipt), {
+            state: value => value as S,
+            evidencePayload: value => value as E,
+            effectFact: value => value as F,
+            receiptPayload: value => value as R,
+          }),
+        );
+      }
       this.validateReceiptReferences(receipt);
     } catch (error) {
       const returnedRisk: EffectRecord<F> = {
@@ -3978,7 +3993,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   }
 
   private callbackState(): S {
-    return freezeSnapshot(this.currentState());
+    const state = this.currentState();
+    return isPureFrozenDataGraph(state, this.pureFrozenNodes)
+      ? state
+      : freezeSnapshot(state);
   }
 
   private initEvidence(items: readonly EvidenceRecord<E>[]): void {

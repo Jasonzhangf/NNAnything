@@ -17,6 +17,7 @@ import {
   type SelectionInput,
   type SupportsInput,
 } from "../../workflow/recursive-goal/contracts.js";
+import { isPureFrozenDataGraph } from "../../workflow/recursive-goal/module.js";
 import { relative } from "node:path";
 import {
   createCliCommandPolicy,
@@ -42,6 +43,7 @@ import {
   readContentSearchGoal,
   readContentSearchReceiptPayload,
   readContentSearchState,
+  sameContentSearchData,
   type ContentSearchBindings,
   type ContentSearchCandidateFact,
   type ContentSearchCursor,
@@ -977,6 +979,28 @@ function outcomeOf(transition: CliCommandTransition): "succeeded" | "failed" | "
   return "failed";
 }
 
+/**
+ * Freeze a freshly built receipt graph in place, without cloning. The receipt
+ * is constructed per atomic step from already-frozen state sub-objects and
+ * newly observed scalar facts, so freezing it in place turns it into a pure
+ * frozen data graph the recursive-goal engine can share across steps instead of
+ * deep-cloning. Cloning would still be required for mutable or accessor input;
+ * this builder only ever produces plain data records.
+ */
+function freezeReceiptGraph<T>(value: T): T {
+  const seen = new WeakSet<object>();
+  const visit = (node: unknown): void => {
+    if (typeof node !== "object" || node === null || seen.has(node)) return;
+    seen.add(node);
+    for (const key of Object.keys(node)) {
+      visit((node as Record<string, unknown>)[key]);
+    }
+    Object.freeze(node);
+  };
+  visit(value);
+  return value;
+}
+
 function atomicReceiptForTransition(
   input: Readonly<{
     context: { requestId: string };
@@ -1010,7 +1034,7 @@ function atomicReceiptForTransition(
   const errors = transitionDiagnostics(transition, id);
   const effect: AtomicReceipt<ContentSearchState, ContentSearchEvidencePayload, ContentSearchEffectFact, ContentSearchReceiptPayload>["effect"] =
     Object.freeze({ knowledge: "none", confirmedEffects: Object.freeze([]), receiptRef: null });
-  return Object.freeze({
+  return freezeReceiptGraph({
     runId: transition.execution_result.receipt?.execution.runId ?? null,
     executorInvoked: transition.execution_result.executorInvoked,
     outcome: outcomeOf(transition),
@@ -1292,7 +1316,7 @@ function readAtomicReceiptFromSandbox(
   const effect: AtomicReceipt<ContentSearchState, ContentSearchEvidencePayload, ContentSearchEffectFact, ContentSearchReceiptPayload>["effect"] =
     Object.freeze({ knowledge: "none", confirmedEffects: Object.freeze([]), receiptRef: null });
   const readReceipt = Object.freeze({ kind: "cli.file.read.receipt.v1" as const, receipt, ref: input.ref });
-  return Object.freeze({
+  return freezeReceiptGraph({
     runId: receipt.execution.runId,
     executorInvoked: receipt.execution.executorInvoked,
     outcome: failure === null || stale || recoverable ? ("succeeded" as const) : ("failed" as const),
@@ -1748,7 +1772,17 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
 
     validateAtomicReceipt(raw: unknown) {
       calls.validateAtomicReceipt += 1;
-      return readAtomicReceipt(raw, DOMAIN_GUARDS);
+      const receipt = readAtomicReceipt(raw, DOMAIN_GUARDS);
+      // The domain schema validator has already produced the canonical parsed
+      // shape. Reuse the raw receipt reference only when it is already pure
+      // frozen and its observable content equals the parsed result, so the core
+      // may share unchanged sub-objects without dropping normalization work.
+      return (
+        isPureFrozenDataGraph(raw, new WeakSet()) &&
+        sameContentSearchData(raw, receipt)
+      )
+        ? (raw as AtomicReceipt<ContentSearchState, ContentSearchEvidencePayload, ContentSearchEffectFact, ContentSearchReceiptPayload>)
+        : receipt;
     },
 
     measureProgress(input) {
