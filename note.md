@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-11-02 OneStop OOM r3 合入 main 并安装验收
+
+- OOM r3（`codex/cli-onestop-oom-fix-r3`，`7a14c34` + `c6b1df8` + `f00c89b`）已合入 main：PR #4 merge `7ded41b`，已 push 并核对 `origin/main`。本地 CI：build/typecheck exit 0；`cli-content-search-memory-share` + `oom-regression` 11/11；recursive-goal 63/63。
+- Carol 既有 Review 唯一 P1（非空 history + continuation 黑盒证据）已闭合：`carol-oom-continuation-finding-closure.md`；`carol-onestop-oom-r3-code-review.md` 的语义 finding 由 `c6b1df8` 修复。
+- LayerFS 同步：Git 基线 `/Volumes/extension/layerfs/nnanything/main` 已 ff 到 `7ded41b`；`sync-oom-1` 分支在 `sandbox 2 /workspaces/2` 应用业务补丁，`npm run build`/`typecheck` exit 0、OOM 套件 11/11，commit `122e6b84`，publish 到 LayerFS main 新层 `32bb303e`；逐文件内容与 `7ded41b` 一致（测试文件 blob `0264817` 精确匹配）。
+- 独立 Git owner：`git-main` 已推进到 `7ded41b`，`capture-oom-onestop-r3` = `6e25b43` 保存提交边界；task-events.json 已追加 task-publish + git-capture。`nn-code-onestop-oom-fix` 已 deliver → review accept → integrated(7ded41b)。
+- 全局安装验收：`npm install -g .` 成功，`/opt/homebrew/bin/nn-code --help` 正常，安装 `dist/adapters/cli/content-search-contract.js` 含 `reuseValidatedInput`。
+- 资源：`sync-oom-1` workspace 已 unmount（sandbox 2 保留）；旧 worktree `/Volumes/Intel/playground/nnanything/cli-onestop-oom-fix` 与本地分支因卷访问受限暂未删除，未中断他人资源。
+
+## 2026-11-02 LayerFS 迁移与三条缺陷/内存线接续
+
+- LayerFS 项目配置已核对：项目名 `nnanything`，Colima VM `colima-layerfs`，Store volume `layerfs-nnanything-store`；Git owner `/Volumes/extension/layerfs/nnanything/git-owner.git`，Git main `4531c99`（PR #3 merge）。项目 AGENTS 已包含 LayerFS 规则；当前新任务走 LayerFS，不新增 Git worktree。
+- AST 共享修复仍在 LayerFS task branch `defect-ast-entry-r1` 由 GCM PID 65737 单 writer 执行，当前只改 `lib/filters/cli-call-depth-policy.ts` 与 `tests/cli-call-depth-mvp.test.mjs`；正在完成真实 HumanAgent/AgentTeams 入口复跑与候选 dist 挂载，尚未交回 result.md，尚未审阅、publish、合并或安装。
+- OOM continuation-blackbox-r1 已交回：唯一改动 `tests/cli-content-search-memory-share.test.mjs`，新增非空 history + 非空 continuation 公开黑盒用例；本人独立复跑 memory-share 10/10、连同 oom-regression 11/11。已交 Carol 做既有 Review 唯一 P1 的定向复核；worker 记录的续接 `maxTransitions=100000` 仍 `budget_exhausted(54)` 单列，不并入本测试收口。通过后再接集成/安装。
+- value-flow memory-audit-r1 已交回：V1-V5 `achieved/complete`，V6 合同预期 `unknown/insufficient_evidence`；3072 MiB 下完成不等于最小必要内存。实测分析器先建 3.7-11.9 万 site 再裁剪为 5-52 site，递归 state 每步保留完整 `files[].sourceText`，六场景累计 12.2-25.2 MB 逻辑字符；默认栈对既有 5.22 MB 大文件仍 `STACK_OVERFLOW_OR_PARSE_LIMIT`。已交 Emma 做最小 owner 修订设计，Carol 审计后再派 GCM；候选保持原 dirty 状态，不提交、不集成。
+
 ## 2026-11-01 语言批次 A r3 集成；值流 repair-r1 并发推进并纳入最小内存要求
 
 - 语言批次 A 已完成：显式 `--language`、文本候选、真实 parser 回执、声明名称 token 归因和二次读取失败显式化均已合入 main，merge `fd648ff`。Carol r2 的 definition 全函数跨度与二次读取静默回退两项 finding 由修复 r3 闭合，David 独立复核 PASS。
