@@ -128,7 +128,6 @@ type Frame = {
   macroPathText: string | null;
   name: string | null;
   modPositional: number;
-  nestedIndent: number | null;
 };
 
 const NAME_TOKEN_RE = /^(.+?)#\d+,$/;
@@ -166,7 +165,7 @@ class RustAstTreeStreamParser {
         if (indent === 8) this.stack.push(this.newFrame(indent, null));
         return;
       }
-      if (parent.nestedIndent !== null && indent === parent.nestedIndent) {
+      if (this.acceptsNestedItems(parent)) {
         this.stack.push(this.newFrame(indent, parent));
       }
       return;
@@ -223,7 +222,6 @@ class RustAstTreeStreamParser {
       macroPathText: null,
       name: null,
       modPositional: 0,
-      nestedIndent: null,
     };
   }
 
@@ -250,6 +248,15 @@ class RustAstTreeStreamParser {
       return `mod:${frame.name ?? "?"}`;
     }
     return null;
+  }
+
+  private acceptsNestedItems(frame: Frame): boolean {
+    return (
+      frame.kindType === "Fn" ||
+      frame.kindType === "Impl" ||
+      frame.kindType === "Trait" ||
+      frame.kindType === "Mod"
+    );
   }
 
   private onField(frame: Frame, indent: number, trimmed: string): void {
@@ -360,12 +367,6 @@ class RustAstTreeStreamParser {
           const match = IDENT_FIELD_RE.exec(trimmed);
           if (match !== null) frame.name = match[1] ?? null;
         }
-        // Block-local legal declarations appear as `Stmt { kind: Item(...) }`
-        // inside the function body `Block.stmts[]`. The body block's
-        // `stmts: [` sits at base+20, so its item entries open at base+32.
-        if (frame.nestedIndent === null && indent === base + 20 && trimmed === "stmts: [") {
-          frame.nestedIndent = base + 32;
-        }
         return;
       case "Struct":
       case "Enum":
@@ -379,9 +380,6 @@ class RustAstTreeStreamParser {
           const match = IDENT_FIELD_RE.exec(trimmed);
           if (match !== null) frame.name = match[1] ?? null;
         }
-        if (frame.nestedIndent === null && indent === base + 12 && trimmed === "items: [") {
-          frame.nestedIndent = base + 16;
-        }
         return;
       case "Impl":
         if (indent === base + 12 && trimmed === "of_trait: Some(") {
@@ -391,9 +389,6 @@ class RustAstTreeStreamParser {
         if (indent === base + 12 && trimmed === "self_ty: Ty {") {
           frame.capture = "ownerType";
           return;
-        }
-        if (frame.nestedIndent === null && indent === base + 12 && trimmed === "items: [") {
-          frame.nestedIndent = base + 16;
         }
         return;
       case "Mod":
@@ -409,7 +404,6 @@ class RustAstTreeStreamParser {
             return;
           }
           if (frame.modPositional === 2) {
-            if (trimmed.startsWith("Loaded(")) frame.nestedIndent = base + 16;
             frame.modPositional = 3;
             return;
           }
