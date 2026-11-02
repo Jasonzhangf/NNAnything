@@ -14,6 +14,37 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import {
+  createFixtureAdapter,
+  errorsByCode,
+  evaluator,
+  makeRequest,
+  responseReport,
+  selector,
+  skill,
+  successfulAtomicReceipt,
+} from "./recursive-goal-fixtures.mjs";
+
+function deepFreeze(value) {
+  if (typeof value !== "object" || value === null) return value;
+  for (const entry of Object.values(value)) deepFreeze(entry);
+  return Object.freeze(value);
+}
+
+function recursiveDeps(fixture) {
+  return {
+    adapter: fixture.adapter,
+    enabledSkills: [skill("increment-counter", "atomic")],
+    enabledEvaluators: [evaluator()],
+    selectors: [selector("root-selector", ["increment-counter"])],
+    comparators: {
+      sameGoal: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameBindings: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+      sameFacts: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+    },
+    grantedEffects: new Set(),
+  };
+}
 
 function routingProfile(goal) {
   const heads = goal.CLI_COMMAND_HEADS;
@@ -196,4 +227,138 @@ test("a real candidate update keeps the earlier state value", async t => {
     }
   }
   assert.ok(checked, "expected at least one real candidate update boundary");
+});
+
+test("frozen and mutable listing errors normalize identically", async t => {
+  const { result } = await runFixture(t);
+  const { readContentSearchState } = await import("../dist/adapters/cli/content-search-contract.js");
+  const states = result.response.report.states.map(record => record.value);
+  const base = states[states.length - 1];
+  const listing = {
+    sourceRun: null,
+    physicalDirectory: null,
+    coverage: "partial",
+    errors: [123],
+    entries: [],
+  };
+
+  const mutable = readContentSearchState({ ...base, listing });
+  const frozen = readContentSearchState(deepFreeze({ ...base, listing }));
+
+  assert.deepEqual(mutable.listing.errors, ["123"]);
+  assert.deepEqual(frozen.listing.errors, ["123"]);
+  assert.deepEqual(frozen, mutable);
+});
+
+test("invalid frozen receipt is still rejected by the recursive-goal core", async () => {
+  const api = await import("nnanything/recursive-goal");
+  const receipts = [
+    deepFreeze({ ...successfulAtomicReceipt({ count: 1 }), unexpectedField: true }),
+    { ...successfulAtomicReceipt({ count: 1 }), unexpectedField: true },
+  ];
+
+  for (const receipt of receipts) {
+    const fixture = createFixtureAdapter({ executeAtomic: () => receipt });
+    const response = await api.runRecursiveGoal(makeRequest(), recursiveDeps(fixture));
+    const report = responseReport(response);
+
+    assert.notEqual(report.rootEvaluation.result, "satisfied");
+    assert.ok(
+      errorsByCode(report, "adapter_contract_invalid").length > 0,
+      "the core must validate the atomic receipt structure after dispatch",
+    );
+  }
+});
+
+test("valid frozen receipt stays satisfied and shares its state value", async () => {
+  const api = await import("nnanything/recursive-goal");
+  const receipt = deepFreeze(successfulAtomicReceipt({ count: 1 }));
+  const fixture = createFixtureAdapter({ executeAtomic: () => receipt });
+  const response = await api.runRecursiveGoal(makeRequest(), recursiveDeps(fixture));
+  const report = responseReport(response);
+
+  assert.equal(report.rootEvaluation.result, "satisfied");
+  assert.equal(errorsByCode(report, "adapter_contract_invalid").length, 0);
+  assert.equal(report.states.at(-1).value.count, 1);
+});
+
+test("non-empty history keeps shared elements while a real update uses a new candidate", async t => {
+  const { result } = await runFixture(t);
+  const { readContentSearchState } = await import("../dist/adapters/cli/content-search-contract.js");
+  const states = result.response.report.states.map(record => record.value);
+  const base = states.find(state => state.candidates.length > 0);
+  assert.ok(base !== undefined, "expected a state with candidates");
+
+  const candidateIndex = Math.max(
+    0,
+    base.candidates.findIndex(candidate => candidate.fileRef !== null),
+  );
+  const candidate = base.candidates[candidateIndex];
+  const fileRef = candidate.fileRef ?? {
+    kind: "cli.file",
+    scenarioId: "history-fixture",
+    sessionId: "s",
+    type: "regular",
+    identity: { dev: 1, ino: 1 },
+    sourceRun: "history-run",
+    sessionRevision: 0,
+    absolutePath: `/history/${candidate.name}`,
+  };
+  const historicalHit = deepFreeze({
+    kind: "historical_stale_hit",
+    historical: true,
+    identityKey: {
+      scenarioId: fileRef.scenarioId,
+      sessionId: fileRef.sessionId,
+      dev: fileRef.identity.dev,
+      ino: fileRef.identity.ino,
+      sessionRevision: fileRef.sessionRevision,
+      sourceRun: fileRef.sourceRun,
+    },
+    fileRef,
+    sourceRun: fileRef.sourceRun,
+    path: candidate.path,
+    needle: "needle-token",
+    byteSpan: { start: 0, end: 1 },
+    line: 1,
+    column: 1,
+    size: 1,
+    bytesRead: 1,
+    invalidation: {
+      kind: "identity_changed",
+      observedAtSourceRun: "history-retry",
+      code: null,
+    },
+  });
+  const history = Object.freeze([historicalHit]);
+  const frozenInput = deepFreeze({
+    ...base,
+    candidates: Object.freeze(base.candidates.map((entry, index) =>
+      index === candidateIndex ? { ...entry, history } : entry)),
+  });
+
+  const parsed = readContentSearchState(frozenInput);
+  assert.equal(parsed, frozenInput);
+  assert.equal(parsed.candidates[candidateIndex].history, history);
+  assert.equal(parsed.candidates[candidateIndex].history[0], historicalHit);
+
+  const updatedCandidate = Object.freeze({
+    ...parsed.candidates[candidateIndex],
+    outcome: parsed.candidates[candidateIndex].outcome === "negative" ? "matched" : "negative",
+  });
+  const updatedInput = deepFreeze({
+    ...parsed,
+    candidates: Object.freeze(parsed.candidates.map((entry, index) =>
+      index === candidateIndex ? updatedCandidate : entry)),
+  });
+  const updated = readContentSearchState(updatedInput);
+
+  assert.notEqual(updated.candidates[candidateIndex], parsed.candidates[candidateIndex]);
+  assert.equal(
+    updated.candidates[candidateIndex].history[0],
+    parsed.candidates[candidateIndex].history[0],
+    "an unchanged history element must stay shared after a real candidate update",
+  );
+  assert.equal(parsed.candidates[candidateIndex].outcome, candidate.outcome);
+  assert.equal(parsed.candidates[candidateIndex].history.length, 1);
 });

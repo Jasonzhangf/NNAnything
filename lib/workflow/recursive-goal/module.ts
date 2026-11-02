@@ -2227,12 +2227,18 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     try {
       const adapterReceipt = this.deps.adapter.validateAtomicReceipt(raw);
       if (isPureFrozenDataGraph(adapterReceipt, this.pureFrozenNodes)) {
-        // The adapter already validated the receipt against its domain schema and
-        // returned a pure frozen data graph. Reuse that graph directly so unchanged
-        // state sub-objects keep their identity across steps instead of being
-        // cloned twice (snapshotData + freezeSnapshot). Non-pure receipts keep the
-        // original clone-and-freeze slow path so mutable input stays isolated.
-        receipt = adapterReceipt;
+        // Run the common receipt parser even on the sharing path. Only the
+        // snapshotData clone is skipped; freezing in place preserves the
+        // validated state sub-objects while making the parsed receipt shells
+        // immutable. Non-pure receipts keep the original clone-and-freeze path.
+        receipt = deepFreeze(
+          readAtomicReceipt(adapterReceipt, {
+            state: value => value as S,
+            evidencePayload: value => value as E,
+            effectFact: value => value as F,
+            receiptPayload: value => value as R,
+          }),
+        );
       } else {
         receipt = freezeSnapshot(
           readAtomicReceipt(snapshotData(adapterReceipt), {

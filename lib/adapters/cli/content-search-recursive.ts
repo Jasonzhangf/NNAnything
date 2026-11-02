@@ -43,6 +43,7 @@ import {
   readContentSearchGoal,
   readContentSearchReceiptPayload,
   readContentSearchState,
+  sameContentSearchData,
   type ContentSearchBindings,
   type ContentSearchCandidateFact,
   type ContentSearchCursor,
@@ -1772,11 +1773,14 @@ export function createContentSearchAdapter(input: ContentSearchAdapterInput) {
     validateAtomicReceipt(raw: unknown) {
       calls.validateAtomicReceipt += 1;
       const receipt = readAtomicReceipt(raw, DOMAIN_GUARDS);
-      // When the raw receipt is already a pure frozen data graph (the builder
-      // froze it in place), return it directly so the core can share the
-      // validated state sub-objects instead of cloning them again. The domain
-      // schema validation above still runs in full before this decision.
-      return isPureFrozenDataGraph(raw, new WeakSet())
+      // The domain schema validator has already produced the canonical parsed
+      // shape. Reuse the raw receipt reference only when it is already pure
+      // frozen and its observable content equals the parsed result, so the core
+      // may share unchanged sub-objects without dropping normalization work.
+      return (
+        isPureFrozenDataGraph(raw, new WeakSet()) &&
+        sameContentSearchData(raw, receipt)
+      )
         ? (raw as AtomicReceipt<ContentSearchState, ContentSearchEvidencePayload, ContentSearchEffectFact, ContentSearchReceiptPayload>)
         : receipt;
     },

@@ -1043,13 +1043,46 @@ function readExplicitFileState(value: unknown): ExplicitFileState {
 const pureDataCache = new WeakSet<object>();
 const schemaPassCaches = new Map<string, WeakSet<object>>();
 
+export function sameContentSearchData(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (
+    typeof left !== "object" ||
+    left === null ||
+    typeof right !== "object" ||
+    right === null
+  ) {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    return left.every((entry, index) =>
+      sameContentSearchData(entry, right[index]));
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every(key =>
+    Object.hasOwn(right, key) &&
+    sameContentSearchData(
+      (left as Record<string, unknown>)[key],
+      (right as Record<string, unknown>)[key],
+    ));
+}
+
 function reuseValidatedInput<T>(role: string, input: object, built: T): T {
   let cache = schemaPassCaches.get(role);
   if (cache === undefined) {
     cache = new WeakSet<object>();
     schemaPassCaches.set(role, cache);
   }
-  if (cache.has(input) || isPureFrozenDataGraph(input, pureDataCache)) {
+  if (
+    cache.has(input) ||
+    (
+      isPureFrozenDataGraph(input, pureDataCache) &&
+      sameContentSearchData(input, built)
+    )
+  ) {
     cache.add(input);
     return input as unknown as T;
   }
@@ -1268,20 +1301,22 @@ function readListing(value: unknown, label: string): ContentSearchListingFact {
   if (coverage !== null && coverage !== "complete" && coverage !== "partial") {
     throw new TypeError(`${label}.coverage is invalid`);
   }
-  return Object.freeze({
+  const built = Object.freeze({
     sourceRun: input.sourceRun === null ? null : nonEmpty(input.sourceRun, `${label}.sourceRun`),
     physicalDirectory: input.physicalDirectory === null ? null : nonEmpty(input.physicalDirectory, `${label}.physicalDirectory`),
     coverage: coverage as "complete" | "partial" | null,
     errors: Object.freeze((input.errors as unknown[]).map(item => String(item))),
     entries: Object.freeze((input.entries as unknown[]).map((item, index) => {
       const entry = record(item, `${label}.entries[${index}]`);
-      return Object.freeze({
+      const builtEntry = Object.freeze({
         name: nonEmpty(entry.name, `${label}.entries[${index}].name`),
         path: nonEmpty(entry.path, `${label}.entries[${index}].path`),
         type: entry.type as ContentSearchListingFact["entries"][number]["type"],
       });
+      return reuseValidatedInput("listing-entry", entry, builtEntry);
     })),
   });
+  return reuseValidatedInput("listing", input, built);
 }
 
 function readNegative(value: unknown, label: string): ContentSearchNegativeFact {
