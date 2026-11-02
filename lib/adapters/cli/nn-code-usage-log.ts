@@ -34,6 +34,22 @@ export const USAGE_LOG_LOCK_FILE = ".nn-code-usage-log.lock" as const;
 export const USAGE_LOG_DEFAULT_SUBPATH = ".local/state/nn-code/runs" as const;
 export const USAGE_LOG_DIR_ENV = "NN_CODE_LOG_DIR" as const;
 
+export const USAGE_LOG_ALLOWED_KINDS = Object.freeze([
+  "start",
+  "source_observed",
+  "node_expanded",
+  "relation_resolved",
+  "relation_unknown",
+  "decision",
+  "finish",
+] as const);
+
+export type UsageLogAllowedKind = (typeof USAGE_LOG_ALLOWED_KINDS)[number];
+
+export function isAllowedUsageLogKind(kind: unknown): kind is UsageLogAllowedKind {
+  return typeof kind === "string" && (USAGE_LOG_ALLOWED_KINDS as readonly string[]).includes(kind);
+}
+
 export type UsageLogState = "complete" | "partial" | "disabled" | "failed";
 
 export type UsageLogResult = Readonly<{
@@ -971,6 +987,7 @@ export type CommittedRunFileInfo = Readonly<{
 export type SpoolUsageLogCandidatesOptions = Readonly<{
   logRoot: string;
   batchStagingDir: string;
+  protectedRoots: readonly string[];
   onDiagnostic?: (item: VerifiedUsageLogRunDiagnosticItem) => void | Promise<void>;
   onRunCommitted?: (info: CommittedRunFileInfo) => void | Promise<void>;
   signal?: AbortSignal;
@@ -1161,7 +1178,11 @@ async function inspectUsageLogRunPass1(
       }
       const kind = parsed.kind;
       const seq = parsed.seq;
-      if (typeof kind !== "string" || !Number.isSafeInteger(seq) || (seq as number) <= lastSeq) {
+      if (
+        !isAllowedUsageLogKind(kind)
+        || !Number.isSafeInteger(seq)
+        || (seq as number) <= lastSeq
+      ) {
         corruptedEntryCount += 1;
         corruptedLine = corruptedLine ?? lineNumber;
         continue;
@@ -1469,9 +1490,8 @@ async function* streamVerifiedUsageLogRunCandidates(
       const kind = parsed.kind;
       const seq = parsed.seq;
       if (
-        typeof kind !== "string"
+        !isAllowedUsageLogKind(kind)
         || !Number.isSafeInteger(seq)
-        || !["start", "source_observed", "node_expanded", "relation_resolved", "relation_unknown", "decision", "finish"].includes(kind)
       ) {
         modified = true;
         reason = "INVALID_V2_EVENT_DURING_PASS2";
@@ -1654,6 +1674,23 @@ export async function spoolVerifiedUsageLogCandidates(
     throw new TypeError("batchStagingDir must be a non-empty path");
   }
   const resolvedBatchDir = resolve(options.batchStagingDir);
+  if (
+    !Array.isArray(options.protectedRoots)
+    || options.protectedRoots.some(root => typeof root !== "string" || root.length === 0)
+  ) {
+    throw new TypeError("protectedRoots must be a list of non-empty paths");
+  }
+  const physicalBatchDir = await resolvePhysicalPath(resolvedBatchDir);
+  for (const protectedRoot of options.protectedRoots) {
+    const physicalProtectedRoot = await resolvePhysicalPath(protectedRoot);
+    const rel = relative(physicalProtectedRoot, physicalBatchDir);
+    if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
+      throw taggedSpoolError(
+        "STAGING_DIR_INSIDE_PROTECTED_TREE",
+        `batchStagingDir must not be inside a protected source tree: ${resolvedBatchDir}`,
+      );
+    }
+  }
   const receiptBase = {
     status: "staging_batch_dir_occupied" as const,
     reason: "STAGING_BATCH_DIR_ALREADY_EXISTS",

@@ -78,6 +78,13 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function isExactThreeLabelSet(value: unknown): value is readonly string[] {
+  return Array.isArray(value)
+    && value.length === VALUE_FLOW_LABELS.length
+    && new Set(value).size === VALUE_FLOW_LABELS.length
+    && VALUE_FLOW_LABELS.every(label => value.includes(label));
+}
+
 function isValidIsoTimestamp(value: unknown): value is string {
   return isNonEmptyString(value) && !Number.isNaN(Date.parse(value));
 }
@@ -91,8 +98,7 @@ function isValidComparisonSnapshot(snapshot: any): boolean {
     && isNonEmptyString(snapshot.unitId)
     && isNonEmptyString(snapshot.profileRef)
     && isNonEmptyString(snapshot.featureSchema)
-    && Array.isArray(snapshot.legalCandidates)
-    && snapshot.legalCandidates.length > 0
+    && isExactThreeLabelSet(snapshot.legalCandidates)
     && Array.isArray(snapshot.effectiveFeatures)
     && snapshot.effectiveFeatures.length === VALUE_FLOW_FEATURE_NAMES.length
     && snapshot.effectiveFeatures.every((value: unknown) => typeof value === "number" && Number.isFinite(value))
@@ -232,13 +238,7 @@ function validateConfirmedLearningCaseFields(
     ) {
       reasons.push("INVALID_OR_WRONG_DIM_INPUT_MISSING_MASK_15");
     }
-    if (
-      !Array.isArray(decisionEvent.legalCandidates)
-      || decisionEvent.legalCandidates.length === 0
-      || !decisionEvent.legalCandidates.every(
-        (candidate: unknown) => (VALUE_FLOW_LABELS as readonly unknown[]).includes(candidate),
-      )
-    ) {
+    if (!isExactThreeLabelSet(decisionEvent.legalCandidates)) {
       reasons.push("INVALID_LEGAL_CANDIDATES");
     } else if (!decisionEvent.legalCandidates.includes(decisionEvent.originalChoice)) {
       reasons.push("ORIGINAL_CHOICE_NOT_IN_LEGAL_CANDIDATES");

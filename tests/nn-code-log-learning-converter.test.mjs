@@ -137,6 +137,20 @@ function readJsonl(text) {
   return lines.filter(line => line.trim().length > 0).map(line => JSON.parse(line));
 }
 
+async function drainUsageLogGenerator(generator) {
+  const items = [];
+  let summary;
+  while (true) {
+    const next = await generator.next();
+    if (next.done) {
+      summary = next.value;
+      break;
+    }
+    items.push(next.value);
+  }
+  return { items, summary };
+}
+
 async function readJsonlFile(path) {
   return readJsonl(await readFile(path, "utf8"));
 }
@@ -473,6 +487,7 @@ test("4 large run streams through spool without retaining candidate bodies", asy
   const receipt = await spoolVerifiedUsageLogCandidates({
     logRoot,
     batchStagingDir: batchDir,
+    protectedRoots: [],
     onDiagnostic: async item => {
       diagnostics.push(item);
     },
@@ -550,6 +565,7 @@ test("5 exclusive staging, concurrent ownership, no overwrite, and exact rollbac
   const occupied = await spoolVerifiedUsageLogCandidates({
     logRoot,
     batchStagingDir: existingBatchDir,
+    protectedRoots: [],
   });
   assert.equal(occupied.status, "staging_batch_dir_occupied");
   assert.equal(occupied.reason, "STAGING_BATCH_DIR_ALREADY_EXISTS");
@@ -561,8 +577,8 @@ test("5 exclusive staging, concurrent ownership, no overwrite, and exact rollbac
 
   const concurrentBatchDir = await makeStagingPath(t, "nn-code-concurrent-batch-");
   const [left, right] = await Promise.all([
-    spoolVerifiedUsageLogCandidates({ logRoot, batchStagingDir: concurrentBatchDir }),
-    spoolVerifiedUsageLogCandidates({ logRoot, batchStagingDir: concurrentBatchDir }),
+    spoolVerifiedUsageLogCandidates({ logRoot, batchStagingDir: concurrentBatchDir, protectedRoots: [] }),
+    spoolVerifiedUsageLogCandidates({ logRoot, batchStagingDir: concurrentBatchDir, protectedRoots: [] }),
   ]);
   const statuses = [left.status, right.status].sort();
   assert.deepEqual(statuses, ["completed", "staging_batch_dir_occupied"]);
@@ -578,12 +594,13 @@ test("5 exclusive staging, concurrent ownership, no overwrite, and exact rollbac
   });
   const sharedBatchOne = await makeStagingPath(t, "nn-code-shared-batch-one-");
   const sharedBatchTwo = await makeStagingPath(t, "nn-code-shared-batch-two-");
-  await spoolVerifiedUsageLogCandidates({ logRoot, batchStagingDir: sharedBatchOne });
+  await spoolVerifiedUsageLogCandidates({ logRoot, batchStagingDir: sharedBatchOne, protectedRoots: [] });
   const batchOneFile = join(sharedBatchOne, "unconfirmed-candidates-run-active.jsonl");
   const batchOneBefore = await pathStatAndBytes(batchOneFile);
   await spoolVerifiedUsageLogCandidates({
     logRoot: logRootOther,
     batchStagingDir: sharedBatchTwo,
+    protectedRoots: [],
   });
   assert.deepEqual((await pathStatAndBytes(batchOneFile)).bytes, batchOneBefore.bytes);
   const otherLines = await readJsonlFile(join(sharedBatchTwo, "unconfirmed-candidates-run-shared.jsonl"));
@@ -618,6 +635,7 @@ test("5 exclusive staging, concurrent ownership, no overwrite, and exact rollbac
   const spoolPromise = spoolVerifiedUsageLogCandidates({
     logRoot: rollbackRoot,
     batchStagingDir: rollbackBatchDir,
+    protectedRoots: [],
   });
   await mutationSeen;
   const rollbackReceipt = await spoolPromise;
@@ -638,6 +656,7 @@ test("5 exclusive staging, concurrent ownership, no overwrite, and exact rollbac
     () => spoolVerifiedUsageLogCandidates({
       logRoot: callbackFailureRoot,
       batchStagingDir: callbackFailureBatchDir,
+      protectedRoots: [],
       onDiagnostic: item => {
         if (item.status === "verified_complete") throw new Error("consumer interrupted");
       },
@@ -664,6 +683,7 @@ test("6 unconfirmed spool output stays pending until independent confirmation", 
   const receipt = await spoolVerifiedUsageLogCandidates({
     logRoot,
     batchStagingDir: batchDir,
+    protectedRoots: [],
   });
   assert.equal(receipt.status, "completed");
   const [rawItem] = await readJsonlFile(join(batchDir, "unconfirmed-candidates-run-confirm.jsonl"));
@@ -1145,4 +1165,139 @@ test("10 decision preparation preserves explicit mask and no-log stays disabled"
   assert.equal(disabled.state, "disabled");
   assert.equal(disabled.runLogPath, null);
   await assert.rejects(() => lstat(noLogDir), /ENOENT/);
+});
+
+test("11 unknown event kind is rejected consistently by pass 1 and pass 2", async t => {
+  const { iterateVerifiedUsageLogRuns, iterateVerifiedUsageLogCandidates } = await cliApi();
+  const logRoot = await makeTempDir(t, "nn-code-unknown-kind-");
+  const runId = "run-unknown-kind";
+  const path = join(logRoot, `${runId}.jsonl`);
+  await writeFile(path, [
+    JSON.stringify(eventBase(runId, 0, "start")),
+    JSON.stringify(eventBase(runId, 1, "unknown")),
+    JSON.stringify(eventBase(runId, 2, "finish")),
+  ].join("\n") + "\n");
+
+  const pass1 = await drainUsageLogGenerator(iterateVerifiedUsageLogRuns({ logRoot }));
+  assert.equal(pass1.items.length, 1);
+  assert.equal(pass1.items[0].status, "corrupted_v2");
+  assert.equal(pass1.items.some(item => item.status === "verified_complete"), false);
+  assert.equal(pass1.summary.v2CompleteRuns, 0);
+  assert.equal(pass1.summary.corruptedFileCount, 1);
+
+  const pass2 = await drainUsageLogGenerator(iterateVerifiedUsageLogCandidates({ logRoot }));
+  assert.equal(pass2.items.length, 1);
+  assert.equal(pass2.items[0].status, "corrupted_v2");
+  assert.equal(pass2.items.some(item => item.type === "candidate"), false);
+  assert.equal(pass2.summary.v2CompleteRuns, 0);
+  assert.equal(pass2.summary.corruptedFileCount, 1);
+});
+
+test("12 confirmed legal candidates must be the exact three-label set", async () => {
+  const { convertLogObservationsToDataset } = await trainingApi();
+  for (const legalCandidates of [["holds"], ["holds", "refuted"]]) {
+    const result = convertLogObservationsToDataset({
+      acceptedCases: [
+        makeValidLearningCase({
+          caseId: `SUBSET_${legalCandidates.join("_")}`,
+          runId: `run-subset-${legalCandidates.join("-")}`,
+          decisionEvent: {
+            ...makeValidLearningCase().decisionEvent,
+            legalCandidates,
+            originalChoice: "holds",
+          },
+        }),
+      ],
+      targetUnitContract: TARGET_UNIT_CONTRACT,
+      existingPartitions: DEFAULT_EXISTING_PARTITIONS,
+      baselineProfile: null,
+    });
+    assert.equal(result.train.length, 0);
+    assert.equal(result.dev.length, 0);
+    assert.equal(result.excludedWithReasons.length, 1);
+    assert.equal(result.excludedWithReasons[0].reasonCode, "INVALID_LEGAL_CANDIDATES");
+  }
+
+  const full = convertLogObservationsToDataset({
+    acceptedCases: [
+      makeValidLearningCase({
+        caseId: "FULL_THREE_LABEL_SET",
+        runId: "run-full-three-labels",
+        decisionEvent: {
+          ...makeValidLearningCase().decisionEvent,
+          legalCandidates: ["refuted", "holds", "insufficient"],
+          originalChoice: "insufficient",
+        },
+      }),
+    ],
+    targetUnitContract: TARGET_UNIT_CONTRACT,
+    existingPartitions: DEFAULT_EXISTING_PARTITIONS,
+    baselineProfile: null,
+  });
+  assert.equal(full.train.length, 1);
+  assert.equal(full.dev.length, 0);
+});
+
+test("13 staging inside a protected root is rejected before directory creation", async t => {
+  const { spoolVerifiedUsageLogCandidates } = await cliApi();
+  const logRoot = await makeTempDir(t, "nn-code-protected-log-");
+  await writeUsageRun(logRoot, "run-protected", 1);
+  const protectedRoot = await makeTempDir(t, "nn-code-protected-tree-");
+
+  const inside = join(protectedRoot, "staging");
+  await assert.rejects(
+    () => spoolVerifiedUsageLogCandidates({
+      logRoot,
+      batchStagingDir: inside,
+      protectedRoots: [protectedRoot],
+    }),
+    error => {
+      assert.equal(error.code, "STAGING_DIR_INSIDE_PROTECTED_TREE");
+      return true;
+    },
+  );
+  await assert.rejects(() => lstat(inside), /ENOENT/);
+
+  const nested = join(protectedRoot, "nested", "staging");
+  await assert.rejects(
+    () => spoolVerifiedUsageLogCandidates({
+      logRoot,
+      batchStagingDir: nested,
+      protectedRoots: [protectedRoot],
+    }),
+    error => {
+      assert.equal(error.code, "STAGING_DIR_INSIDE_PROTECTED_TREE");
+      return true;
+    },
+  );
+  await assert.rejects(() => lstat(join(protectedRoot, "nested")), /ENOENT/);
+  await assert.rejects(() => lstat(nested), /ENOENT/);
+
+  await assert.rejects(
+    () => spoolVerifiedUsageLogCandidates({
+      logRoot,
+      batchStagingDir: protectedRoot,
+      protectedRoots: [protectedRoot],
+    }),
+    error => {
+      assert.equal(error.code, "STAGING_DIR_INSIDE_PROTECTED_TREE");
+      return true;
+    },
+  );
+  assert.deepEqual(await readdir(protectedRoot), []);
+
+  const siblingRoot = `${protectedRoot}-other`;
+  await mkdir(siblingRoot);
+  t.after(async () => {
+    await rm(siblingRoot, { recursive: true, force: true });
+  });
+  const siblingBatch = join(siblingRoot, "batch");
+  const receipt = await spoolVerifiedUsageLogCandidates({
+    logRoot,
+    batchStagingDir: siblingBatch,
+    protectedRoots: [protectedRoot],
+  });
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.committedRunCount, 1);
+  await assert.rejects(() => lstat(inside), /ENOENT/);
 });
