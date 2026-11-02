@@ -1053,9 +1053,38 @@ export function extractCallsites(
   for (const [name, binding] of enclosingShadowBindings(info, body)) {
     if (!rootScope.has(name)) rootScope.set(name, binding);
   }
+  // Member names written through a module namespace binding discovered while
+  // walking this entry body. The map is keyed by the immutable binding object,
+  // so nested scope copies share the same identity unless a local declaration
+  // shadows it with a fresh binding. A shadowing parameter or local therefore
+  // cannot pollute the outer namespace.
+  const dynamicInvalid = new Map<LexicalBinding, Set<string>>();
   const out: RawCallsite[] = [];
 
+  function recordNamespaceWrite(target: ts.Expression, activeScope: Map<string, LexicalBinding>): void {
+    const hit = staticNamespaceMemberWriteTarget(target);
+    if (hit === null) return;
+    const binding = activeScope.get(hit.local);
+    if (binding === undefined || binding.kind !== "module" || !binding.cjs || binding.exportName !== "*") return;
+    const members = dynamicInvalid.get(binding) ?? new Set<string>();
+    members.add(hit.member);
+    dynamicInvalid.set(binding, members);
+  }
+
+  function reportedBinding(binding: LexicalBinding, extra: ReadonlySet<string> | undefined): LexicalBinding {
+    if (binding.kind !== "module" || extra === undefined || extra.size === 0) return binding;
+    const merged = new Set(binding.invalidMembers);
+    for (const member of extra) merged.add(member);
+    return Object.freeze({ ...binding, invalidMembers: Object.freeze([...merged]) });
+  }
+
   function visit(node: ts.Node, activeScope: Map<string, LexicalBinding>): void {
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      recordNamespaceWrite(node.left, activeScope);
+    }
+    if (ts.isDeleteExpression(node)) {
+      recordNamespaceWrite(node.expression, activeScope);
+    }
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const unwrapped = unwrapParens(callee);
@@ -1090,7 +1119,7 @@ export function extractCallsites(
           span,
           lexical: binding === undefined
             ? Object.freeze({ kind: "none" as const })
-            : binding,
+            : reportedBinding(binding, dynamicInvalid.get(binding)),
           callerChain,
           member: shape.member,
         }));

@@ -1418,3 +1418,113 @@ test("CD1-T11 CJS literal element member write invalidates the namespace member"
   assert.equal(unresolved[0].kind, "unresolved_dynamic");
   assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
 });
+
+// ---------------------------------------------------------------------------
+// CD1-T13 (buglist 40935e7 rework-3): a namespace member write inside a
+// function body, ordinary block, or nested scope must invalidate the binding
+// for later calls of the same member, while a write to a shadowing local or
+// parameter must leave the outer module binding intact.
+// ---------------------------------------------------------------------------
+const CJS_NS_DEP = [
+  "function foo() { return 1; }",
+  "module.exports = { foo };",
+].join("\n");
+
+test("CD1-T13 CJS namespace member write in the same function body invalidates the call", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  ns.foo = globalThis.dynamic;",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-body/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-body/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-body/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-body-write",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "a same-body write before the call must not stay a definite edge");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});
+
+test("CD1-T13 CJS namespace member write inside an ordinary block invalidates the call", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  {",
+    "    ns.foo = globalThis.dynamic;",
+    "    return ns.foo();",
+    "  }",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-block/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-block/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-block/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-block-write",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "a block-scoped write before the call must not stay a definite edge");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});
+
+test("CD1-T13 CJS write to a block-local shadow keeps the outer namespace member resolvable", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  {",
+    "    const ns = { foo: () => 2 };",
+    "    ns.foo = globalThis.dynamic;",
+    "  }",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-shadow-block/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-shadow-block/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-shadow-block/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-shadow-block",
+  });
+  const callerId = nodeId("src/ns-shadow-block/caller.js", "entry", namedFunctionSpan(caller, "entry"));
+  const calleeId = nodeId("src/ns-shadow-block/dep.js", "foo", namedFunctionSpan(CJS_NS_DEP, "foo"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "a shadowed block-local write must not invalidate the outer module binding");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(result.unresolvedCallsites, []);
+});
+
+test("CD1-T13 CJS write to an IIFE parameter shadow keeps the outer namespace member resolvable", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  ((ns) => { ns.foo = globalThis.dynamic; })({});",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-shadow-param/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-shadow-param/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-shadow-param/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-shadow-param",
+  });
+  const callerId = nodeId("src/ns-shadow-param/caller.js", "entry", namedFunctionSpan(caller, "entry"));
+  const calleeId = nodeId("src/ns-shadow-param/dep.js", "foo", namedFunctionSpan(CJS_NS_DEP, "foo"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "a shadowed parameter write must not invalidate the outer module binding");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(result.unresolvedCallsites, []);
+});
