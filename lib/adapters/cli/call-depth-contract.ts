@@ -82,6 +82,7 @@ export type CallGraphResolvedEdgeFact = Readonly<{
   callerId: string;
   calleeId: string;
   edgeKind: "resolved_in_repo";
+  resolutionKind: "same_file" | "cross_file_direct";
   isCycleEdge: boolean;
   calleeInDegree: number;
   callsiteSpan: DeclSpan;
@@ -259,11 +260,13 @@ export type CallDepthTextCandidate = Readonly<{
   evidenceRefs: readonly string[];
 }>;
 
+export type CallDepthTextRecursion = "flat" | "nested" | "mixed";
+
 export type CallDepthTextCoverage = Readonly<{
   complete: boolean;
   status: "complete" | "partial" | "failed" | "not_run";
   cardinality: "all";
-  recursion: "nested";
+  recursion: CallDepthTextRecursion;
   matchedFiles: number;
   scannedFiles: number;
   unresolvedFiles: number;

@@ -2314,3 +2314,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 已推送：main 由 `48bd3ed` 推进到本 symbols 合并 commit 并 push；Rust/Kotlin 分支均已在 origin（Kotlin 分支 `codex/cli-kotlin-calls-e` 由本地补推保护）。
 - 未完成边界：`--ignore-policy` 首版仅 `no_ignore`，`respect_vcs_ignore` 显式拒绝不静默降级；`edition` 默认 2021 不读 `Cargo.toml`；宏定义/未展开调用只在 `macroBoundaries[]`；无类型推断、跨 crate 绑定、调用深度。Kotlin adapter 已通过 Carol PASS 但尚未合 main，缺 javac 构建接入与 JDK/PSI jar 可移植解析（当前候选仍含本机绝对路径），不并入本次 Rust 首批。
 - 阻塞：Collab daemon 自 10:02 起 `PROJECT_RUNTIME_UNAVAILABLE`（journal replay `master grant conflict`，binding `codex-session-303161...` 已有不同 grant），进入 degraded 只读降级。我按边界不重启 daemon、不改 journal；board/peer 状态不可查询，待用户侧维护恢复。已落盘的独立合同与直接 GCM 执行不受影响。
+
+## 2026-11-02 nn-code CommonJS 字面量 require 绑定合入 main 并安装验证
+
+- 完成度：bug 40935e7 原 OneStop `listAdminOrders` 对 `resolveManualFactoryWait` 的字面量 `const { resolveManualFactoryWait } = require('./admin-db')` 绑定已交付。从全局安装 binary、非仓库 cwd 查询 `apps/api/src/orders.js#listAdminOrders` depth 1 返回 `achieved`，保留 `resolveManualFactoryWait` 与 `getAdminSettings` 两条 `cross_file_direct`；`projection.orders.map` 仍为 `unresolved_dynamic / LEXICAL_PARAM_OR_VARIABLE_CALL`，不强行绑定。
+- 合入 main：`9d11c73`（merge: integrate CommonJS destructured require binding），候选 `ba0076b`；已 push，远端 `origin/main` 与本地一致。Carol r3 独立定向复核 PASS，仅覆盖直接静态写入与词法遮蔽；compound assignment、`Object.assign`、跨过程副作用和别名传播仍按未知处理，不扩大为完整 JS 数据流。
+- 验证：候选与合并树 `npm run build`、`npm run typecheck` exit 0；`tests/cli-call-depth-mvp` 65/65、合并树受影响四套件 91/91、语言 A 26/26；`npm install -g .` 更新 `/opt/homebrew/bin/nn-code`，从 `/tmp` 全局实测通过。全局 Skill `/Users/fanzhang/.agents/skills/nn-code/SKILL.md` 已补已验证边界，未宣称完整数据流。
+- 资源：`nn-code-cjs-destructured-require` worktree 已移除、本地分支已删除；当前 worktree 7 个（含主树），低于上限 10。

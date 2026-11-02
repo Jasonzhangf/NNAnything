@@ -1,9 +1,47 @@
 ---
 name: nn-code
-description: 排查问题、审计流程或追踪 TypeScript/JavaScript 函数调用关系时，优先使用 nn-code 一次获取给定入口的被调用关系，减少模型逐层搜索的往返。处理未解析目标，并通过 Collab 报告错误或阻断实际任务的能力缺口。
+description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响或追踪被调用方时，优先用 nn-code calls 一次获取指定 scope/depth 内的静态调用关系、源码位置及未解析项，省去 agent 逐层搜索的多次往返；Rust/Kotlin 声明与词法归属用 nn-code symbols。单次文本定位可用 rg；错误和阻断任务的能力缺口通过 Collab 报告。
 ---
 
-# `nn-code`（`nn-code calls`）使用与问题反馈 Skill
+# `nn-code` 使用、参数选择与问题反馈
+
+## 一次调用能得到什么，为什么优先使用
+
+给定 TS/JS 入口后，`nn-code calls --verbose` 在一次调用中完成指定 `--scope` 和 `--max-depth` 内的静态被调用关系展开，返回关系节点、边、声明与调用点位置，以及未解析目标和覆盖证据。agent 可直接据此整理执行流程、选择需要精读的函数，不必逐层搜索、读结果、再组织下一条查询。
+
+例如需要追到入口的三层被调用方：手动逐层查询通常至少需要三轮有前后依赖的工具往返；使用 `--max-depth 3 --verbose`，一次调用即可取得该深度内的关系图。同层并行搜索仍需等待上一层返回，不能消除这个依赖。主要收益是减少模型组织查询、读取中间结果和再次调用的轮次；不承诺固定倍数的速度或 token 节省。
+
+“一次获取关系”指本次范围与深度内可静态解析的被调用关系，不是全仓所有关系、反向引用、值流或跨语言调用图。深度边界、动态调用和未解析项仍须读取；`achieved` 不代表这些未知关系已被解决。Rust/Kotlin 的 `symbols` 一次返回所选范围内支持的声明清单，不冒称调用关系。任务只需一次文本命中时，直接用 rg 即可。
+
+## 按任务选择命令
+
+### 什么时候用 nn-code，什么时候用 rg
+
+- 已知 TS/JS 函数入口，需要查被调用方或逐层展开调用链：优先一次 `nn-code calls`，按任务需要设置深度；不要用多轮 rg 逐层模拟关系查询。
+- 需要 Rust/Kotlin 的符号声明、精确位置、同名声明区分或词法归属：优先 `nn-code symbols`。
+- 只找一个字符串、配置项、日志文本、文档内容或正则命中，一次文本查询即可回答：用 `rg`。只需文件名清单时用 `rg --files`。入口尚未给定时可用精确文本搜索定位候选，再按所需能力选择 nn-code。
+- nn-code 已返回关系和源码跨度时，直接按跨度读取必要上下文；不要再用 rg 重复验证已闭合的每条边。遇到 unresolved、覆盖缺口或未支持的语言关系时，按明确线索用 rg 和源码读取补查；人工确认结果与工具输出分开，阻断任务的缺口按 reportbug 流程反馈。
+- 当前 nn-code 的文本候选扫描不等于独立通用正则搜索接口。不要臆造 `nn-code search`、`--regex` 等参数，也不要把文本同名命中当作调用边。需要当前未支持的正则或 ignore 行为时使用 rg。
+- 选择依据是能否一次得到任务所需结果、减少依赖上一轮结果的模型往返。一次 rg 能完成的定位直接用 rg；关系任务可由 nn-code 一次完成时优先 nn-code，不以命令执行毫秒数代替整体流程判断。
+
+| 实际任务 | 使用方式 | 结果如何继续使用 |
+| --- | --- | --- |
+| 已知 TS/JS 函数，追踪它调用谁 | `calls`，传入口文件、符号、深度和 scope | 读取关系与调用点；只对未解析目标补查源码 |
+| 找 Rust/Kotlin 声明及位置 | `symbols --language rust` 或 `symbols --language kotlin` | 保留同名声明的不同位置与词法归属；不是调用关系图 |
+| 审计逐层调用关系 | 在 `calls` 上加 `--verbose`；可同时加 `--compact` | 获取完整结构化关系和覆盖证据；compact 只改变排版 |
+| 混合语言仓库 | 对需要的语言分别调用已支持的命令，显式给 scope | 可整理各语言结果，但不能把文本同名命中连成已证跨语言引用 |
+
+- `--scope` 可以重复或用逗号分隔。传任务所需的目录或具体文件；不能缩小用户要求的范围后宣称原任务已完整完成。
+- `symbols --symbol` 按短名称精确匹配、区分大小写；`--file` 与名称及 scope 取交集。需要核对同名声明时保留全部命中。
+- `--edition` 只用于 Rust。Kotlin 不传该参数；JDK/jars 缺失时保留实际错误，不能当作零符号。
+- `symbols` 不接受 `--entry-file`、`--entry-symbol`、`--entry-lexical-path`、`--max-depth`、`--request-id`、`--diagnostics-file`、`--verbose`；不能照搬 calls 参数。
+- 正常使用保留默认日志。用户要求关闭时传 `--no-log`；此时 `logging.state=disabled` 是预期结果，不报日志故障。`--diagnostics-file` 是独立显式导出，关闭持久记录时不要另传它。
+- 同时读语义结果与 coverage/未解析项。退出成功不表示未知关系已解析；日志状态也不能替代查询状态。
+- 已知参数直接使用。仅在参数被拒收或安装版与本 Skill 冲突时，查看对应子命令 help 一次，保留原错并按下方流程报告；不凭猜测重复调用。
+
+## 参数变更的交付要求（维护者）
+
+新增或修改参数时，同批更新命令选择、适用子命令、默认值、组合限制、输出/失败处理及一个实际用例。源码文档 `docs/skills/nn-code/SKILL.md` 与全局正文 `~/.agents/skills/nn-code/SKILL.md` 必须同步；宿主链接继续指向全局正文。Jenny 负责随安装交付，审计者核对安装版 help 与受影响用例。参数已实现但 Skill 或安装入口未验证时，该使用增量仍未交付。项目 AGENTS 只保留使用触发条件，不复制参数规则。
 
 ## 1. 核心原则（压缩编排开销，禁止冗余探测）
 
@@ -28,9 +66,12 @@ description: 排查问题、审计流程或追踪 TypeScript/JavaScript 函数�
   --max-depth <0|1|2|3> \
   --scope <prefix1,prefix2> \
   [--entry-lexical-path <outer.inner>] \
+  [--language <typescript|ts|javascript|js>] \
   [--request-id <id>] \
   [--log-dir <dir>] \
   [--diagnostics-file <pathOutsideRepo>] \
+  [--no-log] \
+  [--verbose] \
   [--compact]
 ```
 
@@ -40,10 +81,36 @@ description: 排查问题、审计流程或追踪 TypeScript/JavaScript 函数�
   - `--entry-symbol <symbol>`：目标函数名；匿名默认导出填 `default`，具名默认导出用函数名（如 `export default function main()` 填 `main`）。
   - `--max-depth <0|1|2|3>`：向下追踪被调用方（`callee`）的最大跳数（`0` 仅定位入口声明跨度；`1..3` 展开静态可解析被调函数）。
   - `--scope <prefix>`：允许解析与跨文件追踪的相对路径前缀（如 `lib` 或 `src/core,src/utils`）。
+  - `--language <typescript|ts|javascript|js>`（可选）：显式指定源语言；省略时按入口文件扩展名选 TS/JS 解析器，不做自动全仓语言检测。`rust|rs|cpp|kotlin|kt|java|swift` 合法但 `calls` 当前返回 `UNSUPPORTED_LANGUAGE` 并附真实文本扫描，需符号表时改用 `nn-code symbols`。
+  - `--verbose`（可选）：输出完整结构化关系 JSON 与覆盖证据；`--compact`（可选）：单行 JSON。
 - **退出码与输出读取**：
   - `0` (`achieved`)、`2` (`unmet`)、`3` (`unknown`)、`4` (`rejected`)、`5` (`failed`) **均在 `stdout` 输出合法结构化 JSON**（非零 `2/3/4/5` 是结构化语义结论，不是 CLI 崩溃！仅退出码 `1` 表示参数或运行异常并在 `stderr` 输出 `{"error":{...}}`）。
-  - 每次运行自动在 `~/.local/state/nn-code/runs/` 下保存单次运行日志，并在返回 JSON 顶层通过 `runLogPath` 字段回显完整路径。
-  - 若输出较大，可将 `stdout` 重定向至临时文件并用 `jq '{status, resolution, runLogPath, nodes: (.nodes|length), edges: (.edges|length), unresolved: (.unresolvedCallsites|length)}'` 查看摘要。
+  - 日志默认开启：每次运行在 `~/.local/state/nn-code/runs/`（env `NN_CODE_LOG_DIR` 可覆盖，`--log-dir` 改变目录）写单次 JSONL 运行日志，按每 root 10 GB 容量上限按最旧已完成记录轮转并保护活动记录；返回 JSON 顶层 `logging` 字段为 `{enabled, state, runLogPath, reason}`，`runLogPath` 回显完整路径。`--no-log` 关闭本次持久日志（不建目录/文件、不轮转）；`--diagnostics-file` 另存 opt-in 深度诊断。
+  - 若输出较大，可将 `stdout` 重定向至临时文件并用 `jq '{status, resolution, runLogPath, logging: {state: .logging.state, reason: .logging.reason}, nodes: (.nodes|length), edges: (.edges|length), unresolved: (.unresolvedCallsites|length)}'` 查看摘要；`logging.state != "complete"` 时读 `logging.reason`（如 `LOG_CAPACITY_EXCEEDED`、`LOG_STORE_BUSY`）区分日志是否完整落盘。
+  - 运行日志实际为 `.jsonl`；`runLogPath` 指向该 `.jsonl` 文件。
+
+### `nn-code symbols`（Rust/Kotlin 独立符号表）
+
+需要 Rust/Kotlin 源码的声明、位置、词法归属与覆盖状态而非调用关系图时，用：
+
+```bash
+/opt/homebrew/bin/nn-code symbols \
+  --repo <repoPath> \
+  --language <rust|rs|kotlin|kt> \
+  --scope <prefix1,prefix2> \
+  [--symbol <name>] \
+  [--file <repoRelativePath>] \
+  [--edition <2015|2018|2021|2024>] \
+  [--ignore-policy <no_ignore>] \
+  [--log-dir <dir>] \
+  [--no-log] \
+  [--compact]
+```
+
+- 输出为单个 `nnanything.cli-symbols.result.v1` JSON 对象。`symbols[]` 每条含 `name`、`kind`、`declSpan`、`lexicalScope`、`visibility`、`parseStatus`、`nameSpan` 与覆盖状态；`coverage` 记录发现/解析文件、`partial`、`truncated`、`skipped` 与 `partialReasons`。
+- 结果只代表 AST 词法作用域：不读 `Cargo.toml`（`edition` 默认 2021）、不展开宏/`include!`、不做跨 crate 或类型推断，模块路径未解析为 `unknown`。`nameSpan` 在当前 `rustc -Z unpretty=ast-tree` 后端为 `null`，原因写 `nameSpanSource`。
+- `--ignore-policy` 首版仅支持 `no_ignore`；`respect_vcs_ignore` 显式拒绝，不静默降级。Kotlin 需要 JDK 17 与四个 Kotlin compiler jars（环境变量 `NN_CODE_KOTLIN_JAVA_BIN` / `NN_CODE_KOTLIN_JARS`）。
+- 每次运行默认在 `~/.local/state/nn-code/runs/` 保存 JSONL 日志，顶层 `logging` 与 `runLogPath` 回显；`--no-log` 关闭本次日志，`--log-dir` 改变日志目录。
 
 ## 3. 预期静态边界（非 Bug）vs 触发 `reportbug` 的真实问题
 
@@ -54,6 +121,9 @@ description: 排查问题、审计流程或追踪 TypeScript/JavaScript 函数�
 | **预期边界（非 Bug）** | `node:*`、第三方包、超出 `--scope` 的模块或内置全局（`Object.freeze` 等）报 `out_of_scope_external` | **正常静态边界，不报 Bug** |
 | **预期边界（非 Bug）** | `minDepth === requestedMaxDepth` 的前沿节点 `bodyExtracted: false` | **正常深度截断合同，不报 Bug** |
 | **预期边界（非 Bug）** | 传入不存在的入口文件/符号返回 `exit 2` (`status: "unmet"`)，或入口在 `--scope` 外返回 `exit 4` (`status: "rejected"`) | **正常语义拒绝，不报 Bug** |
+
+CommonJS 字面量 `const { fn } = require('./mod')`、别名、命名导出、`module.exports` 可调用导出，以及同一 `const ns = require(...)` 绑定的静态成员调用，已在当前安装版中按可证明关系解析，优先使用。`compound assignment`、`Object.assign`、跨过程副作用、别名传播和动态 `require` 的确定关系尚未验证：没有直接静态证据时不得生成确定边，agent 必须核查实际输出，不保证当前运行时一定把这类调用标为 unknown；真实缺口沿下方流程报告。该支持不等于完整 JavaScript 数据流。
+
 | **真实 Bug（触发 `reportbug`）** | 合法参数且目标仓库可读时进程崩溃、`exit 1` 或无故返回 `status: "failed"` | **触发 `reportbug`** |
 | **真实 Bug（触发 `reportbug`）** | `--scope` 内的同文件直接函数调用、ESModule 具名/默认导入函数调用或 `export *` 重导出函数调用被漏报、错连，或 `declSpan`/`callsiteSpan` 行列号与源码实际位置不符 | **触发 `reportbug`** |
 | **真实 Bug（触发 `reportbug`）** | 词法绑定或 AST 提取缺陷：如局部解构变量调用 `const { handle } = opened; handle.read()` 被误判为 `UNBOUND_FREE_IDENTIFIER`（当前安装版 v0.0.0 已修，正确分类为 `unresolved_dynamic / LEXICAL_PARAM_OR_VARIABLE_CALL`；`UNBOUND_FREE_IDENTIFIER` 仅适用于尚未修复的旧版本）；或链式调用 `a().b()` 漏提内层 `CallExpression` `a()`；或标准内置全局函数（如 `BigInt`）被误判为 `UNBOUND_FREE_IDENTIFIER` | **触发 `reportbug`** |
@@ -73,7 +143,7 @@ description: 排查问题、审计流程或追踪 TypeScript/JavaScript 函数�
   "reportMode": "live_bug",
   "createdAt": "2026-11-01T02:30:00.000Z",
   "cliVersion": "0.0.0",
-  "runLogPath": "/Users/fanzhang/.local/state/nn-code/runs/<runId>.json",
+  "runLogPath": "/Users/fanzhang/.local/state/nn-code/runs/<runId>.jsonl",
   "reproduction": {
     "command": "nn-code calls --repo /Volumes/extension/code/NNAnything --entry-file lib/adapters/cli/file-content.ts --entry-symbol readFileRange --max-depth 1 --scope lib",
     "repo": "/Volumes/extension/code/NNAnything",
