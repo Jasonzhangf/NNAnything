@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-02 LayerFS main 同步 SKILL.md 与交付收口
+
+- LayerFS main 与 origin/main 业务树核对发现唯一实质差异：docs/skills/nn-code/SKILL.md 仍为 a144839 前的 150 行旧版，而 Git main 已是 220 行扩展版；AGENTS.md 与 note.md 均已一致。
+- 经 Git 同步工作线 git-sync-pr11-pr12 补齐 SKILL.md 至 220 行，候选 build/typecheck exit 0，publish 到 LayerFS main 新层 3299bcf9a3691e3518b3b95431a22e947f135f0cf1d7e66401002ca86e1ce66216（source git-sync-pr11-pr12-pub / 12556bc66），overwroteCount=0。
+- 回读验证：SKILL.md 与 origin/main 一致；仅 5 个 Swift 文件（adapter/policy/fixtures/test）因 LayerFS fs 归一化尾部空行与 Git blob 差一个换行，无内容差异，属已知痕迹。
+- Git 基线 /Volumes/extension/layerfs/nnanything/main 与 git-owner.git 的 git-main 均已是 50166fe；旧 worktree 按 PROTECTED_HOLD 保留。
+
 ## 2026-11-02 Git 捕获截断修复与全局 symbols 入口复验
 
 - 发现 PR #9 的 Git 捕获把 `lib/adapters/cli/tsjs-symbol-table-adapter.ts` 截断为 1479 行，导致 clean Git main 的 `npm run build` 在 `runTsJsSymbolTable` 参数表处退出 1；LayerFS main 保留的是完整 1590 行实现。
