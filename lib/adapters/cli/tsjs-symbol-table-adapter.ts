@@ -1477,3 +1477,114 @@ async function processOneFile(repoAbs: string, relFile: string): Promise<FileOut
 export async function runTsJsSymbolTable(
   rawRequest: unknown,
   options: TsJsSymbolTableAdapterOptions = {},
+): Promise<TsJsSymbolTableOutcome> {
+  const validation = validateTsJsSymbolRequest(rawRequest);
+  if (!validation.ok) return validation.error;
+  const request = validation.request;
+
+  const repoAbs = path.resolve(request.repo);
+
+  const uniqueFiles: string[] = [];
+  const seenFiles = new Set<string>();
+  for (const file of request.files) {
+    if (!seenFiles.has(file)) {
+      seenFiles.add(file);
+      uniqueFiles.push(file);
+    }
+  }
+
+  const symbolRecords: TsJsSymbolRecord[] = [];
+  const boundaryRecords: TsJsDynamicMemberBoundary[] = [];
+  const failed: { file: string; reason: string }[] = [];
+  const skipped: { file: string; reason: string }[] = [];
+  const parseErrorFiles: TsJsParseErrorFile[] = [];
+  const partialReasons: string[] = [];
+  let parsedCount = 0;
+  let invocations = 0;
+
+  for (const relFile of uniqueFiles) {
+    const outcome = await processOneFile(repoAbs, relFile);
+    if (outcome.kind === "failed") {
+      failed.push({ file: relFile, reason: outcome.reason });
+      partialReasons.push(`${relFile}: ${outcome.reason}`);
+      continue;
+    }
+    if (outcome.kind === "skipped") {
+      skipped.push({ file: relFile, reason: outcome.reason });
+      partialReasons.push(`${relFile}: ${outcome.reason}`);
+      continue;
+    }
+    invocations += outcome.invocations;
+    parsedCount += 1;
+    const { extracted } = outcome;
+    const parseStatus = extracted.parseErrors.length > 0 ? "partial_syntax_error" : "complete";
+    for (const record of extracted.symbols) {
+      symbolRecords.push(
+        Object.freeze({
+          ...record,
+          symbolId: symbolIdFor(record.file, record.name, record.declSpan),
+          parseStatus,
+        }),
+      );
+    }
+    for (const boundary of extracted.boundaries) {
+      boundaryRecords.push(boundary);
+      partialReasons.push(`${relFile}: dynamic_computed_member`);
+    }
+    if (extracted.parseErrors.length > 0) {
+      parseErrorFiles.push(Object.freeze({ file: relFile, errors: extracted.parseErrors }));
+      partialReasons.push(`${relFile}: partial_syntax_error`);
+    }
+  }
+
+  const partial =
+    failed.length > 0 || skipped.length > 0 || parseErrorFiles.length > 0 || boundaryRecords.length > 0;
+
+  const notes = [
+    "semanticBinding=false; single-file AST only; tsconfig.json and node_modules are not read",
+    "spans are 1-based with Unicode code-point columns; nameSpan is null when no reliable identifier span exists",
+    "symlinks are never followed in any path component; duplicate file entries are deduplicated by repo-relative path",
+  ];
+
+  const coverage: TsJsCoverageRecord = Object.freeze({
+    scopeFilesDiscovered: uniqueFiles.length,
+    scopeFilesParsed: parsedCount,
+    scopeFilesFailed: Object.freeze(failed),
+    skipped: Object.freeze(skipped),
+    parseErrorFiles: Object.freeze(parseErrorFiles),
+    partial,
+    partialReasons: Object.freeze([...new Set(partialReasons)]),
+    truncated: false,
+    parserInvocations: invocations,
+    notes: Object.freeze(notes),
+  });
+
+  const parser: TsJsParserRecord = Object.freeze({
+    backend: "typescript_compiler_ast",
+    compilerVersion: options.compilerVersionLabel ?? ts.version,
+    invocation:
+      "ts.createSourceFile(relPath, sourceText, ScriptTarget.Latest, setParentNodes=false, scriptKind)",
+    semanticBinding: false,
+  });
+
+  return Object.freeze({
+    status: "ok",
+    result: projectTsJsSymbolTableResult(
+      request,
+      parser,
+      Object.freeze(symbolRecords),
+      Object.freeze(boundaryRecords),
+      coverage,
+    ),
+  });
+}
+
+export function createTsJsSymbolTableAdapter(
+  options: TsJsSymbolTableAdapterOptions = {},
+): Readonly<{
+  symbols: (request: unknown) => Promise<TsJsSymbolTableOutcome>;
+}> {
+  return Object.freeze({
+    symbols: (request: unknown) => runTsJsSymbolTable(request, options),
+  });
+}
