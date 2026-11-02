@@ -17,7 +17,8 @@ export type DeclKind =
   | "value"
   | "ambient"
   | "default-arrow"
-  | "default-function";
+  | "default-function"
+  | "method";
 
 export type DeclInfo = Readonly<{
   chain: string;
@@ -351,7 +352,8 @@ function isCallableKind(kind: DeclKind): boolean {
   return kind === "function"
     || kind === "arrow"
     || kind === "default-arrow"
-    || kind === "default-function";
+    || kind === "default-function"
+    || kind === "method";
 }
 
 function chainOf(name: string, parentChain: string): string {
@@ -376,6 +378,20 @@ function bodyAndParams(node: ts.Node): { body?: ts.ConciseBody; params?: readonl
   }
   if (ts.isFunctionDeclaration(node) && node.body !== undefined) {
     return { body: node.body, params: Object.freeze([...node.parameters]) };
+  }
+  if (ts.isMethodDeclaration(node)) {
+    return node.body === undefined
+      ? {}
+      : { body: node.body, params: Object.freeze([...node.parameters]) };
+  }
+  if (ts.isPropertyDeclaration(node) && node.initializer !== undefined) {
+    const core = unwrapParens(node.initializer);
+    if (ts.isArrowFunction(core)) {
+      return { body: core.body, params: Object.freeze([...core.parameters]) };
+    }
+    if (ts.isFunctionExpression(core)) {
+      return { body: core.body, params: Object.freeze([...core.parameters]) };
+    }
   }
   if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
     const core = unwrapParens(node.initializer);
@@ -581,6 +597,65 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
       }
       return;
     }
+    if (ts.isClassDeclaration(node) && node.name !== undefined) {
+      const classDecl = makeDecl(
+        info.sourceFile,
+        info.relPath,
+        node.name.text,
+        node.name.text,
+        "class",
+        node,
+        node,
+        node.name,
+      );
+      remember(classDecl);
+      for (const member of node.members) {
+        if (
+          ts.isMethodDeclaration(member)
+          && !ts.isConstructorDeclaration(member)
+          && member.name !== undefined
+          && ts.isIdentifier(member.name)
+        ) {
+          const methodChain = chainOf(member.name.text, node.name.text);
+          remember(makeDecl(
+            info.sourceFile,
+            info.relPath,
+            member.name.text,
+            methodChain,
+            "method",
+            member,
+            member,
+            member.name,
+          ));
+          if (member.body !== undefined) {
+            for (const statement of member.body.statements) walk(statement, methodChain);
+          }
+          continue;
+        }
+        if (
+          ts.isPropertyDeclaration(member)
+          && member.name !== undefined
+          && ts.isIdentifier(member.name)
+          && member.initializer !== undefined
+        ) {
+          const core = unwrapParens(member.initializer);
+          if (ts.isArrowFunction(core) || ts.isFunctionExpression(core)) {
+            const kind = ts.isArrowFunction(core) ? "arrow" : "function";
+            remember(makeDecl(
+              info.sourceFile,
+              info.relPath,
+              member.name.text,
+              chainOf(member.name.text, node.name.text),
+              kind,
+              member,
+              core,
+              member.name,
+            ));
+          }
+        }
+      }
+      return;
+    }
     if (ts.isBlock(node)) return;
     ts.forEachChild(node, child => walk(child, prefix));
   }
@@ -629,18 +704,10 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
       continue;
     }
     if (ts.isClassDeclaration(stmt) && stmt.name !== undefined && isExportModifier(stmt)) {
-      const decl = makeDecl(
-        info.sourceFile,
-        info.relPath,
-        stmt.name.text,
-        stmt.name.text,
-        "class",
-        stmt,
-        stmt,
-        stmt.name,
-      );
-      remember(decl);
-      rememberExport(isDefaultModifier(stmt) ? "default" : stmt.name.text, decl);
+      const decl = byChain.get(stmt.name.text);
+      if (decl !== undefined) {
+        rememberExport(isDefaultModifier(stmt) ? "default" : stmt.name.text, decl);
+      }
       continue;
     }
     if (ts.isExportDeclaration(stmt)) {
@@ -1125,9 +1192,29 @@ export function extractCallsites(
         }));
       }
       visit(callee, activeScope);
+      const calleeCore = unwrapParens(callee);
+      const directCallee = ts.isIdentifier(calleeCore) ? calleeCore : null;
+      const directBinding = directCallee === null ? undefined : activeScope.get(directCallee.text);
       for (const argument of node.arguments) {
         const argumentCore = unwrapParens(argument);
-        if (ts.isArrowFunction(argumentCore) || ts.isFunctionExpression(argumentCore)) continue;
+        if (
+          (ts.isArrowFunction(argumentCore) || ts.isFunctionExpression(argumentCore))
+          && directCallee !== null
+          && directBinding?.kind === "callable"
+        ) {
+          const local = new Map(activeScope);
+          for (const param of argumentCore.parameters) {
+            forEachBindingIdentifier(param.name, identifier => {
+              local.set(identifier.text, Object.freeze({
+                kind: "noncallable" as const,
+                reason: "LEXICAL_PARAM_OR_VARIABLE_CALL",
+              }));
+            });
+          }
+          const fnBody = ts.isArrowFunction(argumentCore) ? argumentCore.body : argumentCore.body;
+          visit(fnBody, local);
+          continue;
+        }
         visit(argument, activeScope);
       }
       return;

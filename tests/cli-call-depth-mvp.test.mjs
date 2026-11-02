@@ -1528,3 +1528,155 @@ test("CD1-T13 CJS write to an IIFE parameter shadow keeps the outer namespace me
   assert.equal(edge.resolutionKind, "cross_file_direct");
   assert.deepEqual(result.unresolvedCallsites, []);
 });
+
+// ---------------------------------------------------------------------------
+// CD1-T14 (buglists 2846932 / 43081d1): class methods participate in the same
+// lexical declaration table as top-level callables; direct calls inside a
+// callback body are attributed to the enclosing callable. The callback call
+// itself is not promoted to an unconditional outer edge.
+// ---------------------------------------------------------------------------
+function classMethodSpan(source, className, methodName) {
+  const sourceFile = parse(source);
+  const classNode = firstNode(
+    sourceFile,
+    value => ts.isClassDeclaration(value)
+      && value.name?.text === className
+      && value.members.some(member => ts.isMethodDeclaration(member)
+        && ts.isIdentifier(member.name)
+        && member.name.text === methodName),
+  );
+  assert.ok(classNode !== undefined, `fixture must contain class ${className}`);
+  const method = classNode.members.find(member => ts.isMethodDeclaration(member)
+    && ts.isIdentifier(member.name)
+    && member.name.text === methodName);
+  assert.ok(method !== undefined, `fixture must contain method ${className}.${methodName}`);
+  return spanOf(sourceFile, method);
+}
+
+const CLASS_METHOD_ENTRY = [
+  "function target() { return 1; }",
+  "export class UiRuntimeService {",
+  "  private defaultOrchestrate() { return target(); }",
+  "  otherMethod() { return target(); }",
+  "}",
+  "class OtherService {",
+  "  defaultOrchestrate() { return target(); }",
+  "}",
+].join("\n");
+
+test("CD1-T14 class method lexical path resolves the exact declaration", async t => {
+  const entries = [{ path: "src/entry.ts", kind: "file", contents: CLASS_METHOD_ENTRY }];
+  const classGoal = {
+    ...goal("src/entry.ts", "defaultOrchestrate", 1),
+    entryLexicalPath: "UiRuntimeService.defaultOrchestrate",
+  };
+  const { result } = await runFixture(t, entries, classGoal, { requestId: "cd1-t14-class-method" });
+  const entryId = nodeId(
+    "src/entry.ts",
+    "UiRuntimeService.defaultOrchestrate",
+    classMethodSpan(CLASS_METHOD_ENTRY, "UiRuntimeService", "defaultOrchestrate"),
+  );
+  const targetId = nodeId("src/entry.ts", "target", namedFunctionSpan(CLASS_METHOD_ENTRY, "target"));
+  assert.equal(result.status, "achieved");
+  assert.equal(result.resolution, "complete");
+  assert.equal(result.entryNodeId, entryId);
+  assert.deepEqual(nodeIds(result), [entryId, targetId].sort());
+  assert.deepEqual(edgePairs(result), [`${entryId} -> ${targetId}`]);
+  assert.deepEqual(unresolvedOf(result), []);
+});
+
+test("CD1-T14 same-name class methods never cross-bind without a lexical path", async t => {
+  const entries = [{ path: "src/entry.ts", kind: "file", contents: CLASS_METHOD_ENTRY }];
+  const ambiguous = await runFixture(
+    t,
+    entries,
+    goal("src/entry.ts", "defaultOrchestrate", 0),
+    { requestId: "cd1-t14-class-method-ambiguous" },
+  );
+  assert.equal(ambiguous.result.status, "unmet");
+  assert.equal(ambiguous.result.resolution, "ambiguous_entry_symbol");
+  assert.equal(ambiguous.result.nodes.length, 0);
+
+  const otherGoal = {
+    ...goal("src/entry.ts", "defaultOrchestrate", 0),
+    entryLexicalPath: "OtherService.defaultOrchestrate",
+  };
+  const other = await runFixture(t, entries, otherGoal, { requestId: "cd1-t14-class-method-other" });
+  const otherId = nodeId(
+    "src/entry.ts",
+    "OtherService.defaultOrchestrate",
+    classMethodSpan(CLASS_METHOD_ENTRY, "OtherService", "defaultOrchestrate"),
+  );
+  assert.equal(other.result.status, "achieved");
+  assert.equal(other.result.entryNodeId, otherId);
+  assert.deepEqual(nodeIds(other.result), [otherId]);
+});
+
+const CALLBACK_BODY_ENTRY = [
+  "function startAcpServeLocked(intent, options) { return locked(intent, options); }",
+  "function locked(intent, options) { return 1; }",
+  "function withAcpServeStartLock(dataDirectory, callback) { return callback(); }",
+  "export function startAcpServe(intent, options) {",
+  "  return withAcpServeStartLock(\"dir\", () => startAcpServeLocked(intent, options));",
+  "}",
+].join("\n");
+
+test("CD1-T14 callback body keeps the direct call to its same-file target", async t => {
+  const entries = [{ path: "src/entry.ts", kind: "file", contents: CALLBACK_BODY_ENTRY }];
+  const { result } = await runFixture(
+    t,
+    entries,
+    goal("src/entry.ts", "startAcpServe", 3),
+    { requestId: "cd1-t14-callback-body" },
+  );
+  const entryId = nodeId("src/entry.ts", "startAcpServe", namedFunctionSpan(CALLBACK_BODY_ENTRY, "startAcpServe"));
+  const withLockId = nodeId("src/entry.ts", "withAcpServeStartLock", namedFunctionSpan(CALLBACK_BODY_ENTRY, "withAcpServeStartLock"));
+  const lockedId = nodeId("src/entry.ts", "startAcpServeLocked", namedFunctionSpan(CALLBACK_BODY_ENTRY, "startAcpServeLocked"));
+  const downstreamId = nodeId("src/entry.ts", "locked", namedFunctionSpan(CALLBACK_BODY_ENTRY, "locked"));
+  assert.equal(result.status, "achieved");
+  assert.equal(result.resolution, "complete");
+  assert.deepEqual(nodeIds(result), [entryId, withLockId, lockedId, downstreamId].sort());
+  assert.deepEqual(
+    edgePairs(result).sort(),
+    [
+      `${entryId} -> ${withLockId}`,
+      `${entryId} -> ${lockedId}`,
+      `${lockedId} -> ${downstreamId}`,
+    ].sort(),
+  );
+  assert.deepEqual(
+    unresolvedOf(result),
+    [{ kind: "unresolved_dynamic", code: "LEXICAL_PARAM_OR_VARIABLE_CALL" }],
+    "the callback parameter call stays unresolved; it is not an outer edge",
+  );
+});
+
+const CALLBACK_PARAM_SHADOW = [
+  "function target() { return 1; }",
+  "function runner(callback) { return callback(); }",
+  "export function entry(target) {",
+  "  return runner(() => target());",
+  "}",
+].join("\n");
+
+test("CD1-T14 callback parameter shadowing prevents a top-level false edge", async t => {
+  const entries = [{ path: "src/entry.ts", kind: "file", contents: CALLBACK_PARAM_SHADOW }];
+  const { result } = await runFixture(
+    t,
+    entries,
+    goal("src/entry.ts", "entry", 2),
+    { requestId: "cd1-t14-callback-param-shadow" },
+  );
+  const entryId = nodeId("src/entry.ts", "entry", namedFunctionSpan(CALLBACK_PARAM_SHADOW, "entry"));
+  const runnerId = nodeId("src/entry.ts", "runner", namedFunctionSpan(CALLBACK_PARAM_SHADOW, "runner"));
+  const topTargetId = nodeId("src/entry.ts", "target", namedFunctionSpan(CALLBACK_PARAM_SHADOW, "target"));
+  assert.equal(result.status, "achieved");
+  assert.equal(result.resolution, "complete");
+  assert.deepEqual(nodeIds(result), [entryId, runnerId].sort());
+  assert.ok(!result.nodes.some(node => node.nodeId === topTargetId), "the top-level target is shadowed");
+  assert.deepEqual(edgePairs(result), [`${entryId} -> ${runnerId}`]);
+  assert.deepEqual(unresolvedOf(result), [
+    { kind: "unresolved_dynamic", code: "LEXICAL_PARAM_OR_VARIABLE_CALL" },
+    { kind: "unresolved_dynamic", code: "LEXICAL_PARAM_OR_VARIABLE_CALL" },
+  ]);
+});
