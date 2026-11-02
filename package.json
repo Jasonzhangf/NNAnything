@@ -99,7 +99,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "node scripts/check-layout.mjs && tsc -p tsconfig.json",
+    "build": "node scripts/check-layout.mjs && tsc -p tsconfig.json && node scripts/build-kotlin-symbol-jvm.mjs",
+    "build:kotlin-symbol-jvm": "node scripts/build-kotlin-symbol-jvm.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:full": "npm run build && node scripts/test-full.mjs",

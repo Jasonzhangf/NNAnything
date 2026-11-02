@@ -10,6 +10,7 @@ const TESTS_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = dirname(TESTS_DIR);
 const BIN = join(REPO_ROOT, "dist", "cli-call-depth-bin.js");
 const FIXTURES = join(TESTS_DIR, "fixtures", "rust-symbols");
+const KOTLIN_FIXTURES = join(TESTS_DIR, "fixtures", "kotlin-symbols");
 
 function runCli(argv, cwd = REPO_ROOT) {
   return spawnSync(process.execPath, [BIN, ...argv], {
@@ -221,6 +222,65 @@ test("respect_vcs_ignore is rejected instead of silently downgraded to no_ignore
     "--repo", FIXTURES,
     "--language", "rust",
     "--scope", "src",
+    "--ignore-policy", "respect_vcs_ignore",
+    "--compact",
+    "--no-log",
+  ]);
+  assert.equal(result.status, 4, result.stderr);
+  const payload = jsonOf(result);
+  assert.equal(payload.status, "rejected");
+  assert.ok(
+    ["respect_vcs_ignore_requires_ripgrep", "respect_vcs_ignore_not_implemented"].includes(payload.reasonCode),
+    payload.reasonCode,
+  );
+});
+
+test("kotlin scope returns a structured result through the public symbols entry", () => {
+  const result = runSymbols([
+    "--repo", KOTLIN_FIXTURES,
+    "--language", "kotlin",
+    "--scope", "kinds",
+    "--compact",
+    "--no-log",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = jsonOf(result);
+  assert.equal(payload.schema, "nnanything.cli-symbols.result.v1");
+  assert.equal(payload.language, "kotlin");
+  assert.equal(payload.parser.backend, "kotlin_psi_factory");
+  assert.equal(payload.parser.semanticBinding, false);
+  assert.deepEqual(payload.scope, ["kinds"]);
+  assert.equal(payload.coverage.ignorePolicy, "no_ignore");
+  assert.equal(payload.coverage.truncated, false);
+  assert.equal(payload.logging.state, "disabled");
+
+  const names = new Set(payload.symbols.map(entry => entry.name));
+  for (const expected of ["Registry", "Api", "Payload", "Mode", "StringList", "bang", "FAST", "SLOW"]) {
+    assert.ok(names.has(expected), `missing symbol ${expected}`);
+  }
+  assert.equal(payload.symbols.find(entry => entry.name === "Api")?.kind, "interface");
+  assert.equal(payload.symbols.find(entry => entry.name === "bang")?.receiverType, "String");
+});
+
+test("kt alias routes to the kotlin adapter", () => {
+  const result = runSymbols([
+    "--repo", KOTLIN_FIXTURES,
+    "--language", "kt",
+    "--scope", "kinds",
+    "--compact",
+    "--no-log",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = jsonOf(result);
+  assert.equal(payload.language, "kotlin");
+  assert.ok(payload.symbols.length > 0);
+});
+
+test("kotlin respect_vcs_ignore is rejected instead of silently downgraded", () => {
+  const result = runSymbols([
+    "--repo", KOTLIN_FIXTURES,
+    "--language", "kotlin",
+    "--scope", "kinds",
     "--ignore-policy", "respect_vcs_ignore",
     "--compact",
     "--no-log",
