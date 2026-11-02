@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-02 Shared AST 类方法与回调 callsite 修复已合入 main
+
+- 两项真实能力缺口已闭合：HumanAgent `UiRuntimeService.defaultOrchestrate` 类方法入口从基线 `entry_not_found` 变为 `achieved/complete`；AgentTeams `startAcpServe` 基线漏掉回调内 `startAcpServeLocked`，候选在 depth 1 即给出 `startAcpServe -> startAcpServeLocked` 边，动态回调边界保留显式 unknown。
+- 改动仅 `lib/filters/cli-call-depth-policy.ts`（class method / property function binding 参与声明表，callback body 按词法作用域同深度展开）与 `tests/cli-call-depth-mvp.test.mjs`（CD1-T14 四项黑盒）。
+- 分支链：LayerFS task branch `defect-ast-entry-r1` commit `128e566`，merge 候选 `defect-ast-entry-r1-pub` 在待发布 Workspace 上 build/typecheck exit 0、受影响套件 78/78，publish LayerFS main 新层 `32fd081f`；Git owner 捕获 `capture-shared-ast-r1` = `1096764`，PR #6 merge `90bbc40` 已 push 并核对 `origin/main`。
+- LayerFS main 与 Git `90bbc40` 的两个文件 blob 一致（`0165b4b` / `ee1082b`）；Git 基线 `/Volumes/extension/layerfs/nnanything/main` 已 ff 到 `90bbc40`，`git-main` 同步推进。
+- 全局安装态验收：从 LayerFS main `npm install -g .` 后 `/opt/homebrew/bin/nn-code` 指向 LayerFS main；安装版对两个真实入口复跑均为 `achieved/complete`（HumanAgent 单节点、AgentTeams 含 locked 边），安装日志 `state=complete`。
+- Collab 任务 `nn-code-shared-ast-r1` 已 deliver → review accept → integrated(`90bbc40`)；typed task-events.json 已追加 task-publish 与 git-capture。
+- 资源：Git 远端 `capture-shared-ast-r1` 已删除，本地捕获分支已删；LayerFS `defect-ast-entry-r1-pub` 发布分支及 Workspace 保留待下轮统一清理（不覆盖未交付任务）。`/Volumes/Intel` 仍 TCC EPERM，OOM 旧 worktree 与值流原树执行维持既有保护状态。
+
 ## 2026-11-02 OneStop OOM r3 合入 main 并安装验收
 
 - OOM r3（`codex/cli-onestop-oom-fix-r3`，`7a14c34` + `c6b1df8` + `f00c89b`）已合入 main：PR #4 merge `7ded41b`，已 push 并核对 `origin/main`。本地 CI：build/typecheck exit 0；`cli-content-search-memory-share` + `oom-regression` 11/11；recursive-goal 63/63。
