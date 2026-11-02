@@ -10,7 +10,7 @@
 // still rejected, unchanged candidates are shared across steps, and a real update
 // leaves the earlier state untouched.
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { lstat, mkdtemp, open, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -361,4 +361,179 @@ test("non-empty history keeps shared elements while a real update uses a new can
   );
   assert.equal(parsed.candidates[candidateIndex].outcome, candidate.outcome);
   assert.equal(parsed.candidates[candidateIndex].history.length, 1);
+});
+
+async function runHistoryContinuationFixture(t) {
+  const search = await import("nnanything/cli-content-search");
+  const goal = await import("nnanything/cli-goal");
+  const root = await realpath(await mkdtemp(join(tmpdir(), "nn-content-search-history-cont-")));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const needle = "quarryMark";
+  const chunkSize = 16;
+  const rewriteLength = 30;
+  let readCalls = 0;
+  const sandbox = await search.createCliFilesystemSandbox({
+    root,
+    ownerGrantedEffects: ["filesystem.write"],
+    recipe: {
+      scenarioId: "content-search-history-continuation",
+      entries: [
+        { path: "scan", kind: "directory" },
+        { path: "scan/a.ts", kind: "file", contents: "a".repeat(6) + needle + "b".repeat(14) },
+      ],
+      sessions: [{ id: "s", cwd: "scan", grantedEffects: ["filesystem.read", "process.exec"] }],
+    },
+    fileReadIo: {
+      lstat: (path, options) => lstat(path, options),
+      open: async (path, flags) => {
+        const handle = await open(path, flags);
+        return {
+          stat: options => handle.stat(options),
+          read: async (buffer, offset, length, position) => {
+            readCalls += 1;
+            if (readCalls === 2) {
+              const rewrite = await open(path, "r+");
+              await rewrite.write("c".repeat(rewriteLength), 0, "utf8");
+              await rewrite.close();
+              const error = new Error("changed");
+              error.code = "READ_TARGET_CHANGED";
+              throw error;
+            }
+            const result = await handle.read(buffer, offset, length, position);
+            return { bytesRead: result.bytesRead };
+          },
+          close: () => handle.close(),
+        };
+      },
+    },
+  });
+  t.after(async () => {
+    await sandbox.cleanup();
+  });
+
+  const session = sandbox.bindSession("s");
+  const directory = await sandbox.bindDirectory(session, ".");
+  const profile = routingProfile(goal);
+  const scan = Object.freeze({
+    maxBytesPerFile: 1024 * 1024,
+    maxTotalBytes: 8 * 1024 * 1024,
+    chunkSize,
+    maxDirectoryDepth: 0,
+    maxStaleRetries: 1,
+  });
+  const request = {
+    requestId: "content-search-history-continuation",
+    goal: {
+      kind: "file.property",
+      property: "file.property.content.bytes",
+      target: {
+        kind: "cli.content-search-scope",
+        directory,
+        fileCondition: { type: "regular", suffix: ".ts" },
+        cardinality: "all",
+        recursion: "flat",
+      },
+      requirement: {
+        kind: "contains",
+        predicate: { kind: "contains", needle, encoding: "utf8" },
+      },
+    },
+    satisfactionThreshold: 100,
+  };
+  const first = await search.runCliContentSearchGoal(request, {
+    sandbox,
+    session,
+    profile,
+    limits: Object.freeze({ maxTransitions: 28, maxDepth: 8, maxDerivedGoals: 8 }),
+    scan,
+  });
+
+  return { search, first, request, profile, sandbox, session, scan };
+}
+
+test("non-empty history continuation resumes with preserved and isolated shared history", async t => {
+  const { search, first, request, profile, sandbox, session, scan } =
+    await runHistoryContinuationFixture(t);
+
+  const continuation = first.domain.preserve.continuation;
+  assert.ok(continuation !== null, "expected a non-null continuation from the interrupted run");
+  assert.equal(first.domain.historicalMatches.length, 1, "expected one historical hit in the interrupted run");
+  const originalHistorical = first.domain.historicalMatches[0];
+  assert.equal(originalHistorical.invalidation.kind, "read_stale");
+  assert.equal(originalHistorical.invalidation.code, "READ_TARGET_CHANGED");
+  assert.deepEqual(originalHistorical.byteSpan, { start: 6, end: 16 });
+
+  const originalReport = JSON.parse(JSON.stringify(first.response.report));
+  const originalStateValues = first.response.report.states.map(record => record.value);
+  const originalHistory = originalStateValues
+    .flatMap(state => state.candidates)
+    .flatMap(candidate => candidate.history)[0];
+  assert.ok(originalHistory !== undefined, "expected the interrupted state to carry the history element");
+
+  const serializedContinuation = JSON.parse(JSON.stringify(continuation));
+  const second = await search.runCliContentSearchGoal(request, {
+    sandbox,
+    session,
+    profile,
+    limits: Object.freeze({ maxTransitions: 200, maxDepth: 8, maxDerivedGoals: 12 }),
+    scan,
+    continuation: serializedContinuation,
+  });
+
+  // The resumed request must preserve the historical fact and the committed
+  // receipt/evidence semantics instead of re-deriving the interrupted work.
+  assert.equal(second.domain.historicalMatches.length, 1);
+  const resumedHistorical = second.domain.historicalMatches[0];
+  assert.equal(resumedHistorical.invalidation.kind, originalHistorical.invalidation.kind);
+  assert.equal(resumedHistorical.invalidation.code, originalHistorical.invalidation.code);
+  assert.equal(resumedHistorical.invalidation.observedAtSourceRun, originalHistorical.invalidation.observedAtSourceRun);
+  assert.deepEqual(resumedHistorical.byteSpan, originalHistorical.byteSpan);
+  assert.equal(resumedHistorical.path, originalHistorical.path);
+  assert.equal(resumedHistorical.needle, originalHistorical.needle);
+  assert.equal(resumedHistorical.sourceRun, originalHistorical.sourceRun);
+
+  const firstDispatches = first.response.report.atomicResults.map(result => result.dispatchId);
+  const resumedDispatches = second.response.report.atomicResults.map(result => result.dispatchId);
+  assert.ok(
+    firstDispatches.every(id => resumedDispatches.includes(id)),
+    "resumed receipts must carry the interrupted dispatches",
+  );
+  const firstEvidence = first.response.report.evidence.map(record => record.id);
+  const resumedEvidence = second.response.report.evidence.map(record => record.id);
+  assert.ok(
+    firstEvidence.every(id => resumedEvidence.includes(id)),
+    "resumed evidence must carry the interrupted evidence",
+  );
+  assert.ok(
+    second.domain.bytesReadTotal > first.domain.bytesReadTotal,
+    "resume must advance past the interrupted read position",
+  );
+
+  // The original report/state stays unchanged after the resumed request.
+  assert.deepEqual(JSON.parse(JSON.stringify(first.response.report)), originalReport);
+
+  // Serialized continuation input must not alias the original in-memory state.
+  const resumedStateValues = second.response.report.states.map(record => record.value);
+  for (const value of resumedStateValues) {
+    for (const original of originalStateValues) {
+      assert.notEqual(value, original, "resumed states must not alias the original report states");
+    }
+  }
+
+  // Unchanged history elements are shared only within the resumed immutable graph.
+  const resumedHistory = resumedStateValues
+    .flatMap(state => state.candidates)
+    .flatMap(candidate => candidate.history);
+  assert.ok(resumedHistory.length >= 2, "expected history to persist across resumed states");
+  assert.equal(
+    new Set(resumedHistory).size,
+    1,
+    "unchanged history must share one reference across resumed states",
+  );
+  for (const history of resumedHistory) {
+    assert.notEqual(history, originalHistory, "resumed history must not alias the original history element");
+  }
 });
