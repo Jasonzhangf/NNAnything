@@ -145,14 +145,29 @@ function preferNewest(candidates: readonly string[], artifactName: string): stri
   return ranked[0]?.file ?? null;
 }
 
-function resolveJars(options: KotlinSymbolTableAdapterOptions): { jars: string[]; missing: string[] } {
-  if (options.kotlinJars !== undefined && options.kotlinJars.length > 0) {
-    return { jars: [...options.kotlinJars], missing: [] };
+function resolveExplicitJars(candidates: readonly string[]): { jars: string[]; missing: string[]; invalid: string[] } {
+  const jars = [...candidates];
+  const missing: string[] = [];
+  const invalid: string[] = [];
+  for (const name of REQUIRED_KOTLIN_ARTIFACTS) {
+    const matches = jars.filter(jar => artifactVersion(path.basename(jar), name) !== null);
+    if (matches.length === 0) {
+      missing.push(name);
+    } else if (matches.length > 1) {
+      invalid.push(`${name}: ${matches.join(", ")}`);
+    }
+  }
+  return { jars, missing, invalid };
+}
+
+function resolveJars(options: KotlinSymbolTableAdapterOptions): { jars: string[]; missing: string[]; invalid: string[] } {
+  if (options.kotlinJars !== undefined) {
+    return resolveExplicitJars(options.kotlinJars);
   }
   const explicit = process.env.NN_CODE_KOTLIN_JARS;
   if (explicit !== undefined && explicit.trim().length > 0) {
     const jars = explicit.split(path.delimiter).map(value => value.trim()).filter(value => value.length > 0);
-    return { jars, missing: [] };
+    return resolveExplicitJars(jars);
   }
 
   const buckets = new Map<string, string[]>();
@@ -168,7 +183,7 @@ function resolveJars(options: KotlinSymbolTableAdapterOptions): { jars: string[]
     if (chosen === null) missing.push(name);
     else jars.push(chosen);
   }
-  return { jars, missing };
+  return { jars, missing, invalid: [] };
 }
 
 type FileFailure = Readonly<{ file: string; reason: string }>;
@@ -420,6 +435,11 @@ export async function runKotlinSymbolTable(
 
   const java = resolveJava(options);
   const resolvedJars = resolveJars(options);
+  if (resolvedJars.invalid.length > 0) {
+    const details = [`ambiguous Kotlin JVM artifacts: ${resolvedJars.invalid.join("; ")}`];
+    if (resolvedJars.missing.length > 0) details.push(`missing required Kotlin JVM artifacts: ${resolvedJars.missing.join(", ")}`);
+    return rejected("parser_unavailable", details.join("; "));
+  }
   const driverClassDir = options.driverClassDir
     ?? path.resolve(dirname(fileURLToPath(import.meta.url)), "kotlin-symbol-jvm");
   const javaBin = java.path;

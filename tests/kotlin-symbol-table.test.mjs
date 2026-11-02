@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { lstatSync, readdirSync } from "node:fs";
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -58,7 +59,7 @@ function request(scope, extra = {}) {
 }
 
 function symbols(outcome) {
-  assert.equal(outcome.status, "ok");
+  assert.equal(outcome.status, "ok", JSON.stringify(outcome));
   if (outcome.status !== "ok") return [];
   return outcome.result.symbols;
 }
@@ -430,6 +431,63 @@ test("adapter: deduplicates duplicate file entries and rejects unsupported ignor
 test("adapter factory returns a callable symbols entry", () => {
   const adapter = createKotlinSymbolTableAdapter();
   assert.equal(typeof adapter.symbols, "function");
+});
+
+test("adapter: incomplete explicit Kotlin artifact set rejects before JVM start", async t => {
+  const parent = await mkdtemp(join(tmpdir(), "nnanything-kotlin-jars-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+
+  const stdlib = join(parent, "kotlin-stdlib-2.2.0.jar");
+  await writeFile(stdlib, "");
+  const expectedMissing = [
+    "kotlin-compiler-embeddable",
+    "kotlinx-coroutines-core-jvm",
+    "trove4j",
+  ];
+
+  const optionOutcome = await runKotlinSymbolTable(request(["kinds"]), { kotlinJars: [stdlib] });
+  assert.equal(optionOutcome.status, "rejected");
+  assert.equal(optionOutcome.reasonCode, "parser_unavailable");
+  assert.match(optionOutcome.message, /missing JVM runtime/);
+  for (const missing of expectedMissing) assert.ok(optionOutcome.message.includes(missing), missing);
+
+  const adapterPath = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "adapters", "cli", "kotlin-symbol-table-adapter.js");
+  const probe = join(parent, "env-probe.mjs");
+  await writeFile(probe, `
+    import { runKotlinSymbolTable } from ${JSON.stringify(adapterPath)};
+    const outcome = await runKotlinSymbolTable({
+      repo: ${JSON.stringify(FIXTURES)},
+      language: "kotlin",
+      scope: ["kinds"],
+      files: ["kinds/Kinds.kt"],
+      ignorePolicy: "no_ignore",
+    });
+    process.stdout.write(JSON.stringify(outcome));
+  `);
+  const envRun = spawnSync(process.execPath, [probe], {
+    cwd: dirname(fileURLToPath(import.meta.url)),
+    encoding: "utf8",
+    env: { ...process.env, NN_CODE_KOTLIN_JARS: stdlib },
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  assert.equal(envRun.status, 0, envRun.stderr);
+  const envOutcome = JSON.parse(envRun.stdout);
+  assert.equal(envOutcome.status, "rejected");
+  assert.equal(envOutcome.reasonCode, "parser_unavailable");
+  for (const missing of expectedMissing) assert.ok(envOutcome.message.includes(missing), missing);
+});
+
+test("adapter: duplicate explicit Kotlin artifact rejects", async t => {
+  const parent = await mkdtemp(join(tmpdir(), "nnanything-kotlin-jars-duplicate-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+
+  const stdlib = join(parent, "kotlin-stdlib-2.2.0.jar");
+  await writeFile(stdlib, "");
+  const outcome = await runKotlinSymbolTable(request(["kinds"]), { kotlinJars: [stdlib, stdlib] });
+  assert.equal(outcome.status, "rejected");
+  assert.equal(outcome.reasonCode, "parser_unavailable");
+  assert.match(outcome.message, /kotlin-stdlib/);
+  assert.match(outcome.message, /ambiguous/);
 });
 
 test("adapter: rejects final and parent symlinks without reading outside symbols", async t => {
