@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-11-02 Git 捕获截断修复与全局 symbols 入口复验
+
+- 发现 PR #9 的 Git 捕获把 `lib/adapters/cli/tsjs-symbol-table-adapter.ts` 截断为 1479 行，导致 clean Git main 的 `npm run build` 在 `runTsJsSymbolTable` 参数表处退出 1；LayerFS main 保留的是完整 1590 行实现。
+- PR #11 merge `6a6eeee` 已将缺失的 111 行补回 Git main；`npm run build`、`npm run typecheck` 和 symbols 六套件 76/76 通过，工作树干净。
+- 全局 `/opt/homebrew/bin/nn-code` 已从当前 main 安装；真实 `nn-code symbols` 查询分别返回 Java 26 个、TypeScript 49 个、JavaScript 13 个和 Swift 38 个符号，Rust/Kotlin 旧入口仍可用。
+
 ## 2026-11-02 nn-code symbols Java/TS-JS/Swift 合入 main；LayerFS main 同步完成
 
 - 完成度：`nn-code symbols` 公共入口现可分发 Java、TypeScript/JavaScript 与 Swift 符号查询，返回 `nnanything.cli-symbols.result.v1`；Rust 与 Kotlin 已有入口保留。
