@@ -177,7 +177,7 @@ ignore的监督目标是“是否需要作为agent独立交互／读取目标”
 
 使用Handwired必须显式配置源码根，缺失报错、不复制上游或假训练。新拟合使旧校准失效。离线训练/回放不触发浏览器operation。首个结构任务不冒称已解决普通帖/广告/推广来源分类。
 
-代码开发、测试、独立Review、Git集成和独占worktree沿全局AGENTS与适用Skills。本项目不新增机器manifest、全局插件注册服务或另一套执行引擎。
+代码开发、测试、独立Review和Git集成沿全局AGENTS与适用Skills；新任务沿下方 LayerFS 工作线，不新建 Git worktree。本项目不新增机器manifest、全局插件注册服务或另一套执行引擎。
 
 ## 推进与授权
 
@@ -190,6 +190,17 @@ ignore的监督目标是“是否需要作为agent独立交互／读取目标”
 采用DAGpipe图治理与AppSDK需求/交付治理原则。有效.appsdk/requirements.json存在时通过正式入口读取适用项；当前未初始化AppSDK，不伪造受管状态、不建需求占位。首次入驻沿既有prepare确认合同，不把它变成日常派发许可。
 
 本项目禁止不必要SHA/checksum、哈希清单、候选身份包装、冻结快照和重复校验。保留当前失败模式所需的真实入口、安全及数据正确性检查；有效未变证据直接复用。具体规则只维护于docs/project-governance.md，不新增另一套门禁。
+
+## LayerFS 工作线与交付（长期有效）
+
+用户已授权本项目迁移到 LayerFS。项目和运行入口按当前实例配置解析，不套用其他项目的路径、Store、命令或验收结果：
+
+- 项目名 `nnanything`；总目录 `/Volumes/extension/layerfs`；Git 基线 `/Volumes/extension/layerfs/nnanything/main`；项目 Store 为 Docker volume `layerfs-nnanything-store`，运行在专用 `colima-layerfs` VM。命令入口为 `layerfs --project nnanything` 或 `layerfs-nnanything`。
+- 新任务从 LayerFS main 建独占 task branch 和 Workspace，单 writer；不新建 Git worktree。task branch 只与 LayerFS main 同步；Git main 由 master 管理。
+- 每次 publish 前在实际待发布候选上运行项目本地 CI。项目当前以 `npm run build` 和 `npm run typecheck` 为基础门槛；`npm run test:full` 须带显式资产，已有 main 基线失败保留原错并单独记录，不得写成通过。失败不 publish、不绕过。
+- Git 元数据由 master 管理的独立 Git owner 保存，Workspace 与同步工作线不修改其中 `.git`。任务 publish 后由 Git owner 按发布边界生成独立 Git 提交；多个提交可汇合成一次 PR。PR 合并并核对远端后，Git 同步工作线才更新 LayerFS main，保留未交付任务。
+- 已有 Git worktree 继续由原 owner 按原流程交付，不强制迁移、不中断、不强删。dirty、活动或未交付内容按 PROTECTED_HOLD 保留；旧树的 PR 合并后，由 Git 同步工作线更新 LayerFS main，旧树随后自然关闭。
+- LayerFS 设计、样本或安装回执不代表项目端到端交付。真实入口、本地 CI、Git 提交、PR、远端 main 与安装或运行入口须分别验收；Store 当前为 Disposable 模式，有价值的 Git 提交与必要证据及时保存到可靠载体。
 
 ## 派发与并发分工（长期有效）
 
