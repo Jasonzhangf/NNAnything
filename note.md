@@ -1,5 +1,21 @@
 # 当前任务
 
+## 2026-11-02 nn-code symbols Java/TS-JS/Swift 合入 main；LayerFS main 同步完成
+
+- 完成度：`nn-code symbols` 公共入口现可分发 Java、TypeScript/JavaScript 与 Swift 符号查询，返回 `nnanything.cli-symbols.result.v1`；Rust 与 Kotlin 已有入口保留。
+- 合入 main：PR #9 merge `c076113`，27 文件（Java/TS-JS/Swift adapter、policy、JVM driver、fixtures 与公共入口回归），已 push 并核对 `origin/main`。
+- LayerFS main：符号切片已发布为 `32929967878451cc0a519a93d86a02ee35d40b4ad5c243a9f4b621c17d95d82b94`；PR #9 合并后 `origin/main` 业务树与 LayerFS main 内容一致，Git 同步线在 rustc 1.97.1 镜像上复验 build/typecheck 通过、符号套件 73 pass / 0 fail / 3 skip（Swift 真实 toolchain 三项在 Linux 镜像跳过）。
+- 工具链：LayerFS 运行时镜像已把 rust 工具链固定为 1.97.1；旧 rustc 1.85.1 沙盒不再作为验收基线。
+- 未完成边界：Swift 真实 `swiftc` 与真实 Swift 仓库用例仍在宿主工具链下单独验收；C++ 符号切片仍在本项目独立工作线。
+
+## 2026-11-02 LayerFS 入口复验；值流 r8 单 writer 续派
+
+- LayerFS 项目入口复验：项目名 `nnanything`，Store `layerfs-nnanything-store`，专用 VM `colima-layerfs` 保留；统一 entry `layerfs --project nnanything` 已在内；`layerfs-nnanything` 包装已废弃，全局 Skill 已改为 canonical entry。
+- LayerFS store 分支实际状态：`main` 与 `git-sync-final-1` 根内容一致（diff_branches 空），`git-sync-final-1` 已发布为 `32f98519`。Git 基线 `/Volumes/extension/layerfs/nnanything/main` 与 Git `main`、`origin/main` 均 `7b6daa5`；独立 Git owner `git-owner.git` 的 `git-main` 与 `origin/main` 也 `7b6daa5`。
+- 真实运行入口复验：新建 sandbox 1 并挂载 `git-sync-final-1`，工作区 `npm run build`、`npm run typecheck` 均 exit 0，`node dist/cli-call-depth-bin.js --help` 正常；`workspace mount 1 main` 仍返回 LayerFS `NoSuchBranch`，这是已有 CLI 限制，实际验收沿发布线执行，不写成 main 已可直接挂载。验证后 workspace 与 sandbox 1 已卸载、关闭。
+- 项目 AGENTS 的 LayerFS 规则已由 PR #8 合并进 main，正文使用 canonical `layerfs --project nnanything`；旧 worktree 按 PROTECTED_HOLD 保留，未迁移、未强删。
+- 值流执行缺口已落实：`nn-code-value-flow-memory-audit-r1` 仍 working，owner Jenny；r8 设计（`value-flow-memory-process-design-r8.md`）和 `carol-valueflow-memory-r8-audit.md` 已 PASS，可并入当前单 writer 合同。原候选树 `/Volumes/Intel/playground/nnanything/cli-value-flow-mvp` 保持 dirty 且无活动 writer。已落盘 r8-worker-task.md 并派唯一 GCM 到该原树接续，不新建 worktree，不 commit/merge/push。
+
 ## 2026-11-02 Shared AST 类方法与回调 callsite 修复已合入 main
 
 - 两项真实能力缺口已闭合：HumanAgent `UiRuntimeService.defaultOrchestrate` 类方法入口从基线 `entry_not_found` 变为 `achieved/complete`；AgentTeams `startAcpServe` 基线漏掉回调内 `startAcpServeLocked`，候选在 depth 1 即给出 `startAcpServe -> startAcpServeLocked` 边，动态回调边界保留显式 unknown。
