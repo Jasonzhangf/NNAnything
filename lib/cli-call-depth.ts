@@ -6,7 +6,7 @@
 // through the adapter; the AST policy is pure and performs no OS access.
 import { runRecursiveGoal } from "./workflow/recursive-goal/module.js";
 import type { RecursiveGoalLimits } from "./workflow/recursive-goal/contracts.js";
-import { join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import {
   createReadOnlyCliFilesystemSandbox,
   type CliFilesystemSandbox,
@@ -37,7 +37,10 @@ import {
   createReadOnlyContentSearchSandbox,
   runCliContentSearchGoal,
 } from "./cli-content-search.js";
-import type { ContentSearchDomainProjection } from "./adapters/cli/content-search-contract.js";
+import type {
+  ContentSearchDomainProjection,
+  ContentSearchScan,
+} from "./adapters/cli/content-search-contract.js";
 import {
   expandTextHit,
   recordTextExpansionFailure,
@@ -307,13 +310,38 @@ async function collectTextSearch(
       ? textSandbox.scenarioRoot
       : join(textSandbox.scenarioRoot, scope);
     let directory;
+    let fileCondition: Readonly<{ type: "regular"; name: string }> | null = null;
+    let recursion: "flat" | "nested" = "nested";
+    let scan: ContentSearchScan = TEXT_SCAN;
     try {
       const relativeScope = relative(session.cwd, absoluteScope) || ".";
       directory = await textSandbox.bindDirectory(textSession, relativeScope);
     } catch (error) {
-      complete = false;
-      errors.push(`scope ${scope}: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
+      const code = error !== null && typeof error === "object" && "code" in error
+        ? String(error.code)
+        : null;
+      if (code !== "NOT_DIRECTORY") {
+        complete = false;
+        errors.push(`scope ${scope}: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
+      try {
+        const file = await textSandbox.bindEntry(textSession, absoluteScope);
+        if (file.type !== "regular") {
+          throw Object.assign(new TypeError(`Scope path is not a regular file or directory: ${file.type}`), {
+            code: "UNSUPPORTED_SCOPE_TYPE",
+          });
+        }
+        const parentScope = relative(session.cwd, dirname(absoluteScope)) || ".";
+        directory = await textSandbox.bindDirectory(textSession, parentScope);
+        fileCondition = Object.freeze({ type: "regular" as const, name: basename(absoluteScope) });
+        recursion = "flat";
+        scan = Object.freeze({ ...TEXT_SCAN, maxDirectoryDepth: 0 });
+      } catch (fallbackError) {
+        complete = false;
+        errors.push(`scope ${scope}: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+        continue;
+      }
     }
 
     let result;
@@ -326,9 +354,9 @@ async function collectTextSearch(
           target: {
             kind: "cli.content-search-scope",
             directory,
-            fileCondition: null,
+            fileCondition,
             cardinality: "all",
-            recursion: "nested",
+            recursion,
           },
           requirement: {
             kind: "contains",
@@ -344,7 +372,7 @@ async function collectTextSearch(
         sandbox: searchSandbox,
         session: textSession,
         profile,
-        scan: TEXT_SCAN,
+        scan,
         limits: TEXT_LIMITS,
       });
     } catch (error) {

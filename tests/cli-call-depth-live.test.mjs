@@ -109,6 +109,61 @@ test("nn-code calls writes an external run log and echoes runLogPath", async t =
   events.forEach((event, index) => assert.equal(event.seq, index));
 });
 
+test("file-scope text scan binds the parent directory and reports one complete matched file", async t => {
+  const root = await makeRepo(t);
+  const logDir = await makeTempDir(t, "nn-code-file-scope-");
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.ts",
+    "--entry-symbol", "entry",
+    "--max-depth", "0",
+    "--scope", "src/entry.ts",
+    "--log-dir", logDir,
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.status, "achieved");
+  assert.equal(payload.coverage.text.complete, true);
+  assert.equal(payload.coverage.text.status, "complete");
+  assert.equal(payload.coverage.text.scannedFiles, 1);
+  assert.equal(payload.coverage.text.matchedFiles, 1);
+  assert.equal(payload.coverage.text.unresolvedFiles, 0);
+  assert.deepEqual(payload.coverage.text.failures, []);
+  assert.ok(payload.textCandidates.length > 0);
+  assert.ok(payload.textCandidates.every(candidate => candidate.filePath === "src/entry.ts"));
+
+  const logPath = join(logDir, `${payload.runId}.jsonl`);
+  const events = readJsonlText(await readFile(logPath, "utf8"));
+  const finish = events[events.length - 1];
+  assert.equal(finish.kind, "finish");
+  assert.equal(finish.coverage.coverage.text.complete, true);
+  assert.equal(finish.coverage.coverage.text.scannedFiles, 1);
+  assert.equal(finish.coverage.coverage.text.matchedFiles, 1);
+});
+
+test("file-scope text scan reports a structured no-match instead of a directory bind failure", async t => {
+  const root = await makeRepo(t);
+  const logDir = await makeTempDir(t, "nn-code-file-scope-miss-");
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/entry.ts",
+    "--entry-symbol", "missing",
+    "--max-depth", "0",
+    "--scope", "src/entry.ts",
+    "--log-dir", logDir,
+  ], tmpdir());
+  assert.equal(run.status, 2, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.status, "unmet");
+  assert.equal(payload.coverage.text.complete, true);
+  assert.equal(payload.coverage.text.status, "complete");
+  assert.equal(payload.coverage.text.scannedFiles, 1);
+  assert.equal(payload.coverage.text.matchedFiles, 0);
+  assert.equal(payload.coverage.text.unresolvedFiles, 0);
+  assert.deepEqual(payload.coverage.text.failures, []);
+  assert.equal(payload.textCandidates.length, 0);
+});
+
 test("successful query with a live usage log lock reports partial and stderr", async t => {
   const root = await makeRepo(t);
   const logDir = await makeTempDir(t, "nn-code-busy-log-");
