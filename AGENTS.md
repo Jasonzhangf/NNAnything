@@ -196,6 +196,7 @@ ignore的监督目标是“是否需要作为agent独立交互／读取目标”
 用户已授权本项目迁移到 LayerFS。项目和运行入口按当前实例配置解析，不套用其他项目的路径、Store、命令或验收结果：
 
 - 项目名 `nnanything`；总目录 `/Volumes/extension/layerfs`；Git 基线 `/Volumes/extension/layerfs/nnanything/main`；项目 Store 为 Docker volume `layerfs-nnanything-store`，运行在专用 `colima-layerfs` VM。统一命令入口为 `layerfs --project nnanything`，项目和宿主差异由项目配置承载。
+- LayerFS main 是只读发布基线：只读取、比较和从它创建分支，不直接编辑，也不在其中运行会修改项目文件的验证或构建；源码、配置、文档（含 AGENTS.md）与构建产物一律在独占 task branch 或 Git 同步分支的 Workspace 中写入，main 仅经初始化或通过本地 CI 的 publish 更新。
 - 新任务从 LayerFS main 建独占 task branch 和 Workspace，单 writer；不新建 Git worktree。task branch 只与 LayerFS main 同步；Git main 由 master 管理。
 - 每次 publish 前在实际待发布候选上运行项目本地 CI。项目当前以 `npm run build` 和 `npm run typecheck` 为基础门槛；`npm run test:full` 须带显式资产，已有 main 基线失败保留原错并单独记录，不得写成通过。失败不 publish、不绕过。
 - Git 元数据由 master 管理的独立 Git owner 保存，Workspace 与同步工作线不修改其中 `.git`。任务 publish 后由 Git owner 按发布边界生成独立 Git 提交；多个提交可汇合成一次 PR。PR 合并并核对远端后，Git 同步工作线才更新 LayerFS main，保留未交付任务。
