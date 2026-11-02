@@ -281,6 +281,7 @@ type NodeRecord = Readonly<{ decl: DeclInfo; callerChain: string }>;
 type EdgeDraft = Readonly<{
   callerId: string;
   calleeId: string;
+  resolutionKind: CallGraphResolvedEdgeFact["resolutionKind"];
   callsiteSpan: DeclSpan;
   evidenceSnippet: string;
 }>;
@@ -443,6 +444,7 @@ function analyze(
             edgeDrafts.set(key, Object.freeze({
               callerId: nodeId,
               calleeId,
+              resolutionKind: resolution.originFile === record.decl.file ? "same_file" : "cross_file_direct",
               callsiteSpan: callsite.span,
               evidenceSnippet: callsite.calleeExpr,
             }));
@@ -492,6 +494,7 @@ function analyze(
       callerId: draft.callerId,
       calleeId: draft.calleeId,
       edgeKind: "resolved_in_repo" as const,
+      resolutionKind: draft.resolutionKind,
       isCycleEdge: reachable(draft.calleeId, draft.callerId, adjacency),
       calleeInDegree: inDegree.get(draft.calleeId) ?? 0,
       callsiteSpan: draft.callsiteSpan,

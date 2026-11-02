@@ -5,8 +5,9 @@
 import * as ts from "typescript";
 import type { DeclSpan } from "../adapters/cli/call-depth-contract.js";
 
-// The policy always parses with the TypeScript compiler API and ScriptKind.TS.
-// Report this real backend instead of the requested language route.
+// The policy always parses with the TypeScript compiler API. The ScriptKind is
+// chosen from the file extension so .js/.jsx/.mjs/.cjs follow JS parsing and
+// .ts/.tsx/.mts/.cts follow TS parsing.
 export const CALL_DEPTH_ACTUAL_PARSER = "typescript" as const;
 
 export type DeclKind =
@@ -52,13 +53,21 @@ export const GLOBAL_WHITELIST = new Set([
   "process", "URL",
 ]);
 
+function scriptKindOf(relPath: string): ts.ScriptKind {
+  const lower = relPath.toLowerCase();
+  if (lower.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (lower.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
 export function parseSourceFile(relPath: string, sourceText: string): SourceFileInfo {
   const sourceFile = ts.createSourceFile(
     relPath,
     sourceText,
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    scriptKindOf(relPath),
   );
   return Object.freeze({ relPath, sourceFile, text: sourceText });
 }
@@ -126,6 +135,211 @@ function rootIdentifierOf(expression: ts.Expression): ts.Identifier | null {
   if (ts.isIdentifier(core)) return core;
   if (ts.isPropertyAccessExpression(core)) return rootIdentifierOf(core.expression);
   return null;
+}
+
+function calleeMemberOf(callee: ts.Expression): { rootId: ts.Identifier | null; member: MemberAccess } {
+  const core = unwrapParens(callee);
+  if (ts.isIdentifier(core)) {
+    return { rootId: core, member: Object.freeze({ kind: "none" as const }) };
+  }
+  if (ts.isPropertyAccessExpression(core)) {
+    const object = unwrapParens(core.expression);
+    if (ts.isIdentifier(object)) {
+      return { rootId: object, member: Object.freeze({ kind: "static" as const, name: core.name.text }) };
+    }
+    return { rootId: rootIdentifierOf(core.expression), member: Object.freeze({ kind: "nested" as const }) };
+  }
+  if (ts.isElementAccessExpression(core)) {
+    const object = unwrapParens(core.expression);
+    if (ts.isIdentifier(object)) {
+      return { rootId: object, member: Object.freeze({ kind: "computed" as const }) };
+    }
+    return { rootId: rootIdentifierOf(core.expression), member: Object.freeze({ kind: "nested" as const }) };
+  }
+  return { rootId: null, member: Object.freeze({ kind: "none" as const }) };
+}
+
+function literalRequireSpecifier(call: ts.CallExpression): string | null {
+  const core = unwrapParens(call.expression);
+  if (!ts.isIdentifier(core) || core.text !== "require") return null;
+  if (call.arguments.length !== 1) return null;
+  const argument = call.arguments[0];
+  if (argument === undefined || !ts.isStringLiteralLike(argument)) return null;
+  return argument.text;
+}
+
+function bindingNameDeclares(name: ts.BindingName, target: string): boolean {
+  let found = false;
+  forEachBindingIdentifier(name, identifier => {
+    if (identifier.text === target) found = true;
+  });
+  return found;
+}
+
+function scopeDeclaresIdentifier(statements: readonly ts.Statement[], target: string): boolean {
+  for (const statement of statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === target) return true;
+    if (ts.isClassDeclaration(statement) && statement.name?.text === target) return true;
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (bindingNameDeclares(declaration.name, target)) return true;
+      }
+    }
+    if (ts.isImportDeclaration(statement) && statement.importClause !== undefined) {
+      const clause = statement.importClause;
+      if (clause.name !== undefined && clause.name.text === target) return true;
+      if (clause.namedBindings !== undefined) {
+        if (ts.isNamespaceImport(clause.namedBindings) && clause.namedBindings.name.text === target) return true;
+        if (ts.isNamedImports(clause.namedBindings)) {
+          for (const element of clause.namedBindings.elements) {
+            if (element.name.text === target) return true;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function requireIsShadowed(info: SourceFileInfo, position: ts.Node): boolean {
+  let node: ts.Node | undefined = position.parent;
+  while (node !== undefined) {
+    if (
+      ts.isArrowFunction(node)
+      || ts.isFunctionExpression(node)
+      || ts.isFunctionDeclaration(node)
+      || ts.isMethodDeclaration(node)
+      || ts.isConstructorDeclaration(node)
+    ) {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === "require") return true;
+      for (const param of node.parameters) {
+        if (bindingNameDeclares(param.name, "require")) return true;
+      }
+    } else if (ts.isCatchClause(node)) {
+      if (node.variableDeclaration !== undefined && bindingNameDeclares(node.variableDeclaration.name, "require")) {
+        return true;
+      }
+    } else if (ts.isBlock(node) || ts.isSourceFile(node)) {
+      if (scopeDeclaresIdentifier(node.statements, "require")) return true;
+    }
+    if (ts.isSourceFile(node)) break;
+    node = node.parent;
+  }
+  return false;
+}
+
+function staticNamespaceMemberWriteTarget(
+  expression: ts.Expression,
+): { local: string; member: string } | null {
+  const core = unwrapParens(expression);
+  if (ts.isPropertyAccessExpression(core) && ts.isIdentifier(core.expression)) {
+    if (!ts.isIdentifier(core.name) && !ts.isStringLiteral(core.name)) return null;
+    return { local: core.expression.text, member: core.name.text };
+  }
+  if (ts.isElementAccessExpression(core) && ts.isIdentifier(core.expression)) {
+    const argument = core.argumentExpression;
+    if (argument === undefined || !ts.isStringLiteralLike(argument)) return null;
+    return { local: core.expression.text, member: argument.text };
+  }
+  return null;
+}
+
+function namespaceMemberWriteNames(
+  declaration: ts.VariableDeclaration,
+  local: string,
+): readonly string[] {
+  const list = declaration.parent;
+  const statement = list === undefined ? undefined : list.parent;
+  const container = statement === undefined ? undefined : statement.parent;
+  if (container === undefined || (!ts.isSourceFile(container) && !ts.isBlock(container))) {
+    return Object.freeze([]);
+  }
+  const names = new Set<string>();
+  for (const candidate of container.statements) {
+    if (!ts.isExpressionStatement(candidate)) continue;
+    const expression = candidate.expression;
+    let target: ts.Expression | null = null;
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      target = expression.left;
+    } else if (ts.isDeleteExpression(expression)) {
+      target = expression.expression;
+    }
+    if (target === null) continue;
+    const hit = staticNamespaceMemberWriteTarget(target);
+    if (hit !== null && hit.local === local) names.add(hit.member);
+  }
+  return Object.freeze([...names]);
+}
+
+type CommonJsRequireBinding =
+  | Readonly<{ specifier: string; form: "namespace"; local: string }>
+  | Readonly<{
+      specifier: string;
+      form: "destructured";
+      bindings: readonly Readonly<{ local: string; exportName: string }>[];
+    }>;
+
+function commonJsRequireOf(info: SourceFileInfo, declaration: ts.VariableDeclaration): CommonJsRequireBinding | null {
+  if (declaration.initializer === undefined) return null;
+  const list = declaration.parent;
+  if (list === undefined || !ts.isVariableDeclarationList(list)) return null;
+  if ((list.flags & ts.NodeFlags.Const) === 0) return null;
+  const initializer = unwrapParens(declaration.initializer);
+  if (!ts.isCallExpression(initializer)) return null;
+  const specifier = literalRequireSpecifier(initializer);
+  if (specifier === null) return null;
+  if (requireIsShadowed(info, declaration)) return null;
+  if (ts.isIdentifier(declaration.name)) {
+    return Object.freeze({ specifier, form: "namespace" as const, local: declaration.name.text });
+  }
+  if (ts.isObjectBindingPattern(declaration.name)) {
+    const bindings: { local: string; exportName: string }[] = [];
+    for (const element of declaration.name.elements) {
+      if (!ts.isBindingElement(element)) return null;
+      if (element.dotDotDotToken !== undefined || element.initializer !== undefined) return null;
+      if (!ts.isIdentifier(element.name)) return null;
+      if (element.propertyName === undefined) {
+        bindings.push({ local: element.name.text, exportName: element.name.text });
+      } else if (ts.isIdentifier(element.propertyName) || ts.isStringLiteral(element.propertyName)) {
+        bindings.push({ local: element.name.text, exportName: element.propertyName.text });
+      } else {
+        return null;
+      }
+    }
+    return Object.freeze({ specifier, form: "destructured" as const, bindings: Object.freeze(bindings) });
+  }
+  return null;
+}
+
+function lexicalBindingsForCommonJs(
+  info: SourceFileInfo,
+  declaration: ts.VariableDeclaration,
+): readonly (readonly [string, LexicalBinding])[] {
+  const cjs = commonJsRequireOf(info, declaration);
+  if (cjs === null) return Object.freeze([]);
+  if (cjs.form === "namespace") {
+    const invalidMembers = namespaceMemberWriteNames(declaration, cjs.local);
+    return Object.freeze([Object.freeze([
+      cjs.local,
+      Object.freeze({
+        kind: "module" as const,
+        moduleSpecifier: cjs.specifier,
+        exportName: "*",
+        cjs: true,
+        invalidMembers,
+      }),
+    ] as const)]);
+  }
+  return Object.freeze(cjs.bindings.map(binding => Object.freeze([
+    binding.local,
+    Object.freeze({
+      kind: "module" as const,
+      moduleSpecifier: cjs.specifier,
+      exportName: binding.exportName,
+      cjs: true,
+      invalidMembers: Object.freeze([]),
+    }),
+  ] as const)));
 }
 
 function callableExpression(node: ts.Expression): boolean {
@@ -461,6 +675,152 @@ export function declarationsOf(info: SourceFileInfo): FileDeclarations {
     }
   }
 
+  // CommonJS literal export surface. Only static module.exports/exports.<name>
+  // assignments participate; any computed/spread/dynamic shape leaves the name
+  // unbound instead of fabricating a target declaration.
+  const cjsEntries = new Map<string, DeclInfo>();
+  let cjsReplaced = false;
+
+  function localTopLevelDecl(name: string): DeclInfo | undefined {
+    return byChain.get(name) ?? all.find(item => item.name === name && !item.chain.includes("."));
+  }
+
+  function makeCjsCallable(name: string, node: ts.ArrowFunction | ts.FunctionExpression): DeclInfo {
+    const arrow = ts.isArrowFunction(node);
+    const localName = arrow ? name : (node.name?.text ?? name);
+    const kind: DeclKind = arrow ? "arrow" : "function";
+    return makeDecl(info.sourceFile, info.relPath, localName, localName, kind, node);
+  }
+
+  function isModuleExportsAccess(node: ts.Expression): boolean {
+    return ts.isPropertyAccessExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === "module"
+      && node.name.text === "exports";
+  }
+
+  function isModuleExportsNameAccess(node: ts.Expression): string | null {
+    if (!ts.isPropertyAccessExpression(node)) return null;
+    if (!isModuleExportsAccess(node.expression)) return null;
+    if (!ts.isIdentifier(node.name) && !ts.isStringLiteral(node.name)) return null;
+    return node.name.text;
+  }
+
+  function isExportsNameAccess(node: ts.Expression): string | null {
+    if (!ts.isPropertyAccessExpression(node)) return null;
+    if (!ts.isIdentifier(node.expression) || node.expression.text !== "exports") return null;
+    if (!ts.isIdentifier(node.name) && !ts.isStringLiteral(node.name)) return null;
+    return node.name.text;
+  }
+
+  function collectModuleExportsAssignment(expression: ts.Expression): void {
+    const core = unwrapParens(expression);
+    if (ts.isObjectLiteralExpression(core)) {
+      const entries: [string, DeclInfo][] = [];
+      let dynamic = false;
+      for (const property of core.properties) {
+        if (ts.isSpreadAssignment(property)) {
+          dynamic = true;
+          break;
+        }
+        if (ts.isShorthandPropertyAssignment(property)) {
+          const local = localTopLevelDecl(property.name.text);
+          if (local !== undefined) entries.push([property.name.text, local]);
+          continue;
+        }
+        if (ts.isPropertyAssignment(property)) {
+          if (!ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name)) {
+            dynamic = true;
+            break;
+          }
+          const exportName = property.name.text;
+          const initializer = unwrapParens(property.initializer);
+          if (ts.isIdentifier(initializer)) {
+            const local = localTopLevelDecl(initializer.text);
+            if (local !== undefined) entries.push([exportName, local]);
+          } else if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+            const decl = makeCjsCallable(exportName, initializer);
+            remember(decl);
+            entries.push([exportName, decl]);
+          }
+          continue;
+        }
+        dynamic = true;
+        break;
+      }
+      if (!dynamic) {
+        for (const [name, decl] of entries) cjsEntries.set(name, decl);
+      }
+      return;
+    }
+    if (ts.isIdentifier(core)) {
+      const local = localTopLevelDecl(core.text);
+      if (local !== undefined) cjsEntries.set("default", local);
+      return;
+    }
+    if (ts.isArrowFunction(core) || ts.isFunctionExpression(core)) {
+      const decl = makeCjsCallable("default", core);
+      remember(decl);
+      cjsEntries.set("default", decl);
+      return;
+    }
+  }
+
+  function collectNamedCjsAssignment(name: string, expression: ts.Expression): void {
+    const core = unwrapParens(expression);
+    if (ts.isIdentifier(core)) {
+      const local = localTopLevelDecl(core.text);
+      if (local !== undefined) cjsEntries.set(name, local);
+      else cjsEntries.delete(name);
+      return;
+    }
+    if (ts.isArrowFunction(core) || ts.isFunctionExpression(core)) {
+      const decl = makeCjsCallable(name, core);
+      remember(decl);
+      cjsEntries.set(name, decl);
+      return;
+    }
+    cjsEntries.delete(name);
+  }
+
+  if (
+    !scopeDeclaresIdentifier(info.sourceFile.statements, "module")
+    && !scopeDeclaresIdentifier(info.sourceFile.statements, "exports")
+  ) {
+    for (const statement of info.sourceFile.statements) {
+      if (!ts.isExpressionStatement(statement)) continue;
+      if (ts.isDeleteExpression(statement.expression)) {
+        const target = statement.expression.expression;
+        const moduleName = isModuleExportsNameAccess(target);
+        if (moduleName !== null) {
+          cjsEntries.delete(moduleName);
+          continue;
+        }
+        const exportsName = isExportsNameAccess(target);
+        if (!cjsReplaced && exportsName !== null) cjsEntries.delete(exportsName);
+        continue;
+      }
+      if (!ts.isBinaryExpression(statement.expression)) continue;
+      if (statement.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
+      const left = statement.expression.left;
+      const right = statement.expression.right;
+      if (isModuleExportsAccess(left)) {
+        cjsReplaced = true;
+        cjsEntries.clear();
+        collectModuleExportsAssignment(right);
+      } else if (isModuleExportsNameAccess(left) !== null) {
+        const name = isModuleExportsNameAccess(left)!;
+        collectNamedCjsAssignment(name, right);
+      } else if (!cjsReplaced && isExportsNameAccess(left) !== null) {
+        const name = isExportsNameAccess(left)!;
+        collectNamedCjsAssignment(name, right);
+      }
+    }
+  }
+  for (const [name, decl] of cjsEntries) {
+    if (!valueExports.has(name)) rememberExport(name, decl);
+  }
+
   return Object.freeze({
     all: Object.freeze(all),
     byChain,
@@ -506,8 +866,21 @@ export function resolveEntry(
   return { status: "ok", decl: only };
 }
 
+type MemberAccess =
+  | Readonly<{ kind: "none" }>
+  | Readonly<{ kind: "static"; name: string }>
+  | Readonly<{ kind: "computed" }>
+  | Readonly<{ kind: "nested" }>;
+
 type LexicalBinding =
   | Readonly<{ kind: "callable"; decl: DeclInfo }>
+  | Readonly<{
+      kind: "module";
+      moduleSpecifier: string;
+      exportName: string;
+      cjs: boolean;
+      invalidMembers: readonly string[];
+    }>
   | Readonly<{ kind: "noncallable"; reason: string }>
   | Readonly<{ kind: "none" }>;
 
@@ -517,6 +890,7 @@ export type RawCallsite = Readonly<{
   span: DeclSpan;
   lexical: LexicalBinding;
   callerChain: string;
+  member: MemberAccess;
 }>;
 
 function paramScope(params: readonly ts.ParameterDeclaration[]): Map<string, LexicalBinding> {
@@ -554,6 +928,11 @@ function blockScope(
     }
     if (ts.isVariableStatement(stmt)) {
       for (const declaration of stmt.declarationList.declarations) {
+        const commonJsBindings = lexicalBindingsForCommonJs(info, declaration);
+        if (commonJsBindings.length > 0) {
+          for (const [name, binding] of commonJsBindings) scope.set(name, binding);
+          continue;
+        }
         if (ts.isIdentifier(declaration.name)) {
           if (declaration.initializer !== undefined && callableExpression(declaration.initializer)) {
             const core = unwrapParens(declaration.initializer);
@@ -611,6 +990,11 @@ function enclosingShadowBindings(
     }
   };
   const addVariable = (declaration: ts.VariableDeclaration): void => {
+    const commonJsBindings = lexicalBindingsForCommonJs(info, declaration);
+    if (commonJsBindings.length > 0) {
+      for (const [name, binding] of commonJsBindings) remember(name, binding);
+      return;
+    }
     if (ts.isIdentifier(declaration.name)) {
       const callable = declaration.initializer !== undefined && callableExpression(declaration.initializer);
       if (callable) {
@@ -669,9 +1053,38 @@ export function extractCallsites(
   for (const [name, binding] of enclosingShadowBindings(info, body)) {
     if (!rootScope.has(name)) rootScope.set(name, binding);
   }
+  // Member names written through a module namespace binding discovered while
+  // walking this entry body. The map is keyed by the immutable binding object,
+  // so nested scope copies share the same identity unless a local declaration
+  // shadows it with a fresh binding. A shadowing parameter or local therefore
+  // cannot pollute the outer namespace.
+  const dynamicInvalid = new Map<LexicalBinding, Set<string>>();
   const out: RawCallsite[] = [];
 
+  function recordNamespaceWrite(target: ts.Expression, activeScope: Map<string, LexicalBinding>): void {
+    const hit = staticNamespaceMemberWriteTarget(target);
+    if (hit === null) return;
+    const binding = activeScope.get(hit.local);
+    if (binding === undefined || binding.kind !== "module" || !binding.cjs || binding.exportName !== "*") return;
+    const members = dynamicInvalid.get(binding) ?? new Set<string>();
+    members.add(hit.member);
+    dynamicInvalid.set(binding, members);
+  }
+
+  function reportedBinding(binding: LexicalBinding, extra: ReadonlySet<string> | undefined): LexicalBinding {
+    if (binding.kind !== "module" || extra === undefined || extra.size === 0) return binding;
+    const merged = new Set(binding.invalidMembers);
+    for (const member of extra) merged.add(member);
+    return Object.freeze({ ...binding, invalidMembers: Object.freeze([...merged]) });
+  }
+
   function visit(node: ts.Node, activeScope: Map<string, LexicalBinding>): void {
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      recordNamespaceWrite(node.left, activeScope);
+    }
+    if (ts.isDeleteExpression(node)) {
+      recordNamespaceWrite(node.expression, activeScope);
+    }
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const unwrapped = unwrapParens(callee);
@@ -688,25 +1101,27 @@ export function extractCallsites(
         visit(fnBody, local);
         return;
       }
-      const root = rootIdentifierOf(callee);
-      if (root === null) {
+      const shape = calleeMemberOf(callee);
+      if (shape.rootId === null) {
         out.push(Object.freeze({
           rootId: null,
           calleeExpr: info.text.slice(callee.getStart(info.sourceFile), callee.getEnd()),
           span,
           lexical: Object.freeze({ kind: "none" as const }),
           callerChain,
+          member: shape.member,
         }));
       } else {
-        const binding = activeScope.get(root.text);
+        const binding = activeScope.get(shape.rootId.text);
         out.push(Object.freeze({
-          rootId: root.text,
+          rootId: shape.rootId.text,
           calleeExpr: info.text.slice(callee.getStart(info.sourceFile), callee.getEnd()),
           span,
           lexical: binding === undefined
             ? Object.freeze({ kind: "none" as const })
-            : binding,
+            : reportedBinding(binding, dynamicInvalid.get(binding)),
           callerChain,
+          member: shape.member,
         }));
       }
       visit(callee, activeScope);
@@ -1034,6 +1449,42 @@ export function resolveCallsite(
   }
   const caller = store.get(callerFile);
   if (caller === undefined) return { kind: "pending", path: callerFile };
+  if (callsite.lexical.kind === "module") {
+    if (callsite.lexical.cjs) {
+      const resolvedFile = resolveModuleFile(callerFile, callsite.lexical.moduleSpecifier, store, scopePaths);
+      if (resolvedFile.kind === "out_of_scope") {
+        return { kind: "external", reason: "EXTERNAL_MODULE_SPECIFIER" };
+      }
+      if (resolvedFile.kind === "missing") {
+        return { kind: "unresolved", reason: "MODULE_FILE_NOT_FOUND" };
+      }
+      if (resolvedFile.kind === "pending") {
+        return { kind: "pending", path: resolvedFile.path };
+      }
+      let exportName: string;
+      if (callsite.lexical.exportName === "*") {
+        if (callsite.member.kind === "static") exportName = callsite.member.name;
+        else if (callsite.member.kind === "none") exportName = "default";
+        else return { kind: "dynamic", reason: "UNRESOLVED_CALLEE_EXPRESSION" };
+      } else {
+        if (callsite.member.kind !== "none") {
+          return { kind: "dynamic", reason: "UNRESOLVED_CALLEE_EXPRESSION" };
+        }
+        exportName = callsite.lexical.exportName;
+      }
+      if (callsite.lexical.invalidMembers.includes(exportName)) {
+        return { kind: "dynamic", reason: "CJS_NAMESPACE_MEMBER_OVERRIDDEN" };
+      }
+      const moduleResult = resolveModuleExport(store, resolvedFile.path, exportName, scopePaths, Object.freeze([]));
+      if (moduleResult.kind === "pending") return moduleResult;
+      if (moduleResult.kind === "ambiguous") return { kind: "unresolved", reason: "AMBIGUOUS_BARREL_WILDCARD_EXPORT" };
+      if (moduleResult.kind === "type_only") return { kind: "unresolved", reason: "TYPE_ONLY_IMPORT_OR_DECLARATION" };
+      if (moduleResult.kind === "notfound") return { kind: "unresolved", reason: "EXPORT_NAME_NOT_FOUND" };
+      if (moduleResult.kind === "unresolved") return { kind: "unresolved", reason: moduleResult.reason };
+      return verifyCallableImplementation(moduleResult.decl, moduleResult.originFile, false);
+    }
+    return { kind: "dynamic", reason: "UNRESOLVED_CALLEE_EXPRESSION" };
+  }
   const imports = collectImports(caller);
   const imported = imports.find(item => item.local === callsite.rootId);
   if (imported !== undefined) {

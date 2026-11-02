@@ -950,3 +950,581 @@ test("CD1-T9 genuinely absent export keeps EXPORT_NAME_NOT_FOUND", async t => {
   assert.deepEqual(edgePairs(result), []);
   assert.deepEqual(unresolvedOf(result), [{ kind: "unresolved_missing_or_ambiguous_target", code: "EXPORT_NAME_NOT_FOUND" }]);
 });
+
+// ---------------------------------------------------------------------------
+// CD1-T11: CommonJS literal require determinism (buglist 40935e7).
+// Four positive binding shapes must become cross_file_direct edges. Six
+// negative/boundary shapes must stay unresolved without a fabricated edge.
+// ---------------------------------------------------------------------------
+function functionExpressionSpan(source, name) {
+  const sourceFile = parse(source);
+  const node = firstNode(
+    sourceFile,
+    value => ts.isFunctionExpression(value) && value.name?.text === name,
+  );
+  assert.ok(node !== undefined, `fixture must contain function expression ${name}`);
+  return spanOf(sourceFile, node);
+}
+
+function edgeBetween(result, callerId, calleeId) {
+  return result.edges.find(edge => edge.callerId === callerId && edge.calleeId === calleeId) ?? null;
+}
+
+function unresolvedFor(result, calleeExpr) {
+  return result.unresolvedCallsites.filter(call => call.calleeExpr === calleeExpr);
+}
+
+const CJS_POS1_CALLER = [
+  'const { resolveManualFactoryWait } = require("./admin-db");',
+  "export function listAdminOrders(orderId: string) {",
+  "  return resolveManualFactoryWait(orderId);",
+  "}",
+].join("\n");
+const CJS_POS1_TARGET = [
+  "function resolveManualFactoryWait(orderId: string) {",
+  "  return { orderId, ready: true };",
+  "}",
+  "module.exports = { resolveManualFactoryWait };",
+].join("\n");
+
+test("CD1-T11 CJS destructured same-name require binds across files", async t => {
+  const entries = [
+    { path: "src/orders/orders.ts", kind: "file", contents: CJS_POS1_CALLER },
+    { path: "src/orders/admin-db.ts", kind: "file", contents: CJS_POS1_TARGET },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/orders/orders.ts", "listAdminOrders", 2), {
+    requestId: "cd1-t11-cjs-pos1",
+  });
+  const callerId = nodeId("src/orders/orders.ts", "listAdminOrders", namedFunctionSpan(CJS_POS1_CALLER, "listAdminOrders"));
+  const calleeId = nodeId("src/orders/admin-db.ts", "resolveManualFactoryWait", namedFunctionSpan(CJS_POS1_TARGET, "resolveManualFactoryWait"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "destructured literal require resolves the cross-file function");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.equal(edge.evidenceSnippet, "resolveManualFactoryWait");
+  assert.equal(edge.callsiteSpan.startLine, 3, "the resolved edge keeps the callsite source line");
+  assert.deepEqual(result.unresolvedCallsites, []);
+});
+
+const CJS_POS2_CALLER = [
+  'const { resolveManualFactoryWait: waitManual } = require("./admin-db");',
+  "function dispatchAlias(orderId) {",
+  "  return waitManual(orderId);",
+  "}",
+].join("\n");
+const CJS_POS2_TARGET = [
+  "function resolveManualFactoryWait(orderId) {",
+  "  return orderId;",
+  "}",
+  "exports.resolveManualFactoryWait = resolveManualFactoryWait;",
+].join("\n");
+
+test("CD1-T11 CJS destructured alias follows exports.<name> binding", async t => {
+  const entries = [
+    { path: "src/orders/order-alias.js", kind: "file", contents: CJS_POS2_CALLER },
+    { path: "src/orders/admin-db.js", kind: "file", contents: CJS_POS2_TARGET },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/orders/order-alias.js", "dispatchAlias", 2), {
+    requestId: "cd1-t11-cjs-pos2",
+  });
+  const callerId = nodeId("src/orders/order-alias.js", "dispatchAlias", namedFunctionSpan(CJS_POS2_CALLER, "dispatchAlias"));
+  const calleeId = nodeId("src/orders/admin-db.js", "resolveManualFactoryWait", namedFunctionSpan(CJS_POS2_TARGET, "resolveManualFactoryWait"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "aliased destructuring follows the exported property name");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(result.unresolvedCallsites, []);
+});
+
+const CJS_POS3_CALLER = [
+  'const adminDb = require("./admin-db");',
+  "function verifyInvoice(orderId) {",
+  "  return adminDb.resolveManualFactoryWait(orderId);",
+  "}",
+].join("\n");
+const CJS_POS3_TARGET = [
+  "function resolveManualFactoryWait(orderId) {",
+  "  return orderId;",
+  "}",
+  "module.exports = { resolveManualFactoryWait };",
+].join("\n");
+
+test("CD1-T11 CJS namespace require resolves a static member call", async t => {
+  const entries = [
+    { path: "src/billing/invoice-service.js", kind: "file", contents: CJS_POS3_CALLER },
+    { path: "src/billing/admin-db.js", kind: "file", contents: CJS_POS3_TARGET },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/billing/invoice-service.js", "verifyInvoice", 2), {
+    requestId: "cd1-t11-cjs-pos3",
+  });
+  const callerId = nodeId("src/billing/invoice-service.js", "verifyInvoice", namedFunctionSpan(CJS_POS3_CALLER, "verifyInvoice"));
+  const calleeId = nodeId("src/billing/admin-db.js", "resolveManualFactoryWait", namedFunctionSpan(CJS_POS3_TARGET, "resolveManualFactoryWait"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "namespace member resolves the named export");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(result.unresolvedCallsites, []);
+});
+
+const CJS_POS4_CALLER = [
+  'const runOrderCheck = require("./order-check.cjs");',
+  "function enforceGuard(ctx) {",
+  "  return runOrderCheck(ctx);",
+  "}",
+].join("\n");
+const CJS_POS4_TARGET = [
+  "module.exports = function runOrderCheck(ctx) {",
+  "  return ctx !== null;",
+  "};",
+].join("\n");
+const CJS_POS4_ID_CALLER = [
+  'const runOrderCheck = require("./order-check-named.cjs");',
+  "function enforceGuard(ctx) {",
+  "  return runOrderCheck(ctx);",
+  "}",
+].join("\n");
+const CJS_POS4_ID_TARGET = [
+  "const runOrderCheck = (ctx) => ctx !== null;",
+  "module.exports = runOrderCheck;",
+].join("\n");
+
+test("CD1-T11 CJS module.exports callable resolves direct and identifier forms", async t => {
+  const entries = [
+    { path: "src/checkout/guard.cjs", kind: "file", contents: CJS_POS4_CALLER },
+    { path: "src/checkout/order-check.cjs", kind: "file", contents: CJS_POS4_TARGET },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/checkout/guard.cjs", "enforceGuard", 2), {
+    requestId: "cd1-t11-cjs-pos4",
+  });
+  const callerId = nodeId("src/checkout/guard.cjs", "enforceGuard", namedFunctionSpan(CJS_POS4_CALLER, "enforceGuard"));
+  const calleeId = nodeId("src/checkout/order-check.cjs", "runOrderCheck", functionExpressionSpan(CJS_POS4_TARGET, "runOrderCheck"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "module.exports = function name resolves the default callable");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(result.unresolvedCallsites, []);
+
+  const identifierEntries = [
+    { path: "src/checkout/guard-named.cjs", kind: "file", contents: CJS_POS4_ID_CALLER },
+    { path: "src/checkout/order-check-named.cjs", kind: "file", contents: CJS_POS4_ID_TARGET },
+  ];
+  const identifierRun = await runFixture(
+    t,
+    identifierEntries,
+    goal("src/checkout/guard-named.cjs", "enforceGuard", 2),
+    { requestId: "cd1-t11-cjs-pos4-named" },
+  );
+  const namedCallerId = nodeId("src/checkout/guard-named.cjs", "enforceGuard", namedFunctionSpan(CJS_POS4_ID_CALLER, "enforceGuard"));
+  const namedCalleeId = nodeId("src/checkout/order-check-named.cjs", "runOrderCheck", topLevelVariableStatementSpan(CJS_POS4_ID_TARGET, "runOrderCheck"));
+  assert.equal(identifierRun.result.status, "achieved");
+  const namedEdge = edgeBetween(identifierRun.result, namedCallerId, namedCalleeId);
+  assert.ok(namedEdge !== null, "module.exports = identifier resolves the bound callable");
+  assert.equal(namedEdge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(identifierRun.result.unresolvedCallsites, []);
+});
+
+test("CD1-T11 CJS inner parameter shadows the destructured binding", async t => {
+  const caller = [
+    'const { resolveManualFactoryWait } = require("./admin-db");',
+    "function handleWithOverride(orderId, resolveManualFactoryWait) {",
+    "  return resolveManualFactoryWait(orderId);",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/orders/shadow-param.js", kind: "file", contents: caller },
+    { path: "src/orders/admin-db.js", kind: "file", contents: CJS_POS2_TARGET },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/orders/shadow-param.js", "handleWithOverride", 2), {
+    requestId: "cd1-t11-cjs-neg1",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const dynamic = unresolvedFor(result, "resolveManualFactoryWait");
+  assert.equal(dynamic.length, 1, "the shadowed call remains unresolved");
+  assert.equal(dynamic[0].kind, "unresolved_dynamic");
+  assert.equal(dynamic[0].reasonCode, "LEXICAL_PARAM_OR_VARIABLE_CALL");
+});
+
+test("CD1-T11 CJS let binding never resolves even without an observed write", async t => {
+  const caller = [
+    'let { resolveManualFactoryWait } = require("./admin-db");',
+    "function runMutable(orderId, customFn) {",
+    "  resolveManualFactoryWait = customFn;",
+    "  return resolveManualFactoryWait(orderId);",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/orders/mutable-require.js", kind: "file", contents: caller },
+    { path: "src/orders/admin-db.js", kind: "file", contents: CJS_POS2_TARGET },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/orders/mutable-require.js", "runMutable", 2), {
+    requestId: "cd1-t11-cjs-neg2",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const dynamic = unresolvedFor(result, "resolveManualFactoryWait");
+  assert.equal(dynamic.length, 1);
+  assert.equal(dynamic[0].kind, "unresolved_dynamic");
+  assert.equal(dynamic[0].reasonCode, "LEXICAL_PARAM_OR_VARIABLE_CALL");
+});
+
+test("CD1-T11 CJS local require shadow rejects the import binding", async t => {
+  const caller = [
+    "function require(spec) {",
+    "  return { resolveManualFactoryWait: () => spec };",
+    "}",
+    "function runMocked() {",
+    '  const { resolveManualFactoryWait } = require("./admin-db");',
+    "  return resolveManualFactoryWait();",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/mock/custom-require.js", kind: "file", contents: caller },
+    { path: "src/mock/admin-db.js", kind: "file", contents: "function resolveManualFactoryWait() { return 'real'; }\nmodule.exports = { resolveManualFactoryWait };\n" },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/mock/custom-require.js", "runMocked", 2), {
+    requestId: "cd1-t11-cjs-neg3",
+  });
+  assert.equal(result.status, "achieved");
+  assert.ok(!result.nodes.some(node => node.filePath === "src/mock/admin-db.js"));
+  const dynamic = unresolvedFor(result, "resolveManualFactoryWait");
+  assert.equal(dynamic.length, 1);
+  assert.equal(dynamic[0].kind, "unresolved_dynamic");
+  assert.equal(dynamic[0].reasonCode, "LEXICAL_PARAM_OR_VARIABLE_CALL");
+});
+
+test("CD1-T11 CJS non-literal require stays dynamic", async t => {
+  const caller = [
+    "function runDynamicPlugin(modulePathVariable, orderId) {",
+    '  const { resolveManualFactoryWait } = require(modulePathVariable);',
+    "  return resolveManualFactoryWait(orderId);",
+    "}",
+  ].join("\n");
+  const entries = [{ path: "src/plugins/dynamic-loader.js", kind: "file", contents: caller }];
+  const { result } = await runFixture(t, entries, goal("src/plugins/dynamic-loader.js", "runDynamicPlugin", 2), {
+    requestId: "cd1-t11-cjs-neg4",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  assert.ok(result.nodes.every(node => node.filePath === "src/plugins/dynamic-loader.js"));
+  const dynamic = unresolvedFor(result, "resolveManualFactoryWait");
+  assert.equal(dynamic.length, 1);
+  assert.equal(dynamic[0].kind, "unresolved_dynamic");
+  assert.equal(dynamic[0].reasonCode, "LEXICAL_PARAM_OR_VARIABLE_CALL");
+});
+
+test("CD1-T11 CJS computed namespace member stays unresolved", async t => {
+  const caller = [
+    'const adminDb = require("./admin-db");',
+    "function invokeByKey(actionKey, orderId) {",
+    "  return adminDb[actionKey](orderId);",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/dispatch/computed-call.js", kind: "file", contents: caller },
+    { path: "src/dispatch/admin-db.js", kind: "file", contents: CJS_POS3_TARGET },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/dispatch/computed-call.js", "invokeByKey", 2), {
+    requestId: "cd1-t11-cjs-neg5",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const dynamic = unresolvedFor(result, "adminDb[actionKey]");
+  assert.equal(dynamic.length, 1);
+  assert.equal(dynamic[0].kind, "unresolved_dynamic");
+  assert.equal(dynamic[0].reasonCode, "UNRESOLVED_CALLEE_EXPRESSION");
+});
+
+test("CD1-T11 CJS Object.assign exports stay unresolved", async t => {
+  const caller = [
+    'const { resolveManualFactoryWait } = require("./admin-db");',
+    "function callLegacy(orderId) {",
+    "  return resolveManualFactoryWait(orderId);",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/legacy/dynamic-exports-caller.js", kind: "file", contents: caller },
+    { path: "src/legacy/admin-db.js", kind: "file", contents: "module.exports = Object.assign({}, globalThis.__dynamicAdminHandlers);\n" },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/legacy/dynamic-exports-caller.js", "callLegacy", 2), {
+    requestId: "cd1-t11-cjs-neg6",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "resolveManualFactoryWait");
+  assert.equal(unresolved.length, 1);
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS named export overwritten by unknown RHS invalidates old target", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports.foo = foo;",
+    "module.exports.foo = globalThis.dynamic;",
+  ].join("\n");
+  const entries = [
+    { path: "src/overwrite/caller.js", kind: "file", contents: caller },
+    { path: "src/overwrite/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/overwrite/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-named",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "overwritten export must not produce a resolved edge");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS exports.<name> overwrite follows the same invalidation rule", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "exports.foo = foo;",
+    "exports.foo = globalThis.dynamic;",
+  ].join("\n");
+  const entries = [
+    { path: "src/overwrite-exports/caller.js", kind: "file", contents: caller },
+    { path: "src/overwrite-exports/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/overwrite-exports/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-exports",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "the exports.<name> overwrite must not retain the old target");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS delete removes the old named export binding", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports.foo = foo;",
+    "delete module.exports.foo;",
+  ].join("\n");
+  const entries = [
+    { path: "src/delete-export/caller.js", kind: "file", contents: caller },
+    { path: "src/delete-export/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/delete-export/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-delete-export",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "the deleted export must not keep the old target");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS module.exports replacement followed by member overwrite invalidates old target", async t => {
+  const caller = [
+    'const { foo } = require("./dep.js");',
+    "function entry() {",
+    "  return foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports = { foo };",
+    "module.exports.foo = globalThis.dynamic;",
+  ].join("\n");
+  const entries = [
+    { path: "src/overwrite-replaced/caller.js", kind: "file", contents: caller },
+    { path: "src/overwrite-replaced/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/overwrite-replaced/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-replaced",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "foo");
+  assert.equal(unresolved.length, 1, "post-replacement member overwrite must not restore the old target");
+  assert.equal(unresolved[0].kind, "unresolved_missing_or_ambiguous_target");
+  assert.equal(unresolved[0].reasonCode, "EXPORT_NAME_NOT_FOUND");
+});
+
+test("CD1-T11 CJS namespace member overwritten by local assignment stays unresolved", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "ns.foo = globalThis.dynamic;",
+    "function entry() {",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports = { foo };",
+  ].join("\n");
+  const entries = [
+    { path: "src/namespace-overwrite/caller.js", kind: "file", contents: caller },
+    { path: "src/namespace-overwrite/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/namespace-overwrite/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-namespace",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "overwritten namespace member must not resolve to the original export");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});
+
+test("CD1-T11 CJS literal element member write invalidates the namespace member", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    'ns["foo"] = globalThis.dynamic;',
+    "function entry() {",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const target = [
+    "function foo() { return 1; }",
+    "module.exports = { foo };",
+  ].join("\n");
+  const entries = [
+    { path: "src/namespace-element-overwrite/caller.js", kind: "file", contents: caller },
+    { path: "src/namespace-element-overwrite/dep.js", kind: "file", contents: target },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/namespace-element-overwrite/caller.js", "entry", 2), {
+    requestId: "cd1-t11-cjs-overwrite-namespace-element",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "the literal element write must invalidate the same member");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});
+
+// ---------------------------------------------------------------------------
+// CD1-T13 (buglist 40935e7 rework-3): a namespace member write inside a
+// function body, ordinary block, or nested scope must invalidate the binding
+// for later calls of the same member, while a write to a shadowing local or
+// parameter must leave the outer module binding intact.
+// ---------------------------------------------------------------------------
+const CJS_NS_DEP = [
+  "function foo() { return 1; }",
+  "module.exports = { foo };",
+].join("\n");
+
+test("CD1-T13 CJS namespace member write in the same function body invalidates the call", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  ns.foo = globalThis.dynamic;",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-body/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-body/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-body/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-body-write",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "a same-body write before the call must not stay a definite edge");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});
+
+test("CD1-T13 CJS namespace member write inside an ordinary block invalidates the call", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  {",
+    "    ns.foo = globalThis.dynamic;",
+    "    return ns.foo();",
+    "  }",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-block/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-block/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-block/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-block-write",
+  });
+  assert.equal(result.status, "achieved");
+  assert.deepEqual(result.edges, []);
+  const unresolved = unresolvedFor(result, "ns.foo");
+  assert.equal(unresolved.length, 1, "a block-scoped write before the call must not stay a definite edge");
+  assert.equal(unresolved[0].kind, "unresolved_dynamic");
+  assert.equal(unresolved[0].reasonCode, "CJS_NAMESPACE_MEMBER_OVERRIDDEN");
+});
+
+test("CD1-T13 CJS write to a block-local shadow keeps the outer namespace member resolvable", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  {",
+    "    const ns = { foo: () => 2 };",
+    "    ns.foo = globalThis.dynamic;",
+    "  }",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-shadow-block/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-shadow-block/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-shadow-block/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-shadow-block",
+  });
+  const callerId = nodeId("src/ns-shadow-block/caller.js", "entry", namedFunctionSpan(caller, "entry"));
+  const calleeId = nodeId("src/ns-shadow-block/dep.js", "foo", namedFunctionSpan(CJS_NS_DEP, "foo"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "a shadowed block-local write must not invalidate the outer module binding");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(result.unresolvedCallsites, []);
+});
+
+test("CD1-T13 CJS write to an IIFE parameter shadow keeps the outer namespace member resolvable", async t => {
+  const caller = [
+    'const ns = require("./dep.js");',
+    "function entry() {",
+    "  ((ns) => { ns.foo = globalThis.dynamic; })({});",
+    "  return ns.foo();",
+    "}",
+  ].join("\n");
+  const entries = [
+    { path: "src/ns-shadow-param/caller.js", kind: "file", contents: caller },
+    { path: "src/ns-shadow-param/dep.js", kind: "file", contents: CJS_NS_DEP },
+  ];
+  const { result } = await runFixture(t, entries, goal("src/ns-shadow-param/caller.js", "entry", 2), {
+    requestId: "cd1-t13-cjs-ns-shadow-param",
+  });
+  const callerId = nodeId("src/ns-shadow-param/caller.js", "entry", namedFunctionSpan(caller, "entry"));
+  const calleeId = nodeId("src/ns-shadow-param/dep.js", "foo", namedFunctionSpan(CJS_NS_DEP, "foo"));
+  assert.equal(result.status, "achieved");
+  const edge = edgeBetween(result, callerId, calleeId);
+  assert.ok(edge !== null, "a shadowed parameter write must not invalidate the outer module binding");
+  assert.equal(edge.resolutionKind, "cross_file_direct");
+  assert.deepEqual(result.unresolvedCallsites, []);
+});

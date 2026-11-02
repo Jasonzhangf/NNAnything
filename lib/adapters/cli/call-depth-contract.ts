@@ -82,6 +82,7 @@ export type CallGraphResolvedEdgeFact = Readonly<{
   callerId: string;
   calleeId: string;
   edgeKind: "resolved_in_repo";
+  resolutionKind: "same_file" | "cross_file_direct";
   isCycleEdge: boolean;
   calleeInDegree: number;
   callsiteSpan: DeclSpan;
