@@ -22,6 +22,7 @@ import type {
 import type { CliCommandProfile } from "../../filters/cli-command-policy.js";
 import type { RecursiveGoalLimits } from "../../workflow/recursive-goal/contracts.js";
 import type { DirectoryObjectRef } from "./entry-search-contract.js";
+import { isPureFrozenDataGraph } from "../../workflow/recursive-goal/module.js";
 
 export type ContentSearchFileCondition = Readonly<{
   type: "regular";
@@ -1034,6 +1035,27 @@ function readExplicitFileState(value: unknown): ExplicitFileState {
   return input as unknown as ExplicitFileState;
 }
 
+// Reuse verified pure frozen sub-objects across recursive-goal steps. Parsers
+// still run a full domain schema validation before this point; a shared object
+// may only be returned when it also passed the purity check. The per-type schema
+// cache is separate from the purity cache so an object validated for one role is
+// never trusted for another role that has a different schema.
+const pureDataCache = new WeakSet<object>();
+const schemaPassCaches = new Map<string, WeakSet<object>>();
+
+function reuseValidatedInput<T>(role: string, input: object, built: T): T {
+  let cache = schemaPassCaches.get(role);
+  if (cache === undefined) {
+    cache = new WeakSet<object>();
+    schemaPassCaches.set(role, cache);
+  }
+  if (cache.has(input) || isPureFrozenDataGraph(input, pureDataCache)) {
+    cache.add(input);
+    return input as unknown as T;
+  }
+  return built;
+}
+
 function readFileRef(value: unknown, label: string): ContentSearchFileRef {
   const input = record(value, label);
   exactKeys(input, ["kind", "scenarioId", "sessionId", "type", "identity", "sourceRun", "sessionRevision", "absolutePath"], label);
@@ -1092,7 +1114,7 @@ function readReadStateRef(value: unknown, label: string): ContentSearchReadState
   if (bytesRef.kind !== "cli.file.read.receipt.v1") {
     throw new TypeError(`${label}.bytesRef.kind must be cli.file.read.receipt.v1`);
   }
-  return Object.freeze({
+  const built = Object.freeze({
     kind: "cli.content-search.read-state-ref.v1",
     ref: readFileRef(input.ref, `${label}.ref`),
     sourceRun: nonEmpty(input.sourceRun, `${label}.sourceRun`),
@@ -1110,6 +1132,7 @@ function readReadStateRef(value: unknown, label: string): ContentSearchReadState
       runId: nonEmpty(bytesRef.runId, `${label}.bytesRef.runId`),
     }),
   });
+  return reuseValidatedInput("read-state-ref", input, built);
 }
 
 function readCandidateRead(value: unknown, label: string): ContentSearchReadStateRef {
@@ -1150,7 +1173,7 @@ function readScanFact(value: unknown, label: string): ContentSearchScanFact {
       column: positiveInteger(span.column, `${label}.firstMatch.column`),
     });
   })();
-  return Object.freeze({
+  const built = Object.freeze({
     nextOffset: nonnegativeInteger(input.nextOffset, `${label}.nextOffset`),
     carry: typeof input.carry === "string" ? input.carry : (() => { throw new TypeError(`${label}.carry must be a string`); })(),
     carryLineStartAbs: nonnegativeInteger(input.carryLineStartAbs, `${label}.carryLineStartAbs`),
@@ -1168,6 +1191,7 @@ function readScanFact(value: unknown, label: string): ContentSearchScanFact {
     prefixNewlines: nonnegativeInteger(input.prefixNewlines, `${label}.prefixNewlines`),
     lastNewlineAbs: input.lastNewlineAbs === -1 ? -1 : nonnegativeInteger(input.lastNewlineAbs, `${label}.lastNewlineAbs`),
   });
+  return reuseValidatedInput("scan", input, built);
 }
 
 function readHistoricalHit(value: unknown, label: string): ContentSearchHistoricalHitFact {
@@ -1177,7 +1201,7 @@ function readHistoricalHit(value: unknown, label: string): ContentSearchHistoric
   exactKeys(invalidation, ["kind", "observedAtSourceRun", "code"], `${label}.invalidation`);
   const byteSpan = record(input.byteSpan, `${label}.byteSpan`);
   exactKeys(byteSpan, ["start", "end"], `${label}.byteSpan`);
-  return Object.freeze({
+  const built = Object.freeze({
     kind: "historical_stale_hit",
     historical: true,
     identityKey: readIdentityKey(input.identityKey, `${label}.identityKey`),
@@ -1196,6 +1220,7 @@ function readHistoricalHit(value: unknown, label: string): ContentSearchHistoric
       code: invalidation.code === null ? null : nonEmpty(invalidation.code, `${label}.invalidation.code`),
     }),
   });
+  return reuseValidatedInput("history", input, built);
 }
 
 function readCandidate(value: unknown, label: string): ContentSearchCandidateFact {
@@ -1213,7 +1238,7 @@ function readCandidate(value: unknown, label: string): ContentSearchCandidateFac
       end: nonnegativeInteger(span.end, `${label}.byteSpan.end`),
     });
   })();
-  return Object.freeze({
+  const built = Object.freeze({
     name: nonEmpty(input.name, `${label}.name`),
     path: nonEmpty(input.path, `${label}.path`),
     listedType: input.listedType as ContentSearchCandidateFact["listedType"],
@@ -1232,6 +1257,7 @@ function readCandidate(value: unknown, label: string): ContentSearchCandidateFac
     duplicateRead: input.duplicateRead,
     staleRetries: nonnegativeInteger(input.staleRetries, `${label}.staleRetries`),
   });
+  return reuseValidatedInput("candidate", input, built);
 }
 
 function readListing(value: unknown, label: string): ContentSearchListingFact {
@@ -1312,7 +1338,7 @@ export function readContentSearchState(value: unknown): ContentSearchState {
     exactKeys(input, ["name", "path"], `content search state.typeMismatches[${index}]`);
     return Object.freeze({ name: nonEmpty(input.name, `typeMismatches[${index}].name`), path: nonEmpty(input.path, `typeMismatches[${index}].path`) });
   });
-  return Object.freeze({
+  const built = Object.freeze({
     stateId: nonEmpty(state.stateId, "content search state stateId"),
     session: sessionSnapshot(state.session, "content search state session"),
     cli: readExplicitFileState(state.cli),
@@ -1332,6 +1358,7 @@ export function readContentSearchState(value: unknown): ContentSearchState {
     duplicateReads: nonnegativeInteger(state.duplicateReads, "content search state duplicateReads"),
     bytesReadTotal: nonnegativeInteger(state.bytesReadTotal, "content search state bytesReadTotal"),
   });
+  return reuseValidatedInput("state", state, built);
 }
 
 export type { DirectoryListObservation, DirectoryObjectRef };

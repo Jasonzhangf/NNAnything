@@ -2226,14 +2226,23 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     let receipt: AtomicReceipt<S, E, F, R>;
     try {
       const adapterReceipt = this.deps.adapter.validateAtomicReceipt(raw);
-      receipt = freezeSnapshot(
-        readAtomicReceipt(snapshotData(adapterReceipt), {
-          state: value => value as S,
-          evidencePayload: value => value as E,
-          effectFact: value => value as F,
-          receiptPayload: value => value as R,
-        }),
-      );
+      if (isPureFrozenDataGraph(adapterReceipt, this.pureFrozenNodes)) {
+        // The adapter already validated the receipt against its domain schema and
+        // returned a pure frozen data graph. Reuse that graph directly so unchanged
+        // state sub-objects keep their identity across steps instead of being
+        // cloned twice (snapshotData + freezeSnapshot). Non-pure receipts keep the
+        // original clone-and-freeze slow path so mutable input stays isolated.
+        receipt = adapterReceipt;
+      } else {
+        receipt = freezeSnapshot(
+          readAtomicReceipt(snapshotData(adapterReceipt), {
+            state: value => value as S,
+            evidencePayload: value => value as E,
+            effectFact: value => value as F,
+            receiptPayload: value => value as R,
+          }),
+        );
+      }
       this.validateReceiptReferences(receipt);
     } catch (error) {
       const returnedRisk: EffectRecord<F> = {
@@ -3978,7 +3987,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   }
 
   private callbackState(): S {
-    return freezeSnapshot(this.currentState());
+    const state = this.currentState();
+    return isPureFrozenDataGraph(state, this.pureFrozenNodes)
+      ? state
+      : freezeSnapshot(state);
   }
 
   private initEvidence(items: readonly EvidenceRecord<E>[]): void {
