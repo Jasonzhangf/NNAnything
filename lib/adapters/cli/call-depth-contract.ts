@@ -442,7 +442,10 @@ export function readCalleeCallGraphGoal(value: unknown): CliCalleeCallGraphGoal 
   if (value.kind !== "cli.programming.callee_call_graph") {
     throw new TypeError("call-depth root goal kind must be cli.programming.callee_call_graph");
   }
-  const entryFile = posix.normalize(nonEmpty(value.entryFile, "rootGoal.entryFile"));
+  const rawEntryFile = nonEmpty(value.entryFile, "rootGoal.entryFile");
+  const entryFile = rawEntryFile.startsWith("/") || rawEntryFile.split("/").includes("..")
+    ? rawEntryFile
+    : posix.normalize(rawEntryFile);
   const entrySymbol = nonEmpty(value.entrySymbol, "rootGoal.entrySymbol");
   const entryLexicalPath = value.entryLexicalPath === undefined
     ? undefined

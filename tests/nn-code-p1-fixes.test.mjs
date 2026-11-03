@@ -79,6 +79,24 @@ test("entry-file leading dot-slash normalizes like its scope", async t => {
   assert.equal(typeof payload.entryNodeId, "string");
 });
 
+test("entry-file parent segments and absolute paths stay rejected", async t => {
+  const root = await makeRepo(t);
+  const logDir = await makeTempDir(t, "nn-code-entryreject-");
+  for (const entryFile of ["src/../src/entry.ts", "../entry.ts"]) {
+    const run = runBin(["calls",
+      "--repo", root,
+      "--entry-file", entryFile,
+      "--entry-symbol", "entry",
+      "--max-depth", "0",
+      "--scope", "src",
+      "--log-dir", logDir,
+    ], tmpdir());
+    assert.equal(run.status, 4, `${entryFile}: ${run.stderr}`);
+    const payload = JSON.parse(run.stdout);
+    assert.equal(payload.status, "rejected", `${entryFile} must stay rejected`);
+  }
+});
+
 test("new expression and tagged template are recorded instead of silently dropped", async t => {
   const root = await makeRepo(t);
   await writeFile(join(root, "src", "forms.ts"), [
