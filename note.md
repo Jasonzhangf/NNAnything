@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-03 nn-code value-flow r8 静态 may-provenance 查询合入 main 并同步 LayerFS
+
+- 完成度：`nn-code value-flow` 公共入口（`lib/cli-value-flow.ts` 的 `runCliValueFlowGoal`）交付流敏感的程序点值流 may-provenance 查询，返回 `cli.programming.value_flow.result.v1`；支持 origin/sink 双方向、depth 0-3、scope 文件范围、结果 all/one，检索与文件读取经只读沙箱执行；未决站点保留本地证据并诚实返回 unknown/insufficient_evidence。
+- 根因与镜像修复：LayerFS 镜像缺 ripgrep 导致值流 r8 的 7 项测试失败（旧宿主树 rg 14.1.1、旧候选 52/52）。已在镜像 Dockerfile 的 JDK 安装项补 ripgrep，重建 `layerfs-nnanything-runtime:node24-jdk17`（digest sha256:aedc7e7f252272cbddea9c98e271052a42433ccc223dffbf8835f4b789b99d82），验证 rg 13.0.0 / Node 24.21.0 / JDK 17.0.21 / rustc 1.97.1。
+- 候选 CI（实际候选 `127d193`）：`npm run build`、`npm run typecheck` exit 0；`tests/cli-value-flow.test.mjs` 52/52；受影响套件 139/139。publish LayerFS main 层 `323420df8b37d8fc212c2db788a74e42a341d83f2508ca2b3986b4b14753be9478`（overwroteCount=0）。
+- 合并与同步：Git owner 捕获 `capture-value-flow-r8` = `781384d`，PR #18 merge `fc4c54c` 已 push 并核对 origin/main；`fc4c54c` 业务树与 LayerFS main `323420df` 一致（AGENTS.md 仅已知尾部换行归一化），记为 already_current，无新层。
+- 兼容修复：审核-r2 PASS 后仅 H_R 常量从 `value-flow-l2-runner.ts` 迁入 `value-flow-contract.ts` 单一真源（runner 改为导入）；recursive/policy/tests 与审核-r2 字节一致。
+- 真实入口验收（编译 CLI 对真实仓库）：V1/V3/V4 achieved/complete；V2/V5/V6 unknown/insufficient_evidence（embedded assignment/update 与跨文件 caller coverage 诚实保留）；零命中符号返回 unknown（anchor_not_found），非崩溃。
+- 未完成边界：训练 runner 的 H_R 候选仍未训练/未采用；跨文件 caller coverage 仍按 open-world unknown 处理。
+
 ## 2026-11-02 LayerFS main 同步 SKILL.md 与交付收口
 
 - LayerFS main 与 origin/main 业务树核对发现唯一实质差异：docs/skills/nn-code/SKILL.md 仍为 a144839 前的 150 行旧版，而 Git main 已是 220 行扩展版；AGENTS.md 与 note.md 均已一致。
