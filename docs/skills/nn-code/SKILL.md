@@ -1,13 +1,13 @@
 ---
 name: nn-code
-description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响或追踪被调用方时，优先用 nn-code calls 一次获取指定 scope/depth 内的静态调用关系、源码位置及未解析项，省去 agent 逐层搜索的多次往返；跨函数值传播、变量来源/去向追踪用 nn-code value-flow（TS/JS，静态 may-provenance）；Rust/Kotlin/Java/TS/JS/Swift 声明与词法归属用 nn-code symbols。单次文本定位可用 rg；错误和阻断任务的能力缺口通过 Collab 报告。
+description: 已知 TS/JS/Rust 函数入口，需要理解执行流程、审计影响或追踪被调用方时，优先用 nn-code calls 一次获取指定 scope/depth 内的静态调用关系、源码位置及未解析项，省去 agent 逐层搜索的多次往返；跨函数值传播、变量来源/去向追踪用 nn-code value-flow（TS/JS，静态 may-provenance）；Rust/Kotlin/Java/TS/JS/Swift 声明与词法归属用 nn-code symbols。单次文本定位可用 rg；错误和阻断任务的能力缺口通过 Collab 报告。
 ---
 
 # `nn-code` 使用、参数选择与问题反馈
 
 ## 一次调用能得到什么，为什么优先使用
 
-给定 TS/JS 入口后，`nn-code calls --verbose` 在一次调用中完成指定 `--scope` 和 `--max-depth` 内的静态被调用关系展开，返回关系节点、边、声明与调用点位置，以及未解析目标和覆盖证据。agent 可直接据此整理执行流程、选择需要精读的函数，不必逐层搜索、读结果、再组织下一条查询。
+给定 TS/JS/Rust 入口后，`nn-code calls --verbose` 在一次调用中完成指定 `--scope` 和 `--max-depth` 内的静态被调用关系展开，返回关系节点、边、声明与调用点位置，以及未解析目标和覆盖证据。agent 可直接据此整理执行流程、选择需要精读的函数，不必逐层搜索、读结果、再组织下一条查询。
 
 例如需要追到入口的三层被调用方：手动逐层查询通常至少需要三轮有前后依赖的工具往返；使用 `--max-depth 3 --verbose`，一次调用即可取得该深度内的关系图。同层并行搜索仍需等待上一层返回，不能消除这个依赖。主要收益是减少模型组织查询、读取中间结果和再次调用的轮次；不承诺固定倍数的速度或 token 节省。
 
@@ -17,7 +17,7 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
 
 ### 什么时候用 nn-code，什么时候用 rg
 
-- 已知 TS/JS 函数入口，需要查被调用方或逐层展开调用链：优先一次 `nn-code calls`，按任务需要设置深度；不要用多轮 rg 逐层模拟关系查询。
+- 已知 TS/JS/Rust 函数入口，需要查被调用方或逐层展开调用链：优先一次 `nn-code calls`，按任务需要设置深度；不要用多轮 rg 逐层模拟关系查询。
 - 需要追踪某个变量/参数/返回值在跨函数、跨文件中的来源或去向（值传播、是否被引入到某点），且源码是 TS/JS：用 `nn-code value-flow`。它返回静态 may-provenance 站点与边，不是调用图，也不是确定性的全边 oracle。
 - 需要 Rust/Kotlin/Java/TS/JS/Swift 的符号声明、精确位置、同名声明区分或词法归属：优先 `nn-code symbols --language <lang>`。
 - 只找一个字符串、配置项、日志文本、文档内容或正则命中，一次文本查询即可回答：用 `rg`。只需文件名清单时用 `rg --files`。入口尚未给定时可用精确文本搜索定位候选，再按所需能力选择 nn-code。
@@ -27,7 +27,7 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
 
 | 实际任务 | 使用方式 | 结果如何继续使用 |
 | --- | --- | --- |
-| 已知 TS/JS 函数，追踪它调用谁 | `calls`，传入口文件、符号、深度和 scope | 读取关系与调用点；只对未解析目标补查源码 |
+| 已知 TS/JS/Rust 函数，追踪它调用谁 | `calls`，传入口文件、符号、深度和 scope | 读取关系与调用点；只对未解析目标补查源码 |
 | 追踪 TS/JS 变量/参数/返回值的跨函数来源或去向 | `value-flow`，传 repo、anchor 文件/符号、direction、max-depth 和 scope | 读站点与边；未解析或跨文件覆盖开放时按 unknown 处理，只对有证据的边下结论 |
 | 找 Rust/Kotlin/Java/TS/JS/Swift 声明及位置 | `symbols --language <rust\|kotlin\|java\|typescript\|javascript\|swift>` | 保留同名声明的不同位置与词法归属；不是调用关系图 |
 | 审计逐层调用关系 | 在 `calls` 上加 `--verbose`；可同时加 `--compact` | 获取完整结构化关系和覆盖证据；compact 只改变排版 |
@@ -90,7 +90,7 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
   - `--entry-symbol <symbol>`：目标函数名；匿名默认导出填 `default`，具名默认导出用函数名（如 `export default function main()` 填 `main`）。
   - `--max-depth <0|1|2|3>`：向下追踪被调用方（`callee`）的最大跳数（`0` 仅定位入口声明跨度；`1..3` 展开静态可解析被调函数）。
   - `--scope <prefix>`：允许解析与跨文件追踪的相对路径前缀（如 `lib` 或 `src/core,src/utils`）。
-  - `--language <typescript|ts|javascript|js>`（可选）：显式指定源语言；省略时按入口文件扩展名选 TS/JS 解析器，不做自动全仓语言检测。`rust|rs|cpp|kotlin|kt|java|swift` 合法但 `calls` 当前返回 `UNSUPPORTED_LANGUAGE` 并附真实文本扫描，需符号表时改用 `nn-code symbols`。
+  - `--language <typescript|ts|javascript|js|rust|rs>`（可选）：显式指定源语言；省略时按入口文件扩展名选 TS/JS 解析器，不做自动全仓语言检测。`cpp|c++|cxx|kotlin|kt|java|swift` 合法但 `calls` 当前返回 `UNSUPPORTED_LANGUAGE` 并附真实文本扫描，需符号表时改用 `nn-code symbols`。
   - `--verbose`（可选）：输出完整结构化关系 JSON 与覆盖证据；`--compact`（可选）：单行 JSON。
 - **退出码与输出读取**：
   - `0` (`achieved`)、`2` (`unmet`)、`3` (`unknown`)、`4` (`rejected`)、`5` (`failed`) **均在 `stdout` 输出合法结构化 JSON**（非零 `2/3/4/5` 是结构化语义结论，不是 CLI 崩溃！仅退出码 `1` 表示参数或运行异常并在 `stderr` 输出 `{"error":{...}}`）。

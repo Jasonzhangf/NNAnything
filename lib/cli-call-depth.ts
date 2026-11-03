@@ -18,6 +18,8 @@ import {
   createCallDepthAdapter,
   createCallDepthDependencies,
 } from "./adapters/cli/call-depth-recursive.js";
+import { createRustCallDepthAdapter } from "./adapters/cli/rust-call-depth-adapter.js";
+import { CALL_DEPTH_ACTUAL_PARSER } from "./filters/cli-call-depth-policy.js";
 import {
   CALL_DEPTH_ROOT_EVALUATOR,
   CALL_DEPTH_ROOT_SELECTOR,
@@ -47,7 +49,6 @@ import {
   recordTextExpansionFailure,
   textCoverageStatus,
 } from "./adapters/cli/call-depth-text.js";
-import { CALL_DEPTH_ACTUAL_PARSER } from "./filters/cli-call-depth-policy.js";
 import {
   CLI_COMMAND_HEADS,
   CLI_COMMAND_PREDICATES,
@@ -167,7 +168,7 @@ function deriveRunResult(
     ? 0
     : finalState.nodes.reduce((max, node) => Math.max(max, node.minDepth), 0);
   const achievedDepth = finalState === null ? 0 : maxDepthOfNodes;
-  const actualParser = CALL_DEPTH_ACTUAL_PARSER;
+  const actualParser = route.parserLanguage === "rust" ? "rust" : CALL_DEPTH_ACTUAL_PARSER;
   return Object.freeze({
     status,
     resolution,
@@ -465,7 +466,9 @@ function coverageOf(
   semanticStatus: CallDepthCoverage["semantic"]["status"],
 ): CallDepthCoverage {
   const parserInvoked = semanticStatus === "complete" || semanticStatus === "partial";
-  const actualParser = parserInvoked ? CALL_DEPTH_ACTUAL_PARSER : null;
+  const actualParser = parserInvoked
+    ? route.parserLanguage === "rust" ? "rust" : CALL_DEPTH_ACTUAL_PARSER
+    : null;
   return Object.freeze({
     scope: Object.freeze({
       paths: goal.scopePaths,
@@ -610,10 +613,15 @@ export async function runCliCalleeCallGraphGoal(
   const scopePaths = goal.scopePaths;
   const sessionSnapshot: SessionSnapshot = resources.sandbox.getSession(resources.session);
   const state = buildInitialState(goal, sessionSnapshot, requestId);
-  const created = createCallDepthAdapter({
-    sandbox: resources.sandbox,
-    session: resources.session,
-  });
+  const created = route.parserLanguage === "rust"
+    ? createRustCallDepthAdapter({
+        sandbox: resources.sandbox,
+        session: resources.session,
+      })
+    : createCallDepthAdapter({
+        sandbox: resources.sandbox,
+        session: resources.session,
+      });
   created.setState(state);
   const response = await runRecursiveGoal(
     {

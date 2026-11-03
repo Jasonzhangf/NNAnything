@@ -1,0 +1,4 @@
+[package]
+name = "rs_neg_1"
+version = "0.1.0"
+edition = "2021"
