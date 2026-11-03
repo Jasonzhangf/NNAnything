@@ -46,6 +46,10 @@
       "types": "./dist/cli-call-depth.d.ts",
       "import": "./dist/cli-call-depth.js"
     },
+    "./cli-value-flow": {
+      "types": "./dist/cli-value-flow.d.ts",
+      "import": "./dist/cli-value-flow.js"
+    },
     "./cli-content-search": {
       "types": "./dist/cli-content-search.d.ts",
       "import": "./dist/cli-content-search.js"
