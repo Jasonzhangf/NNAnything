@@ -12,6 +12,7 @@ import type {
   DeclSpan,
   ValueFlowEdgeKind,
   ValueFlowProvenancePrecision,
+  ValueFlowUnknownKind,
   ValueFlowUnresolvedSite,
   ValuePointRole,
 } from "../adapters/cli/value-flow-contract.js";
@@ -116,6 +117,15 @@ export type ValueFlowAnalysisInput = Readonly<{
   // builds them itself (direct API/tests); `indexParseCount` then reflects
   // those internal builds.
   fileHeaderByPath?: ReadonlyMap<string, FileScopeHeaderIndex>;
+  // Allocates a creation-bound occurrenceId for a file-level or anchor-level
+  // unlocated unknown. The runtime working set memoizes by (filePath, kind,
+  // reasonCode) so repeated analyses reuse one id; direct API callers without
+  // this option get a per-analysis ordinal.
+  unlocatedUnknownOccurrenceId?: (
+    filePath: string | null,
+    kind: ValueFlowUnknownKind,
+    reasonCode: string,
+  ) => string;
 }>;
 
 export type ValueFlowStageDiagnostics = Readonly<{
@@ -928,6 +938,15 @@ function rdStrongAssign(
   rd.set(declId, new Map([[defSiteId, chainSetId]]));
 }
 
+function locatedUnknownOccurrenceId(
+  filePath: string | null,
+  kind: ValueFlowUnknownKind,
+  reasonCode: string,
+  siteSpan: DeclSpan,
+): string {
+  return `${filePath ?? "<request>"}#${kind}:${reasonCode}@${siteSpan.startLine}:${siteSpan.startColumn}-${siteSpan.endLine}:${siteSpan.endColumn}`;
+}
+
 function declIdFor(filePath: string, chain: readonly string[], symbol: string, declSpan: DeclSpan): string {
   return `${filePath}#${chain.join(".")}:${symbol}@decl(${spanId(declSpan)})`;
 }
@@ -1484,6 +1503,11 @@ export class ValueFlowAnalyzer {
     knownFiles: readonly string[] = [],
     searchCandidates: readonly string[] = [],
     private readonly fileHeaderByPath: ReadonlyMap<string, FileScopeHeaderIndex> | null = null,
+    private readonly allocateUnlocatedUnknownId: (
+      filePath: string | null,
+      kind: ValueFlowUnknownKind,
+      reasonCode: string,
+    ) => string,
   ) {
     this.searchPaths = Object.freeze([...new Set(searchCandidates)]);
     for (const file of corpus) {
@@ -2043,13 +2067,27 @@ export class ValueFlowAnalyzer {
     let anchorMatch = this.resolveAnchorFromHeader(anchorHeader);
     if (anchorMatch === null) {
       const kind = this.hasAnyAnchorCandidateInHeaders(anchorHeader) ? "ambiguous_anchor_symbol" : "anchor_not_found";
-      const unresolved: ValueFlowUnresolvedSite[] = [{
-        kind,
-        reasonCode: kind === "ambiguous_anchor_symbol" ? "AMBIGUOUS_ANCHOR_SYMBOL" : "ANCHOR_NOT_FOUND",
-        siteSpan: anchorHeader.scopes[0]?.bodySpan
-          ? { startLine: anchorHeader.scopes[0].bodySpan.startLine, startColumn: 1, endLine: anchorHeader.scopes[0].bodySpan.endLine, endColumn: 1 }
-          : { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
-      }];
+      const anchorNotFoundSpan: DeclSpan = anchorHeader.scopes[0]?.bodySpan
+        ? { startLine: anchorHeader.scopes[0].bodySpan.startLine, startColumn: 1, endLine: anchorHeader.scopes[0].bodySpan.endLine, endColumn: 1 }
+        : { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 };
+      let unresolved: ValueFlowUnresolvedSite[];
+      if (kind === "anchor_not_found") {
+        unresolved = [Object.freeze({
+          occurrenceId: this.allocateUnlocatedUnknownId(anchorHeader.relPath, "anchor_not_found", "ANCHOR_NOT_FOUND"),
+          kind: "anchor_not_found" as const,
+          reasonCode: "ANCHOR_NOT_FOUND" as const,
+          filePath: anchorHeader.relPath,
+          siteSpan: null,
+        })];
+      } else {
+        unresolved = [{
+          occurrenceId: locatedUnknownOccurrenceId(anchorHeader.relPath, "ambiguous_anchor_symbol", "AMBIGUOUS_ANCHOR_SYMBOL", anchorNotFoundSpan),
+          kind: "ambiguous_anchor_symbol" as const,
+          reasonCode: "AMBIGUOUS_ANCHOR_SYMBOL" as const,
+          filePath: anchorHeader.relPath,
+          siteSpan: anchorNotFoundSpan,
+        }];
+      }
       const next = this.nextImportCandidates(new Set([...this.readFileOrder]));
       const diagnostics = this.snapshotDiagnostics(0);
       this.clearAnalysisState();
@@ -2110,10 +2148,14 @@ export class ValueFlowAnalyzer {
     ) {
       if (!unresolvedList.some(item => item.kind === "unverified_cross_file_caller_coverage")) {
         const anchorSite = this.a.sites.get(anchorMatch.siteId);
+        const callerCoverageSpan: DeclSpan = anchorSite?.pointSpan ?? { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 };
+        const callerCoverageFile = anchorSite?.filePath ?? this.goal.anchorFile;
         unresolvedList.push(Object.freeze({
+          occurrenceId: locatedUnknownOccurrenceId(callerCoverageFile, "unverified_cross_file_caller_coverage", "EXPORT_CALLER_ALIAS_OR_REEXPORT_OPEN_WORLD", callerCoverageSpan),
           kind: "unverified_cross_file_caller_coverage" as const,
           reasonCode: "EXPORT_CALLER_ALIAS_OR_REEXPORT_OPEN_WORLD",
-          siteSpan: anchorSite?.pointSpan ?? { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 },
+          filePath: callerCoverageFile,
+          siteSpan: callerCoverageSpan,
         }));
       }
       status = "unknown";
@@ -2596,7 +2638,7 @@ export class ValueFlowAnalyzer {
       const operator = expr.operatorToken.kind;
       if (operator >= ts.SyntaxKind.FirstAssignment && operator <= ts.SyntaxKind.LastAssignment) {
         if (operator !== ts.SyntaxKind.EqualsToken) {
-          this.addUnresolved("unsupported_subexpression_mutation_order", "EMBEDDED_ASSIGNMENT_OR_UPDATE_EXPR", spanOf(ctx.file.sourceFile, expr));
+          this.addUnresolved("unsupported_subexpression_mutation_order", "EMBEDDED_ASSIGNMENT_OR_UPDATE_EXPR", spanOf(ctx.file.sourceFile, expr), ctx.file.relPath);
         }
         const right = this.evalExpression(expr.right, rdIn, ctx);
         if (ts.isIdentifier(expr.left) && operator === ts.SyntaxKind.EqualsToken) {
@@ -2685,7 +2727,7 @@ export class ValueFlowAnalyzer {
     if (ts.isPrefixUnaryExpression(expr) || ts.isPostfixUnaryExpression(expr)) {
       const operand = ts.isPrefixUnaryExpression(expr) ? expr.operand : expr.operand;
       if (expr.operator === ts.SyntaxKind.PlusPlusToken || expr.operator === ts.SyntaxKind.MinusMinusToken) {
-          this.addUnresolved("unsupported_subexpression_mutation_order", "EMBEDDED_ASSIGNMENT_OR_UPDATE_EXPR", spanOf(ctx.file.sourceFile, expr));
+          this.addUnresolved("unsupported_subexpression_mutation_order", "EMBEDDED_ASSIGNMENT_OR_UPDATE_EXPR", spanOf(ctx.file.sourceFile, expr), ctx.file.relPath);
       }
       return this.evalExpression(operand, rdIn, ctx);
     }
@@ -2760,10 +2802,14 @@ export class ValueFlowAnalyzer {
     kind: ValueFlowUnresolvedSite["kind"],
     reasonCode: string,
     siteSpan: DeclSpan,
+    filePath: string | null,
   ): void {
     const key = `${kind}:${reasonCode}:${spanId(siteSpan)}`;
     if (!this.a.unresolved.has(key)) {
-      this.a.unresolved.set(key, Object.freeze({ kind, reasonCode, siteSpan }));
+      // Bind occurrence identity once at creation so a later emitAnalysis pass
+      // cannot allocate a new sequence number and re-emit the same fact.
+      const occurrenceId = locatedUnknownOccurrenceId(filePath, kind, reasonCode, siteSpan);
+      this.a.unresolved.set(key, Object.freeze({ occurrenceId, kind, reasonCode, filePath, siteSpan }));
     }
   }
 
@@ -2977,6 +3023,13 @@ export class ValueFlowAnalyzer {
 }
 
 export function analyzeValueFlow(input: ValueFlowAnalysisInput): ValueFlowAnalysisOutput {
+  let fallbackOrdinal = 0;
+  const allocateUnlocatedUnknownId = input.unlocatedUnknownOccurrenceId
+    ?? ((filePath: string | null, kind: ValueFlowUnknownKind, reasonCode: string): string => {
+      const ordinal = fallbackOrdinal;
+      fallbackOrdinal += 1;
+      return `${filePath ?? "<request>"}#${kind}:${reasonCode}@unlocated:${ordinal}`;
+    });
   try {
     const analyzer = new ValueFlowAnalyzer(
       input.goal,
@@ -2984,6 +3037,7 @@ export function analyzeValueFlow(input: ValueFlowAnalysisInput): ValueFlowAnalys
       input.knownFiles ?? Object.freeze([]),
       input.searchCandidates ?? Object.freeze([]),
       input.fileHeaderByPath ?? null,
+      allocateUnlocatedUnknownId,
     );
     const result = analyzer.run();
     return input.budgetExhausted === true
@@ -2995,9 +3049,6 @@ export function analyzeValueFlow(input: ValueFlowAnalysisInput): ValueFlowAnalys
     // STACK_OVERFLOW_OR_PARSE_LIMIT; any other error keeps its real name.
     if (error instanceof RangeError && /call stack/i.test(error.message)) {
       const anchorFile = input.corpus.find(file => file.relPath === input.goal.anchorFile);
-      const siteSpan = anchorFile === undefined
-        ? { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 }
-        : thisAnchorSpan(anchorFile);
       return Object.freeze({
         anchorSiteId: null,
         anchorRole: null,
@@ -3005,9 +3056,11 @@ export function analyzeValueFlow(input: ValueFlowAnalysisInput): ValueFlowAnalys
         sites: Object.freeze([]),
         edges: Object.freeze([]),
         unresolvedSites: Object.freeze([Object.freeze({
+          occurrenceId: allocateUnlocatedUnknownId(anchorFile?.relPath ?? null, "unresolved_missing_or_ambiguous_target", "STACK_OVERFLOW_OR_PARSE_LIMIT"),
           kind: "unresolved_missing_or_ambiguous_target" as const,
           reasonCode: "STACK_OVERFLOW_OR_PARSE_LIMIT" as const,
-          siteSpan,
+          filePath: anchorFile?.relPath ?? null,
+          siteSpan: null,
         })]),
         status: "unknown" as const,
         resolution: "insufficient_evidence",
@@ -3031,10 +3084,5 @@ export function analyzeValueFlow(input: ValueFlowAnalysisInput): ValueFlowAnalys
   }
 }
 
-function thisAnchorSpan(file: { relPath: string; sourceText: string }): DeclSpan {
-  const lines = file.sourceText.split("\n");
-  if (lines.length === 0) return { startLine: 1, startColumn: 1, endLine: 1, endColumn: 1 };
-  return { startLine: 1, startColumn: 1, endLine: 1, endColumn: Math.max(1, lines[0]?.length ?? 1) };
-}
 
 export { spanOf, spanId, textOf, unwrapExpression, canonicalizeChain, chainKey, extendChain, intersectChains, makeFact, lineColOf };

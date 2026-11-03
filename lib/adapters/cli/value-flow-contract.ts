@@ -148,16 +148,28 @@ export interface ValueFlowEdgeFact {
   readonly evidenceSpan: DeclSpan;
 }
 
+export type ValueFlowUnknownKind =
+  | "unverified_cross_file_caller_coverage"
+  | "unsupported_subexpression_mutation_order"
+  | "unresolved_import_or_export"
+  | "ambiguous_anchor_symbol"
+  | "anchor_not_found"
+  | "unresolved_missing_or_ambiguous_target";
+
 export interface ValueFlowUnresolvedSite {
-  readonly kind:
-    | "unverified_cross_file_caller_coverage"
-    | "unsupported_subexpression_mutation_order"
-    | "unresolved_import_or_export"
-    | "ambiguous_anchor_symbol"
-    | "anchor_not_found"
-    | "unresolved_missing_or_ambiguous_target";
+  // Bound exactly once when the occurrence fact is created. Repeated
+  // emitAnalysis passes deduplicate by this id; located occurrences use the
+  // deterministic file/site/span form and unlocated ones use a creation
+  // ordinal, so distinct occurrences stay distinct and never re-emit.
+  readonly occurrenceId: string;
+  readonly kind: ValueFlowUnknownKind;
   readonly reasonCode: string;
-  readonly siteSpan: DeclSpan;
+  readonly filePath?: string | null;
+  readonly siteId?: string | null;
+  readonly calleeExpression?: string | null;
+  readonly siteSpan?: DeclSpan | null;
+  readonly evidenceRefs?: readonly string[];
+  readonly missingEvidence?: readonly string[];
 }
 
 export interface CliValueFlowGoalResult {
@@ -186,7 +198,8 @@ export type ValueFlowLoggingState = Readonly<{
 
 export type ValueFlowAction =
   | Readonly<{ actionId: string; kind: "search_candidates"; symbol: string }>
-  | Readonly<{ actionId: string; kind: "read_source_file"; relPath: string }>;
+  | Readonly<{ actionId: string; kind: "read_source_file"; relPath: string }>
+  | Readonly<{ actionId: string; kind: "verify_source_consistency"; relPath: string }>;
 
 export type ValueFlowActionGoal = Readonly<{
   kind: "cli.value-flow-action";
@@ -418,6 +431,13 @@ export function readValueFlowAction(value: unknown): ValueFlowAction {
     return Object.freeze({
       actionId,
       kind: "read_source_file" as const,
+      relPath: nonEmpty(value.relPath, "action.relPath"),
+    });
+  }
+  if (value.kind === "verify_source_consistency") {
+    return Object.freeze({
+      actionId,
+      kind: "verify_source_consistency" as const,
       relPath: nonEmpty(value.relPath, "action.relPath"),
     });
   }
