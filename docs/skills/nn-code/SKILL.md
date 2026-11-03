@@ -1,6 +1,6 @@
 ---
 name: nn-code
-description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响或追踪被调用方时，优先用 nn-code calls 一次获取指定 scope/depth 内的静态调用关系、源码位置及未解析项，省去 agent 逐层搜索的多次往返；Rust/Kotlin 声明与词法归属用 nn-code symbols。单次文本定位可用 rg；错误和阻断任务的能力缺口通过 Collab 报告。
+description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响或追踪被调用方时，优先用 nn-code calls 一次获取指定 scope/depth 内的静态调用关系、源码位置及未解析项，省去 agent 逐层搜索的多次往返；跨函数值传播、变量来源/去向追踪用 nn-code value-flow（TS/JS，静态 may-provenance）；Rust/Kotlin/Java/TS/JS/Swift 声明与词法归属用 nn-code symbols。单次文本定位可用 rg；错误和阻断任务的能力缺口通过 Collab 报告。
 ---
 
 # `nn-code` 使用、参数选择与问题反馈
@@ -11,14 +11,15 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
 
 例如需要追到入口的三层被调用方：手动逐层查询通常至少需要三轮有前后依赖的工具往返；使用 `--max-depth 3 --verbose`，一次调用即可取得该深度内的关系图。同层并行搜索仍需等待上一层返回，不能消除这个依赖。主要收益是减少模型组织查询、读取中间结果和再次调用的轮次；不承诺固定倍数的速度或 token 节省。
 
-“一次获取关系”指本次范围与深度内可静态解析的被调用关系，不是全仓所有关系、反向引用、值流或跨语言调用图。深度边界、动态调用和未解析项仍须读取；`achieved` 不代表这些未知关系已被解决。Rust/Kotlin 的 `symbols` 一次返回所选范围内支持的声明清单，不冒称调用关系。任务只需一次文本命中时，直接用 rg 即可。
+“一次获取关系”指本次范围与深度内可静态解析的被调用关系，不是全仓所有关系、反向引用、值流或跨语言调用图。深度边界、动态调用和未解析项仍须读取；`achieved` 不代表这些未知关系已被解决。`symbols` 一次返回所选范围内支持的声明清单，不冒称调用关系。`value-flow` 返回静态 may-provenance 的候选站点与边，不代表已解析全部真实值流。任务只需一次文本命中时，直接用 rg 即可。
 
 ## 按任务选择命令
 
 ### 什么时候用 nn-code，什么时候用 rg
 
 - 已知 TS/JS 函数入口，需要查被调用方或逐层展开调用链：优先一次 `nn-code calls`，按任务需要设置深度；不要用多轮 rg 逐层模拟关系查询。
-- 需要 Rust/Kotlin 的符号声明、精确位置、同名声明区分或词法归属：优先 `nn-code symbols`。
+- 需要追踪某个变量/参数/返回值在跨函数、跨文件中的来源或去向（值传播、是否被引入到某点），且源码是 TS/JS：用 `nn-code value-flow`。它返回静态 may-provenance 站点与边，不是调用图，也不是确定性的全边 oracle。
+- 需要 Rust/Kotlin/Java/TS/JS/Swift 的符号声明、精确位置、同名声明区分或词法归属：优先 `nn-code symbols --language <lang>`。
 - 只找一个字符串、配置项、日志文本、文档内容或正则命中，一次文本查询即可回答：用 `rg`。只需文件名清单时用 `rg --files`。入口尚未给定时可用精确文本搜索定位候选，再按所需能力选择 nn-code。
 - nn-code 已返回关系和源码跨度时，直接按跨度读取必要上下文；不要再用 rg 重复验证已闭合的每条边。遇到 unresolved、覆盖缺口或未支持的语言关系时，按明确线索用 rg 和源码读取补查；人工确认结果与工具输出分开，阻断任务的缺口按 reportbug 流程反馈。
 - 当前 nn-code 的文本候选扫描不等于独立通用正则搜索接口。不要臆造 `nn-code search`、`--regex` 等参数，也不要把文本同名命中当作调用边。需要当前未支持的正则或 ignore 行为时使用 rg。
@@ -27,7 +28,8 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
 | 实际任务 | 使用方式 | 结果如何继续使用 |
 | --- | --- | --- |
 | 已知 TS/JS 函数，追踪它调用谁 | `calls`，传入口文件、符号、深度和 scope | 读取关系与调用点；只对未解析目标补查源码 |
-| 找 Rust/Kotlin 声明及位置 | `symbols --language rust` 或 `symbols --language kotlin` | 保留同名声明的不同位置与词法归属；不是调用关系图 |
+| 追踪 TS/JS 变量/参数/返回值的跨函数来源或去向 | `value-flow`，传 repo、anchor 文件/符号、direction、max-depth 和 scope | 读站点与边；未解析或跨文件覆盖开放时按 unknown 处理，只对有证据的边下结论 |
+| 找 Rust/Kotlin/Java/TS/JS/Swift 声明及位置 | `symbols --language <rust\|kotlin\|java\|typescript\|javascript\|swift>` | 保留同名声明的不同位置与词法归属；不是调用关系图 |
 | 审计逐层调用关系 | 在 `calls` 上加 `--verbose`；可同时加 `--compact` | 获取完整结构化关系和覆盖证据；compact 只改变排版 |
 | 混合语言仓库 | 对需要的语言分别调用已支持的命令，显式给 scope | 可整理各语言结果，但不能把文本同名命中连成已证跨语言引用 |
 
@@ -39,9 +41,16 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
 - 同时读语义结果与 coverage/未解析项。退出成功不表示未知关系已解析；日志状态也不能替代查询状态。
 - 已知参数直接使用。仅在参数被拒收或安装版与本 Skill 冲突时，查看对应子命令 help 一次，保留原错并按下方流程报告；不凭猜测重复调用。
 
-## 参数变更的交付要求（维护者）
+## CLI 能力升级与 Skill 同步交付（维护者）
 
-新增或修改参数时，同批更新命令选择、适用子命令、默认值、组合限制、输出/失败处理及一个实际用例。源码文档 `docs/skills/nn-code/SKILL.md` 与全局正文 `~/.agents/skills/nn-code/SKILL.md` 必须同步；宿主链接继续指向全局正文。Jenny 负责随安装交付，审计者核对安装版 help 与受影响用例。参数已实现但 Skill 或安装入口未验证时，该使用增量仍未交付。项目 AGENTS 只保留使用触发条件，不复制参数规则。
+每次 CLI 升级，新增或改变命令、支持语言、可用语义、参数、输出或错误行为时，必须在同一交付中更新本 Skill。所有新增且可用的能力都要让 Agent 能发现并正确调用，不限于参数变更。
+
+- 在 `description` 和任务选择中写清何时使用、能一次取得什么结果，以及与 `rg` 的分工。
+- 同步真实命令、必要参数、默认值、组合限制、输出读取、未知/失败处理、日志与问题反馈，并提供受影响能力的实际用例。尚未安装验收的能力不得标成已可用。
+- Jenny 负责源码 `docs/skills/nn-code/SKILL.md`、全局正文 `~/.agents/skills/nn-code/SKILL.md` 与安装版 help 同批同步。发布前先合并已有 Skill 修订，禁止用旧源码副本覆盖全局的新规则；宿主链接继续指向全局正文。
+- Alice 或交付审计者核对安装版 help、源与全局 Skill 的一致性及受影响真实用例；复用有效回执，不要求重跑无关测试。代码合入或 CLI 安装成功，但 Skill 未同步、缺少使用触发条件或调用说明不符时，该能力的使用交付仍为未完成，交 Jenny 补齐后再验收。
+
+项目 AGENTS 只保留使用触发条件，不复制上述参数与反馈规则。
 
 ## 1. 核心原则（压缩编排开销，禁止冗余探测）
 
@@ -111,6 +120,25 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
 - 结果只代表 AST 词法作用域：不读 `Cargo.toml`（`edition` 默认 2021）、不展开宏/`include!`、不做跨 crate 或类型推断，模块路径未解析为 `unknown`。`nameSpan` 在当前 `rustc -Z unpretty=ast-tree` 后端为 `null`，原因写 `nameSpanSource`。
 - `--ignore-policy` 首版仅支持 `no_ignore`；`respect_vcs_ignore` 显式拒绝，不静默降级。Kotlin 需要 JDK 17 与四个 Kotlin compiler jars（环境变量 `NN_CODE_KOTLIN_JAVA_BIN` / `NN_CODE_KOTLIN_JARS`）。
 - 每次运行默认在 `~/.local/state/nn-code/runs/` 保存 JSONL 日志，顶层 `logging` 与 `runLogPath` 回显；`--no-log` 关闭本次日志，`--log-dir` 改变日志目录。
+
+### `nn-code value-flow`（TS/JS 静态值流，may-provenance）
+
+追踪变量/参数/返回值的跨函数来源或去向。返回静态 may-provenance 候选站点与边，不是确定性全边 oracle，未解析站点保留 unknown。
+
+```bash
+/opt/homebrew/bin/nn-code value-flow \
+  --repo <repoPath> \
+  --anchor-file <repoRelativePath> \
+  --anchor-symbol <symbol> \
+  [--direction <origin|sink>] \
+  [--max-depth <0|1|2|3>] \
+  [--scope <path[,path]>] \
+  [--result-mode <all|one>] \
+  [--no-log] \
+  [--run-log-path <path>]
+```
+
+`--repo` 是主参数，`--root` 作为别名；`--anchor-file` 为含锚点的相对路径，`--anchor-symbol` 为要追踪的符号或参数名；`--direction origin` 向下溯源，`sink` 向下流向；`--scope` 限定文件范围；`--result-mode one` 只取首条路径。运行日志默认落盘在 `~/.local/state/nn-code/runs/`，`--no-log` 关闭本次日志。
 
 ## 3. 预期静态边界（非 Bug）vs 触发 `reportbug` 的真实问题
 
