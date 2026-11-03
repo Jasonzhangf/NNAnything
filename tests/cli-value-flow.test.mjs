@@ -264,6 +264,232 @@ test("runner skeleton validates samples, partitions and AST leakage without trai
   );
 });
 
+test("runner aligns training objective, analytic gradient and 1-step update with declared L2 regularization while keeping pure NLL evaluation and argmin unchanged", async () => {
+  const trainSamples = [
+    {
+      id: "l2_tr_1",
+      episodeId: "ep_tr_1",
+      familyId: "fam_tr_1",
+      partition: "train",
+      direction: "origin",
+      targetParamIndex: 1,
+      exportedModulePath: "lib/a.ts",
+      searchMatch: { path: "lib/a.ts", line: 10, column: 1, preview: "const out = fn(a, b);" },
+      label: "holds",
+      unknownMask: false,
+    },
+    {
+      id: "l2_tr_2",
+      episodeId: "ep_tr_1",
+      familyId: "fam_tr_1",
+      partition: "train",
+      direction: "origin",
+      targetParamIndex: 1,
+      exportedModulePath: "lib/a.ts",
+      searchMatch: { path: "lib/b.ts", line: 20, column: 1, preview: "// fn(a)" },
+      label: "refuted",
+      unknownMask: false,
+    },
+  ];
+  const devSamples = [
+    {
+      id: "l2_dev_1",
+      episodeId: "ep_dev_1",
+      familyId: "fam_dev_1",
+      partition: "dev",
+      direction: "origin",
+      targetParamIndex: 1,
+      exportedModulePath: "lib/a.ts",
+      searchMatch: { path: "lib/a.ts", line: 30, column: 1, preview: "return fn(x, y);" },
+      label: "holds",
+      unknownMask: false,
+    },
+    {
+      id: "l2_dev_2",
+      episodeId: "ep_dev_1",
+      familyId: "fam_dev_1",
+      partition: "dev",
+      direction: "origin",
+      targetParamIndex: 1,
+      exportedModulePath: "lib/a.ts",
+      searchMatch: { path: "lib/c.ts", line: 40, column: 1, preview: "import { fn } from './a';" },
+      label: "insufficient",
+      unknownMask: false,
+    },
+  ];
+
+  const seed = 20261031;
+  const lr = 2.0;
+
+  // Reconstruct exact deterministic initial parameters theta0 for seed=20261031
+  const mulberry32 = s => {
+    let state = s >>> 0;
+    return () => {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let v = state;
+      v = Math.imul(v ^ (v >>> 15), v | 1);
+      v ^= v + Math.imul(v ^ (v >>> 7), v | 61);
+      return ((v ^ (v >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  const rand = mulberry32(seed);
+  const [input, hidden1, hidden2, labels] = runner.VALUE_FLOW_HR_ARCHITECTURE;
+  const theta0 = new Float64Array(runner.VALUE_FLOW_HR_PARAMETER_COUNT);
+  const fill = (start, count, fanIn, fanOut) => {
+    const limit = Math.sqrt(6 / (fanIn + fanOut));
+    for (let i = 0; i < count; i += 1) {
+      theta0[start + i] = Math.fround((rand() * 2 - 1) * limit);
+    }
+  };
+  const w1 = 0;
+  const b1 = w1 + hidden1 * input;
+  const w2 = b1 + hidden1;
+  const b2 = w2 + hidden2 * hidden1;
+  const w3 = b2 + hidden2;
+  const b3 = w3 + labels * hidden2;
+  fill(w1, hidden1 * input, input, hidden1);
+  fill(b1, hidden1, input, hidden1);
+  fill(w2, hidden2 * hidden1, hidden1, hidden2);
+  fill(b2, hidden2, hidden1, hidden2);
+  fill(w3, labels * hidden2, hidden2, labels);
+  fill(b3, labels, hidden2, labels);
+
+  const labelIndex = new Map(runner.VALUE_FLOW_LABELS.map((l, idx) => [l, idx]));
+  const forwardPass = (params, features) => {
+    const a1 = new Float64Array(hidden1);
+    for (let r = 0; r < hidden1; r += 1) {
+      let v = params[b1 + r];
+      for (let c = 0; c < input; c += 1) v += params[w1 + r * input + c] * features[c];
+      a1[r] = v > 0 ? v : 0;
+    }
+    const a2 = new Float64Array(hidden2);
+    for (let r = 0; r < hidden2; r += 1) {
+      let v = params[b2 + r];
+      for (let c = 0; c < hidden1; c += 1) v += params[w2 + r * hidden1 + c] * a1[c];
+      a2[r] = v > 0 ? v : 0;
+    }
+    const logits = new Float64Array(labels);
+    let maxLogit = -Infinity;
+    for (let r = 0; r < labels; r += 1) {
+      let v = params[b3 + r];
+      for (let c = 0; c < hidden2; c += 1) v += params[w3 + r * hidden2 + c] * a2[c];
+      logits[r] = v;
+      if (v > maxLogit) maxLogit = v;
+    }
+    const exps = new Float64Array(labels);
+    let denom = 0;
+    for (let i = 0; i < labels; i += 1) {
+      exps[i] = Math.exp(logits[i] - maxLogit);
+      denom += exps[i];
+    }
+    const probabilities = new Float64Array(labels);
+    for (let i = 0; i < labels; i += 1) probabilities[i] = exps[i] / denom;
+    return { a1, a2, probabilities };
+  };
+  const pureNllLoss = (params, samples) => {
+    let loss = 0;
+    for (const s of samples) {
+      const res = forwardPass(params, runner.sampleFeatures(s));
+      loss += -Math.log(Math.max(Number.MIN_VALUE, res.probabilities[labelIndex.get(s.label)]));
+    }
+    return loss / samples.length;
+  };
+  const exactPureNllGrad = (params, samples) => {
+    const grad = new Float64Array(runner.VALUE_FLOW_HR_PARAMETER_COUNT);
+    for (const s of samples) {
+      const features = runner.sampleFeatures(s);
+      const res = forwardPass(params, features);
+      const dlogits = Float64Array.from(res.probabilities);
+      dlogits[labelIndex.get(s.label)] -= 1;
+      const da2 = new Float64Array(hidden2);
+      for (let r = 0; r < labels; r += 1) {
+        grad[b3 + r] += dlogits[r];
+        for (let c = 0; c < hidden2; c += 1) {
+          grad[w3 + r * hidden2 + c] += dlogits[r] * res.a2[c];
+          da2[c] += params[w3 + r * hidden2 + c] * dlogits[r];
+        }
+      }
+      const da1 = new Float64Array(hidden1);
+      for (let r = 0; r < hidden2; r += 1) {
+        const dz2 = res.a2[r] > 0 ? da2[r] : 0;
+        grad[b2 + r] += dz2;
+        for (let c = 0; c < hidden1; c += 1) {
+          grad[w2 + r * hidden1 + c] += dz2 * res.a1[c];
+          da1[c] += params[w2 + r * hidden1 + c] * dz2;
+        }
+      }
+      for (let r = 0; r < hidden1; r += 1) {
+        const dz1 = res.a1[r] > 0 ? da1[r] : 0;
+        grad[b1 + r] += dz1;
+        for (let c = 0; c < input; c += 1) {
+          grad[w1 + r * input + c] += dz1 * features[c];
+        }
+      }
+    }
+    for (let i = 0; i < grad.length; i += 1) grad[i] /= samples.length;
+    return grad;
+  };
+
+  let expectedSumSq = 0;
+  for (let i = 0; i < theta0.length; i += 1) expectedSumSq += theta0[i] * theta0[i];
+  const expectedL2 = 1e-4 * expectedSumSq;
+
+  const report = await runner.trainValueFlowL2WithEarlyStopping({
+    train: trainSamples,
+    dev: devSamples,
+    seed,
+    learningRate: lr,
+    maxEpochs: 1,
+    patience: 15,
+    minDelta: 1e-4,
+  });
+
+  // 1. Pure NLL evaluation is unchanged at epoch 0
+  assert.ok(Math.abs(report.initialTrainLoss - pureNllLoss(theta0, trainSamples)) < 1e-15);
+  assert.ok(Math.abs(report.initialDevLoss - pureNllLoss(theta0, devSamples)) < 1e-15);
+  assert.equal(report.trajectory[0].trainLoss, report.initialTrainLoss);
+  assert.equal(report.trajectory[0].devLoss, report.initialDevLoss);
+
+  // 2. 1-step production parameter update in trainValueFlowL2WithEarlyStopping uses the L2-regularized gradient
+  const nllGrad0 = exactPureNllGrad(theta0, trainSamples);
+  const theta1WithL2 = new Float64Array(theta0.length);
+  const theta1NoL2 = new Float64Array(theta0.length);
+  for (let i = 0; i < theta0.length; i += 1) {
+    theta1WithL2[i] = Math.fround(theta0[i] - lr * (nllGrad0[i] + 2 * 1e-4 * theta0[i]));
+    theta1NoL2[i] = Math.fround(theta0[i] - lr * nllGrad0[i]);
+  }
+  const pureNllTrainAtTheta1WithL2 = pureNllLoss(theta1WithL2, trainSamples);
+  const pureNllTrainAtTheta1NoL2 = pureNllLoss(theta1NoL2, trainSamples);
+  assert.ok(Math.abs(pureNllTrainAtTheta1WithL2 - pureNllTrainAtTheta1NoL2) > 1e-6);
+  assert.ok(
+    Math.abs(report.trajectory[1].trainLoss - pureNllTrainAtTheta1WithL2) < 1e-15,
+    `epoch 1 trajectory trainLoss (${report.trajectory[1].trainLoss}) must match L2-regularized update (${pureNllTrainAtTheta1WithL2}), not unregularized NLL-only update (${pureNllTrainAtTheta1NoL2})`,
+  );
+
+  // 3. Exported objective helpers and fullGradient / gradientProbe include L2 term once after sample averaging
+  assert.equal(runner.VALUE_FLOW_L2_REGULARIZATION_LAMBDA, 1e-4);
+  assert.ok(Math.abs(runner.l2RegularizationPenalty(theta0) - expectedL2) < 1e-15);
+  const obj0 = runner.trainingObjectiveLoss(theta0, trainSamples);
+  assert.ok(
+    Math.abs(obj0 - (report.initialTrainLoss + expectedL2)) < 1e-15,
+    "trainingObjectiveLoss must equal sample-averaged pure NLL plus lambda*||theta||_2^2 added once",
+  );
+
+  const allIndices = Array.from({ length: runner.VALUE_FLOW_HR_PARAMETER_COUNT }, (_, i) => i);
+  const probe = runner.gradientProbe(trainSamples, { seed, step: 1e-5, parameterIndices: allIndices });
+  assert.equal(probe.passed, true);
+  assert.ok(probe.maxAbsoluteError < 1e-5);
+
+  const grad0 = runner.fullGradient(theta0, trainSamples);
+  const gradNoL2 = runner.fullGradient(theta0, trainSamples, 0);
+  for (let i = 0; i < theta0.length; i += 1) {
+    assert.ok(
+      Math.abs((grad0[i] - gradNoL2[i]) - 2 * 1e-4 * theta0[i]) < 1e-15,
+      `fullGradient[${i}] must add 2*lambda*theta[${i}] once after sample averaging`,
+    );
+  }
+});
+
 test("VF-1 origin resolves a destructure_extract .after edge", () => {
   const out = analyze(DESTRUCTURE_SOURCE, "size", { anchorLexicalPath: "f", anchorLine: 3 });
   assert.equal(out.status, "achieved");

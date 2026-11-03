@@ -681,26 +681,67 @@ export function verifyEvaluatorContinuousRankingSelfCheck(): Readonly<{
   });
 }
 
-function fullGradient(
+export const VALUE_FLOW_L2_REGULARIZATION_LAMBDA = 1e-4 as const;
+
+export function l2RegularizationPenalty(
+  parameters: ArrayLike<number>,
+  lambda: number = VALUE_FLOW_L2_REGULARIZATION_LAMBDA,
+): number {
+  if (parameters.length !== VALUE_FLOW_HR_PARAMETER_COUNT) {
+    throw new TypeError(`parameters must contain ${VALUE_FLOW_HR_PARAMETER_COUNT} values`);
+  }
+  if (!Number.isFinite(lambda) || lambda < 0) {
+    throw new TypeError("lambda must be a non-negative finite number");
+  }
+  let sumSquares = 0;
+  for (let index = 0; index < VALUE_FLOW_HR_PARAMETER_COUNT; index += 1) {
+    const value = finite(parameters[index], `parameters[${index}]`);
+    sumSquares += value * value;
+  }
+  return lambda * sumSquares;
+}
+
+export function trainingObjectiveLoss(
   parameters: ArrayLike<number>,
   samples: readonly ValueFlowTrainingSample[],
+  lambda: number = VALUE_FLOW_L2_REGULARIZATION_LAMBDA,
+): number {
+  const checkedSamples = readSamples(samples);
+  const nll =
+    checkedSamples.reduce((sum, sample) => sum + sampleLoss(parameters, sample), 0) /
+    checkedSamples.length;
+  return nll + l2RegularizationPenalty(parameters, lambda);
+}
+
+export function fullGradient(
+  parameters: ArrayLike<number>,
+  samples: readonly ValueFlowTrainingSample[],
+  lambda: number = VALUE_FLOW_L2_REGULARIZATION_LAMBDA,
 ): Float64Array {
+  if (parameters.length !== VALUE_FLOW_HR_PARAMETER_COUNT) {
+    throw new TypeError(`parameters must contain ${VALUE_FLOW_HR_PARAMETER_COUNT} values`);
+  }
+  if (!Number.isFinite(lambda) || lambda < 0) {
+    throw new TypeError("lambda must be a non-negative finite number");
+  }
+  const checkedSamples = readSamples(samples);
   const gradient = new Float64Array(VALUE_FLOW_HR_PARAMETER_COUNT);
-  for (const sample of samples) {
+  for (const sample of checkedSamples) {
     const current = sampleGradient(parameters, sample);
     for (let index = 0; index < gradient.length; index += 1) {
       gradient[index] = gradient[index]! + current[index]!;
     }
   }
   for (let index = 0; index < gradient.length; index += 1) {
-    gradient[index] = gradient[index]! / samples.length;
+    const paramValue = finite(parameters[index], `parameters[${index}]`);
+    gradient[index] = gradient[index]! / checkedSamples.length + 2 * lambda * paramValue;
   }
   return gradient;
 }
 
 export function gradientProbe(
   value: unknown,
-  options: Readonly<{ seed?: number; step?: number; parameterIndices?: readonly number[] }> = {},
+  options: Readonly<{ seed?: number; step?: number; parameterIndices?: readonly number[]; lambda?: number }> = {},
 ): ValueFlowGradientProbeResult {
   const samples = readSamples(value);
   const train = samples.filter(sample => sample.partition === "train");
@@ -712,8 +753,10 @@ export function gradientProbe(
   if (!Number.isSafeInteger(seed) || seed < 0) throw new TypeError("seed must be a non-negative safe integer");
   const step = options.step ?? 1e-4;
   if (!Number.isFinite(step) || step <= 0) throw new TypeError("step must be positive");
+  const lambda = options.lambda ?? VALUE_FLOW_L2_REGULARIZATION_LAMBDA;
+  if (!Number.isFinite(lambda) || lambda < 0) throw new TypeError("lambda must be a non-negative finite number");
   const parameters = initializeParameters(seed);
-  const analytic = fullGradient(parameters, train);
+  const analytic = fullGradient(parameters, train, lambda);
   const indices = options.parameterIndices === undefined
     ? Object.freeze([0, parameterOffset().b3])
     : Object.freeze([...options.parameterIndices]);
@@ -727,9 +770,9 @@ export function gradientProbe(
     positive[index] = positive[index]! + step;
     negative[index] = negative[index]! - step;
     const numeric = (
-      train.reduce((sum, sample) => sum + sampleLoss(positive, sample), 0)
-      - train.reduce((sum, sample) => sum + sampleLoss(negative, sample), 0)
-    ) / (2 * step * train.length);
+      trainingObjectiveLoss(positive, train, lambda)
+      - trainingObjectiveLoss(negative, train, lambda)
+    ) / (2 * step);
     maxAbsoluteError = Math.max(maxAbsoluteError, Math.abs(analytic[index]! - numeric));
   }
   const tolerance = 1e-5;
