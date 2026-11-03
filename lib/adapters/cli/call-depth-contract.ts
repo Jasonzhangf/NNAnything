@@ -93,14 +93,31 @@ export type CallGraphResolvedEdgeFact = Readonly<{
 export type CallDepthUnresolvedKind =
   | "unresolved_dynamic"
   | "out_of_scope_external"
-  | "unresolved_missing_or_ambiguous_target";
+  | "out_of_scope_internal"
+  | "unresolved_missing_or_ambiguous_target"
+  | "unsupported_syntax";
 
+export type CallDepthUnresolvedCoverageStatus =
+  | "boundary_not_expanded"
+  | "locatable_candidate_unverified"
+  | "truly_dynamic_unlocatable";
+
+// Optional evidence fields follow the Rust policy contract: the TS/JS policy
+// emits the narrow five-field shape, while the Rust policy always fills every
+// field. `null` means the evidence does not apply to this unknown; missing
+// evidence or a fabricated default is never substituted for a real value.
 export type CallDepthUnresolvedCallsite = Readonly<{
   callerId: string;
   calleeExpr: string;
   callsiteSpan: DeclSpan;
   kind: CallDepthUnresolvedKind;
   reasonCode: string;
+  targetSymbolClue?: string | null;
+  missingEvidence?: readonly string[];
+  coverageStatus?: CallDepthUnresolvedCoverageStatus;
+  moduleSpecifierClue?: string | null;
+  candidateModulePath?: string | null;
+  bindingDeclarationSpan?: DeclSpan | null;
 }>;
 
 export type CallDepthSourceFileFact = Readonly<{
@@ -219,6 +236,7 @@ export type CallDepthCursor = Readonly<{ phase: "execute" | "closed" }>;
 export const CALL_DEPTH_SUPPORTED_LANGUAGES = Object.freeze([
   "typescript",
   "javascript",
+  "rust",
 ] as const);
 
 export type CallDepthSupportedLanguage = typeof CALL_DEPTH_SUPPORTED_LANGUAGES[number];
@@ -387,12 +405,12 @@ export function routeCallDepthLanguage(
     throw new TypeError(`unknown --language value: ${requestedLanguage}`);
   }
   const entryLanguage = languageOfEntryFile(entryFile);
-  const parserLanguage = requested === "typescript" || requested === "javascript"
+  const parserLanguage = requested === "typescript" || requested === "javascript" || requested === "rust"
     ? requested
     : requested === null && (entryLanguage === "typescript" || entryLanguage === "javascript" || entryLanguage === null)
       ? "typescript"
       : null;
-  const supported = requested === null ? parserLanguage !== null : requested === "typescript" || requested === "javascript";
+  const supported = requested === null ? parserLanguage !== null : requested === "typescript" || requested === "javascript" || requested === "rust";
   const mismatch = requested === null
     ? false
     : entryLanguage !== null && (

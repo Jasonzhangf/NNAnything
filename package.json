@@ -124,7 +124,9 @@
     "bump-version": "node scripts/bump-version.mjs"
   },
   "dependencies": {
-    "flowed": "1.15.0"
+    "flowed": "1.15.0",
+    "tree-sitter": "0.22.4",
+    "tree-sitter-rust": "0.24.0"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
@@ -132,4 +134,3 @@
     "typescript": "5.9.3"
   }
 }
-

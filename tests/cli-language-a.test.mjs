@@ -41,11 +41,11 @@ function textAt(line, column, text) {
   return `${lines.join("\n")}\n`;
 }
 
-function runBin(args, cwd) {
+function runBin(args, cwd, extraEnv = {}) {
   const proc = spawnSync(process.execPath, [binPath, ...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env },
+    env: { ...process.env, ...extraEnv },
   });
   return { status: proc.status, stdout: proc.stdout, stderr: proc.stderr };
 }
@@ -82,7 +82,7 @@ test("TS without --language keeps the old success path and now includes first-ro
   assert.equal(payload.resolution, "complete");
   assert.equal(payload.requestedLanguage, null);
   assert.equal(payload.actualParser, "typescript");
-  assert.deepEqual(payload.supportedLanguages, ["typescript", "javascript"]);
+  assert.deepEqual(payload.supportedLanguages, ["typescript", "javascript", "rust"]);
   assert.equal(payload.nodes.length, 2);
   assert.equal(payload.edges.length, 1);
   assert.equal(payload.unresolvedCallsites.length, 0);
@@ -134,7 +134,7 @@ test("explicit typescript/ts and javascript/js aliases route without claiming a 
   assert.equal(jsPayload.status, "achieved");
 });
 
-test("--language rust over real Rust content returns unknown exit 3 with candidates and no entry_not_found", async t => {
+test("--language rust parses real Rust content and resolves a same-file call", async t => {
   const root = await makeRepo(t);
   await write(join(root, "src", "main.rs"),
     "fn entry() -> i32 { helper() }\n\nfn helper() -> i32 { 1 }\n");
@@ -147,23 +147,24 @@ test("--language rust over real Rust content returns unknown exit 3 with candida
     "--language", "rust",
     "--compact",
   ], tmpdir());
-  assert.equal(run.status, 3, run.stderr);
+  assert.equal(run.status, 0, run.stderr);
   const payload = JSON.parse(run.stdout);
-  assert.equal(payload.status, "unknown");
-  assert.equal(payload.resolution, "UNSUPPORTED_LANGUAGE");
-  assert.equal(payload.reasonCode, "UNSUPPORTED_LANGUAGE");
-  assert.equal(payload.actualParser, null);
-  assert.equal(payload.entryNodeId, null);
-  assert.equal(payload.entryResolution, null);
+  assert.equal(payload.status, "achieved");
+  assert.equal(payload.resolution, "complete");
+  assert.equal(payload.requestedLanguage, "rust");
+  assert.equal(payload.actualParser, "rust");
+  assert.deepEqual(payload.supportedLanguages, ["typescript", "javascript", "rust"]);
+  assert.equal(payload.nodes.length, 2);
+  assert.equal(payload.edges.length, 1);
+  assert.equal(payload.unresolvedCallsites.length, 0);
   assert.deepEqual(payload.textCandidates.map(candidate => candidate.filePath), ["src/main.rs"]);
-  assert.equal(payload.textCandidates[0].line, 1);
   assert.equal(payload.textCandidates[0].matchedNeedle, "entry");
   assert.equal(payload.coverage.text.status, "complete");
-  assert.equal(payload.coverage.semantic.status, "unsupported");
-  assert.equal(payload.coverage.semantic.parser, null);
+  assert.equal(payload.coverage.semantic.status, "complete");
+  assert.equal(payload.coverage.semantic.parser, "rust");
   assert.equal(payload.coverage.languageSupport.requested, "rust");
-  assert.equal(payload.coverage.languageSupport.supported, false);
-  assert.equal(payload.coverage.languageSupport.actualParser, null);
+  assert.equal(payload.coverage.languageSupport.supported, true);
+  assert.equal(payload.coverage.languageSupport.actualParser, "rust");
 });
 
 test("misspelled --language value is an argument error exit 1", async t => {
@@ -255,7 +256,7 @@ test("unreadable file during scan is a distinct coverage failure, not a zero-mat
   assert.ok(payload.coverage.text.failures.some(failure => failure.endsWith("EACCES")), JSON.stringify(payload.coverage.text.failures));
 });
 
-test("unsupported-language candidates cover multiple occurrences across files", async t => {
+test("rust text candidates cover multiple occurrences across files", async t => {
   const root = await makeRepo(t);
   await write(join(root, "src", "a.rs"), "fn entry() {}\n");
   await write(join(root, "src", "b.rs"), "fn entry() {}\n");
@@ -269,9 +270,11 @@ test("unsupported-language candidates cover multiple occurrences across files", 
     "--language", "rust",
     "--compact",
   ], tmpdir());
-  assert.equal(run.status, 3, run.stderr);
+  assert.equal(run.status, 0, run.stderr);
   const payload = JSON.parse(run.stdout);
-  assert.equal(payload.resolution, "UNSUPPORTED_LANGUAGE");
+  assert.equal(payload.status, "achieved");
+  assert.equal(payload.requestedLanguage, "rust");
+  assert.equal(payload.actualParser, "rust");
   assert.deepEqual(payload.textCandidates.map(candidate => candidate.filePath).sort(), ["src/a.rs", "src/b.rs"]);
   assert.equal(payload.coverage.text.status, "complete");
   assert.equal(payload.coverage.text.matchedFiles, 2);
@@ -454,7 +457,7 @@ test("run log records requested language, actual parser and both coverage dimens
     "--log-dir", logDir,
     "--compact",
   ], tmpdir());
-  assert.equal(run.status, 3, run.stderr);
+  assert.equal(run.status, 0, run.stderr);
   const payload = JSON.parse(run.stdout);
   assert.equal(typeof payload.runLogPath, "string");
   const logText = await readFile(payload.runLogPath, "utf8");
@@ -462,8 +465,129 @@ test("run log records requested language, actual parser and both coverage dimens
   const finish = events[events.length - 1];
   assert.equal(finish.kind, "finish");
   assert.equal(finish.coverage.requestedLanguage, "rust");
-  assert.equal(finish.coverage.actualParser, null);
+  assert.equal(finish.coverage.actualParser, "rust");
   assert.equal(finish.coverage.coverage.text.status, "complete");
-  assert.equal(finish.coverage.coverage.semantic.status, "unsupported");
+  assert.equal(finish.coverage.coverage.semantic.status, "complete");
   assert.ok(finish.resultReceipt.textCandidates.length >= 1);
+});
+
+const RUST_FIXTURES = Object.freeze({
+  RS_NEG_1: { symbol: "select_slot", reasons: ["RUST_TRAIT_OR_UNRESOLVED_RECEIVER_DISPATCH", "RUST_TRAIT_OR_UNRESOLVED_RECEIVER_DISPATCH"], clues: ["read_slot", "read_slot"], coverage: ["locatable_candidate_unverified", "locatable_candidate_unverified"], missing: [["receiver_type_or_trait_impl_unverified"], ["receiver_type_or_trait_impl_unverified"]], modules: [null, null], candidates: [null, null], binding: [true, true] },
+  RS_NEG_2: { symbol: "run_untyped_and_colliding", reasons: ["RUST_TRAIT_OR_UNRESOLVED_RECEIVER_DISPATCH", "RUST_TRAIT_OR_UNRESOLVED_RECEIVER_DISPATCH"], clues: ["check", "check"], coverage: ["truly_dynamic_unlocatable", "locatable_candidate_unverified"], missing: [["receiver_type_or_trait_impl_unverified"], ["receiver_type_or_trait_impl_unverified"]], modules: [null, null], candidates: [null, "src/lib.rs"], binding: [null, true] },
+  RS_NEG_3: { symbol: "handle_event", reasons: ["RUST_MACRO_INVOCATION_UNEXPANDED", "RUST_MACRO_INVOCATION_UNEXPANDED"], clues: ["matches", "dispatch_call"], coverage: ["boundary_not_expanded", "boundary_not_expanded"], missing: [["macro_expansion_not_evaluated"], ["macro_expansion_not_evaluated"]], modules: [null, null], candidates: [null, null], binding: [null, null] },
+  RS_NEG_4: { symbol: "run_compute", reasons: ["RUST_CFG_CONDITIONAL_TARGET"], clues: ["compute"], coverage: ["locatable_candidate_unverified"], missing: [["cfg_condition_unverified"]], modules: [null], candidates: ["src/lib.rs"], binding: [null] },
+  RS_NEG_5: { symbol: "run_with_hook", reasons: ["LEXICAL_PARAM_OR_CLOSURE_CALL", "LEXICAL_PARAM_OR_CLOSURE_CALL"], clues: [null, null], coverage: ["truly_dynamic_unlocatable", "truly_dynamic_unlocatable"], missing: [["runtime_callback_or_higher_order_value"], ["runtime_callback_or_higher_order_value"]], modules: [null, null], candidates: [null, null], binding: [true, true] },
+  RS_NEG_6: { symbol: "run_glob_and_ext", reasons: ["EXTERNAL_CRATE_OR_STD_CALL", "RUST_GLOB_USE_AMBIGUOUS_TARGET"], clues: ["from_str", "parse_item"], coverage: ["boundary_not_expanded", "locatable_candidate_unverified"], missing: [["external_crate_or_out_of_scope_target"], ["glob_use_resolution_unverified"]], modules: ["serde_json", "crate::mod_a, crate::mod_b"], candidates: [null, null], binding: [null, null] },
+});
+
+test("P1-2: public Rust CLI preserves all structured unresolved evidence fields", async () => {
+  for (const [id, expected] of Object.entries(RUST_FIXTURES)) {
+    const repo = join(repoRoot, "tests", "fixtures", "rust-calls", id);
+    const run = runBin(["calls",
+      "--repo", repo,
+      "--entry-file", "src/lib.rs",
+      "--entry-symbol", expected.symbol,
+      "--max-depth", "2",
+      "--scope", "src",
+      "--language", "rust",
+      "--compact",
+    ], tmpdir());
+    assert.equal(run.status, 0, `${id} stderr: ${run.stderr}`);
+    const payload = JSON.parse(run.stdout);
+    assert.equal(payload.requestedLanguage, "rust", id);
+    assert.equal(payload.actualParser, "rust", id);
+    assert.equal(payload.unresolvedCallsites.length, expected.reasons.length, `${id} unresolved count`);
+    for (const [index, item] of payload.unresolvedCallsites.entries()) {
+      assert.equal(item.reasonCode, expected.reasons[index], `${id}[${index}] reasonCode`);
+      assert.equal(item.targetSymbolClue, expected.clues[index], `${id}[${index}] targetSymbolClue`);
+      assert.equal(item.coverageStatus, expected.coverage[index], `${id}[${index}] coverageStatus`);
+      assert.deepEqual(item.missingEvidence, expected.missing[index], `${id}[${index}] missingEvidence`);
+      assert.equal(item.moduleSpecifierClue, expected.modules[index], `${id}[${index}] moduleSpecifierClue`);
+      assert.equal(item.candidateModulePath, expected.candidates[index], `${id}[${index}] candidateModulePath`);
+      if (expected.binding[index] === null) assert.equal(item.bindingDeclarationSpan, null, `${id}[${index}] bindingDeclarationSpan`);
+      else assert.ok(item.bindingDeclarationSpan !== null && typeof item.bindingDeclarationSpan.startLine === "number", `${id}[${index}] bindingDeclarationSpan`);
+      assert.equal(typeof item.callerId, "string", `${id}[${index}] callerId`);
+      assert.equal(typeof item.calleeExpr, "string", `${id}[${index}] calleeExpr`);
+      assert.equal(typeof item.callsiteSpan.startLine, "number", `${id}[${index}] callsiteSpan`);
+      assert.equal(typeof item.kind, "string", `${id}[${index}] kind`);
+    }
+  }
+});
+
+test("P1-1: public Rust scope keeps an outside resolvable module unresolved", async () => {
+  const repo = join(repoRoot, "tests", "fixtures", "rust-calls", "RS_SCOPE_1");
+  const run = runBin(["calls",
+    "--repo", repo,
+    "--entry-file", "src/inner/mod.rs",
+    "--entry-symbol", "entry",
+    "--max-depth", "2",
+    "--scope", "src/inner",
+    "--language", "rust",
+    "--compact",
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.actualParser, "rust");
+  assert.equal(payload.edges.length, 0, "outside module must not produce an edge");
+  assert.equal(payload.unresolvedCallsites.length, 1);
+  const item = payload.unresolvedCallsites[0];
+  assert.equal(item.reasonCode, "TARGET_OUTSIDE_DECLARED_SCOPE");
+  assert.equal(item.calleeExpr, "crate::outer::helper");
+  assert.equal(item.coverageStatus, "boundary_not_expanded");
+  assert.equal(item.candidateModulePath, "src/outer.rs");
+  assert.deepEqual(item.missingEvidence, ["target_outside_declared_scope"]);
+});
+
+test("P1-3: --language rs aliases to rust and reports rust parser metadata", async t => {
+  const root = await makeRepo(t);
+  await write(join(root, "src", "main.rs"),
+    "fn entry() -> i32 { helper() }\n\nfn helper() -> i32 { 1 }\n");
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/main.rs",
+    "--entry-symbol", "entry",
+    "--max-depth", "1",
+    "--scope", "src",
+    "--language", "rs",
+    "--compact",
+  ], tmpdir());
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.requestedLanguage, "rust");
+  assert.equal(payload.actualParser, "rust");
+  assert.equal(payload.coverage.semantic.parser, "rust");
+  assert.equal(payload.coverage.languageSupport.requested, "rust");
+  assert.equal(payload.coverage.languageSupport.actualParser, "rust");
+  assert.equal(payload.edges.length, 1);
+  assert.equal(payload.nodes.length, 2);
+});
+
+test("P1-3: public Rust CLI stays read-only and never executes repository build code", async t => {
+  const root = await makeRepo(t);
+  await write(join(root, "src", "lib.rs"),
+    "pub fn entry() { helper(); }\nfn helper() {}\n");
+  await write(join(root, "Cargo.toml"),
+    "[package]\nname = \"readonly-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n");
+  await write(join(root, "build.rs"),
+    "use std::fs;\nfn main() { fs::write(\"build-ran.txt\", \"executed\").unwrap(); }\n");
+  const shim = join(root, "cargo-shim.sh");
+  const marker = join(root, "cargo-ran.txt");
+  await write(shim, `#!/bin/sh\nprintf invoked > ${JSON.stringify(marker)}\nexit 97\n`);
+  await chmod(shim, 0o755);
+  const run = runBin(["calls",
+    "--repo", root,
+    "--entry-file", "src/lib.rs",
+    "--entry-symbol", "entry",
+    "--max-depth", "1",
+    "--scope", "src",
+    "--language", "rust",
+    "--compact",
+  ], tmpdir(), { CARGO: shim, RUSTC: shim });
+  assert.equal(run.status, 0, run.stderr);
+  const payload = JSON.parse(run.stdout);
+  assert.equal(payload.status, "achieved");
+  assert.equal(payload.actualParser, "rust");
+  assert.equal(payload.edges.length, 1);
+  await assert.rejects(() => readFile(join(root, "build-ran.txt")), /ENOENT/);
+  await assert.rejects(() => readFile(marker), /ENOENT/);
 });
