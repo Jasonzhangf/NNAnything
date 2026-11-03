@@ -82,7 +82,7 @@ test("entry-file leading dot-slash normalizes like its scope", async t => {
 test("entry-file parent segments and absolute paths stay rejected", async t => {
   const root = await makeRepo(t);
   const logDir = await makeTempDir(t, "nn-code-entryreject-");
-  for (const entryFile of ["src/../src/entry.ts", "../entry.ts"]) {
+  for (const entryFile of ["src/../src/entry.ts", "../entry.ts", join(root, "src", "entry.ts")]) {
     const run = runBin(["calls",
       "--repo", root,
       "--entry-file", entryFile,
