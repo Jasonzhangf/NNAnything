@@ -1152,8 +1152,8 @@ export function extractCallsites(
     if (ts.isDeleteExpression(node)) {
       recordNamespaceWrite(node.expression, activeScope);
     }
-    if (ts.isCallExpression(node)) {
-      const callee = node.expression;
+    if (ts.isCallExpression(node) || ts.isNewExpression(node) || ts.isTaggedTemplateExpression(node)) {
+      const callee = ts.isTaggedTemplateExpression(node) ? node.tag : node.expression;
       const unwrapped = unwrapParens(callee);
       const span = declSpanOf(info.sourceFile, callee);
       if (ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped)) {
@@ -1195,7 +1195,8 @@ export function extractCallsites(
       const calleeCore = unwrapParens(callee);
       const directCallee = ts.isIdentifier(calleeCore) ? calleeCore : null;
       const directBinding = directCallee === null ? undefined : activeScope.get(directCallee.text);
-      for (const argument of node.arguments) {
+      const callArguments = ts.isTaggedTemplateExpression(node) ? [] : (node.arguments ?? []);
+      for (const argument of callArguments) {
         const argumentCore = unwrapParens(argument);
         if (
           (ts.isArrowFunction(argumentCore) || ts.isFunctionExpression(argumentCore))
@@ -1217,6 +1218,7 @@ export function extractCallsites(
         }
         visit(argument, activeScope);
       }
+      if (ts.isTaggedTemplateExpression(node)) visit(node.template, activeScope);
       return;
     }
     if (ts.isBlock(node)) {

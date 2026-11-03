@@ -332,9 +332,17 @@ async function isRunActive(root: string, runId: string): Promise<boolean> {
   return pidAlive(marker.pid);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function lockBackoffMs(attempt: number): number {
+  return Math.min(8 + attempt * 4, 40);
+}
+
 async function acquireUsageLogLock(root: string, holder: LockHolder): Promise<LockHandle> {
   const lockPath = join(root, USAGE_LOG_LOCK_FILE);
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
     let handle;
     try {
       handle = await open(lockPath, "wx", 0o600);
@@ -344,10 +352,12 @@ async function acquireUsageLogLock(root: string, holder: LockHolder): Promise<Lo
       if (existingBytes === null) continue;
       const existing = parseJsonLine(existingBytes.toString("utf8"));
       if (!isRecord(existing) || !Number.isSafeInteger(existing.pid) || (existing.pid as number) <= 0) {
-        throw taggedError(LOG_STORE_BUSY, "usage log lock owner is unknown");
+        await sleep(lockBackoffMs(attempt));
+        continue;
       }
       if (pidAlive(existing.pid as number)) {
-        throw taggedError(LOG_STORE_BUSY, `usage log lock is held by pid ${String(existing.pid)}`);
+        await sleep(lockBackoffMs(attempt));
+        continue;
       }
       try {
         await unlink(lockPath);

@@ -2,6 +2,7 @@
 // This file only defines types and structural guards. It performs no I/O and
 // holds no AST state, so both the adapter and the public entry can share it.
 import type { ObservedObjectRef, OsInteger } from "./entry-inspection.js";
+import { posix } from "node:path";
 
 export const CALL_DEPTH_REQUEST_SCHEMA = "nnanything.recursive-goal.request.v1" as const;
 export const CALL_DEPTH_EVIDENCE_KIND = "cli.call-depth.evidence.v1" as const;
@@ -441,7 +442,10 @@ export function readCalleeCallGraphGoal(value: unknown): CliCalleeCallGraphGoal 
   if (value.kind !== "cli.programming.callee_call_graph") {
     throw new TypeError("call-depth root goal kind must be cli.programming.callee_call_graph");
   }
-  const entryFile = nonEmpty(value.entryFile, "rootGoal.entryFile");
+  const rawEntryFile = nonEmpty(value.entryFile, "rootGoal.entryFile");
+  const entryFile = rawEntryFile.startsWith("/") || rawEntryFile.split("/").includes("..")
+    ? rawEntryFile
+    : posix.normalize(rawEntryFile);
   const entrySymbol = nonEmpty(value.entrySymbol, "rootGoal.entrySymbol");
   const entryLexicalPath = value.entryLexicalPath === undefined
     ? undefined
@@ -633,5 +637,14 @@ export function readCallDepthCursor(value: unknown): CallDepthCursor {
 }
 
 export function withinScope(relPath: string, scopePaths: readonly string[]): boolean {
-  return scopePaths.some(scope => relPath === scope || relPath.startsWith(`${scope}/`));
+  return scopePaths.some(scope => {
+    const normalized = normalizeScopePath(scope);
+    if (normalized === "") return true;
+    return relPath === normalized || relPath.startsWith(`${normalized}/`);
+  });
+}
+
+function normalizeScopePath(scope: string): string {
+  const normalized = posix.normalize(scope).replace(/\/+$/, "");
+  return normalized === "." ? "" : normalized;
 }
