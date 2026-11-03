@@ -1959,12 +1959,14 @@ export async function createReadOnlyCliFilesystemSandbox(options: {
   readonly root: string;
   readonly scenarioId?: string;
   readonly sessionId?: string;
+  readonly allowReadOnlySearch?: boolean;
 }): Promise<CliFilesystemSandbox> {
   const input = expectRecord(options, "read-only sandbox options");
   const allowed = [
     "root",
     ...(Object.hasOwn(input, "scenarioId") ? ["scenarioId"] : []),
     ...(Object.hasOwn(input, "sessionId") ? ["sessionId"] : []),
+    ...(Object.hasOwn(input, "allowReadOnlySearch") ? ["allowReadOnlySearch"] : []),
   ];
   exactKeys(input, allowed, "read-only sandbox options");
   const rootValue = nonEmpty(input.root, "read-only sandbox root");
@@ -1975,6 +1977,9 @@ export async function createReadOnlyCliFilesystemSandbox(options: {
   const sessionId = Object.hasOwn(input, "sessionId")
     ? nonEmpty(input.sessionId, "read-only sandbox sessionId")
     : DEFAULT_READ_ONLY_SESSION_ID;
+  const allowReadOnlySearch = Object.hasOwn(input, "allowReadOnlySearch")
+    ? input.allowReadOnlySearch === true
+    : false;
   const physicalRoot = await realpath(rootValue);
   const rootAttributes = await lstat(physicalRoot);
   if (!rootAttributes.isDirectory()) throw new TypeError("read-only sandbox root must be a directory");
@@ -1987,9 +1992,13 @@ export async function createReadOnlyCliFilesystemSandbox(options: {
       id: sessionId,
       cwd: physicalRoot,
       revision: 0,
-      grantedEffects: Object.freeze(["filesystem.read"] as const),
+      grantedEffects: Object.freeze(allowReadOnlySearch
+        ? (["filesystem.read", "process.exec"] as const)
+        : (["filesystem.read"] as const)),
     })]]),
-    grants: Object.freeze(["filesystem.read"] as const),
+    grants: Object.freeze(allowReadOnlySearch
+      ? (["filesystem.read", "process.exec"] as const)
+      : (["filesystem.read"] as const)),
     boundRefs: new Map(),
     issuedDirectoryRefs: new Map(),
     active: true,
