@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-03 LayerFS main 与 origin/main 同步收口（PR #26）
+
+- 核对：`git diff 909b622..e83be75` 改动 44 个文件（Rust r7/r8 调用深度适配器 `rust-call-depth-adapter.ts` / `rust-call-depth-policy.ts`、Rust 正反夹具 `tests/fixtures/rust-calls/*`、`tests/rust-call-depth-mvp.test.mjs`、`tests/cli-language-a.test.mjs`、`docs/skills/nn-code/SKILL.md`、`package*.json` 等）。LayerFS main `main@431b396a2740` 这 44 个文件的业务内容与 `origin/main` `e83be75` 逐一一致（大文件 `rust-call-depth-policy.ts` 以分段窗口核对 58513 字节全文一致），结论：LayerFS main 已等于 `e83be75`，业务内容无新层。
+- Git 同步：git 基线 `/Volumes/extension/layerfs/nnanything/main` 由 `909b622`（PR #25）ff 到 `e83be75`（工作树干净）；独立 Git owner `git-owner.git` 的 `git-main` 由 `909b622` 推进到 `e83be75`。
+- 合并事实：PR #26 `capture-rust-calls-r7-r8` merge `e83be75`（Rust 调用深度 r7/r8 策略适配器、scope 处理与公共接线）。
+- 资源：本项仅同步工作线与 Git owner，并记录本条 note；未改交付代码、未覆盖未交付任务。
+
 ## 2026-11-03 LayerFS main 与 origin/main 同步收口（PR #23/#24）
 
 - 核对：`git diff 86a51de..e001da0` 仅改动 8 个文件（value-flow-contract/recursive、cli-call-depth-bin、cli-value-flow、cli-value-flow-policy、value-flow-l2-runner、cli-value-flow.test、docs/skills/nn-code/SKILL.md）。LayerFS main 当前层 `32c62ff5` 这 8 个文件的 sha256 与 `origin/main` `e001da0` 逐一相同，其余文件相对 `86a51de` 未变。结论：LayerFS main 业务树已等于 `e001da0`，无新层需 publish。
