@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-03 nn-code Skill r10 对齐合入 main（PR #21）
+
+- 完成度：`docs/skills/nn-code/SKILL.md` 的 `symbols` 语言列更新为 Rust/Kotlin/Java/TS-JS/Swift，`value-flow` 默认日志路径按已安装 CLI 更正为 `$TMPDIR/nn-code-value-flow/`，并记录 `ccc3d81`/`f9d9fbc` 已登记缺口；源 Skill 与全局正文同步一致。
+- 验证：候选 LayerFS 工作区 `npm run build` 与 `npm run typecheck` exit 0；仅文档改动，无代码逻辑变化。LayerFS task branch `skill-sync-value-flow-r10` publish 层 `32e2dc51`，读回与 Git main 一致（仅已知尾部换行归一化）。
+- 合并与同步：Git owner 捕获 `capture-skill-sync-value-flow-r10`，PR #21 merge `6c95bab` 已 push 并核对 `origin/main`；Git owner `git-main` 与 Git 基线 `/Volumes/extension/layerfs/nnanything/main` 均 ff 到 `6c95bab`；LayerFS main `32e2dc51` 与 `origin/main` 业务树一致，无新层。
+- 边界：仅同步 Skill 描述与已安装 CLI 事实，不扩大 `nn-code` 实际命令能力；未处理已登记的 value-flow 闭包/scope/entry-file 等 bug，保持 Bob 队列。
+
 ## 2026-11-03 nn-code Skill 同步 value-flow 交付说明并入 main（PR #20）
 
 - 完成度：源 Skill `docs/skills/nn-code/SKILL.md` 与全局正文 `~/.agents/skills/nn-code/SKILL.md` 已同步一致，新增 `nn-code value-flow` 使用触发条件、命令与参数说明，并把维护者段落升级为「CLI 能力升级与 Skill 同步交付」，覆盖所有命令/语言/语义/参数/输出变化、description 触发、实际用例、源与全局/help 同批、审计与未同步不得判交付完成；禁止旧源码覆盖新全局规则。
