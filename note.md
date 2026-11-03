@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-03 nn-code Skill 同步 value-flow 交付说明并入 main（PR #20）
+
+- 完成度：源 Skill `docs/skills/nn-code/SKILL.md` 与全局正文 `~/.agents/skills/nn-code/SKILL.md` 已同步一致，新增 `nn-code value-flow` 使用触发条件、命令与参数说明，并把维护者段落升级为「CLI 能力升级与 Skill 同步交付」，覆盖所有命令/语言/语义/参数/输出变化、description 触发、实际用例、源与全局/help 同批、审计与未同步不得判交付完成；禁止旧源码覆盖新全局规则。
+- 验证：real 候选工作区 `npm run build`/`typecheck` exit 0、`tests/cli-value-flow.test.mjs` 52/52；LayerFS task branch `skill-sync-value-flow-r9` publish 新层 `32b06a8b`，读回与 Git main 字节一致（sha256 b5a46a97...）。
+- 合并与同步：PR #20 merge `443852b` 已 push 并核对 `origin/main`；Git owner `git-main` 与 Git 基线 `/Volumes/extension/layerfs/nnanything/main` 均 ff 到 `443852b`；LayerFS main `32b06a8b` 与 `origin/main` 业务树一致，无新层。
+- 边界：不存在尚未安装验收的 `nn-code value-flow` 描述；Rust/Kotlin/Java/TS-JS/Swift `symbols` 触发在 Skill 中同步示例说明，未扩大实际命令能力。
+
 ## 2026-11-03 nn-code value-flow r8 静态 may-provenance 查询合入 main 并同步 LayerFS
 
 - 完成度：`nn-code value-flow` 公共入口（`lib/cli-value-flow.ts` 的 `runCliValueFlowGoal`）交付流敏感的程序点值流 may-provenance 查询，返回 `cli.programming.value_flow.result.v1`；支持 origin/sink 双方向、depth 0-3、scope 文件范围、结果 all/one，检索与文件读取经只读沙箱执行；未决站点保留本地证据并诚实返回 unknown/insufficient_evidence。
