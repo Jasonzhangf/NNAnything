@@ -98,14 +98,14 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
   - 若输出较大，可将 `stdout` 重定向至临时文件并用 `jq '{status, resolution, runLogPath, logging: {state: .logging.state, reason: .logging.reason}, nodes: (.nodes|length), edges: (.edges|length), unresolved: (.unresolvedCallsites|length)}'` 查看摘要；`logging.state != "complete"` 时读 `logging.reason`（如 `LOG_CAPACITY_EXCEEDED`、`LOG_STORE_BUSY`）区分日志是否完整落盘。
   - 运行日志实际为 `.jsonl`；`runLogPath` 指向该 `.jsonl` 文件。
 
-### `nn-code symbols`（Rust/Kotlin 独立符号表）
+### `nn-code symbols`（Rust/Kotlin/Java/TS-JS/Swift 独立符号表）
 
 需要 Rust/Kotlin 源码的声明、位置、词法归属与覆盖状态而非调用关系图时，用：
 
 ```bash
 /opt/homebrew/bin/nn-code symbols \
   --repo <repoPath> \
-  --language <rust|rs|kotlin|kt> \
+  --language <rust|rs|kotlin|kt|java|typescript|ts|javascript|js|swift> \
   --scope <prefix1,prefix2> \
   [--symbol <name>] \
   [--file <repoRelativePath>] \
@@ -118,7 +118,7 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
 
 - 输出为单个 `nnanything.cli-symbols.result.v1` JSON 对象。`symbols[]` 每条含 `name`、`kind`、`declSpan`、`lexicalScope`、`visibility`、`parseStatus`、`nameSpan` 与覆盖状态；`coverage` 记录发现/解析文件、`partial`、`truncated`、`skipped` 与 `partialReasons`。
 - 结果只代表 AST 词法作用域：不读 `Cargo.toml`（`edition` 默认 2021）、不展开宏/`include!`、不做跨 crate 或类型推断，模块路径未解析为 `unknown`。`nameSpan` 在当前 `rustc -Z unpretty=ast-tree` 后端为 `null`，原因写 `nameSpanSource`。
-- `--ignore-policy` 首版仅支持 `no_ignore`；`respect_vcs_ignore` 显式拒绝，不静默降级。Kotlin 需要 JDK 17 与四个 Kotlin compiler jars（环境变量 `NN_CODE_KOTLIN_JAVA_BIN` / `NN_CODE_KOTLIN_JARS`）。
+- `--ignore-policy` 首版仅支持 `no_ignore`；`respect_vcs_ignore` 显式拒绝，不静默降级。Kotlin 需要 JDK 17 与四个 Kotlin compiler jars（环境变量 `NN_CODE_KOTLIN_JAVA_BIN` / `NN_CODE_KOTLIN_JARS`）；Java 需要 JDK 17 与 `node scripts/build-java-symbol-jvm.mjs` 预构建的 ExtractJavaSymbols driver；Swift 需要 `/usr/bin/swiftc`。
 - 每次运行默认在 `~/.local/state/nn-code/runs/` 保存 JSONL 日志，顶层 `logging` 与 `runLogPath` 回显；`--no-log` 关闭本次日志，`--log-dir` 改变日志目录。
 
 ### `nn-code value-flow`（TS/JS 静态值流，may-provenance）
@@ -138,7 +138,7 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
   [--run-log-path <path>]
 ```
 
-`--repo` 是主参数，`--root` 作为别名；`--anchor-file` 为含锚点的相对路径，`--anchor-symbol` 为要追踪的符号或参数名；`--direction origin` 向下溯源，`sink` 向下流向；`--scope` 限定文件范围；`--result-mode one` 只取首条路径。运行日志默认落盘在 `~/.local/state/nn-code/runs/`，`--no-log` 关闭本次日志。
+`--repo` 是主参数，`--root` 作为别名；`--anchor-file` 为含锚点的相对路径，`--anchor-symbol` 为要追踪的符号或参数名；`--direction origin` 向下溯源，`sink` 向下流向；`--scope` 限定文件范围；`--result-mode one` 在遍历中取首条路径，`all` 遍历全部候选。运行日志默认落盘在系统临时目录 `$TMPDIR/nn-code-value-flow/`（已登记与 calls 默认 run 目录不一致的缺口 ccc3d81，修复前以实际回执路径为准），`--run-log-path` 显式改路径，`--no-log` 关闭本次日志；`one` 与 `all` 的多路径输出裁剪差异另登记 f9d9fbc 待修，当前不依赖 `one` 裁剪输出。
 
 ## 3. 预期静态边界（非 Bug）vs 触发 `reportbug` 的真实问题
 
