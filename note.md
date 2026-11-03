@@ -2376,3 +2376,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 合入 main：`9d11c73`（merge: integrate CommonJS destructured require binding），候选 `ba0076b`；已 push，远端 `origin/main` 与本地一致。Carol r3 独立定向复核 PASS，仅覆盖直接静态写入与词法遮蔽；compound assignment、`Object.assign`、跨过程副作用和别名传播仍按未知处理，不扩大为完整 JS 数据流。
 - 验证：候选与合并树 `npm run build`、`npm run typecheck` exit 0；`tests/cli-call-depth-mvp` 65/65、合并树受影响四套件 91/91、语言 A 26/26；`npm install -g .` 更新 `/opt/homebrew/bin/nn-code`，从 `/tmp` 全局实测通过。全局 Skill `/Users/fanzhang/.agents/skills/nn-code/SKILL.md` 已补已验证边界，未宣称完整数据流。
 - 资源：`nn-code-cjs-destructured-require` worktree 已移除、本地分支已删除；当前 worktree 7 个（含主树），低于上限 10。
+
+## 2026-11-02 nn-code P1 修复合入 main 并安装验证
+
+- 完成度：PR #16 已 squash merge 到 `origin/main` `da2419f`，修复四类真实黑盒失败：scope `.`/`./src`/`src/` 与 entry `./src/...` 归一化；仓库边界 `src/../src/entry.ts`、`../entry.ts` 与绝对 entry 仍 exit 4 拒收；`new Helper()` 与 tagged template 记录为边或未解析调用点；并发 usage-log 按有界退避重试，6 路并发各写完整日志。
+- Review：独立 review 两轮 finding（`..` 归一化绕过边界、绝对 entry 回归覆盖不足）已修，定向复核 PASS、`findings: []`；回执 `/Volumes/Intel/playground/nnanything-runs/nn-code-p1-review-20261103/recheck2.stdout`。
+- LayerFS 候选 CI（实际候选 `1241d672`）：`npm run build`、`npm run typecheck` exit 0；P1 regressions 5/5；affected 46/46；publish 层 `321b412e...`。
+- 安装态验收：host `npm run build`/`typecheck` exit 0；`tests/nn-code-p1-fixes.test.mjs` 5/5；全局 `/opt/homebrew/bin/nn-code`（指向仓库 dist）实测：真实仓库 scope `lib` achieved、entry `lib/cli-call-depth-bin.ts#main`；fixture scope `.`/`./src`/`src/` 与 entry `./src/...` 均 achieved；parent/absolute entry exit 4 rejected；new/tagged 记录 1 edge + 1 unresolved；6 路并发 6 份日志首 start 末 finish、state=complete。
+- LayerFS 同步：Git 基线 `/Volumes/extension/layerfs/nnanything/main` 已 ff 到 `da2419f`，工作区干净；`git-owner.git` `refs/heads/git-main` 更新为 `da2419f`；`da2419f` 业务树与 LayerFS main `321b412e` 四文件及 AGENTS.md 字节一致（sha256），记为 `already_current`，无新层。
+- 边界：`43081d1`（回调体调用不遍历）、`da53012`（参数默认值调用遗漏）、静态方法分类措辞、非法 `--max-depth` 晚报 TypeError 未纳入本次。
