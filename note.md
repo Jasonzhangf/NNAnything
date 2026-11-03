@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-03 LayerFS main 与 origin/main 同步收口（PR #23/#24）
+
+- 核对：`git diff 86a51de..e001da0` 仅改动 8 个文件（value-flow-contract/recursive、cli-call-depth-bin、cli-value-flow、cli-value-flow-policy、value-flow-l2-runner、cli-value-flow.test、docs/skills/nn-code/SKILL.md）。LayerFS main 当前层 `32c62ff5` 这 8 个文件的 sha256 与 `origin/main` `e001da0` 逐一相同，其余文件相对 `86a51de` 未变。结论：LayerFS main 业务树已等于 `e001da0`，无新层需 publish。
+- Git 同步：git 基线 `/Volumes/extension/layerfs/nnanything/main` 由 `86a51de`（PR #22）ff 到 `e001da0`（工作树干净）；独立 Git owner `git-owner.git` 的 `git-main` 由 `3500919`（PR #23）推进到 `e001da0`（PR #24）。
+- 合并事实：PR #23 `capture-l2-objective-repair` merge `3500919`（值流 L2 目标函数对齐声明正则）；PR #24 `capture-b1-log-learning-r4` merge `e001da0`（复用截断读取证据完成 B1 值流日志学习证据）。
+- 资源：核验用 LayerFS 分支 `verify-main-state-20261103` 与 sandbox 3 已卸载关闭。本项仅同步工作线与 Git owner，未改交付内容、未新增 LayerFS 层、未覆盖未交付任务。
+
 ## 2026-11-03 nn-code Skill r10 对齐合入 main（PR #21）
 
 - 完成度：`docs/skills/nn-code/SKILL.md` 的 `symbols` 语言列更新为 Rust/Kotlin/Java/TS-JS/Swift，`value-flow` 默认日志路径按已安装 CLI 更正为 `$TMPDIR/nn-code-value-flow/`，并记录 `ccc3d81`/`f9d9fbc` 已登记缺口；源 Skill 与全局正文同步一致。
