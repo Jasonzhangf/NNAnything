@@ -134,11 +134,12 @@ description: 已知 TS/JS 函数入口，需要理解执行流程、审计影响
   [--max-depth <0|1|2|3>] \
   [--scope <path[,path]>] \
   [--result-mode <all|one>] \
-  [--no-log] \
-  [--run-log-path <path>]
+  [--log-dir <dir>] \
+  [--run-log-path <file.jsonl>] \
+  [--no-log]
 ```
 
-`--repo` 是主参数，`--root` 作为别名；`--anchor-file` 为含锚点的相对路径，`--anchor-symbol` 为要追踪的符号或参数名；`--direction origin` 向下溯源，`sink` 向下流向；`--scope` 限定文件范围；`--result-mode one` 在遍历中取首条路径，`all` 遍历全部候选。运行日志默认落盘在系统临时目录 `$TMPDIR/nn-code-value-flow/`（已登记与 calls 默认 run 目录不一致的缺口 ccc3d81，修复前以实际回执路径为准），`--run-log-path` 显式改路径，`--no-log` 关闭本次日志；`one` 与 `all` 的多路径输出裁剪差异另登记 f9d9fbc 待修，当前不依赖 `one` 裁剪输出。
+`--repo` 是主参数，`--root` 作为别名；`--anchor-file` 为含锚点的相对路径，`--anchor-symbol` 为要追踪的符号或参数名；`--direction origin` 向下溯源，`sink` 向下流向；`--scope` 限定文件范围；`--result-mode one` 在遍历中取首条路径，`all` 遍历全部候选。`value-flow` 与 `calls` 共用同一个 v2 `UsageLogRun` 生命周期（`start -> source_observed/node_expanded/relation_resolved/relation_unknown -> finish`）：`--log-dir <dir>` 指定日志目录，`--run-log-path <file.jsonl>` 显式指定单个 `.jsonl` 日志文件（`root` 取路径目录、`runId` 取文件名去 `.jsonl`），`--no-log` 关闭本次持久日志。`--no-log` 不能与 `--log-dir`/`--run-log-path` 并用；`--log-dir` 与 `--run-log-path` 互斥；`--run-log-path` 必须以 `.jsonl` 结尾。日志失败不改查询 `status`/`resolution`/退出码，只体现在顶层 `logging` 字段；`finish` 行只保留有限计数与引用，不回写完整 `sites`/`edges`/`unresolvedSites`/`searchMatches` 数组。
 
 ## 3. 预期静态边界（非 Bug）vs 触发 `reportbug` 的真实问题
 

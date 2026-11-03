@@ -1,9 +1,12 @@
 // `nn-code value-flow` public entry. The reusable API and the direct
 // `dist/cli-value-flow.js` executable share the same recursive-goal path.
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+// All persistence is routed through the shared `UsageLogRun` v2 lifecycle
+// (start -> source_observed/node_expanded/relation_resolved/relation_unknown
+// -> finish); no hand-built JSONL writer or parallel log file exists here.
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, posix, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename, dirname, join, posix, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { RecursiveGoalLimits } from "./workflow/recursive-goal/contracts.js";
 import { runRecursiveGoal } from "./workflow/recursive-goal/module.js";
 import {
@@ -18,6 +21,15 @@ import {
   createValueFlowAdapter,
   createValueFlowDependencies,
 } from "./adapters/cli/value-flow-recursive.js";
+import {
+  createUsageLogRun,
+  disabledUsageLog,
+  failedUsageLog,
+  isAllowedUsageLogKind,
+  USAGE_LOG_UNKNOWN_EXCERPT_LIMIT,
+  type UsageLogResult,
+  type UsageLogRun,
+} from "./adapters/cli/nn-code-usage-log.js";
 import {
   VALUE_FLOW_REQUEST_SCHEMA,
   VALUE_FLOW_ROOT_EVALUATOR,
@@ -49,12 +61,34 @@ export type CliValueFlowCliOptions = Readonly<{
   root: string;
   goal: CliValueFlowGoal;
   requestId?: string;
+  logDir?: string;
   runLogPath?: string;
   loggingEnabled?: boolean;
 }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorCode(error: unknown): string | null {
+  if (error !== null && (typeof error === "object" || typeof error === "function") && "code" in error) {
+    const code = String((error as { code?: unknown }).code);
+    if (code && code !== "undefined") return code;
+  }
+  return null;
+}
+
+let cachedCliVersion: string | null = null;
+
+function readCliVersion(): string {
+  if (cachedCliVersion !== null) return cachedCliVersion;
+  const pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+  const parsed = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: unknown };
+  if (typeof parsed.version !== "string" || parsed.version.trim().length === 0) {
+    throw new Error(`Invalid package.json version at ${pkgPath}`);
+  }
+  cachedCliVersion = parsed.version.trim();
+  return cachedCliVersion;
 }
 
 function latestState(value: unknown): ValueFlowState | null {
@@ -104,12 +138,16 @@ function safeRequestId(value: unknown): string {
     : `cli-value-flow-${Date.now().toString(36)}`;
 }
 
+function safeRunIdSegment(value: string): string {
+  const cleaned = value.replace(/[^A-Za-z0-9._-]/g, "_");
+  return /^[A-Za-z0-9]/.test(cleaned) ? cleaned : `run-${cleaned}`;
+}
+
 function deriveResult(
   goal: CliValueFlowGoal,
   response: unknown,
   finalState: ValueFlowState | null,
-  runLogPath: string | null,
-  logging: ValueFlowRunResult["logging"],
+  logging: ValueFlowLoggingState,
 ): ValueFlowRunResult {
   const stop = control(response);
   const root = rootEvaluation(response);
@@ -146,7 +184,7 @@ function deriveResult(
     sites: finalState?.sites ?? Object.freeze([]),
     edges: finalState?.edges ?? Object.freeze([]),
     unresolvedSites: finalState?.unresolvedSites ?? Object.freeze([]),
-    runLogPath,
+    runLogPath: logging.runLogPath,
     counters: finalState?.counters ?? Object.freeze({
       sandboxApiCalls: 0,
       searchCalls: 0,
@@ -160,32 +198,54 @@ function deriveResult(
   });
 }
 
-type RunLogEvent = Readonly<Record<string, unknown>>;
-
-function runLogEvent(
-  runId: string,
-  seq: number,
-  kind: string,
-  startedAt: number,
-  extra: Readonly<Record<string, unknown>> = Object.freeze({}),
-): RunLogEvent {
+function loggingFromInitError(error: unknown): UsageLogResult {
+  const code = errorCode(error) ?? "LOG_WRITE_FAILED";
   return Object.freeze({
-    ...extra,
-    schema: "nnanything.cli-value-flow.run-log.v1" as const,
-    runId,
-    seq,
-    kind,
-    observedAt: new Date().toISOString(),
-    elapsedMs: Date.now() - startedAt,
+    enabled: true,
+    state: "failed" as const,
+    runLogPath: null,
+    reason: code === "SANDBOX_ESCAPE" ? "LOG_ROOT_INSIDE_PROTECTED_REPO" : code,
   });
 }
 
-async function appendRunLogLines(path: string, lines: readonly string[]): Promise<void> {
-  await appendFile(path, `${lines.join("\n")}\n`, "utf8");
+function normalizeLogging(logging: UsageLogResult): ValueFlowLoggingState {
+  if (logging.state === "failed" && logging.reason === "SANDBOX_ESCAPE") {
+    return Object.freeze({
+      enabled: true,
+      state: "failed" as const,
+      runLogPath: logging.runLogPath,
+      reason: "LOG_ROOT_INSIDE_PROTECTED_REPO" as const,
+    });
+  }
+  return Object.freeze({
+    enabled: logging.enabled,
+    state: logging.state,
+    runLogPath: logging.runLogPath,
+    reason: logging.reason,
+  });
 }
 
-function errorReason(prefix: string, error: unknown): string {
-  return `${prefix}:${error instanceof Error ? error.message : String(error)}`;
+function boundedResultReceipt(finalState: ValueFlowState | null): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    anchorSiteId: finalState?.anchorSiteId ?? null,
+    siteCount: finalState?.sites.length ?? 0,
+    edgeCount: finalState?.edges.length ?? 0,
+    unresolvedSiteCount: finalState?.unresolvedSites.length ?? 0,
+    searchMatchesSeen: finalState?.counters.searchMatchesSeen ?? 0,
+    candidateFilesRead: finalState?.counters.candidateFilesRead ?? 0,
+    streamedEventKinds: Object.freeze([
+      "source_observed",
+      "node_expanded",
+      "relation_resolved",
+      "relation_unknown",
+    ]),
+    scorerSource: "deterministic_baseline:VF-Baseline-0" as const,
+    modelRef: null,
+  });
+}
+
+function exitCodeForStatus(status: ValueFlowRunResult["status"]): number {
+  return status === "achieved" ? 0 : status === "unknown" ? 2 : 1;
 }
 
 export async function runCliValueFlowGoal(
@@ -197,82 +257,69 @@ export async function runCliValueFlowGoal(
   const requestId = safeRequestId(raw?.requestId);
   const sessionSnapshot = resources.sandbox.getSession(resources.session);
   const state = buildInitialState(goal, sessionSnapshot, requestId);
-  const startedAt = Date.now();
-  const runLogDir = resources.runLogDir === undefined
-    ? join(tmpdir(), "nn-code-value-flow")
-    : resolve(resources.runLogDir);
-  const defaultRunLogPath = join(runLogDir, `${requestId.replace(/[^A-Za-z0-9._-]/g, "_")}.jsonl`);
-  const runLogPath = resources.runLogPath === undefined
-    ? defaultRunLogPath
-    : resolve(resources.runLogPath);
   const loggingEnabled = resources.loggingEnabled !== false;
-  let seq = 0;
-  let logging: ValueFlowLoggingState;
-  let logPath: string | null = null;
-  // Incremental JSONL observation stream. The adapter's `emit` callback is
-  // attached only when a log file is live; each emitted event is written as a
-  // single line and never buffered across the whole run, so no full state or
-  // source text is ever retained for a later one-shot serialization.
-  const pendingLogLines: string[] = [];
-  let logWriteChain: Promise<void> = Promise.resolve();
-  function enqueueRunLogEvent(kind: string, payload: Readonly<Record<string, unknown>>): void {
-    if (logPath === null || logging.state === "failed") return;
-    const line = JSON.stringify(runLogEvent(requestId, seq, kind, startedAt, payload));
-    seq += 1;
-    pendingLogLines.push(line);
-    logWriteChain = logWriteChain.then(async () => {
-      const batch = pendingLogLines.splice(0, pendingLogLines.length);
-      if (batch.length === 0) return;
-      try {
-        await appendRunLogLines(logPath as string, batch);
-      } catch (error) {
-        logging = Object.freeze({
-          enabled: true,
-          state: "partial" as const,
-          runLogPath: logPath,
-          reason: errorReason("log_event_failed", error),
-        });
+  const cliVersion = readCliVersion();
+
+  let logRun: UsageLogRun | null = null;
+  let initError: unknown = null;
+  if (loggingEnabled) {
+    const explicitPath = resources.runLogPath === undefined ? undefined : resolve(resources.runLogPath);
+    let root: string;
+    let runId: string;
+    if (explicitPath !== undefined) {
+      if (!explicitPath.endsWith(".jsonl")) {
+        throw new TypeError("--run-log-path must end with .jsonl");
       }
-    });
-  }
-  if (!loggingEnabled) {
-    // `--no-log` closes before any mkdir or byte write. The query still runs
-    // and returns its in-memory result; only persistence is disabled.
-    logging = Object.freeze({
-      enabled: false,
-      state: "disabled" as const,
-      runLogPath: null,
-      reason: "disabled_by_no_log",
-    });
-  } else {
+      const base = basename(explicitPath);
+      const name = base.slice(0, -".jsonl".length);
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+        throw new TypeError("--run-log-path must use a safe run-id filename segment");
+      }
+      root = dirname(explicitPath);
+      runId = name;
+    } else if (resources.runLogDir !== undefined) {
+      root = resolve(resources.runLogDir);
+      runId = `${safeRunIdSegment(requestId)}-${Date.now().toString(36)}`;
+    } else {
+      root = join(tmpdir(), "nn-code-value-flow");
+      runId = safeRunIdSegment(requestId);
+    }
     try {
-      await mkdir(dirname(runLogPath), { recursive: true });
-      await writeFile(runLogPath, `${JSON.stringify(runLogEvent(requestId, seq, "start", startedAt, {
-        request: Object.freeze({ ...goal, requestId }),
-        cliContract: "nnanything.cli-value-flow.run-log.v1" as const,
+      logRun = createUsageLogRun({
+        root,
+        runId,
+        protectedRoots: [resources.sandbox.scenarioRoot],
+        pid: process.pid,
+        owner: `nn-code:value-flow:${process.pid}`,
+      });
+      await logRun.start({
+        request: Object.freeze({ repoRoot: resources.sandbox.scenarioRoot, ...goal }),
+        cliVersion,
+        semanticContractVersion: VALUE_FLOW_REQUEST_SCHEMA,
         modelRef: null,
-      }))}\n`, "utf8");
-      seq += 1;
-      logPath = runLogPath;
-      logging = Object.freeze({
-        enabled: true,
-        state: "partial" as const,
-        runLogPath: logPath,
-        reason: null,
       });
     } catch (error) {
-      logging = Object.freeze({
-        enabled: true,
-        state: "failed" as const,
-        runLogPath: null,
-        reason: errorReason("log_start_failed", error),
-      });
+      initError = error;
+      logRun = null;
     }
   }
+
+  const eventPromises: Promise<boolean>[] = [];
   const created = createValueFlowAdapter({
     sandbox: resources.sandbox,
     session: resources.session,
-    ...(logPath === null ? {} : { emit: enqueueRunLogEvent }),
+    ...(logRun === null
+      ? {}
+      : {
+          emit: (kind, payload) => {
+            if (isAllowedUsageLogKind(kind) && kind !== "start" && kind !== "finish") {
+              const promise = logRun.event({ kind, body: payload });
+              eventPromises.push(promise);
+            }
+          },
+          reserveExcerptBytes: requested => logRun?.reserveExcerptBytes(requested)
+            ?? Math.max(0, Math.min(requested, USAGE_LOG_UNKNOWN_EXCERPT_LIMIT)),
+        }),
   });
   let response: unknown;
   try {
@@ -302,52 +349,49 @@ export async function runCliValueFlowGoal(
     created.disposeWorkingSet();
   }
   const finalState = created.getState() ?? latestState(response);
-  const result = deriveResult(goal, response, finalState, logPath, logging);
-  if (logging.enabled && logging.state !== "failed" && logPath !== null) {
-    // A normal run appends the deterministic baseline ranking and the finish
-    // receipt. `modelRef` is null in this entry, so only `baseline_rank`
-    // events are emitted; no neural `decision` event or fabricated
-    // probabilities ever appear. `sourceText` is never written.
+  const provisionalLogging = logRun === null
+    ? (initError === null ? disabledUsageLog() : loggingFromInitError(initError))
+    : normalizeLogging(logRun.status());
+  const result = deriveResult(goal, response, finalState, provisionalLogging);
+
+  if (logRun !== null) {
+    // Await every streamed event before the finish line so the file stays in
+    // append order (source_observed/node_expanded/relation_resolved/
+    // relation_unknown then finish) and none is dropped by a racing write.
     try {
-      await logWriteChain;
-      const lines: string[] = [];
-      for (const match of finalState?.searchMatches ?? []) {
-        lines.push(JSON.stringify(runLogEvent(requestId, seq, "baseline_rank", startedAt, {
-          relPath: match.relPath,
-          line: match.line,
-          column: match.column,
-          priorityTier: match.priorityTier,
-          scorerSource: match.scorerSource,
-          modelRef: match.modelRef,
-        })));
-        seq += 1;
-      }
-      lines.push(JSON.stringify(runLogEvent(requestId, seq, "finish", startedAt, {
-        status: result.status,
-        resolution: result.resolution,
-        nodes: (finalState?.sites ?? []).length,
-        edges: (finalState?.edges ?? []).length,
-        unresolved: (finalState?.unresolvedSites ?? []).length,
-        anchorSiteId: result.anchorSiteId,
-        modelRef: null,
-      })));
-      seq += 1;
-      await appendRunLogLines(logPath, lines);
-      logging = Object.freeze({
-        enabled: true,
-        state: "complete" as const,
-        runLogPath: logPath,
-        reason: null,
+      await Promise.all(eventPromises);
+    } catch {
+      // A single failed event append is surfaced through logRun.status(); the
+      // remaining events and the finish line still proceed best-effort.
+    }
+    // A normal run streams its facts already through the adapter `emit`
+    // callback; the finish line carries only bounded counts and references
+    // (never full sites/edges/unresolvedSites/searchMatches arrays). `modelRef`
+    // is null in this entry, so no neural `decision` or legacy `baseline_rank`
+    // event is ever emitted. Logging failure never changes the query outcome.
+    try {
+      await logRun.finish({
+        outcome: Object.freeze({
+          stage: "completed" as const,
+          exitCode: exitCodeForStatus(result.status),
+          status: result.status,
+          resolution: result.resolution,
+          anchorSiteId: result.anchorSiteId,
+        }),
+        coverage: finalState === null ? null : Object.freeze({ ...finalState.counters }),
+        resultReceipt: boundedResultReceipt(finalState),
+        error: null,
       });
     } catch (error) {
-      logging = Object.freeze({
-        enabled: true,
-        state: "partial" as const,
-        runLogPath: logPath,
-        reason: errorReason("log_finish_failed", error),
-      });
+      // Persistence failure is recorded by logRun.status(); the query result,
+      // resolution and exit code remain unchanged.
+      void error;
     }
   }
+
+  const logging = logRun === null
+    ? provisionalLogging
+    : normalizeLogging(logRun.status());
   return Object.freeze({ ...result, logging, runLogPath: logging.runLogPath });
 }
 
@@ -375,6 +419,7 @@ export function parseCliValueFlowArgs(argv: readonly string[]): CliValueFlowCliO
   let root = process.cwd();
   let explicitRoot: string | null = null;
   let requestId: string | undefined;
+  let logDir: string | undefined;
   let runLogPath: string | undefined;
   let noLog = false;
   let anchorFile: string | undefined;
@@ -401,6 +446,9 @@ export function parseCliValueFlowArgs(argv: readonly string[]): CliValueFlowCliO
       index += 1;
     } else if (argument === "--request-id") {
       requestId = requireValue(argv, index, argument);
+      index += 1;
+    } else if (argument === "--log-dir") {
+      logDir = requireValue(argv, index, argument);
       index += 1;
     } else if (argument === "--run-log-path") {
       runLogPath = requireValue(argv, index, argument);
@@ -453,8 +501,22 @@ export function parseCliValueFlowArgs(argv: readonly string[]): CliValueFlowCliO
   }
   if (anchorFile === undefined) throw new TypeError("--anchor-file is required");
   if (anchorSymbol === undefined) throw new TypeError("--anchor-symbol is required");
-  if (noLog && runLogPath !== undefined) {
-    throw new TypeError("--no-log conflicts with --run-log-path");
+  if (noLog && (logDir !== undefined || runLogPath !== undefined)) {
+    throw new TypeError("--no-log cannot be combined with --log-dir or --run-log-path");
+  }
+  if (logDir !== undefined && runLogPath !== undefined) {
+    throw new TypeError("--log-dir and --run-log-path are mutually exclusive");
+  }
+  if (runLogPath !== undefined) {
+    const resolved = resolve(runLogPath);
+    const base = basename(resolved);
+    if (!base.endsWith(".jsonl")) {
+      throw new TypeError("--run-log-path must end with .jsonl");
+    }
+    const name = base.slice(0, -".jsonl".length);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) {
+      throw new TypeError("--run-log-path must use a safe run-id filename segment");
+    }
   }
   const scopes = scopePaths.length > 0 ? Object.freeze(scopePaths) : Object.freeze([defaultScope(anchorFile)]);
   const goal = readCliValueFlowGoal({
@@ -475,6 +537,7 @@ export function parseCliValueFlowArgs(argv: readonly string[]): CliValueFlowCliO
     root: resolve(root),
     goal,
     ...(requestId === undefined ? {} : { requestId }),
+    ...(logDir === undefined ? {} : { logDir }),
     ...(runLogPath === undefined ? {} : { runLogPath }),
     ...(noLog ? { loggingEnabled: false } : {}),
   });
@@ -497,7 +560,8 @@ export async function runCliValueFlowCli(argv: readonly string[]): Promise<numbe
       "--scope <path[,path]>         in-scope directories",
       "--result-mode <all|one>       all paths or first path",
       "--max-candidate-file-reads <n> explicit candidate read budget",
-      "--run-log-path <path>         explicit incremental JSONL run log path",
+      "--log-dir <dir>               per-run log directory outside --repo",
+      "--run-log-path <file.jsonl>   explicit per-run JSONL run log path",
       "--no-log                      disable all persistence for this run",
       "",
     ].join("\n"));
@@ -519,6 +583,7 @@ export async function runCliValueFlowCli(argv: readonly string[]): Promise<numbe
       }, {
         sandbox,
         session,
+        ...(options.logDir === undefined ? {} : { runLogDir: options.logDir }),
         ...(options.runLogPath === undefined ? {} : { runLogPath: options.runLogPath }),
         ...(options.loggingEnabled === false ? { loggingEnabled: false } : {}),
       });
@@ -540,4 +605,3 @@ export async function runCliValueFlowCli(argv: readonly string[]): Promise<numbe
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   process.exitCode = await runCliValueFlowCli(process.argv.slice(2));
 }
-

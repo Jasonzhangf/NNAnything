@@ -3,7 +3,7 @@
 // `runCliValueFlowGoal` recursive-goal entry, and the compiled CLI.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -157,6 +157,14 @@ function wrapReadSandbox(sandbox, session, options) {
     },
     attempts: () => attempts,
   };
+}
+
+async function makeLogDir(t) {
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "nn-vf-log-")));
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+  return dir;
 }
 
 async function makeBigFixture(t) {
@@ -590,7 +598,7 @@ test("runCliValueFlowGoal reaches achieved/complete through the real recursive g
   const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
   t.after(async () => sandbox.cleanup());
   const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
-  const runLogPath = join(root, "run.json");
+  const runLogPath = join(await makeLogDir(t), "run.jsonl");
 
   const result = await valueFlow.runCliValueFlowGoal(
     { requestId: "vf-integration", rootGoal: readOnlyGoal() },
@@ -623,7 +631,7 @@ test("runCliValueFlowGoal is flow-sensitive for a killed assignment", async t =>
       requestId: "vf-kill",
       rootGoal: readOnlyGoal({ anchorSymbol: "y", anchorLine: 4 }),
     },
-    { sandbox, session, runLogPath: join(root, "run-kill.json") },
+    { sandbox, session, runLogPath: join(await makeLogDir(t), "run-kill.jsonl") },
   );
   const symbols = new Set(result.sites.map(site => site.symbolName));
   assert.ok(symbols.has("b"));
@@ -641,7 +649,7 @@ test("compiled CLI returns origin/all exit 0 and structured result", async t => 
     "--direction", "origin",
     "--max-depth", "3",
     "--scope", "src",
-    "--run-log-path", join(root, "cli-all-run.json"),
+    "--run-log-path", join(await makeLogDir(t), "cli-all-run.jsonl"),
   ], tmpdir());
   assert.equal(run.status, 0, run.stderr);
   const payload = JSON.parse(run.stdout);
@@ -664,7 +672,7 @@ test("compiled CLI returns a structured one-mode result", async t => {
     "--max-depth", "3",
     "--scope", "src",
     "--result-mode", "one",
-    "--run-log-path", join(root, "cli-one-run.json"),
+    "--run-log-path", join(await makeLogDir(t), "cli-one-run.jsonl"),
   ], tmpdir());
   assert.ok(run.status === 0 || run.status === 2, `unexpected exit ${run.status}: ${run.stderr}`);
   const payload = JSON.parse(run.stdout);
@@ -727,7 +735,10 @@ test("stack overflow is surfaced as a structured unknown with STACK_OVERFLOW_OR_
   const result = analyze(source, "acc", { anchorLine: 2, maxDepth: 1 });
   assert.equal(result.status, "unknown");
   assert.equal(result.resolution, "insufficient_evidence");
-  assert.ok(result.unresolvedSites.some(site => site.reasonCode === "STACK_OVERFLOW_OR_PARSE_LIMIT"));
+  const overflow = result.unresolvedSites.find(site => site.reasonCode === "STACK_OVERFLOW_OR_PARSE_LIMIT");
+  assert.ok(overflow);
+  assert.match(overflow.occurrenceId, /@unlocated:\d+$/);
+  assert.equal(overflow.siteSpan, null);
 });
 
 test("deep nesting up to 1000 is still achieved", async () => {
@@ -1313,7 +1324,7 @@ test("run log is JSONL with start first, baseline_rank (no decision), finish las
   const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
   t.after(async () => sandbox.cleanup());
   const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
-  const runLogPath = join(root, "run-log.jsonl");
+  const runLogPath = join(await makeLogDir(t), "run-log.jsonl");
   const result = await valueFlow.runCliValueFlowGoal(
     { requestId: "vf-log-jsonl", rootGoal: readOnlyGoal() },
     { sandbox, session, runLogPath },
@@ -1325,12 +1336,27 @@ test("run log is JSONL with start first, baseline_rank (no decision), finish las
   const lines = (await readFile(runLogPath, "utf8")).trim().split("\n").map(line => JSON.parse(line));
   assert.equal(lines[0].kind, "start");
   assert.equal(lines[0].modelRef, null);
+  assert.equal(lines[0].request.repoRoot, root);
   assert.equal(lines.at(-1).kind, "finish");
-  assert.equal(lines.at(-1).status, "achieved");
-  assert.ok(lines.some(line => line.kind === "baseline_rank"), "deterministic baseline ranking must be recorded");
+  assert.equal(lines.at(-1).outcome.status, "achieved");
+  const finishReceipt = lines.at(-1).resultReceipt;
+  assert.equal(typeof finishReceipt.anchorSiteId, "string");
+  assert.ok(Number.isInteger(finishReceipt.siteCount));
+  assert.ok(Number.isInteger(finishReceipt.edgeCount));
+  assert.ok(Number.isInteger(finishReceipt.unresolvedSiteCount));
+  assert.deepEqual(finishReceipt.streamedEventKinds,
+    ["source_observed", "node_expanded", "relation_resolved", "relation_unknown"]);
+  assert.equal(finishReceipt.scorerSource, "deterministic_baseline:VF-Baseline-0");
+  assert.equal(finishReceipt.modelRef, null);
+  assert.ok(!("sites" in finishReceipt) && !("edges" in finishReceipt)
+    && !("unresolvedSites" in finishReceipt) && !("searchMatches" in finishReceipt),
+    "finish resultReceipt must not carry full arrays");
+  const ranked = lines.filter(line => line.kind === "node_expanded" && line.recordKind === "deterministic_candidate_rank");
+  assert.ok(ranked.length > 0, "deterministic candidate ranking must be streamed");
+  assert.equal(ranked[0].scorerSource, "deterministic_baseline:VF-Baseline-0");
+  assert.equal(ranked[0].modelRef, null);
   assert.ok(!lines.some(line => line.kind === "decision"), "no neural decision event without a loaded model");
-  assert.ok(!lines.some(line => line.kind === "baseline_rank" && "probabilities" in line),
-    "baseline_rank must not carry fabricated probabilities");
+  assert.ok(!lines.some(line => line.kind === "baseline_rank"), "no legacy baseline_rank event");
   assert.ok(!JSON.stringify(lines).includes("sourceText"), "run log must not persist sourceText");
 });
 
@@ -1345,7 +1371,7 @@ test("run log records real observation, expansion, relation and unknown events i
   const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
   t.after(async () => sandbox.cleanup());
   const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
-  const runLogPath = join(root, "run-events.jsonl");
+  const runLogPath = join(await makeLogDir(t), "run-events.jsonl");
   const result = await valueFlow.runCliValueFlowGoal(
     { requestId: "vf-log-events", rootGoal: readOnlyGoal() },
     { sandbox, session, runLogPath },
@@ -1355,13 +1381,15 @@ test("run log records real observation, expansion, relation and unknown events i
   const kinds = lines.map(line => line.kind);
   assert.equal(kinds[0], "start");
   assert.equal(kinds.at(-1), "finish");
-  assert.equal(lines.at(-1).status, "unknown");
-  for (const kind of ["source_observed", "node_expanded", "relation_resolved", "relation_unknown", "baseline_rank"]) {
+  assert.equal(lines.at(-1).outcome.status, "unknown");
+  for (const kind of ["source_observed", "node_expanded", "relation_resolved", "relation_unknown"]) {
     assert.ok(kinds.includes(kind), `run log must include ${kind}`);
   }
   assert.ok(!kinds.includes("decision"), "baseline runs never fabricate neural decisions");
-  assert.ok(!JSON.stringify(lines).includes("after.size += 1"),
-    "observation events carry identifiers and spans, never source text");
+  assert.ok(lines.every(line => !("sourceText" in line)), "run log must never persist a full sourceText field");
+  const locatedExcerpt = lines.find(line => line.kind === "relation_unknown" && line.sourceExcerpt !== null);
+  assert.ok(locatedExcerpt, "a located unknown carries a bounded sourceExcerpt");
+  assert.equal(typeof locatedExcerpt.sourceExcerpt.complete, "boolean");
 });
 
 test("--no-log disables persistence and leaves no file behind", async t => {
@@ -1391,7 +1419,7 @@ test("compiled CLI --no-log with --run-log-path is a zero-write conflict", async
     "--run-log-path", join(root, "conflict.jsonl"),
   ], tmpdir());
   assert.equal(run.status, 1, run.stdout);
-  assert.match(run.stderr, /--no-log conflicts with --run-log-path/);
+  assert.match(run.stderr, /--no-log cannot be combined with --log-dir or --run-log-path/);
   await assert.rejects(readFile(join(root, "conflict.jsonl"), "utf8"), /ENOENT/);
 });
 
@@ -1608,4 +1636,330 @@ test("C4 continuation keeps cumulative candidateFilesRead and the read budget", 
   assert.equal(rebuilt.maxCandidateFileReads, 3, "the explicit read budget is not reset");
   assert.equal(rebuilt.maxCandidateFileReads - rebuilt.counters.candidateFilesRead, 1,
     "only the unused budget remains after the rebuild");
+});
+
+// ---------------------------------------------------------------------------
+// Slice B1 fixed black-box matrix (plan r4 §3.2 cases 1-6).
+// Each test drives the real compiled entry or the shared UsageLogRun writer,
+// never a synthetic log file.
+// ---------------------------------------------------------------------------
+
+async function readParsedLog(path) {
+  return (await readFile(path, "utf8")).trim().split("\n").map(line => JSON.parse(line));
+}
+
+function wrapInspectMutateSandbox(sandbox, filePath, replacement) {
+  let mutated = false;
+  return {
+    ...sandbox,
+    execute: async call => {
+      if (call?.operation === "entry.inspect" && !mutated) {
+        mutated = true;
+        await writeFile(filePath, replacement);
+      }
+      return sandbox.execute(call);
+    },
+  };
+}
+
+test("anchor_not_found is an unlocated unknown with a null span", async () => {
+  const source = `export function f() {
+  return 1;
+}
+`;
+  const result = analyze(source, "missing_symbol", { anchorLexicalPath: "f", anchorLine: 2 });
+  assert.equal(result.status, "unknown");
+  const site = result.unresolvedSites.find(item => item.reasonCode === "ANCHOR_NOT_FOUND");
+  assert.ok(site);
+  assert.match(site.occurrenceId, /@unlocated:\d+$/);
+  assert.equal(site.siteSpan, null);
+});
+
+test("B1 case1: complete read streams bounded v2 source_observed and deterministic ranks", async t => {
+  const root = await makeFixture(t);
+  const logDir = await makeLogDir(t);
+  const runLogPath = join(logDir, "case1.jsonl");
+  const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
+  t.after(async () => sandbox.cleanup());
+  const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
+  const result = await valueFlow.runCliValueFlowGoal(
+    { requestId: "vf-b1-case1", rootGoal: readOnlyGoal() },
+    { sandbox, session, runLogPath },
+  );
+  assert.equal(result.status, "achieved");
+  assert.equal(result.logging.state, "complete");
+  const lines = await readParsedLog(runLogPath);
+  assert.equal(lines[0].kind, "start");
+  assert.equal(lines[0].request.repoRoot, root);
+  const observed = lines.find(line => line.kind === "source_observed" && line.file === "src/a.ts");
+  assert.ok(observed, "anchor file source_observed must be streamed");
+  assert.equal(observed.afterStat, null);
+  assert.equal(observed.afterStatStatus, "not_observed");
+  assert.equal(observed.unchangedAtClosure, true);
+  assert.equal(observed.truncated, false);
+  assert.equal(observed.readRange.complete, true);
+  assert.equal(observed.readRange.endByte, observed.beforeStat.size);
+  assert.ok(lines.some(line => line.kind === "relation_resolved"));
+  assert.ok(lines.some(line => line.kind === "node_expanded" && line.recordKind === "value_flow_site"));
+  assert.ok(lines.some(line => line.kind === "node_expanded"
+    && line.recordKind === "deterministic_candidate_rank"
+    && line.scorerSource === "deterministic_baseline:VF-Baseline-0"
+    && line.modelRef === null));
+  assert.equal(lines.filter(line => line.kind === "decision").length, 0);
+  assert.equal(lines.filter(line => line.kind === "baseline_rank").length, 0);
+  const finish = lines.at(-1);
+  assert.equal(finish.kind, "finish");
+  assert.equal(finish.outcome.status, "achieved");
+  for (const key of ["sites", "edges", "unresolvedSites", "searchMatches"]) {
+    assert.ok(!(key in finish.resultReceipt), `finish must not carry ${key}`);
+  }
+});
+
+test("B1 case2: truncated read emits one unlocated TRUNCATED_FILE_UNVERIFIED and truncated source_observed", async t => {
+  const root = await makeBigFixture(t);
+  const logDir = await makeLogDir(t);
+  const runLogPath = join(logDir, "case2.jsonl");
+  const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
+  t.after(async () => sandbox.cleanup());
+  const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
+  const wrapped = wrapReadSandbox(sandbox, session, { error: "fail", failAt: 2 });
+  const result = await valueFlow.runCliValueFlowGoal(
+    { requestId: "vf-b1-case2", rootGoal: readOnlyGoal() },
+    { sandbox: wrapped.sandbox, session, runLogPath },
+  );
+  assert.equal(result.status, "unknown");
+  assert.equal(result.resolution, "insufficient_evidence");
+  const lines = await readParsedLog(runLogPath);
+  const observed = lines.find(line => line.kind === "source_observed" && line.file === "src/a.ts");
+  assert.ok(observed, "truncated read must emit source_observed");
+  assert.equal(observed.truncated, true);
+  assert.equal(observed.readRange.complete, false);
+  assert.equal(observed.afterStat, null);
+  assert.equal(observed.afterStatStatus, "not_observed");
+  assert.equal(observed.unchangedAtClosure, false);
+  const unknown = lines.filter(line => line.kind === "relation_unknown"
+    && line.reasonCode === "TRUNCATED_FILE_UNVERIFIED");
+  assert.equal(unknown.length, 1, "truncated unlocated unknown must be emitted exactly once");
+  assert.equal(unknown[0].callsiteSpan, null);
+  assert.equal(unknown[0].sourceExcerpt, null);
+  assert.match(unknown[0].occurrenceId, /@unlocated:\d+$/);
+  assert.ok(unknown[0].missingEvidence.includes("callsite_span"));
+  assert.ok(unknown[0].missingEvidence.includes("source_excerpt"));
+});
+test("B1 case2b: thrown second chunk emits bounded truncation evidence", async t => {
+  const root = await makeBigFixture(t);
+  const logDir = await makeLogDir(t);
+  const runLogPath = join(logDir, "case2b.jsonl");
+  const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
+  t.after(async () => sandbox.cleanup());
+  const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
+  const wrapped = wrapReadSandbox(sandbox, session, { error: "throw", failAt: 2 });
+  const result = await valueFlow.runCliValueFlowGoal(
+    { requestId: "vf-b1-case2b", rootGoal: readOnlyGoal() },
+    { sandbox: wrapped.sandbox, session, runLogPath },
+  );
+  assert.equal(result.status, "unknown");
+  assert.equal(result.resolution, "insufficient_evidence");
+  const lines = await readParsedLog(runLogPath);
+  const observed = lines.find(line => line.kind === "source_observed" && line.file === "src/a.ts");
+  assert.ok(observed, "thrown second chunk must emit source_observed");
+  assert.equal(observed.truncated, true);
+  assert.equal(observed.readRange.startByte, 0);
+  assert.equal(observed.readRange.complete, false);
+  assert.ok(observed.readRange.endByte > 0, "accumulated raw bytes must be retained");
+  assert.equal(observed.afterStat, null);
+  assert.equal(observed.afterStatStatus, "not_observed");
+  assert.equal(observed.unchangedAtClosure, false);
+  const unknowns = lines.filter(line => line.kind === "relation_unknown");
+  assert.equal(unknowns.length, 1, "thrown second chunk must emit exactly one relation_unknown");
+  const unknown = unknowns[0];
+  assert.equal(unknown.reasonCode, "TRUNCATED_FILE_UNVERIFIED");
+  assert.equal(unknown.callsiteSpan, null);
+  assert.equal(unknown.sourceExcerpt, null);
+  assert.match(unknown.occurrenceId, /@unlocated:\d+$/);
+  assert.ok(unknown.missingEvidence.includes("callsite_span"));
+  assert.ok(unknown.missingEvidence.includes("source_excerpt"));
+  const unresolved = result.unresolvedSites.find(site => site.reasonCode === "TRUNCATED_FILE_UNVERIFIED");
+  assert.ok(unresolved, "TRUNCATED_FILE_UNVERIFIED occurrence must be appended to unresolvedSites");
+  assert.equal(unresolved.occurrenceId, unknown.occurrenceId, "unresolvedSites occurrenceId must match the emitted relation_unknown");
+});
+
+
+async function runModifiedClosure(t, loggingEnabled) {
+  const root = await makeFixture(t);
+  const filePath = join(root, "src", "a.ts");
+  const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
+  t.after(async () => sandbox.cleanup());
+  const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
+  const wrapped = wrapInspectMutateSandbox(sandbox, filePath, "export function f(opened: any) {\n  return 42;\n}\n");
+  let runLogPath;
+  if (loggingEnabled) {
+    runLogPath = join(await makeLogDir(t), "case3.jsonl");
+  }
+  const result = await valueFlow.runCliValueFlowGoal(
+    { requestId: "vf-b1-case3", rootGoal: readOnlyGoal() },
+    {
+      sandbox: wrapped,
+      session,
+      ...(runLogPath === undefined ? {} : { runLogPath }),
+      ...(loggingEnabled ? {} : { loggingEnabled: false }),
+    },
+  );
+  return { result, runLogPath };
+}
+
+test("B1 case3: source changed before closure yields source_changed_during_run under default and --no-log", async t => {
+  const logged = await runModifiedClosure(t, true);
+  const disabled = await runModifiedClosure(t, false);
+  assert.equal(logged.result.status, "unknown");
+  assert.equal(logged.result.resolution, "source_changed_during_run");
+  assert.equal(disabled.result.status, "unknown");
+  assert.equal(disabled.result.resolution, "source_changed_during_run");
+  assert.equal(disabled.result.logging.state, "disabled");
+  assert.equal(disabled.result.runLogPath, null);
+  const lines = await readParsedLog(logged.runLogPath);
+  const observed = lines.filter(line => line.kind === "source_observed" && line.file === "src/a.ts");
+  assert.ok(observed.some(line => line.unchangedAtClosure === false),
+    "closure mismatch must be recorded as unchangedAtClosure:false");
+});
+
+test("B1 case4: same-kind unresolved sites keep distinct occurrenceIds and never duplicate", async t => {
+  const source = `export function f(opened: any) {
+  const { handle, after } = opened;
+  const size = Number(after.size += 1);
+  const other = Number(after.size += 2);
+  return size;
+}
+`;
+  const root = await makeFixture(t, source);
+  const logDir = await makeLogDir(t);
+  const runLogPath = join(logDir, "case4.jsonl");
+  const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
+  t.after(async () => sandbox.cleanup());
+  const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
+  await valueFlow.runCliValueFlowGoal(
+    { requestId: "vf-b1-case4", rootGoal: readOnlyGoal({ anchorLine: 3 }) },
+    { sandbox, session, runLogPath },
+  );
+  const lines = await readParsedLog(runLogPath);
+  const unknown = lines.filter(line => line.kind === "relation_unknown");
+  const ids = unknown.map(line => line.occurrenceId);
+  assert.ok(ids.every(id => typeof id === "string" && id.length > 0));
+  assert.equal(new Set(ids).size, ids.length, "each occurrenceId is emitted at most once");
+  const mutation = unknown.filter(line => line.reasonCode === "EMBEDDED_ASSIGNMENT_OR_UPDATE_EXPR");
+  assert.ok(mutation.length >= 2, "two same-kind unresolved sites must stay distinct");
+  assert.equal(new Set(mutation.map(line => line.occurrenceId)).size, mutation.length);
+  for (const line of mutation) {
+    assert.ok(line.callsiteSpan !== null && typeof line.callsiteSpan.startLine === "number");
+    assert.ok(line.sourceExcerpt !== null && typeof line.sourceExcerpt.complete === "boolean");
+  }
+});
+
+test("B1 case4b: UsageLogRun caps per-excerpt and per-run excerpt bytes", async t => {
+  const logDir = await makeLogDir(t);
+  const usageLog = await import(dist("adapters/cli/nn-code-usage-log.js"));
+  const run = usageLog.createUsageLogRun({ root: logDir, runId: "excerpt-budget" });
+  await run.start({
+    request: { kind: "excerpt-budget" },
+    cliVersion: "0.0.0",
+    semanticContractVersion: "test",
+    modelRef: null,
+  });
+  assert.equal(
+    run.reserveExcerptBytes(usageLog.USAGE_LOG_UNKNOWN_EXCERPT_LIMIT * 4),
+    usageLog.USAGE_LOG_UNKNOWN_EXCERPT_LIMIT,
+  );
+  let remaining = usageLog.USAGE_LOG_RUN_EXCERPT_LIMIT - usageLog.USAGE_LOG_UNKNOWN_EXCERPT_LIMIT;
+  while (remaining > 0) {
+    const accepted = run.reserveExcerptBytes(usageLog.USAGE_LOG_UNKNOWN_EXCERPT_LIMIT);
+    assert.ok(accepted <= usageLog.USAGE_LOG_UNKNOWN_EXCERPT_LIMIT);
+    remaining -= accepted;
+  }
+  assert.equal(run.reserveExcerptBytes(1), 0);
+  await run.finish({ outcome: { status: "achieved" }, coverage: null, resultReceipt: null, error: null });
+});
+
+test("B1 case5: value-flow log flags are exclusive, protected roots fail, query still succeeds", async t => {
+  const root = await makeFixture(t);
+  const logDirOutside = await makeLogDir(t);
+  const base = [
+    "--repo", root,
+    "--anchor-file", "src/a.ts",
+    "--anchor-symbol", "size",
+    "--anchor-lexical-path", "f",
+    "--anchor-line", "3",
+    "--direction", "origin",
+    "--max-depth", "3",
+    "--scope", "src",
+  ];
+
+  const noLogConflict = runCli([...base, "--no-log", "--log-dir", join(logDirOutside, "x")], tmpdir());
+  assert.equal(noLogConflict.status, 1, noLogConflict.stdout);
+  assert.match(noLogConflict.stderr, /--no-log cannot be combined with --log-dir or --run-log-path/);
+
+  const exclusive = runCli([
+    ...base,
+    "--log-dir", logDirOutside,
+    "--run-log-path", join(logDirOutside, "x.jsonl"),
+  ], tmpdir());
+  assert.equal(exclusive.status, 1, exclusive.stdout);
+  assert.match(exclusive.stderr, /--log-dir and --run-log-path are mutually exclusive/);
+
+  const notJsonl = runCli([...base, "--run-log-path", join(logDirOutside, "x.json")], tmpdir());
+  assert.equal(notJsonl.status, 1, notJsonl.stdout);
+  assert.match(notJsonl.stderr, /--run-log-path must end with \.jsonl/);
+
+  const insideRepo = runCli([...base, "--log-dir", join(root, "logs")], tmpdir());
+  assert.equal(insideRepo.status, 0, insideRepo.stderr);
+  const insidePayload = JSON.parse(insideRepo.stdout);
+  assert.equal(insidePayload.status, "achieved");
+  assert.equal(insidePayload.logging.state, "failed");
+  assert.equal(insidePayload.logging.reason, "LOG_ROOT_INSIDE_PROTECTED_REPO");
+  await assert.rejects(readFile(join(root, "logs"), "utf8"), /EISDIR|ENOENT/);
+
+  const customPath = join(logDirOutside, "custom.jsonl");
+  const custom = runCli([...base, "--run-log-path", customPath], tmpdir());
+  assert.equal(custom.status, 0, custom.stderr);
+  const customLines = await readParsedLog(customPath);
+  assert.equal(customLines[0].kind, "start");
+  assert.equal(customLines.at(-1).kind, "finish");
+  assert.equal(customLines.at(-1).outcome.status, "achieved");
+
+  const noLogRun = runCli([...base, "--no-log", "--request-id", "vf-b1-case5-nolog"], tmpdir());
+  assert.equal(noLogRun.status, 0, noLogRun.stderr);
+  const noLogPayload = JSON.parse(noLogRun.stdout);
+  assert.equal(noLogPayload.logging.state, "disabled");
+  await assert.rejects(
+    readFile(join(tmpdir(), "nn-code-value-flow", "vf-b1-case5-nolog.jsonl"), "utf8"),
+    /ENOENT/,
+  );
+});
+
+test("B1 case6: UsageLogRun FIFO rotation at capacityBytes 4096 preserves only finished runs", async t => {
+  const logDir = await makeLogDir(t);
+  const usageLog = await import(dist("adapters/cli/nn-code-usage-log.js"));
+  for (let index = 0; index < 5; index += 1) {
+    const run = usageLog.createUsageLogRun({
+      root: logDir,
+      runId: `rotate-${index}`,
+      capacityBytes: 4096,
+    });
+    await run.start({
+      request: { kind: "rotate", marker: "x".repeat(900) },
+      cliVersion: "0.0.0",
+      semanticContractVersion: "test",
+      modelRef: null,
+    });
+    await run.event({ kind: "node_expanded", body: { blob: "y".repeat(900) } });
+    await run.finish({
+      outcome: { status: "achieved" },
+      coverage: null,
+      resultReceipt: { blob: "z".repeat(900) },
+      error: null,
+    });
+  }
+  const names = await readdir(logDir);
+  const logs = names.filter(name => name.endsWith(".jsonl"));
+  assert.ok(logs.length >= 1 && logs.length < 5, "oldest completed runs must be rotated");
+  assert.ok(!names.some(name => name.startsWith(".active-")), "finished runs must clear their active markers");
 });

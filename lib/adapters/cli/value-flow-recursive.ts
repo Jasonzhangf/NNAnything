@@ -50,10 +50,13 @@ import {
   type ValueFlowDomainGoal,
   type ValueFlowEffectFact,
   type ValueFlowEvidencePayload,
+  type DeclSpan,
   type ValueFlowSearchFailure,
   type ValueFlowState,
   type ValueFlowTermination,
+  type ValueFlowUnknownKind,
 } from "./value-flow-contract.js";
+import { USAGE_LOG_UNKNOWN_EXCERPT_LIMIT } from "./nn-code-usage-log.js";
 import type {
   CliFilesystemSandbox,
   DirectoryRef,
@@ -137,6 +140,9 @@ export type ValueFlowAdapterInput = Readonly<{
   sandbox: CliFilesystemSandbox;
   session: SessionRef;
   emit?: (kind: string, payload: Readonly<Record<string, unknown>>) => void;
+  // Per-run excerpt budget owner (UsageLogRun.reserveExcerptBytes). When the
+  // logging layer is absent the adapter falls back to the per-excerpt cap.
+  reserveExcerptBytes?: (requested: number) => number;
 }>;
 
 export type ValueFlowAdapterHandle = Readonly<{
@@ -146,14 +152,23 @@ export type ValueFlowAdapterHandle = Readonly<{
   disposeWorkingSet: () => void;
 }>;
 
+type ValueFlowSourceRecord = Readonly<{
+  sourceText: string;
+  fileObjectRef: ObservedObjectRef;
+  size: number;
+  rawBytesRead: number;
+  readComplete: boolean;
+  truncated: boolean;
+  beforeStat: Readonly<{ size: number; dev: number; ino: number }>;
+}>;
+
 type ValueFlowWorkingSet = {
-  readonly sourceByPath: Map<string, Readonly<{
-    sourceText: string;
-    fileObjectRef: ObservedObjectRef;
-    size: number;
-  }>>;
+  readonly sourceByPath: Map<string, ValueFlowSourceRecord>;
   readonly fileHeaderByPath: Map<string, FileScopeHeaderIndex>;
   readonly searchedScopes: Set<string>;
+  readonly verifiedAtClosure: Set<string>;
+  lastAnalysis: ValueFlowAnalysisOutput | null;
+  nextUnresolvedCreationOrd: number;
   rebuildingSources: boolean;
 };
 
@@ -318,9 +333,62 @@ function stripReceiptBytes(semantic: SemanticCallReceipt): SemanticCallReceipt {
   }) as unknown as SemanticCallReceipt;
 }
 
+function sliceSpan(text: string, span: DeclSpan): string {
+  const lines = text.split("\n");
+  const start = lines[span.startLine - 1];
+  const end = lines[span.endLine - 1];
+  if (start === undefined || end === undefined) return "";
+  if (span.startLine === span.endLine) {
+    return start.slice(Math.max(0, span.startColumn - 1), Math.max(0, span.endColumn - 1));
+  }
+  const middle = lines.slice(span.startLine, span.endLine - 1);
+  return [
+    start.slice(Math.max(0, span.startColumn - 1)),
+    ...middle,
+    end.slice(0, Math.max(0, span.endColumn - 1)),
+  ].join("\n");
+}
+
+function prefixUtf8(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  let bytes = 0;
+  let end = 0;
+  for (const char of text) {
+    const size = Buffer.byteLength(char, "utf8");
+    if (bytes + size > maxBytes) break;
+    bytes += size;
+    end += char.length;
+  }
+  return text.slice(0, end);
+}
+
+function valueFlowCoverageImpact(kind: ValueFlowUnknownKind): string {
+  return kind === "unverified_cross_file_caller_coverage" ? "scope_limited" : "target_unknown";
+}
+
 function firstLineSpan(sourceText: string): Readonly<{ startLine: number; startColumn: number; endLine: number; endColumn: number }> {
   const line = sourceText.split("\n")[0] ?? "";
   return Object.freeze({ startLine: 1, startColumn: 1, endLine: 1, endColumn: Math.max(1, line.length + 1) });
+}
+
+function verifyFailureReceipt(sessionBefore: SessionSnapshot, error?: unknown): SemanticCallReceipt {
+  return Object.freeze({
+    call: { operation: "entry.inspect" as const, parameters: { ref: null, followSymlinks: false } } as unknown as SemanticCallReceipt["call"],
+    status: "failed" as const,
+    session_before: sessionBefore,
+    session_after: sessionBefore,
+    execution: Object.freeze({
+      status: "failed" as const,
+      runId: "verify-failed",
+      executorInvoked: false,
+      error: Object.freeze({
+        operation: "entry.inspect" as const,
+        stage: "observe" as const,
+        code: "SOURCE_UNVERIFIED" as const,
+        message: error instanceof Error ? error.message : "source consistency could not be verified",
+      }),
+    }),
+  }) as unknown as SemanticCallReceipt;
 }
 
 function uniqueSearchPaths(state: ValueFlowState): readonly string[] {
@@ -376,7 +444,12 @@ function notRead(state: ValueFlowState): (relPath: string) => boolean {
 function applyAnalysis(
   state: ValueFlowState,
   analysis: ValueFlowAnalysisOutput,
-  options: { readonly searched: boolean; readonly budgetExhausted: boolean; readonly session: SessionSnapshot },
+  options: {
+    readonly searched: boolean;
+    readonly budgetExhausted: boolean;
+    readonly session: SessionSnapshot;
+    readonly allSourcesVerified: boolean;
+  },
 ): ValueFlowState {
   const remaining = analysis.nextCandidates.filter(notRead(state)).filter(candidate => candidate !== state.anchorFile || state.files.length === 0);
   const budget = state.maxCandidateFileReads;
@@ -385,7 +458,10 @@ function applyAnalysis(
   const exhausted = options.budgetExhausted || (budget !== null && remaining.length > slots);
   const pendingReads = Object.freeze(queued.filter(relPath => !state.files.some(file => file.relPath === relPath)));
   const pendingSearches = options.searched ? Object.freeze([]) : state.pendingSearches;
-  const done = pendingReads.length === 0 && pendingSearches.length === 0;
+  // Termination is deferred until every read source has passed the closure
+  // entry.inspect check, so a source change before run closure can still flip
+  // the result to source_changed_during_run.
+  const done = pendingReads.length === 0 && pendingSearches.length === 0 && options.allSourcesVerified;
   const searchIncomplete = state.searchFailures.length > 0;
   const termination: ValueFlowTermination | null = done
     ? Object.freeze({
@@ -426,12 +502,16 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
   const observedSites = new Set<string>();
   const observedEdges = new Set<string>();
   const observedUnknowns = new Set<string>();
+  const observedCandidateRankKeys = new Set<string>();
   let sequence = 0;
   let latest: ValueFlowState | null = null;
   const workingSet: ValueFlowWorkingSet = {
     sourceByPath: new Map(),
     fileHeaderByPath: new Map(),
     searchedScopes: new Set(),
+    verifiedAtClosure: new Set(),
+    lastAnalysis: null,
+    nextUnresolvedCreationOrd: 0,
     rebuildingSources: false,
   };
 
@@ -439,44 +519,152 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
     input.emit?.(kind, payload);
   }
 
-  // Incremental, bounded observation events. These carry identifiers and
-  // lexical metadata only: never source text, raw bytes, or file contents.
+  function reserveExcerpt(requested: number): number {
+    if (input.reserveExcerptBytes !== undefined) return input.reserveExcerptBytes(requested);
+    return Math.max(0, Math.min(requested, USAGE_LOG_UNKNOWN_EXCERPT_LIMIT));
+  }
+
+  // Creation-bound identity for file-level or anchor-level unlocated unknowns.
+  // Memoized by (filePath, kind, reasonCode) so repeated analyses reuse one id
+  // and cannot re-emit the same fact, while first construction still allocates
+  // a monotonic ordinal from the shared working set.
+  const unlocatedOccurrenceIds = new Map<string, string>();
+  function unlocatedUnknownOccurrenceId(
+    filePath: string | null,
+    kind: ValueFlowUnknownKind,
+    reasonCode: string,
+  ): string {
+    const key = `${filePath ?? "<request>"}\u0000${kind}\u0000${reasonCode}`;
+    const existing = unlocatedOccurrenceIds.get(key);
+    if (existing !== undefined) return existing;
+    const occurrenceId = `${filePath ?? "<request>"}#${kind}:${reasonCode}@unlocated:${workingSet.nextUnresolvedCreationOrd++}`;
+    unlocatedOccurrenceIds.set(key, occurrenceId);
+    return occurrenceId;
+  }
+
+  // Emit a bounded v2 `source_observed` body. Raw byte offsets come from the
+  // real FileReadObservation.bytesRead accumulation, never from re-encoding
+  // decoded text; the closure stat is reported as not_observed with an
+  // explicit unchangedAtClosure boolean (shared usage-log contract).
+  function emitSourceObserved(
+    relPath: string,
+    readRange: Readonly<{ startByte: number; endByte: number; complete: boolean }>,
+    beforeStat: Readonly<{ size: number; dev: number; ino: number }>,
+    unchangedAtClosure: boolean,
+    truncated: boolean,
+  ): void {
+    emit("source_observed", Object.freeze({
+      repoRoot: input.sandbox.scenarioRoot,
+      file: relPath,
+      readRange: Object.freeze({ ...readRange }),
+      beforeStat: Object.freeze({ ...beforeStat }),
+      afterStat: null,
+      afterStatStatus: "not_observed" as const,
+      unchangedAtClosure,
+      truncated,
+    }));
+  }
+
+  // Emit one `relation_unknown` v2 body, deduplicated strictly by the
+  // creation-bound occurrenceId so repeated emitAnalysis passes never re-emit
+  // the same fact while distinct occurrences stay distinct.
+  function emitUnknown(unknown: {
+    occurrenceId: string;
+    kind: ValueFlowUnknownKind;
+    reasonCode: string;
+    filePath?: string | null;
+    siteId?: string | null;
+    calleeExpression?: string | null;
+    siteSpan?: DeclSpan | null;
+    evidenceRefs?: readonly string[];
+    missingEvidence?: readonly string[];
+  }): void {
+    if (observedUnknowns.has(unknown.occurrenceId)) return;
+    observedUnknowns.add(unknown.occurrenceId);
+    const record = unknown.filePath === null || unknown.filePath === undefined
+      ? undefined
+      : workingSet.sourceByPath.get(unknown.filePath);
+    const span = unknown.siteSpan ?? null;
+    const located = record !== undefined && span !== null;
+    const missingEvidence: string[] = [...(unknown.missingEvidence ?? [])];
+    let callsiteSpan: DeclSpan | null = span;
+    let sourceExcerpt: Readonly<Record<string, unknown>> | null = null;
+    if (located && record !== undefined && span !== null && unknown.filePath !== null && unknown.filePath !== undefined) {
+      const text = sliceSpan(record.sourceText, span);
+      const requested = Buffer.byteLength(text, "utf8");
+      const accepted = reserveExcerpt(requested);
+      const complete = accepted === requested
+        && requested <= USAGE_LOG_UNKNOWN_EXCERPT_LIMIT
+        && record.readComplete
+        && !record.truncated;
+      sourceExcerpt = Object.freeze({
+        file: unknown.filePath,
+        startLine: span.startLine,
+        text: complete ? text : prefixUtf8(text, accepted),
+        complete,
+      });
+    } else {
+      callsiteSpan = null;
+      if (!missingEvidence.includes("callsite_span")) missingEvidence.push("callsite_span");
+      if (!missingEvidence.includes("source_excerpt")) missingEvidence.push("source_excerpt");
+    }
+    emit("relation_unknown", Object.freeze({
+      occurrenceId: unknown.occurrenceId,
+      unknownId: unknown.occurrenceId,
+      callerNodeId: unknown.siteId ?? null,
+      callsiteSpan,
+      calleeExpression: unknown.calleeExpression ?? null,
+      reasonCode: unknown.reasonCode,
+      targetHint: Object.freeze({}),
+      evidenceRefs: Object.freeze([...(unknown.evidenceRefs ?? [])]),
+      missingEvidence: Object.freeze(missingEvidence),
+      coverageImpact: valueFlowCoverageImpact(unknown.kind),
+      sourceExcerpt,
+      reviewState: "unreviewed" as const,
+    }));
+  }
+
+  // Incremental, bounded observation events. Node/edge bodies carry
+  // identifiers and spans only; excerpts are bounded and only emitted through
+  // the logging layer.
   function emitAnalysis(analysis: ReturnType<typeof analyzeValueFlow>): void {
     for (const site of analysis.sites) {
       if (observedSites.has(site.siteId)) continue;
       observedSites.add(site.siteId);
       emit("node_expanded", Object.freeze({
-        siteId: site.siteId,
-        filePath: site.filePath,
-        symbolName: site.symbolName,
-        pointRole: site.pointRole,
+        recordKind: "value_flow_site",
+        nodeId: site.siteId,
+        file: site.filePath,
+        symbol: site.symbolName,
+        siteKind: site.pointRole,
+        span: site.pointSpan,
+        depth: site.minDepth,
       }));
     }
     for (const edge of analysis.edges) {
-      const key = `${edge.edgeKind}\u0000${edge.fromSiteId}\u0000${edge.toSiteId}`;
+      const key = `${edge.fromSiteId}->${edge.toSiteId}:${edge.edgeKind}`;
       if (observedEdges.has(key)) continue;
       observedEdges.add(key);
       emit("relation_resolved", Object.freeze({
+        callerId: edge.fromSiteId,
+        calleeId: edge.toSiteId,
         edgeKind: edge.edgeKind,
-        fromSiteId: edge.fromSiteId,
-        toSiteId: edge.toSiteId,
+        evidenceSnippet: edge.evidenceSpan,
+        callsiteSpan: edge.evidenceSpan ?? null,
       }));
     }
     for (const unknown of analysis.unresolvedSites) {
-      const key = `${unknown.kind}\u0000${unknown.reasonCode}`;
-      if (observedUnknowns.has(key)) continue;
-      observedUnknowns.add(key);
-      emit("relation_unknown", Object.freeze({
-        unknownKind: unknown.kind,
-        reasonCode: unknown.reasonCode,
-      }));
+      emitUnknown(unknown);
     }
   }
 
   function disposeWorkingSet(): void {
+    unlocatedOccurrenceIds.clear();
     workingSet.sourceByPath.clear();
     workingSet.fileHeaderByPath.clear();
     workingSet.searchedScopes.clear();
+    workingSet.verifiedAtClosure.clear();
+    workingSet.lastAnalysis = null;
     knownFiles.length = 0;
     latest = null;
   }
@@ -527,6 +715,8 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
     workingSet.sourceByPath.clear();
     workingSet.fileHeaderByPath.clear();
     workingSet.searchedScopes.clear();
+    workingSet.verifiedAtClosure.clear();
+    workingSet.lastAnalysis = null;
     return Object.freeze({
       ...state,
       files: Object.freeze([]),
@@ -598,7 +788,7 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
       stateId: stateId(callback.context.requestId, current),
       actionId,
       actionKind: action.kind,
-      relPath: action.kind === "read_source_file" ? action.relPath : null,
+      relPath: action.kind === "read_source_file" || action.kind === "verify_source_consistency" ? action.relPath : null,
       status,
       code: semantic.execution?.status === "failed" ? semantic.execution.error.code : null,
     });
@@ -687,6 +877,7 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
       if (state.termination !== null) {
         return Object.freeze({ conditions: Object.freeze([]), nextCursor: Object.freeze({ phase: "closed" as const }), expansion: "closed" as const });
       }
+      const unverifiedFile = state.files.find(file => !workingSet.verifiedAtClosure.has(file.relPath));
       const action: ValueFlowAction | null = state.pendingReads.length > 0
         ? Object.freeze({
             actionId: `${callback.context.requestId}:read:${state.counters.fileReadCalls}:${state.pendingReads[0]}`,
@@ -699,7 +890,13 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
               kind: "search_candidates" as const,
               symbol: state.anchorSymbol,
             })
-          : null;
+          : unverifiedFile !== undefined
+            ? Object.freeze({
+                actionId: `${callback.context.requestId}:verify:${workingSet.verifiedAtClosure.size}:${unverifiedFile.relPath}`,
+                kind: "verify_source_consistency" as const,
+                relPath: unverifiedFile.relPath,
+              })
+            : null;
       if (action === null) {
         return Object.freeze({ conditions: Object.freeze([]), nextCursor: Object.freeze({ phase: "closed" as const }), expansion: "closed" as const });
       }
@@ -720,10 +917,46 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
         let semantic: SemanticCallReceipt;
         let fullText = "";
         let totalSize = 0;
+        let rawBytesRead = 0;
+        let firstObservation: FileReadObservation | null = null;
         let lastRead: FileReadObservation | null = null;
         let readCount = 0;
         const sessionSnapshot = input.sandbox.getSession(input.session);
         let failedSemantic: SemanticCallReceipt | null = null;
+        const emitTruncatedReadFailure = (failedRead: SemanticCallReceipt): AtomicReceipt<ValueFlowState, ValueFlowEvidencePayload, ValueFlowEffectFact, SemanticCallReceipt> => {
+          const firstRead = firstObservation;
+          const beforeSize = firstRead?.size ?? (totalSize || fullText.length);
+          emitSourceObserved(
+            action.relPath,
+            Object.freeze({ startByte: 0, endByte: rawBytesRead, complete: false }),
+            Object.freeze({
+              size: beforeSize,
+              dev: Number(firstRead!.ref.identity.dev),
+              ino: Number(firstRead!.ref.identity.ino),
+            }),
+            false,
+            true,
+          );
+          const truncatedUnknown = Object.freeze({
+            occurrenceId: unlocatedUnknownOccurrenceId(action.relPath, "unresolved_missing_or_ambiguous_target", "TRUNCATED_FILE_UNVERIFIED"),
+            kind: "unresolved_missing_or_ambiguous_target" as const,
+            reasonCode: "TRUNCATED_FILE_UNVERIFIED" as const,
+            filePath: action.relPath,
+            siteSpan: null,
+          });
+          emitUnknown(truncatedUnknown);
+          const failedState = Object.freeze({
+            ...state,
+            counters: Object.freeze({
+              ...state.counters,
+              sandboxApiCalls: state.counters.sandboxApiCalls + readCount,
+              fileReadCalls: state.counters.fileReadCalls + readCount,
+            }),
+            unresolvedSites: Object.freeze([...state.unresolvedSites, truncatedUnknown]),
+            termination: Object.freeze({ status: "unknown" as const, resolution: "insufficient_evidence" as const }),
+          });
+          return receipt(callback, current, failedRead, failedState, action.actionId, action, "failed");
+        };
         try {
           let ref: ObservedObjectRef;
           try {
@@ -768,7 +1001,9 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
             }
             const observation = readSemantic.execution.observation;
             lastRead = observation;
+            if (firstObservation === null) firstObservation = observation;
             totalSize = observation.size;
+            rawBytesRead += observation.bytesRead;
             fullText += decodeBase64(observation.bytes);
             if (observation.bytesRead === 0 || observation.end_observed || offset + observation.bytesRead >= observation.size) {
               break;
@@ -776,18 +1011,7 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
             offset += observation.bytesRead;
           }
           if (truncated) {
-            failedSemantic = semantic!;
-            const fileSpan = firstLineSpan(fullText);
-            const failedState = Object.freeze({
-              ...state,
-              counters: Object.freeze({ ...state.counters, sandboxApiCalls: state.counters.sandboxApiCalls + readCount, fileReadCalls: state.counters.fileReadCalls + readCount }),
-              unresolvedSites: Object.freeze([
-                ...state.unresolvedSites,
-                Object.freeze({ kind: "unresolved_missing_or_ambiguous_target" as const, reasonCode: "TRUNCATED_FILE_UNVERIFIED" as const, siteSpan: fileSpan }),
-              ]),
-              termination: Object.freeze({ status: "unknown" as const, resolution: "insufficient_evidence" as const }),
-            });
-            return receipt(callback, current, semantic, failedState, action.actionId, action, "failed");
+            return emitTruncatedReadFailure(semantic!);
           }
         } catch (error) {
           const readFailure = Object.freeze({
@@ -803,6 +1027,7 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
             }),
           }) as unknown as SemanticCallReceipt;
           semantic = readFailure;
+          if (rawBytesRead > 0) return emitTruncatedReadFailure(readFailure);
           failedSemantic = readFailure;
         }
         if (semantic.execution.status === "failed") {
@@ -826,22 +1051,32 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
         }
         const read: FileReadObservation = lastRead ?? observation;
         const sourceText = fullText || decodeBase64(read.bytes);
+        const observedSize = totalSize || read.size;
+        const beforeStat = Object.freeze({
+          size: firstObservation?.size ?? observedSize,
+          dev: Number(read.ref.identity.dev),
+          ino: Number(read.ref.identity.ino),
+        });
         workingSet.sourceByPath.set(
           action.relPath,
-          Object.freeze({ sourceText, fileObjectRef: read.ref, size: totalSize || read.size }),
+          Object.freeze({
+            sourceText,
+            fileObjectRef: read.ref,
+            size: observedSize,
+            rawBytesRead,
+            readComplete: rawBytesRead === (firstObservation?.size ?? observedSize),
+            truncated: false,
+            beforeStat,
+          }),
         );
         workingSet.fileHeaderByPath.set(
           action.relPath,
           buildFileScopeHeaderIndex(action.relPath, sourceText),
         );
-        emit("source_observed", Object.freeze({
-          relPath: action.relPath,
-          size: totalSize || read.size,
-        }));
         if (!knownFiles.includes(action.relPath)) knownFiles.push(action.relPath);
         const files = Object.freeze([
           ...state.files.filter(file => file.relPath !== action.relPath),
-          Object.freeze({ relPath: action.relPath, fileObjectRef: read.ref, size: totalSize || read.size }),
+          Object.freeze({ relPath: action.relPath, fileObjectRef: read.ref, size: observedSize }),
         ]);
         const pendingReads = Object.freeze(state.pendingReads.slice(1));
         const next = Object.freeze({
@@ -869,10 +1104,101 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
           searchCandidates: uniqueSearchPaths(state),
           knownFiles,
           fileHeaderByPath: workingSet.fileHeaderByPath,
+          unlocatedUnknownOccurrenceId,
         });
+        workingSet.lastAnalysis = analysis;
         emitAnalysis(analysis);
-        const applied = applyAnalysis(next, analysis, { searched: true, budgetExhausted: false, session: semantic.session_after });
+        const applied = applyAnalysis(next, analysis, {
+          searched: true,
+          budgetExhausted: false,
+          session: semantic.session_after,
+          allSourcesVerified: next.files.every(file => workingSet.verifiedAtClosure.has(file.relPath)),
+        });
         return receipt(callback, current, semantic, applied, action.actionId, action, "succeeded");
+      }
+
+      if (action.kind === "verify_source_consistency") {
+        const record = workingSet.sourceByPath.get(action.relPath);
+        const file = state.files.find(item => item.relPath === action.relPath);
+        const sessionBefore = input.sandbox.getSession(input.session);
+        if (record === undefined || file === undefined || file.fileObjectRef === null) {
+          const failureState = Object.freeze({
+            ...state,
+            termination: Object.freeze({ status: "unknown" as const, resolution: "source_changed_during_run" as const }),
+          });
+          return receipt(callback, current, verifyFailureReceipt(sessionBefore), failureState, action.actionId, action, "failed");
+        }
+        let inspect: SemanticCallReceipt;
+        try {
+          inspect = await input.sandbox.execute({
+            operation: "entry.inspect",
+            parameters: { ref: file.fileObjectRef, followSymlinks: false },
+          });
+        } catch (error) {
+          emitSourceObserved(
+            action.relPath,
+            Object.freeze({ startByte: 0, endByte: record.rawBytesRead, complete: record.readComplete }),
+            record.beforeStat,
+            false,
+            record.truncated,
+          );
+          const failureState = Object.freeze({
+            ...state,
+            counters: Object.freeze({ ...state.counters, sandboxApiCalls: state.counters.sandboxApiCalls + 1 }),
+            termination: Object.freeze({ status: "unknown" as const, resolution: "source_changed_during_run" as const }),
+          });
+          return receipt(callback, current, verifyFailureReceipt(sessionBefore, error), failureState, action.actionId, action, "failed");
+        }
+        const execution = inspect.execution;
+        let snapshotMatches = false;
+        if (execution.status === "succeeded" && execution.observation.kind === "entry.inspect") {
+          const snapshot = execution.observation.snapshot;
+          snapshotMatches = Number(snapshot.dev) === record.beforeStat.dev
+            && Number(snapshot.ino) === record.beforeStat.ino
+            && Number(snapshot.size) === record.beforeStat.size;
+        }
+        const unchanged = snapshotMatches
+          && record.readComplete
+          && !record.truncated
+          && record.rawBytesRead === record.beforeStat.size;
+        if (!unchanged) {
+          emitSourceObserved(
+            action.relPath,
+            Object.freeze({ startByte: 0, endByte: record.rawBytesRead, complete: record.readComplete }),
+            record.beforeStat,
+            false,
+            record.truncated,
+          );
+          const failureState = Object.freeze({
+            ...state,
+            counters: Object.freeze({ ...state.counters, sandboxApiCalls: state.counters.sandboxApiCalls + 1 }),
+            termination: Object.freeze({ status: "unknown" as const, resolution: "source_changed_during_run" as const }),
+          });
+          return receipt(callback, current, inspect, failureState, action.actionId, action, "failed");
+        }
+        workingSet.verifiedAtClosure.add(action.relPath);
+        emitSourceObserved(
+          action.relPath,
+          Object.freeze({ startByte: 0, endByte: record.rawBytesRead, complete: true }),
+          record.beforeStat,
+          true,
+          false,
+        );
+        const sessionAfter = execution.status === "succeeded" ? inspect.session_after : sessionBefore;
+        let nextState: ValueFlowState = Object.freeze({
+          ...state,
+          counters: Object.freeze({ ...state.counters, sandboxApiCalls: state.counters.sandboxApiCalls + 1 }),
+        });
+        const allVerified = nextState.files.every(item => workingSet.verifiedAtClosure.has(item.relPath));
+        if (allVerified && workingSet.lastAnalysis !== null) {
+          nextState = applyAnalysis(nextState, workingSet.lastAnalysis, {
+            searched: true,
+            budgetExhausted: false,
+            session: sessionAfter,
+            allSourcesVerified: true,
+          });
+        }
+        return receipt(callback, current, inspect, nextState, action.actionId, action, "succeeded");
       }
 
       // Search action.
@@ -998,6 +1324,23 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
       }
       const ranked = sortSearchCandidatesByVfBaseline(matches, state.direction, 0, state.anchorFile);
       const paths = Object.freeze([...new Set(ranked.map(match => match.path))]);
+      for (const match of ranked) {
+        const priorityTier = vfBaselinePriorityTier(state.direction, 0, state.anchorFile, match);
+        const candidateRankKey = `${match.path}:${match.line}:${match.column}:${state.anchorSiteId ?? ""}`;
+        if (observedCandidateRankKeys.has(candidateRankKey)) continue;
+        observedCandidateRankKeys.add(candidateRankKey);
+        emit("node_expanded", Object.freeze({
+          recordKind: "deterministic_candidate_rank",
+          file: match.path,
+          line: match.line,
+          column: match.column,
+          preview: match.preview,
+          priorityTier,
+          score: baselineScore(priorityTier),
+          scorerSource: BASELINE_SCORER,
+          modelRef: BASELINE_MODEL_REF,
+        }));
+      }
       const searchSucceeded = listFailure === null && contentFailure === null && semantic !== null;
       if (searchSucceeded) workingSet.searchedScopes.add(scopePath);
       const searchFailureList: ValueFlowSearchFailure[] = [];
@@ -1071,7 +1414,9 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
         searchCandidates: paths,
         knownFiles: Object.freeze([...knownFiles]),
         fileHeaderByPath: workingSet.fileHeaderByPath,
+        unlocatedUnknownOccurrenceId,
       });
+      workingSet.lastAnalysis = analysis;
       emitAnalysis(analysis);
       const applied = applyAnalysis(searchedState, analysis, {
         searched: searchedState.pendingSearches.length === 0,
@@ -1079,6 +1424,7 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
         session: failedSemantic.execution.status === "succeeded"
           ? failedSemantic.session_after
           : state.session as unknown as SessionSnapshot,
+        allSourcesVerified: searchedState.files.every(file => workingSet.verifiedAtClosure.has(file.relPath)),
       });
       return receipt(
         callback,
