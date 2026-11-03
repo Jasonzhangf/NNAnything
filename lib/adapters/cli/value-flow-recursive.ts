@@ -923,6 +923,40 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
         let readCount = 0;
         const sessionSnapshot = input.sandbox.getSession(input.session);
         let failedSemantic: SemanticCallReceipt | null = null;
+        const emitTruncatedReadFailure = (failedRead: SemanticCallReceipt): AtomicReceipt<ValueFlowState, ValueFlowEvidencePayload, ValueFlowEffectFact, SemanticCallReceipt> => {
+          const firstRead = firstObservation;
+          const beforeSize = firstRead?.size ?? (totalSize || fullText.length);
+          emitSourceObserved(
+            action.relPath,
+            Object.freeze({ startByte: 0, endByte: rawBytesRead, complete: false }),
+            Object.freeze({
+              size: beforeSize,
+              dev: Number(firstRead!.ref.identity.dev),
+              ino: Number(firstRead!.ref.identity.ino),
+            }),
+            false,
+            true,
+          );
+          const truncatedUnknown = Object.freeze({
+            occurrenceId: unlocatedUnknownOccurrenceId(action.relPath, "unresolved_missing_or_ambiguous_target", "TRUNCATED_FILE_UNVERIFIED"),
+            kind: "unresolved_missing_or_ambiguous_target" as const,
+            reasonCode: "TRUNCATED_FILE_UNVERIFIED" as const,
+            filePath: action.relPath,
+            siteSpan: null,
+          });
+          emitUnknown(truncatedUnknown);
+          const failedState = Object.freeze({
+            ...state,
+            counters: Object.freeze({
+              ...state.counters,
+              sandboxApiCalls: state.counters.sandboxApiCalls + readCount,
+              fileReadCalls: state.counters.fileReadCalls + readCount,
+            }),
+            unresolvedSites: Object.freeze([...state.unresolvedSites, truncatedUnknown]),
+            termination: Object.freeze({ status: "unknown" as const, resolution: "insufficient_evidence" as const }),
+          });
+          return receipt(callback, current, failedRead, failedState, action.actionId, action, "failed");
+        };
         try {
           let ref: ObservedObjectRef;
           try {
@@ -977,30 +1011,7 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
             offset += observation.bytesRead;
           }
           if (truncated) {
-            failedSemantic = semantic!;
-            const beforeSize = firstObservation?.size ?? (totalSize || fullText.length);
-            emitSourceObserved(
-              action.relPath,
-              Object.freeze({ startByte: 0, endByte: rawBytesRead, complete: false }),
-              Object.freeze({ size: beforeSize, dev: Number(ref.identity.dev), ino: Number(ref.identity.ino) }),
-              false,
-              true,
-            );
-            const truncatedUnknown = Object.freeze({
-              occurrenceId: unlocatedUnknownOccurrenceId(action.relPath, "unresolved_missing_or_ambiguous_target", "TRUNCATED_FILE_UNVERIFIED"),
-              kind: "unresolved_missing_or_ambiguous_target" as const,
-              reasonCode: "TRUNCATED_FILE_UNVERIFIED" as const,
-              filePath: action.relPath,
-              siteSpan: null,
-            });
-            emitUnknown(truncatedUnknown);
-            const failedState = Object.freeze({
-              ...state,
-              counters: Object.freeze({ ...state.counters, sandboxApiCalls: state.counters.sandboxApiCalls + readCount, fileReadCalls: state.counters.fileReadCalls + readCount }),
-              unresolvedSites: Object.freeze([...state.unresolvedSites, truncatedUnknown]),
-              termination: Object.freeze({ status: "unknown" as const, resolution: "insufficient_evidence" as const }),
-            });
-            return receipt(callback, current, semantic, failedState, action.actionId, action, "failed");
+            return emitTruncatedReadFailure(semantic!);
           }
         } catch (error) {
           const readFailure = Object.freeze({
@@ -1016,6 +1027,7 @@ export function createValueFlowAdapter(input: ValueFlowAdapterInput): ValueFlowA
             }),
           }) as unknown as SemanticCallReceipt;
           semantic = readFailure;
+          if (rawBytesRead > 0) return emitTruncatedReadFailure(readFailure);
           failedSemantic = readFailure;
         }
         if (semantic.execution.status === "failed") {

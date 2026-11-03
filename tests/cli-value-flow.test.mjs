@@ -1746,6 +1746,44 @@ test("B1 case2: truncated read emits one unlocated TRUNCATED_FILE_UNVERIFIED and
   assert.ok(unknown[0].missingEvidence.includes("callsite_span"));
   assert.ok(unknown[0].missingEvidence.includes("source_excerpt"));
 });
+test("B1 case2b: thrown second chunk emits bounded truncation evidence", async t => {
+  const root = await makeBigFixture(t);
+  const logDir = await makeLogDir(t);
+  const runLogPath = join(logDir, "case2b.jsonl");
+  const sandbox = await filesystem.createReadOnlyCliFilesystemSandbox({ root, allowReadOnlySearch: true });
+  t.after(async () => sandbox.cleanup());
+  const session = sandbox.bindSession(filesystem.DEFAULT_READ_ONLY_SESSION_ID);
+  const wrapped = wrapReadSandbox(sandbox, session, { error: "throw", failAt: 2 });
+  const result = await valueFlow.runCliValueFlowGoal(
+    { requestId: "vf-b1-case2b", rootGoal: readOnlyGoal() },
+    { sandbox: wrapped.sandbox, session, runLogPath },
+  );
+  assert.equal(result.status, "unknown");
+  assert.equal(result.resolution, "insufficient_evidence");
+  const lines = await readParsedLog(runLogPath);
+  const observed = lines.find(line => line.kind === "source_observed" && line.file === "src/a.ts");
+  assert.ok(observed, "thrown second chunk must emit source_observed");
+  assert.equal(observed.truncated, true);
+  assert.equal(observed.readRange.startByte, 0);
+  assert.equal(observed.readRange.complete, false);
+  assert.ok(observed.readRange.endByte > 0, "accumulated raw bytes must be retained");
+  assert.equal(observed.afterStat, null);
+  assert.equal(observed.afterStatStatus, "not_observed");
+  assert.equal(observed.unchangedAtClosure, false);
+  const unknowns = lines.filter(line => line.kind === "relation_unknown");
+  assert.equal(unknowns.length, 1, "thrown second chunk must emit exactly one relation_unknown");
+  const unknown = unknowns[0];
+  assert.equal(unknown.reasonCode, "TRUNCATED_FILE_UNVERIFIED");
+  assert.equal(unknown.callsiteSpan, null);
+  assert.equal(unknown.sourceExcerpt, null);
+  assert.match(unknown.occurrenceId, /@unlocated:\d+$/);
+  assert.ok(unknown.missingEvidence.includes("callsite_span"));
+  assert.ok(unknown.missingEvidence.includes("source_excerpt"));
+  const unresolved = result.unresolvedSites.find(site => site.reasonCode === "TRUNCATED_FILE_UNVERIFIED");
+  assert.ok(unresolved, "TRUNCATED_FILE_UNVERIFIED occurrence must be appended to unresolvedSites");
+  assert.equal(unresolved.occurrenceId, unknown.occurrenceId, "unresolvedSites occurrenceId must match the emitted relation_unknown");
+});
+
 
 async function runModifiedClosure(t, loggingEnabled) {
   const root = await makeFixture(t);
