@@ -2533,3 +2533,51 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - master 已在 board 发布并认领下游 `jenny-tsjs-fixed-env-implementation-integration-r1`（parent 为实施 milestone，executor Jenny，reviewer Alice），状态 `blocked`，next step 明确等待 Emma 交付和 Alice review accept 后再合入精确候选、推送 main 并做合并后回归。该任务的 board-idle 巡检已按外部依赖取消，resume condition 已记录。
 - David 离线核查：其名下无开放任务、无邀请、无待复核项；历史关联 `david-parser-adapter-wiring-r1` 已由 Frank 完成并由 Alice 验收关闭，因此当前没有可转交的在途任务。后续若出现 David 相关工作，优先改派当前可用 peer，不默认等待。
 - goal one-shot deadline 消费后已重新执行 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`；项目巡检 `sub-m1793420812006-236` 保持 armed。本轮未改代码、权重、gold、threshold、adoption、产品接线或 runtime 安装。
+
+## 2026-11-04 master 巡检与 longhorizon 续订回执
+
+- 已消费 `collab recv`：`m1793824336981-3438`（goal deadline，LAST_REMINDER=true）与 `m1793824380880-3440`（Emma worker-idle）。本轮不重复唤醒 Emma：她仍持有 `jenny-tsjs-fixed-env-implementation-milestone-r1`（revision 6 `working`），board patrol 将其列为 eligible，`pending_notifications=2`，按契约由其本人续推。
+- longhorizon：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 续订 fresh one-shot `sub-m1793824563207-3445`；`appsdk goal status` 返回 `active=true`、`desired=subscribed`、`observed=subscribed`。
+- 巡检：`sub-m1793420812006-236` 保持 armed；运行 interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留。同 event/subject 的显式订阅被 daemon 判重（`deduplicated=true, changed=false`），旧订阅需先取消才能收敛 interval，但当前两个未关闭任务使取消返回 `PROJECT_PATROL_WORK_REMAINS`，因此不新建重复订阅。
+- CEO 进度：`collab ceo reply` 已记录实质进度，回执 `recorded=true, revision=15`；`collab notify status` 的巡逻快照仍显示 `progress_revision=0`（`updated_ms=1793824327870` 早于本次回报），且取消资格本就受开放任务阻塞，不据此宣称 cadence 或 eligibility 已对齐。
+- Board/roadmap：`docs/autonomous-capability-roadmap.md` 将 integration 任务 revision 文本同步为 revision 8；board 维持 `jenny-tsjs-fixed-env-implementation-integration-r1` revision 8 `blocked`（owner Jenny，等待 Emma 交付与 Alice 复核接受），David 名下 `task_ids=[]`、无 live 任务可改派。本轮未改代码、权重、gold、threshold、adoption、产品接线或 runtime 安装。
+
+## 2026-11-04 master goal deadline 续订（20:46Z）
+
+- 已消费 goal deadline `m1793825163936-3460`（LAST_REMINDER=true）与三条 Emma worker-idle（`m1793825176939-3461`、`m1793825202875-3463`、`m1793825211874-3464`）；inbox 归零。
+- `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 续订 fresh one-shot `sub-m1793825184245-3462`；`active=true`、`desired=subscribed`、`observed=subscribed`。
+- Board 无变化：milestone revision 6 `working`（Emma online+idle，pending notifications 由其本人续推）；integration revision 8 `blocked`，等待父任务交付与 Alice accept。未重复唤醒 Emma，未新建重复巡检订阅，未改代码、训练、权重、gold、threshold 或安装。
+
+## 2026-11-04 master 巡检回执（20:56Z）
+
+- Board 核实 milestone revision 7 `working`，Emma 已推进到 r2 head `12bd2e9c`：relation oracle evaluator（四分母分离、label_missing 排除、unknown recall、根评价独立）与 TS/JS+Rust 统一关系事实 adapter（语言无关、缺测/不支持显式保留）已加，build 通过；剩余 64 槽 data gate/runner route、typed acceptance、transfer evaluator、§2.5 runRecursiveGoal 真实接线。integration revision 8 `blocked`，等待父任务交付与 Alice accept。David 名下无开放任务。
+- Roadmap revision 文本已同步为 revision 7 并更新当前进展。Goal one-shot `sub-m1793825184245-3462` armed；project patrol `sub-m1793420812006-236` armed（interval 900000，目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留）。本轮未改代码、训练、权重、gold、threshold、采用或安装。
+- 已消费 worker-idle `m1793825558854-3483`；Emma 在线 present、activity idle、pending_notifications=0，仍持有未关闭 milestone。已发继续指令 `m1793825644268-3487`（tmux-input-submitted），要求按 dispatch 合同推进 r2 剩余 64 槽 data gate/runner route、typed acceptance、transfer evaluator、§2.5 runRecursiveGoal 接线，并明确禁止 fitter/训练/权重/gold/threshold/采用/产品接线/安装。
+
+## 2026-11-04 master goal deadline 续订（20:56Z）
+
+- 已消费 goal deadline `m1793825785029-3501`（LAST_REMINDER=true）。开放交付工作未完成，`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已续订（one-shot armed，project patrol `sub-m1793420812006-236` 保持 armed）。
+- Emma 已收到继续指令 `m1793825644268-3487`，上一轮其 worker 状态仍 idle（pending=0），已按巡检契约不重复唤醒；等待她继续 r2 或回复阻塞。本轮未改代码、训练、权重、gold、threshold、采用或安装。
+
+## 2026-11-04 master 巡检与 longhorizon 续订回执（22:49Z）
+
+- 已消费 worker-idle `m1793832379857-3778`、`m1793832486958-3781` 与 goal deadline `m1793832554867-3782`（LAST_REMINDER=true）。
+- LayerFS 核实：`emma-tsjs-fixed-env-implementation-milestone-r2` 分支真实存在，head=`12ce360d`，与 board milestone revision 8 的 next_step 一致；sandbox 1 挂载该任务 8 个 workspace，其中 `/workspaces/7` dirty entries=3、`/workspaces/1`（旧 r1，PROTECTED_HOLD）dirty entries=31，其余 r2 workspace 无未提交 entries。dirty 归属与处理继续由 branch owner Emma 声明，不代提交、不清理。
+- Board/roadmap：milestone revision 8 `working`（Emma owner，等待其继续 typed acceptance、transfer evaluator、§2.5 runRecursiveGoal 接线并交付给 Alice）；integration `jenny-tsjs-fixed-env-implementation-integration-r1` revision 17 `blocked`（等待父任务交付与 Alice accept）。David 名下 `task_ids=[]`、无开放任务可改派；历史 David 任务均 closed，后续 David-bound 工作由可用 peer 承接。
+- Longhorizon：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已续订 fresh one-shot（armed）；project patrol `sub-m1793420812006-236` 保持 armed（interval 900000 vs target 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留）。本轮未改代码、训练、权重、gold、threshold、采用或安装。
+
+## 2026-11-04 master 巡检回执（22:59Z，Emma r2 dirty 归属声明）
+
+- 已消费 `collab recv`：`m1793833044848-3798`、`m1793833084847-3801`（Emma worker-idle）、`m1793833117586-3802`（Emma r2 dirty 归属声明与续推）、`m1793833173862-3806`（Emma worker-idle）、`m1793833175871-3808`（goal deadline，LAST_REMINDER=true）。
+- Emma 声明 `/workspaces/7` dirty entries=3 为过期产物（56 输入旧 runner fixture、DATA_INVALID 报告），已 `workspace unmount --discard`；`/workspaces/1` dirty=31 为旧 r1 污染，保持 PROTECTED_HOLD。r2 交付线 `/workspaces/6/2/4/8` dirty 全为 0，head `12ce360d` 即唯一可审计交付点。
+- 独立 LayerFS 核实：分支 r2 head=`12ce360d`；sandbox 1 `/workspaces/6/2/4/8` dirty entries=0，`/workspaces/7` 已不存在（unmount discard 生效），`/workspaces/1` dirty=31（PROTECTED_HOLD）。与 Emma 声明一致。
+- Board：integration `jenny-tsjs-fixed-env-implementation-integration-r1` revision 19→20 `blocked`，next_step 记录 dirty 归属已闭合，head `12ce360d` 为唯一可审计交付点，等待 Emma 完成剩余接线后交付 Alice 复核，再由 master 集成。milestone revision 8 保持 `working`（Emma owner）。
+- Longhorizon：goal deadline `m1793833175871-3808` 已消费，`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已重新 armed；project patrol `sub-m1793420812006-236` 保持 armed（interval 900000 vs target 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留）。本轮未改代码、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-04 master 巡检回执（23:58Z，Emma typed acceptance 进展）
+
+- 已消费 `collab recv`：`m1793836475860-3899`（Emma worker-idle）与 `m1793836535057-3901`（fixed-env r2 typed acceptance progress）；未重复向 Emma 发 ACK 或重复派单。
+- Emma 报告 r2 head `1201b508` 已提交 typed acceptance fixture suite；LayerFS `/workspaces/8` 的 `npm run build` 通过，`tests/unified-contract.test.mjs` 11/11 通过，覆盖 64 槽编码、scalar forward、组 loss、独立 oracle、data gate、model package 版本绑定、threshold loader 与 TS/JS adapter。剩余 unified-transfer-evaluator 只读迁移评价与 §2.5 `runRecursiveGoal` 真实接线；她保持 r2 单 branch owner，继续先红测再实现。
+- Board：我的下游 integration 任务 `jenny-tsjs-fixed-env-implementation-integration-r1` revision 25 `blocked` 已更新到最新 head 与恢复条件；父任务 `jenny-tsjs-fixed-env-implementation-milestone-r1` 仍由 Emma 持有，daemon 明确拒绝 master 修改 owner 的 lifecycle，未绕过所有权。
+- David 离线核查：当前 board `task_ids=[]`、无开放任务或邀请；历史任务均已 closed，因此没有可转交的在途任务。后续出现 David-bound 新工作时由可用 peer 承接，不等待离线 owner。
+- Longhorizon：`appsdk goal status --json` 显示 `active=true`、`desired=subscribed`、`observed=subscribed`，当前 one-shot `sub-m1793836474882-3898` armed；project patrol `sub-m1793420812006-236` armed，运行 interval 900000 vs 目标 1500000，保留 `PATROL_CADENCE_RUNTIME_GAP`。本轮未改代码、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
