@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "neural-cli-source-family-v1",
+  "sourceGroup": "tsjs-train-module-export-alias-a",
+  "language": "ts",
+  "semanticStratum": "module_export",
+  "partition": "train",
+  "sourceType": "project_authored_controlled_fixture",
+  "repositoryOrFamily": "training/samples/neural-cli/tsjs/train-module-export-alias-a",
+  "derivationFamily": {
+    "familyId": "tsjs-template-module-export-alias-v1",
+    "templateRole": "origin",
+    "derivedFrom": null,
+    "independentVerificationEligible": false,
+    "see": "../source-derivation.json"
+  },
+  "sourceRefs": [
+    "sources/src/entry-pos.ts",
+    "sources/src/util.ts",
+    "sources/src/impl.ts",
+    "sources/src/entry-other-forward.ts",
+    "sources/src/other-forward.ts",
+    "sources/src/entry-other-different.ts",
+    "sources/src/other-different.ts",
+    "sources/src/entry-other-same-different.ts",
+    "sources/src/other-same-different.ts",
+    "sources/src/entry-same-module-different.ts",
+    "sources/src/entry-missing.ts"
+  ],
+  "reproduction": {
+    "tsconfig": "sources/tsconfig.json",
+    "command": "npx tsc -p sources/tsconfig.json --noEmit --pretty false"
+  },
+  "goldAuthority": "researcher_structural_proof+typescript_language_service",
+  "oracleKind": "independent_tsc+controlled_fixture",
+  "oracleRefs": [
+    "evidence/manual-structural-proof.md",
+    "evidence/tsc-receipt.txt",
+    "evidence/oracle-receipt.json"
+  ],
+  "license": "project-authored; repository license",
+  "privateAndSecrets": {
+    "containsPrivateSource": false,
+    "containsLoginState": false,
+    "containsSecrets": false
+  },
+  "owner": "Emma",
+  "sampleCount": 6,
+  "studentRowsDeferred": true,
+  "failureModes": [
+    "reexport_alias_misdirection",
+    "same_name_different_module",
+    "same_module_different_declaration",
+    "missing_module_read_failure"
+  ]
+}

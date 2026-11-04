@@ -1,0 +1,10 @@
+command: npx tsc -p training/samples/neural-cli/tsjs/train-module-export-alias-a/sources/tsconfig.json --noEmit --pretty false
+exitCode: 0
+stdout: <empty>
+stderr: <empty>
+
+missing-module command: npx tsc --noEmit --strict --module CommonJS --moduleResolution Node --pretty false training/samples/neural-cli/tsjs/train-module-export-alias-a/sources/src/entry-missing.ts
+exitCode: 2
+stderr:
+training/samples/neural-cli/tsjs/train-module-export-alias-a/sources/src/entry-missing.ts(1,37): error TS2307: Cannot find module './missing' or its corresponding type declarations.
+

@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "neural-cli-corpus-admissions-v1",
+  "scope": "TS/JS import-alias corpus under training/samples/neural-cli/tsjs",
+  "candidateEnumerationContract": "candidate-supervision-contract.json",
+  "familyAdmissions": [
+    {
+      "sourceGroup": "tsjs-train-module-export-alias-a",
+      "partition": "train",
+      "admission": "admitted_with_superseded_metadata",
+      "usableForTrainingSupervision": true,
+      "usableForIndependentVerification": false,
+      "supersededFields": ["originalLabelAuthority", "candidateEnumeration"],
+      "evidence": "evidence/manual-structural-proof.md"
+    },
+    {
+      "sourceGroup": "tsjs-train-closure-call-a",
+      "partition": "train",
+      "admission": "admitted_with_superseded_metadata",
+      "usableForTrainingSupervision": true,
+      "usableForIndependentVerification": false,
+      "supersededFields": ["originalLabelAuthority", "candidateEnumeration"],
+      "correctedSamples": ["b-closure-unknown-dynamic-property"],
+      "evidence": "evidence/dynamic-label-correction.md"
+    },
+    {
+      "sourceGroup": "tsjs-dev-closure-shadow-b",
+      "partition": "dev",
+      "admission": "admitted_with_superseded_metadata",
+      "usableForTrainingSupervision": false,
+      "usableForIndependentVerification": false,
+      "supersededFields": ["originalLabelAuthority", "candidateEnumeration"],
+      "correctedSamples": ["c-dev-unknown-dynamic-property"],
+      "evidence": "evidence/dynamic-label-correction.md"
+    },
+    {
+      "sourceGroup": "tsjs-verification-reexport-closure-c",
+      "partition": "verification",
+      "admission": "derived_diagnostic_regression",
+      "usableForTrainingSupervision": false,
+      "usableForIndependentVerification": false,
+      "supersededFields": ["originalLabelAuthority"],
+      "correctedSamples": ["d-verification-unknown-dynamic"],
+      "evidence": "../source-derivation.json"
+    },
+    {
+      "sourceGroup": "tsjs-verification-independent-callgraph-d",
+      "partition": "verification",
+      "admission": "independent_verification",
+      "usableForTrainingSupervision": false,
+      "usableForIndependentVerification": true,
+      "supersededFields": [],
+      "evidence": "verification-independent-callgraph-d/evidence/manual-structural-proof.md"
+    }
+  ],
+  "sampleCorrections": [
+    {
+      "sampleId": "b-closure-unknown-dynamic-property",
+      "sourceGroup": "tsjs-train-closure-call-a",
+      "originalLabel": "unknown",
+      "originalReason": "dynamic_undecidable",
+      "correctedLabel": "true",
+      "correctedTargetRef": "sources/src/closure.ts#top:base",
+      "evidence": "train-closure-call-a/evidence/dynamic-label-correction.md"
+    },
+    {
+      "sampleId": "c-dev-unknown-dynamic-property",
+      "sourceGroup": "tsjs-dev-closure-shadow-b",
+      "originalLabel": "unknown",
+      "originalReason": "dynamic_undecidable",
+      "correctedLabel": "true",
+      "correctedTargetRef": "sources/src/factory.ts#top:createStepper",
+      "evidence": "dev-closure-shadow-b/evidence/dynamic-label-correction.md"
+    },
+    {
+      "sampleId": "d-verification-unknown-dynamic",
+      "sourceGroup": "tsjs-verification-reexport-closure-c",
+      "originalLabel": "unknown",
+      "originalReason": "dynamic_undecidable",
+      "correctedLabel": "true",
+      "correctedTargetRef": "sources/src/local-shadow.ts#top:makeLocal",
+      "evidence": "verification-reexport-closure-c/evidence/dynamic-label-correction.md"
+    }
+  ],
+  "notAuthorized": [
+    "student row generation",
+    "training or fitting",
+    "weight, threshold, or adoption changes",
+    "installation or implementation"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "oracleKind": "independent_tsc+typescript_compiler_api",
+  "typescriptVersion": "5.9.3",
+  "method": "tsc CLI plus checker.getSymbolAtLocation and checker.getAliasedSymbol",
+  "checks": [
+    {
+      "sampleId": "b-closure-positive-inner-call",
+      "expression": "base(value) in makeAdder",
+      "observedDeclaration": "sources/src/closure.ts:1:1",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "b-closure-negative-shadow",
+      "expression": "base(value) in makeShadow",
+      "observedDeclaration": "sources/src/closure.ts:12:9",
+      "targetDeclaration": "sources/src/closure.ts#top:base",
+      "diagnostics": [],
+      "label": "false"
+    },
+    {
+      "sampleId": "b-closure-negative-other-module",
+      "expression": "base in entry.ts import graph",
+      "observedDeclaration": null,
+      "targetDeclaration": "sources/src/other.ts#top:base",
+      "diagnostics": [],
+      "checks": [
+        "entry.ts imports makeAdder, makeShadow, and registry from ./closure",
+        "entry.ts has no import from ./other",
+        "the module declaration other.ts:1:1 is not reachable from entry.ts"
+      ],
+      "label": "false"
+    },
+    {
+      "sampleId": "b-closure-unknown-dynamic-property",
+      "expression": "registry[computedName]",
+      "observedDeclaration": "sources/src/closure.ts:1:1",
+      "propertyKey": "base",
+      "foldedKeyExpression": "ba + se",
+      "resolvedProperty": "registry.base -> sources/src/closure.ts#top:base",
+      "diagnostics": [],
+      "label": "true"
+    }
+  ]
+}
+

@@ -1,0 +1,5 @@
+command: npx tsc -p training/samples/neural-cli/tsjs/verification-reexport-closure-c/sources/tsconfig.json --noEmit --pretty false
+exitCode: 0
+stdout: <empty>
+stderr: <empty>
+

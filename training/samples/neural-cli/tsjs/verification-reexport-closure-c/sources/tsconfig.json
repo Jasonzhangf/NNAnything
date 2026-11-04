@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/shift.ts",
+    "src/local-shadow.ts",
+    "src/other.ts",
+    "src/index.ts",
+    "src/entry.ts",
+    "src/entry-dynamic.ts"
+  ]
+}
+

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "neural-cli-source-family-v1",
+  "sourceGroup": "tsjs-dev-closure-shadow-b",
+  "language": "ts",
+  "semanticStratum": "closure_call_site",
+  "partition": "dev",
+  "sourceType": "project_authored_controlled_fixture",
+  "repositoryOrFamily": "training/samples/neural-cli/tsjs/dev-closure-shadow-b",
+  "derivationFamily": {
+    "familyId": "tsjs-template-stepper-multiply-v1",
+    "templateRole": "origin",
+    "derivedFrom": null,
+    "independentVerificationEligible": false,
+    "see": "../source-derivation.json"
+  },
+  "sourceRefs": [
+    "sources/src/factory.ts",
+    "sources/src/alternate.ts",
+    "sources/src/entry-known.ts",
+    "sources/src/entry-dynamic.ts"
+  ],
+  "reproduction": {
+    "tsconfig": "sources/tsconfig.json",
+    "command": "npx tsc -p sources/tsconfig.json --noEmit --pretty false"
+  },
+  "goldAuthority": "researcher_structural_proof+typescript_compiler_api",
+  "oracleKind": "independent_tsc+controlled_fixture",
+  "oracleRefs": [
+    "evidence/manual-structural-proof.md",
+    "evidence/tsc-receipt.txt",
+    "evidence/oracle-receipt.json",
+    "evidence/dynamic-label-correction.md",
+    "evidence/compiler-api-resolve-receipt.json"
+  ],
+  "admission": "admitted_with_superseded_metadata",
+  "license": "project-authored; repository license",
+  "privateAndSecrets": {
+    "containsPrivateSource": false,
+    "containsLoginState": false,
+    "containsSecrets": false
+  },
+  "owner": "Emma",
+  "sampleCount": 3,
+  "studentRowsDeferred": true,
+  "failureModes": [
+    "same_name_different_module",
+    "dynamic_property_false_conclusion"
+  ]
+}

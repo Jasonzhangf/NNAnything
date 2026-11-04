@@ -1,0 +1,196 @@
+{
+  "schemaVersion": "neural-cli-corpus-readiness-v1",
+  "language": "tsjs",
+  "owner": "Emma",
+  "status": "review_ready",
+  "trainingReadiness": "not_ready",
+  "scenarioCoverage": [
+    {
+      "scenario": "module_export",
+      "countBasis": "one primary scenario per sample",
+      "sourceGroups": [
+        "tsjs-train-module-export-alias-a",
+        "tsjs-verification-reexport-closure-c",
+        "tsjs-verification-independent-callgraph-d"
+      ],
+      "sampleIds": [
+        "a-module-positive-alias",
+        "a-module-positive-reexport",
+        "a-module-negative-different-module",
+        "a-module-negative-same-module-different",
+        "a-module-negative-same-name-module",
+        "a-module-unknown-missing-module",
+        "d-verification-positive-reexport",
+        "d2-verification-positive-alias"
+      ],
+      "positiveSamples": 4,
+      "controlSamples": 3,
+      "unknownSamples": 1,
+      "oracleKinds": ["independent_tsc+typescript_compiler_api"],
+      "evidence": "manual structural proof and compiler/API receipts",
+      "note": "verification families span scenarios; each sample is counted under exactly one primary scenario, so counts do not sum whole-family sizes"
+    },
+    {
+      "scenario": "closure_call_site",
+      "countBasis": "one primary scenario per sample",
+      "sourceGroups": [
+        "tsjs-train-closure-call-a",
+        "tsjs-dev-closure-shadow-b",
+        "tsjs-verification-reexport-closure-c",
+        "tsjs-verification-independent-callgraph-d"
+      ],
+      "sampleIds": [
+        "b-closure-positive-inner-call",
+        "b-closure-negative-shadow",
+        "b-closure-negative-other-module",
+        "b-closure-unknown-dynamic-property",
+        "c-dev-positive-factory-call",
+        "c-dev-negative-same-name-other",
+        "c-dev-unknown-dynamic-property",
+        "d-verification-positive-closure",
+        "d-verification-negative-shadow",
+        "d-verification-unknown-dynamic",
+        "d2-verification-positive-pipeline",
+        "d2-verification-negative-shadow",
+        "d2-verification-unknown-dynamic"
+      ],
+      "positiveSamples": 7,
+      "controlSamples": 5,
+      "unknownSamples": 1,
+      "oracleKinds": ["independent_tsc+typescript_compiler_api"],
+      "evidence": "manual structural proof, shadowing checks, and dynamic-property unknown checks",
+      "note": "verification families span scenarios; each sample is counted under exactly one primary scenario, so counts do not sum whole-family sizes"
+    }
+  ],
+  "sourceGroups": [
+    {
+      "sourceGroup": "tsjs-train-module-export-alias-a",
+      "partition": "train",
+      "sampleCount": 6,
+      "manifest": "train-module-export-alias-a/manifest.json",
+      "scenarios": ["module_export"]
+    },
+    {
+      "sourceGroup": "tsjs-train-closure-call-a",
+      "partition": "train",
+      "sampleCount": 4,
+      "manifest": "train-closure-call-a/manifest.json",
+      "scenarios": ["closure_call_site"]
+    },
+    {
+      "sourceGroup": "tsjs-dev-closure-shadow-b",
+      "partition": "dev",
+      "sampleCount": 3,
+      "manifest": "dev-closure-shadow-b/manifest.json",
+      "scenarios": ["closure_call_site"]
+    },
+    {
+      "sourceGroup": "tsjs-verification-reexport-closure-c",
+      "partition": "verification",
+      "sampleCount": 4,
+      "manifest": "verification-reexport-closure-c/manifest.json",
+      "scenarios": ["module_export", "closure_call_site"],
+      "admission": "derived_diagnostic_regression",
+      "independentVerificationEligible": false
+    },
+    {
+      "sourceGroup": "tsjs-verification-independent-callgraph-d",
+      "partition": "verification",
+      "sampleCount": 4,
+      "manifest": "verification-independent-callgraph-d/manifest.json",
+      "scenarios": ["module_export", "closure_call_site"],
+      "admission": "independent_verification",
+      "independentVerificationEligible": true
+    }
+  ],
+  "sampleCountByPartition": {
+    "train": 10,
+    "dev": 3,
+    "verification": 8
+  },
+  "partition": {
+    "train": ["tsjs-train-module-export-alias-a", "tsjs-train-closure-call-a"],
+    "dev": ["tsjs-dev-closure-shadow-b"],
+    "verification": [
+      "tsjs-verification-reexport-closure-c",
+      "tsjs-verification-independent-callgraph-d"
+    ]
+  },
+  "corpusAdmissions": {
+    "contract": "corpus-admissions-v1.json",
+    "note": "Explicit family admission and sample supersession entry point for current consumers."
+  },
+  "candidateSupervision": {
+    "goldCandidateSetKind": "offline_gold_only",
+    "studentCandidateEnumeration": "deferred",
+    "contract": "candidate-supervision-contract.json",
+    "note": "Gold candidateSet singletons are offline supervision only. They are not complete student candidate groups."
+  },
+  "sourceDerivation": {
+    "contract": "source-derivation.json",
+    "verificationSourceGroupAdmission": "mixed",
+    "note": "verification-reexport-closure-c is derived diagnostic regression; verification-independent-callgraph-d is admitted as independent unseen verification."
+  },
+  "corrections": [
+    {
+      "sourceGroup": "tsjs-train-closure-call-a",
+      "sampleId": "b-closure-unknown-dynamic-property",
+      "originalLabel": "unknown",
+      "originalReason": "dynamic_undecidable",
+      "correctedSemanticGold": "true",
+      "correctedTarget": "closure.ts#top:base",
+      "authority": "researcher_structural_proof+typescript_compiler_api",
+      "admission": "corrected",
+      "evidence": "train-closure-call-a/evidence/dynamic-label-correction.md",
+      "receipt": "train-closure-call-a/evidence/compiler-api-resolve-receipt.json"
+    },
+    {
+      "sourceGroup": "tsjs-verification-reexport-closure-c",
+      "sampleId": "d-verification-unknown-dynamic",
+      "originalLabel": "unknown",
+      "originalReason": "dynamic_undecidable",
+      "correctedSemanticGold": "true",
+      "correctedTarget": "local-shadow.ts#top:makeLocal",
+      "authority": "researcher_structural_proof+typescript_compiler_api",
+      "admission": "diagnostic_only",
+      "evidence": "verification-reexport-closure-c/evidence/dynamic-label-correction.md",
+      "receipt": "verification-reexport-closure-c/evidence/compiler-api-resolve-receipt.json"
+    },
+    {
+      "sourceGroup": "tsjs-dev-closure-shadow-b",
+      "sampleId": "c-dev-unknown-dynamic-property",
+      "originalLabel": "unknown",
+      "originalReason": "dynamic_undecidable",
+      "correctedSemanticGold": "true",
+      "correctedTarget": "factory.ts#top:createStepper",
+      "authority": "researcher_structural_proof+typescript_compiler_api",
+      "admission": "diagnostic_only",
+      "evidence": "dev-closure-shadow-b/evidence/dynamic-label-correction.md",
+      "receipt": "dev-closure-shadow-b/evidence/compiler-api-resolve-receipt.json"
+    }
+  ],
+  "unresolvedItems": [
+    "featureSchemaVersion and featureNames are intentionally deferred; no student-rows are generated",
+    "student candidate enumeration is deferred; gold candidateSet singletons are offline supervision only",
+    "the product trainer, evaluator, encoder, forward pass, and group loss are not implemented by this corpus",
+    "the user-required per-example 100% known-relation correctness and 100% unknown-result reporting gates are not claimed until real training and independent evaluation run",
+    "the verification family is source-isolated on disk but is a renamed-copy derivative of the train closure template, so it is admitted only as derived diagnostic/regression",
+    "the three corrected dynamic samples are known-true semantic gold with historical unknown records; they are not semantic-unknown benchmarks",
+    "the independent verification family now contains one runtime-selector unknown sample; it is not used as training supervision"
+  ],
+  "license": "project-authored fixtures; repository license; no third-party source copied",
+  "privateAndSecretsConfirmed": true,
+  "privateAndSecrets": {
+    "privateSource": false,
+    "loginState": false,
+    "secrets": false,
+    "personalData": false
+  },
+  "studentRowsDeferred": true,
+  "trainingStarted": false,
+  "environment": {
+    "node": "v22.22.2",
+    "typescript": "5.9.3",
+    "compilerCommand": "npx tsc"
+  }
+}

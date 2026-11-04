@@ -1,0 +1,38 @@
+{
+  "oracleKind": "independent_tsc+typescript_compiler_api",
+  "typescriptVersion": "5.9.3",
+  "method": "tsc CLI plus TypeScript checker alias resolution and source-level structure proof",
+  "checks": [
+    {
+      "sampleId": "d2-verification-positive-alias",
+      "expression": "grow(6, 7)",
+      "resolvedTarget": "sources/src/math-ops.ts#top:scaleBy",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "d2-verification-positive-pipeline",
+      "expression": "offsetBy(value, delta) in pipeline step",
+      "resolvedTarget": "sources/src/math-ops.ts#top:offsetBy",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "d2-verification-negative-shadow",
+      "expression": "offsetBy(value) in buildShadowed",
+      "resolvedTarget": "sources/src/shadow.ts#local:offsetBy",
+      "targetDeclaration": "sources/src/math-ops.ts#top:offsetBy",
+      "diagnostics": [],
+      "label": "false"
+    },
+    {
+      "sampleId": "d2-verification-unknown-dynamic",
+      "expression": "table[selector](value, amount)",
+      "targetDeclaration": "sources/src/math-ops.ts#top:scaleBy",
+      "observedFact": "the selector is a runtime parameter and both scaleBy and offsetBy are stored in table",
+      "unknownReason": "runtime_dynamic_selector",
+      "diagnostics": [],
+      "label": "unknown"
+    }
+  ]
+}

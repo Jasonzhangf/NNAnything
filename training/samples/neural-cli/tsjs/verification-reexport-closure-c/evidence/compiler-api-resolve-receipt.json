@@ -1,0 +1,45 @@
+{
+  "receiptKind": "typescript-compiler-api-relation-resolve",
+  "typescriptVersion": "5.9.3",
+  "command": "node training/samples/neural-cli/tsjs/scripts/compiler-api-resolve.mjs verification-reexport-closure-c",
+  "stringConstantDeclarations": [
+    {
+      "name": "computedName",
+      "sourceText": "\"make\" + \"Local\"",
+      "foldedValue": "makeLocal",
+      "file": "sources/src/entry-dynamic.ts"
+    }
+  ],
+  "tablePropertyResolutions": [
+    {
+      "expression": "table[computedName]",
+      "file": "sources/src/entry-dynamic.ts",
+      "foldedKey": "makeLocal",
+      "tableDeclaredType": "Record<string, typeof makeLocal>",
+      "resolutions": [
+        {
+          "propertyKey": "makeLocal",
+          "valueIdentifier": "makeLocal",
+          "resolvesTo": {
+            "name": "makeLocal",
+            "file": "sources/src/entry-dynamic.ts",
+            "line": 3
+          },
+          "resolvesToTypeDeclaration": {
+            "name": "makeLocal",
+            "file": "sources/src/local-shadow.ts",
+            "line": 1
+          }
+        }
+      ]
+    }
+  ],
+  "conclusion": {
+    "hasCompileTimeStringConstant": true,
+    "elementAccessKeyIsCompileTimeConstant": true,
+    "resolvedBindings": ["makeLocal"],
+    "resolvedDeclarations": ["sources/src/local-shadow.ts:1"]
+  },
+  "script": "training/samples/neural-cli/tsjs/scripts/compiler-api-resolve.mjs",
+  "writeEffects": "read-only compiler API over sources; no project file written by the script"
+}

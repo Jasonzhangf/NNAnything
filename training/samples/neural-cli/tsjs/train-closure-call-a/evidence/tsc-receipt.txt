@@ -1,0 +1,5 @@
+command: npx tsc -p training/samples/neural-cli/tsjs/train-closure-call-a/sources/tsconfig.json --noEmit --pretty false
+exitCode: 0
+stdout: <empty>
+stderr: <empty>
+

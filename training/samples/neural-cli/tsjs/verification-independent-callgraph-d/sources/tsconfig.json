@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/math-ops.ts",
+    "src/barrel.ts",
+    "src/entry-alias.ts",
+    "src/pipeline.ts",
+    "src/shadow.ts",
+    "src/entry-dynamic.ts"
+  ]
+}

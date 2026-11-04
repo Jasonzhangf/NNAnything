@@ -1,0 +1,56 @@
+{
+  "oracleKind": "independent_tsc+typescript_compiler_api",
+  "typescriptVersion": "5.9.3",
+  "method": "tsc CLI plus checker.getSymbolAtLocation and checker.getAliasedSymbol",
+  "checks": [
+    {
+      "sampleId": "a-module-positive-alias",
+      "expression": "helper(1)",
+      "observedDeclaration": "sources/src/impl.ts:1:1",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "a-module-positive-reexport",
+      "expression": "helper(2) in entry-other-forward.ts",
+      "observedDeclaration": "sources/src/impl.ts:1:1",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "a-module-negative-different-module",
+      "expression": "helper(2) in entry-other-different.ts",
+      "observedDeclaration": "sources/src/other-different.ts:1:14",
+      "targetDeclaration": "sources/src/impl.ts#top:helper",
+      "diagnostics": [],
+      "label": "false"
+    },
+    {
+      "sampleId": "a-module-negative-same-module-different",
+      "expression": "helper(5) in entry-same-module-different.ts",
+      "observedDeclaration": "sources/src/impl.ts:5:14",
+      "targetDeclaration": "sources/src/impl.ts#top:helper",
+      "diagnostics": [],
+      "label": "false"
+    },
+    {
+      "sampleId": "a-module-negative-same-name-module",
+      "expression": "helper(5) in entry-other-same-different.ts",
+      "observedDeclaration": "sources/src/other-same-different.ts:2:14",
+      "targetDeclaration": "sources/src/impl.ts#top:helper",
+      "diagnostics": [],
+      "label": "false"
+    },
+    {
+      "sampleId": "a-module-unknown-missing-module",
+      "expression": "helper(1) in entry-missing.ts",
+      "observedDeclaration": null,
+      "diagnostics": [
+        "TS2307: Cannot find module './missing' or its corresponding type declarations."
+      ],
+      "unknownReason": "evidence_insufficient",
+      "label": "unknown"
+    }
+  ]
+}
+

@@ -1,0 +1,40 @@
+{
+  "oracleKind": "independent_tsc+typescript_compiler_api",
+  "typescriptVersion": "5.9.3",
+  "method": "tsc CLI plus checker.getSymbolAtLocation and checker.getAliasedSymbol",
+  "checks": [
+    {
+      "sampleId": "d-verification-positive-reexport",
+      "expression": "makeShifted(3) through index.ts",
+      "observedDeclaration": "sources/src/shift.ts:5:1",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "d-verification-positive-closure",
+      "expression": "shift(value) in makeShifted",
+      "observedDeclaration": "sources/src/shift.ts:1:1",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "d-verification-negative-shadow",
+      "expression": "shift(value) in makeLocal",
+      "observedDeclaration": "sources/src/local-shadow.ts:1:1",
+      "targetDeclaration": "sources/src/shift.ts#top:shift",
+      "diagnostics": [],
+      "label": "false"
+    },
+    {
+      "sampleId": "d-verification-unknown-dynamic",
+      "expression": "table[computedName]",
+      "observedDeclaration": "sources/src/local-shadow.ts:2:9",
+      "propertyKey": "makeLocal",
+      "foldedKeyExpression": "make + Local",
+      "resolvedProperty": "table.makeLocal -> sources/src/local-shadow.ts#top:makeLocal",
+      "diagnostics": [],
+      "label": "true"
+    }
+  ]
+}
+

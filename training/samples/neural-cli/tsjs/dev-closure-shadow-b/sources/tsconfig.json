@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/factory.ts",
+    "src/alternate.ts",
+    "src/entry-known.ts",
+    "src/entry-dynamic.ts"
+  ]
+}
+

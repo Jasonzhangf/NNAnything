@@ -1,0 +1,45 @@
+{
+  "receiptKind": "typescript-compiler-api-relation-resolve",
+  "typescriptVersion": "5.9.3",
+  "command": "node training/samples/neural-cli/tsjs/scripts/compiler-api-resolve.mjs dev-closure-shadow-b",
+  "stringConstantDeclarations": [
+    {
+      "name": "computedName",
+      "sourceText": "\"create\" + \"Stepper\"",
+      "foldedValue": "createStepper",
+      "file": "sources/src/entry-dynamic.ts"
+    }
+  ],
+  "tablePropertyResolutions": [
+    {
+      "expression": "table[computedName]",
+      "file": "sources/src/entry-dynamic.ts",
+      "foldedKey": "createStepper",
+      "tableDeclaredType": "Record<string, typeof createStepper>",
+      "resolutions": [
+        {
+          "propertyKey": "createStepper",
+          "valueIdentifier": "createStepper",
+          "resolvesTo": {
+            "name": "createStepper",
+            "file": "sources/src/entry-dynamic.ts",
+            "line": 3
+          },
+          "resolvesToTypeDeclaration": {
+            "name": "createStepper",
+            "file": "sources/src/factory.ts",
+            "line": 3
+          }
+        }
+      ]
+    }
+  ],
+  "conclusion": {
+    "hasCompileTimeStringConstant": true,
+    "elementAccessKeyIsCompileTimeConstant": true,
+    "resolvedBindings": ["createStepper"],
+    "resolvedDeclarations": ["sources/src/factory.ts:3"]
+  },
+  "script": "training/samples/neural-cli/tsjs/scripts/compiler-api-resolve.mjs",
+  "writeEffects": "read-only compiler API over sources; no project file written by the script"
+}

@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "neural-cli-source-family-v1",
+  "sourceGroup": "tsjs-verification-reexport-closure-c",
+  "language": "ts",
+  "semanticStratum": "module_export_and_closure_call_site",
+  "partition": "verification",
+  "sourceType": "derived_project_authored_fixture",
+  "repositoryOrFamily": "training/samples/neural-cli/tsjs/verification-reexport-closure-c",
+  "derivationFamily": {
+    "familyId": "tsjs-template-increment-offset-adder-v1",
+    "templateRole": "renamed_copy",
+    "derivedFrom": "training/samples/neural-cli/tsjs/train-closure-call-a/sources/src/closure.ts",
+    "independentVerificationEligible": false,
+    "admission": "derived_diagnostic_regression",
+    "see": "../source-derivation.json"
+  },
+  "sourceRefs": [
+    "sources/src/shift.ts",
+    "sources/src/local-shadow.ts",
+    "sources/src/other.ts",
+    "sources/src/index.ts",
+    "sources/src/entry.ts",
+    "sources/src/entry-dynamic.ts"
+  ],
+  "reproduction": {
+    "tsconfig": "sources/tsconfig.json",
+    "command": "npx tsc -p sources/tsconfig.json --noEmit --pretty false"
+  },
+  "goldAuthority": "researcher_structural_proof+typescript_compiler_api",
+  "admission": "derived_diagnostic_regression",
+  "oracleKind": "independent_tsc+controlled_fixture",
+  "oracleRefs": [
+    "evidence/manual-structural-proof.md",
+    "evidence/tsc-receipt.txt",
+    "evidence/oracle-receipt.json",
+    "evidence/dynamic-label-correction.md",
+    "evidence/compiler-api-resolve-receipt.json"
+  ],
+  "license": "project-authored; repository license",
+  "privateAndSecrets": {
+    "containsPrivateSource": false,
+    "containsLoginState": false,
+    "containsSecrets": false
+  },
+  "owner": "Emma",
+  "sampleCount": 4,
+  "studentRowsDeferred": true,
+  "failureModes": [
+    "reexport_alias_misdirection",
+    "closure_shadow_misbinding",
+    "dynamic_property_false_conclusion"
+  ]
+}

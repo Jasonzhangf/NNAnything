@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "neural-cli-source-derivation-v1",
+  "templateFamilies": [
+    {
+      "familyId": "tsjs-template-increment-offset-adder-v1",
+      "description": "Module-level increment function plus a factory returning an inner function that calls the module-level function plus an offset, plus a local-shadow variant of the same factory.",
+      "origin": {
+        "sourceGroup": "tsjs-train-closure-call-a",
+        "sourceRef": "sources/src/closure.ts",
+        "symbols": ["base", "makeAdder", "makeShadow"]
+      },
+      "renamedCopies": [
+        {
+          "sourceGroup": "tsjs-verification-reexport-closure-c",
+          "sourceRef": "sources/src/shift.ts",
+          "symbols": ["shift", "makeShifted"],
+          "renaming": "base->shift, makeAdder->makeShifted"
+        },
+        {
+          "sourceGroup": "tsjs-verification-reexport-closure-c",
+          "sourceRef": "sources/src/local-shadow.ts",
+          "symbols": ["makeLocal"],
+          "renaming": "makeShadow->makeLocal"
+        }
+      ],
+      "independentVerificationEligible": false,
+      "admission": "derived_diagnostic_regression"
+    },
+    {
+      "familyId": "tsjs-independent-callgraph-v1",
+      "description": "Fresh module graph with a barrel re-export, imported alias call, closure call, local shadow, and runtime selector dispatch.",
+      "origin": {
+        "sourceGroup": "tsjs-verification-independent-callgraph-d",
+        "sourceRef": "sources/src",
+        "symbols": [
+          "scaleBy",
+          "offsetBy",
+          "buildPipeline",
+          "buildShadowed",
+          "dispatch"
+        ]
+      },
+      "renamedCopies": [],
+      "independentVerificationEligible": true,
+      "admission": "independent_verification"
+    }
+  ],
+  "reclassifiedSourceGroups": [
+    {
+      "sourceGroup": "tsjs-verification-reexport-closure-c",
+      "previousClaim": "independent verification source family",
+      "correctedClaim": "Source-separated but template-derived from tsjs-train-closure-call-a. Not admitted as independent unseen verification.",
+      "affectedSamples": [
+        "d-verification-positive-reexport",
+        "d-verification-positive-closure",
+        "d-verification-negative-shadow",
+        "d-verification-unknown-dynamic"
+      ],
+      "admission": "derived_diagnostic_regression"
+    }
+  ],
+  "closedResearchItems": [
+    {
+      "sourceGroup": "tsjs-train-closure-call-a",
+      "sampleId": "b-closure-unknown-dynamic-property",
+      "sourceRef": "sources/src/entry.ts",
+      "resolution": "Corrected to true at closure.ts#top:base after the compiler API folded computedName to base and resolved the sole matching property.",
+      "evidence": "train-closure-call-a/evidence/dynamic-label-correction.md"
+    }
+  ],
+  "independentSourceGroups": [
+    "tsjs-train-module-export-alias-a",
+    "tsjs-dev-closure-shadow-b",
+    "tsjs-verification-independent-callgraph-d"
+  ],
+  "verificationPartition": {
+    "admittedIndependent": [
+      "tsjs-verification-independent-callgraph-d"
+    ],
+    "derivedDiagnosticOnly": [
+      "tsjs-verification-reexport-closure-c"
+    ]
+  }
+}

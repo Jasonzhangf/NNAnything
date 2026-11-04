@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "neural-cli-source-family-v1",
+  "sourceGroup": "tsjs-verification-independent-callgraph-d",
+  "language": "ts",
+  "semanticStratum": "module_export_and_closure_call_site",
+  "partition": "verification",
+  "sourceType": "independent_project_authored_fixture",
+  "repositoryOrFamily": "training/samples/neural-cli/tsjs/verification-independent-callgraph-d",
+  "derivationFamily": {
+    "familyId": "tsjs-independent-callgraph-v1",
+    "templateRole": "origin",
+    "derivedFrom": null,
+    "independentVerificationEligible": true,
+    "see": "../source-derivation.json"
+  },
+  "sourceRefs": [
+    "sources/src/math-ops.ts",
+    "sources/src/barrel.ts",
+    "sources/src/entry-alias.ts",
+    "sources/src/pipeline.ts",
+    "sources/src/shadow.ts",
+    "sources/src/entry-dynamic.ts"
+  ],
+  "reproduction": {
+    "tsconfig": "sources/tsconfig.json",
+    "command": "npx tsc -p sources/tsconfig.json --noEmit --pretty false"
+  },
+  "goldAuthority": "researcher_structural_proof+typescript_compiler_api",
+  "oracleKind": "independent_tsc+controlled_fixture",
+  "oracleRefs": [
+    "evidence/manual-structural-proof.md",
+    "evidence/tsc-receipt.txt",
+    "evidence/oracle-receipt.json"
+  ],
+  "license": "project-authored; repository license",
+  "privateAndSecrets": {
+    "containsPrivateSource": false,
+    "containsLoginState": false,
+    "containsSecrets": false
+  },
+  "owner": "Emma",
+  "sampleCount": 4,
+  "studentRowsDeferred": true,
+  "failureModes": [
+    "reexport_alias_misdirection",
+    "closure_shadow_misbinding",
+    "same_name_different_module",
+    "runtime_dynamic_selector_unknown"
+  ]
+}

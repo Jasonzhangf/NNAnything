@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/impl.ts",
+    "src/util.ts",
+    "src/entry-pos.ts",
+    "src/other-forward.ts",
+    "src/entry-other-forward.ts",
+    "src/other-different.ts",
+    "src/entry-other-different.ts",
+    "src/other-same-different.ts",
+    "src/entry-other-same-different.ts",
+    "src/entry-same-module-different.ts"
+  ]
+}
+

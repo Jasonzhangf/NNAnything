@@ -1,0 +1,33 @@
+{
+  "oracleKind": "independent_tsc+typescript_compiler_api",
+  "typescriptVersion": "5.9.3",
+  "method": "tsc CLI plus checker.getSymbolAtLocation and checker.getAliasedSymbol",
+  "checks": [
+    {
+      "sampleId": "c-dev-positive-factory-call",
+      "expression": "createStepper(2)",
+      "observedDeclaration": "sources/src/factory.ts:3:1",
+      "diagnostics": [],
+      "label": "true"
+    },
+    {
+      "sampleId": "c-dev-negative-same-name-other",
+      "expression": "createStepper(2) target alternate.ts",
+      "observedDeclaration": "sources/src/factory.ts:3:1",
+      "targetDeclaration": "sources/src/alternate.ts#top:createStepper",
+      "diagnostics": [],
+      "label": "false"
+    },
+    {
+      "sampleId": "c-dev-unknown-dynamic-property",
+      "expression": "table[computedName]",
+      "observedDeclaration": "sources/src/factory.ts:3:1",
+      "propertyKey": "createStepper",
+      "foldedKeyExpression": "create + Stepper",
+      "resolvedProperty": "table.createStepper -> sources/src/factory.ts#top:createStepper",
+      "diagnostics": [],
+      "label": "true"
+    }
+  ]
+}
+

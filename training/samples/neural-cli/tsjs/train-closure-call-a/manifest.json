@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "neural-cli-source-family-v1",
+  "sourceGroup": "tsjs-train-closure-call-a",
+  "language": "ts",
+  "semanticStratum": "closure_call_site",
+  "partition": "train",
+  "sourceType": "project_authored_controlled_fixture",
+  "repositoryOrFamily": "training/samples/neural-cli/tsjs/train-closure-call-a",
+  "derivationFamily": {
+    "familyId": "tsjs-template-increment-offset-adder-v1",
+    "templateRole": "origin",
+    "derivedFrom": null,
+    "independentVerificationEligible": false,
+    "see": "../source-derivation.json"
+  },
+  "sourceRefs": [
+    "sources/src/closure.ts",
+    "sources/src/other.ts",
+    "sources/src/entry.ts"
+  ],
+  "reproduction": {
+    "tsconfig": "sources/tsconfig.json",
+    "command": "npx tsc -p sources/tsconfig.json --noEmit --pretty false"
+  },
+  "goldAuthority": "researcher_structural_proof+typescript_compiler_api",
+  "oracleKind": "independent_tsc+controlled_fixture",
+  "oracleRefs": [
+    "evidence/manual-structural-proof.md",
+    "evidence/tsc-receipt.txt",
+    "evidence/oracle-receipt.json",
+    "evidence/dynamic-label-correction.md",
+    "evidence/compiler-api-resolve-receipt.json"
+  ],
+  "license": "project-authored; repository license",
+  "privateAndSecrets": {
+    "containsPrivateSource": false,
+    "containsLoginState": false,
+    "containsSecrets": false
+  },
+  "owner": "Emma",
+  "sampleCount": 4,
+  "studentRowsDeferred": true,
+  "failureModes": [
+    "closure_shadow_misbinding",
+    "same_name_different_module",
+    "dynamic_property_false_conclusion"
+  ]
+}

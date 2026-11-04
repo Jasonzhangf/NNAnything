@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "neural-cli-candidate-supervision-v1",
+  "scope": "All gold candidateSet fields in training/samples/neural-cli/tsjs.",
+  "goldCandidateSetKind": "offline_gold_only",
+  "supervisionMeaning": "Each gold candidateSet contains only the correct judge used for offline supervision. It is not a complete student candidate group and must not be treated as one.",
+  "studentCandidateEnumeration": "deferred",
+  "legacyEpisodeFieldNote": "Per-episode candidateEnumeration carries only the offline gold-supervision set status. TRAIN and DEV episodes still carry the legacy value complete under this supersession; verification episodes were corrected directly to deferred. Neither value enumerates a student candidate group.",
+  "legacyAdmissionEntry": "corpus-admissions-v1.json is the explicit admission/supersession entry point. Legacy rows also carry candidateEnumerationAdmission and candidateEnumerationSupersededBy.",
+  "enumerationPlan": "Student candidates must later be produced independently from typed input, including legal contrasting candidates; this corpus does not yet contain student candidate groups or a candidate converter.",
+  "episodeCandidateSetRef": "Points directly to labels/gold.jsonl and carries only the offline gold-only supervision set; it does not enumerate a student candidate group.",
+  "forbiddenInterpretations": [
+    "Treating a gold singleton candidateSet as a complete student candidate group.",
+    "Constructing student candidates by filtering on the gold label.",
+    "Using the gold candidateSet as the model's allowed set at inference time."
+  ]
+}

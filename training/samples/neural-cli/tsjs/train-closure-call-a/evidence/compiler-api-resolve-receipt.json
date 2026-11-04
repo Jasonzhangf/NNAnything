@@ -1,0 +1,45 @@
+{
+  "familyDir": "/Volumes/extension/code/NNAnything/training/samples/neural-cli/tsjs/train-closure-call-a",
+  "tsconfigPath": "/Volumes/extension/code/NNAnything/training/samples/neural-cli/tsjs/train-closure-call-a/sources/tsconfig.json",
+  "typescriptVersion": "5.9.3",
+  "stringConstantDeclarations": [
+    {
+      "name": "computedName",
+      "sourceText": "\"ba\" + \"se\"",
+      "foldedValue": "base",
+      "file": "/Volumes/extension/code/NNAnything/training/samples/neural-cli/tsjs/train-closure-call-a/sources/src/entry.ts"
+    }
+  ],
+  "tablePropertyResolutions": [
+    {
+      "expression": "registry[computedName]",
+      "file": "/Volumes/extension/code/NNAnything/training/samples/neural-cli/tsjs/train-closure-call-a/sources/src/entry.ts",
+      "foldedKey": "base",
+      "tableDeclaredType": "Record<string, (value: number) => number>",
+      "resolutions": [
+        {
+          "propertyKey": "base",
+          "valueIdentifier": "base",
+          "resolvesTo": {
+            "name": "base",
+            "file": "/Volumes/extension/code/NNAnything/training/samples/neural-cli/tsjs/train-closure-call-a/sources/src/closure.ts",
+            "line": 19
+          },
+          "resolvesToTypeDeclaration": {
+            "name": "base",
+            "file": "/Volumes/extension/code/NNAnything/training/samples/neural-cli/tsjs/train-closure-call-a/sources/src/closure.ts",
+            "line": 1
+          }
+        }
+      ]
+    }
+  ],
+  "conclusion": {
+    "hasCompileTimeStringConstant": true,
+    "elementAccessKeyIsCompileTimeConstant": true,
+    "resolvedBindings": ["base"],
+    "resolvedDeclarations": [
+      "/Volumes/extension/code/NNAnything/training/samples/neural-cli/tsjs/train-closure-call-a/sources/src/closure.ts:1"
+    ]
+  }
+}
