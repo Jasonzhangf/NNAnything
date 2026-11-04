@@ -2485,3 +2485,9 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Emma 自报验证：全部 JSON 解析；`verify-corpus.mjs` PASS；5 个 fixture 家族 `npx tsc --noEmit` 通过；compiler API replay 确认 base→closure.ts:1、createStepper→factory.ts:3、makeLocal→local-shadow.ts:1，independent-callgraph-d selector 为 runtime unknown。
 - 边界：仅语料准备与验证脚本；未训练、未拟合、未实现、未安装、未生成学生行、未改权重/gold/threshold。`emma-tsjs-minimal-env-engineering-contract-r1` 已至 revision 5 ACCEPT 并 closed；`emma-tsjs-fixed-env-implementation-candidate-r1` revision 2 已 ACCEPT 并 closed，均未重开。
 - master 动作：`collab recv` 已消费 `m1793811917667-2806`、`m1793811961930-2809`、`m1793811961999-2810`、`m1793811962066-2811` 等通知；长程 goal one-shot 已重新武装（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，project patrol `sub-m1793420812006-236` 保持 armed）；已向 Alice 发定点复核提示 `m1793812040859-2821`，请其按合同 accept/rework，不代为复核。
+
+## 2026-11-04 Emma 语料 revision 3 REWORK（Alice 两个局部修正）
+
+- Alice 已对 `emma-tsjs-corpus-prep-r1` revision 3 落正式 REWORK：来源留出/标注纠偏主体通过，不重做已通过设计；两个局部问题需修正后再交：1）新准入合同把 DEV 允许训练，必须按合同区分 TRAIN/DEV/VERIFICATION 并禁止 DEV 进入训练集；2）校验脚本用 `JSON.stringify(Set)` 使 ID 比较恒等，需改为真实 ID 集合比较并补失败反例。证据：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-unified-contract-audit.md` §TS语料准备 revision=3。
+- 实施候选 `emma-tsjs-fixed-env-implementation-candidate-r1` 此前 ACCEPT 仍有效；用户实施审批仍待答复，当前不派实现。
+- board：`emma-tsjs-corpus-prep-r1` status=rework，review subject_revision=3 valid=false，next_step=address review evidence；`collab recv` 已消费 `m1793812260346-2827`；已向 Emma 发定点返修要求 `m1793812333119-2833`。
