@@ -1,5 +1,16 @@
 # 当前任务
 
+## 2026-11-04 Jenny：统一决策目标与语料准备落盘
+
+- 新主线设计稿与派单合同已读：`unified-decision-design.html`、`unified-replan-dispatch.md`。
+- Emma 设计稿 `emma-neural-cli-design-refinement.md` §1.9 原始语料准备已获 Alice 准入，可独立分发；结构诊断与正式训练仍不准入。
+- 旧五网络异构 spec 作废；统一为 64 维输入、两层隐藏层起步、动态技能/参数、显式权重包路由、每候选独立子 Goal、单步决策。
+- 首轮只训 TS/JS 给定入口调用关系；其他语言语料并行准备、独立保存、实际使用必须提交。
+- 当前无任何语言 `corpus-readiness-v1.json`；TS/JS 仅有空目录骨架，无 ready 语料可派执行。
+- Jenny 落盘新目标入口：`docs/neural-cli-unified-plan.md`；回执：`jenny-unified-plan-receipt.md`。
+- LayerFS/Git owner/main 均同步于 `bff0000`；AGENTS LayerFS 章节已与 Skill 一致，无改写。
+- Host worktree 仅主树；本地 dirty（AGENTS/SKILL/tsjs fixture）保留，不清理。
+
 ## 2026-11-03 LayerFS main 与 origin/main 同步收口（PR #26）
 
 - 核对：`git diff 909b622..e83be75` 改动 44 个文件（Rust r7/r8 调用深度适配器 `rust-call-depth-adapter.ts` / `rust-call-depth-policy.ts`、Rust 正反夹具 `tests/fixtures/rust-calls/*`、`tests/rust-call-depth-mvp.test.mjs`、`tests/cli-language-a.test.mjs`、`docs/skills/nn-code/SKILL.md`、`package*.json` 等）。LayerFS main `main@431b396a2740` 这 44 个文件的业务内容与 `origin/main` `e83be75` 逐一一致（大文件 `rust-call-depth-policy.ts` 以分段窗口核对 58513 字节全文一致），结论：LayerFS main 已等于 `e83be75`，业务内容无新层。
