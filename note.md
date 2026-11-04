@@ -2456,8 +2456,8 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
 ## 2026-11-04 master 自有任务归入长程目标并续订 goal
 
-- `docs/autonomous-capability-roadmap.md` 新增「master（Jenny）自有调度任务登记」章节：把 master 自己的调度责任写入长程目标，覆盖调度验收（Emma 两项 P1 rework、集成提交/push/资源收口）、统一解析器抽象实施门槛（等 Alice TS 固定环境合同审计通过后按用户审批派发；禁止实现/训练/安装、改权重 gold 阈值，禁止恢复旧与确定性 nn-code）、TS/JS import alias 主线、资源与治理（已合并 worktree 关闭，迁移 LayerFS 后新任务用独占 task branch，David 任务改派边界已收口，全局 runtime 安装逐次用户批准）、调度原语维护（巡检保持 armed，一次性 goal/deadline 唤醒消费后必须显式续订，读取/ACK 不续期）。
+- `docs/autonomous-capability-roadmap.md` 新增「master（Jenny）自有调度任务登记」章节：把 master 自己的调度责任写入长程目标，覆盖调度验收（Emma 两项 P1 rework、集成提交/push/资源收口）、统一解析器抽象实施门槛（等 Alice TS 固定环境合同审计通过后按用户审批派发；禁止实现/训练/安装、改权重 gold 阈值，禁止恢复旧的确定性 nn-code）、TS/JS import alias 主线、资源与治理（已合并 worktree 关闭，迁移 LayerFS 后新任务用独占 task branch，David 任务改派边界已收口，全局 runtime 安装逐次用户批准）、调度原语维护（巡检保持 armed，一次性 goal/deadline 唤醒消费后必须显式续订，读取/ACK 不续期）。
 - `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`：长程目标已重新注册，one-shot deadline armed，每 600000 ms 检查意图，TTL 604800 s；项目巡检 `sub-m1793420812006-236` armed（900000 ms，与目标 1500000 ms 存在 cadence gap，已如实记录）。
 - `collab board show`：当前 board 仅余 Emma 两项 P1 rework，rev=7，updated_at=2026-11-04T15:29:39Z，等待 owner 修订后 Alice 复核；无新开工作、无待接受邀请、David 名下无遗留任务；已向 Emma 发送 `m1793806569881-2594` 接续修订，不等待 David。
 - `collab recv` 已消耗全部待收耐久消息（`m1793807578877-2647`、`m1793807808228-2659` 等）。
-- 论文档与 goal 的文本变更已提交 main；未触碰 Emma 语料目录的 staged 接收文件（审计仍为 REWORK，不可合入），未新建 worktree，未安装 runtime 产物，未更改权重或金标。
+- 落盘与同步：上述文档与 note 已提交 `c97bae2`，合入 origin/main 后为 `cc2939a` 并 push（远端一致）；LayerFS main `/Volumes/extension/layerfs/nnanything/main` 已 ff 到 `cc2939a`，工作区干净。`git worktree list` 仅主树，无已合并待关闭 worktree。未触碰 Emma 语料目录的 staged 接收文件（审计仍为 REWORK，不可合入），未安装 runtime 产物，未更改权重或金标。
