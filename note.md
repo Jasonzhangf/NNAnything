@@ -2477,3 +2477,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 语料返修：已向 Emma 发 `m1793808997491-2717`，要求本任务内补真实独立 VERIFICATION 来源并记录构造来源/derivationFamily（改名衍生只作诊断回归）、核实或 quarantine TRAIN 的 `ba`+`se` 已知错标、为当前原始数据给出明确 admission/superseded 入口；不生成学生行，不训练/实现/安装，不改权重/gold/threshold/采用。
 - 实施 milestone 待用户一次批准：范围为 TS 数值固定环境、现有递归引擎接线与真实验收；不含 fitter、64 槽学生行、threshold 物化、训练/后训练、写 weights/results、改 gold/采用/默认 profile、产品接线、安装、自动升级与恢复旧 nn-code。批准后按 Emma §3 批次排序、一个 branch owner 协调不重叠 writer，不再逐组件索批。当前不派实现。
 - 状态：board 仅余 `emma-tsjs-corpus-prep-r1` rework；goal one-shot armed（下次约 16:20），项目巡检保持 armed；通知已全部 `collab recv` 消费。
+
+## 2026-11-04 Emma 语料 revision 3 交付，转 Alice 复核
+
+- Emma 按 Alice revision=2 审计意见完成 `emma-tsjs-corpus-prep-r1` revision 3，并以 read_only 交付；board status=delivered，subject_revision=3，等待 Alice 复核（review message `m1793811830265-2803`）。
+- revision 3 要点：新增真实独立 verification 家族 `verification-independent-callgraph-d`（4 样本，含 runtime dynamic-selector unknown=unknown）；`train-closure-call-a` b-closure-unknown-dynamic-property、`dev-closure-shadow-b` c-dev-unknown-dynamic-property、`verification-reexport-closure-c` d-verification-unknown-dynamic 三处更正为 true 并保留历史字段；新增 `corpus-admissions-v1.json` 作为 admission/superseded 显式入口，`source-derivation.json` 记录 independent_verification 与 derived_diagnostic_regression 分开；`corpus-readiness-v1.json` scenarioCoverage 补 countBasis 与逐 scenario sampleIds；新增 `scripts/verify-corpus.mjs` 黑盒校验，`compiler-api-resolve.mjs` 支持字符串拼接键与 registry 绑定。
+- Emma 自报验证：全部 JSON 解析；`verify-corpus.mjs` PASS；5 个 fixture 家族 `npx tsc --noEmit` 通过；compiler API replay 确认 base→closure.ts:1、createStepper→factory.ts:3、makeLocal→local-shadow.ts:1，independent-callgraph-d selector 为 runtime unknown。
+- 边界：仅语料准备与验证脚本；未训练、未拟合、未实现、未安装、未生成学生行、未改权重/gold/threshold。`emma-tsjs-minimal-env-engineering-contract-r1` 已至 revision 5 ACCEPT 并 closed；`emma-tsjs-fixed-env-implementation-candidate-r1` revision 2 已 ACCEPT 并 closed，均未重开。
+- master 动作：`collab recv` 已消费 `m1793811917667-2806`、`m1793811961930-2809`、`m1793811961999-2810`、`m1793811962066-2811` 等通知；长程 goal one-shot 已重新武装（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，project patrol `sub-m1793420812006-236` 保持 armed）；已向 Alice 发定点复核提示 `m1793812040859-2821`，请其按合同 accept/rework，不代为复核。
