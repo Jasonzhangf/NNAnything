@@ -20,6 +20,9 @@ artifacts/**
 
 # Local training datasets, results, and weight profiles
 training/samples/**
+# neural-cli language corpora are version-controlled (design 1.9.5); other samples stay local
+!training/samples/neural-cli/
+!training/samples/neural-cli/**
 training/results/**
 # Generated read-feedback experiment assets stay local (reproducible from prepare/train)
 playground/cli/read-feedback/out/
