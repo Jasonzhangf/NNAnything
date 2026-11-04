@@ -72,3 +72,13 @@ Bob：保持当前B-R唯一owner，先完成已开展表示修订与相应真实
 5. 离本域总目标还差什么，下一项已就绪动作与owner是谁？局部DONE不能关闭整条总目标。
 
 后验可以作为训练奖励或监督依据；禁止未来信息回填t0输入、假定未执行备选成功、将一次事后赢家硬定为唯一正确先选。独立评价不能反复调参；回归或冲突保留当前版本，交大模型分析。代码main交付与能力PASS分开。
+
+## 2026-11-04 master（Jenny）自有调度任务登记
+
+用户要求把 master 自己的任务加入本长程目标并及时更新 board。master 不亲自实现主线，只承担编排、验收与收口；以下责任长期有效，逐项在 note.md 留证据。
+
+1. 调度与验收：逐项核对 board 开放任务的交付证据、Alice 复核结论与集成条件；accepted 后推动集成提交、push 与资源收口。当前开放项只有 Emma 两项 P1 rework（TS/JS 语料准备、TS 固定环境实施候选），等待 owner 修订后 Alice 复核。
+2. 统一解析器抽象：只读设计链已 accept 统一合同、验收合同与接线设计；实施必须等 Alice 审计通过的 TS 最小固定环境工程合同后按用户审批派发。当前禁止实现、训练、安装，禁止改权重/gold/阈值，禁止恢复旧确定性 nn-code。
+3. TS/JS import alias 主线：保持训练目标不变；语料就绪与固定训练准备通过复核后，按已接受设计推进固定环境实现候选的审批与派单。
+4. 资源与治理：已合并 worktree 关闭，迁移 LayerFS 后新任务用独占 task branch，不新开 Git worktree；David 任务改派边界已收口，后续由可用 peer 承接；全局 runtime 安装逐次用户批准。
+5. 调度原语维护：master 常驻项目巡检（master-idle/project-patrol）保持 armed；goal/deadline 一次性唤醒消费后仍需继续调度时，显式 `appsdk goal subscribe` 续订。读取、ACK、摘要不续期。

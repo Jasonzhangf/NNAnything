@@ -2423,3 +2423,30 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 安装态验收：host `npm run build`/`typecheck` exit 0；`tests/nn-code-p1-fixes.test.mjs` 5/5；全局 `/opt/homebrew/bin/nn-code`（指向仓库 dist）实测：真实仓库 scope `lib` achieved、entry `lib/cli-call-depth-bin.ts#main`；fixture scope `.`/`./src`/`src/` 与 entry `./src/...` 均 achieved；parent/absolute entry exit 4 rejected；new/tagged 记录 1 edge + 1 unresolved；6 路并发 6 份日志首 start 末 finish、state=complete。
 - LayerFS 同步：Git 基线 `/Volumes/extension/layerfs/nnanything/main` 已 ff 到 `da2419f`，工作区干净；`git-owner.git` `refs/heads/git-main` 更新为 `da2419f`；`da2419f` 业务树与 LayerFS main `321b412e` 四文件及 AGENTS.md 字节一致（sha256），记为 `already_current`，无新层。
 - 边界：`43081d1`（回调体调用不遍历）、`da53012`（参数默认值调用遗漏）、静态方法分类措辞、非法 `--max-depth` 晚报 TypeError 未纳入本次。
+
+## 2026-11-04 统一解析器抽象派单与停止边界
+
+- 用户新增统一解析器语义抽象与跨语言验证/学习要求；权威派单为 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/unified-replan-dispatch.md` 末节，Alice 另补该文件「浏览器同类抽象审阅与设计增量」。当前只允许只读调查、设计与文档准备；禁止启动 fitter、训练、实现、安装，禁止修改权重/gold/threshold，禁止恢复旧确定性 nn-code。
+- Board 已发布并邀请三个独占设计任务：
+  - `emma-unified-parser-contract-r1`（Emma，reviewer Alice）：修订 `emma-unified-decision-contract.md`，补统一对象/局部关系/观测/能力/证据、TS/JS→通用抽象映射、Rust 成对例子、TRAIN/DEV/VERIFICATION 来源家族与跨语言关联组、迁移评价 loss/行为标准；并补浏览器 operation 状态转换映射，纯文档。
+  - `david-parser-adapter-wiring-r1`（David，reviewer Alice）：只写 `david-candidate-goal-wiring.md`，补 TS/JS 与 Rust parser→统一事实字段/能力映射、候选去重、覆盖游标、子 Goal 生命周期、循环边/去重、真实失败出口和显式 unknown 出口；不改 Emma 模型稿。
+  - `frank-unified-acceptance-contract-r1`（Frank，reviewer Alice）：补充 `frank-unified-acceptance-contract.md` 的等价程序输入与决策不变量、观测强度隔离、语言迁移分区边界；不另立训练标准。Frank 已先行交回 v0.8，已要求其接受任务并补记 `--no-candidate` 交付，不重写已有内容。
+- 单写者边界：既有 `emma-tsjs-import-alias-fixed-training-plan-r1` 继续由 Emma 负责并保持 TS/JS 固定训练准备主线；新 Emma 任务只写 `emma-unified-decision-contract.md`，两者文件不同，不新建第二 writer。David、Frank 各自只写本任务独占文件。
+- 资源边界：本仓 `git worktree list` 仅有主工作树 `/Volumes/extension/code/NNAnything`；本次纯文档/只读不改产品代码，不新建 worktree。已合并的旧 worktree 按用户政策关闭；后续迁移 LayerFS 后继续使用独占 task branch，不恢复 Git worktree。
+- 下一步：等待三 owner 接受并交回；Frank v0.8 直接进入 Alice 复核。Alice PASS 后再由 Jenny 汇总统一实现/训练准入，当前不派训练或实现。
+
+## 2026-11-04 David 离线任务核查与改派边界
+
+- 用户指出 David 不在线，要求移除其任务并转交他人。Board/task status 逐一核对：David 名下无开放任务、无待接受邀请、无待复核项。
+- 原唯一关联任务 `david-parser-adapter-wiring-r1` 已由 Frank 代为执行，Alice 复核通过并关闭（read_only/no_merge_required），无遗留。
+- 后续如需 David 相关工作，由 master 直接改派给可用 peer（当前优先 Frank/Emma），不再默认等待 David。
+- 当前 board 只剩 Emma 的两项 P1 rework；已向 Emma 发 `m1793806569881-2594` 接续两个审计节的定点修订，并明确不等待 David。已向 Alice 发 `m1793806593962-2599`，交回当前 `collab recv` 消费记录与 Emma 接续回执。
+- 巡检状态补足：`collab notify status` 显示本人 `master-idle/project-patrol` 订阅 `sub-m1793420812006-236` 为 armed，实际 `interval_ms=900000`、`target_interval_ms=1500000`，存在 `PATROL_CADENCE_RUNTIME_GAP`；下次触发 `1793807216855`。`collab recv` 已消费 `receive-89008-1793806636422416000-0`，并向 Alice 回执 `m1793806671172-2602`。
+
+## 2026-11-04 master 自有任务归入长程目标并续订 goal
+
+- `docs/autonomous-capability-roadmap.md` 新增「master（Jenny）自有调度任务登记」章节：把 master 自己的调度责任写入长程目标，覆盖调度验收（Emma 两项 P1 rework、集成提交/push/资源收口）、统一解析器抽象实施门槛（等 Alice TS 固定环境合同审计通过后按用户审批派发；禁止实现/训练/安装、改权重 gold 阈值，禁止恢复旧与确定性 nn-code）、TS/JS import alias 主线、资源与治理（已合并 worktree 关闭，迁移 LayerFS 后新任务用独占 task branch，David 任务改派边界已收口，全局 runtime 安装逐次用户批准）、调度原语维护（巡检保持 armed，一次性 goal/deadline 唤醒消费后必须显式续订，读取/ACK 不续期）。
+- `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`：长程目标已重新注册，one-shot deadline armed，每 600000 ms 检查意图，TTL 604800 s；项目巡检 `sub-m1793420812006-236` armed（900000 ms，与目标 1500000 ms 存在 cadence gap，已如实记录）。
+- `collab board show`：当前 board 仅余 Emma 两项 P1 rework，rev=7，updated_at=2026-11-04T15:29:39Z，等待 owner 修订后 Alice 复核；无新开工作、无待接受邀请、David 名下无遗留任务；已向 Emma 发送 `m1793806569881-2594` 接续修订，不等待 David。
+- `collab recv` 已消耗全部待收耐久消息（`m1793807578877-2647`、`m1793807808228-2659` 等）。
+- 论文档与 goal 的文本变更已提交 main；未触碰 Emma 语料目录的 staged 接收文件（审计仍为 REWORK，不可合入），未新建 worktree，未安装 runtime 产物，未更改权重或金标。
