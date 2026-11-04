@@ -2469,3 +2469,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - implementation-candidate revision 2 要点：删除逐组件用户审批，收敛为一次 milestone 授权边界；TS 与 Rust 拆开，Rust 不阻塞 TS 最小闭环；新增 §2.5 真实引擎接线 `runRecursiveGoal`（nnanything/recursive-goal → lib/workflow/recursive-goal/module.ts），分离六类返回证据；组 loss 命令改为 `node --test --test-name-pattern` 并标 NOT_IMPLEMENTED。
 - 已向 Alice 发消息 `m1793808835818-2712`，请其按合同复核两项交付并执行 accept/rework。Emma 自身 longhorizon 已登记 active（goal=emma-tsjs-rework-goal.md，interval 10m）。
 - 本轮 goal/deadline 已续订（appsdk goal subscribe，one-shot armed），项目巡检 `sub-m1793420812006-236` 保持 armed；`collab recv` 已消费全部待收通知（m1793808693848-2709 等）。
+
+## 2026-11-04 Alice 复核结果：实施候选 ACCEPT，语料继续 REWORK
+
+- 正式结果（证据 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-unified-contract-audit.md`）：`emma-tsjs-fixed-env-implementation-candidate-r1` revision=2 设计 ACCEPT；`emma-tsjs-corpus-prep-r1` revision=2 纠偏接受、交付仍 REWORK。
+- 实施候选收口：该任务 read_only、no_merge_required、无 worktree，已由 master 关闭（cleanup receipt `cleanup-emma-tsjs-fixed-env-implementation-candidate-r1-1793808975324`，completion_missing=[]）。设计 ACCEPT 只代表候选方案通过，不代表已实现或已训练。
+- 语料返修：已向 Emma 发 `m1793808997491-2717`，要求本任务内补真实独立 VERIFICATION 来源并记录构造来源/derivationFamily（改名衍生只作诊断回归）、核实或 quarantine TRAIN 的 `ba`+`se` 已知错标、为当前原始数据给出明确 admission/superseded 入口；不生成学生行，不训练/实现/安装，不改权重/gold/threshold/采用。
+- 实施 milestone 待用户一次批准：范围为 TS 数值固定环境、现有递归引擎接线与真实验收；不含 fitter、64 槽学生行、threshold 物化、训练/后训练、写 weights/results、改 gold/采用/默认 profile、产品接线、安装、自动升级与恢复旧 nn-code。批准后按 Emma §3 批次排序、一个 branch owner 协调不重叠 writer，不再逐组件索批。当前不派实现。
+- 状态：board 仅余 `emma-tsjs-corpus-prep-r1` rework；goal one-shot armed（下次约 16:20），项目巡检保持 armed；通知已全部 `collab recv` 消费。
