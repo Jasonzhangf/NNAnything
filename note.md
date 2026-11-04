@@ -2461,3 +2461,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - `collab board show`：当前 board 仅余 Emma 两项 P1 rework，rev=7，updated_at=2026-11-04T15:29:39Z，等待 owner 修订后 Alice 复核；无新开工作、无待接受邀请、David 名下无遗留任务；已向 Emma 发送 `m1793806569881-2594` 接续修订，不等待 David。
 - `collab recv` 已消耗全部待收耐久消息（`m1793807578877-2647`、`m1793807808228-2659` 等）。
 - 落盘与同步：上述文档与 note 已提交 `c97bae2`，合入 origin/main 后为 `cc2939a` 并 push（远端一致）；LayerFS main `/Volumes/extension/layerfs/nnanything/main` 已 ff 到 `cc2939a`，工作区干净。`git worktree list` 仅主树，无已合并待关闭 worktree。未触碰 Emma 语料目录的 staged 接收文件（审计仍为 REWORK，不可合入），未安装 runtime 产物，未更改权重或金标。
+
+## 2026-11-04 Emma 两项 P1 返修交付，转 Alice 复核
+
+- Emma 完成两项 P1 rework 并重新 deliver：`emma-tsjs-corpus-prep-r1`（review_subject_revision=2，read_only）与 `emma-tsjs-fixed-env-implementation-candidate-r1`（review_subject_revision=2，read_only）。board 状态均为 delivered，等待 Alice 复核，next_step 指示 `collab task review --accept|--rework`。
+- corpus-prep revision 2 要点：新增 `candidate-supervision-contract.json`（gold candidateSet=offline_gold_only，学生候选枚举 deferred）、`source-derivation.json`（verification 家族重分类为 derived_diagnostic_regression）、两份 `dynamic-label-correction.md` 与 `compiler-api-resolve-receipt.json`、可重放脚本 `scripts/compiler-api-resolve.mjs`；manifest 6/4/3/4 与 episode/gold 行数一致，24 个来源文件跨家族无重复，无 student-rows，未训练/实现/安装，未改权重/gold/threshold/采用。
+- implementation-candidate revision 2 要点：删除逐组件用户审批，收敛为一次 milestone 授权边界；TS 与 Rust 拆开，Rust 不阻塞 TS 最小闭环；新增 §2.5 真实引擎接线 `runRecursiveGoal`（nnanything/recursive-goal → lib/workflow/recursive-goal/module.ts），分离六类返回证据；组 loss 命令改为 `node --test --test-name-pattern` 并标 NOT_IMPLEMENTED。
+- 已向 Alice 发消息 `m1793808835818-2712`，请其按合同复核两项交付并执行 accept/rework。Emma 自身 longhorizon 已登记 active（goal=emma-tsjs-rework-goal.md，interval 10m）。
+- 本轮 goal/deadline 已续订（appsdk goal subscribe，one-shot armed），项目巡检 `sub-m1793420812006-236` 保持 armed；`collab recv` 已消费全部待收通知（m1793808693848-2709 等）。
