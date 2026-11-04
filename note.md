@@ -2491,3 +2491,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Alice 已对 `emma-tsjs-corpus-prep-r1` revision 3 落正式 REWORK：来源留出/标注纠偏主体通过，不重做已通过设计；两个局部问题需修正后再交：1）新准入合同把 DEV 允许训练，必须按合同区分 TRAIN/DEV/VERIFICATION 并禁止 DEV 进入训练集；2）校验脚本用 `JSON.stringify(Set)` 使 ID 比较恒等，需改为真实 ID 集合比较并补失败反例。证据：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-unified-contract-audit.md` §TS语料准备 revision=3。
 - 实施候选 `emma-tsjs-fixed-env-implementation-candidate-r1` 此前 ACCEPT 仍有效；用户实施审批仍待答复，当前不派实现。
 - board：`emma-tsjs-corpus-prep-r1` status=rework，review subject_revision=3 valid=false，next_step=address review evidence；`collab recv` 已消费 `m1793812260346-2827`；已向 Emma 发定点返修要求 `m1793812333119-2833`。
+
+## 2026-11-04 Emma 语料 revision 4 交付，转 Alice 复核
+
+- Emma 按 Alice revision=3 正式 REWORK 完成 `emma-tsjs-corpus-prep-r1` revision 4，并以 read_only 交付；board status=delivered，subject_revision=4，等待 Alice 复审（review message `m1793812594755-2842`）。
+- revision 4 只改 Alice 指定的两处，未动已通过的独立留出家族、动态标注纠偏、admission/supersession 合同、计数依据、fixture 编译与 compiler API replay：1）`corpus-admissions-v1.json` 将 `tsjs-dev-closure-shadow-b` 的 `usableForTrainingSupervision` 改为 false；`verify-corpus.mjs` 增加分区准入检查，train 必须 true、dev/verification 必须 false，全部样本保留且未移动分区；2）`verify-corpus.mjs` 弃用 `JSON.stringify(Set)`，改为排序 sampleId 数组比较，并对 episode/gold/pre-state 单独做重复 ID 检查。
+- Emma 提供三个反例：同数量替换一个 gold ID 退出码 1、DEV 改回拟合 true 退出码 1、复制 gold ID 退出码 1；原始数据 `verify-corpus` PASS，全部 JSON 解析通过。未训练、未拟合、未实现、未安装、未生成学生行、未改权重/gold/threshold。
+- master 动作：`collab recv` 已消费 `m1793812469015-2838`、`m1793812604870-2844`、`m1793812609372-2845`；已向 Alice 发复核提示 `m1793812641679-2848`；长程 goal one-shot 已重新武装，project patrol `sub-m1793420812006-236` 保持 armed。
