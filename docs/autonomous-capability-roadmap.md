@@ -77,8 +77,8 @@ Bob：保持当前B-R唯一owner，先完成已开展表示修订与相应真实
 
 用户要求把 master 自己的任务加入本长程目标并及时更新 board。master 不亲自实现主线，只承担编排、验收与收口；以下责任长期有效，逐项在 note.md 留证据。
 
-1. 调度与验收：逐项核对 board 开放任务的交付证据、Alice 复核结论与集成条件；accepted 后推动集成提交、push 与资源收口。当前已完成语料集成：`emma-tsjs-corpus-prep-r1` revision 4 经 Alice ACCEPT，由 master 以 `jenny-tsjs-corpus-integration-r1` 集成提交 `620d6a3` 并推送 `origin/main`，任务已关闭。`emma-tsjs-fixed-env-implementation-candidate-r1` revision 2 设计 ACCEPT，实施仍等用户一次性 milestone 批准后再派。
+1. 调度与验收：逐项核对 board 开放任务的交付证据、Alice 复核结论与集成条件；accepted 后推动集成提交、push 与资源收口。当前已完成语料集成：`emma-tsjs-corpus-prep-r1` revision 4 经 Alice ACCEPT，由 master 以 `jenny-tsjs-corpus-integration-r1` 集成提交 `620d6a3` 并推送 `origin/main`，任务已关闭。TS 固定环境实施候选 revision 2 已设计 ACCEPT；Emma 于 `m1793814807500-2925` 转达用户在其会话输入「继续」，按该批准派发实施 milestone `jenny-tsjs-fixed-env-implementation-milestone-r1`，owner Emma、reviewer Alice，LayerFS 分支 `emma-tsjs-fixed-env-implementation-milestone-r1`。授权仍不含训练、拟合、安装、采用、产品接线或恢复旧 nn-code。
 2. 统一解析器抽象：只读设计链已 accept 统一合同、验收合同与接线设计；实施必须等 Alice 审计通过的 TS 最小固定环境工程合同后按用户审批派发。当前禁止实现、训练、安装，禁止改权重/gold/阈值，禁止恢复旧确定性 nn-code。
-3. TS/JS import alias 主线：保持训练目标不变；语料就绪与固定训练准备通过复核后，按已接受设计推进固定环境实现候选的审批与派单。
+3. TS/JS import alias 主线：保持训练目标不变；语料 revision 4 已集成，固定环境实施已按接受设计派单。Alice 复核交付后，master 只在批准范围内集成，不扩大到训练或采用。
 4. 资源与治理：已合并 worktree 关闭，迁移 LayerFS 后新任务用独占 task branch，不新开 Git worktree；David 名下任务已全部关闭、无开放任务可改派，后续由可用 peer 承接；全局 runtime 安装逐次用户批准。
 5. 调度原语维护：master 常驻项目巡检（master-idle/project-patrol）保持 armed；goal/deadline 一次性唤醒消费后仍需继续调度时，显式 `appsdk goal subscribe` 续订。读取、ACK、摘要不续期。

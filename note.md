@@ -2507,3 +2507,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - board：发布并认领 `jenny-tsjs-corpus-integration-r1`，交付、复核 accept、关闭；disposition=`no_merge_required`，cleanup receipt `cleanup-jenny-tsjs-corpus-integration-r1-1793813704651`，completion_missing=[]。当前 board 开放任务为空。
 - 用户要求 David 不在线时移除其任务：实查 `collab task status`，David 名下任务全部 closed，无开放任务可改派；当前 board 也无其他开放任务。
 - 长程 goal 已按用户要求保持登记并续订（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，one-shot armed），项目巡检 `sub-m1793420812006-236` 保持 armed。TS 固定环境实施 milestone 仍等待用户一次明确批准，未派实现。
+
+## 2026-11-04 TS 固定环境实施 milestone 派单（Jenny → Emma）
+
+- 用户批准：Emma durable `m1793814807500-2925` 报告用户在其会话最新输入为「继续」；紧接上一轮 master 实施审批请求之后，语义为对已接受实施候选的一次 milestone 批准，不是新设计变更，也不是训练授权。
+- 已消费：`collab recv` 消费 `m1793814807500-2925` 及三条 worker-idle（`m1793814692865-2916`、`m1793814850212-2927`、`m1793814960875-2935`、`m1793815041846-2941`、`m1793815063851-2942` 等）。inbox 后续保持为 0。
+- Board：`jenny-tsjs-fixed-env-implementation-milestone-r1`（P1，executor Emma，reviewer Alice）已 publish，dispatch 邀请 `board-invite-jenny-tsjs-fixed-env-implementation-milestone-r1-2`，Emma 当前 invited。范围按 `emma-tsjs-fixed-env-implementation-candidate.md` 的 §8 第 1 至 11 项 + §2.5 接线 + §3 批次 + §4 授权边界 + §5 停止/失败条件；派单合同落盘为 `jenny-fixed-env-implementation-milestone-dispatch.md`。
+- LayerFS：项目 `nnanything` 已 fork 独占 task branch `emma-tsjs-fixed-env-implementation-milestone-r1`（base=LayerFS main；无 Git worktree），由 Emma 作为单一 branch owner 协调不重叠 writer。
+- 边界：仅实现与真实验收；未启动 fitter、训练、后训练、安装、候选采用、写 weights/results、改 gold/threshold/采用，未恢复旧 nn-code，未做产品接线。100% 硬门限继续生效：已知关系逐例正确、错误 0；无法判定最终 `judge=unknown`；`truncatedCount=0`、`failedCount=0`；任一 miss 即 incomplete。
+- Goal/巡检：`docs/autonomous-capability-roadmap.md` 已更新派单事实；长程 goal one-shot `sub-m1793814703238-2917` armed，项目巡检 `sub-m1793420812006-236` armed（interval 900000，目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留）。本仓未提交 AGENTS.md/docs/skills/nn-code/SKILL.md/tests/fixtures/tsjs-symbols。
