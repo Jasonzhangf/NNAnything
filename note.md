@@ -2526,3 +2526,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 发布：workspace commit `12cc461a...`，`layerfs branch publish git-sync-tsjs-7164d74-r1` 产出 main 新层 `329a1b4a25...`（parent `322c3da8...`，overwrote=0）。`fs stat` 读回验证 `/training/samples/neural-cli/tsjs/scripts/verify-corpus.mjs`（5926）、`/docs/autonomous-capability-roadmap.md`（14596）、`/note.md`（847612）均在新 main。
 - 实施分支衔接：旧的 `emma-tsjs-fixed-env-implementation-milestone-r1` 基线为 `322c3da8` 且 workspace 混有旧 value-flow/rust/dist/.git 内容，保持 PROTECTED_HOLD，不作为交付基线。Emma 已从 LayerFS main `329a1b4a25`（7164d74 内容）建立 `emma-tsjs-fixed-env-implementation-milestone-r2` 并提交 `12d1cc0b`（unified encoder/forward/group-loss/model-package/thresholds 初版 + 5 个测试 + 2 个 fixture），diff 无旧 CLI/value-flow/rust 污染；r2 为正式后继任务线。r2 的 `note.md` 仍为旧基线 847612，交付前需合入最新 main（含 master 的 850284 note 记录）再重验。David 无开放任务边界不变。
 - 调度：goal one-shot 已显式续订（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`），项目巡检保持 armed，`PATROL_CADENCE_RUNTIME_GAP` 如实保留。
+
+## 2026-11-04 master 长程目标与 board 刷新：实施 milestone 与集成子任务
+
+- `docs/autonomous-capability-roadmap.md` 的 master 自有调度任务章节已更新当前事实：`jenny-tsjs-fixed-env-implementation-milestone-r1` revision 4 `working`，owner Emma、reviewer Alice；正式后继 LayerFS 分支为 `emma-tsjs-fixed-env-implementation-milestone-r2`（r1 保持 PROTECTED_HOLD），Emma 已将 r2 合入最新 main，当前 encoder/forward/group-loss、model-package/thresholds 共 23 项测试通过，继续补 §8 剩余项与 §2.5 真实引擎接线。
+- master 已在 board 发布并认领下游 `jenny-tsjs-fixed-env-implementation-integration-r1`（parent 为实施 milestone，executor Jenny，reviewer Alice），状态 `blocked`，next step 明确等待 Emma 交付和 Alice review accept 后再合入精确候选、推送 main 并做合并后回归。该任务的 board-idle 巡检已按外部依赖取消，resume condition 已记录。
+- David 离线核查：其名下无开放任务、无邀请、无待复核项；历史关联 `david-parser-adapter-wiring-r1` 已由 Frank 完成并由 Alice 验收关闭，因此当前没有可转交的在途任务。后续若出现 David 相关工作，优先改派当前可用 peer，不默认等待。
+- goal one-shot deadline 消费后已重新执行 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`；项目巡检 `sub-m1793420812006-236` 保持 armed。本轮未改代码、权重、gold、threshold、adoption、产品接线或 runtime 安装。
