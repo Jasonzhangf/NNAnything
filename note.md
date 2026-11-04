@@ -2516,3 +2516,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - LayerFS：项目 `nnanything` 已 fork 独占 task branch `emma-tsjs-fixed-env-implementation-milestone-r1`（base=LayerFS main；无 Git worktree），由 Emma 作为单一 branch owner 协调不重叠 writer。
 - 边界：仅实现与真实验收；未启动 fitter、训练、后训练、安装、候选采用、写 weights/results、改 gold/threshold/采用，未恢复旧 nn-code，未做产品接线。100% 硬门限继续生效：已知关系逐例正确、错误 0；无法判定最终 `judge=unknown`；`truncatedCount=0`、`failedCount=0`；任一 miss 即 incomplete。
 - Goal/巡检：`docs/autonomous-capability-roadmap.md` 已更新派单事实；长程 goal one-shot `sub-m1793814703238-2917` armed，项目巡检 `sub-m1793420812006-236` armed（interval 900000，目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留）。本仓未提交 AGENTS.md/docs/skills/nn-code/SKILL.md/tests/fixtures/tsjs-symbols。
+
+## 2026-11-04 LayerFS main 同步到 Git 7164d74（master 调度收口）
+
+- 发现 LayerFS main 实际停在旧基线 `322c3da8`，缺少已合入 Git main `7164d74` 的 100 个 TS/JS 语料文件、`docs/autonomous-capability-roadmap.md` 与 `note.md` 更新。master 建立 LayerFS 同步分支修正，保证实施工作线以最新 main 为基线。
+- Git 基线 `/Volumes/extension/layerfs/nnanything/main` 已 fetch 并 ff 到 `origin/main` `7164d74`；独立 git owner `git-owner.git` 的 `git-main` 同步到 `7164d74`。主树未触碰本地改动（AGENTS.md、docs/skills/nn-code/SKILL.md、tests/fixtures/tsjs-symbols）。
+- LayerFS：从旧 main fork `git-sync-tsjs-7164d74-r1`，sandbox 2 挂载 `2:/workspaces/1`；以 `git diff --binary f5c0263 7164d74`（102 文件，2328 插入）经 `docker exec -i` 写入 `.sync.patch`，`git apply` 应用并删除补丁。核对文件大小：`docs/autonomous-capability-roadmap.md` 14596、`note.md` 847612、`training/samples/neural-cli/tsjs/scripts/verify-corpus.mjs` 5926，与 `7164d74` 一致。
+- CI 回执（同步 workspace）：`npm run build` exit 0；`npm run typecheck` exit 0；`node training/samples/neural-cli/tsjs/scripts/verify-corpus.mjs` 输出 `TS/JS import-alias corpus black-box checks: PASS`。`npm run test:full` 在容器内不可运行（需宿主本地权重资产 NN_HANDWIRED_ROOT 等，容器不可见）；广套 `npm test` 未作为本同步门禁。同步内容为已合入 main 的数据/文档，非代码改动。
+- 发布：workspace commit `12cc461a...`，`layerfs branch publish git-sync-tsjs-7164d74-r1` 产出 main 新层 `329a1b4a25...`（parent `322c3da8...`，overwrote=0）。`fs stat` 读回验证 `/training/samples/neural-cli/tsjs/scripts/verify-corpus.mjs`（5926）、`/docs/autonomous-capability-roadmap.md`（14596）、`/note.md`（847612）均在新 main。
+- 实施分支衔接：`jenny-tsjs-fixed-env-implementation-milestone-r1` 的 Emma 实施分支仍基于旧 main `322c3da8`，需合入新 main。Emma 已在其 workspace 落盘 unified-encoder/unified-forward/group-loss 并定位两处缺陷，属其活跃工作，master 不代改、不覆盖。master 已发消息 `m1793818087848-3107` 通知 Emma 主分支已同步，请其在任务线内 `branch merge emma-tsjs-fixed-env-implementation-milestone-r1 main <后继>` 并重验，或按需迁移分支；原 r1 分支/workspace 保持 PROTECTED_HOLD。David 无开放任务边界不变。
+- 调度：goal one-shot 已显式续订（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`），项目巡检保持 armed，`PATROL_CADENCE_RUNTIME_GAP` 如实保留。
