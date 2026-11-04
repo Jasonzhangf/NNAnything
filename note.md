@@ -2498,3 +2498,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - revision 4 只改 Alice 指定的两处，未动已通过的独立留出家族、动态标注纠偏、admission/supersession 合同、计数依据、fixture 编译与 compiler API replay：1）`corpus-admissions-v1.json` 将 `tsjs-dev-closure-shadow-b` 的 `usableForTrainingSupervision` 改为 false；`verify-corpus.mjs` 增加分区准入检查，train 必须 true、dev/verification 必须 false，全部样本保留且未移动分区；2）`verify-corpus.mjs` 弃用 `JSON.stringify(Set)`，改为排序 sampleId 数组比较，并对 episode/gold/pre-state 单独做重复 ID 检查。
 - Emma 提供三个反例：同数量替换一个 gold ID 退出码 1、DEV 改回拟合 true 退出码 1、复制 gold ID 退出码 1；原始数据 `verify-corpus` PASS，全部 JSON 解析通过。未训练、未拟合、未实现、未安装、未生成学生行、未改权重/gold/threshold。
 - master 动作：`collab recv` 已消费 `m1793812469015-2838`、`m1793812604870-2844`、`m1793812609372-2845`；已向 Alice 发复核提示 `m1793812641679-2848`；长程 goal one-shot 已重新武装，project patrol `sub-m1793420812006-236` 保持 armed。
+
+## 2026-11-04 语料 revision 4 集成到 main，board 收口
+
+- Alice 正式 accept `emma-tsjs-corpus-prep-r1` revision 4（审计 `alice-unified-contract-audit.md` 末节「TS语料准备 revision=4：原始语料准备 ACCEPT」）；接受范围为受控合成 TS/JS 原始语料，trainingReadiness 仍 not_ready，不代表训练、拟合、实现或 nn-code 恢复。
+- master 执行授权集成：提交 `620d6a3`（`corpus: integrate accepted TS/JS import-alias corpus revision 4`）已推送到 `origin/main`（`171109c..620d6a3`）。提交仅含 `training/samples/neural-cli` 语料资产 100 个文件；`AGENTS.md`、`docs/skills/nn-code/SKILL.md` 与 `tests/fixtures/tsjs-symbols` 作为无关本地改动保留，未混入提交。
+- 集成后实际入口 `node training/samples/neural-cli/tsjs/scripts/verify-corpus.mjs` 退出 0，输出 `TS/JS import-alias corpus black-box checks: PASS`。
+- board：发布并认领 `jenny-tsjs-corpus-integration-r1`，交付、复核 accept、关闭；disposition=`no_merge_required`，cleanup receipt `cleanup-jenny-tsjs-corpus-integration-r1-1793813704651`，completion_missing=[]。当前 board 开放任务为空。
+- 用户要求 David 不在线时移除其任务：实查 `collab task status`，David 名下任务全部 closed，无开放任务可改派；当前 board 也无其他开放任务。
+- 长程 goal 已按用户要求保持登记并续订（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，one-shot armed），项目巡检 `sub-m1793420812006-236` 保持 armed。TS 固定环境实施 milestone 仍等待用户一次明确批准，未派实现。
