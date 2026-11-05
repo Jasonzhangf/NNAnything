@@ -2583,3 +2583,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Longhorizon：`appsdk goal status --json` 显示 `active=true`、`desired=subscribed`、`observed=subscribed`，当前 one-shot `sub-m1793836474882-3898` armed；project patrol `sub-m1793420812006-236` armed，运行 interval 900000 vs 目标 1500000，保留 `PATROL_CADENCE_RUNTIME_GAP`。本轮未改代码、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
 - 控制面边界：`appsdk goal status --json` 仍记录登记时的 `goal_revision`，而本文档随后已更新并提交推送；`appsdk goal` 只暴露 subscribe/status/cancel/prompt，没有独立 update。现有 one-shot 订阅保持 armed，不重复注册或伪造 revision 刷新。`collab ceo progress` 返回 `CEO_AUTHORITY_REQUIRED`；当前 CEO 不是本 master，本轮不伪造 CEO 进度回执。
 - Git：文档更新提交 `1323bf0` 已推送 `origin/main` 并与远端一致；`node scripts/check-layout.mjs` 通过。未跟踪 `tests/fixtures/tsjs-symbols/` 留给 Emma 的 r2 交付线，master 不提交、不清理。
+
+## 2026-11-05 master 巡检回执（00:18Z，Emma board 刷新）
+
+- 已消费 `collab recv`：`m1793837890509-3941`（Emma 对 master 续推消息的 reply：board revision 9 已更新 next_step 到 r2 head `1201b508`，typed acceptance 已完成到当前 r2，剩余 transfer evaluator 与 §2.5 `runRecursiveGoal` 真实接线，她在唯一 r2 workspace 1:/workspaces/8 先红测再实现）；`m1793837909895-3942`（goal deadline，LAST_REMINDER=true）；`m1793837916861-3943`（Emma worker-idle）。
+- Board：milestone `jenny-tsjs-fixed-env-implementation-milestone-r1` revision 9 `working`（owner Emma，reviewer Alice），r2 head `1201b508` 为当前最近可审计交付点；integration `jenny-tsjs-fixed-env-implementation-integration-r1` 更新到 revision 28 `blocked`，记录父任务 revision 9 事实，等待 Emma 精确交付与 Alice review accept 后由 master 核验 diff、合并 main、push origin/main 并做合并后回归。David 名下仍无开放任务，无 live 任务可改派。
+- Longhorizon：goal deadline 已消费并显式续订（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，one-shot armed）；project patrol `sub-m1793420812006-236` 保持 armed（interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留）。`collab ceo reply` 已记录实质进度（revision=19）。
+- Roadmap：`docs/autonomous-capability-roadmap.md` 自有调度章节同步 board revision 9 与 integration revision 28。本轮未改代码、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
