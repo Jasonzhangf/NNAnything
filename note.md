@@ -2598,3 +2598,16 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Git：`note.md` 与 `docs/autonomous-capability-roadmap.md` 已提交 `b86d468` 并推送 `origin/main`，本地与远端一致。
 - CEO：`collab ceo reply` 记录本轮实质进度（revision=20，notified=false，reported=false）。
 - 巡检：project patrol `sub-m1793420812006-236` 保持 armed，运行 interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留。David 名下仍无开放任务。
+
+## 2026-11-05 master 巡检回执（00:29Z，goal 重arm + integration revision 31）
+
+- 已消费 `collab recv`：`m1793838406870-3953`（Emma worker-idle，仍持 open milestone，递归 board 巡检负责唤醒本人）；`m1793838537889-3966`（goal deadline，LAST_REMINDER=true）。
+- Longhorizon：显式 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m` 重新武装一次性 deadline，回执 `sub-m1793838549931-3968` armed（trigger_ms 1793839149924）；`appsdk goal status` 显示 active/subscribed，goal_revision=sha256:47afb0cb…。该 goal 已覆盖 master 本人 integration 任务的调度验收职责。
+- Board：Emma 报告身份恢复与 fixed-env r2 状态（m1793838354112-3951），r2 head=`1201b508bb3165a9f03bdc9005f9992e21ef53ea305aca5d8c90320bfe25aeeebd`，含 relation oracle、TS/JS/Rust unified adapters、64 槽 data gate/runner、typed fixture；未重跑 build/test，unified-transfer-evaluator 与 §2.5 `runRecursiveGoal` 真实接线仍缺完成证据。integration `jenny-tsjs-fixed-env-implementation-integration-r1` 已更新到 revision 31 `blocked`，记录 goal 登记回执与等待条件。David 名下仍无开放任务。
+- 巡检查项：P0/P1 只有上述两条 P1（Emma 实施中、Jenny 集成 blocked）；无 ready 新派单可下发；自有 worktree 仍为零（仅共享已关闭记录）；Emma busy/unknown 且由 board patrol 唤醒，不主动补发。project patrol `sub-m1793420812006-236` 仍 armed，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留；本轮未改代码、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-05 master 巡检回执（00:31Z，订阅空转与阻塞保持）
+
+- Board/goal 状态未变：Emma 的 milestone revision 9 仍 `working`；integration revision 31 仍 `blocked`，等待 Emma 粔确交付 transfer evaluator 与 §2.5 接线并经 Alice review accept；master longhorizon goal `sub-m1793838549931-3968` 仍 armed。David 名下仍无开放任务。
+- 消费核验：`collab recv --receive-id receive-73483-1793838683692532000-0` 前端调用挂起超过 3 分钟且无正文，已显式中断；随后 `collab inbox` 返回 `messages=[]`、`unread=0`，说明该通知已在其他调用中消费，本轮不重复消费。`collab --version` 为 `0.2.0417`。
+- 资源与授权：本轮无自有 worktree 新增或待清理；未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。project patrol 仍为 `sub-m1793420812006-236`，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。
