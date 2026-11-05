@@ -2611,3 +2611,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Board/goal 状态未变：Emma 的 milestone revision 9 仍 `working`；integration revision 31 仍 `blocked`，等待 Emma 粔确交付 transfer evaluator 与 §2.5 接线并经 Alice review accept；master longhorizon goal `sub-m1793838549931-3968` 仍 armed。David 名下仍无开放任务。
 - 消费核验：`collab recv --receive-id receive-73483-1793838683692532000-0` 前端调用挂起超过 3 分钟且无正文，已显式中断；随后 `collab inbox` 返回 `messages=[]`、`unread=0`，说明该通知已在其他调用中消费，本轮不重复消费。`collab --version` 为 `0.2.0417`。
 - 资源与授权：本轮无自有 worktree 新增或待清理；未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。project patrol 仍为 `sub-m1793420812006-236`，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。
+
+## 2026-11-05 master goal 续订与 board 刷新（00:42Z）
+
+- `collab recv` 已消费 `m1793839164864-3983`（worker-idle，receive-id `receive-92770-1793839254218130000-0`）与 `m1793839522857-3991`（worker-idle，receive-id `receive-5187-1793839560980629000-0`）；最新 deadline `m1793839150877-3982` 在实时状态中已显示 predecessor `sub-m1793838549931-3968` consumed、successor `sub-m1793839176095-3984` armed，因此不重复续订同一 goal。`collab context` 显示 Emma 当前 presence=present、activity=busy，按巡检合同不重复唤醒。
+- Longhorizon live state：`appsdk goal status --json` 返回 `active=true`、`desired=subscribed`、`observed=subscribed`、`subscription_id=sub-m1793839176095-3984`、`error=null`。当前 goal 为 `docs/autonomous-capability-roadmap.md`，interval 10m；用 `collab notify status` 核实 successor `trigger_ms=1793839776088`、status=armed。
+- Board：integration `jenny-tsjs-fixed-env-implementation-integration-r1` 已刷新到 revision 33，status=`blocked`，next_step 记录当前 `sub-m1793839176095-3984` 和后续验收条件。Emma 的 `jenny-tsjs-fixed-env-implementation-milestone-r1` 仍为 revision 9 `working`，r2 head `1201b508bb3165a9f03bdc9005f9992e21ef53ea305aca5d8c90320bfe25aeeebd`；还缺 r2 build/test、unified transfer evaluator、§2.5 `runRecursiveGoal` 接线与 Alice review accept。
+- David 名下仍无开放 board 任务、邀请或待复核项；历史 David 工作已关闭并由 Frank 完成，因此本轮无在途任务可改派。后续新出现的 David-bound 工作由可用 peer 承接。
+- 巡检：project patrol `sub-m1793420812006-236` 保持 armed，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。
