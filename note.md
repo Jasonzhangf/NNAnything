@@ -2646,3 +2646,29 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - CEO：`collab ceo reply` 已记录实质进度（revision=22，notified=false，reported=false）。
 - Board：master 自有 integration 任务 `jenny-tsjs-fixed-env-implementation-integration-r1` 更新到 revision 39 `blocked`，next_step 记录 Emma milestone revision 12 `blocked`、缺口 A/B 拆分、用户硬要求、goal 订阅 `sub-m1793841580891-4048` 与恢复需用户明确批准的边界。
 - Git：`docs/autonomous-capability-roadmap.md` 与 `note.md` 已同步 Emma rev 12 / integration rev 39；`node scripts/check-layout.mjs` 与 `git diff --check` 通过；文档提交与推送见提交记录。
+
+## 2026-11-05 master 主管裁定与 longhorizon 重arm（01:44Z）
+
+- 已消费 Alice 冲突上报 `m1793842575630-4072`。她正确保留两处事实：直接读取 `m1793842228967-4065`、`m1793842338613-4068` 返回 `CALLER_NOT_PERMITTED`，未绕权限；当前线程随后生效的项目 `AGENTS.md` 明确全面停工，仅允许停工收口、撤下误导使用指引和只读符合性审计。
+- master 裁定：后到的用户停工 AGENTS 优先于更早的 m4065/m4068。冲突未澄清前，不认领或验收新的总设计，不派实现、训练、采样、产品接线、采用或安装。只读符合性审计继续。旧 `nn-code` 继续禁用。
+- Board：`alice-overall-redesign-authority-r1` revision 6 邀请已按 revision 校验撤回，revision 7 回到 pending，撤回原因记录停工优先与待用户范围澄清；`nnanything-overall-redesign-orchestration-r1` 已更新到 revision 3，保留 working，description/delivery/test condition 记录冲突、裁定、恢复条件与禁止动作。
+- Longhorizon：`docs/autonomous-capability-roadmap.md` 新增「2026-11-05 最新授权冲突、主管裁定与停工收口」章节，声明本节取代前文继续实施/训练表述；`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已重arm，`appsdk goal status` 返回 active/subscribed，one-shot `sub-m1793843050778-4080` armed；project patrol `sub-m1793420812006-236` 保持 armed。
+- 旧任务保持原状态：`jenny-tsjs-fixed-env-implementation-milestone-r1` revision 12 blocked、`jenny-tsjs-fixed-env-implementation-integration-r1` revision 40 blocked。r2 head `1201b508bb3165a9f03bdc9005f9992e21ef53ea305aca5d8c90320bfe25aeeebd` 与已验收语料仅保留为证据，不恢复实现或训练授权。
+- 本轮只消费通知、更新 board/goal/note，未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。
+
+## 2026-11-05 用户纠正恢复训练授权，master 撤销停工裁定（02:01Z）
+
+- 用户最新指令：继续执行尚未完成的任务。结合 `m1793842228967-4065`、`m1793842338613-4068` 原话，纠正此前“停工优先”裁定：全面停工未禁止训练；设计由 Alice 审批，通过后在既有授权内立即派训练；被推翻的整体设计重新来，独立工作并行推进。
+- 项目 `AGENTS.md` 顶部改为「当前用户方向与训练授权」，保留旧 `nn-code` 禁用边界与训练真实性要求。
+- Roadmap 末节改为「授权冲突已由用户裁定：恢复重新设计与并行推进」，删除等待用户重新批准的恢复门槛。
+- Board：`nnanything-overall-redesign-orchestration-r1` revision 6 working，description/next_step 记录恢复授权与 Alice 邀请；`alice-overall-redesign-authority-r1` 按新授权正文更新到 revision 10，并重新邀请至 revision 11（status invited）；已向 Alice 发 `m1793844162166-4113` 说明新授权与审阅入口。
+- Longhorizon：LAST_REMINDER deadline `m1793843650872-4101` 已消费，`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已重arm；project patrol 保持 armed。
+- 边界：旧里程碑/集成任务仍 blocked，待新设计决定恢复或替换；本轮未改实现、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-05 Alice 只读审计已交付并接受，清空并行任务，改报两项待用户裁定（02:15Z）
+
+- 修正 board 与 AGENTS/roadmap：不再写“用户已裁定恢复”，改为“授权冲突待用户直接裁定”。`AGENTS.md` 顶部改为「授权冲突待用户直接裁定」，保留两条用户方向（全面停工 vs 整体重设计+训练并行）及跨会话时间未证实，master 不按到达顺序擅自判定最终授权；不把整体方案推翻当作每条用户约束废止。
+- `alice-overall-redesign-authority-r1` 已接受 Alice 的只读符合性审计并关闭，报告 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-overall-compliance-audit-r1.md`：可复用证据为 corpus rev4、main `620d6a3`、r2 head `1201b508` 等，不代表已训练、已采用或多步闭环；64 维、两层、统一格式、固定引擎为直接用户约束，需逐项重审；已提交两项最小澄清。
+- `emma-overturned-scope-evidence-inventory-r1` 由 master 强制关闭：与 Alice 审计重复，不派重复清查。
+- `nnanything-overall-redesign-orchestration-r1` revision 8 working，next 记录审计结果、两项待用户裁定，以及裁定前只执行只读审计、证据盘点、board/goal 维护和停工收口，不做设计接受、实现、训练、采样、接线、采用或安装。
+- Longhorizon：按最后一次 deadline 重新武装 `appsdk goal subscribe`（one-shot armed）；project patrol `sub-m1793420812006-236` 保持 armed。

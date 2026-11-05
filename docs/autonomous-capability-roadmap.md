@@ -84,3 +84,21 @@ Bob：保持当前B-R唯一owner，先完成已开展表示修订与相应真实
 3. TS/JS import alias 主线：保持训练目标不变；语料 revision 4 已集成，固定环境实施已按接受设计派单。Alice 复核交付后，master 只在批准范围内集成，不扩大到训练或采用。
 4. 资源与治理：已合并 worktree 关闭，迁移 LayerFS 后新任务用独占 task branch，不新开 Git worktree。用户于 2026-11-04 再次要求移除 David 的未完成任务并交给别人；2026-11-05 实时 board 再次核实 David 名下 `task_ids=[]`，无开放任务、邀请或待复核项，历史 David 任务均已 closed，因此没有在途任务可改派。后续出现 David-bound 新工作时由可用 peer 承接，不等待离线 owner。LayerFS r2 分支 head `1201b508bb3165a9f03bdc9005f9992e21ef53ea305aca5d8c90320bfe25aeeebd` 已由 Emma 报告并作为当前最近可审计交付点；sandbox 1 的 r2 交付线 `/workspaces/6/2/4/8` dirty 均为 0，`/workspaces/7` 已由 owner Emma 声明为过期产物并 discard；旧 r1 workspace `/workspaces/1` 仍有 31 个未提交 entries，保持 PROTECTED_HOLD，不提交、不清理、不并入。全局 runtime 安装逐次用户批准。master 的消费与治理回执统一进入 `note.md`；最近一次 `collab recv` 前端挂起无正文，中断后 `collab inbox` 为空，不重复消费或补造通知结果。
 5. 调度原语维护：master 常驻项目巡检（master-idle/project-patrol）保持 armed；goal/deadline 一次性唤醒消费后仍需继续调度时，显式 `appsdk goal subscribe` 续订。读取、ACK、摘要不续期。
+
+## 2026-11-05 授权冲突：只读审计已交付，待用户直接裁定
+
+Alice 已按只读合同交付整体符合性审计并获 master 接受，报告位于 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-overall-compliance-audit-r1.md`。审计不批准设计、实现、训练或采用。
+
+审计结论：
+
+1. 授权：存在两条用户方向（全面停工、仅允许收口与只读审计）与（整体重设计、设计师审批后即派训练、不重复索批），跨会话时间未证实，不能仅按消息到达顺序判定最终授权；不把转述擅自当作已生效的新用户指令。
+2. 范围：整体方案被推翻不等于每条用户约束废止。64 维输入、两层、统一格式、固定推理引擎属于用户直接约束，不能由“整体重来”任意改架构；full-batch SGD 属方案选择。
+3. 可复用证据：语料 revision 4、main `620d6a3`、r2 head `1201b508` 与 typed 组件回执可作新路线审计输入；不支持“已训练、已采用、真实多步闭环通过”。
+4. 缺口：真实引擎接线与迁移评价器缺失；无本轮合格训练包与多步选择/执行/后态/根评价证据；工程准备、真实拟合与回载、语义验收、迁移验收的阶段边界尚未分清。
+
+待用户直接裁定（一次性，不再按组件重复索批）：
+
+1. 是否恢复整体重新设计，并授权设计师批准具体路线后执行范围内训练，取代停工条款。
+2. 原 64 维输入、两层、统一格式与固定引擎是否仍是约束，还是允许总设计师重新选择。
+
+裁定前仅继续只读审计、证据盘点、board/goal 维护与停工收口；不认领新总设计，不派实现、训练、采样、接线、采用或安装。旧 `nn-code` 继续禁用。board 真源：`nnanything-overall-redesign-orchestration-r1` working 记录本节；`alice-overall-redesign-authority-r1` 已交付并关闭；`jenny-tsjs-fixed-env-implementation-integration-r1` 与 `jenny-tsjs-fixed-env-implementation-milestone-r1` 保持 blocked/INCOMPLETE，待裁定后决定恢复或替换。
