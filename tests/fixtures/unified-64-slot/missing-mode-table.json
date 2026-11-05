@@ -1,0 +1,19 @@
+{
+  "schema": "nnanything.unified.missing-mode.v1",
+  "entries": [
+    {
+      "caseRef": "terminal-failed-no-comparable-declaration.G5",
+      "block": "G5",
+      "slotIndex": 45,
+      "fill": -1,
+      "reason": "decoration"
+    },
+    {
+      "caseRef": "terminal-failed-no-comparable-declaration.G7",
+      "block": "G7",
+      "slotIndex": 61,
+      "fill": -1,
+      "reason": "decoration"
+    }
+  ]
+}

@@ -1,0 +1,131 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  UNIFIED_DATA_GATE_SCHEMA,
+  validateUnified64SlotTrainingData,
+} from "../dist/training/unified-data-gate.js";
+
+const here = new URL(".", import.meta.url);
+const thresholdsPath = new URL("./fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json", here).pathname;
+
+async function withRows(rows) {
+  const dir = await mkdtemp(join(tmpdir(), "unified-data-gate-"));
+  const rowsPath = join(dir, "rows.jsonl");
+  await writeFile(
+    rowsPath,
+    rows.map(row => JSON.stringify(row)).join("\n") + "\n",
+    "utf8",
+  );
+  return dir;
+}
+
+function row(overrides = {}) {
+  return {
+    schema: "nnanything.unified.data-row.v1",
+    rowId: "row-1",
+    partition: "TRAIN",
+    route: { domain: "tsjs", decisionKind: "R" },
+    input: Array.from({ length: 64 }, () => 0),
+    missingMode: [],
+    candidates: ["a", "b"],
+    allowed: ["a"],
+    gold: "a",
+    labelMissing: false,
+    enumeration: "complete",
+    ...overrides,
+  };
+}
+
+function config(dir) {
+  return {
+    schema: UNIFIED_DATA_GATE_SCHEMA,
+    partition: "TRAIN",
+    encoderVersion: "nnanything.unified-step.encoder.v1",
+    thresholdsPath,
+    rowsPath: join(dir, "rows.jsonl"),
+  };
+}
+
+test("valid row with threshold => READY and learned row emitted", async () => {
+  const dir = await withRows([row()]);
+  const result = await validateUnified64SlotTrainingData(config(dir));
+  assert.equal(result.status, "READY");
+  assert.equal(result.counts.learnedRows, 1);
+  assert.equal(result.counts.labelMissingExcluded, 0);
+  assert.equal(result.violations.length, 0);
+});
+
+test("missing threshold is explicit DATA_INVALID, no learned rows", async () => {
+  const dir = await withRows([row()]);
+  const result = await validateUnified64SlotTrainingData({
+    ...config(dir),
+    thresholdsPath: join(dir, "missing-threshold.json"),
+  });
+  assert.equal(result.status, "DATA_INVALID");
+  assert.equal(result.firstViolation.reasonCode, "THRESHOLD_MISSING");
+});
+
+test("truncated candidates are UNASSESSED with open cursor, not model errors", async () => {
+  const dir = await withRows([
+    row({
+      rowId: "truncated",
+      enumeration: "truncated",
+      openCursorRef: "cursor:1",
+      candidates: [],
+      allowed: [],
+      gold: "unknown",
+    }),
+  ]);
+  const result = await validateUnified64SlotTrainingData(config(dir));
+  assert.equal(result.unassessed.length, 1);
+  assert.equal(result.unassessed[0].reason, "candidate_truncated");
+  assert.equal(result.unassessed[0].openCursorRef, "cursor:1");
+  assert.equal(result.status, "NO_LEARNED_ROWS");
+});
+
+test("empty A_g and A_g not subset of S_g are DATA_INVALID", async () => {
+  const emptyAllowedDir = await withRows([row({ rowId: "empty-allowed", allowed: [] })]);
+  const emptyAllowed = await validateUnified64SlotTrainingData(config(emptyAllowedDir));
+  assert.equal(emptyAllowed.status, "DATA_INVALID");
+  assert.ok(emptyAllowed.violations.some(v => v.reasonCode === "ALLOWED_EMPTY"));
+
+  const notSubsetDir = await withRows([row({ rowId: "not-subset", allowed: ["c"] })]);
+  const notSubset = await validateUnified64SlotTrainingData(config(notSubsetDir));
+  assert.equal(notSubset.status, "DATA_INVALID");
+  assert.ok(notSubset.violations.some(v => v.reasonCode === "ALLOWED_NOT_SUBSET"));
+});
+
+test("label missing is excluded; valid unknown gold is a separate denominator", async () => {
+  const dir = await withRows([
+    row({ rowId: "missing-label", labelMissing: true }),
+    row({
+      rowId: "unknown",
+      candidates: ["unknown", "true"],
+      allowed: ["unknown"],
+      gold: "unknown",
+    }),
+  ]);
+  const result = await validateUnified64SlotTrainingData(config(dir));
+  assert.equal(result.status, "READY");
+  assert.equal(result.counts.labelMissingExcluded, 1);
+  assert.equal(result.counts.unknownGoldRows, 1);
+});
+
+test("teacher chain and undeclared missing fill are rejected", async () => {
+  const teacherDir = await withRows([row({ teacherChain: ["decl"] })]);
+  const teacher = await validateUnified64SlotTrainingData(config(teacherDir));
+  assert.equal(teacher.status, "DATA_INVALID");
+  assert.ok(teacher.violations.some(v => v.reasonCode === "TEACHER_LEAKAGE"));
+
+  const missingDir = await withRows([
+    row({
+      input: Array.from({ length: 64 }, (_, i) => (i === 3 ? -1 : 0)),
+    }),
+  ]);
+  const missing = await validateUnified64SlotTrainingData(config(missingDir));
+  assert.equal(missing.status, "DATA_INVALID");
+  assert.ok(missing.violations.some(v => v.reasonCode === "MISSING_FILLED"));
+});

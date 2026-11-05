@@ -18,9 +18,11 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { L2_HEADS } from "../adapters/l2/contracts.js";
 import type {
   L2ComputeBackend,
@@ -42,6 +44,40 @@ import {
   type DataInvalidViolation,
   type StandardDataSourceDecl,
 } from "./l2-standard-data-gate.js";
+import {
+  UNIFIED_DATA_ROW_SCHEMA,
+  validateUnified64SlotTrainingData,
+  type UnifiedDataGateConfig,
+  type UnifiedDataGateResult,
+  type UnifiedDataGateRow,
+  type UnifiedDataGateViolation,
+} from "./unified-data-gate.js";
+import {
+  UNIFIED_STUDENT_ROW_SCHEMA,
+  convertEpisodeToStudentGroup,
+  loadEpisodeFamily,
+  type StudentGroup,
+} from "./unified-student-converter.js";
+import {
+  convertGoldToSupervisionRow,
+  loadGoldFamily,
+  type SupervisionRow,
+} from "./unified-supervision-converter.js";
+import {
+  UNIFIED_TRAIN_CONFIG_SCHEMA,
+  buildEncodedGroups,
+  loadStudentRowsFile,
+  loadSupervisionRowsFile,
+  runUnifiedTraining,
+  saveUnifiedTrainPackage,
+  UnifiedTrainDataError,
+  type UnifiedPackageReloadReceipt,
+  type UnifiedTrainConfig,
+  type UnifiedTrainReport,
+} from "./unified-train-config.js";
+import type { UnifiedModelPackage } from "./unified-model-package.js";
+
+const execFileAsync = promisify(execFile);
 
 export type StandardRunnerCommand =
   | "validate-data"
@@ -90,6 +126,40 @@ export interface StandardRunnerConfig {
   readonly eventLogPath?: string;
   readonly convertedJsonlPath?: string;
   readonly filterMultiPartitionJson?: boolean;
+}
+
+export interface UnifiedRunnerCorpusConfig {
+  readonly root: string;
+  readonly admissionsPath: string;
+  readonly studentRowsPath: string;
+  readonly supervisionRowsPath: string;
+  readonly packagePath: string;
+  readonly missingModeTablePath: string;
+}
+
+export interface UnifiedRunnerTrainingConfig {
+  readonly modelId: string;
+  readonly version: string;
+  readonly optimizer: "full_batch_sgd";
+  readonly learningRate: number;
+  readonly maxEpochs: number;
+  readonly seed: number;
+  readonly init: "xavier_uniform";
+}
+
+export interface UnifiedRunnerConfig {
+  readonly schema: "nnanything.unified.runner-config.v1";
+  readonly command: StandardRunnerCommand;
+  readonly route: Readonly<{
+    readonly domain: string;
+    readonly decisionKind: "R" | "D" | "E" | "A";
+  }>;
+  readonly phase: StandardRunnerPhase;
+  readonly encoderVersion: string;
+  readonly dataGate: UnifiedDataGateConfig;
+  readonly outputDir: string;
+  readonly corpus?: UnifiedRunnerCorpusConfig;
+  readonly training?: UnifiedRunnerTrainingConfig;
 }
 
 export interface EvaluationBreakdown {
@@ -234,6 +304,423 @@ async function writeAtomicText(targetPath: string, content: string): Promise<str
   }
   await rename(tempPath, resolved);
   return resolved;
+}
+
+type UnifiedRunnerOutputStatus =
+  | "READY"
+  | "NO_LEARNED_ROWS"
+  | "DATA_INVALID"
+  | "completed"
+  | "failed";
+
+interface UnifiedRunnerCounts {
+  readonly studentGroups: number;
+  readonly studentRows: number;
+  readonly supervisionRows: number;
+  readonly labelMissingExcluded: number;
+  readonly trainableGroups: number;
+}
+
+interface UnifiedRunnerReport {
+  readonly schema: "nnanything.unified.run-report.v1";
+  readonly runId: string;
+  readonly command: StandardRunnerCommand;
+  readonly route: UnifiedRunnerConfig["route"];
+  readonly phase: StandardRunnerPhase;
+  readonly encoderVersion: string;
+  readonly status: UnifiedRunnerOutputStatus;
+  readonly startedAt: string;
+  readonly endedAt: string;
+  readonly wallSeconds: number;
+  readonly dataGate: UnifiedDataGateResult | null;
+  readonly counts: UnifiedRunnerCounts | null;
+  readonly trainReport: UnifiedTrainReport | null;
+  readonly packageReload: UnifiedPackageReloadReceipt | null;
+  readonly error: UnifiedDataGateViolation | { readonly code: string; readonly message: string } | null;
+  readonly candidateState: {
+    readonly calibration: "uncalibrated";
+    readonly adoption: "not_applied";
+  };
+  readonly hybridPackageLoaded: false;
+  readonly paths: {
+    readonly inputPackagePath: null;
+    readonly outputDir: string;
+    readonly reportJsonPath: string;
+    readonly reportMdPath: string;
+    readonly studentRowsPath: string;
+    readonly supervisionRowsPath: string;
+    readonly dataGateRowsPath: string;
+    readonly packagePath: string;
+  };
+}
+
+function requireUnifiedCorpus(config: UnifiedRunnerConfig): UnifiedRunnerCorpusConfig {
+  if (config.corpus === undefined) {
+    throw new UnifiedTrainDataError("unified convert-samples/train requires config.corpus");
+  }
+  return config.corpus;
+}
+
+function requireUnifiedTraining(config: UnifiedRunnerConfig): UnifiedRunnerTrainingConfig {
+  if (config.training === undefined) {
+    throw new UnifiedTrainDataError("unified train requires config.training");
+  }
+  return config.training;
+}
+
+async function discoverUnifiedFamilyDirs(root: string): Promise<readonly string[]> {
+  const resolvedRoot = resolve(root);
+  if (existsSync(join(resolvedRoot, "manifest.json"))) return [resolvedRoot];
+  const entries = await readdir(resolvedRoot, { withFileTypes: true });
+  const dirs = entries
+    .filter(entry => entry.isDirectory())
+    .map(entry => join(resolvedRoot, entry.name))
+    .filter(candidate => existsSync(join(candidate, "manifest.json")))
+    .sort();
+  if (dirs.length === 0) {
+    throw new UnifiedTrainDataError(`no source family with manifest.json under ${resolvedRoot}`);
+  }
+  return dirs;
+}
+
+interface UnifiedFamilyAdmission {
+  readonly partition: string;
+  readonly usableForTrainingSupervision: boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function loadUnifiedFamilyAdmissions(
+  admissionsPath: string,
+): Promise<ReadonlyMap<string, UnifiedFamilyAdmission>> {
+  const resolvedPath = resolve(admissionsPath);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(resolvedPath, "utf8")) as unknown;
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new UnifiedTrainDataError(`cannot load corpus admissions ${resolvedPath}: ${message}`);
+  }
+  if (!isRecord(parsed) || !Array.isArray(parsed.familyAdmissions)) {
+    throw new UnifiedTrainDataError(`corpus admissions ${resolvedPath} must declare familyAdmissions[]`);
+  }
+  const admissions = new Map<string, UnifiedFamilyAdmission>();
+  for (const entry of parsed.familyAdmissions) {
+    if (
+      !isRecord(entry)
+      || typeof entry.sourceGroup !== "string"
+      || typeof entry.partition !== "string"
+      || typeof entry.usableForTrainingSupervision !== "boolean"
+    ) {
+      throw new UnifiedTrainDataError(`corpus admissions ${resolvedPath} contains a malformed family admission`);
+    }
+    admissions.set(entry.sourceGroup, {
+      partition: entry.partition,
+      usableForTrainingSupervision: entry.usableForTrainingSupervision,
+    });
+  }
+  return admissions;
+}
+
+async function loadUnifiedFamilyManifestSource(familyDir: string): Promise<{
+  readonly sourceGroup: string;
+  readonly partition: string;
+}> {
+  const manifestPath = join(familyDir, "manifest.json");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(manifestPath, "utf8")) as unknown;
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new UnifiedTrainDataError(`cannot load source family manifest ${manifestPath}: ${message}`);
+  }
+  if (
+    !isRecord(parsed)
+    || typeof parsed.sourceGroup !== "string"
+    || typeof parsed.partition !== "string"
+  ) {
+    throw new UnifiedTrainDataError(`source family manifest ${manifestPath} must declare sourceGroup and partition`);
+  }
+  return { sourceGroup: parsed.sourceGroup, partition: parsed.partition };
+}
+
+function requireAdmittedTrainingSource(
+  admissions: ReadonlyMap<string, UnifiedFamilyAdmission>,
+  sourceGroup: string,
+): void {
+  const admission = admissions.get(sourceGroup);
+  if (admission === undefined) {
+    throw new UnifiedTrainDataError(`source ${sourceGroup} is not declared in corpus admissions`);
+  }
+  if (admission.usableForTrainingSupervision !== true) {
+    throw new UnifiedTrainDataError(
+      `source ${sourceGroup} is not usable for training supervision in corpus admissions`,
+    );
+  }
+}
+
+function requireAdmittedSourcePartition(
+  admissions: ReadonlyMap<string, UnifiedFamilyAdmission>,
+  sourceGroup: string,
+  partition: string,
+): void {
+  const admission = admissions.get(sourceGroup);
+  if (admission === undefined) {
+    throw new UnifiedTrainDataError(`source ${sourceGroup} is not declared in corpus admissions`);
+  }
+  if (admission.partition.toLowerCase() !== partition.toLowerCase()) {
+    throw new UnifiedTrainDataError(
+      `source ${sourceGroup} partition ${partition} does not match admitted partition ${admission.partition}`,
+    );
+  }
+}
+
+function studentRowsForRunner(groups: readonly StudentGroup[]): readonly Record<string, unknown>[] {
+  return groups.flatMap(group =>
+    group.candidates.map(candidate => ({
+      schema: UNIFIED_STUDENT_ROW_SCHEMA,
+      group_id: group.group_id,
+      sampleId: group.sampleId,
+      requestRef: group.requestRef,
+      sourceGroup: group.sourceGroup,
+      language: group.language,
+      adapterRef: group.adapterRef,
+      derivationFamily: group.derivationFamily,
+      semanticStratum: group.semanticStratum,
+      stepContextRef: group.stepContextRef,
+      candidateGroupRef: group.candidateGroupRef,
+      featureSchemaVersion: group.featureSchemaVersion,
+      encoderVersion: group.encoderVersion,
+      partition: group.partition,
+      candidateEnumeration: group.candidateEnumeration,
+      coverageCursorRef: group.coverageCursorRef,
+      evidenceRefs: group.evidenceRefs,
+      failureMode: group.failureMode,
+      candidateRef: candidate.candidateRef,
+      optionSemantics: candidate.optionSemantics,
+      candidateKind: candidate.candidateKind,
+      x: candidate.input,
+      missingMode: candidate.missingMode,
+    })),
+  );
+}
+
+function dataGateRowsForRunner(
+  groups: readonly StudentGroup[],
+  supervisionRows: readonly SupervisionRow[],
+  route: UnifiedRunnerConfig["route"],
+): readonly UnifiedDataGateRow[] {
+  const supervisionByGroup = new Map<string, SupervisionRow>();
+  for (const row of supervisionRows) {
+    if (supervisionByGroup.has(row.group_id)) {
+      throw new UnifiedTrainDataError(`duplicate supervision group ${row.group_id}`);
+    }
+    supervisionByGroup.set(row.group_id, row);
+  }
+  return groups.map(group => {
+    const supervision = supervisionByGroup.get(group.group_id);
+    if (supervision === undefined) {
+      throw new UnifiedTrainDataError(`missing supervision for ${group.group_id}`);
+    }
+    const first = group.candidates[0];
+    if (first === undefined) {
+      throw new UnifiedTrainDataError(`candidate set S_g is empty for ${group.group_id}`);
+    }
+    if (group.partition === "VERIFICATION") {
+      throw new UnifiedTrainDataError(`data gate does not accept VERIFICATION group ${group.group_id}`);
+    }
+    const candidates = group.candidates.map(candidate => candidate.candidateRef);
+    const allowed = supervision.labelMissing
+      ? candidates
+      : supervision.goldAllowedCandidateRefs;
+    return {
+      schema: UNIFIED_DATA_ROW_SCHEMA,
+      rowId: group.group_id,
+      partition: group.partition,
+      route,
+      input: first.input,
+      missingMode: first.missingMode,
+      candidates,
+      allowed,
+      gold: supervision.labelMissing ? "unknown" : (allowed[0] ?? "unknown"),
+      labelMissing: supervision.labelMissing,
+      enumeration: group.candidateEnumeration,
+    };
+  });
+}
+
+async function writeJsonlAtomic(targetPath: string, rows: readonly unknown[]): Promise<string> {
+  const text = rows.length === 0
+    ? ""
+    : `${rows.map(row => JSON.stringify(row)).join("\n")}\n`;
+  return writeAtomicText(targetPath, text);
+}
+
+function buildUnifiedTrainConfig(config: UnifiedRunnerConfig): UnifiedTrainConfig {
+  const training = requireUnifiedTraining(config);
+  const corpus = requireUnifiedCorpus(config);
+  return {
+    schema: UNIFIED_TRAIN_CONFIG_SCHEMA,
+    route: config.route,
+    architecture: { input: 64, hidden: [64, 64], output: 1 },
+    optimizer: training.optimizer,
+    learningRate: training.learningRate,
+    maxEpochs: training.maxEpochs,
+    seed: training.seed,
+    init: training.init,
+    resources: {
+      thresholdsRef: resolve(config.dataGate.thresholdsPath),
+      thresholdsSchema: "nnanything.feature-thresholds.v1",
+      missingModeTableRef: resolve(corpus.missingModeTablePath),
+      missingModeSchema: "nnanything.unified.missing-mode.v1",
+    },
+    modelId: training.modelId,
+    version: training.version,
+  };
+}
+
+function findNonFiniteUnifiedInput(
+  groups: readonly {
+    readonly groupRef: string;
+    readonly candidates: readonly {
+      readonly candidateRef: string;
+      readonly input: readonly number[];
+    }[];
+  }[],
+): string | null {
+  for (const group of groups) {
+    for (const candidate of group.candidates) {
+      for (let slotIndex = 0; slotIndex < candidate.input.length; slotIndex += 1) {
+        if (!Number.isFinite(candidate.input[slotIndex])) {
+          return `${group.groupRef}/${candidate.candidateRef} input[${slotIndex}] is not finite`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function nonFiniteUnifiedTrainReport(
+  groupCount: number,
+  message: string,
+): UnifiedTrainReport {
+  return {
+    schema: "nnanything.unified.train-report.v1",
+    status: "failed",
+    stopReason: "non_finite",
+    completedEpochs: 0,
+    initialLoss: null,
+    finalLoss: null,
+    lastDecileMeanAbsDelta: null,
+    monotonicViolations: 0,
+    firstMonotonicViolationEpoch: null,
+    groupCount,
+    epochs: [],
+    violations: [message],
+  };
+}
+
+function compareUnifiedTensors(
+  expected: UnifiedModelPackage["tensors"],
+  actual: UnifiedModelPackage["tensors"],
+): boolean {
+  for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
+    const left = expected[key];
+    const right = actual[key];
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+      if (left[index] !== right[index]) return false;
+    }
+  }
+  return true;
+}
+
+async function verifyUnifiedPackageReloadInNewProcess(
+  packagePath: string,
+  expected: UnifiedModelPackage,
+): Promise<UnifiedPackageReloadReceipt> {
+  const resolvedPackagePath = resolve(packagePath);
+  const loaderUrl = new URL("./unified-model-package.js", import.meta.url).href;
+  const script = `
+import { loadUnifiedModelPackageFromFile } from ${JSON.stringify(loaderUrl)};
+const loaded = await loadUnifiedModelPackageFromFile(${JSON.stringify(resolvedPackagePath)});
+process.stdout.write(JSON.stringify({
+  modelId: loaded.package.modelId,
+  version: loaded.package.version,
+  tensors: loaded.package.tensors,
+  thresholdsPath: loaded.resolvedResources.thresholdsPath,
+  missingModeTablePath: loaded.resolvedResources.missingModeTablePath
+}));
+`;
+  const { stdout } = await execFileAsync(process.execPath, [
+    "--input-type=module",
+    "-e",
+    script,
+  ], { maxBuffer: 16 * 1024 * 1024 });
+  const loaded = JSON.parse(String(stdout)) as {
+    readonly modelId: string;
+    readonly version: string;
+    readonly tensors: UnifiedModelPackage["tensors"];
+    readonly thresholdsPath: string;
+    readonly missingModeTablePath: string;
+  };
+  const tensorsMatch = compareUnifiedTensors(expected.tensors, loaded.tensors);
+  if (!tensorsMatch) {
+    throw new UnifiedTrainDataError("new-process package reload tensors differ from the saved package");
+  }
+  return {
+    packagePath: resolvedPackagePath,
+    modelId: loaded.modelId,
+    version: loaded.version,
+    tensorsMatch,
+    thresholdsPath: loaded.thresholdsPath,
+    missingModeTablePath: loaded.missingModeTablePath,
+  };
+}
+
+async function writeUnifiedRunnerReport(
+  outputDir: string,
+  report: UnifiedRunnerReport,
+): Promise<{ readonly reportJsonPath: string; readonly reportMdPath: string }> {
+  const reportJsonPath = join(outputDir, "run-report.json");
+  const reportMdPath = join(outputDir, "run-report.md");
+  await writeAtomicText(reportJsonPath, `${JSON.stringify(report, null, 2)}\n`);
+  const lines = [
+    `# Unified Runner Report (${report.runId})`,
+    "",
+    `- Command: \`${report.command}\``,
+    `- Route: \`${report.route.domain}/${report.route.decisionKind}\``,
+    `- Phase: \`${report.phase}\``,
+    `- Status: \`${report.status}\``,
+    `- Data Gate Status: \`${report.dataGate?.status ?? "not_run"}\``,
+    `- Candidate State: \`${report.candidateState.calibration}/${report.candidateState.adoption}\``,
+  ];
+  if (report.counts !== null) {
+    lines.push(
+      `- Student Groups: \`${report.counts.studentGroups}\``,
+      `- Student Rows: \`${report.counts.studentRows}\``,
+      `- Supervision Rows: \`${report.counts.supervisionRows}\``,
+      `- Label Missing Excluded: \`${report.counts.labelMissingExcluded}\``,
+      `- Trainable Groups: \`${report.counts.trainableGroups}\``,
+    );
+  }
+  if (report.trainReport !== null) {
+    lines.push(
+      `- Train Stop Reason: \`${report.trainReport.stopReason}\``,
+      `- Completed Epochs: \`${report.trainReport.completedEpochs}\``,
+      `- Group Count: \`${report.trainReport.groupCount}\``,
+    );
+  }
+  if (report.packageReload !== null) {
+    lines.push(`- Package Reload tensorsMatch: \`${String(report.packageReload.tensorsMatch)}\``);
+  }
+  if (report.error !== null) {
+    lines.push("", "## Error", "", "```json", JSON.stringify(report.error, null, 2), "```");
+  }
+  await writeAtomicText(reportMdPath, `${lines.join("\n")}\n`);
+  return { reportJsonPath, reportMdPath };
 }
 
 function formatMarkdownReport(report: StandardHeadRunReport): string {
@@ -1475,7 +1962,19 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
     process.stderr.write("Missing required --config <config.json>\n");
     return 2;
   }
-  const rawConfig = JSON.parse(await readFile(resolve(configPath), "utf8")) as StandardRunnerConfig;
+  const parsedConfig: unknown = JSON.parse(
+    await readFile(resolve(configPath), "utf8"),
+  );
+  if (
+    parsedConfig !== null
+    && typeof parsedConfig === "object"
+    && !Array.isArray(parsedConfig)
+    && (parsedConfig as Readonly<Record<string, unknown>>).schema
+      === "nnanything.unified.runner-config.v1"
+  ) {
+    return executeUnifiedRunnerRoute(command, parsedConfig as UnifiedRunnerConfig);
+  }
+  const rawConfig = parsedConfig as StandardRunnerConfig;
   const cliAbortController = new AbortController();
   const onSignal = () => {
     cliAbortController.abort();
@@ -1490,6 +1989,253 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
   } finally {
     process.removeListener("SIGINT", onSignal);
     process.removeListener("SIGTERM", onSignal);
+  }
+}
+
+export async function executeUnifiedRunnerRoute(
+  command: StandardRunnerCommand,
+  config: UnifiedRunnerConfig,
+): Promise<number> {
+  if (command === "resume" || command === "evaluate") {
+    process.stderr.write(
+      `Unified runner route is NOT_READY for ${command}; convert-samples, train, and validate-data are available. No fitter or legacy fallback was used.\n`,
+    );
+    return 2;
+  }
+  if (command !== "validate-data" && command !== "convert-samples" && command !== "train") {
+    process.stderr.write(
+      `Unified runner route is NOT_READY for ${command}; no fitter or legacy fallback was used.\n`,
+    );
+    return 2;
+  }
+
+  const startedAt = new Date().toISOString();
+  const wallStartNs = process.hrtime.bigint();
+  const outputDir = resolve(config.outputDir);
+  await mkdir(outputDir, { recursive: true });
+
+  if (command === "validate-data") {
+    const dataGate = await validateUnified64SlotTrainingData(config.dataGate);
+    const endedAt = new Date().toISOString();
+    const wallSeconds = Number(process.hrtime.bigint() - wallStartNs) / 1e9;
+    const status =
+      dataGate.status === "DATA_INVALID"
+        ? "DATA_INVALID"
+        : dataGate.status === "NO_LEARNED_ROWS"
+          ? "NO_LEARNED_ROWS"
+          : "READY";
+    const reportJsonPath = join(outputDir, "run-report.json");
+    const reportMdPath = join(outputDir, "run-report.md");
+    const report = {
+      schema: "nnanything.unified.run-report.v1",
+      runId: `unified-${command}-${Date.now().toString(36)}`,
+      command,
+      route: config.route,
+      phase: config.phase,
+      encoderVersion: config.encoderVersion,
+      status,
+      startedAt,
+      endedAt,
+      wallSeconds,
+      dataGate,
+      hybridPackageLoaded: false,
+      paths: {
+        inputPackagePath: null,
+        outputDir,
+        reportJsonPath,
+        reportMdPath,
+      },
+    };
+    await writeAtomicText(reportJsonPath, `${JSON.stringify(report, null, 2)}\n`);
+    await writeAtomicText(
+      reportMdPath,
+      [
+        `# Unified Runner Route Report (${report.runId})`,
+        "",
+        `- Command: \`${report.command}\``,
+        `- Route: \`${report.route.domain}/${report.route.decisionKind}\``,
+        `- Phase: \`${report.phase}\``,
+        `- Status: \`${report.status}\``,
+        `- Data Gate Status: \`${report.dataGate.status}\``,
+        `- Data Gate Learned Rows: \`${report.dataGate.counts.learnedRows}\``,
+        `- Hybrid Package Loaded: \`${String(report.hybridPackageLoaded)}\``,
+        `- Input Package Path: \`${String(report.paths.inputPackagePath)}\``,
+        "",
+      ].join("\n"),
+    );
+    return status === "DATA_INVALID" ? 1 : 0;
+  }
+
+  const corpus = requireUnifiedCorpus(config);
+  const studentRowsPath = resolve(corpus.studentRowsPath);
+  const supervisionRowsPath = resolve(corpus.supervisionRowsPath);
+  const dataGateRowsPath = resolve(config.dataGate.rowsPath);
+  const packagePath = resolve(corpus.packagePath);
+  let dataGate: UnifiedDataGateResult | null = null;
+  let counts: UnifiedRunnerCounts | null = null;
+  let trainReport: UnifiedTrainReport | null = null;
+  let packageReload: UnifiedPackageReloadReceipt | null = null;
+  let error: UnifiedRunnerReport["error"] = null;
+
+  const finalize = async (
+    status: UnifiedRunnerOutputStatus,
+    exitCode: number,
+  ): Promise<number> => {
+    const endedAt = new Date().toISOString();
+    const wallSeconds = Number(process.hrtime.bigint() - wallStartNs) / 1e9;
+    const report: UnifiedRunnerReport = {
+      schema: "nnanything.unified.run-report.v1",
+      runId: `unified-${command}-${Date.now().toString(36)}`,
+      command,
+      route: config.route,
+      phase: config.phase,
+      encoderVersion: config.encoderVersion,
+      status,
+      startedAt,
+      endedAt,
+      wallSeconds,
+      dataGate,
+      counts,
+      trainReport,
+      packageReload,
+      error,
+      candidateState: { calibration: "uncalibrated", adoption: "not_applied" },
+      hybridPackageLoaded: false,
+      paths: {
+        inputPackagePath: null,
+        outputDir,
+        reportJsonPath: join(outputDir, "run-report.json"),
+        reportMdPath: join(outputDir, "run-report.md"),
+        studentRowsPath,
+        supervisionRowsPath,
+        dataGateRowsPath,
+        packagePath,
+      },
+    };
+    await writeUnifiedRunnerReport(outputDir, report);
+    return exitCode;
+  };
+
+  try {
+    if (command === "convert-samples") {
+      const admissions = await loadUnifiedFamilyAdmissions(corpus.admissionsPath);
+      const familyDirs = await discoverUnifiedFamilyDirs(corpus.root);
+      const episodes = [];
+      const goldRecords = [];
+      for (const familyDir of familyDirs) {
+        const manifest = await loadUnifiedFamilyManifestSource(familyDir);
+        requireAdmittedTrainingSource(admissions, manifest.sourceGroup);
+        requireAdmittedSourcePartition(admissions, manifest.sourceGroup, manifest.partition);
+        const familyEpisodes = await loadEpisodeFamily(familyDir);
+        for (const episode of familyEpisodes) {
+          requireAdmittedTrainingSource(admissions, episode.sourceGroup);
+          requireAdmittedSourcePartition(admissions, episode.sourceGroup, episode.partition);
+        }
+        episodes.push(...familyEpisodes);
+        const familyGold = await loadGoldFamily(familyDir);
+        for (const gold of familyGold) {
+          requireAdmittedTrainingSource(admissions, gold.sourceGroup);
+          requireAdmittedSourcePartition(admissions, gold.sourceGroup, gold.partition);
+        }
+        goldRecords.push(...familyGold);
+      }
+      const studentGroups = episodes.map(episode => convertEpisodeToStudentGroup(episode));
+      const studentRows = studentRowsForRunner(studentGroups);
+      await writeJsonlAtomic(studentRowsPath, studentRows);
+      counts = {
+        studentGroups: studentGroups.length,
+        studentRows: studentRows.length,
+        supervisionRows: 0,
+        labelMissingExcluded: 0,
+        trainableGroups: 0,
+      };
+
+      const supervisionRows = goldRecords.map(record => convertGoldToSupervisionRow(record));
+      await writeJsonlAtomic(supervisionRowsPath, supervisionRows);
+      const gateRows = dataGateRowsForRunner(studentGroups, supervisionRows, config.route);
+      await writeJsonlAtomic(dataGateRowsPath, gateRows);
+      dataGate = await validateUnified64SlotTrainingData({
+        ...config.dataGate,
+        rowsPath: dataGateRowsPath,
+      });
+      let trainableGroups = 0;
+      if (dataGate.status !== "DATA_INVALID") {
+        trainableGroups = buildEncodedGroups(studentGroups, supervisionRows).length;
+      }
+      counts = {
+        studentGroups: studentGroups.length,
+        studentRows: studentRows.length,
+        supervisionRows: supervisionRows.length,
+        labelMissingExcluded: dataGate.counts.labelMissingExcluded,
+        trainableGroups,
+      };
+      if (dataGate.status === "DATA_INVALID") {
+        const firstViolation = dataGate.firstViolation;
+        error = firstViolation !== null && firstViolation.reasonCode === "ALLOWED_NOT_SUBSET"
+          ? {
+              ...firstViolation,
+              message: firstViolation.message.replace("is not in S_g", "is outside S_g"),
+            }
+          : firstViolation;
+        return await finalize("DATA_INVALID", 1);
+      }
+      return await finalize(dataGate.status === "NO_LEARNED_ROWS" ? "NO_LEARNED_ROWS" : "READY", 0);
+    }
+
+    const admissions = await loadUnifiedFamilyAdmissions(corpus.admissionsPath);
+    const studentGroups = await loadStudentRowsFile(studentRowsPath);
+    const supervisionRows = await loadSupervisionRowsFile(supervisionRowsPath);
+    for (const group of studentGroups) {
+      requireAdmittedTrainingSource(admissions, group.sourceGroup);
+    }
+    for (const row of supervisionRows) {
+      requireAdmittedTrainingSource(admissions, row.sourceGroup);
+    }
+    dataGate = await validateUnified64SlotTrainingData(config.dataGate);
+    const encodedGroups = dataGate.status === "DATA_INVALID"
+      ? []
+      : buildEncodedGroups(studentGroups, supervisionRows);
+    counts = {
+      studentGroups: studentGroups.length,
+      studentRows: studentRowsForRunner(studentGroups).length,
+      supervisionRows: supervisionRows.length,
+      labelMissingExcluded: dataGate.counts.labelMissingExcluded,
+      trainableGroups: encodedGroups.length,
+    };
+    if (dataGate.status === "DATA_INVALID") {
+      error = dataGate.firstViolation;
+      return await finalize("DATA_INVALID", 1);
+    }
+    if (dataGate.status === "NO_LEARNED_ROWS") {
+      return await finalize("NO_LEARNED_ROWS", 0);
+    }
+    const nonFiniteInput = findNonFiniteUnifiedInput(encodedGroups);
+    if (nonFiniteInput !== null) {
+      trainReport = nonFiniteUnifiedTrainReport(encodedGroups.length, nonFiniteInput);
+      error = { code: "non_finite", message: nonFiniteInput };
+      return await finalize("failed", 1);
+    }
+    const trainConfig = buildUnifiedTrainConfig(config);
+    const result = runUnifiedTraining(encodedGroups, trainConfig);
+    trainReport = result.report;
+    if (result.report.stopReason !== "epoch_limit_exhausted") {
+      error = {
+        code: result.report.stopReason,
+        message: result.report.violations.join("; ") || `training stopped with ${result.report.stopReason}`,
+      };
+      return await finalize("failed", 1);
+    }
+    const savedPackage = await saveUnifiedTrainPackage(packagePath, trainConfig, result.tensors);
+    packageReload = await verifyUnifiedPackageReloadInNewProcess(packagePath, savedPackage);
+    return await finalize("completed", 0);
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    if (caught instanceof UnifiedTrainDataError) {
+      error = { code: "DATA_INVALID", message };
+      return await finalize("DATA_INVALID", 1);
+    }
+    error = { code: "RUNNER_ERROR", message };
+    return await finalize("failed", 1);
   }
 }
 
