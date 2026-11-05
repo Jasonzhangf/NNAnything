@@ -2578,6 +2578,8 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
 - 已消费 `collab recv`：`m1793836475860-3899`（Emma worker-idle）与 `m1793836535057-3901`（fixed-env r2 typed acceptance progress）；未重复向 Emma 发 ACK 或重复派单。
 - Emma 报告 r2 head `1201b508` 已提交 typed acceptance fixture suite；LayerFS `/workspaces/8` 的 `npm run build` 通过，`tests/unified-contract.test.mjs` 11/11 通过，覆盖 64 槽编码、scalar forward、组 loss、独立 oracle、data gate、model package 版本绑定、threshold loader 与 TS/JS adapter。剩余 unified-transfer-evaluator 只读迁移评价与 §2.5 `runRecursiveGoal` 真实接线；她保持 r2 单 branch owner，继续先红测再实现。
-- Board：我的下游 integration 任务 `jenny-tsjs-fixed-env-implementation-integration-r1` revision 25 `blocked` 已更新到最新 head 与恢复条件；父任务 `jenny-tsjs-fixed-env-implementation-milestone-r1` 仍由 Emma 持有，daemon 明确拒绝 master 修改 owner 的 lifecycle，未绕过所有权。
+- Board：我的下游 integration 任务 `jenny-tsjs-fixed-env-implementation-integration-r1` revision 25→26 `blocked` 已更新到最新 head 与恢复条件；父任务 `jenny-tsjs-fixed-env-implementation-milestone-r1` 仍由 Emma 持有，daemon 明确拒绝 master 修改 owner 的 lifecycle，未绕过所有权。
 - David 离线核查：当前 board `task_ids=[]`、无开放任务或邀请；历史任务均已 closed，因此没有可转交的在途任务。后续出现 David-bound 新工作时由可用 peer 承接，不等待离线 owner。
 - Longhorizon：`appsdk goal status --json` 显示 `active=true`、`desired=subscribed`、`observed=subscribed`，当前 one-shot `sub-m1793836474882-3898` armed；project patrol `sub-m1793420812006-236` armed，运行 interval 900000 vs 目标 1500000，保留 `PATROL_CADENCE_RUNTIME_GAP`。本轮未改代码、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
+- 控制面边界：`appsdk goal status --json` 仍记录登记时的 `goal_revision`，而本文档随后已更新并提交推送；`appsdk goal` 只暴露 subscribe/status/cancel/prompt，没有独立 update。现有 one-shot 订阅保持 armed，不重复注册或伪造 revision 刷新。`collab ceo progress` 返回 `CEO_AUTHORITY_REQUIRED`；当前 CEO 不是本 master，本轮不伪造 CEO 进度回执。
+- Git：文档更新提交 `1323bf0` 已推送 `origin/main` 并与远端一致；`node scripts/check-layout.mjs` 通过。未跟踪 `tests/fixtures/tsjs-symbols/` 留给 Emma 的 r2 交付线，master 不提交、不清理。
