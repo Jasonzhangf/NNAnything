@@ -2638,3 +2638,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - David：board `task_ids=[]`，无开放任务、邀请或待复核项；无在途任务可改派。后续 David-bound 工作由可用 peer 承接，不等待离线 owner。
 - 长程目标：`docs/autonomous-capability-roadmap.md` 已同步到 Emma revision 12 `blocked` 与 integration revision 38 `blocked`；goal 订阅 `sub-m1793840965723-4019` armed（trigger_ms 1793841565716），project patrol `sub-m1793420812006-236` armed，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。
 - 授权与资源：本轮仅同步文档/board 与消费通知，未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。
+
+## 2026-11-05 master 收口补充（01:21Z，integration rev 39）
+
+- 已消费 Emma 阻塞确认 `m1793841546193-4044`（回复旧 continue 请求，确认该请求已被 `m1793840755285-4016` 停工指令取代，milestone revision 12 `blocked`，未继续实现，原始回执保留）；已消费 goal deadline `m1793841565882-4045`（LAST_REMINDER=true）与 worker-idle `m1793841586875-4049`；inbox 归零。
+- Longhorizon goal deadline 已消费并显式续订为 `sub-m1793841580891-4048`（armed，trigger_ms 1793842180884）；project patrol `sub-m1793420812006-236` 保持 armed，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。
+- CEO：`collab ceo reply` 已记录实质进度（revision=22，notified=false，reported=false）。
+- Board：master 自有 integration 任务 `jenny-tsjs-fixed-env-implementation-integration-r1` 更新到 revision 39 `blocked`，next_step 记录 Emma milestone revision 12 `blocked`、缺口 A/B 拆分、用户硬要求、goal 订阅 `sub-m1793841580891-4048` 与恢复需用户明确批准的边界。
+- Git：`docs/autonomous-capability-roadmap.md` 与 `note.md` 已同步 Emma rev 12 / integration rev 39；`node scripts/check-layout.mjs` 与 `git diff --check` 通过；文档提交与推送见提交记录。
