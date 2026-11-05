@@ -2619,3 +2619,22 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Board：integration `jenny-tsjs-fixed-env-implementation-integration-r1` 已刷新到 revision 33，status=`blocked`，next_step 记录当前 `sub-m1793839176095-3984` 和后续验收条件。Emma 的 `jenny-tsjs-fixed-env-implementation-milestone-r1` 仍为 revision 9 `working`，r2 head `1201b508bb3165a9f03bdc9005f9992e21ef53ea305aca5d8c90320bfe25aeeebd`；还缺 r2 build/test、unified transfer evaluator、§2.5 `runRecursiveGoal` 接线与 Alice review accept。
 - David 名下仍无开放 board 任务、邀请或待复核项；历史 David 工作已关闭并由 Frank 完成，因此本轮无在途任务可改派。后续新出现的 David-bound 工作由可用 peer 承接。
 - 巡检：project patrol `sub-m1793420812006-236` 保持 armed，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。
+
+## 2026-11-05 master 收口与 Alice 返修裁决（01:01Z）
+
+- 已消费 Emma 证据回执 `m1793840110945-4004`：r2 head `1201b508bb3165a9f03bdc9005f9992e21ef53ea305aca5d8c90320bfe25aeeebd`；typed acceptance 11/11；build exit 0，多组 targeted tests 全绿；unified transfer evaluator 文件、测试、报告缺失，§2.5 `runRecursiveGoal` 真实引擎接线缺失。证据文件 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-fixed-env-r2-evidence-20261105.md`。
+- Alice 审计 `m1793840251355-4007` 正式判定整体 `INCOMPLETE`：typed acceptance 11/11 只证明合同组件，不等于第10项真实多步验收；transfer evaluator 工程实现与 §2.5 实际引擎接线不能统一归为等待训练包/threshold；原方案工程准备与训练后验收边界不闭合。当前用户线程仍为全面停工，仅准收口及只读符合性审计；整改路径需独立监理复核和用户明确批准。
+- Board：master 本人 integration 任务 `jenny-tsjs-fixed-env-implementation-integration-r1` 已更新到 revision 36 `blocked`，next_step 记录整体 `INCOMPLETE`、工程缺实现与训练后验收依赖分开、等待 Emma 修正其本人 board 后再走独立监理复核。Emma 的 milestone 仍为 revision 9 `working`；daemon 拒绝 master 更新非本人任务生命周期，未绕过所有权。已发仅收口用的修正请求 `m1793840755285-4016`，要求 Emma 不继续实现、不重跑有效组件测试。
+- 长程目标：`docs/autonomous-capability-roadmap.md` 已把上述 master 自有任务、当前订阅 `sub-m1793840965723-4019`、Alice 裁决和 David 无开放任务事实登记到自有调度章节。`appsdk goal status --json` 核实 active/subscribed，armed，trigger_ms 1793841565716；最近一次 `collab recv` 前端挂起无正文，中断后 `collab inbox` 为空，不重复消费或补造回执。
+- David：实时 board 再次核实 `task_ids=[]`、无邀请或待复核项；历史任务均已关闭，没有可转交的在途任务。后续 David-bound 工作由可用 peer 承接。
+- 授权与资源：本轮仅改文档和 board/收口消息，未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。project patrol `sub-m1793420812006-236` 保持 armed，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。
+
+## 2026-11-05 master 巡回收口（01:18Z，Emma revision 12 blocked）
+
+- 已消费 `collab recv`：`m1793841465999-4038`（Emma 按 `m1793840755285-4016` 完成仅收口：board 任务 revision 12 `blocked`，未继续实现）与 `m1793841444857-4037`（worker-idle master patrol）；inbox 归零。
+- 当前 board 实时核实：`jenny-tsjs-fixed-env-implementation-milestone-r1` revision 12 `blocked`（owner Emma，reviewer Alice）；`jenny-tsjs-fixed-env-implementation-integration-r1` revision 38 `blocked`（owner Jenny）。整体 INCOMPLETE。
+- 缺口拆分（Emma 原话记录）：A) 工程缺实现：unified transfer evaluator 文件/测试/报告缺失，§2.5 `runRecursiveGoal` 真实引擎接线缺失；B) 训练后验收依赖：已验收 TS/JS package 与 threshold resource 缺失。typed acceptance 11/11 仅为合同组件测试，不是第10项真实多步验收。保留候选与原始回执，不重跑已有效组件测试；恢复需用户明确批准原文与范围；禁 fitter/训练/权重/gold/threshold/采用/产品接线/安装/nn-code。
+- 用户硬要求（已记录，未扩实现）：引用关系调用最终结果必须 100% 正确、无遗漏；已知关系 100% 可靠、错误为 0；未知结果必须 judge=unknown，不得给错误结论或遗漏。board test_condition 已承载该判定：Known relationships 100% correct, errors 0; unknown judge=unknown; truncatedCount=0 failedCount=0; cursor closed; label_missing excluded; any miss = incomplete。
+- David：board `task_ids=[]`，无开放任务、邀请或待复核项；无在途任务可改派。后续 David-bound 工作由可用 peer 承接，不等待离线 owner。
+- 长程目标：`docs/autonomous-capability-roadmap.md` 已同步到 Emma revision 12 `blocked` 与 integration revision 38 `blocked`；goal 订阅 `sub-m1793840965723-4019` armed（trigger_ms 1793841565716），project patrol `sub-m1793420812006-236` armed，interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 保留。
+- 授权与资源：本轮仅同步文档/board 与消费通知，未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。
