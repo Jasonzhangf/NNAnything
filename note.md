@@ -2683,3 +2683,14 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - `emma-overturned-scope-evidence-inventory-r1` 由 master 强制关闭：与 Alice 审计重复，不派重复清查。
 - `nnanything-overall-redesign-orchestration-r1` revision 8 working，next 记录审计结果、两项待用户裁定，以及裁定前只执行只读审计、证据盘点、board/goal 维护和停工收口，不做设计接受、实现、训练、采样、接线、采用或安装。
 - Longhorizon：按最后一次 deadline 重新武装 `appsdk goal subscribe`（one-shot armed）；project patrol `sub-m1793420812006-236` 保持 armed。
+
+## 2026-11-05 用户恢复并行推进，master 发布旧 NN Code 全功能队列（04:18Z）
+
+- 已消费通知：`m1793852042686-4404`（Alice launch r1 定点复核）、`m1793852057864-4407`/`m1793852208870-4411`（Emma worker-idle，仍持 open rework，不重复唤醒）。inbox 归零。
+- Alice launch r1 复核关键结论（`alice-overall-redesign-route-r1.md` 尾节）：直接拟合缺口是完整学生组 S_g、64 槽 converter、loss 收敛/失败诊断和真实 train 入口；合格训练包不作首训前置；Rust 迁移评价器不挡 TS 首训；converter 须拆为 S_g/x 与 label→A_g 两条独立输入；最终 unknown 不可由 defer/observe 替代，必须显式 judge=unknown。
+- 用户明确指令：旧版 NN Code 所有功能并行重新设计和训练，board 上多条线保持在队列中不遗忘。
+- Board 发布 9 条 `nnanything-overall-redesign-orchestration-r1` 子任务（全部 reviewer=Alice）：`nn-code-redesign-symbols-tsjs/rust/jvm/swift-r1`、`nn-code-redesign-call-graph-r1`、`nn-code-redesign-value-flow-r1`、`nn-code-redesign-search-read-r1`、`nn-code-redesign-repo-generalization-r1`、`nn-code-redesign-learning-loop-r1`。发布即入队，不占执行容量。
+- 并发派单：`nn-code-redesign-repo-generalization-r1` 邀请 Frank（tester）；`nn-code-redesign-call-graph-r1` 邀请 David（资深研究员）。其余 7 条保持 pending，等 Emma 完成当前 rework 后释放容量再分派。
+- Board：`nnanything-overall-redesign-orchestration-r1` 更新到 revision 17，next_step 记录 Alice 复核结论、直接拟合缺口、9 条并行队列与并发状态；integration 仍 blocked 等父任务交付 + Alice review；Emma 两个任务保持 working/rework。
+- Roadmap：`docs/autonomous-capability-roadmap.md` 新增「2026-11-05 用户已恢复整体重设计、训练与并行推进」章节，记录 Alice 复核、9 条队列、master 编排职责与共同边界。
+- 未改代码、训练、权重、gold、threshold、采用状态、产品接线或 runtime 安装。project patrol `sub-m1793420812006-236` armed；longhorizon goal 订阅待本轮结束前重新核实。

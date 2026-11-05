@@ -102,3 +102,33 @@ Alice 已按只读合同交付整体符合性审计并获 master 接受，报告
 2. 原 64 维输入、两层、统一格式与固定引擎是否仍是约束，还是允许总设计师重新选择。
 
 裁定前仅继续只读审计、证据盘点、board/goal 维护与停工收口；不认领新总设计，不派实现、训练、采样、接线、采用或安装。旧 `nn-code` 继续禁用。board 真源：`nnanything-overall-redesign-orchestration-r1` working 记录本节；`alice-overall-redesign-authority-r1` 已交付并关闭；`jenny-tsjs-fixed-env-implementation-integration-r1` 与 `jenny-tsjs-fixed-env-implementation-milestone-r1` 保持 blocked/INCOMPLETE，待裁定后决定恢复或替换。
+
+## 2026-11-05 用户已恢复整体重设计、训练与并行推进
+
+本节取代前节“待用户直接裁定”。用户在本线程明确恢复：继续执行尚未完成的任务，恢复训练授权；整体重设计重新来，独立工作并行推进，不串行等待单一任务。旧 `nn-code` 产品仍禁用，旧确定性实现仅作 teacher、oracle、样本与对照。
+
+Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式和固定推理引擎；首个实验方向为 TS/JS import/reexport/alias 与终端声明判断。训练启动只等待 Alice 通过设计后的具体 launch 合同，不再等待用户再次批准。
+
+### Master 编排职责
+
+1. 调度与验收：Jenny 维护 `nnanything-overall-redesign-orchestration-r1`，并负责 board 队列、Alice review、集成、push 与资源收口。
+2. 固定训练环境：Emma 当前补齐 `jenny-tsjs-fixed-training-launch-r1` 的四项 finding。Alice launch r1 复核要求：合格训练包不可作首训前置；Rust 迁移评价器不挡 TS 首训；converter 标签与学生路径分开；补 loss 收敛/失败诊断；最终 unknown 必须收口。直接拟合缺口是完整学生组、converter 与真实 train 入口。
+3. 固定环境工程：Emma 继续 `jenny-tsjs-fixed-env-implementation-milestone-r1`，补 unified transfer evaluator 与 `runRecursiveGoal` 真实接线。该线与 launch 合同并行，不等待训练包。
+4. Master 集成：`jenny-tsjs-fixed-env-implementation-integration-r1` 仅等待父任务交付与 Alice review accept，不等待用户批准。
+5. Longhorizon：Jenny 的 goal 保持在 `appsdk goal` 登记，当前 goal 文档为本文件，one-shot deadline 定期显式续订；常驻 project patrol 保持 armed。
+
+### 旧 NN Code 全功能并行重设计队列
+
+以下 board 任务均为 `nnanything-overall-redesign-orchestration-r1` 的子任务， reviewer 为 Alice。发布即入队，不占执行容量；master 按可用 peer 与无冲突写域逐条邀请。每条线先设计/语料/评价/工程准备，实际 fit 等共享 fixed training launch 环境通过 Alice 审计后执行。
+
+1. `nn-code-redesign-symbols-tsjs-r1`：TS/JS 符号表。
+2. `nn-code-redesign-symbols-rust-r1`：Rust 符号表。
+3. `nn-code-redesign-symbols-jvm-r1`：Kotlin 与 Java 符号表。
+4. `nn-code-redesign-symbols-swift-r1`：Swift 符号表。
+5. `nn-code-redesign-call-graph-r1`：调用图与调用深度。
+6. `nn-code-redesign-value-flow-r1`：值流。
+7. `nn-code-redesign-search-read-r1`：搜索与读取 composition。
+8. `nn-code-redesign-repo-generalization-r1`：repo 关联、泛化与独立评价。
+9. `nn-code-redesign-learning-loop-r1`：本地使用采集、增量训练与采用前报告。
+
+共同边界：不改既有权重、gold、threshold、采用状态；不产品接线；不安装全局 runtime；不恢复旧 nn-code。训练候选只能写入独立候选路径，保存、新进程回载、独立留出评价与旧能力回归齐全后才可进入 model-evolution 采用流程。
