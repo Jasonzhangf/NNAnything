@@ -7,7 +7,7 @@
 - Longhorizon：`appsdk goal status --json` 返回 active/subscribed；goal 为 `docs/autonomous-capability-roadmap.md`，goal_id `sha256:b9c0aa25801581ac27333f6a52b35b9ef65a9f9606140c48950d5a8b4e0ca678`，当前 one-shot 订阅 `sub-m1793845606724-4173` 为 armed。
 - Board：`nnanything-overall-redesign-orchestration-r1` 已刷新到 revision 10，仍为 working；`jenny-tsjs-fixed-env-implementation-milestone-r1` 与 `jenny-tsjs-fixed-env-implementation-integration-r1` 分别保持 revision 12、42 blocked/INCOMPLETE。下一步只等待两项直接用户裁定：是否恢复整体重设计并授权设计师审批后的训练；64 维、两层、统一格式、固定引擎是否仍是约束。
 - 巡检四项：没有新增可派 ready 工作；两个 P1 均因同一授权冲突保持 blocked；Emma 的 board 巡检已按任务取消并记录恢复条件，不重复唤醒；workspace 只有主 Git worktree，既有未跟踪目录 `tests/fixtures/tsjs-symbols/` 保留不动。
-- 巡检运行状态：`sub-m1793420812006-236` 保持 armed，runtime interval 为 900000ms，目标为 1500000ms，`PATROL_CADENCE_RUNTIME_GAP` 保留；此前 `PROJECT_PATROL_PROGRESS_NOT_RECORDED` 已通过 master `ceo reply` 写入项目进度 revision 25 解决。
+- 巡检运行状态：`sub-m1793420812006-236` 保持 armed，runtime interval 为 900000ms，目标为 1500000ms，`PATROL_CADENCE_RUNTIME_GAP` 保留。`notify status` 的 `eligibility` 显示 `PROJECT_PATROL_PROGRESS_NOT_RECORDED`、`progress_revision=0`，这是巡检取消资格字段，不影响巡检本身持续运行。master `ceo reply` 记录的 revision 25 写入的是 master→CEO 上报流水，不推进 `ceo_report_state.projects[].revision`，两者是不同控制源。
 - CEO：`collab ceo reply` 已记录本轮实质进度，返回 recorded=true、notified=false、reported=false；当前会话不是 CEO，不冒充进度读取或用户报告确认。
 - 边界：未改代码、训练、采样、权重、gold、threshold、采用状态、产品接线或 runtime 安装。
 
