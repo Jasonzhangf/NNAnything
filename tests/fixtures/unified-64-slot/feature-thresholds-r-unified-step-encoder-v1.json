@@ -1,0 +1,13 @@
+{
+  "schema": "nnanything.feature-thresholds.v1",
+  "route": "r",
+  "encoderVersion": "nnanything.unified-step.encoder.v1",
+  "buckets": {
+    "constraints": [0, 1, 2, 4],
+    "knownFacts": [1, 2, 4, 8],
+    "missingFacts": [0, 1, 2, 4],
+    "objectRefs": [1, 2, 4, 8],
+    "requiredArgsRatio": [0, 0.25, 0.5, 1],
+    "requiredMissing": [0, 1, 2, 4]
+  }
+}

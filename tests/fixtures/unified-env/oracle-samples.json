@@ -1,0 +1,130 @@
+{
+  "schema": "nnanything.unified.env.oracle-samples.v1",
+  "known": [
+    {
+      "sampleId": "known-true-pos",
+      "gold": "true",
+      "goldSource": "manual-structural-proof",
+      "goldEvidence": [
+        { "evidenceRef": "ev:entry-pos-binding", "typeStep": "binding" }
+      ],
+      "labelMissing": false
+    },
+    {
+      "sampleId": "known-false-other",
+      "gold": "false",
+      "goldSource": "manual-structural-proof",
+      "goldEvidence": [
+        { "evidenceRef": "ev:other-different-binding", "typeStep": "binding" }
+      ],
+      "labelMissing": false
+    }
+  ],
+  "unknown": [
+    {
+      "sampleId": "unknown-missing",
+      "gold": "unknown",
+      "goldSource": "manual-structural-proof",
+      "goldEvidence": [
+        { "evidenceRef": "ev:missing-dynamic", "typeStep": "scope" }
+      ],
+      "labelMissing": false
+    }
+  ],
+  "labelMissing": [
+    {
+      "sampleId": "label-missing-dynamic",
+      "gold": "unknown",
+      "goldSource": "manual-structural-proof",
+      "goldEvidence": [
+        { "evidenceRef": "ev:dynamic-unlabelled", "typeStep": "scope" }
+      ],
+      "labelMissing": true
+    }
+  ],
+  "acceptedRuns": [
+    {
+      "sampleId": "known-true-pos",
+      "steps": [
+        {
+          "stepId": "step-true",
+          "optionSemantics": "judge=true",
+          "executionReceiptRef": "receipt:tsc",
+          "postStateRef": "state:pos",
+          "evidenceRefs": ["ev:pos"]
+        }
+      ],
+      "rootConditionStates": [],
+      "rootGaps": [],
+      "rootSatisfied": true
+    },
+    {
+      "sampleId": "known-false-other",
+      "steps": [
+        {
+          "stepId": "step-false",
+          "optionSemantics": "judge=false",
+          "executionReceiptRef": "receipt:tsc",
+          "postStateRef": "state:other",
+          "evidenceRefs": ["ev:other"]
+        }
+      ],
+      "rootConditionStates": [],
+      "rootGaps": ["gap:other-module-does-not-resolve-to-target"],
+      "rootSatisfied": false
+    },
+    {
+      "sampleId": "unknown-missing",
+      "steps": [
+        {
+          "stepId": "step-unknown",
+          "optionSemantics": "judge=unknown",
+          "executionReceiptRef": "receipt:dynamic",
+          "postStateRef": "state:missing",
+          "evidenceRefs": ["ev:missing"]
+        }
+      ],
+      "rootConditionStates": [
+        { "conditionRef": "cond:declaration", "state": "unknown" }
+      ],
+      "rootGaps": ["gap:missing-declaration"],
+      "rootSatisfied": false
+    }
+  ],
+  "knownMissRuns": [
+    {
+      "sampleId": "known-true-pos",
+      "steps": [
+        {
+          "stepId": "step-miss",
+          "optionSemantics": "judge=false",
+          "executionReceiptRef": "receipt:tsc",
+          "postStateRef": "state:pos",
+          "evidenceRefs": ["ev:pos"]
+        }
+      ],
+      "rootConditionStates": [],
+      "rootGaps": ["gap:wrong"],
+      "rootSatisfied": false
+    }
+  ],
+  "unknownMisreportRuns": [
+    {
+      "sampleId": "unknown-missing",
+      "steps": [
+        {
+          "stepId": "step-guess",
+          "optionSemantics": "judge=false",
+          "executionReceiptRef": "receipt:dynamic",
+          "postStateRef": "state:missing",
+          "evidenceRefs": ["ev:missing"]
+        }
+      ],
+      "rootConditionStates": [
+        { "conditionRef": "cond:declaration", "state": "unknown" }
+      ],
+      "rootGaps": ["gap:missing-declaration"],
+      "rootSatisfied": false
+    }
+  ]
+}
