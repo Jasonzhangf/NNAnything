@@ -2590,3 +2590,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Board：milestone `jenny-tsjs-fixed-env-implementation-milestone-r1` revision 9 `working`（owner Emma，reviewer Alice），r2 head `1201b508` 为当前最近可审计交付点；integration `jenny-tsjs-fixed-env-implementation-integration-r1` 更新到 revision 28 `blocked`，记录父任务 revision 9 事实，等待 Emma 精确交付与 Alice review accept 后由 master 核验 diff、合并 main、push origin/main 并做合并后回归。David 名下仍无开放任务，无 live 任务可改派。
 - Longhorizon：goal deadline 已消费并显式续订（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，one-shot armed）；project patrol `sub-m1793420812006-236` 保持 armed（interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留）。`collab ceo reply` 已记录实质进度（revision=19）。
 - Roadmap：`docs/autonomous-capability-roadmap.md` 自有调度章节同步 board revision 9 与 integration revision 28。本轮未改代码、训练、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-05 master 收口（00:23Z，集成 board revision 29）
+
+- 已消费 `collab recv`：`m1793838069860-3946`（Emma 正态 idle；她仍持有 open milestone，不作为可安排 idle）。
+- Board：integration `jenny-tsjs-fixed-env-implementation-integration-r1` 更新到 revision 29，仍 `blocked`，next_step 记录父任务 revision 9 `working`、r2 head `1201b508`、typed acceptance 已完成到当前 r2，等待 Emma 精确交付与 Alice review accept。
+- Git：`note.md` 与 `docs/autonomous-capability-roadmap.md` 已提交 `b86d468` 并推送 `origin/main`，本地与远端一致。
+- CEO：`collab ceo reply` 记录本轮实质进度（revision=20，notified=false，reported=false）。
+- 巡检：project patrol `sub-m1793420812006-236` 保持 armed，运行 interval 900000 vs 目标 1500000，`PATROL_CADENCE_RUNTIME_GAP` 如实保留。David 名下仍无开放任务。
