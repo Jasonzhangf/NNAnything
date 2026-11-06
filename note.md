@@ -2717,3 +2717,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 关系变更：Henry 工作专长更新为「独立验证」。已登记后续任务 `henry-converter-post-rework-independent-verification-20261106`（p1 read_only，parent=`iris-real-converter-engineering-20261106`，executor=Henry，reviewer=Alice），保持 pending 不邀请；待 Iris 缺口1/2/3 + Alice 定点复查 + 修订候选配置就绪后按该合同启动。
 - 当前队列：P0 `iris-real-converter-engineering-20261106` rework rev40（Iris 修缺口2/3）；P1 `nn-code-redesign-symbols-tsjs-r1` rework rev12（Carol 修设计）；P1 `david-fixed-env-engineering-gap-20261106` invited rev4（David）；Grace 4h 浏览器/训练巡检 working；Emma 名下 6 条 redesign 与 fixed-env milestone 仍因 presence missing 保留原 owner，不伪造接手。Henry 预检收口后 idle，无其他已授权且就绪的任务可派，保留接件。
 - Longhorizon goal `docs/autonomous-capability-roadmap.md` 30m 订阅 active/subscribed；project patrol `sub-m1793963843713-143` armed。本轮未改产品代码、语料、权重、gold、threshold、采用状态、产品接线或 runtime 安装。
+
+## 2026-11-06 master 巡检续：TSJS 设计集成、bug 收口与停工 park（20:16Z）
+
+- 已消费 `m1793995700665-1495`、`m1793995704697-1496`、`m1793995704825-1497`、`m1793995883509-1501`、`m1793995996212-1506` 及 worker-idle 批次；inbox 无遗留。
+- `nn-code-redesign-symbols-tsjs-r1`：Alice 已接受设计子交付（`ee15919`，审计 `alice-tsjs-symbols-design-audit-20261106.md`）。master 用 3-way merge 集成到 main `c576a3f`（仅新增 `docs/nn-code-redesign-symbols-tsjs-design.md` 189 行，`note.md` 巡检节保留），`node scripts/check-layout.mjs` exit 0，origin/main 核对 `c576a3f`，board 记录 integrated。按 Alice 要求任务保持 merged/open，next_step 保留训练、reload/holdout、独立留出与旧 nn-code 回归，不得据设计 accept 关闭训练目标；Carol 已清理 design worktree 与本地分支，当前仅剩 main 与 Iris converter 树两个 worktree。
+- bug 收口：逐条 `appsdk bug show` 核对 Grace 第四轮独立复核后关闭 `4de6e32`（`a465132`，33/33 pass）、`c9335d5`（`602f8a0`）、`c566865`（`85e6042`/`deb9456`，bin: NONE）。`ad00d0e` 浏览器阈值仍 open，等 browser 设计 owner 补开发集选择回执或改注释为固定设计常量；本轮未改阈值。
+- `david-fixed-env-engineering-gap-20261106`：属实现/接线，按授权冲突裁定前停工边界撤回邀请（rev5 pending），next_step 写 cause/owner/unblock：裁定后按原合同重新邀请 David，未启动实现。
+- `henry-converter-post-rework-independent-verification-20261106`：保持 pending 并补门禁（rev2）：Iris 缺口1/2/3 修复 + Alice 定点复查 + 修订候选/配置就绪后启动；read_only。
+- 当前未关闭队列：P0 `iris-real-converter-engineering-20261106` rework（Iris 修缺口2/3）；P0 Emma 首训/工程三条；P0 整体重设计编排 working（Iris）；P1 Carol TSJS merged（保留训练后继）；P1 David park；P1 Henry gate；P1 Grace 巡检 working；Emma 名下 6 条 redesign 因 presence missing 保留原 owner。未发现其他可派且已授权的实现/训练工作。
+- Longhorizon goal active/subscribed；project patrol `sub-m1793963843713-143` armed；Grace 4h deadline 下一触发约 2.6 小时后。本轮未改产品代码、语料、权重、gold、threshold、采用或 runtime 安装。
