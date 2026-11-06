@@ -71,10 +71,47 @@ async function makeCorpus({ badGold = false } = {}) {
     partition: "train",
     derivationFamily: { familyId: "test-family-v1" },
   });
+  const requestedDeclaration = {
+    declarationRef: "decl:sources/src/impl.ts#top:helper",
+    moduleRef: "module:sources/src/impl.ts",
+    name: "helper",
+    role: "export",
+    kind: "function",
+    evidenceRefs: ["evidence/pre-state.jsonl#request"],
+  };
   await writeJsonl(join(family, "evidence", "pre-state.jsonl"), [
-    { sampleId: "episode-1", stepId: "step-1", observedFacts: ["import helper from ./one"] },
-    { sampleId: "episode-1", stepId: "step-2", observedFacts: ["import helper from ./two"] },
-    { sampleId: "label-missing-1", stepId: "step-1", observedFacts: ["not observed"] },
+    {
+      sampleId: "episode-1",
+      stepId: "step-1",
+      observedFacts: ["import helper from ./one"],
+      callSiteRef: "call:one:helper",
+      pendingRelationRef: "relation:one:helper",
+      requestedDeclaration,
+      observedDeclarations: [requestedDeclaration],
+    },
+    {
+      sampleId: "episode-1",
+      stepId: "step-2",
+      observedFacts: ["import helper from ./two"],
+      callSiteRef: "call:two:helper",
+      pendingRelationRef: "relation:two:helper",
+      requestedDeclaration,
+      observedDeclarations: [{
+        declarationRef: "decl:sources/src/impl.ts#top:otherHelper",
+        moduleRef: "module:sources/src/impl.ts",
+        name: "otherHelper",
+        role: "local",
+        kind: "function",
+        evidenceRefs: ["evidence/pre-state.jsonl#step-2"],
+      }],
+    },
+    {
+      sampleId: "label-missing-1",
+      stepId: "step-1",
+      observedFacts: ["not observed"],
+      requestedDeclaration,
+      observedDeclarations: [],
+    },
   ]);
   await writeJsonl(join(family, "episode-test-family.jsonl"), [
     episode("episode-1", "step-1", "c:judge:true"),

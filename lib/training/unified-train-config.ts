@@ -353,7 +353,7 @@ export async function loadStudentRowsFile(rowsPath: string): Promise<readonly St
     readonly featureSchemaVersion: string;
     readonly encoderVersion: string;
     readonly partition: StudentGroup["partition"];
-    readonly candidateEnumeration: "complete";
+    readonly candidateEnumeration: StudentGroup["candidateEnumeration"];
     readonly coverageCursorRef: string;
     readonly evidenceRefs: readonly string[];
     readonly failureMode: string | null;
@@ -389,7 +389,10 @@ export async function loadStudentRowsFile(rowsPath: string): Promise<readonly St
         featureSchemaVersion: String(record.featureSchemaVersion ?? ""),
         encoderVersion: String(record.encoderVersion ?? ""),
         partition: record.partition as StudentGroup["partition"],
-        candidateEnumeration: "complete",
+        candidateEnumeration:
+          record.candidateEnumeration === "truncated" || record.candidateEnumeration === "enumeration_failed"
+            ? record.candidateEnumeration
+            : "complete",
         coverageCursorRef: String(record.coverageCursorRef ?? ""),
         evidenceRefs: Array.isArray(record.evidenceRefs) ? record.evidenceRefs as readonly string[] : [],
         failureMode: (record.failureMode ?? null) as string | null,

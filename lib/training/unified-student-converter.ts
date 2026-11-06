@@ -1,9 +1,9 @@
 // Student-side converter: source observation + legal skills -> complete S_g and x[64].
 //
 // Path A of the launch contract (§4.4.2). It must never read `labels/gold.jsonl`
-// or any teacher resolution. The complete candidate group is the finite typed
-// judge vocabulary generated from the observation (not gold), so removing gold
-// leaves every student row byte-identical.
+// or any teacher resolution. The candidate group is the finite typed action set
+// generated from the current observation (not gold), so removing gold leaves
+// every student row byte-identical.
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -52,7 +52,7 @@ export interface StudentGroup {
   readonly featureSchemaVersion: string;
   readonly encoderVersion: string;
   readonly partition: "TRAIN" | "DEV" | "VERIFICATION";
-  readonly candidateEnumeration: "complete";
+  readonly candidateEnumeration: "complete" | "truncated" | "enumeration_failed";
   readonly coverageCursorRef: string;
   readonly evidenceRefs: readonly string[];
   readonly failureMode: string | null;
@@ -140,7 +140,7 @@ export function convertEpisodeToStudentGroup(
     featureSchemaVersion: "nnanything.unified.feature.v1",
     encoderVersion: UNIFIED_ENCODER_VERSION,
     partition: partitionOf(episode.partition),
-    candidateEnumeration: "complete",
+    candidateEnumeration: context.candidateGroup.enumeration,
     coverageCursorRef: `coverage:${episode.sampleId}`,
     evidenceRefs: episode.evidenceRefs,
     failureMode: episode.failureMode,
@@ -164,6 +164,15 @@ export async function loadEpisodeFamily(familyDir: string): Promise<readonly Rel
       readonly sampleId: string;
       readonly stepId?: string;
       readonly observedFacts: readonly string[];
+      readonly pendingRelationRef?: string | null;
+      readonly callSiteRef?: string | null;
+      readonly calleeName?: string | null;
+      readonly requestedDeclaration?: RelationStepEpisode["requestedDeclaration"];
+      readonly observedBindings?: RelationStepEpisode["observedBindings"];
+      readonly observedDeclarations?: RelationStepEpisode["observedDeclarations"];
+      readonly remainingObligations?: RelationStepEpisode["remainingObligations"];
+      readonly cursorOpen?: boolean;
+      readonly enumerationFailure?: boolean;
     });
   const preState = new Map(
     preStateLines.map(record => [
@@ -208,6 +217,15 @@ export async function loadEpisodeFamily(familyDir: string): Promise<readonly Rel
         entryFile: raw.entryFile,
         targetRef: raw.goal.targetRef,
         observedFacts: state.observedFacts,
+        pendingRelationRef: state.pendingRelationRef ?? null,
+        callSiteRef: state.callSiteRef ?? null,
+        calleeName: state.calleeName ?? null,
+        requestedDeclaration: state.requestedDeclaration ?? null,
+        observedBindings: state.observedBindings ?? [],
+        observedDeclarations: state.observedDeclarations ?? [],
+        remainingObligations: state.remainingObligations ?? [],
+        cursorOpen: state.cursorOpen === true,
+        enumerationFailure: state.enumerationFailure === true,
         evidenceRefs: raw.evidenceRefs,
         failureMode: raw.failureMode,
         derivationFamily: manifest.derivationFamily?.familyId ?? manifest.sourceGroup,

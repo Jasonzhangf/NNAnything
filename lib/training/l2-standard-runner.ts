@@ -541,6 +541,10 @@ function dataGateRowsForRunner(
       partition: group.partition,
       route,
       input: first.input,
+      candidateInputs: group.candidates.map(candidate => ({
+        candidateRef: candidate.candidateRef,
+        input: candidate.input,
+      })),
       missingMode: first.missingMode,
       candidates,
       allowed,

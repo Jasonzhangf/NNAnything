@@ -129,3 +129,44 @@ test("teacher chain and undeclared missing fill are rejected", async () => {
   assert.equal(missing.status, "DATA_INVALID");
   assert.ok(missing.violations.some(v => v.reasonCode === "MISSING_FILLED"));
 });
+
+test("same student input with different gold is a supervision conflict, not silently fitted", async () => {
+  const dir = await withRows([
+    row({ rowId: "gold-true", allowed: ["a"], gold: "a" }),
+    row({ rowId: "gold-b", allowed: ["b"], gold: "b" }),
+  ]);
+  const result = await validateUnified64SlotTrainingData(config(dir));
+  assert.equal(result.status, "DATA_INVALID");
+  assert.equal(result.counts.learnedRows, 0);
+  assert.ok(result.violations.some(v =>
+    v.reasonCode === "SUPERVISION_CONFLICT" && v.message.includes("gold-true") && v.message.includes("gold-b")
+  ));
+});
+
+test("candidate-group vectors decide conflict when the full group input is present", async () => {
+  const first = Array.from({ length: 64 }, () => 0);
+  const second = Array.from({ length: 64 }, (_, index) => (index === 45 ? index / 100 : 0));
+  const dir = await withRows([
+    row({
+      rowId: "gold-true",
+      allowed: ["a"],
+      gold: "a",
+      candidateInputs: [
+        { candidateRef: "a", input: first },
+        { candidateRef: "b", input: first },
+      ],
+    }),
+    row({
+      rowId: "gold-b",
+      allowed: ["b"],
+      gold: "b",
+      candidateInputs: [
+        { candidateRef: "a", input: first },
+        { candidateRef: "b", input: second },
+      ],
+    }),
+  ]);
+  const result = await validateUnified64SlotTrainingData(config(dir));
+  assert.equal(result.status, "READY");
+  assert.equal(result.violations.length, 0);
+});
