@@ -28,7 +28,7 @@ function skill() {
     parameterSchema: {
       schemaVersion: "1",
       parameters: [
-        { name: "target", type: "declaration", required: true, allowedTargetKinds: ["helper"], cardinality: "one" },
+        { name: "target", type: "declaration", required: true, allowedTargetKinds: ["function", "class"], cardinality: "one" },
       ],
     },
     capabilities: ["read"],
@@ -93,6 +93,7 @@ function context({ currentDecl, outcome = "success", candidates }) {
       goalRef: "goal:verify",
       kind: "verify",
       targetRef: TARGET,
+      requestedDeclaration: declaration({ declarationRef: TARGET, moduleRef: "module:impl.ts", name: "helper" }),
       satisfactionThreshold: { state: "known", value: 50, evidenceRefs: ["ev:goal"] },
       constraints: [],
     },
@@ -176,7 +177,7 @@ function expectVectors(kind) {
       currentDecl: null,
       outcome: "failed",
       G2: [1, 1, 0, 0, 1, 0, 0, 0],
-      G5: [1, 1, 1, 1, 0, -1, -1, 0.5],
+      G5: [1, 0, 1, 1, 0, -1, -1, 0.5],
       G7: [1, 0, 0, 0, 0, -1, -1, 0.5],
     },
   };
@@ -275,7 +276,7 @@ test("advance step0 matches accepted v0.9 vector", () => {
     [0, 0, 0, 0, 0, 0, 0, 0],
     [0, 1, 0, 0, 0, 0, 1, 0],
     [0.75, 0, 0, 1, 0, 0, 0, 0],
-    [1, 1, 1, 1, 1, 1, -1, 0.5],
+    [1, 0, 1, 1, 1, 1, -1, 0.5],
     [0, 0, 0, 0, 0, 1, 1, 0],
     [1, 0, 0, 0, 0, -1, -1, 0.5],
   ]));

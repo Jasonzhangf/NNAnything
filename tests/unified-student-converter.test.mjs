@@ -3,6 +3,8 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { relationStepContext } from "../dist/training/unified-step-context-builder.js";
+import { encodeUnifiedCandidateGroup } from "../dist/training/unified-encoder.js";
 import {
   UNIFIED_STUDENT_GROUP_SCHEMA,
   convertEpisodeToStudentGroup,
@@ -35,7 +37,7 @@ test("builds complete typed judge S_g with one 64-slot row per candidate", () =>
   assert.equal(group.candidateEnumeration, "complete");
   assert.deepEqual(
     group.candidates.map(candidate => candidate.optionSemantics),
-    ["judge=true", "judge=false", "judge=unknown"],
+    ["judge=true", "judge=false", "judge=unknown", "RETURN"],
   );
   for (const candidate of group.candidates) {
     assert.equal(candidate.input.length, 64);
@@ -63,11 +65,95 @@ test("same episode converted twice produces identical rows", () => {
   assert.deepEqual(convertEpisodeToStudentGroup(episode), convertEpisodeToStudentGroup(episode));
 });
 
+test("typed observations produce dynamic candidates without reading correction text", () => {
+  const requested = {
+    declarationRef: "decl:closure.ts#top:base",
+    moduleRef: "module:closure.ts",
+    name: "base",
+    role: "export",
+    kind: "function",
+    evidenceRefs: ["ev:decl"],
+  };
+  const base = {
+    ...familyFixture(),
+    targetRef: "decl:closure.ts#top:base",
+    pendingRelationRef: "relation:closure.ts:makeShadow:addOffset",
+    callSiteRef: "call:closure.ts:1",
+    requestedDeclaration: requested,
+    observedDeclarations: [{
+      declarationRef: "decl:closure.ts:makeShadow:local:base",
+      moduleRef: "module:closure.ts",
+      name: "base",
+      role: "shadow",
+      kind: "function",
+      evidenceRefs: ["ev:local"],
+    }],
+    observedBindings: [{
+      edgeRef: "edge:closure.ts:import:1",
+      callSiteRef: "call:closure.ts:1",
+      fromNodeRef: "module:entry.ts",
+      edgeKind: "import",
+      sourceName: "base",
+      sourceModule: { state: "known", value: "module:entry.ts", evidenceRefs: ["ev:edge"] },
+      targetName: "base",
+      targetModule: { state: "known", value: "module:closure.ts", evidenceRefs: ["ev:edge"] },
+      moduleSpecifierRaw: "./closure",
+      sourceContent: { state: "observed", resultRefs: [], reason: null, evidenceRefs: ["ev:edge"] },
+      visibility: { state: "known", value: "reachable", evidenceRefs: ["ev:edge"] },
+      hopDepth: 1,
+      evidenceRefs: ["ev:edge"],
+    }],
+    remainingObligations: [{ kind: "observe", ref: "obligation:registry", informationGain: 1 }],
+  };
+  const withoutCorrection = convertEpisodeToStudentGroup(base);
+  const withPostHocCorrection = convertEpisodeToStudentGroup({
+    ...base,
+    correctedBindingFact: {
+      origin: "post_hoc_oracle",
+      text: "computedName folds to base and registry maps base to closure.ts#top:base",
+    },
+  });
+  assert.deepEqual(withPostHocCorrection, withoutCorrection);
+  assert.deepEqual(
+    withoutCorrection.candidates.map(candidate => candidate.optionSemantics),
+    ["judge=true", "judge=false", "judge=unknown", "advance", "observe", "DEFER"],
+  );
+});
+
 test("partitionOf maps only explicit source partitions", () => {
   assert.equal(partitionOf("train"), "TRAIN");
   assert.equal(partitionOf("dev"), "DEV");
   assert.equal(partitionOf("verification"), "VERIFICATION");
   assert.throws(() => partitionOf("TRAIN"), TypeError);
+});
+
+test("open enumeration cursor stays unencodable before training", () => {
+  const context = relationStepContext({
+    ...familyFixture(),
+    pendingRelationRef: "relation:closure.ts:makeAdder:addOffset",
+    callSiteRef: "call:closure.ts:1",
+    requestedDeclaration: {
+      declarationRef: "decl:closure.ts#top:base",
+      moduleRef: "module:closure.ts",
+      name: "base",
+      role: "export",
+      kind: "function",
+      evidenceRefs: ["ev:decl"],
+    },
+    observedBindings: [],
+    observedDeclarations: [],
+    remainingObligations: [{ kind: "observe", ref: "obligation:registry", informationGain: 1 }],
+    cursorOpen: true,
+  });
+  assert.equal(context.candidateGroup.enumeration, "truncated");
+  assert.deepEqual(
+    context.candidateGroup.candidates.map(candidate => candidate.optionSemantics),
+    ["judge=true", "judge=false", "judge=unknown", "observe", "DEFER"],
+  );
+  assert.throws(
+    () => encodeUnifiedCandidateGroup(context),
+    /candidate group must be complete before encoding/,
+  );
 });
 
 test("loader reads only episode and pre-state observation inputs", async () => {
