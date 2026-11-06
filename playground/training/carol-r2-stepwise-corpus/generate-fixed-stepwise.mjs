@@ -835,8 +835,20 @@ function typedRequestFor(episode, typedRequest) {
   };
 }
 
+function typedRequestJoinKey(row) {
+  return `${row.family ?? row.sourceGroup ?? ""}|${row.sampleId}`;
+}
+
 function cloneRequest(request) {
   return structuredClone(request);
+}
+
+function requestRelationFor(sample, fallbackPendingRelationRef) {
+  const request = cloneRequest(sample.request);
+  const pendingRelationRef =
+    request.relationObligation.pendingRelationRef ?? fallbackPendingRelationRef;
+  request.relationObligation.pendingRelationRef = pendingRelationRef;
+  return { request, pendingRelationRef };
 }
 
 function makeStep({
@@ -894,7 +906,7 @@ function declarationForLocalCall(root, parsed, call) {
 
 function missingReadResult(sample, read, reason) {
   const sampleId = sample.episode.sampleId;
-  const pendingRelationRef = `pending:${sampleId}`;
+  const { pendingRelationRef } = requestRelationFor(sample, `pending:${sampleId}`);
   const evidence = read.receipt.evidenceRefs[0];
   const failedEdge = {
     edgeRef: `edge:${sample.episode.entryFile}:import:0`,
@@ -976,7 +988,7 @@ function missingReadResult(sample, read, reason) {
 function aliasSteps(sample, root) {
   const { episode, familyRoot } = sample;
   const sampleId = episode.sampleId;
-  const pendingRelationRef = `pending:${sampleId}`;
+  const { request, pendingRelationRef } = requestRelationFor(sample, `pending:${sampleId}`);
   const entryFile = path.join(familyRoot, episode.entryFile);
   const entryRead = readActionResult(sampleId, "step0-source-read", null, root, entryFile, pendingRelationRef);
   if (entryRead.parsed === null) {
@@ -990,9 +1002,9 @@ function aliasSteps(sample, root) {
   if (!firstEdge) {
     return missingReadResult(sample, entryRead, `entry symbol ${episode.entrySymbol} not observed`);
   }
-  const callSiteRef = `call:${entryParsed.rel}:${episode.entrySymbol}`;
-  const request = cloneRequest(sample.request);
-  request.relationObligation.callSiteRef ??= callSiteRef;
+  const derivedCallSiteRef = `call:${entryParsed.rel}:${episode.entrySymbol}`;
+  const callSiteRef = request.relationObligation.callSiteRef ?? derivedCallSiteRef;
+  request.relationObligation.callSiteRef = callSiteRef;
   const steps = [];
   const reads = [entryRead.actualRead];
   const ast = [astObservation(root, entryParsed)];
@@ -1252,7 +1264,7 @@ function aliasSteps(sample, root) {
 function closureSteps(sample, root) {
   const { episode, familyRoot } = sample;
   const sampleId = episode.sampleId;
-  const pendingRelationRef = `pending:${sampleId}`;
+  const { request, pendingRelationRef } = requestRelationFor(sample, `pending:${sampleId}`);
   const entryFile = path.join(familyRoot, episode.entryFile);
   const entryRead = readActionResult(sampleId, "step0-source-read", null, root, entryFile, pendingRelationRef);
   if (entryRead.parsed === null) return missingReadResult(sample, entryRead, "entry source read failed");
@@ -1297,9 +1309,9 @@ function closureSteps(sample, root) {
     return missingReadResult(sample, closureRead, "base call binding is not resolved");
   }
   const declaration = resolved.declaration;
-  const callSiteRef = `call:${closureParsed.rel}:${functionName}.addOffset:base`;
-  const request = cloneRequest(sample.request);
-  request.relationObligation.callSiteRef ??= callSiteRef;
+  const derivedCallSiteRef = `call:${closureParsed.rel}:${functionName}.addOffset:base`;
+  const callSiteRef = request.relationObligation.callSiteRef ?? derivedCallSiteRef;
+  request.relationObligation.callSiteRef = callSiteRef;
   const sourceContent = sourceContentObserved([declaration.declarationRef], [parseEvidenceRef(root, closureParsed)]);
   const shadowFacts =
     sampleId === "b-closure-negative-shadow"
@@ -1363,7 +1375,7 @@ function closureSteps(sample, root) {
 function dynamicSteps(sample, root) {
   const { episode, familyRoot } = sample;
   const sampleId = episode.sampleId;
-  const pendingRelationRef = `pending:${sampleId}`;
+  const { request, pendingRelationRef } = requestRelationFor(sample, `pending:${sampleId}`);
   const entryPath = path.join(familyRoot, episode.entryFile);
   const entryRead = readActionResult(sampleId, "step0-source-read", null, root, entryPath, pendingRelationRef);
   if (entryRead.parsed === null) return missingReadResult(sample, entryRead, "entry source read failed");
@@ -1375,9 +1387,9 @@ function dynamicSteps(sample, root) {
   if (!registryEdge || !computedDeclaration) {
     return missingReadResult(sample, entryRead, "entry dynamic binding facts not found");
   }
-  const callSiteRef = `call:${entryParsed.rel}:registry[computedName]`;
-  const request = cloneRequest(sample.request);
-  request.relationObligation.callSiteRef ??= callSiteRef;
+  const derivedCallSiteRef = `call:${entryParsed.rel}:registry[computedName]`;
+  const callSiteRef = request.relationObligation.callSiteRef ?? derivedCallSiteRef;
+  request.relationObligation.callSiteRef = callSiteRef;
   const entryEvidence = [parseEvidenceRef(root, entryParsed)];
   const obligations0 = [
     observeObligation(
@@ -1612,7 +1624,7 @@ function dynamicSteps(sample, root) {
 function missingModuleSteps(sample, root) {
   const { episode, familyRoot } = sample;
   const sampleId = episode.sampleId;
-  const pendingRelationRef = `pending:${sampleId}`;
+  const { request, pendingRelationRef } = requestRelationFor(sample, `pending:${sampleId}`);
   const entryPath = path.join(familyRoot, episode.entryFile);
   const entryRead = readActionResult(sampleId, "step0-source-read", null, root, entryPath, pendingRelationRef);
   if (entryRead.parsed === null) return missingReadResult(sample, entryRead, "entry source read failed");
@@ -1656,8 +1668,9 @@ function missingModuleSteps(sample, root) {
       errorMessage: `module ${importBinding.specifier} not resolved`,
     },
   };
-  const request = cloneRequest(sample.request);
-  request.relationObligation.callSiteRef ??= `call:${entryRead.parsed.rel}:${episode.entrySymbol}`;
+  const derivedCallSiteRef = `call:${entryRead.parsed.rel}:${episode.entrySymbol}`;
+  const callSiteRef = request.relationObligation.callSiteRef ?? derivedCallSiteRef;
+  request.relationObligation.callSiteRef = callSiteRef;
   const step = makeStep({
     stepId: "step-0",
     localSyntax: localSyntax(
@@ -1672,8 +1685,8 @@ function missingModuleSteps(sample, root) {
     receipts: [failedRead.receipt],
     currentRelation: currentRelation(
       pendingRelationRef,
-      request.relationObligation.callSiteRef,
-      bindingUnresolved(request.relationObligation.callSiteRef, "observation_failed"),
+      callSiteRef,
+      bindingUnresolved(callSiteRef, "observation_failed"),
     ),
     cursorState: "failed",
     cursorEvidence: failedEdge.evidenceRefs,
@@ -1740,6 +1753,7 @@ function buildStudent(sample, root) {
   }
   return {
     ...built,
+    requestJoin: sample.requestJoin,
     studentInputs: {
       episode: sample.episode,
       request: cloneRequest(sample.request),
@@ -2033,13 +2047,40 @@ export async function generateFixedStepwise({
   }
 
   const typedRows = readJsonl(typedRequestSource);
-  const typedBySample = new Map(
-    typedRows.map((row) => [row.sampleId, row]),
-  );
+  const typedBySample = new Map();
+  const duplicateTypedKeys = new Set();
+  for (const row of typedRows) {
+    const key = typedRequestJoinKey(row);
+    if (typedBySample.has(key)) duplicateTypedKeys.add(key);
+    else typedBySample.set(key, row);
+  }
   for (const sample of samples) {
+    const key = typedRequestJoinKey({
+      family: sample.family,
+      sampleId: sample.episode.sampleId,
+    });
+    let requestJoin;
+    if (typedRequestsOverride?.[sample.episode.sampleId]) {
+      requestJoin = { state: "joined", reason: null };
+    } else if (duplicateTypedKeys.has(key)) {
+      requestJoin = { state: "duplicate", reason: "duplicate typed request join" };
+    } else {
+      const row = typedBySample.get(key);
+      if (!row) {
+        requestJoin = { state: "missing", reason: "typed request row missing" };
+      } else if (row.sourceGroup && row.sourceGroup !== sample.episode.sourceGroup) {
+        requestJoin = {
+          state: "source-mismatch",
+          reason: "typed request sourceGroup does not match student sourceGroup",
+        };
+      } else {
+        requestJoin = { state: "joined", reason: null };
+      }
+    }
+    sample.requestJoin = requestJoin;
     sample.request =
       typedRequestsOverride?.[sample.episode.sampleId] ??
-      typedRequestFor(sample.episode, typedBySample.get(sample.episode.sampleId));
+      typedRequestFor(sample.episode, typedBySample.get(key));
   }
 
   const supervisionRowsSource =
@@ -2067,6 +2108,23 @@ export async function generateFixedStepwise({
   }
   const studentRows = builtSamples.map((built) => built.student);
   const supervisionRows = builtSamples.map((built) => {
+    if (built.requestJoin?.state !== "joined") {
+      const reason =
+        built.requestJoin?.reason ??
+        `typed request join not ready for ${built.student.sampleId}`;
+      return notReadySupervision(
+        built,
+        supervisionBySample.get(
+          supervisionJoinKey({
+            sampleId: built.student.sampleId,
+            sourceGroup: built.student.sourceGroup,
+            family: built.family,
+          }),
+        ) ?? null,
+        supervisionOverride?.[built.student.sampleId] ?? null,
+        reason,
+      );
+    }
     const sourceKey = supervisionJoinKey({
       sampleId: built.student.sampleId,
       sourceGroup: built.student.sourceGroup,
@@ -2124,11 +2182,6 @@ export async function generateFixedStepwise({
   }
 
   const studentText = studentRows.map((row) => JSON.stringify(row)).join("\n") + "\n";
-  const baseBuiltSamples = samples.map((sample) => buildStudent(sample, sample.familyRoot));
-  const baseStudentRows = baseBuiltSamples.map((built) => built.student);
-  const supervisionVariantStudentBytesEqual =
-    baseStudentRows.map((row) => JSON.stringify(row)).join("\n") ===
-    studentRows.map((row) => JSON.stringify(row)).join("\n");
   const studentInputRows = builtSamples.map((built) => built.studentInputs);
   const studentBuildInputsContainForbiddenFields = studentInputRows.some(
     (input) => containsSupervisionOnlyKeys(input),
@@ -2183,10 +2236,9 @@ export async function generateFixedStepwise({
       studentGenerationConsumesSupervision:
         studentBuildInputsContainForbiddenFields ||
         studentForbiddenFields ||
-        studentRowsContainGoldBytes ||
-        !supervisionVariantStudentBytesEqual,
-      supervisionVariantStudentBytesEqual,
-      studentRowsByteStableAcrossSupervisionVariants: supervisionVariantStudentBytesEqual,
+        studentRowsContainGoldBytes,
+      supervisionIsolationTestRef:
+        "tests/carol-tsjs-r2-stepwise-corpus.test.mjs :: keeps supervision S_g/A_g unchanged when a student candidate is wrong",
       supervisionRowsContainStudentPath,
     },
     assertions: {

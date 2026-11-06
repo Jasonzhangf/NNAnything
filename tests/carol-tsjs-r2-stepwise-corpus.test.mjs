@@ -217,6 +217,7 @@ test("keeps known and missing typed request fields without rebuilding them", asy
   await writeFile(
     typedSource,
     `${JSON.stringify({
+      family: "train-module-export-alias-a",
       sampleId: "a-module-positive-alias",
       request: {
         requestRef: "request:partial-alias",
@@ -242,6 +243,7 @@ test("keeps known and missing typed request fields without rebuilding them", asy
     typedRequestSource: typedSource,
   });
   const students = await readJsonl(path.join(outDir, "student-observations.jsonl"));
+  const supervision = await readJsonl(path.join(outDir, "independent-supervision.jsonl"));
   const alias = rowBySample(students, "a-module-positive-alias");
   assert.equal(alias.request.requestRef, "request:partial-alias");
   assert.deepEqual(alias.request.requestedDeclaration.declarationRef, {
@@ -261,6 +263,102 @@ test("keeps known and missing typed request fields without rebuilding them", asy
   assert.equal(alias.request.requestedDeclaration.sourceTargetRef, "opaque:source-target");
   assert.equal(alias.request.relationObligation.pendingRelationRef, "pending:partial-alias");
   assert.equal(alias.request.relationObligation.callSiteRef, "call:opaque:call-site");
+  for (const step of alias.steps) {
+    assert.equal(step.currentRelation.pendingRelationRef, "pending:partial-alias");
+    assert.equal(step.currentRelation.callSiteRef, "call:opaque:call-site");
+    assert.equal(step.previousExecution.value.pendingRelationRef, "pending:partial-alias");
+  }
+  assert.equal(
+    alias.steps[0].remainingObligations[0].pendingRelationRef,
+    "pending:partial-alias",
+  );
+  assert.equal(
+    rowBySample(supervision, "a-module-positive-alias").trainingEligible,
+    true,
+  );
+  const missingRequestRow = rowBySample(supervision, "b-closure-positive-inner-call");
+  assert.equal(missingRequestRow.trainingEligible, false);
+  assert.match(missingRequestRow.notReadyReason, /typed request row missing/i);
+  assert.equal(
+    missingRequestRow.joinFailures.some(
+      (failure) => failure.reason === "typed request row missing",
+    ),
+    true,
+  );
+
+  const duplicateRoot = await mkdtemp(path.join(tmpdir(), "carol-r2-request-duplicate-"));
+  const duplicateSource = path.join(duplicateRoot, "student-observations.jsonl");
+  const duplicateOut = path.join(duplicateRoot, "out");
+  await mkdir(duplicateOut, { recursive: true });
+  const duplicateRow = {
+    family: "train-module-export-alias-a",
+    sampleId: "a-module-positive-alias",
+    request: {
+      requestRef: "request:duplicate-alias",
+      requestedDeclaration: { declarationRef: "decl:opaque#helper" },
+      relationObligation: {
+        pendingRelationRef: "pending:duplicate-alias",
+        callSiteRef: "call:opaque:duplicate",
+      },
+    },
+  };
+  await writeFile(
+    duplicateSource,
+    `${JSON.stringify(duplicateRow)}\n${JSON.stringify(duplicateRow)}\n`,
+  );
+  await generateFixedStepwise({
+    corpusRoot: CORPUS_ROOT,
+    outDir: duplicateOut,
+    typedRequestSource: duplicateSource,
+  });
+  const duplicateSupervision = await readJsonl(
+    path.join(duplicateOut, "independent-supervision.jsonl"),
+  );
+  const duplicateAlias = rowBySample(duplicateSupervision, "a-module-positive-alias");
+  assert.equal(duplicateAlias.trainingEligible, false);
+  assert.match(duplicateAlias.notReadyReason, /duplicate typed request join/i);
+  assert.equal(
+    duplicateAlias.joinFailures.some(
+      (failure) => failure.reason === "duplicate typed request join",
+    ),
+    true,
+  );
+
+  const sourceMismatchRoot = await mkdtemp(
+    path.join(tmpdir(), "carol-r2-request-source-mismatch-"),
+  );
+  const sourceMismatchSource = path.join(sourceMismatchRoot, "student-observations.jsonl");
+  const sourceMismatchOut = path.join(sourceMismatchRoot, "out");
+  await mkdir(sourceMismatchOut, { recursive: true });
+  await writeFile(
+    sourceMismatchSource,
+    `${JSON.stringify({
+      ...duplicateRow,
+      sourceGroup: "other-source-group",
+      request: {
+        requestRef: "request:source-mismatch",
+        requestedDeclaration: { declarationRef: "decl:opaque#helper" },
+        relationObligation: {
+          pendingRelationRef: "pending:source-mismatch",
+          callSiteRef: "call:opaque:source-mismatch",
+        },
+      },
+    })}\n`,
+  );
+  await generateFixedStepwise({
+    corpusRoot: CORPUS_ROOT,
+    outDir: sourceMismatchOut,
+    typedRequestSource: sourceMismatchSource,
+  });
+  const sourceMismatchSupervision = await readJsonl(
+    path.join(sourceMismatchOut, "independent-supervision.jsonl"),
+  );
+  const sourceMismatchAlias = rowBySample(sourceMismatchSupervision, "a-module-positive-alias");
+  assert.equal(sourceMismatchAlias.trainingEligible, false);
+  assert.match(
+    sourceMismatchAlias.notReadyReason,
+    /typed request sourceGroup does not match student sourceGroup/i,
+  );
 });
 
 test("keeps supervision S_g/A_g unchanged when a student candidate is wrong", async () => {
@@ -306,6 +404,9 @@ test("writes a self-check receipt with required audit fields", async () => {
   assert.equal(receipt.isolation.studentGenerationConsumesSupervision, false);
   assert.equal(receipt.isolation.studentBuildInputsContainForbiddenFields, false);
   assert.equal(receipt.isolation.checkedStudentInputCount, 10);
+  assert.equal(receipt.isolation.supervisionVariantStudentBytesEqual, undefined);
+  assert.equal(receipt.isolation.studentRowsByteStableAcrossSupervisionVariants, undefined);
+  assert.equal(typeof receipt.isolation.supervisionIsolationTestRef, "string");
 });
 
 test.after(async () => {
