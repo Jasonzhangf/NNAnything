@@ -6,7 +6,7 @@
 
 ### 1.1 本能力学什么
 
-学生学的是**局部符号关系**：给定入口文件、显式请求的声明与当前一步已取得的局部语法观测，判断请求声明与当前模块内可观察声明之间是否存在可证关系（`in_scope`、`content_of`、`associated_with`、`current_for`、`covers`）。学生不学跨模块最终绑定、不学调用边真值、不学任意代码理解。
+学生学的是**局部符号关系判定**：给定入口文件、显式请求的声明与当前一步已取得的局部语法观测，判断“请求声明是否在当前模块的可观察范围内（`in_scope`）”这一关系，并按语义分层 `closure_call_site`、`import_alias`、`shadow`、`dynamic` 输出对应真值。学生不学跨模块最终绑定、不学调用边真值、不学任意代码理解。
 
 ### 1.2 确定性基础与学生能力的分工
 
@@ -39,7 +39,7 @@
 
 | 头 | 本能力输入 | 输出 | 独立监督/分母 |
 | --- | --- | --- | --- |
-| H_R | 当前入口 + 请求声明 + 当前一步局部 relation facts + missing mask | 每候选 `(request, relation, localDeclaration)` 的 true/false/unknown logits `[pairs,K,3]` | 已确认三元组逐关系 precision/recall/F1；unknown 单列；对象改序/改名配对一致率 |
+| H_R | 当前入口 + 请求声明 + 当前一步局部 relation facts + missing mask | 每候选 `(requestedDeclaration, localDeclaration)` 的 true/false/unknown logits（沿 l2 合同 `[pairs,K,3]`） | 已确认关系逐语义分层 precision/recall/F1；unknown 单列；对象改序/改名配对一致率 |
 | H_D | 根 Goal、State、H_R 实际输出、有限技能描述 | 分解候选：observe 当前模块 / advance 合法边 / judge / return，附 supported/semantic_gap/capability_gap/unknown | 允许分解集合命中率；必需观察召回；额外不必要动作率 |
 | H_E | 当前条件（in_scope / declared_here / shadowed / dynamic）与证据 | satisfied/unsatisfied/unknown/not_applicable `[C,4]` | 独立 oracle；假达成=0；越界证伪单列 |
 | H_A | 未决条件、H_D 候选、H_E 评价、合法技能 | observe/advance/judge=true/false/unknown/NOOP/RETURN/NO_CAPABILITY | 允许集合命中率；越权执行=0；无合法动作准确返回 |
@@ -86,7 +86,7 @@
 
 TRAIN/DEV/VERIFICATION 按关联来源与构造机制先分区：同模板改名称只验名称不变性；声称组合泛化必须留出机制组合。已暴露 DEV 转“已知回归”。独立构造者只收共同任务合同，不收 dev 错误提示。teacher（旧解析器）只出现在监督旁路，不进入学生输入或拟合。
 
-复用 `carol-tsjs-r2-stepwise-corpus` 已验收的固定字段映射（`field-mapping.md`）：学生输出含 request identity、current local observation、current relation、obligations/gain、legal candidates、previous execution、local cursor；独立监督路径单独持 gold/`A_g`/`trainingEligible`；学生输出不含 `A_g`、gold、teacher、oracle、`S_g` 或终态答案。
+复用 `carol-tsjs-r2-stepwise-corpus` 已验收的固定字段映射（`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/carol-tsjs-r2-stepwise-corpus-20261106/output/field-mapping.md`）：学生输出含 request identity、current local observation、current relation、obligations/gain、legal candidates、previous execution、local cursor；独立监督路径单独持 gold/`A_g`/`trainingEligible`；学生输出不含 `A_g`、gold、teacher、oracle、`S_g` 或终态答案。
 
 ## 6. 最小必要性
 
