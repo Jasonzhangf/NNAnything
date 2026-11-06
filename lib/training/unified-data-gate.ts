@@ -11,6 +11,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadFeatureThresholdsFromFile } from "./unified-thresholds.js";
 import { UNIFIED_ENCODER_VERSION } from "./unified-encoder.js";
+import { validateMissingModeConsistency } from "./unified-missing-mode.js";
 
 export const UNIFIED_DATA_GATE_SCHEMA = "nnanything.unified.data-gate.v1" as const;
 export const UNIFIED_DATA_ROW_SCHEMA = "nnanything.unified.data-row.v1" as const;
@@ -159,20 +160,15 @@ function validateRow(
     return null;
   }
 
-  const missingMode = Array.isArray(row.missingMode) ? row.missingMode : [];
-  const declaredMissing = new Set<number>();
-  for (const entry of missingMode) {
-    if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
-      const record = entry as Record<string, unknown>;
-      if (typeof record.slotIndex === "number" && record.fill === -1) {
-        declaredMissing.add(record.slotIndex);
-      }
-    }
-  }
-  for (let index = 0; index < 64; index += 1) {
-    if (row.input[index] === -1 && !declaredMissing.has(index)) {
+  const missingCheck = validateMissingModeConsistency(row.input, row.missingMode);
+  if (!missingCheck.ok) {
+    if (missingCheck.kind === "not_array" || missingCheck.kind === "bad_entry") {
       violations.push(
-        violation("MISSING_FILLED", rowId, `slot ${index} is -1 without a declared missing mode`),
+        violation("ROW_SCHEMA_INVALID", rowId, missingCheck.message),
+      );
+    } else {
+      violations.push(
+        violation("MISSING_FILLED", rowId, missingCheck.message),
       );
     }
   }

@@ -6,6 +6,7 @@
 // S_g fail explicitly before any optimizer step.
 
 import { readFile } from "node:fs/promises";
+import type { EncoderMissingMode } from "./unified-encoder.js";
 import {
   applyFullBatchSgd,
   createXavierTensors,
@@ -25,6 +26,7 @@ import {
 } from "./unified-model-package.js";
 import { UNIFIED_STUDENT_ROW_SCHEMA, type StudentCandidateRow } from "./unified-student-converter.js";
 import { UNIFIED_SUPERVISION_ROW_SCHEMA } from "./unified-supervision-converter.js";
+import { validateMissingModeConsistency } from "./unified-missing-mode.js";
 
 export const UNIFIED_TRAIN_CONFIG_SCHEMA = "nnanything.unified.train-config.v1" as const;
 
@@ -400,21 +402,28 @@ export async function loadStudentRowsFile(rowsPath: string): Promise<readonly St
       };
       groups.set(record.group_id, group);
     }
-    const missingMode = record.missingMode === undefined
-      ? record.x.flatMap((value, slotIndex) =>
-          value === -1
-            ? [{
-                block: `G${Math.floor(slotIndex / 8)}`,
-                fieldRef: `${record.candidateRef}:slot${slotIndex}`,
-                reason: "not_requested" as const,
-                slotIndex,
-                fill: -1 as const,
-              }]
-            : []
-        )
-      : record.missingMode;
-    if (!Array.isArray(missingMode)) {
-      throw new UnifiedTrainDataError(`student row ${record.group_id} has an invalid missingMode`);
+    // Historical compatibility path: derive missingMode from x's -1 slots.
+    let missingMode: readonly EncoderMissingMode[];
+    if (record.missingMode === undefined) {
+      missingMode = record.x.flatMap((value, slotIndex): EncoderMissingMode[] =>
+        value === -1
+          ? [{
+              block: `G${Math.floor(slotIndex / 8)}` as EncoderMissingMode["block"],
+              fieldRef: `${record.candidateRef}:slot${slotIndex}`,
+              reason: "not_requested" as const,
+              slotIndex,
+              fill: -1 as const,
+            }]
+          : []
+      );
+    } else {
+      missingMode = record.missingMode as readonly EncoderMissingMode[];
+      const check = validateMissingModeConsistency(record.x, missingMode);
+      if (!check.ok) {
+        throw new UnifiedTrainDataError(
+          `student row ${record.group_id} candidate ${record.candidateRef} invalid missingMode: ${check.message}`,
+        );
+      }
     }
     group.candidates.push({
       candidateRef: record.candidateRef,

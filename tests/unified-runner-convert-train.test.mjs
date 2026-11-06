@@ -303,7 +303,12 @@ test("non-finite training is explicit and creates no package", async () => {
       .trim()
       .split("\n")
       .map(line => JSON.parse(line));
-    for (const row of rows) row.x = Array.from({ length: 64 }, () => 1e308);
+    for (const row of rows) {
+      // Keep the missing-mode declaration consistent with the replaced vector;
+      // this test exercises non-finite training, not missing-mode rejection.
+      row.x = Array.from({ length: 64 }, () => 1e308);
+      row.missingMode = [];
+    }
     await writeJsonl(paths.studentRowsPath, rows);
 
     assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 1);

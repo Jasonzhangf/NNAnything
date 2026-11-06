@@ -49,6 +49,10 @@ function config(dir) {
   };
 }
 
+function withInput(slot, value) {
+  return Array.from({ length: 64 }, (_, index) => (index === slot ? value : 0));
+}
+
 test("valid row with threshold => READY and learned row emitted", async () => {
   const dir = await withRows([row()]);
   const result = await validateUnified64SlotTrainingData(config(dir));
@@ -128,6 +132,57 @@ test("teacher chain and undeclared missing fill are rejected", async () => {
   const missing = await validateUnified64SlotTrainingData(config(missingDir));
   assert.equal(missing.status, "DATA_INVALID");
   assert.ok(missing.violations.some(v => v.reasonCode === "MISSING_FILLED"));
+});
+
+test("missing mode declaration and vector are validated in both directions", async () => {
+  for (const value of [0, 0.5]) {
+    const dir = await withRows([row({
+      input: withInput(3, value),
+      missingMode: [{ slotIndex: 3, reason: "not_requested", fill: -1 }],
+    })]);
+    const result = await validateUnified64SlotTrainingData(config(dir));
+    assert.equal(result.status, "DATA_INVALID");
+    assert.ok(result.violations.some(v =>
+      v.reasonCode === "MISSING_FILLED" && v.message.includes("in input 3")
+    ));
+  }
+});
+
+test("missing mode entry schema is explicit and not silently ignored", async () => {
+  const badEntries = [
+    { slotIndex: 64, reason: "not_requested", fill: -1 },
+    { slotIndex: 1.5, reason: "not_requested", fill: -1 },
+    null,
+    { slotIndex: 3, reason: "not_requested", fill: 0 },
+    { slotIndex: 3, reason: "", fill: -1 },
+    { slotIndex: 3, reason: undefined, fill: -1 },
+  ];
+  for (const badEntry of badEntries) {
+    const dir = await withRows([row({ missingMode: [badEntry] })]);
+    const result = await validateUnified64SlotTrainingData(config(dir));
+    assert.equal(result.status, "DATA_INVALID");
+    assert.ok(result.violations.some(v =>
+      v.reasonCode === "ROW_SCHEMA_INVALID" && v.message.includes("missingMode")
+    ));
+  }
+
+  const nonArrayDir = await withRows([row({ missingMode: "not-an-array" })]);
+  const nonArray = await validateUnified64SlotTrainingData(config(nonArrayDir));
+  assert.equal(nonArray.status, "DATA_INVALID");
+  assert.ok(nonArray.violations.some(v => v.reasonCode === "ROW_SCHEMA_INVALID"));
+});
+
+test("declared missing slot and normal finite values pass", async () => {
+  const missingDir = await withRows([row({
+    input: withInput(3, -1),
+    missingMode: [{ slotIndex: 3, reason: "not_requested", fill: -1 }],
+  })]);
+  const missing = await validateUnified64SlotTrainingData(config(missingDir));
+  assert.equal(missing.status, "READY");
+
+  const normalDir = await withRows([row({ input: withInput(3, 0.5) })]);
+  const normal = await validateUnified64SlotTrainingData(config(normalDir));
+  assert.equal(normal.status, "READY");
 });
 
 test("same student input with different gold is a supervision conflict, not silently fitted", async () => {

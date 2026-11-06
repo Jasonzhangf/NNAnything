@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import {
   buildEncodedGroups,
+  loadStudentRowsFile,
   runUnifiedTraining,
   saveUnifiedTrainPackage,
   verifyUnifiedTrainPackageReload,
@@ -170,4 +171,91 @@ test("package save and new-process-style reload preserve tensors", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+function studentRow(overrides = {}) {
+  return {
+    schema: "nnanything.unified.student-row.v1",
+    group_id: "g1",
+    sampleId: "s1",
+    sourceGroup: "sg",
+    requestRef: "req-1",
+    language: "ts",
+    derivationFamily: "family-1",
+    adapterRef: "tsjs-unified-adapter:ts",
+    partition: "TRAIN",
+    candidateEnumeration: "complete",
+    evidenceRefs: [],
+    failureMode: null,
+    candidateRef: "c:judge:true",
+    optionSemantics: "present",
+    candidateKind: "present",
+    x: Array.from({ length: 64 }, () => 0),
+    ...overrides,
+  };
+}
+
+async function writeStudentRows(rows) {
+  const dir = await mkdtemp(join(tmpdir(), "unified-student-rows-"));
+  const rowsPath = join(dir, "rows.jsonl");
+  await writeFile(rowsPath, rows.map(r => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  return rowsPath;
+}
+
+test("loadStudentRowsFile rejects declared missing slots that do not hold -1", async () => {
+  const rowsPath = await writeStudentRows([studentRow({
+    x: Array.from({ length: 64 }, (_, i) => (i === 3 ? 0 : 0)),
+    missingMode: [{ block: "G0", fieldRef: "f", reason: "not_requested", slotIndex: 3, fill: -1 }],
+  })]);
+  await assert.rejects(() => loadStudentRowsFile(rowsPath), UnifiedTrainDataError);
+});
+
+test("loadStudentRowsFile rejects malformed missing mode entries", async () => {
+  const badModes = [
+    { slotIndex: 64, fill: -1, reason: "not_requested" },
+    { slotIndex: 1.5, fill: -1, reason: "not_requested" },
+    { slotIndex: 3, fill: 0, reason: "not_requested" },
+    { slotIndex: 3, fill: -1, reason: "" },
+    null,
+    "not-an-array",
+  ];
+  for (const badMode of badModes) {
+    const rowsPath = await writeStudentRows([studentRow({ missingMode: badMode })]);
+    await assert.rejects(
+      () => loadStudentRowsFile(rowsPath),
+      error => error instanceof UnifiedTrainDataError
+        && error.message.includes("candidate c:judge:true")
+        && error.message.includes("invalid missingMode"),
+      `expected candidate-scoped rejection for ${JSON.stringify(badMode)}`,
+    );
+  }
+});
+
+test("loadStudentRowsFile accepts declared missing slots and normal finite values", async () => {
+  const declaredRowsPath = await writeStudentRows([studentRow({
+    x: Array.from({ length: 64 }, (_, i) => (i === 3 ? -1 : 0)),
+    missingMode: [{ block: "G0", fieldRef: "f", reason: "not_requested", slotIndex: 3, fill: -1 }],
+  })]);
+  const declaredGroups = await loadStudentRowsFile(declaredRowsPath);
+  assert.equal(declaredGroups[0].candidates[0].input[3], -1);
+
+  const normalRowsPath = await writeStudentRows([studentRow({
+    x: Array.from({ length: 64 }, (_, i) => (i === 3 ? 0.5 : 0)),
+  })]);
+  const normalGroups = await loadStudentRowsFile(normalRowsPath);
+  assert.equal(normalGroups[0].candidates[0].input[3], 0.5);
+});
+
+test("loadStudentRowsFile keeps historical inference for undefined missingMode", async () => {
+  const derivedRowsPath = await writeStudentRows([studentRow({
+    x: Array.from({ length: 64 }, (_, i) => (i === 3 ? -1 : 0)),
+  })]);
+  const derivedGroups = await loadStudentRowsFile(derivedRowsPath);
+  assert.deepEqual(derivedGroups[0].candidates[0].missingMode, [{
+    block: "G0", fieldRef: "c:judge:true:slot3", reason: "not_requested", slotIndex: 3, fill: -1,
+  }]);
+
+  const plainRowsPath = await writeStudentRows([studentRow()]);
+  const plainGroups = await loadStudentRowsFile(plainRowsPath);
+  assert.deepEqual(plainGroups[0].candidates[0].missingMode, []);
 });
