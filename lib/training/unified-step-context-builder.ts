@@ -242,18 +242,24 @@ export function relationStepContext(episode: RelationStepEpisode): StepContext {
     edge.visibility.state === "known" && edge.visibility.value === "reachable"
   );
   const advanceTargetRefs = reachableEdges.map(edge => edge.edgeRef);
-  const knownAdvanceTargetRefs = new Set(advanceTargetRefs);
+  const missingProjections: MissingProjection[] = [];
   for (const obligation of obligations) {
     if (obligation.kind !== "advance" || obligation.informationGain <= 0) continue;
-    if (knownAdvanceTargetRefs.has(obligation.ref)) continue;
-    advanceTargetRefs.push(obligation.ref);
-    knownAdvanceTargetRefs.add(obligation.ref);
+    if (reachableEdges.some(edge => edge.edgeRef === obligation.ref)) continue;
+    missingProjections.push({
+      targetRef: obligation.ref,
+      fieldRef: "obligations.advance",
+      state: "missing",
+      reason: "observation_failed",
+      evidenceRefs: episode.evidenceRefs,
+    });
   }
   if (advanceTargetRefs.length > 0) {
     skills.push(relationReadSkill());
   }
   for (const targetRef of advanceTargetRefs) {
-    const matchingEdge = reachableEdges.find(edge => edge.edgeRef === targetRef) ?? null;
+    const matchingEdge = reachableEdges.find(edge => edge.edgeRef === targetRef);
+    if (matchingEdge === undefined) continue;
     candidates.push({
       candidateRef: `c:advance:${targetRef}`,
       goalRef: `goal:${episode.sampleId}`,
@@ -263,7 +269,7 @@ export function relationStepContext(episode: RelationStepEpisode): StepContext {
       arguments: [{ name: "target", type: "binding_edge", valueRef: targetRef }],
       targetRef,
       bindingProjection: null,
-      edgeRef: matchingEdge?.edgeRef ?? null,
+      edgeRef: matchingEdge.edgeRef,
       parameterProjection: [],
       evidenceRefs: episode.evidenceRefs,
     });
@@ -309,7 +315,6 @@ export function relationStepContext(episode: RelationStepEpisode): StepContext {
     parameterProjection: [],
     evidenceRefs: episode.evidenceRefs,
   });
-  const missingProjections: MissingProjection[] = [];
   if (episode.requestedDeclaration == null) {
     missingProjections.push({
       targetRef: episode.targetRef,
