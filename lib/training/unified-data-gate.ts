@@ -30,6 +30,7 @@ export interface UnifiedDataGateViolation {
     | "ALLOWED_NOT_SUBSET"
     | "ALLOWED_EMPTY"
     | "GOLD_NOT_IN_CANDIDATES"
+    | "SUPERVISION_CONFLICT"
     | "TEACHER_LEAKAGE";
   readonly rowId: string | null;
   readonly message: string;
@@ -48,6 +49,10 @@ export interface UnifiedDataGateRow {
   readonly partition: "TRAIN" | "DEV";
   readonly route: Readonly<{ domain: string; decisionKind: UnifiedDecisionKind }>;
   readonly input: readonly number[];
+  readonly candidateInputs?: readonly {
+    readonly candidateRef: string;
+    readonly input: readonly number[];
+  }[];
   readonly missingMode: readonly Readonly<{ slotIndex: number; reason: string; fill: -1 }>[];
   readonly candidates: readonly string[];
   readonly allowed: readonly string[];
@@ -95,6 +100,10 @@ function violation(
   return { code: "DATA_INVALID", reasonCode, rowId, message };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function parseRows(text: string): unknown[] {
   const rows: unknown[] = [];
   for (const line of text.split("\n")) {
@@ -108,6 +117,16 @@ function parseRows(text: string): unknown[] {
 function isFiniteVector(value: unknown, length: number): value is number[] {
   if (!Array.isArray(value) || value.length !== length) return false;
   return value.every(entry => typeof entry === "number" && Number.isFinite(entry));
+}
+
+function conflictInputKey(row: UnifiedDataGateRow): string {
+  if (row.candidateInputs !== undefined) {
+    const candidateInputs = [...row.candidateInputs]
+      .map(({ candidateRef, input }) => ({ candidateRef, input }))
+      .sort((left, right) => left.candidateRef.localeCompare(right.candidateRef));
+    return JSON.stringify({ candidateInputs });
+  }
+  return JSON.stringify({ input: row.input, candidates: row.candidates });
 }
 
 function validateRow(
@@ -154,6 +173,24 @@ function validateRow(
     if (row.input[index] === -1 && !declaredMissing.has(index)) {
       violations.push(
         violation("MISSING_FILLED", rowId, `slot ${index} is -1 without a declared missing mode`),
+      );
+    }
+  }
+
+  if (row.candidateInputs !== undefined) {
+    const candidateInputs = row.candidateInputs;
+    const valid =
+      Array.isArray(candidateInputs)
+      && candidateInputs.length > 0
+      && candidateInputs.every(
+        candidate =>
+          isRecord(candidate)
+          && typeof candidate.candidateRef === "string"
+          && isFiniteVector(candidate.input, 64),
+      );
+    if (!valid) {
+      violations.push(
+        violation("ROW_SCHEMA_INVALID", rowId, "candidateInputs must carry one finite 64-slot input per candidate"),
       );
     }
   }
@@ -234,6 +271,29 @@ export async function validateUnified64SlotTrainingData(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     violations.push(violation("ROW_SCHEMA_INVALID", null, `rows resource is required: ${message}`));
+  }
+
+  const learnedInputs = new Map<string, {
+    readonly rowId: string;
+    readonly allowed: string;
+    readonly gold: string;
+  }>();
+  for (const row of rows) {
+    if (row.labelMissing) continue;
+    const inputKey = conflictInputKey(row);
+    const allowed = [...row.allowed].sort().join("|");
+    const prior = learnedInputs.get(inputKey);
+    if (prior !== undefined && (prior.allowed !== allowed || prior.gold !== row.gold)) {
+      violations.push(
+        violation(
+          "SUPERVISION_CONFLICT",
+          row.rowId,
+          `same student input has conflicting gold rows ${prior.rowId} and ${row.rowId}; awaiting adjudication`,
+        ),
+      );
+    } else if (prior === undefined) {
+      learnedInputs.set(inputKey, { rowId: row.rowId, allowed, gold: row.gold });
+    }
   }
 
   const rejected = violations.length > 0;

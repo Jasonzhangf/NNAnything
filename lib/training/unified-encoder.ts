@@ -131,6 +131,7 @@ export interface StepContext {
     readonly goalRef: Ref;
     readonly kind: "acquire" | "change" | "verify" | "complete";
     readonly targetRef: Ref;
+    readonly requestedDeclaration?: DeclarationIdentity | null;
     readonly satisfactionThreshold: Observed<number>;
     readonly constraints: readonly Ref[];
   };
@@ -266,14 +267,6 @@ function currentDeclaration(candidate: Candidate): DeclarationIdentity | null {
   return projection.declarationRefs[0] ?? null;
 }
 
-function modulePart(ref: Ref): string | null {
-  const colon = ref.indexOf(":");
-  if (colon < 0) return null;
-  const afterColon = ref.slice(colon + 1);
-  const hash = afterColon.indexOf("#");
-  return hash >= 0 ? afterColon.slice(0, hash) : afterColon;
-}
-
 function symbolPart(ref: Ref): string | null {
   const hash = ref.lastIndexOf("#");
   if (hash < 0) return null;
@@ -297,6 +290,7 @@ export function encodeUnifiedCandidate(
   const x = new Array<number>(64).fill(0);
   const missingMode: EncoderMissingMode[] = [];
   const isJudge = candidate.optionSemantics.startsWith("judge=");
+  const requested = context.goal.requestedDeclaration ?? null;
 
   // G0 Goal
   x[0] = context.goal.kind === "acquire" ? 1 : 0;
@@ -320,10 +314,14 @@ export function encodeUnifiedCandidate(
   x[12] = bucket(context.state.objectRefs.length, thresholds.buckets.objectRefs ?? [1, 2, 4, 8]);
   x[13] = 1;
   const skill = context.skills.find(s => s.skillRef === candidate.skillRef) ?? null;
+  const edge = findEdge(context, candidate);
+  const decl = currentDeclaration(candidate);
   const targetSymbol = symbolPart(context.goal.targetRef) ?? "";
-  x[14] = skill !== null && skill.parameterSchema.parameters.some(p =>
-    p.allowedTargetKinds.includes(targetSymbol)
-  ) ? 1 : 0;
+  const requestedKind = requested?.kind ?? null;
+  const currentKind = decl?.kind ?? null;
+  x[14] = skill !== null && requestedKind !== null
+    ? (skill.parameterSchema.parameters.some(p => p.allowedTargetKinds.includes(requestedKind)) ? 1 : 0)
+    : 0;
   x[15] = 0;
 
   // G2 Action/Evaluation
@@ -372,21 +370,19 @@ export function encodeUnifiedCandidate(
 
   // G5 Semantic
   x[40] = skill !== null && skill.effects.some(e => context.executionPolicy.allowedEffects.includes(e)) ? 1 : 0;
-  x[41] = skill !== null && skill.parameterSchema.parameters.some(p =>
-    p.allowedTargetKinds.includes(targetSymbol)
-  ) ? 1 : 0;
+  x[41] = skill !== null && currentKind !== null
+    ? (skill.parameterSchema.parameters.some(p => p.allowedTargetKinds.includes(currentKind)) ? 1 : 0)
+    : 0;
   x[42] = skill !== null && candidate.arguments.every(a => {
     const p = skill.parameterSchema.parameters.find(sp => sp.name === a.name);
     return p === undefined || p.type === a.type;
   }) ? 1 : 0;
   x[43] = candidate.evidenceRefs.length > 0 ? 1 : 0;
-  const edge = findEdge(context, candidate);
-  const decl = currentDeclaration(candidate);
   if (isJudge) {
     x[44] = decl !== null ? 1 : 0;
-    x[45] = decl !== null ? (decl.name === targetSymbol ? 1 : 0) : -1;
-    x[46] = decl !== null ? 1 : -1;
-    x[47] = decl !== null ? 0 : 0.5;
+    x[45] = decl !== null && requested !== null ? (decl.name === requested.name ? 1 : 0) : -1;
+    x[46] = decl !== null && requested !== null ? (decl.kind === requested.kind ? 1 : 0) : -1;
+    x[47] = decl !== null && requested !== null ? 0 : 0.5;
   } else if (candidate.optionSemantics === "advance") {
     x[44] = edge !== null && edge.visibility.state === "known" && edge.visibility.value === "reachable" ? 1 : 0;
     x[45] = edge !== null
@@ -419,15 +415,17 @@ export function encodeUnifiedCandidate(
   x[59] = route === "A" ? 1 : 0;
   if (isJudge) {
     x[60] = decl !== null ? 1 : 0;
-    if (decl === null) {
+    if (decl === null || requested === null) {
       x[61] = -1;
       x[62] = -1;
       x[63] = 0.5;
     } else {
-      const targetModule = modulePart(context.goal.targetRef);
-      const currentModule = decl.moduleRef !== null ? modulePart(decl.moduleRef) : null;
-      x[61] = currentModule === null ? -1 : (targetModule !== null && currentModule === targetModule ? 1 : 0);
-      x[62] = candidate.targetRef !== null && decl.declarationRef === candidate.targetRef ? 1 : 0;
+      x[61] = requested.moduleRef !== null && decl.moduleRef !== null
+        ? (decl.moduleRef === requested.moduleRef ? 1 : 0)
+        : -1;
+      x[62] = requested.declarationRef !== null && decl.declarationRef !== null
+        ? (decl.declarationRef === requested.declarationRef ? 1 : 0)
+        : -1;
       x[63] = 0;
     }
   } else {
