@@ -272,10 +272,21 @@ test("keeps known and missing typed request fields without rebuilding them", asy
     alias.steps[0].remainingObligations[0].pendingRelationRef,
     "pending:partial-alias",
   );
+  const changedRequestSupervision = rowBySample(supervision, "a-module-positive-alias");
+  assert.equal(changedRequestSupervision.trainingEligible, false);
+  assert.match(
+    changedRequestSupervision.notReadyReason,
+    /student request does not match independent supervision requestRef/i,
+  );
   assert.equal(
-    rowBySample(supervision, "a-module-positive-alias").trainingEligible,
+    changedRequestSupervision.joinFailures.some(
+      (failure) =>
+        failure.reason === "student request does not match independent supervision requestRef",
+    ),
     true,
   );
+  assert.equal(changedRequestSupervision.requestRef, "request:a-module-positive-alias");
+  assert.equal(changedRequestSupervision.gold.label, "true");
   const missingRequestRow = rowBySample(supervision, "b-closure-positive-inner-call");
   assert.equal(missingRequestRow.trainingEligible, false);
   assert.match(missingRequestRow.notReadyReason, /typed request row missing/i);

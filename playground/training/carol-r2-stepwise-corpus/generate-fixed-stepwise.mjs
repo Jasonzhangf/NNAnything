@@ -1831,6 +1831,13 @@ function supervisionFor(built, sourceRow, override = null) {
       reason: "independent supervision family does not match student family",
     });
   }
+  if (sourceRow.requestRef !== built.student.request.requestRef) {
+    failures.push({
+      sampleId,
+      stepId: null,
+      reason: "student request does not match independent supervision requestRef",
+    });
+  }
   const sourceSteps = new Map();
   for (const step of sourceRow.steps ?? []) {
     if (sourceSteps.has(step.stepId)) {
@@ -1904,7 +1911,7 @@ function supervisionFor(built, sourceRow, override = null) {
     schemaVersion: SUPERVISION_SCHEMA,
     sampleId,
     family: sourceRow.family ?? built.family,
-    requestRef: built.student.request.requestRef,
+    requestRef: sourceRow.requestRef ?? null,
     gold,
     steps,
     trainingEligible: Boolean(sourceRow.trainingEligible) && joinReady && !override?.notReadyReason,
@@ -1922,7 +1929,7 @@ function notReadySupervision(built, sourceRow, override, reason) {
     schemaVersion: SUPERVISION_SCHEMA,
     sampleId: built.student.sampleId,
     family: built.family,
-    requestRef: built.student.request.requestRef,
+    requestRef: sourceRow?.requestRef ?? null,
     gold: {
       label: override?.goldLabel ?? "unknown",
       allowedEquivalentLabels: [],
