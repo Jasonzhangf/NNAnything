@@ -78,10 +78,14 @@ The test asserts:
 - step0 is a real `source_observation`, not `known/null`;
 - consecutive alias advance steps carry the correct predecessor and its
   receipt to the next step;
-- request declared fields that are not observable stay `missing` and are not
-  reconstructed from the target module;
+- request declared fields preserve each known typed-request value and keep only
+  genuinely absent values `missing`; they are not reconstructed from the target
+  module;
 - the three unrelated `entry.ts` import edges in the other-module sample remain
   preserved and produce no advance candidate;
 - `known/none` observations do not emit observe candidates;
 - `dynamic-property` and `missing-module` remain not training eligible;
-- changing gold/teacher supervision leaves student bytes unchanged.
+- source `S_g`/`A_g` stay unchanged when a student candidate is wrong, and the
+  join is marked not ready;
+- changing supervision rows at the source boundary leaves student bytes
+  unchanged, and the self-check reports the checked student-input count.

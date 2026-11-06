@@ -21,6 +21,10 @@ export const DEFAULT_CORPUS_ROOT =
   "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/jenny-tsjs-first-fit-engineering-r1/real-train-train-only/corpus";
 export const DEFAULT_OUTPUT_DIR =
   "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/carol-tsjs-r2-stepwise-corpus-20261106/output";
+export const DEFAULT_TYPED_REQUEST_SOURCE =
+  "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-typed-observation-corpus-r1/student-observations.jsonl";
+export const DEFAULT_SUPERVISION_SOURCE =
+  "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-typed-observation-corpus-r1/independent-supervision.jsonl";
 
 const STUDENT_SCHEMA = "carol-tsjs-fixed-stepwise-student-v1";
 const SUPERVISION_SCHEMA = "carol-tsjs-fixed-stepwise-supervision-v1";
@@ -29,6 +33,81 @@ const RETURN = "c:return";
 const DEFER = "c:defer";
 const OBSERVE_ENTRY_FOLD = "observe:entry-fold";
 const OBSERVE_REGISTRY = "observe:registry";
+
+// Student-side episode fields. Supervision-only material (gold, A_g, S_g,
+// teacher, oracle, admission, terminal answer) is never part of a student
+// input object; it is loaded and joined on the supervision path only.
+const STUDENT_EPISODE_KEYS = [
+  "sampleId",
+  "sourceGroup",
+  "partition",
+  "language",
+  "semanticStratum",
+  "entryFile",
+  "entrySymbol",
+  "requestId",
+  "scopePaths",
+  "maxDepth",
+];
+const SUPERVISION_ONLY_KEYS = [
+  "A_g",
+  "S_g",
+  "gold",
+  "oracle",
+  "teacher",
+  "terminalDeclaration",
+  "terminalDeclarationRef",
+  "allowedEquivalentLabels",
+  "labelAuthority",
+  "labelMissing",
+  "unknownReason",
+  "originalLabel",
+  "originalUnknownReason",
+  "headSupervision",
+  "admission",
+  "supersededBy",
+  "candidateSet",
+  "candidateEnumerationAdmission",
+  "candidateEnumerationSupersededBy",
+  "executionReceiptRef",
+  "teacherProposalRef",
+  "oracleRef",
+  "candidateSetRef",
+  "postStateRef",
+  "trainingEligible",
+  "notReadyReason",
+  "conflicts",
+];
+
+function pickStudentEpisode(episode) {
+  const studentEpisode = {};
+  for (const key of STUDENT_EPISODE_KEYS) {
+    if (episode[key] !== undefined) studentEpisode[key] = episode[key];
+  }
+  studentEpisode.goal = {
+    kind: episode.goal?.kind ?? null,
+    targetRef: episode.goal?.targetRef ?? null,
+  };
+  return studentEpisode;
+}
+
+function containsSupervisionOnlyKeys(value, seen = new Set()) {
+  if (Array.isArray(value)) return value.some((item) => containsSupervisionOnlyKeys(item, seen));
+  if (!value || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  for (const [key, inner] of Object.entries(value)) {
+    if (SUPERVISION_ONLY_KEYS.includes(key)) return true;
+    if (
+      typeof inner === "string" &&
+      /manual-structural-proof|oracle-receipt|tsc-receipt|dynamic-label-correction|teacher-only/i.test(inner)
+    ) {
+      return true;
+    }
+    if (containsSupervisionOnlyKeys(inner, seen)) return true;
+  }
+  return false;
+}
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -731,22 +810,33 @@ function sourceContentFailed(reason, evidence) {
   return { state: "failed", resultRefs: [], reason, evidenceRefs: evidence };
 }
 
-function requestFor(episode) {
+function requestField(value) {
+  if (value === undefined || value === null || value === "") return missing("not_requested");
+  return known(value);
+}
+
+function typedRequestFor(episode, typedRequest) {
+  const request = typedRequest?.request ?? typedRequest ?? {};
+  const requested = request.requestedDeclaration ?? {};
   return {
-    requestRef: episode.requestId,
+    requestRef: request.requestRef ?? typedRequest?.requestRef ?? episode.requestId,
     requestedDeclaration: {
-      declarationRef: missing("not_requested"),
-      moduleRef: missing("not_requested"),
-      name: missing("not_requested"),
-      kind: missing("not_requested"),
-      sourceTargetRef: episode.goal?.targetRef ?? null,
+      declarationRef: requestField(requested.declarationRef),
+      moduleRef: requestField(requested.moduleRef),
+      name: requestField(requested.name),
+      kind: requestField(requested.kind),
+      sourceTargetRef: requested.sourceTargetRef ?? null,
     },
     relationObligation: {
-      pendingRelationRef: `pending:${episode.sampleId}`,
-      callSiteRef: null,
-      calleeName: episode.entrySymbol ?? null,
+      pendingRelationRef: request.relationObligation?.pendingRelationRef ?? null,
+      callSiteRef: request.relationObligation?.callSiteRef ?? null,
+      calleeName: request.relationObligation?.calleeName ?? null,
     },
   };
+}
+
+function cloneRequest(request) {
+  return structuredClone(request);
 }
 
 function makeStep({
@@ -843,7 +933,7 @@ function missingReadResult(sample, read, reason) {
   });
   return {
     ...sample,
-    request: requestFor(sample.episode),
+    request: cloneRequest(sample.request),
     steps: [step],
     reads: [read.actualRead],
     ast: [],
@@ -901,8 +991,8 @@ function aliasSteps(sample, root) {
     return missingReadResult(sample, entryRead, `entry symbol ${episode.entrySymbol} not observed`);
   }
   const callSiteRef = `call:${entryParsed.rel}:${episode.entrySymbol}`;
-  const request = requestFor(episode);
-  request.relationObligation.callSiteRef = callSiteRef;
+  const request = cloneRequest(sample.request);
+  request.relationObligation.callSiteRef ??= callSiteRef;
   const steps = [];
   const reads = [entryRead.actualRead];
   const ast = [astObservation(root, entryParsed)];
@@ -1208,8 +1298,8 @@ function closureSteps(sample, root) {
   }
   const declaration = resolved.declaration;
   const callSiteRef = `call:${closureParsed.rel}:${functionName}.addOffset:base`;
-  const request = requestFor(episode);
-  request.relationObligation.callSiteRef = callSiteRef;
+  const request = cloneRequest(sample.request);
+  request.relationObligation.callSiteRef ??= callSiteRef;
   const sourceContent = sourceContentObserved([declaration.declarationRef], [parseEvidenceRef(root, closureParsed)]);
   const shadowFacts =
     sampleId === "b-closure-negative-shadow"
@@ -1286,8 +1376,8 @@ function dynamicSteps(sample, root) {
     return missingReadResult(sample, entryRead, "entry dynamic binding facts not found");
   }
   const callSiteRef = `call:${entryParsed.rel}:registry[computedName]`;
-  const request = requestFor(episode);
-  request.relationObligation.callSiteRef = callSiteRef;
+  const request = cloneRequest(sample.request);
+  request.relationObligation.callSiteRef ??= callSiteRef;
   const entryEvidence = [parseEvidenceRef(root, entryParsed)];
   const obligations0 = [
     observeObligation(
@@ -1516,15 +1606,6 @@ function dynamicSteps(sample, root) {
       },
     ],
     terminalDeclarationRef: baseIdentity.declarationRef,
-    trainingEligible: false,
-    notReadyReason:
-      "pending sample truth adjudication: original gold unknown (dynamic_undecidable) vs corrected true",
-    conflict: {
-      kind: "gold_correction",
-      originalLabel: sample.episode.originalLabel ?? "unknown",
-      correctedLabel: sample.gold.label,
-      status: "pending_sample_adjudication",
-    },
   };
 }
 
@@ -1575,8 +1656,8 @@ function missingModuleSteps(sample, root) {
       errorMessage: `module ${importBinding.specifier} not resolved`,
     },
   };
-  const request = requestFor(episode);
-  request.relationObligation.callSiteRef = `call:${entryRead.parsed.rel}:${episode.entrySymbol}`;
+  const request = cloneRequest(sample.request);
+  request.relationObligation.callSiteRef ??= `call:${entryRead.parsed.rel}:${episode.entrySymbol}`;
   const step = makeStep({
     stepId: "step-0",
     localSyntax: localSyntax(
@@ -1659,6 +1740,10 @@ function buildStudent(sample, root) {
   }
   return {
     ...built,
+    studentInputs: {
+      episode: sample.episode,
+      request: cloneRequest(sample.request),
+    },
     student: {
       schemaVersion: STUDENT_SCHEMA,
       sampleId: sample.episode.sampleId,
@@ -1680,96 +1765,176 @@ function actionForGold(action, label) {
   return null;
 }
 
-function supervisionFor(sample, built, override = null) {
-  const gold = sample.gold;
-  const label = override?.goldLabel ?? gold.label ?? "unknown";
-  const goldAction = actionForGold(override?.goldAction ?? gold.goldAction, label);
-  const steps = built.steps.map((step, index) => {
-    let action = null;
-    if (step.localCandidateCursor.state === "failed") {
-      action = null;
-    } else if (index < built.steps.length - 1) {
-      if (built.trainingEligible || sample.episode.sampleId === "b-closure-unknown-dynamic-property") {
-        const obligation =
-          step.remainingObligations.find((item) => item.kind === "advance") ??
-          step.remainingObligations.find(
-            (item) =>
-              item.kind === "observe" &&
-              item.informationGain.state === "known" &&
-              item.informationGain.value !== "none",
-          );
-        if (obligation) {
-          action =
-            obligation.kind === "advance"
-              ? `c:advance:${obligation.ref}`
-              : `c:${obligation.ref}`;
-        }
-      }
-    } else {
-      action = goldAction;
+function sameStringSet(left, right) {
+  if (left.length !== right.length) return false;
+  const leftSorted = [...left].sort();
+  const rightSorted = [...right].sort();
+  return leftSorted.every((value, index) => value === rightSorted[index]);
+}
+
+function supervisionJoinKey(row) {
+  return `${row.family ?? row.sourceGroup ?? ""}|${row.sampleId}`;
+}
+
+function originalExpectedFor(sourceRow) {
+  if (sourceRow?.originalExpected) return structuredClone(sourceRow.originalExpected);
+  const gold = sourceRow?.gold ?? {};
+  return {
+    label: gold.originalLabel ?? gold.label ?? null,
+    originalLabel: gold.originalLabel ?? null,
+    originalUnknownReason: gold.originalUnknownReason ?? null,
+    labelMissing: Boolean(gold.labelMissing),
+    executionReceiptRef: gold.executionReceiptRef ?? null,
+  };
+}
+
+// Supervision is read from the existing independent supervision source and
+// joined by its source group (family here), sampleId, and stepId. The source
+// S_g/A_g are preserved verbatim and are never rebuilt from the student
+// trajectory; a mismatch is reported, not silently rewritten.
+function supervisionFor(built, sourceRow, override = null) {
+  const sampleId = built.student.sampleId;
+  const failures = [];
+  if (!sourceRow) {
+    return notReadySupervision(
+      built,
+      null,
+      override,
+      `independent supervision missing for ${sampleId}`,
+    );
+  }
+  if (sourceRow.sourceGroup && sourceRow.sourceGroup !== built.student.sourceGroup) {
+    failures.push({
+      sampleId,
+      stepId: null,
+      reason: "independent supervision sourceGroup does not match student sourceGroup",
+    });
+  }
+  if (sourceRow.family && sourceRow.family !== built.family) {
+    failures.push({
+      sampleId,
+      stepId: null,
+      reason: "independent supervision family does not match student family",
+    });
+  }
+  const sourceSteps = new Map();
+  for (const step of sourceRow.steps ?? []) {
+    if (sourceSteps.has(step.stepId)) {
+      failures.push({
+        sampleId,
+        stepId: step.stepId,
+        reason: "duplicate independent supervision step join",
+      });
     }
-    return {
-      stepId: step.stepId,
-      S_g: step.legalCandidates,
-      A_g: action ? [action] : [],
-      agSubsetOfSg: action ? step.legalCandidates.includes(action) : true,
-      labelAuthority: gold.labelAuthority ?? null,
-      oracleKind: gold.oracleKind ?? null,
-      unknownReason: gold.unknownReason ?? null,
-    };
-  });
-  const notReadyReason = override?.notReadyReason ?? built.notReadyReason ?? null;
+    sourceSteps.set(step.stepId, step);
+  }
+  const steps = [];
+  for (const step of built.steps) {
+    const sourceStep = sourceSteps.get(step.stepId);
+    if (!sourceStep) {
+      failures.push({
+        sampleId,
+        stepId: step.stepId,
+        reason: "independent supervision step missing for student trajectory",
+      });
+      continue;
+    }
+    if (!sameStringSet(step.legalCandidates, sourceStep.S_g ?? [])) {
+      failures.push({
+        sampleId,
+        stepId: step.stepId,
+        reason: "student candidate set differs from independent supervision S_g",
+        studentCandidates: [...step.legalCandidates],
+        supervisionCandidates: [...(sourceStep.S_g ?? [])],
+      });
+    }
+    steps.push({
+      stepId: sourceStep.stepId,
+      S_g: [...(sourceStep.S_g ?? [])],
+      A_g: [...(sourceStep.A_g ?? [])],
+      agSubsetOfSg: Boolean(sourceStep.agSubsetOfSg),
+      labelAuthority: sourceStep.labelAuthority ?? null,
+      oracleKind: sourceStep.oracleKind ?? null,
+      unknownReason: sourceStep.unknownReason ?? null,
+    });
+  }
+  for (const [stepId] of sourceSteps) {
+    if (!built.steps.some((step) => step.stepId === stepId)) {
+      failures.push({
+        sampleId,
+        stepId,
+        reason: "independent supervision step has no student trajectory",
+      });
+    }
+  }
+  const sourceGold = sourceRow.gold ?? {};
+  const gold = {
+    label: override?.goldLabel ?? sourceGold.label ?? "unknown",
+    allowedEquivalentLabels: sourceGold.allowedEquivalentLabels ?? [],
+    labelAuthority: sourceGold.labelAuthority ?? null,
+    oracleKind: sourceGold.oracleKind ?? null,
+    unknownReason: sourceGold.unknownReason ?? null,
+    originalLabel: sourceGold.originalLabel ?? null,
+    originalUnknownReason: sourceGold.originalUnknownReason ?? null,
+    goldAction: actionForGold(override?.goldAction ?? sourceGold.goldAction, override?.goldLabel ?? sourceGold.label),
+    candidateSet: sourceGold.candidateSet ?? [],
+    admission: sourceGold.admission ?? null,
+    supersededBy: sourceGold.supersededBy ?? null,
+    teacherEvidence: override?.teacherEvidence ?? null,
+  };
+  const joinReady = failures.length === 0;
+  const notReadyReason = !joinReady
+    ? failures[0].reason
+    : (override?.notReadyReason ?? sourceRow.notReadyReason ?? null);
   return {
     schemaVersion: SUPERVISION_SCHEMA,
-    sampleId: sample.episode.sampleId,
-    family: sample.family,
-    requestRef: built.request.requestRef,
+    sampleId,
+    family: sourceRow.family ?? built.family,
+    requestRef: built.student.request.requestRef,
+    gold,
+    steps,
+    trainingEligible: Boolean(sourceRow.trainingEligible) && joinReady && !override?.notReadyReason,
+    notReadyReason,
+    originalExpected: originalExpectedFor(sourceRow),
+    terminalDeclarationRef: sourceRow.terminalDeclarationRef ?? null,
+    conflicts: sourceRow.conflicts ?? [],
+    joinFailures: failures,
+  };
+}
+
+function notReadySupervision(built, sourceRow, override, reason) {
+  const originalExpected = originalExpectedFor(sourceRow);
+  return {
+    schemaVersion: SUPERVISION_SCHEMA,
+    sampleId: built.student.sampleId,
+    family: built.family,
+    requestRef: built.student.request.requestRef,
     gold: {
-      label,
-      allowedEquivalentLabels: gold.allowedEquivalentLabels ?? [],
-      labelAuthority: gold.labelAuthority ?? null,
-      oracleKind: gold.oracleKind ?? null,
-      unknownReason: gold.unknownReason ?? null,
-      originalLabel: sample.episode.originalLabel ?? null,
-      originalUnknownReason: sample.episode.originalUnknownReason ?? null,
-      goldAction,
-      candidateSet: gold.candidateSet ?? [],
-      admission: gold.admission ?? sample.episode.admission ?? null,
-      supersededBy: gold.supersededBy ?? sample.episode.supersededBy ?? null,
+      label: override?.goldLabel ?? "unknown",
+      allowedEquivalentLabels: [],
+      labelAuthority: null,
+      oracleKind: null,
+      unknownReason: null,
+      originalLabel: originalExpected.originalLabel,
+      originalUnknownReason: originalExpected.originalUnknownReason,
+      goldAction: null,
+      candidateSet: [],
+      admission: null,
+      supersededBy: null,
       teacherEvidence: override?.teacherEvidence ?? null,
     },
-    originalExpected: {
-      label: sample.episode.label ?? null,
-      originalLabel: sample.episode.originalLabel ?? null,
-      originalUnknownReason:
-        sample.episode.originalUnknownReason ?? sample.episode.unknownReason ?? null,
-      labelMissing: sample.episode.labelMissing ?? false,
-      executionReceiptRef: sample.episode.executionReceiptRef ?? null,
-    },
-    steps,
-    trainingEligible: Boolean(built.trainingEligible && !override?.notReadyReason),
-    notReadyReason,
-    terminalDeclarationRef: built.terminalDeclarationRef ?? null,
-    conflicts: built.conflict ? [built.conflict] : [],
+    originalExpected,
+    steps: [],
+    trainingEligible: false,
+    notReadyReason: override?.notReadyReason ?? reason,
+    terminalDeclarationRef: null,
+    conflicts: [],
+    joinFailures: [{ sampleId: built.student.sampleId, stepId: null, reason }],
   };
 }
 
 function studentHasForbiddenKeys(value) {
-  if (Array.isArray(value)) return value.some(studentHasForbiddenKeys);
-  if (!value || typeof value !== "object") return false;
-  for (const [key, inner] of Object.entries(value)) {
-    if (["A_g", "gold", "oracle", "teacher", "terminalDeclaration", "S_g"].includes(key)) {
-      return true;
-    }
-    if (
-      typeof inner === "string" &&
-      /manual-structural-proof|oracle-receipt|tsc-receipt|dynamic-label-correction/i.test(inner)
-    ) {
-      return true;
-    }
-    if (studentHasForbiddenKeys(inner)) return true;
-  }
-  return false;
+  return containsSupervisionOnlyKeys(value);
 }
 
 function buildAdmissions(builtSamples, supervisionRows) {
@@ -1821,7 +1986,7 @@ function writeFieldMapping(outDir) {
 | current local observation | \`steps[].localSyntax\` | one current module AST read at a time | yes | no |
 | current relation | \`steps[].currentRelation\` | local scope/import/reexport observation | yes | no |
 | obligations and typed gain | \`steps[].remainingObligations\` | current local unresolved edge or defined observe contract | yes | no |
-| legal candidates | \`steps[].legalCandidates\` | deterministic candidate filter; gold never consulted | yes | copied as \`S_g\` |
+| legal candidates | \`steps[].legalCandidates\` | deterministic candidate filter; gold never consulted | yes | compared against source \`S_g\`; source \`S_g\` preserved |
 | previous execution | \`steps[].previousExecution\` | real source observation/advance receipt | yes | no |
 | local cursor | \`steps[].localCandidateCursor\` | local enumeration only, never root completion | yes | admission input |
 | independent action | \`independent-supervision.steps[].A_g\` | separate gold/A_g path | no | yes |
@@ -1835,7 +2000,12 @@ The student output contains no \`A_g\`, gold, teacher, oracle, \`S_g\`, or termi
 export async function generateFixedStepwise({
   corpusRoot = DEFAULT_CORPUS_ROOT,
   outDir = DEFAULT_OUTPUT_DIR,
+  typedRequestSource = DEFAULT_TYPED_REQUEST_SOURCE,
+  supervisionSource = DEFAULT_SUPERVISION_SOURCE,
   supervisionOverride = null,
+  typedRequestsOverride = null,
+  supervisionRowsOverride = null,
+  studentCandidateOverrides = null,
 } = {}) {
   await fsp.mkdir(outDir, { recursive: true });
   const families = fs
@@ -1848,8 +2018,6 @@ export async function generateFixedStepwise({
   for (const family of families) {
     const familyRoot = path.join(corpusRoot, family);
     const manifest = readJson(path.join(familyRoot, "manifest.json"));
-    const goldRows = readJsonl(path.join(familyRoot, "labels/gold.jsonl"));
-    const goldBySample = new Map(goldRows.map((row) => [row.sampleId, row]));
     const episodeFiles = fs
       .readdirSync(familyRoot)
       .filter((name) => name.startsWith("episode-") && name.endsWith(".jsonl"))
@@ -1859,19 +2027,84 @@ export async function generateFixedStepwise({
       samples.push({
         family,
         familyRoot,
-        manifest,
-        episode,
-        gold: goldBySample.get(episode.sampleId) ?? {},
+        episode: pickStudentEpisode(episode),
       });
     }
   }
 
-  const builtSamples = samples.map((sample) => buildStudent(sample, sample.familyRoot));
-  const studentRows = builtSamples.map((built) => built.student);
-  const supervisionRows = builtSamples.map((built) =>
-    supervisionFor(built, built, supervisionOverride?.[built.student.sampleId] ?? null),
+  const typedRows = readJsonl(typedRequestSource);
+  const typedBySample = new Map(
+    typedRows.map((row) => [row.sampleId, row]),
   );
+  for (const sample of samples) {
+    sample.request =
+      typedRequestsOverride?.[sample.episode.sampleId] ??
+      typedRequestFor(sample.episode, typedBySample.get(sample.episode.sampleId));
+  }
+
+  const supervisionRowsSource =
+    supervisionRowsOverride ?? readJsonl(supervisionSource);
+  const supervisionBySample = new Map();
+  const duplicateSupervisionKeys = new Set();
+  for (const row of supervisionRowsSource) {
+    const key = supervisionJoinKey(row);
+    if (supervisionBySample.has(key)) duplicateSupervisionKeys.add(key);
+    else supervisionBySample.set(key, row);
+  }
+
+  const builtSamples = samples.map((sample) => buildStudent(sample, sample.familyRoot));
+  if (studentCandidateOverrides) {
+    for (const built of builtSamples) {
+      const sampleOverrides = studentCandidateOverrides[built.student.sampleId];
+      if (!sampleOverrides) continue;
+      for (const step of built.steps) {
+        if (sampleOverrides[step.stepId]) {
+          step.legalCandidates = [...sampleOverrides[step.stepId]];
+          step.forcedCandidateOverride = true;
+        }
+      }
+    }
+  }
+  const studentRows = builtSamples.map((built) => built.student);
+  const supervisionRows = builtSamples.map((built) => {
+    const sourceKey = supervisionJoinKey({
+      sampleId: built.student.sampleId,
+      sourceGroup: built.student.sourceGroup,
+      family: built.family,
+    });
+    if (duplicateSupervisionKeys.has(sourceKey)) {
+      return notReadySupervision(
+        built,
+        supervisionBySample.get(sourceKey) ?? null,
+        supervisionOverride?.[built.student.sampleId] ?? null,
+        `duplicate independent supervision join for ${built.student.sampleId}`,
+      );
+    }
+    const sourceRow = supervisionBySample.get(sourceKey);
+    if (!sourceRow) {
+      return notReadySupervision(
+        built,
+        null,
+        supervisionOverride?.[built.student.sampleId] ?? null,
+        `independent supervision row missing for ${built.student.sampleId}`,
+      );
+    }
+    return supervisionFor(
+      built,
+      sourceRow,
+      supervisionOverride?.[built.student.sampleId] ?? null,
+    );
+  });
   const assertionsFailed = assertSubsetForSupervision(supervisionRows);
+  for (const row of supervisionRows) {
+    for (const failure of row.joinFailures ?? []) {
+      assertionsFailed.push({
+        sampleId: row.sampleId,
+        stepId: failure.stepId,
+        reason: failure.reason,
+      });
+    }
+  }
   for (const built of builtSamples) {
     for (const step of built.steps) {
       if (
@@ -1891,6 +2124,24 @@ export async function generateFixedStepwise({
   }
 
   const studentText = studentRows.map((row) => JSON.stringify(row)).join("\n") + "\n";
+  const baseBuiltSamples = samples.map((sample) => buildStudent(sample, sample.familyRoot));
+  const baseStudentRows = baseBuiltSamples.map((built) => built.student);
+  const supervisionVariantStudentBytesEqual =
+    baseStudentRows.map((row) => JSON.stringify(row)).join("\n") ===
+    studentRows.map((row) => JSON.stringify(row)).join("\n");
+  const studentInputRows = builtSamples.map((built) => built.studentInputs);
+  const studentBuildInputsContainForbiddenFields = studentInputRows.some(
+    (input) => containsSupervisionOnlyKeys(input),
+  );
+  const studentForbiddenFields = studentHasForbiddenKeys(studentRows);
+  const studentRowsContainGoldBytes =
+    /"gold"\s*:|teacher-only-evaluation-that-must-not-affect-students/i.test(
+      studentText,
+    );
+  const supervisionText = supervisionRows.map((row) => JSON.stringify(row)).join("\n") + "\n";
+  const supervisionRowsContainStudentPath = supervisionText.includes(
+    path.resolve(outDir, "student-observations.jsonl"),
+  );
   const selfCheck = {
     schemaVersion: "carol-tsjs-fixed-stepwise-self-check-v1",
     contract: "alice-converter-mapping-design-r2-20261106.md §12-§14",
@@ -1925,13 +2176,18 @@ export async function generateFixedStepwise({
     isolation: {
       studentPath: path.join(outDir, "student-observations.jsonl"),
       supervisionPath: path.join(outDir, "independent-supervision.jsonl"),
-      studentForbiddenFields: studentHasForbiddenKeys(studentRows),
-      studentRowsContainGoldBytes: /"gold"\s*:|teacher-only-evaluation-that-must-not-affect-students/i.test(
-        studentText,
-      ),
-      studentGenerationConsumesSupervision: false,
-      studentRowsByteStableAcrossSupervisionVariants: true,
-      supervisionRowsContainStudentPath: false,
+      studentForbiddenFields,
+      studentRowsContainGoldBytes,
+      studentBuildInputsContainForbiddenFields,
+      checkedStudentInputCount: studentInputRows.length,
+      studentGenerationConsumesSupervision:
+        studentBuildInputsContainForbiddenFields ||
+        studentForbiddenFields ||
+        studentRowsContainGoldBytes ||
+        !supervisionVariantStudentBytesEqual,
+      supervisionVariantStudentBytesEqual,
+      studentRowsByteStableAcrossSupervisionVariants: supervisionVariantStudentBytesEqual,
+      supervisionRowsContainStudentPath,
     },
     assertions: {
       passed: assertionsFailed.length === 0,

@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { generateFixedStepwise } from "../playground/training/carol-r2-stepwise-corpus/generate-fixed-stepwise.mjs";
+import {
+  DEFAULT_SUPERVISION_SOURCE,
+  DEFAULT_TYPED_REQUEST_SOURCE,
+  generateFixedStepwise,
+} from "../playground/training/carol-r2-stepwise-corpus/generate-fixed-stepwise.mjs";
 
 const RUN_ROOT = "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031";
 const CORPUS_ROOT = path.join(
@@ -65,8 +69,36 @@ test("generates fixed local-step corpus without future alias leakage", async () 
   const step0 = stepByIndex(alias, 0);
   const step1 = stepByIndex(alias, 1);
   const step2 = stepByIndex(alias, 2);
-  assert.equal(alias.request.requestedDeclaration.name.state, "missing");
-  assert.equal(alias.request.requestedDeclaration.kind.state, "missing");
+  assert.equal(alias.request.requestRef, "request:a-module-positive-alias");
+  assert.deepEqual(alias.request.requestedDeclaration.declarationRef, {
+    state: "known",
+    value: "decl:sources/src/impl.ts#top:helper",
+    reason: null,
+    evidenceRefs: [],
+  });
+  assert.deepEqual(alias.request.requestedDeclaration.moduleRef, {
+    state: "known",
+    value: "mod:sources/src/impl.ts",
+    reason: null,
+    evidenceRefs: [],
+  });
+  assert.deepEqual(alias.request.requestedDeclaration.name, {
+    state: "known",
+    value: "helper",
+    reason: null,
+    evidenceRefs: [],
+  });
+  assert.deepEqual(alias.request.requestedDeclaration.kind, {
+    state: "known",
+    value: "function",
+    reason: null,
+    evidenceRefs: [],
+  });
+  assert.equal(alias.request.relationObligation.pendingRelationRef, "pending:a-module-positive-alias");
+  assert.equal(
+    alias.request.relationObligation.callSiteRef,
+    "call:sources/src/entry-pos.ts:helper",
+  );
   assert.equal(step0.receipts[0].outcome, "success");
   assert.equal(step0.localSyntax.observedDeclarations.length, 0);
   assert.equal(step1.localSyntax.observedDeclarations.length, 0);
@@ -103,6 +135,13 @@ test("generates fixed local-step corpus without future alias leakage", async () 
 
   const dynamic = rowBySample(supervision, "b-closure-unknown-dynamic-property");
   assert.equal(dynamic.trainingEligible, false);
+  assert.deepEqual(dynamic.originalExpected, {
+    label: "unknown",
+    originalLabel: "unknown",
+    originalUnknownReason: "dynamic_undecidable",
+    labelMissing: false,
+    executionReceiptRef: null,
+  });
   const dynamicStep0 = stepByIndex(rowBySample(students, "b-closure-unknown-dynamic-property"), 0);
   assert.deepEqual(
     dynamicStep0.remainingObligations.map((item) => item.ref),
@@ -124,20 +163,24 @@ test("generates fixed local-step corpus without future alias leakage", async () 
   assert.equal(noneBranches.every((item) => item.candidateEmitted === false), true);
 });
 
-test("student rows stay byte-identical when gold or teacher supervision changes", async () => {
+test("student rows stay byte-identical when independent supervision changes", async () => {
   const baseDir = await makeOutputDir();
   const overrideDir = await makeOutputDir();
+  const supervisionRows = await readJsonl(DEFAULT_SUPERVISION_SOURCE);
+  const changedRows = structuredClone(supervisionRows);
+  const changed = rowBySample(changedRows, "a-module-positive-alias");
+  changed.gold.label = "false";
+  changed.gold.goldAction = "c:judge:false";
+  changed.gold.teacherEvidence = "teacher-only-evaluation-that-must-not-affect-students";
+  changed.steps[0].S_g = [...changed.steps[0].S_g, "c:defer"];
+  changed.steps[0].A_g = ["c:defer"];
+  changed.steps[0].agSubsetOfSg = true;
+
   await generateFixedStepwise({ corpusRoot: CORPUS_ROOT, outDir: baseDir });
   await generateFixedStepwise({
     corpusRoot: CORPUS_ROOT,
     outDir: overrideDir,
-    supervisionOverride: {
-      "a-module-positive-alias": {
-        goldLabel: "false",
-        goldAction: "c:judge:false",
-        teacherEvidence: "teacher-only-evaluation-that-must-not-affect-students",
-      },
-    },
+    supervisionRowsOverride: changedRows,
   });
 
   const baseStudents = await readFile(path.join(baseDir, "student-observations.jsonl"), "utf8");
@@ -151,7 +194,95 @@ test("student rows stay byte-identical when gold or teacher supervision changes"
     rowBySample(overrideSupervision, "a-module-positive-alias").gold.label,
     "false",
   );
+  assert.deepEqual(
+    rowBySample(overrideSupervision, "a-module-positive-alias").steps[0].S_g,
+    changed.steps[0].S_g,
+  );
+  assert.deepEqual(
+    rowBySample(overrideSupervision, "a-module-positive-alias").steps[0].A_g,
+    changed.steps[0].A_g,
+  );
   assert.equal(rowBySample(baseSupervision, "a-module-positive-alias").gold.label, "true");
+  assert.equal(
+    rowBySample(baseSupervision, "a-module-positive-alias").steps[0].S_g.includes("c:defer"),
+    true,
+  );
+});
+
+test("keeps known and missing typed request fields without rebuilding them", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "carol-r2-request-"));
+  const typedSource = path.join(root, "student-observations.jsonl");
+  const outDir = path.join(root, "out");
+  await mkdir(outDir, { recursive: true });
+  await writeFile(
+    typedSource,
+    `${JSON.stringify({
+      sampleId: "a-module-positive-alias",
+      request: {
+        requestRef: "request:partial-alias",
+        requestedDeclaration: {
+          declarationRef: "decl:opaque#helper",
+          moduleRef: null,
+          name: "helper",
+          kind: null,
+          sourceTargetRef: "opaque:source-target",
+        },
+        relationObligation: {
+          pendingRelationRef: "pending:partial-alias",
+          callSiteRef: "call:opaque:call-site",
+          calleeName: "helper",
+        },
+      },
+    })}\n`,
+  );
+
+  await generateFixedStepwise({
+    corpusRoot: CORPUS_ROOT,
+    outDir,
+    typedRequestSource: typedSource,
+  });
+  const students = await readJsonl(path.join(outDir, "student-observations.jsonl"));
+  const alias = rowBySample(students, "a-module-positive-alias");
+  assert.equal(alias.request.requestRef, "request:partial-alias");
+  assert.deepEqual(alias.request.requestedDeclaration.declarationRef, {
+    state: "known",
+    value: "decl:opaque#helper",
+    reason: null,
+    evidenceRefs: [],
+  });
+  assert.equal(alias.request.requestedDeclaration.moduleRef.state, "missing");
+  assert.deepEqual(alias.request.requestedDeclaration.name, {
+    state: "known",
+    value: "helper",
+    reason: null,
+    evidenceRefs: [],
+  });
+  assert.equal(alias.request.requestedDeclaration.kind.state, "missing");
+  assert.equal(alias.request.requestedDeclaration.sourceTargetRef, "opaque:source-target");
+  assert.equal(alias.request.relationObligation.pendingRelationRef, "pending:partial-alias");
+  assert.equal(alias.request.relationObligation.callSiteRef, "call:opaque:call-site");
+});
+
+test("keeps supervision S_g/A_g unchanged when a student candidate is wrong", async () => {
+  const outDir = await makeOutputDir();
+  await generateFixedStepwise({
+    corpusRoot: CORPUS_ROOT,
+    outDir,
+    studentCandidateOverrides: {
+      "a-module-positive-alias": {
+        "step-0": ["c:judge:false"],
+      },
+    },
+  });
+
+  const supervision = await readJsonl(path.join(outDir, "independent-supervision.jsonl"));
+  const row = rowBySample(supervision, "a-module-positive-alias");
+  assert.equal(row.trainingEligible, false);
+  assert.equal(row.joinFailures.length > 0, true);
+  assert.match(row.joinFailures[0].reason, /candidate set differs/i);
+  assert.equal(row.steps[0].S_g.includes("c:judge:false"), true);
+  assert.equal(row.steps[0].S_g.includes("c:defer"), true);
+  assert.deepEqual(row.steps[0].A_g, ["c:advance:edge:sources/src/entry-pos.ts:import:0"]);
 });
 
 test("writes a self-check receipt with required audit fields", async () => {
@@ -172,6 +303,9 @@ test("writes a self-check receipt with required audit fields", async () => {
     assert.ok(key in receipt, `missing self-check field ${key}`);
   }
   assert.equal(receipt.assertions.failed, 0);
+  assert.equal(receipt.isolation.studentGenerationConsumesSupervision, false);
+  assert.equal(receipt.isolation.studentBuildInputsContainForbiddenFields, false);
+  assert.equal(receipt.isolation.checkedStudentInputCount, 10);
 });
 
 test.after(async () => {
