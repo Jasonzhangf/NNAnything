@@ -6,7 +6,7 @@
 
 ### 1.1 与现行已接受路线对齐
 
-现行已接受的 TS/JS 切片见 `alice-converter-mapping-design-r2-20261106.md` §3，不是重学一套关系词表：
+现行已接受的 TS/JS 切片见 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-converter-mapping-design-r2-20261106.md` §3，不是重学一套关系词表：
 
 - Goal：根请求身份与 requested declaration 保持不变；当前 pending relation 是其中一个明确关系义务。
 - State：当前时点真实可见的局部绑定、声明、读取状态、当前关系关联、已完成动作回执和引擎义务。
@@ -31,7 +31,7 @@
 
 ## 2. Goal / satisfactionThreshold / State / Action 四元素
 
-沿用 `alice-converter-mapping-design-r2-20261106.md` §3，不另造四元素：
+沿用 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-converter-mapping-design-r2-20261106.md` §3，不另造四元素：
 
 | 元素 | 本能力定义 |
 | --- | --- |
@@ -51,7 +51,7 @@
 | 职责 | 本切片输入 | 输出 | 独立监督/分母 |
 | --- | --- | --- | --- |
 | H_R 关系判断 | 当前局部观测（声明、import/re-export、作用域、动态边界、missing mask） | `J` 上候选分数，保留 true/false/unknown 三选项 | 已确认关系逐例正确率与 unknown 召回 |
-| H_A 当前选择 | 未决关系、合法技能与显式义务 | observe/advance/`judge=true/false/unknown`/NOOP/RETURN/NO_CAPABILITY 候选分数 | 允许选择命中率；越权/伪引用执行=0；无合法动作准确返回 |
+| H_A 当前选择 | 未决关系、合法技能与显式义务 | `judge=true`、`judge=false`、`judge=unknown`、`observe`（存在合法的正增益观察义务时）、`advance`（存在可读局部边时），以及控制 `DEFER`/`RETURN`（由当前是否存在合法补观察决定，二选一）候选分数；不列 NOOP/NO_CAPABILITY——它们不属于本轮已注册的 TS/JS 候选集合 | 允许选择命中率；越权/伪引用执行=0；无合法动作准确返回 |
 
 H_D/H_E 沿用 `docs/l2-four-head-experiment.md` 已接受合同，仅按既有实现启用；本切片不新训练 D/E，也不以四头一并训练替代现行 judge 关系 + 动作选择路线。固定训练 recipe 是单一共享候选打分器（见 §8），不是分别训练四个头。
 
@@ -59,7 +59,7 @@ H_D/H_E 沿用 `docs/l2-four-head-experiment.md` 已接受合同，仅按既有�
 
 ## 4. SESE 数据路径与唯一 owner
 
-沿用 `alice-converter-mapping-design-r2-20261106.md` §4 的线性 SESE 资料流，本能力只替换局部观测来源，不新增拓扑：
+沿用 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-converter-mapping-design-r2-20261106.md` §4 的线性 SESE 资料流，本能力只替换局部观测来源，不新增拓扑：
 
 ```text
 隔离输入包
@@ -106,7 +106,7 @@ H_D/H_E 沿用 `docs/l2-four-head-experiment.md` 已接受合同，仅按既有�
 - 固定字段映射：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/carol-tsjs-r2-stepwise-corpus-20261106/output/field-mapping.md`
 - 学生观测：同目录 `student-observations.jsonl`
 - 独立监督：同目录 `independent-supervision.jsonl`
-- converter 审计：`alice-converter-mapping-design-r2-20261106.md`、`alice-iris-four-mappings-audit-20261106.md`
+- converter 审计：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-converter-mapping-design-r2-20261106.md`、`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-iris-four-mappings-audit-20261106.md`
 
 | 来源家族 | 内容 | 用途 |
 | --- | --- | --- |
@@ -120,7 +120,7 @@ TRAIN/DEV/VERIFICATION 按关联来源与构造机制沿用既有分区；同模
 
 ## 7. 未知、缺测、执行失败与动态语法
 
-按 `alice-converter-mapping-design-r2-20261106.md` §11 与固定 launch §2.4 分开三类事实：
+按 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-converter-mapping-design-r2-20261106.md` §11 与 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-fixed-training-launch-r1.md` §2.4 分开三类事实：
 
 | 事实 | 处理 |
 | --- | --- |
@@ -134,12 +134,12 @@ TRAIN/DEV/VERIFICATION 按关联来源与构造机制沿用既有分区；同模
 
 本节复用已接受合同，不另设第二套训练配方：
 
-- 唯一优化目标：`emma-tsjs-fixed-training-launch-r1.md` §2.1；代码 `lib/training/group-loss.ts`。`L_group(g) = logZ_all(g) - logZ_allowed(g)`；epoch loss = 各 group loss 的平均；有效 unknown gold 照常进入组 loss，`label_missing=true` 的监督行在准入排除并保留证据。
+- 唯一优化目标：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-fixed-training-launch-r1.md` §2.1；代码 `lib/training/group-loss.ts`。`L_group(g) = logZ_all(g) - logZ_allowed(g)`；epoch loss = 各 group loss 的平均；有效 unknown gold 照常进入组 loss，`label_missing=true` 的监督行在准入排除并保留证据。
 - 固定 recipe：同文件 §2.2。`architecture = 64 -> 64 -> 64 -> 1 (ReLU)`；`optimizer = full_batch_sgd (momentum=0)`；`learningRate = 0.01`；`maxEpochs = 200`（仅上限）；`batch = full`；`init = Xavier-uniform, fixed seed`；`stop = 仅 maxEpochs 耗尽即停，不做 DEV 早停`。
 - 数值失败出口：同文件 §2.3。`non_finite` 立即失败且不生成候选；`epoch_limit_exhausted` 只表示固定长度诊断完成；`data_invalid` 时优化步数写 0；逐 epoch loss、finite、maxAbsGrad、末段变化与单调性违规分别记录。
 - 停止与语义验收分离：同文件 §2.4。loss 只说明优化对象在变，完成必须独立通过语义硬门；不得因 loss 上升静默加轮、换 seed、换学习率或换优化器。
 
-当前真实 trainer/evaluator/config 尚未实现（同文件 §4.3）；在 Alice 通过本设计并由 Jenny 调度、共享 fixed training launch 验收前，不得启动 fit。
+真实 trainer/evaluator/config 已存在并已有真实拟合、保存、回载原始回执：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/jenny-tsjs-first-fit-engineering-r1/real-train-train-only/output/run-report.json`（200 epoch 预训练 `status=completed`，`Package Reload tensorsMatch=true`，typecheck 0）。原候选因输入不可辨未达语义目标，不能据此称 trainer 不存在。在 Alice 通过本设计并由 Jenny 调度、共享 fixed training launch 验收前，不得启动新的 fit；当前唯一前置是语料经修订 converter 的独立准入验收。真实引擎/独立评价的剩余缺口分别列明，不把历史文案当作新增全面训练阻塞。
 
 ## 9. 评价：诊断指标、最终验收与独立 oracle
 
@@ -149,7 +149,7 @@ TRAIN/DEV/VERIFICATION 按关联来源与构造机制沿用既有分区；同模
 
 ### 9.2 最终语义硬门（通过条件，继承 board）
 
-按 `emma-tsjs-fixed-training-launch-r1.md` §2.4 与 board test condition：
+按 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-fixed-training-launch-r1.md` §2.4 与 board test condition：
 
 1. 已知关系逐例 100% 正确，错误数 = 0；
 2. 未知结果 100% 报最终 `judge=unknown`，无漏报、无误判；defer/observe 只允许作为中间动作，结束时必须返回显式 `judge=unknown` 并列出未决证据；
@@ -169,7 +169,7 @@ TRAIN/DEV/VERIFICATION 按关联来源与构造机制沿用既有分区；同模
 | `dynamic-property` | 保留原 expected unknown、corrected true、`pending_sample_adjudication`；不得进入本轮 loss |
 | `missing-module` | 保留 expected unknown、TS2307、execution/coverage gap；不得改成 false 或伪造成成功 |
 
-所有已确认 gold 的合格输入都进入相应头评价；`judge=unknown`/DEFER 计弃权与漏检，不能从分母删除；unassessed 逐例列出原因与数量，不得通过排除缩小任务全集。
+所有已确认 gold 的合格输入都进入相应头评价；已知 true/false gold 上的 `judge=unknown` 计弃权/漏检，有效 unknown gold 被 `judge=unknown` 命中应计正确并计入 unknown 召回；中间合法 DEFER 按逐步 `A_g` 评估，终态或停止才按最终语义判定，不能把正确中间动作统一计错；unassessed 逐例列出原因与数量，不得通过排除缩小任务全集。
 
 ## 10. 交付与证据路径
 
@@ -177,13 +177,13 @@ TRAIN/DEV/VERIFICATION 按关联来源与构造机制沿用既有分区；同模
 | --- | --- |
 | 设计合同（本页） | `docs/nn-code-redesign-symbols-tsjs-design.md` |
 | 既有学生/监督语料 | `.../carol-tsjs-r2-stepwise-corpus-20261106/output/student-observations.jsonl`、`independent-supervision.jsonl`、`field-mapping.md` |
-| 既有 converter 审计 | `alice-converter-mapping-design-r2-20261106.md`、`alice-iris-four-mappings-audit-20261106.md` |
+| 既有 converter 审计 | `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-converter-mapping-design-r2-20261106.md`、`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-iris-four-mappings-audit-20261106.md` |
 | 训练/回载/独立评价 | Alice 通过设计后由 Jenny 调度；本设计交付不包含这些执行 |
 
 ## 11. 缺口与生命周期（INCOMPLETE）
 
 1. 本设计只补设计子交付；训练、回载、独立留出评价、旧能力回归与整项 close 仍按 board 生命周期由 Jenny 调度。设计交回不等于训练任务完成。
-2. 当前真实 trainer/evaluator/config 尚未实现（`emma-tsjs-fixed-training-launch-r1.md` §4.3）；不得启动 fit 或以占位命令冒充训练。
+2. 真实 trainer/evaluator/config 已存在并有真实拟合/保存/回载原始回执（`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/jenny-tsjs-first-fit-engineering-r1/real-train-train-only/output/run-report.json`）；§4.3 的历史“尚未实现”文案已被该回执取代。当前前置是语料经修订 converter 的独立准入验收，不在未通过准入前启动 fit 或以占位命令冒充训练。
 3. `dynamic-property` 与 `missing-module` 仍为未就绪样本，按既有合同保留原 expected unknown、冲突与 coverage gap；本设计不重新生成、不覆盖、不把它们改善成可训练组。
 4. 既有 Carol 固定语料与 Iris converter 工程审计各自继续按原有效范围核销；本设计只复用，不重记为新待生成，也不宣布其已训练完成。
 5. 若后续让 `tsjs-unified-adapter` 直接承担 ESM import/export 事实，需另立投影增量；本轮学生输入以既有逐步 episode 合同为准。
