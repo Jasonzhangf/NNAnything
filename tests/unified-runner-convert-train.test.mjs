@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -481,6 +481,7 @@ test("resume rejects an invalid checkpoint instead of fabricating a completion",
     assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
     assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
     const checkpointPath = `${paths.packagePath}.checkpoint.json`;
+    const checkpointBefore = await readJson(checkpointPath);
     await writeJson(checkpointPath, {
       schema: "nnanything.unified.training-checkpoint.invalid",
       completedEpochs: 2,
@@ -491,7 +492,17 @@ test("resume rejects an invalid checkpoint instead of fabricating a completion",
     assert.equal(report.status, "failed");
     assert.equal(report.error.code, "CHECKPOINT_INVALID");
     assert.match(report.error.message, /schema mismatch/);
+    assert.equal(typeof report.thisRun.loadSeconds, "number");
+    assert.equal(typeof report.thisRun.dataValidationSeconds, "number");
+    assert.equal(report.thisRun.optimizationSeconds, null);
+    assert.equal(report.thisRun.checkpointIoSecs, null);
+    assert.equal(report.thisRun.attemptOptimizerSteps, null);
+    assert.equal(report.thisRun.completedOptimizerSteps, null);
+    assert.equal(typeof report.thisRun.totalWallSeconds, "number");
+    assert.equal(report.cumulative, null);
     await assert.rejects(readFile(paths.packagePath, "utf8"), error => error.code === "ENOENT");
+    const checkpointAfter = await readJson(checkpointPath);
+    assert.notDeepEqual(checkpointAfter, checkpointBefore);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -550,6 +561,158 @@ test("resume rejects a changed resource reference as an incompatible resume", as
   }
 });
 
+test("rework finding: per-run receipts survive pause/resume and failed retries", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 4, epochsThisRun: 2 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+    const paused = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(paused.status, "paused");
+    const firstRunDir = join(paths.outputDir, "runs", paused.runId);
+    assert.deepEqual(await readJson(join(firstRunDir, "run-report.json")), paused);
+    assert.equal(paused.paths.reportJsonPath, join(firstRunDir, "run-report.json"));
+    const pausedMarkdown = await readFile(join(firstRunDir, "run-report.md"), "utf8");
+    assert.match(pausedMarkdown, /# Unified Runner Report/);
+
+    // Corrupt the checkpoint then resume: the resume failure receipt must be kept per-run.
+    const checkpointPath = `${paths.packagePath}.checkpoint.json`;
+    const checkpointBefore = await readJson(checkpointPath);
+    await writeJson(checkpointPath, {
+      schema: "nnanything.unified.training-checkpoint.invalid",
+      completedEpochs: 2,
+    });
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 1);
+    const failed = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.error.code, "CHECKPOINT_INVALID");
+    const failedRunDir = join(paths.outputDir, "runs", failed.runId);
+    assert.deepEqual(await readJson(join(failedRunDir, "run-report.json")), failed);
+    const failedMarkdown = await readFile(join(failedRunDir, "run-report.md"), "utf8");
+    assert.match(failedMarkdown, /# Unified Runner Report/);
+
+    // A later successful retry keeps both earlier receipts and advances latest.
+    await writeJson(checkpointPath, checkpointBefore);
+    const config = await readJson(paths.configPath);
+    delete config.training.epochsThisRun;
+    await writeJson(paths.configPath, config);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 0);
+    const resumed = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(resumed.status, "completed");
+    const resumedRunDir = join(paths.outputDir, "runs", resumed.runId);
+    assert.deepEqual(await readJson(join(resumedRunDir, "run-report.json")), resumed);
+
+    const runDirs = await readdir(join(paths.outputDir, "runs"));
+    assert.equal(runDirs.length >= 3, true);
+    assert.deepEqual(await readJson(join(firstRunDir, "run-report.json")), paused);
+    assert.equal(await readFile(join(firstRunDir, "run-report.md"), "utf8"), pausedMarkdown);
+    assert.equal(await readFile(join(failedRunDir, "run-report.md"), "utf8"), failedMarkdown);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("train input load failure keeps unentered phases null", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root);
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    await rm(paths.studentRowsPath);
+
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 1);
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "failed");
+    assert.equal(report.error.code, "RUNNER_ERROR");
+    assert.equal(typeof report.thisRun.loadSeconds, "number");
+    assert.equal(report.thisRun.dataValidationSeconds, null);
+    assert.equal(report.thisRun.optimizationSeconds, null);
+    assert.equal(report.thisRun.checkpointIoSecs, null);
+    assert.equal(report.thisRun.attemptOptimizerSteps, null);
+    assert.equal(report.thisRun.completedOptimizerSteps, null);
+    assert.equal(typeof report.thisRun.totalWallSeconds, "number");
+    assert.equal(report.cumulative, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("non-finite optimization exposes attempted and completed work separately", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 1 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    const rows = (await readFile(paths.studentRowsPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line));
+    for (const row of rows) {
+      row.x = Array.from({ length: 64 }, () => 1e308);
+      row.missingMode = [];
+    }
+    await writeJsonl(paths.studentRowsPath, rows);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 1);
+
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "failed");
+    assert.equal(report.trainReport.stopReason, "non_finite");
+    assert.equal(typeof report.thisRun.optimizationSeconds, "number");
+    assert.equal(report.thisRun.attemptOptimizerSteps, 1);
+    assert.equal(report.thisRun.completedOptimizerSteps, 0);
+    assert.equal(report.thisRun.attemptProcessedRows, report.counts.learnedRows);
+    assert.equal(report.thisRun.completedProcessedRows, 0);
+    assert.equal(report.optimizerSteps, 0);
+    assert.equal(report.processedRows, 0);
+    assert.equal(report.committedOptimizerSteps, null);
+    assert.equal(report.cumulative, null);
+    await assert.rejects(readFile(paths.packagePath, "utf8"), error => error.code === "ENOENT");
+    await assert.rejects(
+      readFile(`${paths.packagePath}.checkpoint.json`, "utf8"),
+      error => error.code === "ENOENT",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resume optimization failure preserves the committed checkpoint totals", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 4, epochsThisRun: 2 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+    const checkpointPath = `${paths.packagePath}.checkpoint.json`;
+    const checkpoint = await readJson(checkpointPath);
+    for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"]) {
+      checkpoint.tensors[key] = checkpoint.tensors[key].map(() => 1e308);
+    }
+    await writeJson(checkpointPath, checkpoint);
+    const config = await readJson(paths.configPath);
+    delete config.training.epochsThisRun;
+    await writeJson(paths.configPath, config);
+
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 1);
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "failed");
+    assert.equal(report.trainReport.stopReason, "non_finite");
+    assert.equal(typeof report.thisRun.loadSeconds, "number");
+    assert.equal(typeof report.thisRun.dataValidationSeconds, "number");
+    assert.equal(report.thisRun.attemptOptimizerSteps, 1);
+    assert.equal(report.thisRun.completedOptimizerSteps, 0);
+    assert.equal(report.thisRun.attemptProcessedRows, report.counts.learnedRows);
+    assert.equal(report.thisRun.completedProcessedRows, 0);
+    assert.equal(report.optimizerSteps, 0);
+    assert.equal(report.processedRows, 0);
+    assert.equal(report.committedOptimizerSteps, 2);
+    assert.equal(report.committedProcessedRows, report.counts.learnedRows * 2);
+    assert.equal(report.cumulative.optimizerSteps, 2);
+    assert.equal(report.cumulative.processedRows, report.counts.learnedRows * 2);
+    await assert.rejects(readFile(paths.packagePath, "utf8"), error => error.code === "ENOENT");
+    assert.deepEqual(await readJson(checkpointPath), checkpoint);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("unified train emits thisRun/cumulative timing and persists the committed cut point", async () => {
   const root = await makeCorpus();
   try {
@@ -602,6 +765,8 @@ test("unified resume adds only newly committed timing to cumulative", async () =
     assert.equal(paused.status, "paused");
     assert.equal(paused.cumulative.optimizerSteps, 2);
     assert.equal(typeof paused.cumulative.optimizationSeconds, "number");
+    const pausedPerRun = await readJson(join(paths.outputDir, "runs", paused.runId, "run-report.json"));
+    assert.deepEqual(pausedPerRun, paused);
 
     const config = await readJson(paths.configPath);
     delete config.training.epochsThisRun;
@@ -612,6 +777,14 @@ test("unified resume adds only newly committed timing to cumulative", async () =
     assert.equal(resumed.status, "completed");
     assert.equal(resumed.thisRun.optimizationSeconds > 0, true);
     assert.equal(resumed.cumulative.optimizerSteps, 4);
+    assert.equal(resumed.thisRun.attemptOptimizerSteps, 2);
+    assert.equal(resumed.thisRun.completedOptimizerSteps, 2);
+    assert.equal(
+      resumed.thisRun.completedProcessedRows,
+      resumed.counts.learnedRows * 2,
+    );
+    assert.equal(resumed.committedOptimizerSteps, 4);
+    assert.equal(resumed.committedProcessedRows, resumed.counts.learnedRows * 4);
     assert.ok(
       resumed.cumulative.optimizationSeconds
         >= paused.cumulative.optimizationSeconds,
@@ -622,6 +795,8 @@ test("unified resume adds only newly committed timing to cumulative", async () =
     const checkpoint = await readJson(`${paths.packagePath}.checkpoint.json`);
     assert.equal(checkpoint.timing.cumulative.optimizerSteps, 4);
     assert.equal(checkpoint.timing.timingCutPoint.committedOptimizerSteps, 4);
+    const resumedPerRun = await readJson(join(paths.outputDir, "runs", resumed.runId, "run-report.json"));
+    assert.deepEqual(resumedPerRun, resumed);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -7,11 +7,19 @@ export interface UnifiedCheckpointIoTiming {
 
 export interface UnifiedThisRunTiming {
   readonly loadSeconds: number;
-  readonly dataValidationSeconds: number;
+  readonly dataValidationSeconds: number | null;
   readonly optimizationSeconds: number | null;
-  readonly checkpointIoSecs: UnifiedCheckpointIoTiming;
+  readonly checkpointIoSecs: UnifiedCheckpointIoTiming | null;
   readonly evaluationSeconds: number | null;
   readonly totalWallSeconds: number;
+  /** Epoch updates entered this invocation, including any non-finite failure. null when optimization never ran. */
+  readonly attemptOptimizerSteps: number | null;
+  /** Rows fed into those attempted updates. null when optimization never ran. */
+  readonly attemptProcessedRows: number | null;
+  /** Epoch updates that completed with a finite loss/gradient this invocation. null when optimization never ran. */
+  readonly completedOptimizerSteps: number | null;
+  /** Rows in those completed updates. null when optimization never ran. */
+  readonly completedProcessedRows: number | null;
   readonly rowsPerSecond: number | null;
   readonly throughputDenominator: "optimizationSeconds" | null;
 }

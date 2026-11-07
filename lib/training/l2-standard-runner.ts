@@ -335,6 +335,46 @@ async function writeAtomicText(targetPath: string, content: string): Promise<str
   return resolved;
 }
 
+let unifiedRunIdCounter = 0;
+
+function nextUnifiedRunId(command: StandardRunnerCommand): string {
+  unifiedRunIdCounter += 1;
+  return `unified-${command}-${Date.now().toString(36)}-${process.pid.toString(36)}-${unifiedRunIdCounter.toString(36)}`;
+}
+
+interface UnifiedRunnerReceiptPaths {
+  readonly perRunJsonPath: string;
+  readonly perRunMdPath: string;
+  readonly latestJsonPath: string;
+  readonly latestMdPath: string;
+}
+
+function unifiedRunnerReceiptPaths(
+  outputDir: string,
+  runId: string,
+): UnifiedRunnerReceiptPaths {
+  return {
+    perRunJsonPath: join(outputDir, "runs", runId, "run-report.json"),
+    perRunMdPath: join(outputDir, "runs", runId, "run-report.md"),
+    latestJsonPath: join(outputDir, "run-report.json"),
+    latestMdPath: join(outputDir, "run-report.md"),
+  };
+}
+
+async function writeUnifiedRunnerReceiptFiles(
+  outputDir: string,
+  runId: string,
+  jsonContent: string,
+  markdownContent: string,
+): Promise<UnifiedRunnerReceiptPaths> {
+  const paths = unifiedRunnerReceiptPaths(outputDir, runId);
+  await writeAtomicText(paths.perRunJsonPath, jsonContent);
+  await writeAtomicText(paths.perRunMdPath, markdownContent);
+  await writeAtomicText(paths.latestJsonPath, jsonContent);
+  await writeAtomicText(paths.latestMdPath, markdownContent);
+  return paths;
+}
+
 type UnifiedRunnerOutputStatus =
   | "READY"
   | "NO_LEARNED_ROWS"
@@ -370,8 +410,14 @@ interface UnifiedRunnerReport {
   readonly startedAt: string;
   readonly endedAt: string;
   readonly wallSeconds: number;
+  /** Finite epoch updates completed by this invocation. null when optimization never ran. */
   readonly optimizerSteps: number | null;
+  /** Rows in those finite updates completed by this invocation. null when optimization never ran. */
   readonly processedRows: number | null;
+  /** Checkpoint-committed totals carried from the accepted cut point. null when no committed timing exists. */
+  readonly committedOptimizerSteps: number | null;
+  /** Checkpoint-committed processed rows. null when no committed timing exists. */
+  readonly committedProcessedRows: number | null;
   readonly stopReason: string | null;
   readonly thisRun: UnifiedThisRunTiming;
   readonly cumulative: UnifiedCumulativeTiming | null;
@@ -789,9 +835,7 @@ async function writeUnifiedRunnerReport(
   outputDir: string,
   report: UnifiedRunnerReport,
 ): Promise<{ readonly reportJsonPath: string; readonly reportMdPath: string }> {
-  const reportJsonPath = join(outputDir, "run-report.json");
-  const reportMdPath = join(outputDir, "run-report.md");
-  await writeAtomicText(reportJsonPath, `${JSON.stringify(report, null, 2)}\n`);
+  const jsonContent = `${JSON.stringify(report, null, 2)}\n`;
   const lines = [
     `# Unified Runner Report (${report.runId})`,
     "",
@@ -818,11 +862,22 @@ async function writeUnifiedRunnerReport(
     "",
     `- thisRun.totalWallSeconds: \`${report.thisRun.totalWallSeconds.toFixed(6)}\``,
     `- thisRun.loadSeconds: \`${report.thisRun.loadSeconds.toFixed(6)}\``,
-    `- thisRun.dataValidationSeconds: \`${report.thisRun.dataValidationSeconds.toFixed(6)}\``,
+    `- thisRun.dataValidationSeconds: \`${report.thisRun.dataValidationSeconds === null ? "unavailable (null)" : report.thisRun.dataValidationSeconds.toFixed(6)}\``,
     `- thisRun.optimizationSeconds: \`${report.thisRun.optimizationSeconds === null ? "unavailable (null)" : report.thisRun.optimizationSeconds.toFixed(6)}\``,
-    `- thisRun.checkpointIoSecs.totalSeconds: \`${report.thisRun.checkpointIoSecs.totalSeconds.toFixed(6)}\``,
+    `- thisRun.checkpointIoSecs.totalSeconds: \`${report.thisRun.checkpointIoSecs === null ? "unavailable (null)" : report.thisRun.checkpointIoSecs.totalSeconds.toFixed(6)}\``,
     `- thisRun.evaluationSeconds: \`${report.thisRun.evaluationSeconds === null ? "unavailable (null)" : report.thisRun.evaluationSeconds.toFixed(6)}\``,
     `- thisRun.rowsPerSecond: \`${report.thisRun.rowsPerSecond === null ? "unavailable (null)" : report.thisRun.rowsPerSecond.toFixed(4)}\``,
+  );
+  lines.push(
+    "",
+    "## This Attempt",
+    "",
+    `- optimizerSteps attempted: \`${report.thisRun.attemptOptimizerSteps === null ? "unavailable (null)" : report.thisRun.attemptOptimizerSteps}\``,
+    `- optimizerSteps completed (finite): \`${report.thisRun.completedOptimizerSteps === null ? "unavailable (null)" : report.thisRun.completedOptimizerSteps}\``,
+    `- processedRows attempted: \`${report.thisRun.attemptProcessedRows === null ? "unavailable (null)" : report.thisRun.attemptProcessedRows}\``,
+    `- processedRows completed (finite): \`${report.thisRun.completedProcessedRows === null ? "unavailable (null)" : report.thisRun.completedProcessedRows}\``,
+    `- committedOptimizerSteps: \`${report.committedOptimizerSteps === null ? "unavailable (null)" : report.committedOptimizerSteps}\``,
+    `- committedProcessedRows: \`${report.committedProcessedRows === null ? "unavailable (null)" : report.committedProcessedRows}\``,
   );
   if (report.cumulative !== null) {
     lines.push(
@@ -857,8 +912,9 @@ async function writeUnifiedRunnerReport(
   if (report.error !== null) {
     lines.push("", "## Error", "", "```json", JSON.stringify(report.error, null, 2), "```");
   }
-  await writeAtomicText(reportMdPath, `${lines.join("\n")}\n`);
-  return { reportJsonPath, reportMdPath };
+  const markdownContent = `${lines.join("\n")}\n`;
+  const paths = await writeUnifiedRunnerReceiptFiles(outputDir, report.runId, jsonContent, markdownContent);
+  return { reportJsonPath: paths.perRunJsonPath, reportMdPath: paths.perRunMdPath };
 }
 
 function formatMarkdownReport(report: StandardHeadRunReport): string {
@@ -2163,18 +2219,31 @@ export async function executeUnifiedRunnerRoute(
   const startedAt = new Date().toISOString();
   const commandStartNs = timingStart?.commandStartNs ?? process.hrtime.bigint();
   let loadSeconds = timingStart?.configLoadSeconds ?? 0;
-  let dataValidationSeconds = 0;
-  let optimizationSeconds: number | null = 0;
-  let checkpointIoSecs = emptyCheckpointIoTiming();
+  let dataValidationSeconds: number | null = null;
+  let optimizationSeconds: number | null = null;
+  let checkpointIoSecs: UnifiedCheckpointIoTiming | null = null;
   let cumulative: UnifiedCumulativeTiming | null = null;
-  let committedRowsThisRun = 0;
+  let attemptOptimizerSteps: number | null = null;
+  let attemptProcessedRows: number | null = null;
+  let completedOptimizerSteps: number | null = null;
+  let completedProcessedRows: number | null = null;
   const outputDir = resolve(config.outputDir);
   await mkdir(outputDir, { recursive: true });
+  const noteCheckpointIo = (io: UnifiedCheckpointIoTiming): void => {
+    checkpointIoSecs = checkpointIoSecs === null
+      ? io
+      : addCheckpointIoTiming(checkpointIoSecs, io);
+  };
+  const notePackageReload = (seconds: number): void => {
+    checkpointIoSecs = checkpointIoSecs === null
+      ? { serializeSeconds: 0, atomicReplaceSeconds: 0, packageReloadSeconds: seconds, totalSeconds: seconds }
+      : addPackageReloadSeconds(checkpointIoSecs, seconds);
+  };
 
   if (command === "validate-data") {
     const validationStartedNs = process.hrtime.bigint();
     const dataGate = await validateUnified64SlotTrainingData(config.dataGate);
-    dataValidationSeconds += monotonicSeconds(validationStartedNs);
+    dataValidationSeconds = monotonicSeconds(validationStartedNs);
     const endedAt = new Date().toISOString();
     const totalWallSeconds = monotonicSeconds(commandStartNs);
     const status =
@@ -2183,11 +2252,11 @@ export async function executeUnifiedRunnerRoute(
         : dataGate.status === "NO_LEARNED_ROWS"
           ? "NO_LEARNED_ROWS"
           : "READY";
-    const reportJsonPath = join(outputDir, "run-report.json");
-    const reportMdPath = join(outputDir, "run-report.md");
+    const runId = nextUnifiedRunId(command);
+    const receiptPaths = unifiedRunnerReceiptPaths(outputDir, runId);
     const report = {
       schema: "nnanything.unified.run-report.v1",
-      runId: `unified-${command}-${Date.now().toString(36)}`,
+      runId,
       command,
       route: config.route,
       phase: config.phase,
@@ -2198,14 +2267,20 @@ export async function executeUnifiedRunnerRoute(
       wallSeconds: totalWallSeconds,
       optimizerSteps: null,
       processedRows: null,
+      committedOptimizerSteps: null,
+      committedProcessedRows: null,
       stopReason: dataGate.status,
       thisRun: {
         loadSeconds,
         dataValidationSeconds,
-        optimizationSeconds,
-        checkpointIoSecs,
+        optimizationSeconds: 0,
+        checkpointIoSecs: null,
         evaluationSeconds: null,
         totalWallSeconds,
+        attemptOptimizerSteps: null,
+        attemptProcessedRows: null,
+        completedOptimizerSteps: null,
+        completedProcessedRows: null,
         rowsPerSecond: null,
         throughputDenominator: null,
       },
@@ -2215,26 +2290,28 @@ export async function executeUnifiedRunnerRoute(
       paths: {
         inputPackagePath: null,
         outputDir,
-        reportJsonPath,
-        reportMdPath,
+        reportJsonPath: receiptPaths.perRunJsonPath,
+        reportMdPath: receiptPaths.perRunMdPath,
       },
     };
-    await writeAtomicText(reportJsonPath, `${JSON.stringify(report, null, 2)}\n`);
-    await writeAtomicText(
-      reportMdPath,
-      [
-        `# Unified Runner Route Report (${report.runId})`,
-        "",
-        `- Command: \`${report.command}\``,
-        `- Route: \`${report.route.domain}/${report.route.decisionKind}\``,
-        `- Phase: \`${report.phase}\``,
-        `- Status: \`${report.status}\``,
-        `- Data Gate Status: \`${report.dataGate.status}\``,
-        `- Data Gate Learned Rows: \`${report.dataGate.counts.learnedRows}\``,
-        `- Hybrid Package Loaded: \`${String(report.hybridPackageLoaded)}\``,
-        `- Input Package Path: \`${String(report.paths.inputPackagePath)}\``,
-        "",
-      ].join("\n"),
+    const markdownContent = [
+      `# Unified Runner Route Report (${report.runId})`,
+      "",
+      `- Command: \`${report.command}\``,
+      `- Route: \`${report.route.domain}/${report.route.decisionKind}\``,
+      `- Phase: \`${report.phase}\``,
+      `- Status: \`${report.status}\``,
+      `- Data Gate Status: \`${report.dataGate.status}\``,
+      `- Data Gate Learned Rows: \`${report.dataGate.counts.learnedRows}\``,
+      `- Hybrid Package Loaded: \`${String(report.hybridPackageLoaded)}\``,
+      `- Input Package Path: \`${String(report.paths.inputPackagePath)}\``,
+      "",
+    ].join("\n");
+    await writeUnifiedRunnerReceiptFiles(
+      outputDir,
+      runId,
+      `${JSON.stringify(report, null, 2)}\n`,
+      markdownContent,
     );
     return status === "DATA_INVALID" ? 1 : 0;
   }
@@ -2259,14 +2336,17 @@ export async function executeUnifiedRunnerRoute(
     const endedAt = new Date().toISOString();
     const totalWallSeconds = monotonicSeconds(commandStartNs);
     const rowsPerSecond =
-      committedRowsThisRun > 0
+      completedProcessedRows !== null
+      && completedProcessedRows > 0
       && optimizationSeconds !== null
       && optimizationSeconds > 0
-        ? committedRowsThisRun / optimizationSeconds
+        ? completedProcessedRows / optimizationSeconds
         : null;
+    const runId = nextUnifiedRunId(command);
+    const receiptPaths = unifiedRunnerReceiptPaths(outputDir, runId);
     const report: UnifiedRunnerReport = {
       schema: "nnanything.unified.run-report.v1",
-      runId: `unified-${command}-${Date.now().toString(36)}`,
+      runId,
       command,
       route: config.route,
       phase: config.phase,
@@ -2275,8 +2355,10 @@ export async function executeUnifiedRunnerRoute(
       startedAt,
       endedAt,
       wallSeconds: totalWallSeconds,
-      optimizerSteps: cumulative?.optimizerSteps ?? (trainReport === null ? null : trainReport.completedEpochs),
-      processedRows: cumulative?.processedRows ?? (trainReport === null ? null : committedRowsThisRun),
+      optimizerSteps: completedOptimizerSteps,
+      processedRows: completedProcessedRows,
+      committedOptimizerSteps: cumulative?.optimizerSteps ?? null,
+      committedProcessedRows: cumulative?.processedRows ?? null,
       stopReason: trainReport?.stopReason ?? null,
       thisRun: {
         loadSeconds,
@@ -2285,6 +2367,10 @@ export async function executeUnifiedRunnerRoute(
         checkpointIoSecs,
         evaluationSeconds: null,
         totalWallSeconds,
+        attemptOptimizerSteps,
+        attemptProcessedRows,
+        completedOptimizerSteps,
+        completedProcessedRows,
         rowsPerSecond,
         throughputDenominator: optimizationSeconds !== null && optimizationSeconds > 0
           ? "optimizationSeconds"
@@ -2303,8 +2389,8 @@ export async function executeUnifiedRunnerRoute(
       paths: {
         inputPackagePath: null,
         outputDir,
-        reportJsonPath: join(outputDir, "run-report.json"),
-        reportMdPath: join(outputDir, "run-report.md"),
+        reportJsonPath: receiptPaths.perRunJsonPath,
+        reportMdPath: receiptPaths.perRunMdPath,
         studentRowsPath,
         supervisionRowsPath,
         dataGateRowsPath,
@@ -2386,10 +2472,15 @@ export async function executeUnifiedRunnerRoute(
       await writeJsonlAtomic(supervisionRowsPath, supervisionRows);
       const gateRows = dataGateRowsForRunner(studentGroups, supervisionRows, config.route);
       await writeJsonlAtomic(dataGateRowsPath, gateRows);
-      dataGate = await validateUnified64SlotTrainingData({
-        ...config.dataGate,
-        rowsPath: dataGateRowsPath,
-      });
+      const convertValidationStartedNs = process.hrtime.bigint();
+      try {
+        dataGate = await validateUnified64SlotTrainingData({
+          ...config.dataGate,
+          rowsPath: dataGateRowsPath,
+        });
+      } finally {
+        dataValidationSeconds = (dataValidationSeconds ?? 0) + monotonicSeconds(convertValidationStartedNs);
+      }
       let trainableGroups = 0;
       if (dataGate.status !== "DATA_INVALID") {
         trainableGroups = buildEncodedGroups(studentGroups, supervisionRows).length;
@@ -2440,7 +2531,7 @@ export async function executeUnifiedRunnerRoute(
         ? []
         : buildEncodedGroups(studentGroups, supervisionRows);
     } finally {
-      dataValidationSeconds += monotonicSeconds(dataValidationStartedNs);
+      dataValidationSeconds = (dataValidationSeconds ?? 0) + monotonicSeconds(dataValidationStartedNs);
     }
     counts = {
       studentGroups: studentGroups.length,
@@ -2455,6 +2546,7 @@ export async function executeUnifiedRunnerRoute(
       return await finalize("DATA_INVALID", 1);
     }
     if (dataGate.status === "NO_LEARNED_ROWS") {
+      optimizationSeconds = 0;
       return await finalize("NO_LEARNED_ROWS", 0);
     }
     const nonFiniteInput = findNonFiniteUnifiedInput(encodedGroups);
@@ -2492,6 +2584,13 @@ export async function executeUnifiedRunnerRoute(
     const result = runUnifiedTraining(encodedGroups, trainConfig, runOptions);
     trainReport = result.report;
     optimizationSeconds = result.timing.optimizationSeconds;
+    const startEpoch = resumeFrom?.completedEpochs ?? 0;
+    const appendedEpochs = result.report.epochs.slice(startEpoch);
+    const learnedRows = dataGate.counts.learnedRows;
+    attemptOptimizerSteps = appendedEpochs.length;
+    completedOptimizerSteps = appendedEpochs.filter(record => record.finite).length;
+    attemptProcessedRows = attemptOptimizerSteps * learnedRows;
+    completedProcessedRows = completedOptimizerSteps * learnedRows;
     if (result.report.status === "failed") {
       error = {
         code: result.report.stopReason,
@@ -2499,10 +2598,6 @@ export async function executeUnifiedRunnerRoute(
       };
       return await finalize("failed", 1);
     }
-    const newlyCommittedEpochs =
-      result.report.completedEpochs - (resumeFrom?.completedEpochs ?? 0);
-    const learnedRows = dataGate.counts.learnedRows;
-    committedRowsThisRun = learnedRows * newlyCommittedEpochs;
     const previousCumulative = resumeFrom?.timing?.cumulative ?? null;
     const resumedWithLegacyTiming = command === "resume" && resumeFrom?.timing === null;
     const committedCumulative: UnifiedCumulativeTiming | null = resumedWithLegacyTiming
@@ -2510,7 +2605,7 @@ export async function executeUnifiedRunnerRoute(
       : {
           loadSeconds: (previousCumulative?.loadSeconds ?? 0) + loadSeconds,
           dataValidationSeconds:
-            (previousCumulative?.dataValidationSeconds ?? 0) + dataValidationSeconds,
+            (previousCumulative?.dataValidationSeconds ?? 0) + (dataValidationSeconds ?? 0),
           optimizationSeconds:
             (previousCumulative?.optimizationSeconds ?? 0) + result.timing.optimizationSeconds,
           checkpointIoSecs: previousCumulative?.checkpointIoSecs ?? emptyCheckpointIoTiming(),
@@ -2518,9 +2613,9 @@ export async function executeUnifiedRunnerRoute(
             (previousCumulative?.totalWallSeconds ?? 0)
             + monotonicSeconds(commandStartNs, result.timing.cutPointNs),
           optimizerSteps:
-            (previousCumulative?.optimizerSteps ?? 0) + newlyCommittedEpochs,
+            (previousCumulative?.optimizerSteps ?? 0) + (completedOptimizerSteps ?? 0),
           processedRows:
-            (previousCumulative?.processedRows ?? 0) + committedRowsThisRun,
+            (previousCumulative?.processedRows ?? 0) + (completedProcessedRows ?? 0),
         };
     let savedCheckpoint: UnifiedTrainingCheckpoint;
     const checkpointSaveStartedNs = process.hrtime.bigint();
@@ -2532,7 +2627,7 @@ export async function executeUnifiedRunnerRoute(
           result.report,
           result.tensors,
         );
-        checkpointIoSecs = addCheckpointIoTiming(checkpointIoSecs, {
+        noteCheckpointIo({
           serializeSeconds: monotonicSeconds(checkpointSaveStartedNs),
           atomicReplaceSeconds: 0,
           packageReloadSeconds: 0,
@@ -2554,11 +2649,11 @@ export async function executeUnifiedRunnerRoute(
           },
         );
         savedCheckpoint = saved.checkpoint;
-        checkpointIoSecs = addCheckpointIoTiming(checkpointIoSecs, saved.io);
+        noteCheckpointIo(saved.io);
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);
-      checkpointIoSecs = addCheckpointIoTiming(checkpointIoSecs, {
+      noteCheckpointIo({
         serializeSeconds: monotonicSeconds(checkpointSaveStartedNs),
         atomicReplaceSeconds: 0,
         packageReloadSeconds: 0,
@@ -2575,20 +2670,14 @@ export async function executeUnifiedRunnerRoute(
         savedCheckpoint,
       );
     } catch (caught) {
-      checkpointIoSecs = addPackageReloadSeconds(
-        checkpointIoSecs,
-        monotonicSeconds(checkpointReloadStartedNs),
-      );
+      notePackageReload(monotonicSeconds(checkpointReloadStartedNs));
       error = {
         code: "CHECKPOINT_RELOAD_ERROR",
         message: caught instanceof Error ? caught.message : String(caught),
       };
       return await finalize("failed", 1);
     }
-    checkpointIoSecs = addPackageReloadSeconds(
-      checkpointIoSecs,
-      monotonicSeconds(checkpointReloadStartedNs),
-    );
+    notePackageReload(monotonicSeconds(checkpointReloadStartedNs));
     if (result.report.status === "paused") {
       return await finalize("paused", 0);
     }
@@ -2597,7 +2686,7 @@ export async function executeUnifiedRunnerRoute(
     try {
       savedPackage = await saveUnifiedTrainPackage(packagePath, trainConfig, result.tensors);
     } catch (caught) {
-      checkpointIoSecs = addCheckpointIoTiming(checkpointIoSecs, {
+      noteCheckpointIo({
         serializeSeconds: monotonicSeconds(packageSaveStartedNs),
         atomicReplaceSeconds: 0,
         packageReloadSeconds: 0,
@@ -2609,7 +2698,7 @@ export async function executeUnifiedRunnerRoute(
       };
       return await finalize("failed", 1);
     }
-    checkpointIoSecs = addCheckpointIoTiming(checkpointIoSecs, {
+    noteCheckpointIo({
       serializeSeconds: monotonicSeconds(packageSaveStartedNs),
       atomicReplaceSeconds: 0,
       packageReloadSeconds: 0,
@@ -2619,20 +2708,14 @@ export async function executeUnifiedRunnerRoute(
     try {
       packageReload = await verifyUnifiedPackageReloadInNewProcess(packagePath, savedPackage);
     } catch (caught) {
-      checkpointIoSecs = addPackageReloadSeconds(
-        checkpointIoSecs,
-        monotonicSeconds(packageReloadStartedNs),
-      );
+      notePackageReload(monotonicSeconds(packageReloadStartedNs));
       error = {
         code: "PACKAGE_RELOAD_ERROR",
         message: caught instanceof Error ? caught.message : String(caught),
       };
       return await finalize("failed", 1);
     }
-    checkpointIoSecs = addPackageReloadSeconds(
-      checkpointIoSecs,
-      monotonicSeconds(packageReloadStartedNs),
-    );
+    notePackageReload(monotonicSeconds(packageReloadStartedNs));
     return await finalize("completed", 0);
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
