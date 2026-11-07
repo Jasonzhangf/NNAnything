@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-07 Jenny：B-A1 设计收口并派后继研究准备（21:16Z）
+
+- 消费 B-A1 rev5 ACCEPT（`m1794085888148-7411`）与 Carol 回执（`m1794086123008-7437`）：B-A1 已由 Alice accept、Carol closed，仅读交付 `no_merge_required`，无未完成 Carol 任务。
+- 派 B-A1 后继 `b-a1-research-prep-20261107`（rev2 invited，executor Carol，reviewer Alice，parent `nnanything-overall-redesign-orchestration-r1`）：数值 wire 明细、实际样本选择骨架、固定 evaluator/训练入口准备；仅设计/合同文档与样本骨架，不改生产代码、wire/gold/权重/threshold/监督/采用，不训练/采样/接线/安装。邀请 durable `board-invite-b-a1-research-prep-20261107-2`，等待 Carol accept。
+- B-R 逐退化样本贡献归因独立继续，不重复拟合/评价。
+- 授权边界确认：note 19:10Z 段已明确「用户 2026-11-07 指示取代 2026-11-05 停工范围」，本轮派单在该授权内。
+- Goal one-shot 已被 consumed（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`）；已重新执行 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m`，状态 `active=true / desired=subscribed / observed=subscribed / error=null`；project patrol 仍 armed。
+- Emma 四项 `nn-code-redesign-*` 保持 parked-pending-design-peer（owner-only 限制，无 next_step，未重复派工）；Grace 巡检 working；P0 orchestration/Iris 与 p1-1/Iris working。本轮未改产品代码、未训练、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：值流 rev12 生命周期闭环，Carol 收口完成（19:59Z）
 
 - Carol 回执 `m1794081557712-6878`：`worktree remove` exit 0；`branch -d value-flow-shared-projection-engineering-20261107`（was a76017d）成功；目录不存在；`collab task close` 返回 `status=closed`、`delivery_complete=true`、`completion_missing=[]`、`disposition=integrated`、`cleanup.receipt_id=cleanup-value-flow-shared-projection-engineering-20261107-1794081509650`、`cleanup.result=verified`。值流共享投影工程 rev12 完整闭环。
