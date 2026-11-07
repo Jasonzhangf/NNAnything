@@ -132,3 +132,37 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 9. `nn-code-redesign-learning-loop-r1`：本地使用采集、增量训练与采用前报告。
 
 共同边界：不改既有权重、gold、threshold、采用状态；不产品接线；不安装全局 runtime；不恢复旧 nn-code。训练候选只能写入独立候选路径，保存、新进程回载、独立留出评价与旧能力回归齐全后才可进入 model-evolution 采用流程。
+
+## 2026-11-07 当前 MVP：nn-code 与浏览器训练交付
+
+本节是当前短期 MVP 的可验收定义，直接取代 2026-11-05 “待用户裁定”一节。用户在本线程直接指示：长程目标是 NNAnything 的 nn-code 与浏览器训练和交付；按目标拉满 peer 工作，按分拆任务维护 longhorizon 订阅，并按完成度修正细节。本节只收敛当前 MVP，不改各领域既有算法/训练合同。
+
+### NN-code MVP
+
+交付目标：TS/JS 符号表做成一条可用的训练闭环。设计子交付已由 Alice 接受并集成 main `c576a3f`；剩余是训练、保存、新进程回载、独立留出语义评价与旧 nn-code 能力回归。
+
+- 设计与训练 owner：Carol（`nn-code-redesign-symbols-tsjs-r1`，设计已 merged，训练阶段恢复）。
+- converter/train/config 工程 owner：Iris（`iris-real-converter-engineering-20261106`，P0）；shared fixed-env evaluator 与 §2.5 runRecursiveGoal 接线 owner：David（`david-fixed-env-engineering-gap-20261106`）。
+- 真实入口：公开 `convert-samples` / `validate-data`、`l2-standard-runner` 训练入口、保存包新进程回载入口。
+- 验收证据：build exit 0；unified-full 与受影响测试原始回执；公开 CLI READY；红/绿与变异对照；独立留出语义评价；旧 nn-code 能力回归。
+- 完成门：候选包保存并新进程回载；独立留出评价与旧能力回归通过；候选保持 `uncalibrated/not_applied`，直到 model-evolution 采用规则满足。已知符号关系 100% 正确、未知 judge=unknown、无截断/遗漏、训练输入不含未来信息、独立来源不进拟合。
+- 当前状态：converter 两个 P1 已修复并两轮独立 finding-recheck PASS（`iris-converter-p1-recheck-20261107`、`iris-converter-p1-recheck2-20261107`）；21 PASS / 0 FAIL / 2 INCOMPLETE（request-missing、repeat-read）保留，不写 22/22 PASS；待 Alice 或独立 reviewer 完成正式接受。
+
+### 浏览器 MVP
+
+交付目标：先闭合 B-R 基础保留表示缺口，再做 B-A1 普通 text 搜索的目标到对象自主绑定。B-A1 首切片只要求普通 text 搜索；显式绑定入口继续作为基线，不得把辅助绑定冒称自主识别。
+
+- 当前 owner：B-R 原 owner Bob（cold，`task_ids=[]`）不可用；交付前须由 master 改派可用 peer 或 GCM 执行，不把离线 owner 当作 ready 工作的阻塞理由。
+- 真实入口：浏览器 adapter 公开观察/分类 consumer、`operation-episode` 与 `recursive-goal` 搜索入口；B-A1 先跑显式绑定基线，再跑目标到对象自主绑定。
+- 验收证据：B-R 同投影异 gold 表示缺口的红测与修复绿测；焦点反例与旧能力回归；B-A1 目标到对象关系/动作样本；真实页面 fixture 的输入、提交、结果归属与观察回执。
+- 完成门：B-R 达标前只阻塞依赖该分类保证的运行验收，不阻塞独立关系设计；B-A1 不得把未知/缺测补 false；候选保持 `uncalibrated/not_applied`；不新增站点分支；不改既有权重/gold/threshold/采用。
+
+### 当前并行派发
+
+| 工作线 | owner | reviewer | 状态 |
+| --- | --- | --- | --- |
+| converter P1 正式复核 | Iris | Alice / 独立 reviewer | 两轮独立 recheck PASS，待正式接受 |
+| fixed-env evaluator + §2.5 接线 | David | Alice | 已邀请，待接受 |
+| TS/JS 训练阶段 | Carol | Alice | 已派发，恢复 working |
+| browser B-R / B-A1 | 待改派 | Alice | 未上板，本轮补齐 |
+| 训练隔离巡检 | Kate / Grace | — | 常驻巡检，不接普通 board 任务 |
