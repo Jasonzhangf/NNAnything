@@ -321,14 +321,26 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | `x[15]` | `relationKindCode` | `0=not_applicable`；`1/7=reaching_def`、`2/7=local_init`、`3/7=local_assign`、`4/7=destructure_extract`、`5/7=arg_to_param`、`6/7=return_from_fn`、`7/7=return_to_call_lhs` |
 | `x[23]` | `sourceRoleAndOrdinalCode` | `(roleIndex*4 + ordinalIndex)/19`；roleIndex `0=unknown`、`1=definition/write`、`2=argument`、`3=return`、`4=other`；本切片 argument ordinal 只接受 `0/1`，其他序号为 unsupported |
 | `x[31]` | `sinkRoleAndOrdinalCode` | `(roleIndex*4 + ordinalIndex)/19`；roleIndex `0=unknown`、`1=read`、`2=parameter`、`3=assignment_target`、`4=other`；本切片 parameter ordinal 只接受 `0/1`，其他序号为 unsupported |
-| `x[51]` | `orderFlowAndCoverageCode` | `(orderFlowIndex*4 + coverageIndex)/39`；orderFlowIndex `0=undetermined`、`1=ordered before no intervening write`、`2=same-decl unconditional intervening write`、`3=same-decl conditional intervening write`、`4=other-decl unconditional intervening write`、`5=other-decl conditional intervening write`、`6=same-decl unconditional then same-decl conditional intervening write`、`7=non-ordering`、`8=same-decl conditional writes cover all feasible branches`、`9=same-decl conditional writes cover only one feasible branch`；coverageIndex `0=missing`、`1=partial`、`2=complete`、`3=not_applicable` |
+| `x[51]` | `orderFlowAndCoverageCode` | `(orderFlowIndex*4 + coverageIndex)/39`；orderFlowIndex `0=undetermined`、`1=ordered before no intervening write`、`2=same-decl unconditional intervening write`、`3=single same-decl conditional intervening write`、`4=other-decl unconditional intervening write`、`5=other-decl conditional intervening write`、`6=same-decl unconditional then same-decl conditional intervening write`、`7=non-ordering`、`8=two or more same-decl conditional writes cover all feasible branches`、`9=two or more same-decl conditional writes cover only one feasible branch`；coverageIndex `0=missing`、`1=partial`、`2=complete`、`3=not_applicable` |
 | `x[55]` | `bindingResolutionCode`（仅 callee 解析，不含覆盖） | `0=not_applicable`，`0.25=unresolved`，`0.5=same callee`，`0.75=different callee`，`1=ambiguous/dynamic` |
 
 `x[51]` 明确打包两个独立字段，但数值可以机械拆回：`orderFlowIndex` 表源点到汇点的“已观测写前缀”摘要，即源点之后到汇点之前出现的中间写序列（声明身份是否同目标、无条件/条件分支、分支覆盖归属）；`coverageIndex` 表该候选观测覆盖。它不写“该写构成 kill”或关系真值。`x[55]` 只表 callee 解析状态，不携带覆盖或序号。序号相等比较只由 `x[23]` 和 `x[31]` 的 role/ordinal 码承载，`x[55]` 不因参数序号不匹配而改变。`same-decl`/`other-decl` 由 adapter 比较已观测声明 ref 的相等性得出，是语法/身份事实，不是 reaching-def 真值。
 
-本设计首个有限实验切片只支持最多两个位置参数的 `arg_to_param` 索引：argument/parameter ordinal 仅接受 `0/1`。其他 arity 或 higher ordinal 必须在准入处显式 unsupported，并以 `x[23]/x[31]=-1` 加 missingMode 记录，不得把 ordinal 3 和 4 合成同一个码；范围外样例不计入 value-flow 完成分母。分支压缩使用 `orderFlowIndex=8`（两个可行分支都有同声明条件写，旧值双分支均被杀）与 `9`（只有一个可行分支有同声明条件写，旧值沿另一分支保留 may 路径）；分支结构或覆盖路径未观察时保持 `0=undetermined`。
+本设计首个有限实验切片只支持最多两个位置参数的 `arg_to_param` 索引：argument/parameter ordinal 仅接受 `0/1`。其他 arity 或 higher ordinal 必须在准入处显式 unsupported，并以 `x[23]/x[31]=-1` 加 missingMode 记录，不得把 ordinal 3 和 4 合成同一个码；范围外样例不计入 value-flow 完成分母。分支压缩只在没有同声明无条件中间写、且至少观察到两个同声明条件写时使用：`orderFlowIndex=8` 表示这些条件写覆盖全部已观察可行分支，`9` 表示只覆盖一个已观察可行分支。只有一个同声明条件写时用 `3`。存在同声明无条件中间写时，无条件优先规则适用，不能用 `8/9` 覆盖它。分支结构或覆盖路径未观察时保持 `0=undetermined`。
 
-`orderFlowIndex` 的过滤与压缩合同如下：只把源点之后、汇点之前且目标声明等于候选源声明的写作为 kill-relevant 序列；若没有同声明写，则把已观测的其他声明写归为 `other-decl` 对照。若同时存在同声明和其他声明写，其他声明写不进入该候选的 kill-relevant 前缀，因为它们不能覆盖候选源声明。多写压缩先判分支覆盖：两个可行分支都有同声明条件写 → `8`；只有一个可行分支有同声明条件写 → `9`。分支覆盖归属未观察时，才退回普通序列压缩：全无条件 → `2`；全条件 → `3`；先有无条件、后有条件 → `6`。其他混合顺序必须为 `0=undetermined` 并带 unsupported/missing reason，不得按猜测压成已知序列。
+`orderFlowIndex` 的过滤与压缩合同如下：只把源点之后、汇点之前且目标声明等于候选源声明的写作为 kill-relevant 序列；若没有同声明写，则把已观测的其他声明写归为 `other-decl` 对照。若同时存在同声明和其他声明写，其他声明写不进入该候选的 kill-relevant 前缀，因为它们不能覆盖候选源声明。对非空同声明序列，按以下互斥优先级编码，不得让后一条覆盖前一条：
+
+1. 序列全部是无条件写 → `2`；
+2. 序列中存在无条件写，且无条件写之后还有条件写 → `6`；若条件写出现在无条件写之前或两种条件性交错，则为 `0=undetermined`；
+3. 序列没有无条件写且恰好一个条件写 → `3`；
+4. 序列没有无条件写且至少两个条件写，并且已观察简单 if/else 或 if 加显式 fallthrough 的分支归属：所有已观察可行分支都有同声明条件写 → `8`；只有一个已观察可行分支有同声明条件写 → `9`；
+5. 序列没有无条件写且至少两个条件写，但分支归属未观察，或分支结构不是声明支持的简单形态 → `0=undetermined`；
+6. 其他混合顺序 → `0=undetermined`。
+
+“可行分支”只来自 adapter 在声明的语法观察范围内实际看到的分支与 fallthrough；不得用 reaching-def、完整 CFG 可达性或 gold 反推。`r_cond_may` 只有一个条件写，所以保持 `3`；`r_branch_may` 有两个条件写且只落在一个已观察分支，所以是 `9`。
+
+上述优先级保证 Alice 反例 A/B 不再碰撞。A：`let x=0; x=3; if(c){x=1;x=2;} use(x)`，查询 `(初始写, use(x))`，中间序列是 `x=3`（无条件）+ `if` 内两个条件写，存在无条件写且其后有条件写，按优先级 2 → `6`，`d0` 已被无条件写覆盖。B：`let x=0; if(c){x=1;x=2;} use(x)`，查询 `(初始写, use(x))`，中间序列只有两个条件写且只覆盖一个已观察分支，按优先级 4 → `9`，旧值沿未写分支可到达。两条原始事实不同，编码不同；`r_kill_neg` 与 `r_cond_neg` 保留无条件写事实，`r_branch_may` 保留单分支条件写事实，均不按 gold 倒选。
+本切片只声明上述互斥优先级，不扩展 loop、多分支嵌套或非简单形态分支；这些结构保持 `0=undetermined` 加 unsupported reason，并保留为后续完成项。
 
 该扩展下的关键槽位差异为：
 
@@ -357,12 +369,12 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | `r_kill_pos` | `u0` 在 `d0` 后、`d1` 前；`d0..u0` 中间无对 `x` 的写 | `1`（无中间写） | `2`（complete） | `d0`=write，`u0`=read；无 callee | `4/19` | `4/19` | `0` |
 | `r_kill_neg` | `u1` 在 `d1` 后；`d1` 是同声明无条件写 | `2`（same-decl unconditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
 | `r_other_write` | `u_other` 在 `d_other` 后；`d_other` 是 `y` 声明，非 `x` | `4`（other-decl unconditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
-| `r_cond_may` | `u2` 在 `d2` 后；`d2` 是 `x` 的同声明条件写（`d1` 是源点，不在 `d1..u2` 中间） | `3`（same-decl conditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_cond_may` | `u2` 在 `d2` 后；`d2` 是 `x` 的同声明条件写（`d1` 是源点，不在 `d1..u2` 中间） | `3`（single same-decl conditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
 | `r_cond_neg` | `d0..u2` 中间：先 `d1` 同声明无条件写，再 `d2` 同声明条件写 | `6`（same-decl unconditional then same-decl conditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
-| `r_cond_missing_body` | 同 `r_cond_may`，条件写和顺序可见，但分支体内容未观察 | `3`（same-decl conditional intervening write） | `0`（missing） | 同上 | `4/19` | `4/19` | `0` |
+| `r_cond_missing_body` | 同 `r_cond_may`，条件写和顺序可见，但分支体内容未观察 | `3`（single same-decl conditional intervening write） | `0`（missing） | 同上 | `4/19` | `4/19` | `0` |
 | `r_cond_missing_order` | 条件写本身或 `d1 -> d2 -> u2` 顺序未观察 | `0`（undetermined） | `0`（missing） | 同上 | `4/19` | `4/19` | `0` |
-| `r_branch_kill` | `if` 与 `else` 两个可行分支各有一个同声明条件写 | `8`（same-decl conditional writes cover all feasible branches） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
-| `r_branch_may` | 只有 `if` 分支有连续两个同声明条件写，`else` 分支无写 | `9`（same-decl conditional writes cover only one feasible branch） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_branch_kill` | 无同声明无条件中间写；`if` 与 `else` 两个已观察可行分支各有一个同声明条件写 | `8`（conditional writes cover all observed feasible branches） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_branch_may` | 无同声明无条件中间写；只有 `if` 分支有连续两个同声明条件写，`else` 分支无写 | `9`（conditional writes cover only one observed feasible branch） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
 | `r_arg0_pos` | callee 形参表在调用点之前可见；跨函数绑定非顺序域 | `7`（non-ordering） | `2`（complete） | `a0_0`=argument ordinal0，`p_f0`=parameter ordinal0，callee `f` | `8/19` | `8/19` | `0.5` |
 | `r_arg1_pos` | 同上 | `7` | `2` | `a0_1`=argument ordinal1，`p_f1`=parameter ordinal1，callee `f` | `9/19` | `9/19` | `0.5` |
 | `r_arg_swap` | 同上 | `7` | `2` | `a0_1`=argument ordinal1，`p_f0`=parameter ordinal0，callee `f` | `9/19` | `8/19` | `0.5` |
@@ -400,6 +412,7 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | 动态属性/绑定 | 只有当前局部证据时才判定；不能一律 unknown | 有证据则 true/false，否则 unknown |
 
 本设计首个有限实验切片只接受最多两个位置参数的 `arg_to_param` 索引；argument/parameter ordinal 仅支持 `0/1`。更高 arity 或 `ordinal>1` 必须在准入处显式 unsupported，不得把序号 3 与 4 合成同一个码，也不得把范围外样例计入 value-flow 完成分母。
+分支压缩仅支持已观察的简单 if/else、if 加显式 fallthrough 及其上述互斥优先级；loop、多分支嵌套、try/catch 或其他控制流形态显式 unsupported，保持 `0=undetermined` 加原因，不并入语义 unknown。
 
 `resultMode=all` 下任意未收口 unknown、截断、覆盖失败或执行失败都阻止根 `achieved`；已具名且 coverage complete 的语义 unknown 可以作为对应义务的终态，但不能被写成 true/false。`resultMode=one` 只允许在固定引擎验证一条路径后早停；剩余候选只报告为未覆盖，不得判定为 false、不得声称完整调用图、不得把模型自报 true 当见证。已知错误在所有模式下都不能被 unknown 或早停替代。
 
