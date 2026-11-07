@@ -2917,3 +2917,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - roadmap 与 note 已同步：fixed-env evaluator + §2.5 接线表格改为 board rev14 已批准 blocked（后续 rev16 working），候选 66a7710 五项闭合，研究合同 rev4 已 ACCEPT，Iris 按合同补准入与 evaluate() 根条件；TS/JS timing/evaluate 设计改为正式 REWORK（范围收窄为计时旧起点与累计字段/cut point，evaluate 接线已闭合可按共享 runner 单 writer 独立准备，验收依赖 Iris 公共入口；不阻塞 fixed-env）。
 - project patrol `sub-m1793963843713-143` armed；goal 订阅 `sub-m1794058333943-4090` armed（30m）。当前无 ready 且未派 board 工作，P0 `jenny-tsjs-first-fit-converter-train-config-r1` 仍 rev19 rework owner Emma presence missing，保持原状不越权。
 - 本轮未改产品代码、语料、权重/gold/threshold/采用、产品接线或 runtime 安装；未训练、未集成新候选。
+
+## 2026-11-07 master：Kate round-13 已消费，round-12 P2 闭环（13:57Z）
+
+- 消费 m1794059966777-4272（Kate round-13）：round-12 两项 P2 已闭环。roadmap/note 已记录 fixed-env rev16 working、Carol rev4 accept、Iris 按合同续派；timing/evaluate rev8 rework 范围收窄；goal/project patrol armed；资源 3 个 worktree 未超上限。
+- 唯一建议：4 个 Emma-owned `nn-code-redesign-*` 子任务 board next_step 为空。roadmap line 173 已声明后置；Emma presence missing，按只读审计发现记录为外部 owner 待补，不越权改其任务，不因该项阻塞 fixed-env。
+- Kate 回执：/Volumes/Intel/playground/nnanything-runs/kate-jenny-patrol-20261106/round-13-20261107T1357Z.md。
+- 本轮无新增 ready 派发、无阻塞审批需求；未训练、未改权重/gold/threshold/采用、未集成、未安装。
