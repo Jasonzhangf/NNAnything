@@ -14,7 +14,7 @@ export interface UnifiedThisRunTiming {
   readonly totalWallSeconds: number;
   /** Epoch updates entered this invocation, including any non-finite failure. null when optimization never ran. */
   readonly attemptOptimizerSteps: number | null;
-  /** Rows fed into those attempted updates. null when optimization never ran. */
+  /** Rows fed into those attempted updates. null when optimization never ran or partial processing is unknown after failure. */
   readonly attemptProcessedRows: number | null;
   /** Epoch updates that completed with a finite loss/gradient this invocation. null when optimization never ran. */
   readonly completedOptimizerSteps: number | null;

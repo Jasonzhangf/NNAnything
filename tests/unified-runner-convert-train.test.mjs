@@ -658,7 +658,7 @@ test("non-finite optimization exposes attempted and completed work separately", 
     assert.equal(typeof report.thisRun.optimizationSeconds, "number");
     assert.equal(report.thisRun.attemptOptimizerSteps, 1);
     assert.equal(report.thisRun.completedOptimizerSteps, 0);
-    assert.equal(report.thisRun.attemptProcessedRows, report.counts.learnedRows);
+    assert.equal(report.thisRun.attemptProcessedRows, null);
     assert.equal(report.thisRun.completedProcessedRows, 0);
     assert.equal(report.optimizerSteps, 0);
     assert.equal(report.processedRows, 0);
@@ -698,7 +698,7 @@ test("resume optimization failure preserves the committed checkpoint totals", as
     assert.equal(typeof report.thisRun.dataValidationSeconds, "number");
     assert.equal(report.thisRun.attemptOptimizerSteps, 1);
     assert.equal(report.thisRun.completedOptimizerSteps, 0);
-    assert.equal(report.thisRun.attemptProcessedRows, report.counts.learnedRows);
+    assert.equal(report.thisRun.attemptProcessedRows, null);
     assert.equal(report.thisRun.completedProcessedRows, 0);
     assert.equal(report.optimizerSteps, 0);
     assert.equal(report.processedRows, 0);

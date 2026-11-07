@@ -2588,8 +2588,12 @@ export async function executeUnifiedRunnerRoute(
     const appendedEpochs = result.report.epochs.slice(startEpoch);
     const learnedRows = dataGate.counts.learnedRows;
     attemptOptimizerSteps = appendedEpochs.length;
-    completedOptimizerSteps = appendedEpochs.filter(record => record.finite).length;
-    attemptProcessedRows = attemptOptimizerSteps * learnedRows;
+    completedOptimizerSteps = appendedEpochs.filter(
+      record => record.finite && Number.isFinite(record.maxAbsGrad),
+    ).length;
+    attemptProcessedRows = result.report.status === "failed"
+      ? null
+      : attemptOptimizerSteps * learnedRows;
     completedProcessedRows = completedOptimizerSteps * learnedRows;
     if (result.report.status === "failed") {
       error = {
