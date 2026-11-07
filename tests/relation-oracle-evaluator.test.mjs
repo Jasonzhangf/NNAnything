@@ -108,6 +108,31 @@ test("unknown gold guessed as true is not accepted", () => {
   assert.equal(report.unknownRecall, 0);
 });
 
+test("RED: known-gold unknown must not count toward valid unknown recall", () => {
+  const samples = [
+    sample({ sampleId: "known-true", gold: "true" }),
+    sample({ sampleId: "valid-unknown", gold: "unknown" }),
+  ];
+  const runs = [
+    run({
+      sampleId: "known-true",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=unknown", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+    }),
+    run({
+      sampleId: "valid-unknown",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=unknown", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.overall, "incomplete");
+  assert.equal(report.unknownRecall, 1);
+});
+
 test("label missing is excluded from the correctness denominator", () => {
   const samples = [sample({ sampleId: "missing", labelMissing: true })];
   const runs = [];
