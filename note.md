@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-07 Jenny：project-patrol 本轮收口，无其他可派（18:20Z）
+
+- 巡检范围：8 条 board open 任务、goal 一键订阅、project patrol 订阅、3 个 worktree、工作线活跃度与空闲 peer。
+- 结论：无新增可派 ready 工作。Grace 审计任务仍 working（completion missing review，由 Grace 自主收口）；P0 Emma 任务保持 rework/parked（Emma missing，不可越权改状态）；4 个 nn-code-redesign 保持 parked-pending-design-peer；总体重设计 orchestration working（等待用户裁定两项范围）；value-flow 已路由 Carol REWORK（m1794075112753-6103，reply-on-completion）。
+- 授权边界：两项范围裁定（恢复整体重设计+设计师审批训练；64 维/两层/统一格式/固定引擎是否仍为约束）尚未获得用户直接裁定前，仅继续只读审计、证据盘点、board/goal 维护与停工收口；不派实现/训练/采样/接线/采用/安装。P1-1 GCM implementation worker 保持待派，不在本轮实施。
+- 续订：one-shot `sub-m1794074061797-5998` armed，trigger≈18:24Z，fired_count=0；project patrol armed；本轮无需重订，下轮到期后按 `appsdk goal subscribe` 续订。
+- 边界：未改产品代码/权重/gold/threshold，未动 tmux/daemon，未安装 runtime；`tests/fixtures/tsjs-symbols/`、`playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
+
 ## 2026-11-07 Jenny：值流 rev7 REWORK 路由 Carol（18:12Z）
 
 - 消费 Alice 正式审查 `m1794074865684-6092`：`value-flow-shared-projection-engineering-20261107` 候选 `10e48bc` subject_revision 7 正式 REWORK，证据 `/Volumes/Intel/playground/nnanything-runs/value-flow-shared-projection-engineering-20261107/alice-review.md`。已闭合项：自增遗漏、嵌套 if 误准入、解析诊断丢失、已声明内层 x 的 shadow；不重做编码器与异常处理。
