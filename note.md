@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-07 Jenny：值流 rev12 已集成 8e02540，待 Carol 清理关闭（19:54Z）
+
+- 消费 Alice accept 与交付通知（`m1794080729490-6773`、`m1794080899191-6788`、`m1794080907324-6789`、`m1794080907376-6790`、`m1794080907431-6791`、`m1794080975527-6800`、`m1794080975668-6801`）及 worker-idle 批次；三次义务完成通知确认 rev7/rev8/rev10 缺口均并入 rev12 接受结果。
+- `value-flow-shared-projection-engineering-20261107` rev12 候选 `a76017d` 已按 `--no-ff` 合入 `main`。合流前候选 worktree clean、候选基线 `57d0e61` 为 main 祖先。主树既有未跟踪 `tests/fixtures/tsjs-symbols/` 与候选同名跟踪文件冲突；逐文件核对 14 个内容一致，`link.ts` 仅符号链接目标分别指向本树/候选树。将该现场以 `95d57ce` 纳入主线后在合并中保留本树目标解唯一冲突，`tsjs-symbol-table.test.mjs` 后验 13/13 通过。
+- 合并提交 `8e02540` 已 push 并核对 `origin/main`。post-merge `npm run build` exit 0；值流/统一编码相关 11 个测试文件 118/118 通过；原始回执在 `/Volumes/Intel/playground/nnanything-runs/value-flow-shared-projection-engineering-20261107/integration-8e02540/`。`collab task integrated` 已记录 `status=merged`，next_action 为 owner 清理 worktree/branch 后 close。
+- 已向 Carol 发送 durable 清理/关闭请求 `m1794081257286-6834`（reply-on-completion）。本轮只做集成、验证、推送和 board 生命周期记录；未训练、未 fit、未改权重/gold/threshold/采用状态，未产品接线、未安装、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：worker-idle 巡检、Henry 续派、Carol rev12 进行中（19:42Z）
 
 - 消费本轮 worker-idle 批次 `m1794080269342-6673`、`m1794080312438-6683`、`m1794080349459-6690`、`m1794080389509-6695`；inbox unread=0。
