@@ -3122,3 +3122,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 旧 Emma lifecycle：`jenny-tsjs-first-fit-converter-train-config-r1` 已 force-close superseded（见上一轮 receipt）；四个 Emma 子任务（learning-loop/search-read/symbols-rust/symbols-swift）保持 board `working`/`next_step=null`，按 Alice 裁定在本 note/roadmap 记录为后置 design（parked-pending-design-peer），恢复条件=Jenny 按主目标优先级确认独立设计切片、指定可用研究 owner、完成原资料交接；owner-only 不授予绕过，不走控制存储，不冒用 Emma 身份。
 - 资源与订阅：main `09dda47=origin/main`，主工作树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`；worktree 2 个（main、p1-1 2d1217e）未超上限；goal active/subscribed（本 roadmap 文件，20:39:39Z，interval 30m）；project patrol `sub-m1793963843713-143` armed。
 - 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
+
+## 2026-11-07 master：round-23 巡检核对无偏离（21:03Z）
+
+- 消费 Kate round-23 `m1794085404005-7353`（21:02Z 执行）。核对结论与 master 动作一致：goal active/subscribed、one-shot `sub-m1794083979650-7176` 预计≈21:09Z 触发后按生命周期续订；旧 P0 已按 Alice 裁定 force-close superseded（receipt `cleanup-manual-jenny-tsjs-first-fit-converter-train-config-r1-1794084625884`，cleanup.result=unverified，未伪造 accept）；B-A1 board rev19 rework、Alice rev4 单项监督隔离返工待 Carol 续修；P1-1 新任务 `p1-1-typed-dynamic-recursive-engineering-iris-20261107` rev2 invited、reviewer Alice、待 Iris 接受收口后交 Alice 审查；四个 Emma 子任务仍 owner-only 不可写，恢复条件按主目标优先级落地或走正式运行时问题入口报缺口。
+- `appsdk goal status` 复核：active=true、desired=subscribed、observed=subscribed；本 roadmap 文件 20:39:39Z 注册、interval 30m，尚未触发，无需重订。
+- 下一轮复核项：Iris 是否接受新任务；goal ≈21:09Z 触发后续订；四 Emma 子任务 board 写入；B-A1 Carol 续修。project patrol `sub-m1793963843713-143` armed，Kate 巡检订阅 `sub-m1794030974692-804` armed（next≈21:56Z）。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon；main `f49ad6c=origin/main`，主工作树仅保护性未跟踪 fixture。
