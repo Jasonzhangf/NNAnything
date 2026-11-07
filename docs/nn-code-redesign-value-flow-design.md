@@ -41,11 +41,12 @@
 
 只有当前 State 的局部证据、已确认边、覆盖回执和未知收口同时满足以下条件时，实际 satisfaction 才为 `100`：
 
-1. 所有已登记的关系义务都得到最终 `true`、`false` 或 `unknown` 判定。
+1. `resultMode=all` 时，所有已登记的关系义务都得到最终 `true`、`false` 或 `unknown` 判定。
 2. 已确认的 `true` 关系均有可复核边和路径证据。
 3. `unknown` 有具名原因、未决证据和完整 coverage 记录。
 4. `resultMode=all` 时 `truncatedCount=0`、`failedCount=0`，候选枚举覆盖完整。
-5. scope 外和不支持语言在准入处显式拒绝，不混入语义 unknown。
+5. `resultMode=one` 时，已存在至少一条由固定引擎验证的合法路径见证；允许其他义务保持未判定，但必须报告 `coverage=partial`、`unsearchedCount` 和早停原因。
+6. scope 外和不支持语言在准入处显式拒绝，不混入语义 unknown。
 
 任一已知关系错误、漏报、截断、失败遗漏或伪成功均为 `0` 或 `incomplete`；只有证据不足且未完成收口时为 `null`。模型分数不是 satisfaction，任何实现也不允许用预测填充事实。
 
@@ -70,7 +71,7 @@ State 只包含当前请求与当前步真实可见的事实。每次动作后�
 2. 当前待判关系：候选枚举器从请求和原始事实构造的 `(sourceSite, sinkSite, edgeKind, accessPath?, direction)`。它只表示“需要判定什么”，不是 gold，也不是模型答案。
 3. 已接受判定：模型候选经固定引擎验证后进入 State 的 `judge=true/false/unknown`、路径证据、未决原因和覆盖结果。只有这一层可以作为根评价输入。
 
-adapter 可以验证对象身份、scope、参数类型、span 和证据引用是否可用，也可以验证模型提交的一条局部路径是否连续；adapter 不能预先计算并返回最终关系真值，也不能把完整调用图、最终路径或按 gold 过滤后的候选作为学生输入。
+adapter 可以验证对象身份、scope、参数类型、span 和证据引用是否可用，也可以验证模型提交的一条局部路径是否连续；adapter 不能预先计算并返回最终关系真值，不能把“候选关系”直接标成已验证边，也不能把完整调用图、最终路径或按 gold 过滤后的候选作为学生输入。只有模型提出待验证路径后，固定验证器才能为该路径写出已接受判定；候选枚举本身只产出待判关系，不产出答案。
 
 | State 区域 | 字段与边界 |
 | --- | --- |
@@ -78,7 +79,7 @@ adapter 可以验证对象身份、scope、参数类型、span 和证据引用�
 | 当前 anchor | anchor 的声明身份、词法作用域链、程序点角色、位置、观测回执引用 |
 | 当前候选 | 尚未判定的一对源/汇点、边类型候选、access path、候选来源和局部证据 |
 | 已观测符号事实 | 声明、读取、赋值、解构、import/re-export、同名遮蔽、动态成员边界 |
-| 已确认边 | `reaching_def`、`local_init`、`local_assign`、`destructure_extract`、`arg_to_param`、`return_from_fn`、`return_to_call_lhs` 的已验证事实 |
+| 已接受判定 | 模型选择后由固定验证器接受的 `reaching_def`、`local_init`、`local_assign`、`destructure_extract`、`arg_to_param`、`return_from_fn`、`return_to_call_lhs` 局部边及路径状态 |
 | 路径证据 | 当前已观察路径前缀、边的顺序、分支备选、循环精度和证据跨度 |
 | 覆盖 | 已读文件/范围、已搜索范围、未读候选、截断、失败、timeout、budget |
 | 未知 | typed `unknownReason`、缺失证据、是否可继续观察、是否已到收口边界 |
@@ -87,7 +88,7 @@ adapter 可以验证对象身份、scope、参数类型、span 和证据引用�
 
 未读文件不得预先提供 AST、最终声明、完整调用图或 oracle 路径。`sourceCurrent`、read receipt、覆盖状态和最终 Goal 结果分别保存；未尝试、读取失败、缺测、观测冲突与已确认不存在不得合并。
 
-上表中的“已确认边”只指固定引擎已经验证通过的局部边。它不是 adapter 预先给出的关系真值；如果没有模型或独立 oracle，仅凭原始解析事实和候选枚举不能完成关系义务。
+上表中的“已接受判定”只指模型选择后由固定验证器验证通过的局部边。它不是 adapter 预先给出的关系真值；如果没有模型或独立 oracle，仅凭原始解析事实和候选枚举不能完成关系义务。
 
 ## 4. Action
 
@@ -101,7 +102,7 @@ adapter 可以验证对象身份、scope、参数类型、span 和证据引用�
 - `judge=false`
 - `judge=unknown`
 
-`true` 只在局部证据和已验证边支持一条满足 scope/depth 的静态 may-provenance 路径时成立。`false` 只在当前 scope 内必要候选均已检查且能证明不存在该关系时成立。证据缺失、cross-file 绑定未验证、解析失败或达到未覆盖边界时只能 `unknown`。
+`true` 只在模型选择一条路径、该路径由固定验证器在原始事实和已接受局部分段上验证通过，并满足 scope/depth 时成立。`false` 只在当前 scope 内必要候选均已检查且能证明不存在该关系时成立。证据缺失、cross-file 绑定未验证、解析失败或达到未覆盖边界时只能 `unknown`。固定验证器不能代替模型枚举并完成全部关系终态；它只验证模型明确选择的局部路径。
 
 模型只能引用当前 StepContext 中已枚举的候选和对象引用，不能生成源码、调用栈、文件路径、最终符号答案或完整 oracle 链。
 
@@ -111,7 +112,8 @@ adapter 可以验证对象身份、scope、参数类型、span 和证据引用�
 | --- | --- | --- |
 | adapter / 固定观测 | 返回原始语法事实、对象/scope 身份、span、顺序、coverage、错误和模型提交路径的局部验证回执 | 不预先给出当前关系 true/false，不返回完整调用图答案，不用 gold 过滤候选 |
 | 学生模型 | 读取当前 StepContext，在 `J` 上选择 `true/false/unknown`，并选择下一步合法动作 | 不读 gold、oracle、未来回执、teacher 最终链或完整调用图；不把模型分数当关系事实 |
-| 独立 oracle | 在评价旁路生成 gold、路径证据和 unknown 依据，供独立分母使用 | 不进入学生输入、拟合、候选选择或运行时执行链 |
+| 训练监督来源 | 在 `TRAIN` 分区生成独立监督；通过来源隔离和准入后可作为 loss 标签进入拟合 | 不进入学生 StepContext、运行时执行链或候选选择；不能由学生回填 |
+| 独立 oracle | 在评价旁路生成 `DEV`/`VERIFICATION` gold、路径证据和 unknown 依据，供选参与最终分母使用 | `VERIFICATION` oracle 不进入拟合、样本构造、选参或候选选择；`DEV` 只按预声明选参用途使用 |
 
 删除模型后，固定引擎仍能读取原始事实并枚举候选，但没有组件能完成以下判断：选择当前关系终态、为 `true` 选择需要验证的路径、为 `false` 证明必要候选完整且无支持路径、或为 `unknown` 选择仍有信息增益的合法观察。若直接运行确定性 analyzer 补上这些判断，就会重现“analyzer 先完成答案、模型只复述结果”的违规路线，因此运行时结果只能保持未决。
 
@@ -200,8 +202,12 @@ adapter 可以验证对象身份、scope、参数类型、span 和证据引用�
 ```ts
 let x = 1; // d0
 let y = x; // u0
-x = 2;     // d1
+y = 2;     // d_other
+let y2 = x; // u_other
+x = 3;     // d1
 let z = x; // u1
+if (c) x = 4; // d2
+let w = x; // u2
 ```
 
 待判关系：
@@ -209,21 +215,27 @@ let z = x; // u1
 | 候选 | 关系 | 期望判断 |
 | --- | --- | --- |
 | `r_kill_pos = (d0, u0, reaching_def)` | `d0` 到达 `u0` | `true` |
-| `r_kill_neg = (d0, u1, reaching_def)` | `d0` 在 `d1` 后被 kill，不能到达 `u1` | `false` |
+| `r_kill_neg = (d0, u1, reaching_def)` | `d0` 被同声明无条件 `d1` 后 kill，不能到达 `u1` | `false` |
+| `r_other_write = (d0, u_other, reaching_def)` | `d_other` 写的是另一声明 `y`，不 kill `x` 的 `d0` | `true` |
+| `r_cond_may = (d0, u2, reaching_def)` | 条件写 `d2` 只杀分支内旧值；未赋值分支仍让 `d0` may-reach `u2` | `true`，`may_branch_disjunction` |
+| `r_cond_missing = (d0, u2, reaching_def)` | 分支体或顺序未观察，不能确认可用分支路径 | `unknown`，原因是缺测 |
 
 adapter 原始事实只包含：
 
-- `d0`、`u0`、`d1`、`u1` 的站点身份、词法 scope、span 和顺序；
-- `d0`/`d1` 是写入点，`u0`/`u1` 是读取点；
-- `d1` 在 `u0` 之后、`u1` 之前；
-- 同 lexical block，无分支/循环，coverage complete；
-- 不包含“`d0` reaches `u0`”或“`d1` kills `d0`”的最终关系判断。
+- 所有站点的声明身份、词法 scope、span、源代码顺序和程序点角色；
+- `d0`、`d1`、`d_other` 是写入点，`u0`、`u_other`、`u1`、`u2` 是读取点；
+- `d_other` 的声明与 `d0` 不同；`d1`、`d2` 与 `d0` 同声明；
+- `d1` 无条件，`d2` 位于可观测 `if` 分支内；分支结构、branch-join 和 coverage 回执可见；
+- `r_cond_missing` 的对照只改变 coverage：分支体或顺序未观察时，相应事实为 missing，而不是被补成 false；
+- 不包含“`d0` reaches `u0`”“`d1` kills `d0`”“`d0` may-reach `u2`”的最终关系判断。
 
 学生语义职责：
 
 - 对 `r_kill_pos`，选择 `judge=true`，并让固定引擎验证 `d0 -> u0` 的顺序和局部写读事实。
-- 对 `r_kill_neg`，选择 `judge=false`，前提是当前 scope 的必要写入点已完整枚举，且固定引擎验证 `d1` 是 `u1` 前顺序覆盖的完整重赋值。
-- 若 `d1` 是条件写、别名写、动态属性写或 coverage 不完整，学生只能选择 `unknown`，并保留未决观察。
+- 对 `r_kill_neg`，选择 `judge=false`，前提是当前 scope 的必要写入点已完整枚举，且固定引擎验证 `d1` 是 `u1` 前顺序覆盖的同声明无条件重赋值。
+- 对 `r_other_write`，选择 `judge=true`；`d_other` 的声明身份与 `d0` 不同，不能把它当作同变量 kill。
+- 对 `r_cond_may`，选择 `judge=true` 并保留 `may_branch_disjunction`；条件 `c` 的运行值未观测不等于缺测。只要分支结构完整，未赋值分支仍提供静态 may 路径。
+- 只有当分支体不可见、顺序缺失、别名/动态属性边界未知或 coverage 不完整时，才选择 `judge=unknown`；原因标为缺测或动态边界，不能归因于“条件写本身只能 unknown”。
 
 独立 oracle 使用独立静态证明或离线 analyzer 记录 `r_kill_pos=true`、`r_kill_neg=false`、顺序 span、kill 证明和 coverage。oracle 证据不进入学生 StepContext。
 
@@ -232,22 +244,25 @@ adapter 原始事实只包含：
 原始局部程序：
 
 ```ts
-function f(p: number) { return p; }
-function g(p: number) { return p; }
-f(7); // a0 -> p_f
-g(7); // a1 -> p_g, not p_f
+function f(a: number, b: number) { return a + b; }
+function g(a: number, b: number) { return a + b; }
+f(7, 8); // a0_0 -> p_f0, a0_1 -> p_f1
+g(7, 8); // a1_0 -> p_g0, a1_1 -> p_g1
 ```
 
 待判关系：
 
 | 候选 | 关系 | 期望判断 |
 | --- | --- | --- |
-| `r_arg_pos = (a0, p_f, arg_to_param)` | `f` 的实参 `7` 到 `f` 的形参 `p` | `true` |
-| `r_arg_neg = (a1, p_f, arg_to_param)` | `g` 的实参到 `f` 的形参 | `false` |
+| `r_arg0_pos = (a0_0, p_f0, arg_to_param)` | `f` 的第 0 实参到第 0 形参 | `true` |
+| `r_arg1_pos = (a0_1, p_f1, arg_to_param)` | 同一 callee 的第 1 实参到第 1 形参 | `true` |
+| `r_arg_swap = (a0_1, p_f0, arg_to_param)` | 同一 callee，但实参序号与形参序号不匹配 | `false` |
+| `r_arg_other_callee = (a1_0, p_f0, arg_to_param)` | 不同 callee `g` 的实参到 `f` 的形参 | `false` |
+| `r_arg_missing = (a0_1, p_f1, arg_to_param)` | 调用实参列表或形参表有一侧 coverage 不完整 | `unknown` |
 
-adapter 原始事实只包含函数声明、参数表、调用表达式、callee 的局部标识符、实参序号和 span；不包含最终参数绑定结果。学生必须读取 callee 身份和当前局部绑定，选择 `true`、`false` 或 `unknown`。独立 oracle 在评价旁路给出绑定证明和 negative reason。
+adapter 原始事实只包含函数声明、形参顺序与 span、调用表达式、callee 的局部标识符、实参顺序与 span、callee/形参声明身份一致性证据以及两侧 coverage；不包含最终参数绑定结果。学生必须读取 callee 身份、实参序号、形参序号和覆盖状态，选择 `true`、`false` 或 `unknown`。序号相同且 callee 身份一致时可为 `true`；同 callee 但序号不同、或 callee 不同时可为 `false`；任何一侧 coverage 不完整时只能 `unknown`。独立 oracle 在评价旁路给出绑定证明和 negative/unknown reason。
 
-删除模型后，adapter 只能报告 `a0`、`a1`、`p_f`、`p_g` 和调用位置，不能自行决定 `r_arg_pos` 或 `r_arg_neg` 的终态。上述两个候选因此保持待判，不会在没有模型或独立 oracle 的情况下生成 achieved。
+删除模型后，adapter 只能报告 `a0_0`、`a0_1`、`a1_0`、`a1_1`、`p_f0`、`p_f1`、`p_g0`、`p_g1` 和调用位置，不能自行决定上述候选的终态。候选因此保持待判，不会在没有模型或独立 oracle 的情况下生成 achieved。
 
 ## 6. 局部观测与统一 StepContext
 
@@ -301,8 +316,10 @@ adapter 原始事实只包含函数声明、参数表、调用表达式、callee
 | `x[15]` | `relationKindCode` | `0=not_applicable`；`1/7=reaching_def`、`2/7=local_init`、`3/7=local_assign`、`4/7=destructure_extract`、`5/7=arg_to_param`、`6/7=return_from_fn`、`1=return_to_call_lhs` |
 | `x[23]` | `sourceRoleCode` | `0=unknown`，`0.25=definition/write`，`0.5=argument`，`0.75=return`，`1=other` |
 | `x[31]` | `sinkRoleCode` | `0=unknown`，`0.25=read`，`0.5=parameter`，`0.75=assignment_target`，`1=other` |
-| `x[51]` | `orderFlowCode` | `0.25=ordered before without intervening write`，`0.5=ordered after with observed intervening write/kill`，`0.75=branch/loop boundary`，`1=complete/non-ordering fact` |
-| `x[55]` | `bindingCoverageCode` | `0=unresolved`，`0.5=observed mismatch`，`1=resolved/complete observation` |
+| `x[51]` | `orderFlowCode`（仅顺序，不压缩 kill） | `0=undetermined`，`0.25=ordered before without intervening write`，`0.5=ordered after observed intervening write`，`0.75=branch/loop boundary`，`1=complete/non-ordering fact` |
+| `x[55]` | `bindingCoverageCode`（仅绑定解析，不压缩覆盖完整） | `0=unresolved`，`0.5=observed mismatch/ambiguous`，`1=resolved` |
+
+`orderFlowCode` 只记录程序点顺序与是否存在中间写，不把“观察到中间写”与“该写构成 kill”合并。是否 kill 由 path evidence 与 coverage 单独判定，不写入 `x[51]`。`bindingCoverageCode` 只记录 callee/形参绑定解析状态，不把“绑定已解析”与“观测完整”合并；覆盖完整性与截断、失败、未读候选保留在 State.coverage，不压缩进 `x[55]`。这避免了两个独立事实被一个码混淆，也保留缺测可表达性。
 
 该扩展下的关键槽位差异为：
 
@@ -310,16 +327,21 @@ adapter 原始事实只包含函数声明、参数表、调用表达式、callee
 | --- | --- | --- | --- | --- | --- |
 | `r_kill_pos` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.25` | `1` |
 | `r_kill_neg` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.5` | `1` |
-| `r_arg_pos` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `1` |
-| `r_arg_neg` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0.5` |
+| `r_arg0_pos` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `1` |
+| `r_arg1_pos` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `1` |
+| `r_arg_swap` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0.5` |
+| `r_arg_other_callee` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0.5` |
+| `r_arg_missing` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0` |
+| `r_cond_may` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.75` | `1` |
+| `r_cond_missing` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.75` | `0` |
 
-表内 `x[51]` 和 `x[55]` 只放原始顺序与绑定观测码，不放“关系为 true/false”的 oracle 标签。`judge=true/false/unknown` 仍由 G4 `x[36..38]` 表示，声明身份仍由 G5/G7 原槽位表示。
+表内 `x[51]` 和 `x[55]` 只放原始顺序与绑定解析状态，不放 kill 结论、覆盖完整结论或“关系为 true/false”的 oracle 标签。`judge=true/false/unknown` 仍由 G4 `x[36..38]` 表示，声明身份仍由 G5/G7 原槽位表示。`r_arg_missing` 的 `x[55]=0` 与 `r_arg_swap` 的 `x[55]=0.5` 区分“绑定未解析”与“绑定已观测但不匹配”，两者不会被合并成同一码。
 
 ### 6.3 共享投影最小差异
 
 如果上述扩展被审计接受，最小共享差异是：
 
-1. 在统一 StepContext 增加通用的 `relationshipProjection`，包含 `relationKind`、`sourceSiteRef`、`sinkSiteRef`、`sourceRole`、`sinkRole`、`orderFlow`、`bindingCoverage` 和证据引用；字段由 adapter 的原始事实填充，不由 gold 或 analyzer 真值填充。
+1. 在统一 StepContext 增加通用的 `relationshipProjection`，包含 `relationKind`、`sourceSiteRef`、`sinkSiteRef`、`sourceRole`、`sinkRole`、`orderFlow`、`bindingCoverage` 和证据引用；字段由 adapter 的原始事实填充，不由 gold 或 analyzer 真值填充。`orderFlow`、kill、binding resolution、coverage completeness 各自独立导出，各自携带缺测码；不把中间写与 kill、或绑定解析与覆盖完整折叠成一个码。
 2. 在 `unified-encoder` 中按 §6.2 填充当前保留的 `x[15]`、`x[23]`、`x[31]`、`x[51]`、`x[55]`，并提升统一 encoder 版本；不改变 64 维长度。
 3. 旧 profile 按版本加载，不能在未迁移的情况下接收新槽位；新增关系字段必须保持缺失可表达，不能补 0 冒充观测。
 4. 在实现前先由 Alice 审计字段是否真的共享、是否有旧能力回归、是否出现 relation-specific 私有分支；未通过前不启动 fit、不生成新训练语料。
