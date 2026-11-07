@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-07 Jenny：round-16 巡检处置与 board 收口（17:15Z）
+
+- 消费 Kate round-16 `m1794071106177-5645` 及后续 worker-idle 批次；`collab inbox`/recv 为空。
+- roadmap 同步（`docs/autonomous-capability-roadmap.md`）：线167 value-flow 由「rev3 working」更正为 rev21 rework（候选 218ef31，未跟踪 `value-flow-relationship-adapter.ts`+tests，已按纠偏实施原始观测投影与真实 consumer 采证）；线168 timing runner 由「working base 24a0109」更正为 rev7 rework（候选 ce3b7ce base 9a8c8c5，Henry 按 Alice review 修改 runner/checkpoint timing，main 现 `ff7d016`，交付前须 rebase）。
+- board 收口：`jenny-tsjs-fixed-env-implementation-milestone-r1` 经 master `task close --force` 收口（receipt `cleanup-manual-jenny-tsjs-fixed-env-implementation-milestone-r1-1794071293974`）。依据：unified transfer evaluator 与 §2.5 runRecursiveGoal 接线已并入 main（3f2e48d via df68ce68，post-merge 25/25），剩余 P1-1 归 `jenny-tsjs-first-fit-converter-train-config-r1`。
+- P0 `jenny-tsjs-first-fit-converter-train-config-r1`：owner Emma 自 11-06 02:10Z 起不可达（agent_state=unknown/presence=missing/pending 9），保持 rework/parked；P1-1 已 durable 指派 Iris `m1794070682316-5598`。交付与集成责任在 Jenny，Alice 仍 reviewer；不在 Iris 交付前关闭，不作无限期自持。board update 受 owner-only 限制，处置以本 note + force-close receipt 记录。
+- 4 个 nn-code-redesign 子任务（learning-loop/search-read/symbols-rust/symbols-swift）：已用 master `board withdraw` 撤回 Emma 未接受的邀请（rev5→rev6），解除 pinned pending；owner 会话不可达，按 roadmap 线122-132/173 保持后置设计队列 parked-pending-design-peer，不 force-close 以免丢失 roadmap 引用的任务 id；能力空闲时再由 master 派 design peer。当前 next_step=null，owner-only 更新受限，已由 roadmap/worktree 记录 deferral。
+- 边界：未改产品代码/权重/gold/threshold/采用，未安装、未动 tmux/daemon；`tests/fixtures/tsjs-symbols/`、`playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
+
 ## 2026-11-07 Jenny：P0 P1-1 工程改派 Iris 与 P0 任务停滞记录（16:40Z）
 
 - 长程 goal deadline `m1794070120507-5549` 已消费；30m one-shot 未续导致 `GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED`，已用同 goal/同 30m 间隔显式重订，`appsdk goal status` 返回 active/subscribed、desired=subscribed、error=null；项目巡检 `sub-m1793963843713-143` 保持 armed。
