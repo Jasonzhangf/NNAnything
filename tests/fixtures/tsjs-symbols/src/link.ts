@@ -1,0 +1,1 @@
+/Volumes/extension/code/NNAnything/tests/fixtures/tsjs-symbols/src/kinds.ts
