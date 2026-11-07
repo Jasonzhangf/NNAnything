@@ -20,7 +20,11 @@ import {
   type UsageTokenTable,
 } from "./search-input-host-usage-contract.js";
 
-/** Support threshold of each head. Frozen: the guard below is defined on it. */
+/**
+ * Support threshold of each head. Fixed design constant at 0.5; no
+ * development-set selection receipt is present. The guard below is defined on
+ * this frozen value.
+ */
 export const USAGE_RELATION_THRESHOLD = 0.5;
 
 /**
