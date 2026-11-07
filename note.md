@@ -2819,3 +2819,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 ## 2026-11-07 master 巡检：无变化（02:44Z）
 
 - 已消费 `m1794019389162-280`；inbox `unread=0`。CEO status 仍为 Alice，`is_current=false`。`project-patrol` armed、无 runtime gap；board 仍无 ready 且已授权可派工作；Alice 的 `m1793999283029-1674` 仍 `state=pending`、`answered=false`，worker 状态仍 `can_accept_direct_input=false`；无新增 direct-message 或状态变化。
+
+## 2026-11-07 master 停工边界内点复查完成（CEO 指派独立 reviewer）
+
+- CEO Alice 指令（m1794021898537-55）：停止等待不可达的 Alice Desktop 会话，按 Review 合同安排独立 reviewer 完成点复查，不冒充 Alice、不绕过正式验收。
+- 已落点复查合同到 /Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/iris-converter-gap1-04-point-review-20261107/review-task.md；用 `codex exec --profile oauth --model codex-auto-review -c 'model_reasoning_effort="medium"' --sandbox read-only` 派独立 reviewer 会话（session 01a1b410-9ab0-7e02-8f67-79576477c002，read-only），exit=0，最终报告同目录 review.final.md。
+- 复查结果：回归 A（l2-standard-runner.ts 的数据/未就绪归类）在点复查范围内已接受；回归 B（typed-encoder fixture 显式投影）在点复查范围内已接受；未削弱断言，未改 encoder/builder 语义。
+- 最终语料路径裁定：全量 22 场景回放应采用 Carol 已受理固定-stepwise 生成器输出的 gcm-gap1-03/corpus/ready-slice，配合 Iris final-replay config 和候选 worktree l2-standard-runner 入口；原始 gcm-mappings-03/corpus 仅作为历史证据保留。
+- 剩余阻断：独立 reviewer 标 P1，完整回放 7 个场景仍 INCOMPLETE，READY CLI 回执不等于完成全回放；不签全量 PASS。
+- 本轮不开训练、不改权重/gold/threshold/采用、不提交合并、不关闭任何任务。
+- 下一步：按已裁定的最终路径，由 Henry 运行 7 个 INCOMPLETE 场景并记录原始输入/输出/退出码/断言结果；结果复验后再走 milestone 交付与整体 Review。
