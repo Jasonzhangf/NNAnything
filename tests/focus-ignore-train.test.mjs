@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { loadWorkflow } from "nnanything";
 import { BASIC_KIND_WIRE_NAMES, DEFAULT_BASIC_KIND_PROFILE, migrateBasicKindProfile } from "nnanything/browser";
+import { prepareBasicKindSamples } from "nnanything/training";
 
 import {
   EXPECTED_TRAINABLE_WIRES,
@@ -352,12 +353,12 @@ test("file start consumer rejects bad or incompatible assets without DEFAULT fal
 
 test("recipe validation pins the fixed 18 wires and compatible objective", () => {
   const recipe = readRecipe(validRecipe());
-  assert.equal(recipe.trainableWires.length, 18);
+  assert.equal(recipe.trainableWires.length, 19);
   assert.deepEqual(recipe.objective, { targetScore: 0.8, rivalCeiling: 0.4, otherGap: 0.05 });
   assert.deepEqual(recipe.explicitUsage, validRecipe().explicitUsage);
 
   assert.throws(
-    () => readRecipe(validRecipe({ trainableWires: EXPECTED_TRAINABLE_WIRES.slice(0, 17) })),
+    () => readRecipe(validRecipe({ trainableWires: EXPECTED_TRAINABLE_WIRES.slice(0, 18) })),
     /trainableWires/,
   );
   assert.throws(
@@ -370,6 +371,39 @@ test("recipe validation accepts the C-RivalCeiling-0.6 objective once the consum
   const recipe = readRecipe(validRecipe({ objective: { targetScore: 0.8, rivalCeiling: 0.6, otherGap: 0.05 } }));
   assert.deepEqual(recipe.objective, { targetScore: 0.8, rivalCeiling: 0.6, otherGap: 0.05 });
   assert.deepEqual(readRecipe(validRecipe()).objective, { targetScore: 0.8, rivalCeiling: 0.4, otherGap: 0.05 });
+});
+
+test("request missing explicitTabIndexKind must stay null and never be silently filled", () => {
+  const project = { properties: { ...focusProperties(), explicitTabIndexKind: undefined } };
+  const prepared = prepareBasicKindSamples(
+    {
+      schemaVersion: 1,
+      taskId: "dom.basic-kinds.v1",
+      rows: [sampleRow({ properties: project.properties })],
+    },
+    { taskId: "dom.basic-kinds.v1", inputScope: "candidate_qualified" },
+  );
+  const row = prepared.rows[0];
+  assert.equal(row.properties.explicitTabIndexKind, null);
+  assert.equal(row.included, true);
+
+  const explicit = prepareBasicKindSamples(
+    {
+      schemaVersion: 1,
+      taskId: "dom.basic-kinds.v1",
+      rows: [sampleRow({ properties: { ...focusProperties(), explicitTabIndexKind: "negative" } })],
+    },
+    { taskId: "dom.basic-kinds.v1", inputScope: "candidate_qualified" },
+  );
+  assert.equal(explicit.rows[0].properties.explicitTabIndexKind, "negative");
+});
+
+test("recipe omitting explicit_negative_tabindex is rejected before fit", () => {
+  const wires = EXPECTED_TRAINABLE_WIRES.filter(wire => wire !== "explicit_negative_tabindex");
+  assert.throws(() => readRecipe(validRecipe({ trainableWires: wires })), /trainableWires/);
+  const profile = migrateBasicKindProfile(structuredClone(DEFAULT_BASIC_KIND_PROFILE));
+  const cells = enumerateTrainableCells(profile, wires);
+  assert.equal(cells.selected.some(cell => cell.fullAddress.endsWith(".explicit_negative_tabindex")), false);
 });
 
 test("trainable cell enumeration selects whole addresses by wire name and reports unselected cells", () => {
@@ -470,6 +504,19 @@ test("fact fidelity audit rejects null converted to false", () => {
     rowField: "wrapperRow",
     assertNullPreserved: value => value === null,
   }), /fact fidelity|null|false/i);
+});
+
+test("fact fidelity audit rejects explicitTabIndexKind silently filled from missing", () => {
+  const train = captureForFamily("sample-repair-train");
+  assert.doesNotThrow(() => auditFactFidelity({ capture: train, rowField: "wrapperRow" }));
+  const missing = train.states[0];
+  missing.wrapperRow = { ...missing.wrapperRow };
+  delete missing.wrapperRow.explicitTabIndexKind;
+  missing.properties = [{ nodeRef: missing.wrapperRow.nodeRef, ...missing.wrapperRow, explicitTabIndexKind: "absent" }];
+  assert.throws(
+    () => auditFactFidelity({ capture: train, rowField: "wrapperRow" }),
+    /fact fidelity|explicitTabIndexKind/i,
+  );
 });
 
 test("verification isolation rejects verification family inside a fit request", () => {

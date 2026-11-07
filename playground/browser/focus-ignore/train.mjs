@@ -42,6 +42,7 @@ export const EXPECTED_TRAINABLE_WIRES = Object.freeze([
   "own_focus_target",
   "neutral_actual_focus",
   "neutral_focusable_control",
+  "explicit_negative_tabindex",
 ]);
 
 function readJsonFile(file, label) {
@@ -123,7 +124,7 @@ export function readRecipe(raw) {
     if (typeof wire !== "string" || !BASIC_KIND_WIRE_NAMES.includes(wire)) throw new TypeError(`recipe.trainableWires contains unregistered wire ${wire}`);
   }
   if (!sameWireSet(raw.trainableWires, EXPECTED_TRAINABLE_WIRES)) {
-    throw new TypeError("recipe.trainableWires must be exactly the 16 ignore support wires plus neutral_actual_focus and neutral_focusable_control");
+    throw new TypeError("recipe.trainableWires must be exactly the 16 ignore support wires plus neutral_actual_focus, neutral_focusable_control and explicit_negative_tabindex");
   }
 
   const objective = raw.objective;

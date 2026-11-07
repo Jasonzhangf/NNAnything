@@ -301,6 +301,11 @@ export function auditFactFidelity({ capture, rowField = "wrapperRow" }) {
             throw new Error(`fact fidelity audit failed: ${state.sampleId} converted false ${name} to null`);
           }
         }
+        const rawKind = row.explicitTabIndexKind ?? null;
+        const projectedKind = entry.explicitTabIndexKind ?? null;
+        if (rawKind !== projectedKind) {
+          throw new Error(`fact fidelity audit failed: ${state.sampleId} changed explicitTabIndexKind from ${rawKind} to ${projectedKind}`);
+        }
       }
     }
     if (!matched) {
