@@ -3083,3 +3083,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - B-R 诊断纠正要点：basic-kinds.ts:712-713 的 neutral_focusable_control/neutral_actual_focus 是候选自身焦点事实，不是后代控件，不得改旧 wire 名成后代语义；反例112 完整引用原始 leafInterval（select=[0,0]、container=[0.5988,0.6016]、ignore=[0.6449,0.6458]）与 reasons=[unresolved_missing_feature,fallback_other]，status=unknown 非 multi-class conflict；单 wire 为0或系数变负不能单独证明旧能力退化因果，需逐例 wire/权重差/公开决策边界或明确标为未验证假设；拆分 L1 分类与搜索用途关系样本，修正 137/149 分母称谓。
 - 已向 Carol 路由 rework（`m1794083599870-7129`）：在同一四份文档修正，不另建平行合同；不训练、不改 wire/gold/threshold/采用；B-A1 合同修订与 B-R 原始证据归因可独立推进，Alice 明确 Jenny 不因此阻塞其他已就绪工作。
 - roadmap 已同步 browser B-A1 行：Carol rev1 已交付、Alice REWORK（board rev7）、同一四份文档续修；B-R 行保持能力 INCOMPLETE 与失配分析转 Carol。未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon；main `5f57b18=origin/main`，goal 订阅与 project-patrol armed。
+
+## 2026-11-07 master：B-A1 rev2 窄返工路由 Carol（20:41Z）
+
+- 消费 Alice `m1794083961783-7171`：`b-a1-object-relation-binding-carol-20261107` rev2 REWORK 中，B-R 事实修订已接受，能力仍 INCOMPLETE，verification 不解封、候选不采用，根因研究后续须实际逐例贡献证据，本轮不批准新 wire/冻结头或训练。
+- Alice 剩余三组 B-A1 状态矛盾：coverage/currentness 不得同时定义 reject 与 insufficient_observation；唯一最高分 selected 与多个过阈值不等分 ambiguous 的分支必须互斥；correct reject(outside_scope/stale_candidate) 不得要求违规事实通过 scope/currentness 门，gold 须补 kind/state/reason 形状。
+- Board 已为 rev11 rework、review_subject_revision 2，`next_step` 指向 `/Volumes/Intel/playground/nnanything-runs/b-a1-object-relation-binding-carol-20261107/alice-review.md`；已向 Carol 投递窄返工 `m1794084070410-7195`，要求同一四份文档用互斥决策表对齐 binder/gold/evaluator/sample，不训练、不实现、不改模型或监督。
+- roadmap browser B-A1 行已同步 rev2 窄返工与投递回执。主工作树仅保留用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html`；未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
