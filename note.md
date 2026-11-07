@@ -2837,3 +2837,14 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 结果：5 PASS（zero-gain、unknown-gain、multi-declaration-order、ambiguous、public-entry）、0 FAIL、2 INCOMPLETE（request-missing 正向缺测比较因 loader 先拒绝 request.requestedDeclaration 而不可达；repeat-read 因 accepted schema 无 invalidation/recovery 字段）。两项反向拒绝均 PASS。multi-declaration-order 以 slots [41,44,45,46,47,60,61,62,63] 绑定/比较恒等断言通过，非削弱断言。原始逐项回执：/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/henry-converter-post-rework-independent-verification-20261106/output/remaining-scenarios/replay-remaining-scenarios.receipt.json。
 - 未签全量 PASS；完整 22 场景仍待 reviewer 接受。Alice Desktop 仍不可接收 direct input（can_accept_direct_input=false），m1793999283029-1674 仍 pending。按 CEO 指令 m1794021898537-55，如 Alice 仍不可达，按 Review 合同安排独立 reviewer 完成 milestone 接受，不冒充 Alice、不绕过正式验收。
 - 产品代码、语料、权重、gold、threshold、采用、产品接线、runtime 安装均未改。
+
+## 2026-11-07 master：converter milestone 整体 Review = REWORK（2 P1），已派 Iris 修复（04:39Z）
+
+- Iris 只读复核回复 m1794025825711-390：七场景回放与点复查裁决一致，21 PASS / 0 FAIL / 2 INCOMPLETE（frozen schema 下正向 leg 不可达），达完整 milestone 整体 Review 边界；不得宣称 22/22 PASS；若要两条正向 leg 可执行须 Alice 先批准扩展 accepted schema。复核路径 /Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/iris-converter-seven-scenario-recheck-20261107/review.md。
+- 按 Review 合同派独立 `codex exec --profile oauth --model codex-auto-review -c 'model_reasoning_effort="medium"' --sandbox read-only` 只读会话执行整体 Review：任务 .../iris-converter-milestone-review-20261107/review-task.md；输出 review.stdout.log、review.stderr.log、review.exit=0、review.final.json（contract_version=1；scope 回显 mode=milestone-review/commit=null/base=dc3cc4f；6 module_boundary_evidence；2 findings）。
+- 结论 REWORK，2 项 P1（已核对代码属实）：
+  1) scripts/stage-stepwise-converter-corpus.mjs:109 只从 supervision 侧建 eligibleEntries 再过滤匹配的 student，缺 student→supervision 反向存在性与 requestRef/sourceGroup 比较；额外或错配 student 可被静默丢弃而产出 READY。现有反例测试打的是 generate-four-mappings-corpus.mjs，未覆盖最终 adapter。
+  2) lib/training/l2-standard-runner.ts:2281 用 `message.includes(...)` 归类 DATA_INVALID；无关错误消息含该短语会被误判，未知错误应保持 RUNNER_ERROR。
+- 已派 Iris（m1794026425517-433，reply-on-completion）按 finding remediation 修复并重跑 staging/公开 CLI/独立 replay，再触发受影响 Review 复核；不改语料、权重/gold/threshold/采用、安装、训练或集成。
+- board：iris-real-converter-engineering-20261106 保持 delivered（rev 57，reviewer Alice）；master 无权重置（TASK_REQUIRED_REVIEWER）；Henry 验证任务 rev 12 delivered。两任务正式 review/close 仍 gate 在 Alice；独立 reviewer 裁决记入本 note。
+- 未改产品、语料、权重/gold/threshold/采用、产品接线、runtime 安装；未训练、未集成。候选 worktree 仍 dirty、基 dc3cc4f 落后 main，集成前需变基复测。
