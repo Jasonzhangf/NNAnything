@@ -2932,3 +2932,14 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Iris fixed-env 已按 Alice rev21 narrow rework 续派 msg m1794063129168-4654：只修 oracle 自身 sourceGroup/partition 与本次 samples 的绑定、labelMissing 与权威 gold 一致性、readGoldRecords 显式资源原错保留；不重开 Carol 研究、不新增训练/Rust 数据、不集成 6056421。其余已接受进展保留，修后复用有效回执交 Alice。
 - `appsdk goal status` 显示旧 deadline 已 consumed（fired_count=1），已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m` 重新武装，新订阅 sub-m1794062455872，trigger_ms 1794064255841；project patrol sub-m1793963843713-143 armed。
 - 资源保持：fixed-env worktree `/Volumes/Intel/playground/nnanything/fixed-env-gap-20261107`（Iris dirty，6056421）与 value-flow worktree（Carol dirty，57d0e61）均为 PROTECTED_HOLD；main 仅用户既有未跟踪 fixture，未动。未训练、未改权重/gold/threshold/采用、未集成、未安装。
+
+## 2026-11-07 master：fixed-env 3f2e48d 已集成 d6cf866；Henry timing working（15:10Z）
+
+- 已消费 worker-idle 通知批（m1794063356319-4697、m1794063873341-4782、m1794064028316-4808 等）与 pending merge 提示；本轮不因 idle 重复唤醒同一 peer。
+- Iris `fixed-env-engineering-gap-iris-20261107` 的 subject_revision 4（候选 3f2e48d）已 Alice ACCEPT。master 按 latest main 选择性集成 5 个文件到 `refs/heads/main`，提交 `d6cf866` "Bind oracle admission to raw source and gold authority"：`lib/adapters/tsjs-unified-recursive.ts`、`lib/training/unified-transfer-evaluator.ts`、`playground/training/unified-transfer-evaluator.mjs`、`tests/unified-decision-recursive.test.mjs`、`tests/unified-transfer-evaluator.test.mjs`。未带入 Iris 分支上 stale 的 roadmap/note 改动。
+- 后验证据：`npm run build` exit 0；`tests/unified-decision-recursive.test.mjs` 与 `tests/unified-transfer-evaluator.test.mjs` 合计 25/25 通过。已 push `origin/main`（24a0109..d6cf866）并核对远端等于 `d6cf866`。
+- 已发 Iris 集成回执 `m1794064203110-4836`，请求 owner 把 `fixed-env-engineering-gap-iris-20261107` 标 integrated 后正常 close；daemon 仍按 owner-only 生命周期，master 不越权改其状态。保留未跟踪 `tests/fixtures/tsjs-symbols/` 目录。
+- Henry `tsjs-timing-runner-engineering-henry-20261107` board 仍 working、owner Henry、reviewer Alice、completion_missing=[review]；base 为 24a0109，main 已前进到 d6cf866，交付前须 rebase，只做 runner/checkpoint timing。
+- `docs/autonomous-capability-roadmap.md` 与本节已同步上述事实。goal 订阅 `sub-m1794062455872` armed，project patrol `sub-m1793963843713-143` armed。
+- 资源保持：fixed-env worktree `/Volumes/Intel/playground/nnanything/fixed-env-gap-20261107`（Iris 未跟踪 fixture）与 value-flow worktree（Carol dirty，57d0e61）均为 PROTECTED_HOLD；main 仅用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 与 `tests/fixtures/tsjs-symbols/`，未动。
+- 本轮未训练、未改权重/gold/threshold/采用、未产品接线、未安装；后续按 pending merge 与 owner lifecycle 回执核对。
