@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-07 Jenny：值流 rev7 REWORK 路由 Carol（18:12Z）
+
+- 消费 Alice 正式审查 `m1794074865684-6092`：`value-flow-shared-projection-engineering-20261107` 候选 `10e48bc` subject_revision 7 正式 REWORK，证据 `/Volumes/Intel/playground/nnanything-runs/value-flow-shared-projection-engineering-20261107/alice-review.md`。已闭合项：自增遗漏、嵌套 if 误准入、解析诊断丢失、已声明内层 x 的 shadow；不重做编码器与异常处理。
+- 剩余两条 P1：lexicalScopes 按遍历时序 declare，后置内层 `f` 被误绑外层 `f`（应复用解析器绑定或显式 unresolved/not_ready）；interveningWrites/候选枚举未隔离函数执行域，未调用函数体内写被当作外层必经中间写（应按既有局部值流范围隔离函数体，跨执行域标 unsupported）。
+- board：task 已由 Alice 更新为 `rework` rev33，next_step 指向 alice-review.md；owner/executor Carol（present/idle）。master 无需重复改 board。
+- 路由：durable 指令 `m1794075112753-6103` 已发 Carol，reply-on-completion，含 goal/scope/授权动作/证据路径/停止条件；要求先红后修、补 shadow 前后与未调用函数对照，不改 gold/阈值/词表、不训练/采用/安装。
+- 边界：当前候选不集成不训练；其他 ready 任务继续；未改产品代码/权重/gold/threshold，未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：project-patrol 二次核对，无新增派发（18:06Z）
 
 - 消费 worker-idle 批次（`m1794073889372-5980`、`m1794074285407-6021`、`m1794074409386-6035`、`m1794074647479-6066` 等）；`collab recv` 已清空，`collab inbox` unread=0。
