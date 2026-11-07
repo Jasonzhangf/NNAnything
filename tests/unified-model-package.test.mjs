@@ -14,7 +14,7 @@ import {
 import { createXavierTensors } from "../dist/training/unified-forward.js";
 
 const resources = {
-  thresholdsRef: "feature-thresholds-r-unified-step-encoder-v1.json",
+  thresholdsRef: "feature-thresholds-r-unified-step-encoder-v2.json",
   thresholdsSchema: "nnanything.feature-thresholds.v1",
   missingModeTableRef: "missing-mode-table.json",
   missingModeSchema: "nnanything.unified.missing-mode.v1",
@@ -27,7 +27,7 @@ function packageFor(tensors) {
     route: { domain: "tsjs", decisionKind: "R" },
     tensors,
     resources,
-    fixedStages: ["nnanything.unified-step.encoder.v1"],
+    fixedStages: ["nnanything.unified-step.encoder.v2"],
   });
 }
 

@@ -3,12 +3,12 @@
   "command": "validate-data",
   "route": { "domain": "tsjs", "decisionKind": "R" },
   "phase": "validation",
-  "encoderVersion": "nnanything.unified-step.encoder.v1",
+  "encoderVersion": "nnanything.unified-step.encoder.v2",
   "dataGate": {
     "schema": "nnanything.unified.data-gate.v1",
     "partition": "TRAIN",
-    "encoderVersion": "nnanything.unified-step.encoder.v1",
-    "thresholdsPath": "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json",
+    "encoderVersion": "nnanything.unified-step.encoder.v2",
+    "thresholdsPath": "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
     "rowsPath": "tests/fixtures/unified-64-slot/runner-rows.jsonl"
   },
   "outputDir": "tests/fixtures/unified-64-slot/out"

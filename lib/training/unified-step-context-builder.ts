@@ -21,6 +21,7 @@ import type {
   Observed,
   PreviousExecutionProjection,
   RemainingObligationProjection,
+  RelationshipProjection,
 } from "./unified-encoder.js";
 import { UNIFIED_INPUT_SCHEMA } from "./unified-encoder.js";
 
@@ -85,6 +86,7 @@ export interface RelationStepEpisode {
   readonly observedBindings?: readonly BindingEdge[];
   readonly observedDeclarations?: readonly DeclarationIdentity[];
   readonly currentRelation?: CurrentRelationProjection | null;
+  readonly relationshipProjection?: RelationshipProjection | null;
   readonly previousExecution?: Observed<PreviousExecutionProjection | null>;
   readonly localCandidateCursor?: LocalCandidateCursorProjection;
   readonly sourceContent?: RelationStepSourceContent | null;
@@ -653,6 +655,7 @@ export function relationStepContext(episode: RelationStepEpisode): StepContext {
     ),
     bindingEdges: observedBindings,
     currentRelation: currentRelationProjection(episode),
+    ...(episode.relationshipProjection === undefined ? {} : { relationshipProjection: episode.relationshipProjection }),
     remainingObligations: obligationProjections,
     ...(previous === undefined ? {} : { previousExecution: previous }),
     localCandidateCursor: cursor,

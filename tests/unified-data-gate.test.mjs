@@ -9,7 +9,7 @@ import {
 } from "../dist/training/unified-data-gate.js";
 
 const here = new URL(".", import.meta.url);
-const thresholdsPath = new URL("./fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json", here).pathname;
+const thresholdsPath = new URL("./fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json", here).pathname;
 
 async function withRows(rows) {
   const dir = await mkdtemp(join(tmpdir(), "unified-data-gate-"));
@@ -43,7 +43,7 @@ function config(dir) {
   return {
     schema: UNIFIED_DATA_GATE_SCHEMA,
     partition: "TRAIN",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     thresholdsPath,
     rowsPath: join(dir, "rows.jsonl"),
   };
@@ -60,6 +60,16 @@ test("valid row with threshold => READY and learned row emitted", async () => {
   assert.equal(result.counts.learnedRows, 1);
   assert.equal(result.counts.labelMissingExcluded, 0);
   assert.equal(result.violations.length, 0);
+});
+
+test("v1 config is explicitly rejected, not silently reinterpreted", async () => {
+  const dir = await withRows([row()]);
+  const result = await validateUnified64SlotTrainingData({
+    ...config(dir),
+    encoderVersion: "nnanything.unified-step.encoder.v1",
+  });
+  assert.equal(result.status, "DATA_INVALID");
+  assert.ok(result.violations.some(v => v.reasonCode === "ROW_SCHEMA_INVALID"));
 });
 
 test("missing threshold is explicit DATA_INVALID, no learned rows", async () => {

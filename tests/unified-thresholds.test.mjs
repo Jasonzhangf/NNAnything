@@ -26,20 +26,29 @@ function validResource() {
   return {
     schema: "nnanything.feature-thresholds.v1",
     route: "r",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     buckets,
   };
 }
 
 test("feature threshold fixture loads and bucket math reproduces slot32", async () => {
   const loaded = await loadFeatureThresholdsFromFile(
-    join(fixtures, "feature-thresholds-r-unified-step-encoder-v1.json"),
+    join(fixtures, "feature-thresholds-r-unified-step-encoder-v2.json"),
   );
   assert.deepEqual(loaded.buckets.requiredArgsRatio, [0, 0.25, 0.5, 1]);
   assert.equal(bucket(1.0, loaded.buckets.requiredArgsRatio), 0.75);
   assert.equal(bucket(0.25, loaded.buckets.requiredArgsRatio), 0.25);
   assert.equal(bucket(0.5, loaded.buckets.requiredArgsRatio), 0.5);
   assert.equal(bucket(0.75, loaded.buckets.requiredArgsRatio), 0.75);
+});
+
+test("v1 threshold resource is explicitly rejected, never reinterpreted", async () => {
+  await assert.rejects(
+    () => loadFeatureThresholdsFromFile(
+      join(fixtures, "feature-thresholds-r-unified-step-encoder-v1.json"),
+    ),
+    (error) => error.code === "THRESHOLD_INVALID",
+  );
 });
 
 test("missing required bucket is rejected, never defaulted", () => {

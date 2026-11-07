@@ -16,7 +16,7 @@ import { convertEpisodeToStudentGroup } from "../dist/training/unified-student-c
 import { convertGoldToSupervisionRow } from "../dist/training/unified-supervision-converter.js";
 
 const here = new URL(".", import.meta.url);
-const thresholdsRef = resolve(here.pathname, "../tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json");
+const thresholdsRef = resolve(here.pathname, "../tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json");
 const missingModeRef = resolve(here.pathname, "../tests/fixtures/unified-64-slot/missing-mode-table.json");
 
 function episode(sampleId, partition = "train") {
@@ -55,7 +55,7 @@ function config(overrides = {}) {
     schema: UNIFIED_TRAIN_CONFIG_SCHEMA,
     route: { domain: "tsjs", decisionKind: "R" },
     inputSchema: "nnanything.unified-step.v1",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     architecture: { input: 64, hidden: [64, 64], output: 1 },
     optimizer: "full_batch_sgd",
     learningRate: 0.01,

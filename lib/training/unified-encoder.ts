@@ -91,6 +91,53 @@ export interface CurrentRelationProjection {
   readonly binding: Observed<BindingProjection>;
 }
 
+// Shared value-flow relationship projection (Stage A accepted contract).
+// Every field is a typed Observed over the adapter's raw local facts only;
+// gold, analyzer truth, and future receipts never populate these values.
+export type RelationKind =
+  | "not_applicable"
+  | "reaching_def"
+  | "local_init"
+  | "local_assign"
+  | "destructure_extract"
+  | "arg_to_param"
+  | "return_from_fn"
+  | "return_to_call_lhs";
+
+export type BindingResolutionCode =
+  | "not_applicable"
+  | "unresolved"
+  | "same_callee"
+  | "different_callee"
+  | "ambiguous_dynamic";
+
+// Source/sink role classification indices for the shared value-flow projection.
+// Source roles: 0=unknown, 1=definition/write, 2=argument, 3=return, 4=other.
+// Sink roles: 0=unknown, 1=read, 2=parameter, 3=assignment_target, 4=other.
+// The accepted double-argument slice only accepts ordinal 0/1.
+export interface RoleAndOrdinalValue {
+  readonly roleIndex: number;
+  readonly ordinalIndex: number;
+}
+
+export interface OrderFlowAndCoverageValue {
+  // 0=undetermined, 1..9 per the accepted order-flow table.
+  readonly orderFlowIndex: number;
+  // 0=missing, 1=partial, 2=complete, 3=not_applicable.
+  readonly coverageIndex: number;
+}
+
+export interface RelationshipProjection {
+  readonly relationKind: Observed<RelationKind>;
+  readonly sourceSiteRef: Observed<Ref>;
+  readonly sinkSiteRef: Observed<Ref>;
+  readonly sourceRoleAndOrdinal: Observed<RoleAndOrdinalValue>;
+  readonly sinkRoleAndOrdinal: Observed<RoleAndOrdinalValue>;
+  readonly orderFlowAndCoverage: Observed<OrderFlowAndCoverageValue>;
+  readonly bindingResolution: Observed<BindingResolutionCode>;
+  readonly evidenceRefs: readonly EvidenceRef[];
+}
+
 export interface RemainingObligationProjection {
   readonly kind: "observe" | "advance";
   readonly ref: Ref;
@@ -215,6 +262,7 @@ export interface StepContext {
   readonly bindingProjections: readonly BindingProjection[];
   readonly bindingEdges: readonly BindingEdge[];
   readonly currentRelation?: CurrentRelationProjection | null;
+  readonly relationshipProjection?: RelationshipProjection | null;
   readonly remainingObligations?: readonly RemainingObligationProjection[];
   readonly previousExecution?: Observed<PreviousExecutionProjection | null>;
   readonly localCandidateCursor?: LocalCandidateCursorProjection;
@@ -242,7 +290,7 @@ export interface EncoderResult {
   readonly missingMode: readonly EncoderMissingMode[];
 }
 
-export const UNIFIED_ENCODER_VERSION = "nnanything.unified-step.encoder.v1";
+export const UNIFIED_ENCODER_VERSION = "nnanything.unified-step.encoder.v2";
 export const UNIFIED_INPUT_SCHEMA = "nnanything.unified-step.v1";
 
 const DEFAULT_THRESHOLDS: Record<string, readonly number[]> = Object.freeze({
@@ -346,6 +394,116 @@ function symbolPart(ref: Ref): string | null {
   return colon >= 0 ? fragment.slice(colon + 1) : fragment;
 }
 
+const RELATION_KIND_CODE: Readonly<Record<RelationKind, number>> = Object.freeze({
+  not_applicable: 0,
+  reaching_def: 1 / 7,
+  local_init: 2 / 7,
+  local_assign: 3 / 7,
+  destructure_extract: 4 / 7,
+  arg_to_param: 5 / 7,
+  return_from_fn: 6 / 7,
+  return_to_call_lhs: 7 / 7,
+});
+
+const BINDING_RESOLUTION_CODE: Readonly<Record<BindingResolutionCode, number>> = Object.freeze({
+  not_applicable: 0,
+  unresolved: 0.25,
+  same_callee: 0.5,
+  different_callee: 0.75,
+  ambiguous_dynamic: 1,
+});
+
+interface ProjectionEncode {
+  readonly slot: number;
+  readonly block: EncoderMissingMode["block"];
+  readonly fieldRef: string;
+  readonly value: number;
+  readonly reason: MissingReason | null;
+}
+
+// Map a typed Observed projection field to either a real slot value or a
+// missing-mode declaration per the accepted Stage A state table. Unsupported
+// control flow keeps its legal value and does not generate a missingMode entry;
+// the reject reason stays on the original Observed admissibility record.
+function encodeProjectionSlot<T>(
+  slot: number,
+  block: EncoderMissingMode["block"],
+  fieldRef: string,
+  value: Observed<T>,
+  code: (v: T) => number,
+): ProjectionEncode {
+  if (value.state === "known") {
+    if (value.value === undefined) {
+      throw new TypeError(`${fieldRef} must have a value when state is known`);
+    }
+    const v = code(value.value);
+    if (v === -1) {
+      return { slot, block, fieldRef, value: -1, reason: "unsupported_pattern" };
+    }
+    return { slot, block, fieldRef, value: v, reason: null };
+  }
+  // Unsupported control flow may retain a legal value (e.g. x[51] orderFlow 0);
+  // a true whole-field unsupported falls through to the missing path.
+  if (value.state === "unsupported" && value.value !== undefined) {
+    const v = code(value.value);
+    if (v === -1) {
+      // Out-of-slice enum with no legal value: -1 plus declared unsupported reason.
+      return { slot, block, fieldRef, value: -1, reason: value.reason ?? "unsupported_pattern" };
+    }
+    return { slot, block, fieldRef, value: code(value.value), reason: null };
+  }
+  const reason: MissingReason = value.reason
+    ?? (value.state === "conflicting" ? "contract_mismatch" : "not_requested");
+  return { slot, block, fieldRef, value: -1, reason };
+}
+
+interface RelationshipSlotResult {
+  readonly relationKind: number;
+  readonly sourceRole: number;
+  readonly sinkRole: number;
+  readonly orderFlow: number;
+  readonly binding: number;
+}
+
+function encodeRelationshipProjection(
+  projection: RelationshipProjection,
+  missingMode: EncoderMissingMode[],
+): RelationshipSlotResult {
+  const relationKind = encodeProjectionSlot(15, "G1", "x[15].relationKind", projection.relationKind, k => RELATION_KIND_CODE[k]);
+  const sourceRole = encodeProjectionSlot(23, "G2", "x[23].sourceRoleAndOrdinal", projection.sourceRoleAndOrdinal,
+    ({ roleIndex, ordinalIndex }) => (ordinalIndex < 0 || ordinalIndex > 1 ? -1 : (roleIndex * 4 + ordinalIndex) / 19),
+  );
+  const sinkRole = encodeProjectionSlot(31, "G3", "x[31].sinkRoleAndOrdinal", projection.sinkRoleAndOrdinal,
+    ({ roleIndex, ordinalIndex }) => (ordinalIndex < 0 || ordinalIndex > 1 ? -1 : (roleIndex * 4 + ordinalIndex) / 19),
+  );
+  const orderFlow = encodeProjectionSlot(
+    51,
+    "G6",
+    "x[51].orderFlowAndCoverage",
+    projection.orderFlowAndCoverage,
+    ({ orderFlowIndex, coverageIndex }) =>
+      (orderFlowIndex < 0 || orderFlowIndex > 9 || coverageIndex < 0 || coverageIndex > 3
+        ? -1
+        : (orderFlowIndex * 4 + coverageIndex) / 39),
+  );
+  const binding = encodeProjectionSlot(55, "G6", "x[55].bindingResolution", projection.bindingResolution, c => BINDING_RESOLUTION_CODE[c]);
+
+  for (const e of [relationKind, sourceRole, sinkRole, orderFlow, binding]) {
+    if (e.value === -1) {
+      const reason: MissingReason = e.reason ?? "not_requested";
+      missingMode.push({ block: e.block, fieldRef: e.fieldRef, reason, slotIndex: e.slot, fill: -1 });
+    }
+  }
+
+  return {
+    relationKind: relationKind.value,
+    sourceRole: sourceRole.value,
+    sinkRole: sinkRole.value,
+    orderFlow: orderFlow.value,
+    binding: binding.value,
+  };
+}
+
 export function encodeUnifiedCandidate(
   context: StepContext,
   candidate: Candidate,
@@ -360,6 +518,9 @@ export function encodeUnifiedCandidate(
 
   const x = new Array<number>(64).fill(0);
   const missingMode: EncoderMissingMode[] = [];
+  const relationshipSlots = context.relationshipProjection
+    ? encodeRelationshipProjection(context.relationshipProjection, missingMode)
+    : null;
   const isJudge = candidate.optionSemantics.startsWith("judge=");
   const requested = context.goal.requestedDeclaration ?? null;
 
@@ -397,7 +558,7 @@ export function encodeUnifiedCandidate(
   x[14] = skill !== null && requestedKind !== null
     ? (skill.parameterSchema.parameters.some(p => p.allowedTargetKinds.includes(requestedKind)) ? 1 : 0)
     : 0;
-  x[15] = 0;
+  x[15] = relationshipSlots?.relationKind ?? 0;
 
   // G2 Action/Evaluation
   x[16] = context.action.previousActionRef !== null ? 1 : 0;
@@ -407,7 +568,7 @@ export function encodeUnifiedCandidate(
   x[20] = context.action.outcome === "failed" ? 1 : 0;
   x[21] = context.action.outcome === "unknown" ? 1 : 0;
   x[22] = context.evaluation.conditionStates.some(c => c.state === "satisfied") ? 1 : 0;
-  x[23] = 0;
+  x[23] = relationshipSlots?.sourceRole ?? 0;
 
   // G3 Skill
   // Terminal judge is an independent judgment family, not a skill (v0.9 §3.2):
@@ -424,7 +585,7 @@ export function encodeUnifiedCandidate(
   if (skill) {
     x[30] = skill.executorRef && skill.contractVersion ? 1 : 0;
   }
-  x[31] = 0;
+  x[31] = relationshipSlots?.sinkRole ?? 0;
 
   // G4 Binding/parameters
   const required = skill?.parameterSchema.parameters.filter(p => p.required) ?? [];
@@ -476,11 +637,11 @@ export function encodeUnifiedCandidate(
   x[48] = candidate.optionSemantics === "NOOP" ? 1 : 0;
   x[49] = candidate.optionSemantics === "RETURN" ? 1 : 0;
   x[50] = candidate.optionSemantics === "NO_CAPABILITY" ? 1 : 0;
-  x[51] = 0;
+  x[51] = relationshipSlots?.orderFlow ?? 3 / 39;
   x[52] = candidate.candidateKind === "control" ? 1 : 0;
   x[53] = candidate.candidateKind === "action" ? 1 : 0;
   x[54] = skill !== null && candidate.parameterProjection.length === 0 ? 1 : 0;
-  x[55] = 0;
+  x[55] = relationshipSlots?.binding ?? 0;
 
   // G7 Route/Terminal Identity
   const route = context.route.decisionKind;

@@ -7,7 +7,7 @@ import { runStandardRunnerCli } from "../dist/training/l2-standard-runner.js";
 
 const here = new URL(".", import.meta.url);
 const thresholdsFixture = new URL(
-  "./fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json",
+  "./fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
   here,
 ).pathname;
 
@@ -26,11 +26,11 @@ async function makeCase({ rowsText, thresholdsPath }) {
     command: "validate-data",
     route: { domain: "tsjs", decisionKind: "R" },
     phase: "validation",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     dataGate: {
       schema: "nnanything.unified.data-gate.v1",
       partition: "TRAIN",
-      encoderVersion: "nnanything.unified-step.encoder.v1",
+      encoderVersion: "nnanything.unified-step.encoder.v2",
       thresholdsPath,
       rowsPath,
     },
@@ -113,7 +113,7 @@ test("schema mismatch on encoder version is explicit DATA_INVALID, not a silent 
     command: "validate-data",
     route: { domain: "tsjs", decisionKind: "R" },
     phase: "validation",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     dataGate: {
       schema: "nnanything.unified.data-gate.v1",
       partition: "TRAIN",

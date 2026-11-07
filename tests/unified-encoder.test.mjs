@@ -136,7 +136,7 @@ function context({ currentDecl, outcome = "success", candidates }) {
 const G0 = [0, 0, 1, 0, 1, 1, 0, 0];
 const G1 = [0.25, 0, 0, 1, 0.25, 1, 1, 0];
 const G3 = [0, 0, 0, 0, 0, 0, 1, 0];
-const G6_JUDGE = [0, 0, 0, 0, 0, 0, 1, 0];
+const G6_JUDGE = [0, 0, 0, 3 / 39, 0, 0, 1, 0];
 const G4 = {
   "judge=true": [0.75, 0, 0, 1, 1, 0, 0, 0],
   "judge=false": [0.75, 0, 0, 1, 0, 1, 0, 0],
@@ -277,7 +277,7 @@ test("advance step0 matches accepted v0.9 vector", () => {
     [0, 1, 0, 0, 0, 0, 1, 0],
     [0.75, 0, 0, 1, 0, 0, 0, 0],
     [1, 0, 1, 1, 1, 1, -1, 0.5],
-    [0, 0, 0, 0, 0, 1, 1, 0],
+    [0, 0, 0, 3 / 39, 0, 1, 1, 0],
     [1, 0, 0, 0, 0, -1, -1, 0.5],
   ]));
 });

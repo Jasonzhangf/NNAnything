@@ -24,7 +24,7 @@ const dryRun = process.argv.includes("--dry-run");
 const corpusRoot = join(repoRoot, "training/samples/neural-cli/tsjs");
 const thresholdsPath = join(
   repoRoot,
-  "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json",
+  "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
 );
 
 function studentRow(group, candidate) {

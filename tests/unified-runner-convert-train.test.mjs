@@ -8,7 +8,7 @@ import { runStandardRunnerCli } from "../dist/training/l2-standard-runner.js";
 const here = new URL(".", import.meta.url);
 const thresholdsPath = resolve(
   here.pathname,
-  "fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json",
+  "fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
 );
 const missingModeTablePath = resolve(
   here.pathname,
@@ -153,11 +153,11 @@ async function makeConfig(root, overrides = {}) {
     command: "train",
     route: { domain: "tsjs", decisionKind: "R" },
     phase: "pretraining",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     dataGate: {
       schema: "nnanything.unified.data-gate.v1",
       partition: "TRAIN",
-      encoderVersion: "nnanything.unified-step.encoder.v1",
+      encoderVersion: "nnanything.unified-step.encoder.v2",
       thresholdsPath,
       rowsPath: gateRowsPath,
     },
@@ -504,10 +504,10 @@ test("resume rejects an encoder-version change as an incompatible resume", async
     assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
     assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
     const checkpointBefore = await readJson(`${paths.packagePath}.checkpoint.json`);
-    assert.equal(checkpointBefore.encoderVersion, "nnanything.unified-step.encoder.v1");
+    assert.equal(checkpointBefore.encoderVersion, "nnanything.unified-step.encoder.v2");
 
     const changed = await readJson(paths.configPath);
-    changed.encoderVersion = "nnanything.unified-step.encoder.v2";
+    changed.encoderVersion = "nnanything.unified-step.encoder.v1";
     await writeJson(paths.configPath, changed);
     assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 1);
 
