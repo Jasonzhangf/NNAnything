@@ -14,7 +14,7 @@ import {
 const here = new URL(".", import.meta.url);
 const thresholdsPath = resolve(
   here.pathname,
-  "fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json",
+  "fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
 );
 const missingModeTablePath = resolve(
   here.pathname,
@@ -332,11 +332,11 @@ async function makeRunnerConfig(root) {
     command: "convert-samples",
     route: { domain: "tsjs", decisionKind: "R" },
     phase: "sample_migration",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     dataGate: {
       schema: "nnanything.unified.data-gate.v1",
       partition: "TRAIN",
-      encoderVersion: "nnanything.unified-step.encoder.v1",
+      encoderVersion: "nnanything.unified-step.encoder.v2",
       thresholdsPath,
       rowsPath: items.gateRowsPath,
     },

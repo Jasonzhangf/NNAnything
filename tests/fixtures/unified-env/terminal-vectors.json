@@ -1,11 +1,11 @@
 {
   "schema": "nnanything.unified.env.terminal-vectors.v1",
-  "encoderVersion": "nnanything.unified-step.encoder.v1",
+  "encoderVersion": "nnanything.unified-step.encoder.v2",
   "common": {
     "G0": [0, 0, 1, 0, 1, 1, 0, 0],
     "G1": [0.25, 0, 0, 1, 0.25, 1, 1, 0],
     "G3": [0, 0, 0, 0, 0, 0, 1, 0],
-    "G6": [0, 0, 0, 0, 0, 0, 1, 0],
+    "G6": [0, 0, 0, 0.07692307692307693, 0, 0, 1, 0],
     "G4": {
       "judge=true": [0.75, 0, 0, 1, 1, 0, 0, 0],
       "judge=false": [0.75, 0, 0, 1, 0, 1, 0, 0],

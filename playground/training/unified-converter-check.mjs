@@ -30,7 +30,7 @@ async function main() {
   const familyArg = process.argv[2];
   if (!familyArg) throw new Error("usage: unified-converter-check.mjs <familyDir> [thresholdsPath]");
   const familyDir = resolve(familyArg);
-  const thresholdsPath = process.argv[3] ?? join(repoRoot, "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v1.json");
+  const thresholdsPath = process.argv[3] ?? join(repoRoot, "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json");
   const thresholds = await loadFeatureThresholdsFromFile(thresholdsPath);
 
   const studentGroups = await convertFamilyStudentOnly(familyDir, thresholds);

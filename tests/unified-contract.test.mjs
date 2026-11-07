@@ -45,7 +45,7 @@ import { mapTsJsSymbolTableToUnifiedFacts } from "../dist/adapters/tsjs-unified-
 const here = new URL(".", import.meta.url);
 const envFixture = name => new URL(`./fixtures/unified-env/${name}`, here).pathname;
 const slotFixture = name => new URL(`./fixtures/unified-64-slot/${name}`, here).pathname;
-const thresholdsPath = slotFixture("feature-thresholds-r-unified-step-encoder-v1.json");
+const thresholdsPath = slotFixture("feature-thresholds-r-unified-step-encoder-v2.json");
 const missingModePath = slotFixture("missing-mode-table.json");
 
 const TARGET = "decl:impl.ts#top:helper";
@@ -349,7 +349,7 @@ test("item 5: data gate accepts 64-slot rows and rejects wrong input shape", asy
   const config = {
     schema: UNIFIED_DATA_GATE_SCHEMA,
     partition: "TRAIN",
-    encoderVersion: "nnanything.unified-step.encoder.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
     thresholdsPath,
     rowsPath,
   };
