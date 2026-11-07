@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-11-07 Jenny：goal deadline 续订（18:25Z）
+
+- 消费 goal deadline `m1794075862495-6153`（LAST_REMINDER，subject `goal:sha256:b9c0...f9606140c48950d5a8b4e0ca678`）；旧 one-shot `sub-m1794074061797-5998` 已被 consumed，`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED` 如实记录后处理。
+- 续订：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m`，新 one-shot `sub-m1794075896830-6155` armed，trigger≈18:54Z；`active=true/observed=subscribed/desired=subscribed/error=null`。project patrol `sub-m1793963843713-143` armed。
+- 说明：本轮无新增可派 work，维持前轮边界（两项范围裁定前只做只读审计、board/goal 维护与停工收口；value-flow Carol 在案返工，P1-1 待裁定后派 GCM 实现）。
+
 ## 2026-11-07 Jenny：project-patrol 本轮收口，无其他可派（18:20Z）
 
 - 巡检范围：8 条 board open 任务、goal 一键订阅、project patrol 订阅、3 个 worktree、工作线活跃度与空闲 peer。
