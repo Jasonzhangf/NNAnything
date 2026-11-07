@@ -69,12 +69,19 @@ import {
   loadStudentRowsFile,
   loadSupervisionRowsFile,
   runUnifiedTraining,
+  saveUnifiedTrainingCheckpoint,
   saveUnifiedTrainPackage,
   UnifiedTrainDataError,
   type UnifiedPackageReloadReceipt,
   type UnifiedTrainConfig,
   type UnifiedTrainReport,
+  type UnifiedTrainingRunOptions,
 } from "./unified-train-config.js";
+import {
+  UnifiedTrainingCheckpointError,
+  loadUnifiedTrainingCheckpointFromFile,
+  type UnifiedTrainingCheckpoint,
+} from "./unified-training-checkpoint.js";
 import type { UnifiedModelPackage } from "./unified-model-package.js";
 
 const execFileAsync = promisify(execFile);
@@ -143,8 +150,12 @@ export interface UnifiedRunnerTrainingConfig {
   readonly optimizer: "full_batch_sgd";
   readonly learningRate: number;
   readonly maxEpochs: number;
+  /** Optional bounded invocation for restartable runs; omitted means the full budget. */
+  readonly epochsThisRun?: number;
   readonly seed: number;
   readonly init: "xavier_uniform";
+  /** Optional independent training checkpoint path; defaults beside the package. */
+  readonly checkpointPath?: string;
 }
 
 export interface UnifiedRunnerConfig {
@@ -311,6 +322,7 @@ type UnifiedRunnerOutputStatus =
   | "NO_LEARNED_ROWS"
   | "DATA_INVALID"
   | "completed"
+  | "paused"
   | "failed";
 
 interface UnifiedRunnerCounts {
@@ -319,6 +331,13 @@ interface UnifiedRunnerCounts {
   readonly supervisionRows: number;
   readonly labelMissingExcluded: number;
   readonly trainableGroups: number;
+}
+
+interface UnifiedCheckpointReloadReceipt {
+  readonly checkpointPath: string;
+  readonly completedEpochs: number;
+  readonly epochRecordCount: number;
+  readonly tensorsMatch: boolean;
 }
 
 interface UnifiedRunnerReport {
@@ -336,6 +355,8 @@ interface UnifiedRunnerReport {
   readonly counts: UnifiedRunnerCounts | null;
   readonly trainReport: UnifiedTrainReport | null;
   readonly packageReload: UnifiedPackageReloadReceipt | null;
+  readonly checkpointReload: UnifiedCheckpointReloadReceipt | null;
+  readonly resumedFromEpoch: number | null;
   readonly error: UnifiedDataGateViolation | { readonly code: string; readonly message: string } | null;
   readonly candidateState: {
     readonly calibration: "uncalibrated";
@@ -351,6 +372,7 @@ interface UnifiedRunnerReport {
     readonly supervisionRowsPath: string;
     readonly dataGateRowsPath: string;
     readonly packagePath: string;
+    readonly checkpointPath: string;
   };
 }
 
@@ -585,6 +607,13 @@ function buildUnifiedTrainConfig(config: UnifiedRunnerConfig): UnifiedTrainConfi
   };
 }
 
+function unifiedCheckpointPath(config: UnifiedRunnerConfig): string {
+  const corpus = requireUnifiedCorpus(config);
+  const explicit = config.training?.checkpointPath;
+  if (explicit !== undefined) return resolve(explicit);
+  return `${resolve(corpus.packagePath)}.checkpoint.json`;
+}
+
 function findNonFiniteUnifiedInput(
   groups: readonly {
     readonly groupRef: string;
@@ -684,6 +713,49 @@ process.stdout.write(JSON.stringify({
   };
 }
 
+async function verifyUnifiedCheckpointReloadInNewProcess(
+  checkpointPath: string,
+  expected: UnifiedTrainingCheckpoint,
+): Promise<UnifiedCheckpointReloadReceipt> {
+  const resolvedCheckpointPath = resolve(checkpointPath);
+  const loaderUrl = new URL("./unified-training-checkpoint.js", import.meta.url).href;
+  const script = `
+import { loadUnifiedTrainingCheckpointFromFile } from ${JSON.stringify(loaderUrl)};
+const loaded = await loadUnifiedTrainingCheckpointFromFile(${JSON.stringify(resolvedCheckpointPath)});
+process.stdout.write(JSON.stringify({
+  completedEpochs: loaded.completedEpochs,
+  epochRecordCount: loaded.epochRecords.length,
+  tensors: loaded.tensors
+}));
+`;
+  const { stdout } = await execFileAsync(process.execPath, [
+    "--input-type=module",
+    "-e",
+    script,
+  ], { maxBuffer: 16 * 1024 * 1024 });
+  const loaded = JSON.parse(String(stdout)) as {
+    readonly completedEpochs: number;
+    readonly epochRecordCount: number;
+    readonly tensors: UnifiedTrainingCheckpoint["tensors"];
+  };
+  const tensorsMatch = compareUnifiedTensors(expected.tensors, loaded.tensors);
+  if (
+    !tensorsMatch
+    || loaded.completedEpochs !== expected.completedEpochs
+    || loaded.epochRecordCount !== expected.epochRecords.length
+  ) {
+    throw new UnifiedTrainDataError(
+      "new-process training checkpoint reload differs from the saved checkpoint",
+    );
+  }
+  return {
+    checkpointPath: resolvedCheckpointPath,
+    completedEpochs: loaded.completedEpochs,
+    epochRecordCount: loaded.epochRecordCount,
+    tensorsMatch,
+  };
+}
+
 async function writeUnifiedRunnerReport(
   outputDir: string,
   report: UnifiedRunnerReport,
@@ -719,6 +791,15 @@ async function writeUnifiedRunnerReport(
   }
   if (report.packageReload !== null) {
     lines.push(`- Package Reload tensorsMatch: \`${String(report.packageReload.tensorsMatch)}\``);
+  }
+  if (report.checkpointReload !== null) {
+    lines.push(
+      `- Checkpoint Reload tensorsMatch: \`${String(report.checkpointReload.tensorsMatch)}\``,
+      `- Checkpoint Completed Epochs: \`${report.checkpointReload.completedEpochs}\``,
+    );
+  }
+  if (report.resumedFromEpoch !== null) {
+    lines.push(`- Resumed From Epoch: \`${report.resumedFromEpoch}\``);
   }
   if (report.error !== null) {
     lines.push("", "## Error", "", "```json", JSON.stringify(report.error, null, 2), "```");
@@ -2000,13 +2081,18 @@ export async function executeUnifiedRunnerRoute(
   command: StandardRunnerCommand,
   config: UnifiedRunnerConfig,
 ): Promise<number> {
-  if (command === "resume" || command === "evaluate") {
+  if (command === "evaluate") {
     process.stderr.write(
-      `Unified runner route is NOT_READY for ${command}; convert-samples, train, and validate-data are available. No fitter or legacy fallback was used.\n`,
+      `Unified runner route is NOT_READY for ${command}; convert-samples, train, resume, and validate-data are available. No fitter or legacy fallback was used.\n`,
     );
     return 2;
   }
-  if (command !== "validate-data" && command !== "convert-samples" && command !== "train") {
+  if (
+    command !== "validate-data"
+    && command !== "convert-samples"
+    && command !== "train"
+    && command !== "resume"
+  ) {
     process.stderr.write(
       `Unified runner route is NOT_READY for ${command}; no fitter or legacy fallback was used.\n`,
     );
@@ -2079,6 +2165,8 @@ export async function executeUnifiedRunnerRoute(
   let counts: UnifiedRunnerCounts | null = null;
   let trainReport: UnifiedTrainReport | null = null;
   let packageReload: UnifiedPackageReloadReceipt | null = null;
+  let checkpointReload: UnifiedCheckpointReloadReceipt | null = null;
+  let resumedFromEpoch: number | null = null;
   let error: UnifiedRunnerReport["error"] = null;
 
   const finalize = async (
@@ -2102,6 +2190,8 @@ export async function executeUnifiedRunnerRoute(
       counts,
       trainReport,
       packageReload,
+      checkpointReload,
+      resumedFromEpoch,
       error,
       candidateState: { calibration: "uncalibrated", adoption: "not_applied" },
       hybridPackageLoaded: false,
@@ -2114,6 +2204,7 @@ export async function executeUnifiedRunnerRoute(
         supervisionRowsPath,
         dataGateRowsPath,
         packagePath,
+        checkpointPath: unifiedCheckpointPath(config),
       },
     };
     await writeUnifiedRunnerReport(outputDir, report);
@@ -2220,14 +2311,45 @@ export async function executeUnifiedRunnerRoute(
       return await finalize("failed", 1);
     }
     const trainConfig = buildUnifiedTrainConfig(config);
-    const result = runUnifiedTraining(encodedGroups, trainConfig);
+    const checkpointPath = unifiedCheckpointPath(config);
+    let resumeFrom: UnifiedTrainingCheckpoint | undefined;
+    if (command === "resume") {
+      try {
+        resumeFrom = await loadUnifiedTrainingCheckpointFromFile(checkpointPath);
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        error = { code: "CHECKPOINT_INVALID", message };
+        return await finalize("failed", 1);
+      }
+      resumedFromEpoch = resumeFrom.completedEpochs;
+    }
+    const runOptions: UnifiedTrainingRunOptions = {
+      ...(resumeFrom !== undefined ? { resumeFrom } : {}),
+      ...(config.training?.epochsThisRun !== undefined
+        ? { epochsThisRun: config.training.epochsThisRun }
+        : {}),
+    };
+    const result = runUnifiedTraining(encodedGroups, trainConfig, runOptions);
     trainReport = result.report;
-    if (result.report.stopReason !== "epoch_limit_exhausted") {
+    if (result.report.status === "failed") {
       error = {
         code: result.report.stopReason,
         message: result.report.violations.join("; ") || `training stopped with ${result.report.stopReason}`,
       };
       return await finalize("failed", 1);
+    }
+    const savedCheckpoint = await saveUnifiedTrainingCheckpoint(
+      checkpointPath,
+      trainConfig,
+      result.report,
+      result.tensors,
+    );
+    checkpointReload = await verifyUnifiedCheckpointReloadInNewProcess(
+      checkpointPath,
+      savedCheckpoint,
+    );
+    if (result.report.status === "paused") {
+      return await finalize("paused", 0);
     }
     const savedPackage = await saveUnifiedTrainPackage(packagePath, trainConfig, result.tensors);
     packageReload = await verifyUnifiedPackageReloadInNewProcess(packagePath, savedPackage);
@@ -2237,6 +2359,10 @@ export async function executeUnifiedRunnerRoute(
     if (caught instanceof UnifiedTrainDataError) {
       error = { code: "DATA_INVALID", message };
       return await finalize("DATA_INVALID", 1);
+    }
+    if (caught instanceof UnifiedTrainingCheckpointError) {
+      error = { code: "CHECKPOINT_INVALID", message };
+      return await finalize("failed", 1);
     }
     error = { code: "RUNNER_ERROR", message };
     return await finalize("failed", 1);

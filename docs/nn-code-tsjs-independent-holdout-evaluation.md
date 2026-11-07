@@ -148,13 +148,11 @@ unknown 时，虽然会产生 violation 并使 `overall=incomplete`，数值 `un
 被抬高，甚至超过 1。
 
 独立评价报告不得把该字段单独当作有效 unknown 召回回执。至少同时保留 gold-unknown
-子集内的 correct unknown 数、miss 数、wrong true/false 数和 final unknown 数。当前
-evaluator 没有这个单独 numerator；这是评价实现缺口，不是通过修改 gold 或跳过样本解决。
-已补最小红测
-`tests/relation-oracle-evaluator.test.mjs` 的
-`RED: known-gold unknown must not count toward valid unknown recall`。该测试把
-known-true 误报为 unknown，同时保留一个正确的 valid unknown。期望有效 unknown 召回
-为 1，当前实际为 2，exit 1。这个失败证据固定了缺口。
+子集内的 correct unknown 数、miss 数、wrong true/false 数和 final unknown 数。
+当前 evaluator 已补 `validUnknown` 四项计数，并把 `unknownRecall` 限定为
+gold=unknown 子集。红测保留为
+`known-gold unknown must not count toward valid unknown recall`，现回执为 exit 0。
+该修复只证明 evaluator 的有效 unknown 分母与召回语义；不证明真实 holdout 已执行。
 
 当前边界：
 

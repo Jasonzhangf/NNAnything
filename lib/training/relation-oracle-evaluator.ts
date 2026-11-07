@@ -111,6 +111,12 @@ export interface RelationOracleReport {
   readonly rootEvaluation: RootEvaluation;
   readonly overall: "pass" | "incomplete" | "invalid";
   readonly unknownRecall: number;
+  readonly validUnknown: {
+    readonly correct: number;
+    readonly missed: number;
+    readonly wrongTrueOrFalse: number;
+    readonly finalUnknown: number;
+  };
   readonly violations: readonly string[];
 }
 
@@ -177,6 +183,10 @@ export function evaluateRelationOracle(
   let predictionFalse = 0;
   let predictionUnknown = 0;
   let predictionMissing = 0;
+  let validUnknownCorrect = 0;
+  let validUnknownMissed = 0;
+  let validUnknownWrongTrueOrFalse = 0;
+  let validUnknownFinalUnknown = 0;
   const stepEntries: PerStepEvaluationEntry[] = [];
   const rootEntries: RootEvaluationEntry[] = [];
 
@@ -234,6 +244,14 @@ export function evaluateRelationOracle(
       else predictionUnknown += 1;
       const outcome: StepOutcome =
         judge === sample.gold ? "correct" : judge === "unknown" ? "unknown" : "incorrect";
+      if (sample.gold === "unknown") {
+        if (judge === "unknown") {
+          validUnknownCorrect += 1;
+          validUnknownFinalUnknown += 1;
+        } else {
+          validUnknownWrongTrueOrFalse += 1;
+        }
+      }
       if (outcome === "unknown") {
         violations.push(
           `sample ${sample.sampleId} final judge unknown but gold is ${sample.gold}`,
@@ -253,6 +271,7 @@ export function evaluateRelationOracle(
         gaps: [],
       });
       violations.push(`sample ${sample.sampleId} has no student run for root evaluation`);
+      if (sample.gold === "unknown") validUnknownMissed += 1;
       const stepOutcome: StepOutcome = "unknown";
       stepEntries.push({
         sampleId: sample.sampleId,
@@ -295,7 +314,10 @@ export function evaluateRelationOracle(
   const rootUnsatisfied = rootEntries.filter(entry => entry.outcome === "unsatisfied").length;
   const rootUnknown = rootEntries.filter(entry => entry.outcome === "unknown").length;
 
-  const unknownRecall = goldUnknown === 0 ? 1 : predictionUnknown / goldUnknown;
+  const unknownRecall = goldUnknown === 0
+    ? 1
+    : validUnknownCorrect
+      / (validUnknownCorrect + validUnknownMissed + validUnknownWrongTrueOrFalse);
   const overall =
     violations.length === 0 &&
     predictionMissing === 0 &&
@@ -335,6 +357,12 @@ export function evaluateRelationOracle(
     },
     overall,
     unknownRecall,
+    validUnknown: {
+      correct: validUnknownCorrect,
+      missed: validUnknownMissed,
+      wrongTrueOrFalse: validUnknownWrongTrueOrFalse,
+      finalUnknown: validUnknownFinalUnknown,
+    },
     violations: Object.freeze(violations),
   };
 }

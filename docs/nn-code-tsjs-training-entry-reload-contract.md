@@ -38,7 +38,7 @@ node dist/training/l2-standard-runner.js evaluate --config <runner-config.json>
 | `convert-samples` | 可用 | 写学生行和监督行两个物理路径 |
 | `validate-data` | 可用 | 64 槽 typed 行、TRAIN 分区、threshold 和泄漏检查 |
 | `train` | 可用 | 只接收 TRAIN；当前会把 tensor package 保存到配置的 package path |
-| `resume` | `NOT_READY`，exit 2 | 不恢复 optimizer、RNG、epoch 或 timing 状态 |
+| `resume` | 可用 | 从独立 training checkpoint 恢复同一 recipe 的 epoch/tensor 状态 |
 | `evaluate` | `NOT_READY`，exit 2 | 独立 holdout 评价尚未接入该命令 |
 
 语料直转换入口为：
@@ -137,12 +137,24 @@ early-stop state。这个选择不影响纯 tensor 保存和新进程回载。
 
 ### 5.2 training checkpoint
 
-恢复训练所需的 optimizer recipe、学习率、seed、累计 completed epochs、累计 timing
-和 early-stop state 必须属于独立的 training checkpoint/resume 状态。它们不能从模型包
-tensor 中推导，也不能用同一份 `tensorsMatch=true` 回执代替。
+恢复训练所需的 optimizer recipe、学习率、seed、累计 completed epochs、epoch 历史和
+early-stop state 属于独立的 `nnanything.unified.training-checkpoint.v1`。它们不能从
+模型包 tensor 中推导，也不能用同一份 `tensorsMatch=true` 回执代替。
 
-当前没有这个独立 checkpoint 状态的保存、校验和新进程回载实现。`resume` command
-明确返回 `NOT_READY`，所以当前不能声称支持真实 resume。
+当前实现边界：
+
+- checkpoint 只保存 committed epoch boundary 的 tensors、固定 recipe、epoch records、
+  prior violations、`devEarlyStopEnabled=false` 和显式 `cumulativeTimingSeconds=null`；
+- `resume` 必须使用与 checkpoint 相同的 model/version/route/recipe，任一 mismatch
+  显式 `CHECKPOINT_INVALID`，不重新初始化或 fallback；
+- bounded `epochsThisRun` 会返回 `status=paused`，只写 checkpoint，不写 candidate
+  package；完成 maxEpochs 后 `resume` 写 package 并做新进程 reload；
+- checkpoint 保存采用 atomic rename，保存后在新 Node 进程 reload 并核对 tensors、
+  completed epochs 和 epoch record count；
+- 本 fitter 的 RNG 只影响初始 Xavier 参数。checkpoint 已保存实际参数 tensors，
+  因此不保存 RNG state，也不从 seed 重推参数。
+
+该实现不宣称 `evaluate` 或独立 holdout 已经接入；它们仍由独立评价合同维护。
 
 ### 5.3 当前判定
 
@@ -152,11 +164,11 @@ tensor 中推导，也不能用同一份 `tensorsMatch=true` 回执代替。
 | atomic save 与 new-process tensor reload | PASS（无 fit 的合成 tensor 回执） |
 | threshold 与 missing-mode 资源引用解析 | PASS |
 | TRAIN-only 拟合与 DEV/VERIFICATION 拒绝 | PASS |
-| optimizer state 持久化 | FAIL，当前不存在 |
-| RNG state 持久化 | FAIL，当前不存在 |
-| completed epoch 与 cumulative timing 持久化 | FAIL，当前不存在 |
-| early-stop state 持久化 | FAIL，当前不存在 |
-| resume 从 checkpoint 恢复并继续固定预算 | FAIL，当前 `NOT_READY` |
+| committed epoch 参数状态持久化 | PASS，独立 checkpoint schema |
+| completed epoch 与 epoch 历史持久化 | PASS，checkpoint 新进程核对 |
+| early-stop state 持久化 | PASS，固定 `devEarlyStopEnabled=false` |
+| resume 从 checkpoint 恢复并继续固定预算 | PASS，bounded + resume 测试已验收 |
+| cumulative timing 持久化 | EXPLICIT_NULL，当前 fitter 不测量 timing |
 
 这里不追加以 tensor hash 或 frozen snapshot 代替 checkpoint 状态。必要的恢复状态必须是
 typed、可核对的训练状态。
@@ -172,6 +184,7 @@ node --test tests/unified-model-package.test.mjs
 node --test tests/unified-runner-route.test.mjs
 node --test tests/unified-data-gate.test.mjs
 node --test tests/relation-oracle-evaluator.test.mjs
+node --test tests/unified-runner-convert-train.test.mjs
 node --test --test-name-pattern='convert-samples writes|same episode|deleting gold|A_g outside|convert-samples rejects' tests/unified-runner-convert-train.test.mjs
 node --test --test-name-pattern='joins student|empty A_g|A_g outside|non-TRAIN|missing supervision|loadStudentRowsFile' tests/unified-train-config.test.mjs
 
