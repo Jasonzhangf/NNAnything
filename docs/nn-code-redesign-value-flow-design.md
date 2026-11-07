@@ -333,13 +333,13 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 1. 序列全部是无条件写 → `2`；
 2. 序列中存在无条件写，且无条件写之后还有条件写 → `6`；若条件写出现在无条件写之前或两种条件性交错，则为 `0=undetermined`；
 3. 序列没有无条件写且恰好一个条件写 → `3`；
-4. 序列没有无条件写且至少两个条件写，并且已观察简单 if/else 或 if 加显式 fallthrough 的分支归属：所有已观察可行分支都有同声明条件写 → `8`；只有一个已观察可行分支有同声明条件写 → `9`；
+4. 序列没有无条件写且至少两个条件写，并且已观察简单 if/else 或 if 的隐式 false 边（fallthrough）分支归属：所有已观察可行分支都有同声明条件写 → `8`；只有一个已观察可行分支有同声明条件写 → `9`；
 5. 序列没有无条件写且至少两个条件写，但分支归属未观察，或分支结构不是声明支持的简单形态 → `0=undetermined`；
 6. 其他混合顺序 → `0=undetermined`。
 
-“可行分支”只来自 adapter 在声明的语法观察范围内实际看到的分支与 fallthrough；不得用 reaching-def、完整 CFG 可达性或 gold 反推。`r_cond_may` 只有一个条件写，所以保持 `3`；`r_branch_may` 有两个条件写且只落在一个已观察分支，所以是 `9`。
+“可行分支”只来自 adapter 在声明的语法观察范围内实际看到的分支与 fallthrough；不得用 reaching-def、完整 CFG 可达性或 gold 反推。`r_cond_may` 只有一个条件写，所以保持 `3`；`r_branch_may` 有两个条件写且只落在一个已观察分支，所以是 `9`。这里的“隐式 false 边”不是源码 `else` 关键字：adapter 对无 `else` 的 `if` 必须为未写分支产生可观测的可辨记录（例如分支覆盖观察含 false 边及该边无写），学生才能按规则 4 使用它；该记录缺失或未观察到 false 边时，按规则 5 保持 `0=undetermined`，不能无条件断言为 `9`。
 
-上述优先级保证 Alice 反例 A/B 不再碰撞。A：`let x=0; x=3; if(c){x=1;x=2;} use(x)`，查询 `(初始写, use(x))`，中间序列是 `x=3`（无条件）+ `if` 内两个条件写，存在无条件写且其后有条件写，按优先级 2 → `6`，`d0` 已被无条件写覆盖。B：`let x=0; if(c){x=1;x=2;} use(x)`，查询 `(初始写, use(x))`，中间序列只有两个条件写且只覆盖一个已观察分支，按优先级 4 → `9`，旧值沿未写分支可到达。两条原始事实不同，编码不同；`r_kill_neg` 与 `r_cond_neg` 保留无条件写事实，`r_branch_may` 保留单分支条件写事实，均不按 gold 倒选。
+上述优先级保证 Alice 反例 A/B 在各自前提满足时不再碰撞。A：`let x=0; x=3; if(c){x=1;x=2;} use(x)`，查询 `(初始写, use(x))`，中间序列是 `x=3`（无条件）+ `if` 内两个条件写，存在无条件写且其后有条件写，按优先级 2 → `6`，`d0` 已被无条件写覆盖。B：`let x=0; if(c){x=1;x=2;} use(x)`，查询 `(初始写, use(x))`，中间序列只有两个条件写；仅当 adapter 已为隐式 false 边产生可辨记录时按优先级 4 → `9`，否则按规则 5 保持 `0`。两条原始事实不同，编码不同；`r_kill_neg` 与 `r_cond_neg` 保留无条件写事实，`r_branch_may` 保留单分支条件写事实，均不按 gold 倒选。
 本切片只声明上述互斥优先级，不扩展 loop、多分支嵌套或非简单形态分支；这些结构保持 `0=undetermined` 加 unsupported reason，并保留为后续完成项。
 
 该扩展下的关键槽位差异为：
@@ -412,7 +412,7 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | 动态属性/绑定 | 只有当前局部证据时才判定；不能一律 unknown | 有证据则 true/false，否则 unknown |
 
 本设计首个有限实验切片只接受最多两个位置参数的 `arg_to_param` 索引；argument/parameter ordinal 仅支持 `0/1`。更高 arity 或 `ordinal>1` 必须在准入处显式 unsupported，不得把序号 3 与 4 合成同一个码，也不得把范围外样例计入 value-flow 完成分母。
-分支压缩仅支持已观察的简单 if/else、if 加显式 fallthrough 及其上述互斥优先级；loop、多分支嵌套、try/catch 或其他控制流形态显式 unsupported，保持 `0=undetermined` 加原因，不并入语义 unknown。
+分支压缩仅支持已观察的简单 if/else，或 adapter 已为隐式 false 边产生可辨记录的 if；loop、多分支嵌套、try/catch 或其他控制流形态显式 unsupported，保持 `0=undetermined` 加原因，不并入语义 unknown。
 
 `resultMode=all` 下任意未收口 unknown、截断、覆盖失败或执行失败都阻止根 `achieved`；已具名且 coverage complete 的语义 unknown 可以作为对应义务的终态，但不能被写成 true/false。`resultMode=one` 只允许在固定引擎验证一条路径后早停；剩余候选只报告为未覆盖，不得判定为 false、不得声称完整调用图、不得把模型自报 true 当见证。已知错误在所有模式下都不能被 unknown 或早停替代。
 
