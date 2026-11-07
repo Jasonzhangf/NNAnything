@@ -245,6 +245,7 @@ function observeFn(config) {
     inputType: input ? (input.getAttribute('type') || 'text') : 'text',
     inputValue: input ? input.value : null,
     editable: input ? !(input.disabled || input.readOnly) : null,
+    readonly: input ? input.readOnly === true : null,
     submittedQuery: attr(submission, 'data-submitted-query'),
     submittedRequestRef: omitRefs ? null : attr(submission, 'data-submitted-request-ref'),
     resultsQuery: attr(requestState, 'data-results-query'),
@@ -272,7 +273,9 @@ export function buildObservation(raw, revision, rangeEffect = 'not_attempted') {
   };
   const stringFact = (value, key) => {
     const id = mark(key, { value });
-    if (value === null || value === undefined || value === '') return { status: 'unknown', reason: 'not_observable' };
+    if (value === null || value === undefined || (typeof value === 'string' && value === '' && key === 'placeholder')) {
+      return { status: 'unknown', reason: 'not_observable' };
+    }
     return { status: 'observed', value, evidenceRefs: [id] };
   };
   const boolFact = (value, key) => {
@@ -291,7 +294,7 @@ export function buildObservation(raw, revision, rangeEffect = 'not_attempted') {
     ref: `${raw.collectionRef}-item-${index}`,
     collectionRef: raw.collectionRef,
     role: 'main',
-    text: item.text === null || item.text === ''
+    text: item.text === null || item.text === undefined
       ? { status: 'unknown', reason: 'not_read' }
       : { status: 'observed', value: item.text, evidenceRefs: [mark(`item.${index}`, { value: item.text })] },
   }));
@@ -342,6 +345,7 @@ export function buildObservation(raw, revision, rangeEffect = 'not_attempted') {
       type: raw.inputType,
       value: stringFact(raw.inputValue, 'input.value'),
       editable: boolFact(raw.editable, 'input.editable'),
+      readonly: boolFact(raw.readonly, 'input.readonly'),
     },
     submitRef: raw.submitRef,
     submittedQuery: stringFact(raw.submittedQuery, 'submitted.query'),
@@ -655,6 +659,7 @@ export async function close() {
     const neighborValue = await state.cdp.evaluate(`document.querySelector(${JSON.stringify(config.neighborSelector)})?.value ?? null`);
     const lateValue = await state.cdp.evaluate(`document.querySelector('#late-state')?.getAttribute('data-late-request-ref') ?? ''`);
     sideEffects = {
+      initialObservation: state.first,
       finalObservation,
       neighborValue,
       lateValue,
