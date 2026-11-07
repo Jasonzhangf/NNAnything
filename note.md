@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-07 Jenny：master patrol 消费 deadline、续订 goal、无新增派发（17:54Z）
+
+- 消费 deadline LAST_REMINDER `m1794073863434-5974` 与 worker-idle 批次（`m1794073415575-5926` 等）；`collab inbox` 与 `collab recv` 已清空（unread 0）。
+- goal：`appsdk goal status` 显示旧 one-shot `sub-m1794072062816-5757` consumed、`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED`；已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m` 重订，新 one-shot `sub-m1794074061797-5998` armed（trigger ~30m），`active=true/observed=subscribed/error=null`；project patrol `sub-m1793963843713-143` armed。
+- board：`collab board show` 的 `master_wake.ready_authorized_work=false`，8 条 open；Iris P1-1 在 worktree `p1-1-typed-dynamic-recursive-20261107` 活跃（`gcm-implementation.log`/`task-log.md` 更新到 17:50Z）；Carol `value-flow-shared-projection-engineering-20261107` 在 worktree `value-flow-shared-projection-engineering-20261107` 返工；Grace `grace-nncode-browser-architecture-patrol-20261106` working。
+- P0 `jenny-tsjs-first-fit-converter-train-config-r1` owner Emma 仍 `presence=missing`/identity-mismatch，保持 rework/parked，不越权改其状态；4 个 `nn-code-redesign-*` 子任务保持 parked-pending-design-peer。无 pending merge、无待 Alice review（Alice present/idle、0 pending）。
+- Henry `tsjs-timing-runner-engineering-henry-20261107` 已集成 main `66733c0`（merge timing），已不在 open 列表。
+- 资源：3 个 worktree（main `66733c0=origin/main`、p1-1、value-flow），未超上限；main 仅既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 与 `tests/fixtures/tsjs-symbols/`，保持 PROTECTED_HOLD 未动。
+- 边界：本轮仅 goal/board 维护与只读核对；未派实现/训练/采样/接线/采用/安装，未改产品代码/权重/gold/threshold，未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：round-16 巡检处置与 board 收口（17:15Z）
 
 - 消费 Kate round-16 `m1794071106177-5645` 及后续 worker-idle 批次；`collab inbox`/recv 为空。
