@@ -2889,7 +2889,6 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 订阅：project-patrol `sub-m1793963843713-143` armed，cadence 1500000ms；goal 30m deadline 已重新武装。CEO 为 Alice，ceo reply 已记录 revision 6；无 tmux/daemon 生命周期动作。
 - 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
 ## 2026-11-07 master 巡检：固定环境研究返工窄改、Iris 跨权限限定切片、路图与目标订阅续期（13:38Z）
-
 - 消费 m1794057047402-3950（Alice 对 Carol fixed-env-research-adjudication subject_revision 3 的正式 REWORK 完成，证据 alice-fixed-env-engineering-audit-20261107.md 同名节），按轻协作不重做整体审计，只补两项研究缺口：
    （1）§2.1/§2.4：integrationCommit 非运行时前置，包资格用 reviewAccepted/reviewEvidenceRef + 显式 packagePath + modelId/version，TS/JS 独立评价资格与 Rust transfer 准入区分，independentRustVerification fixed false/incomplete；
    （2）§2.2/§2.4/§4：仅复用 corpus-admissions-v1.json 与 labels/gold.jsonl，不新增三套 registry，仅 TS/JS family 可授独立资格，TRAIN/DEV 孤立/错配 admission false/incomplete。
@@ -2899,3 +2898,21 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 目标订阅：deadline m1794057950396-4044 到期并发 LAST_REMINDER，已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m` 重新武装，新订阅 sub-m1794058333943-4090，armed，触发 ~30 分钟后。
 - Carol board 仍 rev13 rework，尚未按窄返工合同重交 rev4；关注她下一轮窄复核收口。项目 patrol sub-m1793963843713-143 仍 armed。
 - 本轮未改产品代码、语料、权重/gold/threshold/采用、产品接线、runtime 安装；未训练、未集成新候选。主工作树仅保留用户既有未跟踪项（playground/browser/search/b-a1/cua-fixture.html、tests/fixtures/tsjs-symbols/），两受保护 worktree dirty 不动。
+
+## 2026-11-07 master：研究裁定正式 ACCEPT，续派 Iris；timing 返工范围收窄（14:06Z）
+
+- 消费 m1794058598093-4127 与 m1794058700646-4135：Alice 正式 accept `fixed-env-research-adjudication-carol-20261107` subject_revision 4（两项准入冲突闭合，证据 alice-fixed-env-engineering-audit-20261107.md 首节）；`tsjs-timing-evaluate-design-rework-carol-20261107` 正式 REWORK（证据 tsjs-timing-evaluate-design-review-20261107/review.md 首节）。
+- 已 dispatch Iris（msg m1794058747638-4143）按批准合同在原树 `fixed-env-gap-20261107`（候选 66a7710）完成：1) 真实准入绑定（packagePath + modelId/version + reviewAccepted/reviewEvidenceRef，integrationCommit 非运行时前置；TS/JS family 只授独立 TS/JS 资格，independentRustVerification 固定 false/incomplete；episode/oracle sourceGroup/partition 精确匹配，孤立/错配保持 admission false 且 incomplete；不新造 registry）；2) `evaluate()` 根条件由 adapter evaluate() 产 structural root evidence、evaluateRelationOracle 只读独立 gold 对照；3) `runTsJsUnifiedDecision` 单步知识判定（judge kind verify、target d2-verification-positive-alias、一次 argmax、candidateRef 回执与 post-state、typed 终止）。约束：不训练、不改权重/gold/threshold/采用、不安装、不产品接线，工程交回实际黑盒再审。
+- 已 dispatch Carol（msg m1794058747457-4142）把 timing/evaluate 设计返工收窄为单一时序字段统一（旧计时起点 vs 累计字段/cut point），next_step 同步更新；evaluate 接线已被接受，按共享 runner 单 writer 边界独立准备，验收依赖 Iris 公共入口；明确不得用计时局部返工阻塞 fixed-env。不训练。
+- board 进展：`fixed-env-engineering-gap-iris-20261107` rev14 blocked（next 已反映续派范围）；`nnanything-overall-redesign-orchestration-r1` rev62 working，next_step 已由 Iris 更新为固定环境最新事实；`fixed-env-research-adjudication-carol-20261107` rev15 delivered→Alice accept；`tsjs-timing-evaluate-design-rework-carol-20261107` rev3 REWORK。
+- roadmap 与 note 已同步本轮 accept/rework/dispatch 并提交推送；project patrol sub-m1793963843713-143 保持 armed，goal 订阅 sub-m1794058333943-4090 armed（30m）。
+- 未改产品代码、语料、权重/gold/threshold/采用、产品接线、runtime 安装；未训练、未集成新候选。主工作树仅保护用户既有未跟踪项，受保护 worktree dirty 不动。
+
+## 2026-11-07 master：Iris 恢复 working，fixed-env 研究任务 closed，timing rev7 REWORK（14:16Z）
+
+- Iris 已重交 board `fixed-env-engineering-gap-iris-20261107` rev16 status=working；next_step 记录已按批准合同实现 package/TSJS verification/oracle admission binding + evaluate() root condition + runTsJsUnifiedDecision 单步 relation judge，同时保留真实 Rust transfer、accepted TS/JS package 与 evaluate() root 语义为 INCOMPLETE；未训练、未采用、未集成。
+- `fixed-env-research-adjudication-carol-20261107` 已 Alice accept 并 board closed；研究裁定 rev4 为唯一研究合同。
+- `tsjs-timing-evaluate-design-rework-carol-20261107` rev7 REWORK；review_subject_revision 1。证据 /Volumes/Intel/playground/nnanything-runs/tsjs-timing-evaluate-design-review-20261107/review.md；timing/evaluate 单一时序字段统一仍待 Carol 窄修。
+- roadmap 与 note 已同步：fixed-env evaluator + §2.5 接线表格改为 board rev14 已批准 blocked（后续 rev16 working），候选 66a7710 五项闭合，研究合同 rev4 已 ACCEPT，Iris 按合同补准入与 evaluate() 根条件；TS/JS timing/evaluate 设计改为正式 REWORK（范围收窄为计时旧起点与累计字段/cut point，evaluate 接线已闭合可按共享 runner 单 writer 独立准备，验收依赖 Iris 公共入口；不阻塞 fixed-env）。
+- project patrol `sub-m1793963843713-143` armed；goal 订阅 `sub-m1794058333943-4090` armed（30m）。当前无 ready 且未派 board 工作，P0 `jenny-tsjs-first-fit-converter-train-config-r1` 仍 rev19 rework owner Emma presence missing，保持原状不越权。
+- 本轮未改产品代码、语料、权重/gold/threshold/采用、产品接线或 runtime 安装；未训练、未集成新候选。
