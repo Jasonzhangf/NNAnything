@@ -162,10 +162,10 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 | 工作线 | owner | reviewer | 状态 |
 | --- | --- | --- | --- |
 | converter 四项映射工程 | Iris | Alice | f752715 已接受并集成 main `9b4a462`；训练后继尚未启动 fit |
-| fixed-env evaluator + §2.5 接线 | Iris | Alice | subject_revision 4（候选 3f2e48d）已 Alice ACCEPT，master 选择性集成 5 个文件到 main `d6cf866`（5 文件 +2394，未带入 stale docs），已 push `origin/main`（24a0109..d6cf866）；post-merge `npm run build` exit 0、`unified-decision-recursive.test.mjs` 与 `unified-transfer-evaluator.test.mjs` 合计 25/25 通过；等待 Iris 作为 owner 将 `fixed-env-engineering-gap-iris-20261107` 标 integrated 后正常 close；未训练、未改权重/gold/threshold/采用、未安装；Emma 1201b508 保持 PROTECTED_HOLD |
+| fixed-env evaluator + §2.5 接线 | Iris | Alice | subject_revision 4（候选 3f2e48d）已 Alice ACCEPT；master 先选择性集成 5 个文件到 main `d6cf866`，随后按候选血缘要求补 no-ff lineage merge `df68ce68` 并 push `origin/main`（9a8c8c5..df68ce68），候选现为 main 祖先；post-merge `npm run build` exit 0、`unified-decision-recursive.test.mjs` 与 `unified-transfer-evaluator.test.mjs` 合计 25/25 通过；原任务因回执被拒已按生命周期补记 follow-up `fixed-env-engineering-gap-iris-20261107-reopen-20261107`，正常 close 后校验完成；未训练、未改权重/gold/threshold/采用、未安装；Emma 1201b508 保持 PROTECTED_HOLD |
 | TS/JS 符号表训练准备 | Carol | Alice | 设计子交付已 merged；训练准备切片 2cb4ee4 已接受并集成、任务 closed；fit 等 shared fixed-env 与 converter 准入 |
 | TS/JS value-flow 设计 | Carol | Alice | 0c16fd7 accepted；阶段A shared projection 审计修订接受；阶段B engineering working（value-flow-shared-projection-engineering-20261107 rev3），不 fit/不采用；fit 仍待 fixed-env 与 converter 准入 |
-| TS/JS timing/evaluate 设计 | Carol | Alice | subject_revision 4 已 Alice 正式 ACCEPT（read-only，no integration/close 已收口）；timing runner 工程已派 Henry：tsjs-timing-runner-engineering-henry-20261107（p1 code，reviewer Alice，base 24a0109，只做 runner/checkpoint timing，不做 evaluate 接入），Henry 已接受、board working；main 已前进到 `d6cf866`，交付前须 rebase；evaluate 接线复用 Iris adapter/recursive，后续独立派发，验收依赖 Iris 公共入口 |
+| TS/JS timing/evaluate 设计 | Carol | Alice | subject_revision 4 已 Alice 正式 ACCEPT（read-only，no integration/close 已收口）；timing runner 工程已派 Henry：tsjs-timing-runner-engineering-henry-20261107（p1 code，reviewer Alice，base 24a0109，只做 runner/checkpoint timing，不做 evaluate 接入），Henry 已接受、board working；main 已前进到 `df68ce68`，交付前须 rebase；evaluate 接线复用 Iris adapter/recursive，后续独立派发，验收依赖 Iris 公共入口 |
 | browser B-R | Henry | Alice | 只读诊断已审计接受并关闭；阶段二 734c94d 已 Alice ACCEPT、merge `a30c10b` 集成 main 并关闭；拟合未评价 |
 | browser B-A1 | Henry | Alice | ee88d37 accepted，merge 498557a 已集成 main 并关闭；显式绑定基线交付，非自主对象绑定/训练/采用 |
 | 训练隔离巡检 | Kate / Grace | — | 常驻巡检，不接普通 board 任务 |

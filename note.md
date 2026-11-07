@@ -2943,3 +2943,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - `docs/autonomous-capability-roadmap.md` 与本节已同步上述事实。goal 订阅 `sub-m1794062455872` armed，project patrol `sub-m1793963843713-143` armed。
 - 资源保持：fixed-env worktree `/Volumes/Intel/playground/nnanything/fixed-env-gap-20261107`（Iris 未跟踪 fixture）与 value-flow worktree（Carol dirty，57d0e61）均为 PROTECTED_HOLD；main 仅用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 与 `tests/fixtures/tsjs-symbols/`，未动。
 - 本轮未训练、未改权重/gold/threshold/采用、未产品接线、未安装；后续按 pending merge 与 owner lifecycle 回执核对。
+
+## 2026-11-07 master：fixed-env lineage merge 收口，follow-up 补记 integration（15:36Z）
+
+- 消费新批次 worker-idle、master-wake-batch、goal deadline 与 board-idle-patrol；fixed-env 集成回执被拒的根因已核实。
+- 事实：候选 3f2e48d 因 `d6cf866` 为内容等价而非祖先，`collab task integrated` 被 daemon 拒（TASK_INTEGRATION_CANDIDATE_MISMATCH，`git merge-base --is-ancestor` exit 1）。按仓库惯例补 no-ff lineage merge `df68ce68`（merge-tree ad474a5c tree 一致），已 push `origin/main`（9a8c8c5..df68ce68），候选现为 main 祖先。
+- 因 closed 任务不可编辑，未在原记录上伪造回执；按 Collab 生命周期发布 follow-up `fixed-env-engineering-gap-iris-20261107-reopen-20261107`（p1 read_only，reviewer Alice），记录原任务缺 integration 的精确验证与本次补验证据，待正常 close 后完成收口。
+- roadmap 已同步：fixed-env 状态改为 lineage merge `df68ce68` 后候选为 main 祖先、follow-up 补记；TS/JS timing 基线更新为 `df68ce68`，Henry 交付前须 rebase。
+- 轮末核对：main `df68ce68=origin/main`，`git status` 仅保护性未跟踪 fixture；fixed-env、value-flow worktree 仍 PROTECTED_HOLD；project-patrol 与 goal deadline 订阅保持 armed。
+- 本轮未训练、未改权重/gold/threshold/采用、未产品接线、未安装 runtime；除 lineage merge 外无新产品代码写入。
