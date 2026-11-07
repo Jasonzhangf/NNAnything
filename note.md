@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-07 Jenny：round-25 巡检，无新增可派/待集成（21:31Z）
+
+- 消费 worker-idle 批次 `m1794086768488-7485`、`m1794086910433-7500`（后者 newly_idle=Carol session）；续查 inbox count=0。`collab board show`：`ready_authorized_work=false`、`blocked=[]`、`completed_or_freed=[]`、`pending_merges` 空、idle=4、`delivery_state=notified_unconsumed`（唤醒态，无新消息）。
+- board 无状态变化：`b-a1-research-prep-20261107` rev3 working（Carol 已开始产出 `.../nnanything-runs/b-a1-research-prep-20261107/b-a1-numeric-wire-detail.md`，未 deliver，未交 Alice）；`p1-1-typed-dynamic-recursive-engineering-iris-20261107` rev3 working（branch-only 候选 `2d1217e`，Alice review 未回）；Grace 巡检 working；四个 Emma 子任务仍 parked-pending-design-peer；P0 orchestration/Iris working。无 ready、无阻塞、无待集成，不催派、不替审。
+- 资源与订阅：main `7812feb` 已 push 至 `origin/main`；worktree 2 个（main、p1-1 `2d1217e`）未超上限；主树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`；goal active/subscribed（21:13Z 注册，30m，本轮未 consumed）；project patrol armed；未重订。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：B-A1 设计收口并派后继研究准备（21:16Z）
 
 - 消费 B-A1 rev5 ACCEPT（`m1794085888148-7411`）与 Carol 回执（`m1794086123008-7437`）：B-A1 已由 Alice accept、Carol closed，仅读交付 `no_merge_required`，无未完成 Carol 任务。
