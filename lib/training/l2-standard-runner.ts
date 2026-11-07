@@ -69,6 +69,7 @@ import {
   type SupervisionRow,
 } from "./unified-supervision-converter.js";
 import type { RelationStepEpisode } from "./unified-step-context-builder.js";
+import type { EncodedGroup } from "./group-loss.js";
 import {
   UNIFIED_TRAIN_CONFIG_SCHEMA,
   buildEncodedGroups,
@@ -76,6 +77,7 @@ import {
   loadSupervisionRowsFile,
   runUnifiedTraining,
   saveUnifiedTrainingCheckpoint,
+  saveUnifiedTrainingCheckpointWithTiming,
   saveUnifiedTrainPackage,
   UnifiedTrainDataError,
   type UnifiedPackageReloadReceipt,
@@ -89,6 +91,16 @@ import {
   type UnifiedTrainingCheckpoint,
 } from "./unified-training-checkpoint.js";
 import type { UnifiedModelPackage } from "./unified-model-package.js";
+import {
+  addCheckpointIoTiming,
+  addPackageReloadSeconds,
+  emptyCheckpointIoTiming,
+  monotonicSeconds,
+  type UnifiedCheckpointIoTiming,
+  type UnifiedCumulativeTiming,
+  type UnifiedPersistedTiming,
+  type UnifiedThisRunTiming,
+} from "./unified-timing.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -323,6 +335,46 @@ async function writeAtomicText(targetPath: string, content: string): Promise<str
   return resolved;
 }
 
+let unifiedRunIdCounter = 0;
+
+function nextUnifiedRunId(command: StandardRunnerCommand): string {
+  unifiedRunIdCounter += 1;
+  return `unified-${command}-${Date.now().toString(36)}-${process.pid.toString(36)}-${unifiedRunIdCounter.toString(36)}`;
+}
+
+interface UnifiedRunnerReceiptPaths {
+  readonly perRunJsonPath: string;
+  readonly perRunMdPath: string;
+  readonly latestJsonPath: string;
+  readonly latestMdPath: string;
+}
+
+function unifiedRunnerReceiptPaths(
+  outputDir: string,
+  runId: string,
+): UnifiedRunnerReceiptPaths {
+  return {
+    perRunJsonPath: join(outputDir, "runs", runId, "run-report.json"),
+    perRunMdPath: join(outputDir, "runs", runId, "run-report.md"),
+    latestJsonPath: join(outputDir, "run-report.json"),
+    latestMdPath: join(outputDir, "run-report.md"),
+  };
+}
+
+async function writeUnifiedRunnerReceiptFiles(
+  outputDir: string,
+  runId: string,
+  jsonContent: string,
+  markdownContent: string,
+): Promise<UnifiedRunnerReceiptPaths> {
+  const paths = unifiedRunnerReceiptPaths(outputDir, runId);
+  await writeAtomicText(paths.perRunJsonPath, jsonContent);
+  await writeAtomicText(paths.perRunMdPath, markdownContent);
+  await writeAtomicText(paths.latestJsonPath, jsonContent);
+  await writeAtomicText(paths.latestMdPath, markdownContent);
+  return paths;
+}
+
 type UnifiedRunnerOutputStatus =
   | "READY"
   | "NO_LEARNED_ROWS"
@@ -337,6 +389,7 @@ interface UnifiedRunnerCounts {
   readonly supervisionRows: number;
   readonly labelMissingExcluded: number;
   readonly trainableGroups: number;
+  readonly learnedRows: number;
 }
 
 interface UnifiedCheckpointReloadReceipt {
@@ -357,6 +410,17 @@ interface UnifiedRunnerReport {
   readonly startedAt: string;
   readonly endedAt: string;
   readonly wallSeconds: number;
+  /** Finite epoch updates completed by this invocation. null when optimization never ran. */
+  readonly optimizerSteps: number | null;
+  /** Rows in those finite updates completed by this invocation. null when optimization never ran. */
+  readonly processedRows: number | null;
+  /** Checkpoint-committed totals carried from the accepted cut point. null when no committed timing exists. */
+  readonly committedOptimizerSteps: number | null;
+  /** Checkpoint-committed processed rows. null when no committed timing exists. */
+  readonly committedProcessedRows: number | null;
+  readonly stopReason: string | null;
+  readonly thisRun: UnifiedThisRunTiming;
+  readonly cumulative: UnifiedCumulativeTiming | null;
   readonly dataGate: UnifiedDataGateResult | null;
   readonly counts: UnifiedRunnerCounts | null;
   readonly trainReport: UnifiedTrainReport | null;
@@ -771,9 +835,7 @@ async function writeUnifiedRunnerReport(
   outputDir: string,
   report: UnifiedRunnerReport,
 ): Promise<{ readonly reportJsonPath: string; readonly reportMdPath: string }> {
-  const reportJsonPath = join(outputDir, "run-report.json");
-  const reportMdPath = join(outputDir, "run-report.md");
-  await writeAtomicText(reportJsonPath, `${JSON.stringify(report, null, 2)}\n`);
+  const jsonContent = `${JSON.stringify(report, null, 2)}\n`;
   const lines = [
     `# Unified Runner Report (${report.runId})`,
     "",
@@ -791,7 +853,42 @@ async function writeUnifiedRunnerReport(
       `- Supervision Rows: \`${report.counts.supervisionRows}\``,
       `- Label Missing Excluded: \`${report.counts.labelMissingExcluded}\``,
       `- Trainable Groups: \`${report.counts.trainableGroups}\``,
+      `- Learned Rows: \`${report.counts.learnedRows}\``,
     );
+  }
+  lines.push(
+    "",
+    "## Timings (Monotonic Seconds)",
+    "",
+    `- thisRun.totalWallSeconds: \`${report.thisRun.totalWallSeconds.toFixed(6)}\``,
+    `- thisRun.loadSeconds: \`${report.thisRun.loadSeconds.toFixed(6)}\``,
+    `- thisRun.dataValidationSeconds: \`${report.thisRun.dataValidationSeconds === null ? "unavailable (null)" : report.thisRun.dataValidationSeconds.toFixed(6)}\``,
+    `- thisRun.optimizationSeconds: \`${report.thisRun.optimizationSeconds === null ? "unavailable (null)" : report.thisRun.optimizationSeconds.toFixed(6)}\``,
+    `- thisRun.checkpointIoSecs.totalSeconds: \`${report.thisRun.checkpointIoSecs === null ? "unavailable (null)" : report.thisRun.checkpointIoSecs.totalSeconds.toFixed(6)}\``,
+    `- thisRun.evaluationSeconds: \`${report.thisRun.evaluationSeconds === null ? "unavailable (null)" : report.thisRun.evaluationSeconds.toFixed(6)}\``,
+    `- thisRun.rowsPerSecond: \`${report.thisRun.rowsPerSecond === null ? "unavailable (null)" : report.thisRun.rowsPerSecond.toFixed(4)}\``,
+  );
+  lines.push(
+    "",
+    "## This Attempt",
+    "",
+    `- optimizerSteps attempted: \`${report.thisRun.attemptOptimizerSteps === null ? "unavailable (null)" : report.thisRun.attemptOptimizerSteps}\``,
+    `- optimizerSteps completed (finite): \`${report.thisRun.completedOptimizerSteps === null ? "unavailable (null)" : report.thisRun.completedOptimizerSteps}\``,
+    `- processedRows attempted: \`${report.thisRun.attemptProcessedRows === null ? "unavailable (null)" : report.thisRun.attemptProcessedRows}\``,
+    `- processedRows completed (finite): \`${report.thisRun.completedProcessedRows === null ? "unavailable (null)" : report.thisRun.completedProcessedRows}\``,
+    `- committedOptimizerSteps: \`${report.committedOptimizerSteps === null ? "unavailable (null)" : report.committedOptimizerSteps}\``,
+    `- committedProcessedRows: \`${report.committedProcessedRows === null ? "unavailable (null)" : report.committedProcessedRows}\``,
+  );
+  if (report.cumulative !== null) {
+    lines.push(
+      `- cumulative.optimizerSteps: \`${report.cumulative.optimizerSteps}\``,
+      `- cumulative.processedRows: \`${report.cumulative.processedRows}\``,
+      `- cumulative.optimizationSeconds: \`${report.cumulative.optimizationSeconds.toFixed(6)}\``,
+      `- cumulative.totalWallSeconds: \`${report.cumulative.totalWallSeconds.toFixed(6)}\``,
+    );
+  }
+  if (report.stopReason !== null) {
+    lines.push(`- stopReason: \`${report.stopReason}\``);
   }
   if (report.trainReport !== null) {
     lines.push(
@@ -815,8 +912,9 @@ async function writeUnifiedRunnerReport(
   if (report.error !== null) {
     lines.push("", "## Error", "", "```json", JSON.stringify(report.error, null, 2), "```");
   }
-  await writeAtomicText(reportMdPath, `${lines.join("\n")}\n`);
-  return { reportJsonPath, reportMdPath };
+  const markdownContent = `${lines.join("\n")}\n`;
+  const paths = await writeUnifiedRunnerReceiptFiles(outputDir, report.runId, jsonContent, markdownContent);
+  return { reportJsonPath: paths.perRunJsonPath, reportMdPath: paths.perRunMdPath };
 }
 
 function formatMarkdownReport(report: StandardHeadRunReport): string {
@@ -2058,6 +2156,7 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
     process.stderr.write("Missing required --config <config.json>\n");
     return 2;
   }
+  const commandStartNs = process.hrtime.bigint();
   const parsedConfig: unknown = JSON.parse(
     await readFile(resolve(configPath), "utf8"),
   );
@@ -2068,7 +2167,10 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
     && (parsedConfig as Readonly<Record<string, unknown>>).schema
       === "nnanything.unified.runner-config.v1"
   ) {
-    return executeUnifiedRunnerRoute(command, parsedConfig as UnifiedRunnerConfig);
+    return executeUnifiedRunnerRoute(command, parsedConfig as UnifiedRunnerConfig, {
+      commandStartNs,
+      configLoadSeconds: monotonicSeconds(commandStartNs),
+    });
   }
   const rawConfig = parsedConfig as StandardRunnerConfig;
   const cliAbortController = new AbortController();
@@ -2091,6 +2193,10 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
 export async function executeUnifiedRunnerRoute(
   command: StandardRunnerCommand,
   config: UnifiedRunnerConfig,
+  timingStart?: {
+    readonly commandStartNs: bigint;
+    readonly configLoadSeconds: number;
+  },
 ): Promise<number> {
   if (command === "evaluate") {
     process.stderr.write(
@@ -2111,25 +2217,46 @@ export async function executeUnifiedRunnerRoute(
   }
 
   const startedAt = new Date().toISOString();
-  const wallStartNs = process.hrtime.bigint();
+  const commandStartNs = timingStart?.commandStartNs ?? process.hrtime.bigint();
+  let loadSeconds = timingStart?.configLoadSeconds ?? 0;
+  let dataValidationSeconds: number | null = null;
+  let optimizationSeconds: number | null = null;
+  let checkpointIoSecs: UnifiedCheckpointIoTiming | null = null;
+  let cumulative: UnifiedCumulativeTiming | null = null;
+  let attemptOptimizerSteps: number | null = null;
+  let attemptProcessedRows: number | null = null;
+  let completedOptimizerSteps: number | null = null;
+  let completedProcessedRows: number | null = null;
   const outputDir = resolve(config.outputDir);
   await mkdir(outputDir, { recursive: true });
+  const noteCheckpointIo = (io: UnifiedCheckpointIoTiming): void => {
+    checkpointIoSecs = checkpointIoSecs === null
+      ? io
+      : addCheckpointIoTiming(checkpointIoSecs, io);
+  };
+  const notePackageReload = (seconds: number): void => {
+    checkpointIoSecs = checkpointIoSecs === null
+      ? { serializeSeconds: 0, atomicReplaceSeconds: 0, packageReloadSeconds: seconds, totalSeconds: seconds }
+      : addPackageReloadSeconds(checkpointIoSecs, seconds);
+  };
 
   if (command === "validate-data") {
+    const validationStartedNs = process.hrtime.bigint();
     const dataGate = await validateUnified64SlotTrainingData(config.dataGate);
+    dataValidationSeconds = monotonicSeconds(validationStartedNs);
     const endedAt = new Date().toISOString();
-    const wallSeconds = Number(process.hrtime.bigint() - wallStartNs) / 1e9;
+    const totalWallSeconds = monotonicSeconds(commandStartNs);
     const status =
       dataGate.status === "DATA_INVALID"
         ? "DATA_INVALID"
         : dataGate.status === "NO_LEARNED_ROWS"
           ? "NO_LEARNED_ROWS"
           : "READY";
-    const reportJsonPath = join(outputDir, "run-report.json");
-    const reportMdPath = join(outputDir, "run-report.md");
+    const runId = nextUnifiedRunId(command);
+    const receiptPaths = unifiedRunnerReceiptPaths(outputDir, runId);
     const report = {
       schema: "nnanything.unified.run-report.v1",
-      runId: `unified-${command}-${Date.now().toString(36)}`,
+      runId,
       command,
       route: config.route,
       phase: config.phase,
@@ -2137,32 +2264,54 @@ export async function executeUnifiedRunnerRoute(
       status,
       startedAt,
       endedAt,
-      wallSeconds,
+      wallSeconds: totalWallSeconds,
+      optimizerSteps: null,
+      processedRows: null,
+      committedOptimizerSteps: null,
+      committedProcessedRows: null,
+      stopReason: dataGate.status,
+      thisRun: {
+        loadSeconds,
+        dataValidationSeconds,
+        optimizationSeconds: 0,
+        checkpointIoSecs: null,
+        evaluationSeconds: null,
+        totalWallSeconds,
+        attemptOptimizerSteps: null,
+        attemptProcessedRows: null,
+        completedOptimizerSteps: null,
+        completedProcessedRows: null,
+        rowsPerSecond: null,
+        throughputDenominator: null,
+      },
+      cumulative,
       dataGate,
       hybridPackageLoaded: false,
       paths: {
         inputPackagePath: null,
         outputDir,
-        reportJsonPath,
-        reportMdPath,
+        reportJsonPath: receiptPaths.perRunJsonPath,
+        reportMdPath: receiptPaths.perRunMdPath,
       },
     };
-    await writeAtomicText(reportJsonPath, `${JSON.stringify(report, null, 2)}\n`);
-    await writeAtomicText(
-      reportMdPath,
-      [
-        `# Unified Runner Route Report (${report.runId})`,
-        "",
-        `- Command: \`${report.command}\``,
-        `- Route: \`${report.route.domain}/${report.route.decisionKind}\``,
-        `- Phase: \`${report.phase}\``,
-        `- Status: \`${report.status}\``,
-        `- Data Gate Status: \`${report.dataGate.status}\``,
-        `- Data Gate Learned Rows: \`${report.dataGate.counts.learnedRows}\``,
-        `- Hybrid Package Loaded: \`${String(report.hybridPackageLoaded)}\``,
-        `- Input Package Path: \`${String(report.paths.inputPackagePath)}\``,
-        "",
-      ].join("\n"),
+    const markdownContent = [
+      `# Unified Runner Route Report (${report.runId})`,
+      "",
+      `- Command: \`${report.command}\``,
+      `- Route: \`${report.route.domain}/${report.route.decisionKind}\``,
+      `- Phase: \`${report.phase}\``,
+      `- Status: \`${report.status}\``,
+      `- Data Gate Status: \`${report.dataGate.status}\``,
+      `- Data Gate Learned Rows: \`${report.dataGate.counts.learnedRows}\``,
+      `- Hybrid Package Loaded: \`${String(report.hybridPackageLoaded)}\``,
+      `- Input Package Path: \`${String(report.paths.inputPackagePath)}\``,
+      "",
+    ].join("\n");
+    await writeUnifiedRunnerReceiptFiles(
+      outputDir,
+      runId,
+      `${JSON.stringify(report, null, 2)}\n`,
+      markdownContent,
     );
     return status === "DATA_INVALID" ? 1 : 0;
   }
@@ -2185,10 +2334,19 @@ export async function executeUnifiedRunnerRoute(
     exitCode: number,
   ): Promise<number> => {
     const endedAt = new Date().toISOString();
-    const wallSeconds = Number(process.hrtime.bigint() - wallStartNs) / 1e9;
+    const totalWallSeconds = monotonicSeconds(commandStartNs);
+    const rowsPerSecond =
+      completedProcessedRows !== null
+      && completedProcessedRows > 0
+      && optimizationSeconds !== null
+      && optimizationSeconds > 0
+        ? completedProcessedRows / optimizationSeconds
+        : null;
+    const runId = nextUnifiedRunId(command);
+    const receiptPaths = unifiedRunnerReceiptPaths(outputDir, runId);
     const report: UnifiedRunnerReport = {
       schema: "nnanything.unified.run-report.v1",
-      runId: `unified-${command}-${Date.now().toString(36)}`,
+      runId,
       command,
       route: config.route,
       phase: config.phase,
@@ -2196,7 +2354,29 @@ export async function executeUnifiedRunnerRoute(
       status,
       startedAt,
       endedAt,
-      wallSeconds,
+      wallSeconds: totalWallSeconds,
+      optimizerSteps: completedOptimizerSteps,
+      processedRows: completedProcessedRows,
+      committedOptimizerSteps: cumulative?.optimizerSteps ?? null,
+      committedProcessedRows: cumulative?.processedRows ?? null,
+      stopReason: trainReport?.stopReason ?? null,
+      thisRun: {
+        loadSeconds,
+        dataValidationSeconds,
+        optimizationSeconds,
+        checkpointIoSecs,
+        evaluationSeconds: null,
+        totalWallSeconds,
+        attemptOptimizerSteps,
+        attemptProcessedRows,
+        completedOptimizerSteps,
+        completedProcessedRows,
+        rowsPerSecond,
+        throughputDenominator: optimizationSeconds !== null && optimizationSeconds > 0
+          ? "optimizationSeconds"
+          : null,
+      },
+      cumulative,
       dataGate,
       counts,
       trainReport,
@@ -2209,8 +2389,8 @@ export async function executeUnifiedRunnerRoute(
       paths: {
         inputPackagePath: null,
         outputDir,
-        reportJsonPath: join(outputDir, "run-report.json"),
-        reportMdPath: join(outputDir, "run-report.md"),
+        reportJsonPath: receiptPaths.perRunJsonPath,
+        reportMdPath: receiptPaths.perRunMdPath,
         studentRowsPath,
         supervisionRowsPath,
         dataGateRowsPath,
@@ -2286,15 +2466,21 @@ export async function executeUnifiedRunnerRoute(
         supervisionRows: 0,
         labelMissingExcluded: 0,
         trainableGroups: 0,
+        learnedRows: 0,
       };
 
       await writeJsonlAtomic(supervisionRowsPath, supervisionRows);
       const gateRows = dataGateRowsForRunner(studentGroups, supervisionRows, config.route);
       await writeJsonlAtomic(dataGateRowsPath, gateRows);
-      dataGate = await validateUnified64SlotTrainingData({
-        ...config.dataGate,
-        rowsPath: dataGateRowsPath,
-      });
+      const convertValidationStartedNs = process.hrtime.bigint();
+      try {
+        dataGate = await validateUnified64SlotTrainingData({
+          ...config.dataGate,
+          rowsPath: dataGateRowsPath,
+        });
+      } finally {
+        dataValidationSeconds = (dataValidationSeconds ?? 0) + monotonicSeconds(convertValidationStartedNs);
+      }
       let trainableGroups = 0;
       if (dataGate.status !== "DATA_INVALID") {
         trainableGroups = buildEncodedGroups(studentGroups, supervisionRows).length;
@@ -2305,6 +2491,7 @@ export async function executeUnifiedRunnerRoute(
         supervisionRows: supervisionRows.length,
         labelMissingExcluded: dataGate.counts.labelMissingExcluded,
         trainableGroups,
+        learnedRows: dataGate.counts.learnedRows,
       };
       if (dataGate.status === "DATA_INVALID") {
         const firstViolation = dataGate.firstViolation;
@@ -2319,31 +2506,47 @@ export async function executeUnifiedRunnerRoute(
       return await finalize(dataGate.status === "NO_LEARNED_ROWS" ? "NO_LEARNED_ROWS" : "READY", 0);
     }
 
-    const admissions = await loadUnifiedFamilyAdmissions(corpus.admissionsPath);
-    const studentGroups = await loadStudentRowsFile(studentRowsPath);
-    const supervisionRows = await loadSupervisionRowsFile(supervisionRowsPath);
-    for (const group of studentGroups) {
-      requireAdmittedTrainingSource(admissions, group.sourceGroup);
+    const loadStartedNs = process.hrtime.bigint();
+    let admissions: ReadonlyMap<string, UnifiedFamilyAdmission>;
+    let studentGroups: readonly StudentGroup[];
+    let supervisionRows: readonly SupervisionRow[];
+    try {
+      admissions = await loadUnifiedFamilyAdmissions(corpus.admissionsPath);
+      studentGroups = await loadStudentRowsFile(studentRowsPath);
+      supervisionRows = await loadSupervisionRowsFile(supervisionRowsPath);
+      for (const group of studentGroups) {
+        requireAdmittedTrainingSource(admissions, group.sourceGroup);
+      }
+      for (const row of supervisionRows) {
+        requireAdmittedTrainingSource(admissions, row.sourceGroup);
+      }
+    } finally {
+      loadSeconds += monotonicSeconds(loadStartedNs);
     }
-    for (const row of supervisionRows) {
-      requireAdmittedTrainingSource(admissions, row.sourceGroup);
+    const dataValidationStartedNs = process.hrtime.bigint();
+    let encodedGroups: readonly EncodedGroup[];
+    try {
+      dataGate = await validateUnified64SlotTrainingData(config.dataGate);
+      encodedGroups = dataGate.status === "DATA_INVALID"
+        ? []
+        : buildEncodedGroups(studentGroups, supervisionRows);
+    } finally {
+      dataValidationSeconds = (dataValidationSeconds ?? 0) + monotonicSeconds(dataValidationStartedNs);
     }
-    dataGate = await validateUnified64SlotTrainingData(config.dataGate);
-    const encodedGroups = dataGate.status === "DATA_INVALID"
-      ? []
-      : buildEncodedGroups(studentGroups, supervisionRows);
     counts = {
       studentGroups: studentGroups.length,
       studentRows: studentRowsForRunner(studentGroups).length,
       supervisionRows: supervisionRows.length,
       labelMissingExcluded: dataGate.counts.labelMissingExcluded,
       trainableGroups: encodedGroups.length,
+      learnedRows: dataGate.counts.learnedRows,
     };
     if (dataGate.status === "DATA_INVALID") {
       error = dataGate.firstViolation;
       return await finalize("DATA_INVALID", 1);
     }
     if (dataGate.status === "NO_LEARNED_ROWS") {
+      optimizationSeconds = 0;
       return await finalize("NO_LEARNED_ROWS", 0);
     }
     const nonFiniteInput = findNonFiniteUnifiedInput(encodedGroups);
@@ -2356,14 +2559,21 @@ export async function executeUnifiedRunnerRoute(
     const checkpointPath = unifiedCheckpointPath(config);
     let resumeFrom: UnifiedTrainingCheckpoint | undefined;
     if (command === "resume") {
+      const checkpointLoadStartedNs = process.hrtime.bigint();
       try {
         resumeFrom = await loadUnifiedTrainingCheckpointFromFile(checkpointPath);
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : String(caught);
         error = { code: "CHECKPOINT_INVALID", message };
+        loadSeconds += monotonicSeconds(checkpointLoadStartedNs);
         return await finalize("failed", 1);
+      } finally {
+        if (resumeFrom !== undefined) {
+          loadSeconds += monotonicSeconds(checkpointLoadStartedNs);
+        }
       }
       resumedFromEpoch = resumeFrom.completedEpochs;
+      cumulative = resumeFrom.timing?.cumulative ?? null;
     }
     const runOptions: UnifiedTrainingRunOptions = {
       ...(resumeFrom !== undefined ? { resumeFrom } : {}),
@@ -2373,6 +2583,18 @@ export async function executeUnifiedRunnerRoute(
     };
     const result = runUnifiedTraining(encodedGroups, trainConfig, runOptions);
     trainReport = result.report;
+    optimizationSeconds = result.timing.optimizationSeconds;
+    const startEpoch = resumeFrom?.completedEpochs ?? 0;
+    const appendedEpochs = result.report.epochs.slice(startEpoch);
+    const learnedRows = dataGate.counts.learnedRows;
+    attemptOptimizerSteps = appendedEpochs.length;
+    completedOptimizerSteps = appendedEpochs.filter(
+      record => record.finite && Number.isFinite(record.maxAbsGrad),
+    ).length;
+    attemptProcessedRows = result.report.status === "failed"
+      ? null
+      : attemptOptimizerSteps * learnedRows;
+    completedProcessedRows = completedOptimizerSteps * learnedRows;
     if (result.report.status === "failed") {
       error = {
         code: result.report.stopReason,
@@ -2380,21 +2602,124 @@ export async function executeUnifiedRunnerRoute(
       };
       return await finalize("failed", 1);
     }
-    const savedCheckpoint = await saveUnifiedTrainingCheckpoint(
-      checkpointPath,
-      trainConfig,
-      result.report,
-      result.tensors,
-    );
-    checkpointReload = await verifyUnifiedCheckpointReloadInNewProcess(
-      checkpointPath,
-      savedCheckpoint,
-    );
+    const previousCumulative = resumeFrom?.timing?.cumulative ?? null;
+    const resumedWithLegacyTiming = command === "resume" && resumeFrom?.timing === null;
+    const committedCumulative: UnifiedCumulativeTiming | null = resumedWithLegacyTiming
+      ? null
+      : {
+          loadSeconds: (previousCumulative?.loadSeconds ?? 0) + loadSeconds,
+          dataValidationSeconds:
+            (previousCumulative?.dataValidationSeconds ?? 0) + (dataValidationSeconds ?? 0),
+          optimizationSeconds:
+            (previousCumulative?.optimizationSeconds ?? 0) + result.timing.optimizationSeconds,
+          checkpointIoSecs: previousCumulative?.checkpointIoSecs ?? emptyCheckpointIoTiming(),
+          totalWallSeconds:
+            (previousCumulative?.totalWallSeconds ?? 0)
+            + monotonicSeconds(commandStartNs, result.timing.cutPointNs),
+          optimizerSteps:
+            (previousCumulative?.optimizerSteps ?? 0) + (completedOptimizerSteps ?? 0),
+          processedRows:
+            (previousCumulative?.processedRows ?? 0) + (completedProcessedRows ?? 0),
+        };
+    let savedCheckpoint: UnifiedTrainingCheckpoint;
+    const checkpointSaveStartedNs = process.hrtime.bigint();
+    try {
+      if (committedCumulative === null) {
+        savedCheckpoint = await saveUnifiedTrainingCheckpoint(
+          checkpointPath,
+          trainConfig,
+          result.report,
+          result.tensors,
+        );
+        noteCheckpointIo({
+          serializeSeconds: monotonicSeconds(checkpointSaveStartedNs),
+          atomicReplaceSeconds: 0,
+          packageReloadSeconds: 0,
+          totalSeconds: monotonicSeconds(checkpointSaveStartedNs),
+        });
+      } else {
+        const saved = await saveUnifiedTrainingCheckpointWithTiming(
+          checkpointPath,
+          trainConfig,
+          result.report,
+          result.tensors,
+          {
+            cumulative: committedCumulative,
+            timingCutPoint: {
+              committedOptimizerSteps: committedCumulative.optimizerSteps,
+              committedProcessedRows: committedCumulative.processedRows,
+              reason: result.report.status === "paused" ? "paused" : "epoch_commit",
+            },
+          },
+        );
+        savedCheckpoint = saved.checkpoint;
+        noteCheckpointIo(saved.io);
+      }
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      noteCheckpointIo({
+        serializeSeconds: monotonicSeconds(checkpointSaveStartedNs),
+        atomicReplaceSeconds: 0,
+        packageReloadSeconds: 0,
+        totalSeconds: monotonicSeconds(checkpointSaveStartedNs),
+      });
+      error = { code: "CHECKPOINT_SAVE_ERROR", message };
+      return await finalize("failed", 1);
+    }
+    cumulative = committedCumulative;
+    const checkpointReloadStartedNs = process.hrtime.bigint();
+    try {
+      checkpointReload = await verifyUnifiedCheckpointReloadInNewProcess(
+        checkpointPath,
+        savedCheckpoint,
+      );
+    } catch (caught) {
+      notePackageReload(monotonicSeconds(checkpointReloadStartedNs));
+      error = {
+        code: "CHECKPOINT_RELOAD_ERROR",
+        message: caught instanceof Error ? caught.message : String(caught),
+      };
+      return await finalize("failed", 1);
+    }
+    notePackageReload(monotonicSeconds(checkpointReloadStartedNs));
     if (result.report.status === "paused") {
       return await finalize("paused", 0);
     }
-    const savedPackage = await saveUnifiedTrainPackage(packagePath, trainConfig, result.tensors);
-    packageReload = await verifyUnifiedPackageReloadInNewProcess(packagePath, savedPackage);
+    const packageSaveStartedNs = process.hrtime.bigint();
+    let savedPackage: UnifiedModelPackage;
+    try {
+      savedPackage = await saveUnifiedTrainPackage(packagePath, trainConfig, result.tensors);
+    } catch (caught) {
+      noteCheckpointIo({
+        serializeSeconds: monotonicSeconds(packageSaveStartedNs),
+        atomicReplaceSeconds: 0,
+        packageReloadSeconds: 0,
+        totalSeconds: monotonicSeconds(packageSaveStartedNs),
+      });
+      error = {
+        code: "PACKAGE_SAVE_ERROR",
+        message: caught instanceof Error ? caught.message : String(caught),
+      };
+      return await finalize("failed", 1);
+    }
+    noteCheckpointIo({
+      serializeSeconds: monotonicSeconds(packageSaveStartedNs),
+      atomicReplaceSeconds: 0,
+      packageReloadSeconds: 0,
+      totalSeconds: monotonicSeconds(packageSaveStartedNs),
+    });
+    const packageReloadStartedNs = process.hrtime.bigint();
+    try {
+      packageReload = await verifyUnifiedPackageReloadInNewProcess(packagePath, savedPackage);
+    } catch (caught) {
+      notePackageReload(monotonicSeconds(packageReloadStartedNs));
+      error = {
+        code: "PACKAGE_RELOAD_ERROR",
+        message: caught instanceof Error ? caught.message : String(caught),
+      };
+      return await finalize("failed", 1);
+    }
+    notePackageReload(monotonicSeconds(packageReloadStartedNs));
     return await finalize("completed", 0);
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
