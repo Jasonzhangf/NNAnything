@@ -48,6 +48,7 @@ export interface ValueFlowRawSite {
   readonly ownerDeclRef: Ref | null;
   readonly executionRef: Ref;
   readonly span: ValueFlowSpan;
+  readonly orderSpan: ValueFlowSpan;
   readonly scopeChain: readonly string[];
   readonly conditionalKinds: readonly string[];
   readonly insideLoop: boolean;
@@ -61,12 +62,14 @@ export interface ValueFlowControlRecord {
   readonly trueBranchSpan: ValueFlowSpan | null;
   readonly falseBranchSpan: ValueFlowSpan | null;
   readonly hasElse: boolean;
+  readonly executionRef: Ref;
 }
 
 export interface ValueFlowUnsupportedSyntaxRecord {
   readonly kind: "unary_write" | "nested_if" | "try" | "switch" | "with";
   readonly reason: "increment_out_of_slice" | "control_flow_out_of_slice";
   readonly span: ValueFlowSpan;
+  readonly executionRef: Ref;
 }
 
 export interface ValueFlowRawObservation {
@@ -346,6 +349,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     readonly calleeDeclRef?: Ref | null;
     readonly ownerDeclRef?: Ref | null;
     readonly span: ValueFlowSpan;
+    readonly orderSpan?: ValueFlowSpan;
     readonly calleeName?: string | null;
     readonly ordinalIndex?: number | null;
   }): void {
@@ -367,6 +371,9 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
       ownerDeclRef: input.ownerDeclRef ?? null,
       executionRef: currentExecutionRef,
       span: input.span,
+      // Declaration writes complete only after their initializer is evaluated,
+      // so ordering uses the whole declaration instead of the bound name.
+      orderSpan: input.orderSpan ?? input.span,
       scopeChain: Object.freeze([...scopeStack]),
       conditionalKinds: Object.freeze(conditionalKinds()),
       insideLoop: insideLoop(),
@@ -486,6 +493,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
           kind: "unary_write",
           reason: "increment_out_of_slice",
           span: spanOf(sf, node),
+          executionRef: currentExecutionRef,
         }));
       }
     }
@@ -495,18 +503,21 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         kind: "try",
         reason: "control_flow_out_of_slice",
         span: spanOf(sf, node),
+        executionRef: currentExecutionRef,
       }));
     } else if (ts.isSwitchStatement(node)) {
       unsupportedSyntaxRecords.push(Object.freeze({
         kind: "switch",
         reason: "control_flow_out_of_slice",
         span: spanOf(sf, node),
+        executionRef: currentExecutionRef,
       }));
     } else if (ts.isWithStatement(node)) {
       unsupportedSyntaxRecords.push(Object.freeze({
         kind: "with",
         reason: "control_flow_out_of_slice",
         span: spanOf(sf, node),
+        executionRef: currentExecutionRef,
       }));
     }
 
@@ -536,6 +547,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
             symbolName: identifier.text,
             declRef,
             span: declSpan,
+            orderSpan: spanOf(sf, node),
           });
         }
       }
@@ -596,6 +608,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
           kind: "nested_if",
           reason: "control_flow_out_of_slice",
           span: spanOf(sf, node),
+          executionRef: currentExecutionRef,
         }));
       }
       const conditionSpan = spanOf(sf, node.expression);
@@ -607,6 +620,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         trueBranchSpan,
         falseBranchSpan,
         hasElse: node.elseStatement !== undefined,
+        executionRef: currentExecutionRef,
       }));
       frameStack.push(Object.freeze({ kinds: Object.freeze(["if_true"]), insideLoop: insideLoop() }));
       visit(node.thenStatement);
@@ -629,6 +643,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         trueBranchSpan: bodySpan,
         falseBranchSpan: null,
         hasElse: false,
+        executionRef: currentExecutionRef,
       }));
       frameStack.push(Object.freeze({ kinds: Object.freeze(["loop_body"]), insideLoop: true }));
       visit(body);
@@ -798,10 +813,11 @@ function interveningWrites(
 ): readonly InterveningWrite[] {
   return Object.freeze(observation.sites
     .filter(site => site.kind === "write")
-    .filter(site => site.writeKind === "assignment")
     .filter((site): site is ValueFlowRawSite & { readonly declRef: Ref } => site.declRef !== null)
+    // Count every actual write in the source execution domain, including
+    // declaration writes with initializers (for example repeated `var`).
     .filter(site => site.executionRef === sourceExecutionRef)
-    .filter(site => after(site.span, sourceSpan) && before(site.span, sinkSpan))
+    .filter(site => after(site.orderSpan, sourceSpan) && spanEndsBefore(site.orderSpan, sinkSpan))
     .filter(site => predicate(site.declRef))
     .sort((left, right) => {
       if (left.span.startLine !== right.span.startLine) return left.span.startLine - right.span.startLine;
@@ -846,12 +862,14 @@ function loopFlowUnsupported(
   observation: ValueFlowRawObservation,
   sourceSpan: ValueFlowSpan,
   sinkSpan: ValueFlowSpan,
+  sourceExecutionRef: Ref,
 ): boolean {
   // The accepted slice declares every loop out of scope, so any loop that
   // overlaps the source-to-sink interval must stay isolated. This also covers
   // header forms (for-initializer / incrementor) that are not otherwise walked.
   return observation.controlRecords.some(record =>
     record.kind === "loop"
+    && record.executionRef === sourceExecutionRef
     && before(record.conditionSpan, sinkSpan)
     && spanEndsAfter(record.conditionSpan, sourceSpan));
 }
@@ -860,9 +878,11 @@ function callEffectUncovered(
   observation: ValueFlowRawObservation,
   sourceSpan: ValueFlowSpan,
   sinkSpan: ValueFlowSpan,
+  sourceExecutionRef: Ref,
 ): boolean {
   return observation.sites.some(site =>
     site.kind === "call"
+    && site.executionRef === sourceExecutionRef
     && after(site.span, sourceSpan)
     && spanEndsBefore(site.span, sinkSpan));
 }
@@ -957,14 +977,15 @@ function unsupportedFlowReason(
     return "execution_domain_out_of_slice";
   }
   if (candidate.relationKind === "reaching_def"
-    && callEffectUncovered(observation, source.span, sink.span)) {
+    && callEffectUncovered(observation, source.span, sink.span, source.executionRef)) {
     return "call_effect_out_of_slice";
   }
   const syntaxRecord = observation.unsupportedSyntaxRecords.find(record =>
-    before(record.span, sink.span) && spanEndsAfter(record.span, source.span));
+    record.executionRef === source.executionRef
+    && before(record.span, sink.span) && spanEndsAfter(record.span, source.span));
   if (syntaxRecord !== undefined) return syntaxRecord.reason;
   if (candidate.relationKind === "reaching_def"
-    && loopFlowUnsupported(observation, source.span, sink.span)) {
+    && loopFlowUnsupported(observation, source.span, sink.span, source.executionRef)) {
     return "control_flow_out_of_slice";
   }
   return null;

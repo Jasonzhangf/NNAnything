@@ -85,6 +85,31 @@ for (x = 1; false; ) {}
 console.log(x);
 `;
 
+const REPEATED_INIT_VAR = `
+function f() {
+  var x = 0;
+  var x = 1;
+  console.log(x);
+}
+`;
+
+const UNCALLED_CALL_BODY = `
+let x = 0;
+function f() {
+  g();
+}
+console.log(x);
+`;
+
+const UNCALLED_CONTROL_BODY = `
+let x = 0;
+function f() {
+  while (true) {}
+  try { g(); } catch (e) {}
+}
+console.log(x);
+`;
+
 const THREE_ARGS = `
 function three(a, b) { return a; }
 function caller() {
@@ -409,6 +434,45 @@ test("repeated var shares one binding and an uninitialized duplicate is not a wr
     reasons: [],
   });
   assert.equal(result.projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+});
+
+test("a repeated initialized var is a same-binding intervening write", () => {
+  const observations = observe(REPEATED_INIT_VAR);
+  const source = writeSite(observations, "x", 3);
+  const sink = readSite(observations, "x", 5);
+  const result = projectValueFlowRelationship(reachingDefCandidate(source, sink), observations);
+  assert.deepEqual(result.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.equal(result.projection.orderFlowAndCoverage.value.orderFlowIndex, 2);
+});
+
+test("uncalled function facts do not isolate an outer candidate", () => {
+  const callBody = observe(UNCALLED_CALL_BODY);
+  const callResult = projectValueFlowRelationship(
+    reachingDefCandidate(writeSite(callBody, "x", 2), readSite(callBody, "x", 6)),
+    callBody,
+  );
+  assert.deepEqual(callResult.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.equal(callResult.projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+
+  const controlBody = observe(UNCALLED_CONTROL_BODY);
+  const controlResult = projectValueFlowRelationship(
+    reachingDefCandidate(writeSite(controlBody, "x", 2), readSite(controlBody, "x", 7)),
+    controlBody,
+  );
+  assert.deepEqual(controlResult.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.equal(controlResult.projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
 });
 
 test("candidate enumeration yields raw pairs without truth fields", () => {
