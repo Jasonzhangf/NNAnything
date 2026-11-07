@@ -40,9 +40,10 @@ export type SearchInputHostRejection =
   | "usage_relation_unresolved";
 
 /**
- * θ is a deterministic hyperparameter: 开发集选定后冻结 (selected on the
- * development set, then frozen for this milestone). Do not retune it against
- * validation or held-out cases.
+ * θ is a fixed design constant for this milestone. No development-set
+ * threshold selection receipt is present in the repository or run evidence.
+ * The value 0.5 is frozen as the decision boundary and must not be described
+ * as selected or retuned against validation or held-out cases.
  */
 export const SEARCH_INPUT_HOST_THRESHOLD = 0.5;
 
