@@ -1,6 +1,8 @@
 # NN Code redesign: value flow
 
-状态：2026-11-07 设计 r1，owner Carol，reviewer Alice。旧 `nn-code value-flow` 只作 teacher、oracle、样本来源与对照材料，不恢复为产品。本文是设计子交付，不启动实际拟合、不修改现有权重/gold/threshold/采用状态、不接线产品、不安装 runtime。实际训练、保存、新进程回载、独立留出评价与旧调用图能力回归仍按 board 生命周期执行；共享固定训练环境未验收前不启动 fit。
+状态：2026-11-07 设计 r2（REWORK rev14），owner Carol，reviewer Alice。旧 `nn-code value-flow` 只作 teacher、oracle、样本来源与对照材料，不恢复为产品。本文是设计子交付，不启动实际拟合、不修改现有权重/gold/threshold/采用状态、不接线产品、不安装 runtime。实际训练、保存、新进程回载、独立留出评价与旧调用图能力回归仍按 board 生命周期执行；共享固定训练环境未验收前不启动 fit。
+
+本次定点修订依据 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-valueflow-design-audit-20261107.md`，只补三层语义、具体 64-slot 映射和 `one`/`all` 终止差异，不扩展实现、训练或采用授权。
 
 ## 1. 与现行统一路线对齐
 
@@ -47,9 +49,28 @@
 
 任一已知关系错误、漏报、截断、失败遗漏或伪成功均为 `0` 或 `incomplete`；只有证据不足且未完成收口时为 `null`。模型分数不是 satisfaction，任何实现也不允许用预测填充事实。
 
+### 2.3 resultMode 的根终止差异
+
+`one` 和 `all` 不是同一条覆盖义务的强弱表示，根终止条件必须分开：
+
+| resultMode | 何时可根终止 | 允许的剩余范围 | 禁止的结论 |
+| --- | --- | --- | --- |
+| `all` | 所有关系义务均为终态，候选枚举完整、必要范围全部有 coverage 回执，且无未收口观察或执行失败 | 不允许未搜索候选；终态 `unknown` 必须有具名原因和证据 | 不得因模型低分跳过候选；不得把 open unknown、截断或失败写成 achieved |
+| `one` | 固定引擎已独立验证至少一条满足 scope/depth 的路径 | 允许仍有未搜索候选；必须报告 `coverage=partial`、`unsearchedCount` 和早停原因 | 不得把找到一条路径外推为完整关系；不得把模型自报 true 当见证；不得因早停掩盖已知错误 |
+
+`one` 的完整结果是“找到合法见证并明确未覆盖范围”，不是“所有关系均已判定”。`all` 的 `achieved` 需要每个关系义务都有终态；候选完整后为已知真、已知假或带具名原因的语义 unknown 都可成为该义务的终态。由缺测、截断、预算或执行失败产生的 open unknown 不是终态，必须使根保持 `unknown` 或 `incomplete`。
+
 ## 3. State
 
 State 只包含当前请求与当前步真实可见的事实。每次动作后由固定 harness 产生 New State；上一轮预测不能替代实际观测。
+
+状态按用途分为三层，禁止把后层结果回灌为前层输入：
+
+1. 原始解析事实：adapter 从当前文件/scope 真实读取的 token、声明、读写点、调用点、参数、返回、顺序、分支、循环、跨度和 coverage。它只报告“观测到了什么”，不报告关系真假。
+2. 当前待判关系：候选枚举器从请求和原始事实构造的 `(sourceSite, sinkSite, edgeKind, accessPath?, direction)`。它只表示“需要判定什么”，不是 gold，也不是模型答案。
+3. 已接受判定：模型候选经固定引擎验证后进入 State 的 `judge=true/false/unknown`、路径证据、未决原因和覆盖结果。只有这一层可以作为根评价输入。
+
+adapter 可以验证对象身份、scope、参数类型、span 和证据引用是否可用，也可以验证模型提交的一条局部路径是否连续；adapter 不能预先计算并返回最终关系真值，也不能把完整调用图、最终路径或按 gold 过滤后的候选作为学生输入。
 
 | State 区域 | 字段与边界 |
 | --- | --- |
@@ -66,6 +87,8 @@ State 只包含当前请求与当前步真实可见的事实。每次动作后�
 
 未读文件不得预先提供 AST、最终声明、完整调用图或 oracle 路径。`sourceCurrent`、read receipt、覆盖状态和最终 Goal 结果分别保存；未尝试、读取失败、缺测、观测冲突与已确认不存在不得合并。
 
+上表中的“已确认边”只指固定引擎已经验证通过的局部边。它不是 adapter 预先给出的关系真值；如果没有模型或独立 oracle，仅凭原始解析事实和候选枚举不能完成关系义务。
+
 ## 4. Action
 
 学生只做当前一步决策，固定引擎和执行器负责真实操作和观测。动作集合分为关系判定与推进控制两类，均为已有 R/D/E/A 候选的一部分，不新增第五个基础元素。
@@ -81,6 +104,16 @@ State 只包含当前请求与当前步真实可见的事实。每次动作后�
 `true` 只在局部证据和已验证边支持一条满足 scope/depth 的静态 may-provenance 路径时成立。`false` 只在当前 scope 内必要候选均已检查且能证明不存在该关系时成立。证据缺失、cross-file 绑定未验证、解析失败或达到未覆盖边界时只能 `unknown`。
 
 模型只能引用当前 StepContext 中已枚举的候选和对象引用，不能生成源码、调用栈、文件路径、最终符号答案或完整 oracle 链。
+
+三类参与者的职责边界如下：
+
+| 参与者 | 可以做什么 | 不可以做什么 |
+| --- | --- | --- |
+| adapter / 固定观测 | 返回原始语法事实、对象/scope 身份、span、顺序、coverage、错误和模型提交路径的局部验证回执 | 不预先给出当前关系 true/false，不返回完整调用图答案，不用 gold 过滤候选 |
+| 学生模型 | 读取当前 StepContext，在 `J` 上选择 `true/false/unknown`，并选择下一步合法动作 | 不读 gold、oracle、未来回执、teacher 最终链或完整调用图；不把模型分数当关系事实 |
+| 独立 oracle | 在评价旁路生成 gold、路径证据和 unknown 依据，供独立分母使用 | 不进入学生输入、拟合、候选选择或运行时执行链 |
+
+删除模型后，固定引擎仍能读取原始事实并枚举候选，但没有组件能完成以下判断：选择当前关系终态、为 `true` 选择需要验证的路径、为 `false` 证明必要候选完整且无支持路径、或为 `unknown` 选择仍有信息增益的合法观察。若直接运行确定性 analyzer 补上这些判断，就会重现“analyzer 先完成答案、模型只复述结果”的违规路线，因此运行时结果只能保持未决。
 
 ### 4.2 当前推进动作
 
@@ -156,6 +189,66 @@ State 只包含当前请求与当前步真实可见的事实。每次动作后�
 
 路径证据不足时不能输出 `true`，只能输出 `unknown` 并保留未决证据。
 
+### 5.5 两个定点正反例
+
+以下例子只定义训练与评价语义，不新增实现。adapter 侧只给出原始事实，独立 oracle 侧才给出 gold。
+
+#### 5.5.1 赋值 Kill 正反例
+
+原始局部程序：
+
+```ts
+let x = 1; // d0
+let y = x; // u0
+x = 2;     // d1
+let z = x; // u1
+```
+
+待判关系：
+
+| 候选 | 关系 | 期望判断 |
+| --- | --- | --- |
+| `r_kill_pos = (d0, u0, reaching_def)` | `d0` 到达 `u0` | `true` |
+| `r_kill_neg = (d0, u1, reaching_def)` | `d0` 在 `d1` 后被 kill，不能到达 `u1` | `false` |
+
+adapter 原始事实只包含：
+
+- `d0`、`u0`、`d1`、`u1` 的站点身份、词法 scope、span 和顺序；
+- `d0`/`d1` 是写入点，`u0`/`u1` 是读取点；
+- `d1` 在 `u0` 之后、`u1` 之前；
+- 同 lexical block，无分支/循环，coverage complete；
+- 不包含“`d0` reaches `u0`”或“`d1` kills `d0`”的最终关系判断。
+
+学生语义职责：
+
+- 对 `r_kill_pos`，选择 `judge=true`，并让固定引擎验证 `d0 -> u0` 的顺序和局部写读事实。
+- 对 `r_kill_neg`，选择 `judge=false`，前提是当前 scope 的必要写入点已完整枚举，且固定引擎验证 `d1` 是 `u1` 前顺序覆盖的完整重赋值。
+- 若 `d1` 是条件写、别名写、动态属性写或 coverage 不完整，学生只能选择 `unknown`，并保留未决观察。
+
+独立 oracle 使用独立静态证明或离线 analyzer 记录 `r_kill_pos=true`、`r_kill_neg=false`、顺序 span、kill 证明和 coverage。oracle 证据不进入学生 StepContext。
+
+#### 5.5.2 `arg_to_param` 正反例
+
+原始局部程序：
+
+```ts
+function f(p: number) { return p; }
+function g(p: number) { return p; }
+f(7); // a0 -> p_f
+g(7); // a1 -> p_g, not p_f
+```
+
+待判关系：
+
+| 候选 | 关系 | 期望判断 |
+| --- | --- | --- |
+| `r_arg_pos = (a0, p_f, arg_to_param)` | `f` 的实参 `7` 到 `f` 的形参 `p` | `true` |
+| `r_arg_neg = (a1, p_f, arg_to_param)` | `g` 的实参到 `f` 的形参 | `false` |
+
+adapter 原始事实只包含函数声明、参数表、调用表达式、callee 的局部标识符、实参序号和 span；不包含最终参数绑定结果。学生必须读取 callee 身份和当前局部绑定，选择 `true`、`false` 或 `unknown`。独立 oracle 在评价旁路给出绑定证明和 negative reason。
+
+删除模型后，adapter 只能报告 `a0`、`a1`、`p_f`、`p_g` 和调用位置，不能自行决定 `r_arg_pos` 或 `r_arg_neg` 的终态。上述两个候选因此保持待判，不会在没有模型或独立 oracle 的情况下生成 achieved。
+
 ## 6. 局部观测与统一 StepContext
 
 本设计不新增 value-flow 专用 64 维输入。值流事实必须映射到统一 StepContext 的现有对象引用、关系、缺失和覆盖字段；若某个必要字段当前无法表达，必须把它列为共享 StepContext 的设计缺口，不能由本任务私建第二编码器或在适配器中偷偷补答案。
@@ -182,6 +275,57 @@ State 只包含当前请求与当前步真实可见的事实。每次动作后�
 - 只由最终答案推导的 `declId`/`siteId` 或对象配对捷径；
 - 运行后才知道的变更、删除或动态绑定结果。
 
+### 6.1 当前 64-slot 映射与可辨性
+
+当前 `unified-encoder` 已使用的相关槽位如下：
+
+| 槽位 | 当前含义 | 与 value-flow 的关系 |
+| --- | --- | --- |
+| `x[0..7]` G0 | goal 类型、target、threshold、constraints 数量 | 只表示请求和阈值可用性，不表示关系真值 |
+| `x[8..15]` G1 | facts 数量、missing facts、conflict、evidence、objectRefs | 只计数量；`x[15]` 当前保留为 0 |
+| `x[16..23]` G2 | previous action、receipt、outcome、condition state | `x[23]` 当前保留为 0 |
+| `x[24..31]` G3 | 技能类别和 executor 可用性 | `x[31]` 当前保留为 0 |
+| `x[32..39]` G4 | 参数覆盖、类型、judge one-hot、缺失参数 | `x[36..38]` 只表示 `judge=true/false/unknown` |
+| `x[40..47]` G5 | target kind 可用性、证据存在、声明名称/类型一致 | 不表示边类型、源汇角色、顺序或 kill |
+| `x[48..55]` G6 | control、candidate kind、参数投影 | `x[51]` 与 `x[55]` 当前保留为 0 |
+| `x[56..63]` G7 | route 和 declaration identity | 只表示声明身份的一致性，不表示关系本身 |
+
+当前结构不能从标准字段中独立表达 `edgeKind`、源/汇程序点角色、顺序关系、Kill 事实或 callee 绑定状态。两个候选即使对应不同关系，只要 fact 数量和第一条 declaration 相同，就可能产生相同的主要向量。因此当前 `nnanything.unified-step.v1` 不能直接承担上述正反例的可辨性交付。
+
+### 6.2 定点例的 64-slot 映射
+
+为了让例子可训练且不泄露 gold，建议先审计一个共享的 64-slot 语义扩展。扩展只填充当前保留的 0 槽位，不改变 64 维长度，也不新建 value-flow 私有编码器。下表是最小映射提案，需由 Alice 先审计后才进入实现：
+
+| 槽位 | 共享语义 | 编码 |
+| --- | --- | --- |
+| `x[15]` | `relationKindCode` | `0=not_applicable`；`1/7=reaching_def`、`2/7=local_init`、`3/7=local_assign`、`4/7=destructure_extract`、`5/7=arg_to_param`、`6/7=return_from_fn`、`1=return_to_call_lhs` |
+| `x[23]` | `sourceRoleCode` | `0=unknown`，`0.25=definition/write`，`0.5=argument`，`0.75=return`，`1=other` |
+| `x[31]` | `sinkRoleCode` | `0=unknown`，`0.25=read`，`0.5=parameter`，`0.75=assignment_target`，`1=other` |
+| `x[51]` | `orderFlowCode` | `0.25=ordered before without intervening write`，`0.5=ordered after with observed intervening write/kill`，`0.75=branch/loop boundary`，`1=complete/non-ordering fact` |
+| `x[55]` | `bindingCoverageCode` | `0=unresolved`，`0.5=observed mismatch`，`1=resolved/complete observation` |
+
+该扩展下的关键槽位差异为：
+
+| 例子 | `x[15]` | `x[23]` | `x[31]` | `x[51]` | `x[55]` |
+| --- | --- | --- | --- | --- | --- |
+| `r_kill_pos` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.25` | `1` |
+| `r_kill_neg` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.5` | `1` |
+| `r_arg_pos` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `1` |
+| `r_arg_neg` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0.5` |
+
+表内 `x[51]` 和 `x[55]` 只放原始顺序与绑定观测码，不放“关系为 true/false”的 oracle 标签。`judge=true/false/unknown` 仍由 G4 `x[36..38]` 表示，声明身份仍由 G5/G7 原槽位表示。
+
+### 6.3 共享投影最小差异
+
+如果上述扩展被审计接受，最小共享差异是：
+
+1. 在统一 StepContext 增加通用的 `relationshipProjection`，包含 `relationKind`、`sourceSiteRef`、`sinkSiteRef`、`sourceRole`、`sinkRole`、`orderFlow`、`bindingCoverage` 和证据引用；字段由 adapter 的原始事实填充，不由 gold 或 analyzer 真值填充。
+2. 在 `unified-encoder` 中按 §6.2 填充当前保留的 `x[15]`、`x[23]`、`x[31]`、`x[51]`、`x[55]`，并提升统一 encoder 版本；不改变 64 维长度。
+3. 旧 profile 按版本加载，不能在未迁移的情况下接收新槽位；新增关系字段必须保持缺失可表达，不能补 0 冒充观测。
+4. 在实现前先由 Alice 审计字段是否真的共享、是否有旧能力回归、是否出现 relation-specific 私有分支；未通过前不启动 fit、不生成新训练语料。
+
+在该共享扩展被接受前，价值流设计保持“当前 v1 映射不可辨”的显式缺口。不得通过手写规则、完整调用图或 oracle 侧字段绕过模型，也不得把 §6.2 的候选映射直接写成已实现状态。
+
 ## 7. 未知、缺测与拒绝边界
 
 以下状态必须分开：
@@ -197,7 +341,7 @@ State 只包含当前请求与当前步真实可见的事实。每次动作后�
 | out of scope | 文件或候选在 `scopePaths` 外 | 显式 `rejected` |
 | 动态属性/绑定 | 只有当前局部证据时才判定；不能一律 unknown | 有证据则 true/false，否则 unknown |
 
-`resultMode=all` 下任意未收口 unknown 或覆盖失败都阻止根 `achieved`。`resultMode=one` 只允许在已验证路径出现后结束，仍需报告未覆盖范围并禁止把结果外推为 all 覆盖。
+`resultMode=all` 下任意未收口 unknown、截断、覆盖失败或执行失败都阻止根 `achieved`；已具名且 coverage complete 的语义 unknown 可以作为对应义务的终态，但不能被写成 true/false。`resultMode=one` 只允许在固定引擎验证一条路径后早停；剩余候选只报告为未覆盖，不得判定为 false、不得声称完整调用图、不得把模型自报 true 当见证。已知错误在所有模式下都不能被 unknown 或早停替代。
 
 ## 8. SESE 与唯一 owner
 
@@ -319,7 +463,7 @@ typed request and scope
 
 本设计交付后，以下事项仍由后续 board 生命周期处理：
 
-1. 共享 StepContext 是否已有足够的 value-flow 局部字段；缺字段时先补共享投影设计，不私建第二编码器。
+1. 先审计 §6.2 的共享 `relationshipProjection` 与保留槽位扩展；当前 `nnanything.unified-step.v1` 没有足够的 value-flow 局部字段，审计通过前不私建第二编码器、不改 wire、不启动 fit。
 2. 完整学生候选枚举、合法动作集合和 converter 的真实入口。
 3. 独立 verification 语料、oracle 证据和分区准入。
 4. 共享训练环境、真实 runner、保存/回载入口和数据门验收。
@@ -336,3 +480,4 @@ typed request and scope
 - `docs/nn-code-redesign-symbols-tsjs-design.md`
 - 旧实现与对照：`lib/cli-value-flow.ts`、`lib/adapters/cli/value-flow-contract.ts`、`lib/adapters/cli/value-flow-recursive.ts`、`lib/filters/cli-value-flow-policy.ts`、`lib/training/value-flow-l2-runner.ts`、`tests/cli-value-flow.test.mjs`
 - 旧设计、训练和审计材料：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/value-flow-plan.md`、`value-flow-training-design.md`、`alice-valueflow-readiness-audit.md`、`carol-valueflow-r5-audit.md`
+- 本次 REWORK 审计：`/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-valueflow-design-audit-20261107.md`
