@@ -2798,4 +2798,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
 ## 2026-11-07 master 巡检：无变化（01:53Z）
 
-- 已消费 `m1794016389167-155`；inbox `unread=0`。CEO status 未变（Alice，`is_current=false`）。`project-patrol` armed、无 runtime gap；board 仍 14 条外部门禁任务、无 eligible uncancelled 唤醒；无新增 direct-message 或 ready work。main `f9992db`；未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+- 已消费 `m1794016389167-155`；inbox `unread=0`。CEO status 未变（Alice，`is_current=false`）。`project-patrol` armed、无 runtime gap；board 仍 14 条外部门禁任务、无 eligible uncancelled 唤醒；无新增 direct-message 或 ready work。main `a12910b`；未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-07 master 巡检：Alice 定点复查跨项目代唤（02:02Z）
+
+- 已消费 `m1794016389167-155`；`collab recv` 后 inbox `unread=0`，无新增 direct-message。`project-patrol` 仍 armed，目标节奏 1,500,000 ms，`cadence_runtime_gap=null`。
+- 核对 P0 门禁：`m1793999283029-1674` 仍 `state=pending`、`answered=false`，原通知投递失败 `DESKTOP_BRIDGE_FAILED host response timeout`，`retryable=false`；`m1793999283066-1675` 仍已读/已答。`iris-real-converter-engineering-20261106` 与 `henry-converter-post-rework-independent-verification-20261106` 继续被同一 Alice 定点复查门禁挡住，均不关闭。
+- 跨项目代唤：先带 `--reply-required` 的 `collab send` 返回 `SEND_REPLY_POLICY_UNSUPPORTED`；去掉该参数后成功发送 durable `m1794016936650-197` 至 `fanzhang.Alice`，回执 `cross_project=true`、`notification=tmux-input-submitted`、无回复义务。该消息只要求消费/回复既有 NNAning 消息 `m1793999283029-1674`，或告知可用的 NNAning Alice 入口，不创建新任务。
+- Board 仍无 ready 且已授权可派工作；David 继续按用户授权冲突 PARKED，Henry 全量 22 场景回放保持 gated，Iris converter 任务保持 delivered 等复查，Grace/Carol/Iris/Henry/Emma 的 board-idle 按已记录解除条件保持取消。工作树仅 main（`a12910b`，仅本条 note 改动）与 Iris converter protected hold；既有未跟踪 `tests/fixtures/tsjs-symbols/` 不动。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
