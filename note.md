@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-07 Jenny：round-26 Kate 巡检处置、主线派单与 goal 续订（22:18Z）
+
+- 消费 goal deadline `m1794089911471-7814` 与 Kate round-26 `m1794089919337-7815`，并清空后续 worker-idle 批次。已显式续订 goal：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m`，新订阅 `sub-m1794089939624-7818` armed，`appsdk goal status` active/desired=subscribed/observed=subscribed；project patrol `sub-m1793963843713-143` 保持 armed。
+- B-A1：核实 `b-a1-unified-slot-observation-map.md`、`b-a1-supervision-loss-contract.md`、`b-a1-fixed-training-entry-design.md` 与 `task-log.md` 已在 `/Volumes/Intel/playground/nnanything-runs/b-a1-unified-research-prep-20261107/` 落盘；已发 Carol durable 交付指令 `m1794090006689-7827`（reply-on-completion），要求立即 `collab task deliver b-a1-unified-research-prep-20261107 --no-candidate` 交 Alice review 并回传回执。board 仍 rev4 working、无 review_evidence，交付完成前不写 review/accept。
+- P1-1：已发 Iris durable 返工指令 `m1794090006628-7826`（reply-on-completion），按 Alice 四项 finding（真实多步推进、真实执行回执与后态、previousExecution 参与下一步输入、typed bridge 状态与请求身份）先红后绿返工；保留 `implementation-result.md`/`gap-analysis.md` 的 INCOMPLETE 清单。board rev4 working，候选 `2d1217e` 仍未 merge/push，不当作完成。
+- Emma 四任务：master 尝试回写 park next_step 被 owner-only 拒绝：`only the task owner may update its lifecycle`。当前没有合规设计承接者（Alice 保持设计审查独立性，Carol/Iris 正承担更高优先级 B-A1/P1-1，Henry 为独立验证，Jack 无设计角色），故保持 parked-pending-design-peer；恢复信号为 Emma 身份恢复，或主目标优先级满足后改派具设计/研究职责的新 owner 并承接切片。不 force-close。
+- 已向 Kate 发处置回执 `m1794090071631-7840`（in reply to round-26），内容包含 goal 续订、Carol/Iris 派单和 owner-only 边界。本轮没有新增 ready_authorized_work、无 pending merge；未改代码/语料/权重/gold/threshold/采用，未训练/接线、未安装 runtime、未动 tmux/daemon。
+- 资源：main `249dc89`；worktree 2 个（main、p1-1 `2d1217e`）；主树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`。
+
 ## 2026-11-07 Jenny：round-23 Kate 巡检处置、收件箱清空（22:09Z）
 
 - 消费待读消息：worker-idle 批次 `m1794089049442-7713`、`m1794089098432-7719`、`m1794089216431-7732`（collab-server；末条 Kate newly idle），以及后续 `m1794089534519-7771`（Carol newly idle，无新增 ready 工作）。`collab recv --timeout` 复检 count=0，`collab inbox` unread=0，收件箱清空。
