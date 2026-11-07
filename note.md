@@ -3098,3 +3098,27 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 已向 Alice 升级 P0 与四项 board fidelity 裁定（`m1794084352392-7228`，durable）：Emma 缺席下由谁继续承担 converter/train/config 工程、恢复信号；是否允许 master 统一 re-park 四个 Emma-owned 子任务并写恢复条件。不越权改他人 board 状态。
 - 已向 Iris 发送总体编排 next_step 同步请求（`m1794084352443-7229`），补记 Emma 待裁定、四子任务 deferred、timing closed。目标订阅：goal one-shot `sub-m1794083979650-7176` armed（≈21:09Z），project patrol `sub-m1793963843713-143` armed。
 - 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon；main `e566a57=origin/main`，主工作树仅用户既有未跟踪 fixture。
+
+## 2026-11-07 master：Alice 旧P0/Emma 裁定落实、B-A1 rev3 路由、P1-1 待审（20:53Z）
+
+- 消费 Alice 裁定 `m1794084436700-7235`（落盘 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/alice-overall-redesign-route-r1.md` 20:46Z 段）：旧 P0 `jenny-tsjs-first-fit-converter-train-config-r1` 按交接/取消生命周期记 superseded、指向 Iris P1-1 真实承接，不伪造完成 accept；四个 Emma 子设计任务同意调度口径后置 design、给恢复 owner/资料交接条件，不当技术 blocked；owner-only 是真实权限边界，本裁定不授予绕过或冒用 Emma 身份。
+- 已按裁定 force-close 旧 P0：`receipt_id=cleanup-manual-jenny-tsjs-first-fit-converter-train-config-r1-1794084625884`，reason 记录 superseded → Iris P1-1；`cleanup.result=unverified`（无专属 worktree/branch 残留在列），不伪造 review accept，历史未完成结论保留。
+- 四个 Emma 子任务：核对均为 `working`、`next_step=null`、owner presence=missing；Alice 裁定后应记后置 design（parked-pending-design-peer），恢复条件=Jenny 按主目标优先级确认独立设计切片、指定可用研究 owner、完成原资料交接。因 owner-only 不能修改 Emma 记录，该状态与不可写缺口在本 note 与 roadmap 记录，按正式运行时问题入口报缺口，不直改控制存储、不冒用 Emma 身份。
+- 消费 Iris `m1794084557492-7262`：总体编排 board rev67 已同步；P1-1 branch commit 898bb7a（branch only，base b312f19）、converter/validate-data 真实 READY 报告与多步 receipt 已保留；worker 仍在最终收口，未 merge/push、未交 Alice 定点审查。
+- 消费 Alice `m1794084702180-7280`：B-A1 `b-a1-object-relation-binding-carol-20261107` rev3 正式 REWORK（board rev15，证据 `.../b-a1-object-relation-binding-carol-20261107/alice-review.md`）。剩余反例：表仍重叠（越 scope+partial、多项非搜索证据+模型高分、缺字段+高分）需明确优先级/排除前序；coverage 当前但 candidate 陈旧、跨 document 核验；reject 无 selectedRef 但 evaluator 强制 null 会误判，统一 union；A10/A11 分数注入样本仅作聚合器工程测试，不能当模型语义 gold。要求同一四份文档手工演算修正，不实现不训练；B-R 诊断独立继续。
+- 已向 Carol 路由 rev3 续修：`m1794084783140-7290`（durable，reply-on-completion；`consumed=false`，Carol peer 当前 closing/fenced，board next_step 已指向 alice-review.md，待其恢复读取）。首次按 `collab-ac320...` peer 地址发送报 `target_closing` 被拒，改用 `NNAnything.Carol` 成功落 durable，不重复派工。
+- 消费 Alice `m1794084826199-7299` 队列恢复核对：旧四项（iris-real-converter、henry-converter-post-rework、b-r-browser-base-reddiagnosis、nn-code-redesign-value-flow）均已正式 accept/close，不重复 review；B-A1 rev3 待 Carol 续修；P1-1 仍待 Iris 作者收口并正式 deliver 后交 Alice；旧 Emma working 项按 overall-route 裁定 lifecycle 收口，不取消 Iris 工作。
+- 资源与订阅：main `09dda47=origin/main`，主工作树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`；worktree 2 个（main、p1-1 898bb7a）未超上限；goal active/subscribed（本 roadmap 文件，20:39:39Z，interval 30m）；project patrol `sub-m1793963843713-143` armed；`ready_authorized_work=false`、`goal_due=false`、无 blocked/timed-out。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
+
+## 2026-11-07 master：P1-1 rev3 REWORK 落任务、B-A1 rev4 审查与旧Emma lifecycle（21:01Z）
+
+- 消费 Iris `m1794084901732-7310`：总体编排 board rev68 已同步；P1-1 branch-only HEAD `2d1217e`（=898bb7a per implementation-result.md），base b312f19（origin/main 祖先），worktree clean、`git diff --check` clean；build、bridge/terminal、multistep green；convert-samples/validate-data READY；未 push/merge；已知 INCOMPLETE 按 implementation-result.md 与 gap-analysis.md 保留。
+- 已核实 P1-1 工作树状态：HEAD `2d1217e feat(tsjs): wire multi-step unified decision over runRecursiveGoal`、base b312f19、clean；`receipts/green/multistep.log` 2/2 pass（含 sample-level receipt never reuses a future receipt as previousExecution）、`receipts/green/bridge.log` 5/5 pass、`receipts/acceptance/convert-samples.meta.txt` exit 0 READY、`gap-analysis.md` 保留 INCOMPLETE。
+- 消费 Alice `m1794085004730-7322`：P1-1 `2d1217e` 已实审 REWORK，证据 `/Volumes/Intel/playground/nnanything-runs/p1-1-typed-dynamic-recursive-20261107/alice-review.md`。核心：预置 episode 外层循环 + 合成成功回执，未执行真实 advance/observe，且前次反馈未进入下一模型输入；typed bridge 状态/身份丢失。Iris 已收到具体位置与验收反例，请推进原 writer 修复，不合入。旧 P0 已 superseded closed；要求在有效任务明确本次 engineering delivery/reviewer，之后 Alice 正式 task review，不伪造旧任务 accept。
+- 已发布并邀请 Iris：`p1-1-typed-dynamic-recursive-engineering-iris-20261107`（engineering，priority p0，executor Iris，reviewer Alice，parent nnanything-overall-redesign-orchestration-r1，board rev2 invited）。delivery/test condition 对齐 Alice REWORK 要点；不 merge/push、不训练、不改 gold/weight/threshold/adoption。
+- 消费 Carol `m1794085236914-7335`：B-A1 rev3 已按 Alice 四点修正同一三份设计文档并重交（review_message_id m1794085202748-7330），等待 Alice 窄复核；不关闭任务、不触碰 B-R、不训练/实现/接线。
+- 消费 Alice `m1794085251846-7341`：B-A1 rev4 已审正式 REWORK（证据 `.../b-a1-object-relation-binding-carol-20261107/alice-review.md`）。前三项与 aggregator 测试分区已闭合；仅剩 A5 仍以当前分数达到阈值作为 teacher ambiguous 条件、红测第4条同源混淆；已给 Carol 精确修订要求，无需重做设计或训练；B-R 逐例归因不受此限制。
+- 旧 Emma lifecycle：`jenny-tsjs-first-fit-converter-train-config-r1` 已 force-close superseded（见上一轮 receipt）；四个 Emma 子任务（learning-loop/search-read/symbols-rust/symbols-swift）保持 board `working`/`next_step=null`，按 Alice 裁定在本 note/roadmap 记录为后置 design（parked-pending-design-peer），恢复条件=Jenny 按主目标优先级确认独立设计切片、指定可用研究 owner、完成原资料交接；owner-only 不授予绕过，不走控制存储，不冒用 Emma 身份。
+- 资源与订阅：main `09dda47=origin/main`，主工作树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`；worktree 2 个（main、p1-1 2d1217e）未超上限；goal active/subscribed（本 roadmap 文件，20:39:39Z，interval 30m）；project patrol `sub-m1793963843713-143` armed。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
