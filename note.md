@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-07 Jenny：round-23 Kate 巡检处置、收件箱清空（22:09Z）
+
+- 消费待读消息：worker-idle 批次 `m1794089049442-7713`、`m1794089098432-7719`、`m1794089216431-7732`（collab-server；末条 Kate newly idle），以及后续 `m1794089534519-7771`（Carol newly idle，无新增 ready 工作）。`collab recv --timeout` 复检 count=0，`collab inbox` unread=0，收件箱清空。
+- Kate round-23（`m1794088975897-7705`，21:59Z）要求处置三处缺口并给回执；已发 durable 回执 `m1794089446352-7763` 给 Kate：
+  1. Alice 积压：22:09Z 实测 Alice present/idle、pending_notifications=0。board 当前无已 deliver 待审任务（Carol `b-a1-unified-research-prep-20261107` 与 Iris `p1-1-typed-dynamic-recursive-engineering-iris-20261107` 均 working 未 deliver）。不需替代 reviewer，Alice 继续任 reviewer。
+  2. Emma 四任务（`nn-code-redesign-learning-loop-r1`/`search-read-r1`/`symbols-rust-r1`/`symbols-swift-r1`）：owner Emma presence=missing、identity_valid=false，仍 status=working/next_step=null。master 不越 owner-only 边界写其 next_step，也不 force-close（保留 roadmap 引用）；维持 parked-pending-design-peer。恢复条件（本轮落盘）：恢复 Emma 身份，或按主目标优先级改派可用 design peer；由新 owner 在板面回写 next_step 并承接切片。
+  3. next_step 缺口：B-A1（Carol）与 P1-1（Iris）next_step=null，已分别发 `m1794089446425-7764`（Carol）、`m1794089446305-7762`（Iris），请对应 owner 按当前事实回写；Iris 总体任务 next_step 已含 P1-1 事实，不重复要求。复核时 Carol 已在 22:12:53Z 将 B-A1 next_step 更新为落盘三份设计文档并交 Alice review；Iris 仍在 22:12:10Z 保持 P1-1 rework 指令。board `ready_authorized_work=false`、`pending_merges` 空。不伪造 review/完成。
+- 订阅与目标：`appsdk goal status` active/subscribed（21:48:30Z，30m，本轮未 consumed）；project patrol armed；goal one-shot armed。无 ready 工作、无 pending merge。
+- 资源：main `ce16497`；worktree 2 个（main、p1-1 `2d1217e`）；主树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`。本轮只做收件箱消费、处置回执与 board 路由；未改产品代码/语料/权重/gold/threshold/采用，未训练/接线、未安装 runtime、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：B-A1 研究准备收口、衔接统一决策研究（21:55Z）
 
 - 消息：消费 `m1794088221570-7628`（Alice subject_revision 2 正式 ACCEPT b-a1-research-prep-20261107：三组 finding 闭合，统一 64/两层为唯一后继路线，旧线性降为历史；两处非阻断概述残词留待下轮数值细化修正）、`m1794088269035-7631`（Carol 收口：collab task close 返回 status=closed、delivery_complete=true、completion_missing=[]，cleanup receipt `cleanup-b-a1-research-prep-20261107-1794088256372`，无 worktree/分支需回收）。
