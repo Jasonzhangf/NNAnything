@@ -162,10 +162,10 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 | 工作线 | owner | reviewer | 状态 |
 | --- | --- | --- | --- |
 | converter 四项映射工程 | Iris | Alice | f752715 已接受并集成 main `9b4a462`；训练后继尚未启动 fit |
-| fixed-env evaluator + §2.5 接线 | Iris | Alice | board rev16 working（前置 blocked 已批准），候选 66a7710，五项局部修复已 Alice 闭合；研究裁定 rev4 正式 ACCEPT，Iris 按合同完成真实准入绑定、单步知识判定提交/New State/结构 root 接线，真实 Rust transfer/包准入/evaluate() 根语义保持 INCOMPLETE；工程交回实际黑盒再审；原 David-pinned child 已 force-close，Emma 1201b508 保持 PROTECTED_HOLD |
+| fixed-env evaluator + §2.5 接线 | Iris | Alice | board rev21 REWORK（候选 6056421）：判定链进展、包路径/modelId/version、TSJS/Rust 分离与单步 candidate-bound New State 已接受；仅 oracle 自身 sourceGroup/partition/样本绑定、labelMissing 与权威 gold 一致性、gold 读取错误保留三项窄修；不重开研究、不集成，修复后复用有效回执再交 Alice；原 David-pinned child 已 force-close，Emma 1201b508 保持 PROTECTED_HOLD |
 | TS/JS 符号表训练准备 | Carol | Alice | 设计子交付已 merged；训练准备切片 2cb4ee4 已接受并集成、任务 closed；fit 等 shared fixed-env 与 converter 准入 |
 | TS/JS value-flow 设计 | Carol | Alice | 0c16fd7 accepted；阶段A shared projection 审计修订接受；阶段B engineering working（value-flow-shared-projection-engineering-20261107 rev3），不 fit/不采用；fit 仍待 fixed-env 与 converter 准入 |
-| TS/JS timing/evaluate 设计 | Carol | Alice | rev3 已 Alice 正式 REWORK（范围收窄：仅计时旧起点与累计字段/cut point 冲突待统一）；evaluate 接线复用 Iris adapter/recursive 与独立 oracle 定义接受，可按共享 runner 单 writer 边界独立准备，验收依赖 Iris 公共入口；不阻塞 fixed-env |
+| TS/JS timing/evaluate 设计 | Carol | Alice | subject_revision 4 已 Alice 正式 ACCEPT（read-only，no integration/close 已收口）；timing runner 工程已派 Henry：tsjs-timing-runner-engineering-henry-20261107（p1 code，reviewer Alice，base 24a0109，只做 runner/checkpoint timing，不做 evaluate 接入）；evaluate 接线复用 Iris adapter/recursive，后续独立派发，验收依赖 Iris 公共入口 |
 | browser B-R | Henry | Alice | 只读诊断已审计接受并关闭；阶段二 734c94d 已 Alice ACCEPT、merge `a30c10b` 集成 main 并关闭；拟合未评价 |
 | browser B-A1 | Henry | Alice | ee88d37 accepted，merge 498557a 已集成 main 并关闭；显式绑定基线交付，非自主对象绑定/训练/采用 |
 | 训练隔离巡检 | Kate / Grace | — | 常驻巡检，不接普通 board 任务 |

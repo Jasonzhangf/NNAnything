@@ -2924,3 +2924,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 唯一建议：4 个 Emma-owned `nn-code-redesign-*` 子任务 board next_step 为空。roadmap line 173 已声明后置；Emma presence missing，按只读审计发现记录为外部 owner 待补，不越权改其任务，不因该项阻塞 fixed-env。
 - Kate 回执：/Volumes/Intel/playground/nnanything-runs/kate-jenny-patrol-20261106/round-13-20261107T1357Z.md。
 - 本轮无新增 ready 派发、无阻塞审批需求；未训练、未改权重/gold/threshold/采用、未集成、未安装。
+
+## 2026-11-07 master patrol：timing design 收口、Henry timing 工程派发、Iris narrow rework（14:53Z）
+
+- 消费 Alice m1794061322709-4391（timing read-only 重交已按 subject_revision 4 接受，no_merge_required）与 m1794062603425-4571（Iris fixed-env 6056421 subject_revision 3 REWORK）。`tsjs-timing-evaluate-design-rework-carol-20261107` 已 Alice accept 后由 master force close（cleanup-manual receipt m1794061442485），无代码候选/集成/训练。
+- 按已接受设计 `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/carol-tsjs-timing-evaluate-design-r1.md` 发布并邀请 Henry：`tsjs-timing-runner-engineering-henry-20261107`（p1 code，reviewer Alice，parent nnanything-overall-redesign-orchestration-r1，base 24a0109）。合同 `/Volumes/Intel/playground/nnanything-runs/tsjs-timing-evaluate-engineering-20261107/contract.md`。范围只做 unified runner/checkpoint timing；先红测，不训练、不跑真实 fit/train/resume、不改权重/gold/threshold/采用/产品接线/安装；evaluate 接入另派，依赖 Iris 公共 adapter。Henry 已接受，board rev3 working。
+- Iris fixed-env 已按 Alice rev21 narrow rework 续派 msg m1794063129168-4654：只修 oracle 自身 sourceGroup/partition 与本次 samples 的绑定、labelMissing 与权威 gold 一致性、readGoldRecords 显式资源原错保留；不重开 Carol 研究、不新增训练/Rust 数据、不集成 6056421。其余已接受进展保留，修后复用有效回执交 Alice。
+- `appsdk goal status` 显示旧 deadline 已 consumed（fired_count=1），已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m` 重新武装，新订阅 sub-m1794062455872，trigger_ms 1794064255841；project patrol sub-m1793963843713-143 armed。
+- 资源保持：fixed-env worktree `/Volumes/Intel/playground/nnanything/fixed-env-gap-20261107`（Iris dirty，6056421）与 value-flow worktree（Carol dirty，57d0e61）均为 PROTECTED_HOLD；main 仅用户既有未跟踪 fixture，未动。未训练、未改权重/gold/threshold/采用、未集成、未安装。
