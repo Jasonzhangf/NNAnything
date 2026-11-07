@@ -93,6 +93,69 @@ function f() {
 }
 `;
 
+const ASSIGNMENT_READ_OWN_RHS = `
+let x = 0;
+x = x + 1;
+`;
+
+const ASSIGNMENT_READ_THEN_READ = `
+let x = 0;
+x = x + 1;
+x;
+`;
+
+const ASSIGNMENT_THEN_READ = `
+let x = 0;
+x = 1;
+x;
+`;
+
+const REPEATED_VAR_OWN_RHS = `
+function f() {
+  var x = 0;
+  var x = x + 1;
+  x;
+}
+`;
+
+const OTHER_DECL_INITIALIZER_READ = `
+let x = 0;
+let y = x;
+x;
+`;
+
+const MULTILINE_ASSIGNMENT_READ = `
+let x = 0;
+x =
+  x + 1;
+`;
+
+const NESTED_ASSIGNMENT = `
+let x = 0;
+x = (x = 1);
+x;
+`;
+
+const COMPOUND_ASSIGNMENT = `
+let x = 0;
+x += 1;
+x;
+`;
+
+const DESTRUCTURING_ASSIGNMENT = `
+let o = {};
+let x = 0;
+({ x } = o);
+x;
+`;
+
+const CONDITIONAL_ASSIGNMENT = `
+let c = true;
+let x = 0;
+x = (c ? (x = 1) : 2);
+x;
+`;
+
 const UNCALLED_CALL_BODY = `
 let x = 0;
 function f() {
@@ -447,6 +510,147 @@ test("a repeated initialized var is a same-binding intervening write", () => {
     reasons: [],
   });
   assert.equal(result.projection.orderFlowAndCoverage.value.orderFlowIndex, 2);
+});
+
+test("an assignment write completes after its own RHS read", () => {
+  const observations = observe(ASSIGNMENT_READ_OWN_RHS);
+  const initial = writeSite(observations, "x", 2);
+  const assignment = writeSite(observations, "x", 3);
+  const rhs = readSite(observations, "x", 3);
+
+  const initialToRhs = projectValueFlowRelationship(
+    reachingDefCandidate(initial, rhs),
+    observations,
+  );
+  assert.deepEqual(initialToRhs.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.equal(initialToRhs.projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+
+  const ownRhsCandidate = enumerateValueFlowCandidates(observations)
+    .find(candidate => candidate.relationKind === "reaching_def"
+      && candidate.source.siteRef === assignment.siteRef
+      && candidate.sink.siteRef === rhs.siteRef);
+  assert.equal(ownRhsCandidate, undefined);
+});
+
+test("an assignment RHS read is not covered by its future writeback", () => {
+  const observations = observe(ASSIGNMENT_READ_THEN_READ);
+  const initial = writeSite(observations, "x", 2);
+  const assignment = writeSite(observations, "x", 3);
+  const rhs = readSite(observations, "x", 3);
+  const finalRead = readSite(observations, "x", 4);
+
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, rhs),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, finalRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 2);
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(assignment, finalRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+});
+
+test("a normal assignment remains a same-binding intervening write", () => {
+  const observations = observe(ASSIGNMENT_THEN_READ);
+  const initial = writeSite(observations, "x", 2);
+  const assignment = writeSite(observations, "x", 3);
+  const finalRead = readSite(observations, "x", 4);
+
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, finalRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 2);
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(assignment, finalRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+});
+
+test("a repeated initialized var does not connect to its own initializer read", () => {
+  const observations = observe(REPEATED_VAR_OWN_RHS);
+  const initial = writeSite(observations, "x", 3);
+  const repeated = writeSite(observations, "x", 4);
+  const initializerRead = readSite(observations, "x", 4);
+  const finalRead = readSite(observations, "x", 5);
+
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, initializerRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, finalRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 2);
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(repeated, finalRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+  assert.equal(enumerateValueFlowCandidates(observations)
+    .find(candidate => candidate.relationKind === "reaching_def"
+      && candidate.source.siteRef === repeated.siteRef
+      && candidate.sink.siteRef === initializerRead.siteRef), undefined);
+});
+
+test("another declaration write completes before a later read but not inside its own initializer", () => {
+  const observations = observe(OTHER_DECL_INITIALIZER_READ);
+  const initial = writeSite(observations, "x", 2);
+  const initializerRead = readSite(observations, "x", 3);
+  const finalRead = readSite(observations, "x", 4);
+
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, initializerRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, finalRead),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 4);
+});
+
+test("multiline assignment ordering uses the write completion position", () => {
+  const observations = observe(MULTILINE_ASSIGNMENT_READ);
+  const initial = writeSite(observations, "x", 2);
+  const assignment = writeSite(observations, "x", 3);
+  const rhs = readSite(observations, "x", 4);
+
+  assert.equal(projectValueFlowRelationship(
+    reachingDefCandidate(initial, rhs),
+    observations,
+  ).projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+  assert.equal(enumerateValueFlowCandidates(observations)
+    .find(candidate => candidate.relationKind === "reaching_def"
+      && candidate.source.siteRef === assignment.siteRef
+      && candidate.sink.siteRef === rhs.siteRef), undefined);
+});
+
+test("out-of-slice assignment forms stay unsupported", () => {
+  const cases = [
+    { sourceText: NESTED_ASSIGNMENT, sourceLine: 2, sinkLine: 4, kind: "nested_assignment" },
+    { sourceText: COMPOUND_ASSIGNMENT, sourceLine: 2, sinkLine: 4, kind: "compound_assignment" },
+    { sourceText: DESTRUCTURING_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "complex_assignment" },
+    { sourceText: CONDITIONAL_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "nested_assignment" },
+  ];
+  for (const sourceCase of cases) {
+    const observations = observe(sourceCase.sourceText);
+    assert.ok(observations.unsupportedSyntaxRecords.some(record =>
+      record.kind === sourceCase.kind && record.reason === "assignment_out_of_slice"));
+    const result = projectValueFlowRelationship(reachingDefCandidate(
+      writeSite(observations, "x", sourceCase.sourceLine),
+      readSite(observations, "x", sourceCase.sinkLine),
+    ), observations);
+    assert.deepEqual(result.admission, {
+      denominatorEligible: false,
+      status: "unsupported",
+      reasons: ["assignment_out_of_slice"],
+    });
+  }
 });
 
 test("uncalled function facts do not isolate an outer candidate", () => {

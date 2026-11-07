@@ -66,8 +66,16 @@ export interface ValueFlowControlRecord {
 }
 
 export interface ValueFlowUnsupportedSyntaxRecord {
-  readonly kind: "unary_write" | "nested_if" | "try" | "switch" | "with";
-  readonly reason: "increment_out_of_slice" | "control_flow_out_of_slice";
+  readonly kind:
+    | "unary_write"
+    | "nested_if"
+    | "try"
+    | "switch"
+    | "with"
+    | "compound_assignment"
+    | "nested_assignment"
+    | "complex_assignment";
+  readonly reason: "increment_out_of_slice" | "control_flow_out_of_slice" | "assignment_out_of_slice";
   readonly span: ValueFlowSpan;
   readonly executionRef: Ref;
 }
@@ -178,6 +186,11 @@ function spanEndsBefore(left: ValueFlowSpan, right: ValueFlowSpan): boolean {
   return left.endColumn <= right.startColumn;
 }
 
+function spanEndAfter(left: ValueFlowSpan, right: ValueFlowSpan): boolean {
+  if (left.endLine !== right.endLine) return left.endLine > right.endLine;
+  return left.endColumn > right.endColumn;
+}
+
 function contains(outer: ValueFlowSpan | null, inner: ValueFlowSpan): boolean {
   if (outer === null) return false;
   if (outer.startLine < inner.startLine || (outer.startLine === inner.startLine && outer.startColumn <= inner.startColumn)) {
@@ -226,17 +239,61 @@ function isAssignmentTarget(node: ts.Node): boolean {
   const parent = parenthesizedParent(node.parent);
   if (parent === undefined) return false;
   if (ts.isBinaryExpression(parent) && parent.left === node) {
-    return parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
-      || parent.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken
-      || parent.operatorToken.kind === ts.SyntaxKind.MinusEqualsToken
-      || parent.operatorToken.kind === ts.SyntaxKind.AsteriskEqualsToken
-      || parent.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken;
+    return isAssignmentBinary(parent);
   }
   if (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) {
     return parent.operand === node
       && (parent.operator === ts.SyntaxKind.PlusPlusToken || parent.operator === ts.SyntaxKind.MinusMinusToken);
   }
   return false;
+}
+
+function isAssignmentBinary(node: ts.BinaryExpression): boolean {
+  return node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    || isCompoundAssignmentBinary(node);
+}
+
+function isSupportedAssignmentBinary(node: ts.BinaryExpression): boolean {
+  return node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    && ts.isIdentifier(node.left);
+}
+
+function isCompoundAssignmentBinary(node: ts.BinaryExpression): boolean {
+  return node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.MinusEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.AsteriskEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.PercentEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.AmpersandEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.BarEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.CaretEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.LessThanLessThanEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.BarBarEqualsToken
+    || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken;
+}
+
+function isComplexAssignment(node: ts.Node): boolean {
+  return ts.isBinaryExpression(node)
+    && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    && !ts.isIdentifier(node.left);
+}
+
+function containsNestedAssignment(node: ts.Node): boolean {
+  let found = false;
+  const visit = (current: ts.Node): void => {
+    if (found) return;
+    if (ts.isBinaryExpression(current) && isAssignmentBinary(current)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return found;
 }
 
 function parenthesizedParent(node: ts.Node | undefined): ts.Node | undefined {
@@ -551,22 +608,49 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
           });
         }
       }
-    } else if (ts.isBinaryExpression(node)
-      && (node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-        || node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken
-        || node.operatorToken.kind === ts.SyntaxKind.MinusEqualsToken
-        || node.operatorToken.kind === ts.SyntaxKind.AsteriskEqualsToken
-        || node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken)
-      && ts.isIdentifier(node.left)) {
-      const declRef = resolveDecl(node.left.text);
-      if (declRef !== null) {
-        addSite({
-          kind: "write",
-          writeKind: "assignment",
-          symbolName: node.left.text,
-          declRef,
-          span: spanOf(sf, node.left),
-        });
+    } else if (ts.isBinaryExpression(node) && isAssignmentBinary(node)) {
+      if (isComplexAssignment(node)) {
+        unsupportedSyntaxRecords.push(Object.freeze({
+          kind: "complex_assignment",
+          reason: "assignment_out_of_slice",
+          span: spanOf(sf, node),
+          executionRef: currentExecutionRef,
+        }));
+        return;
+      }
+      if (isCompoundAssignmentBinary(node)) {
+        unsupportedSyntaxRecords.push(Object.freeze({
+          kind: "compound_assignment",
+          reason: "assignment_out_of_slice",
+          span: spanOf(sf, node),
+          executionRef: currentExecutionRef,
+        }));
+        return;
+      }
+      if (containsNestedAssignment(node.right)) {
+        unsupportedSyntaxRecords.push(Object.freeze({
+          kind: "nested_assignment",
+          reason: "assignment_out_of_slice",
+          span: spanOf(sf, node),
+          executionRef: currentExecutionRef,
+        }));
+        return;
+      }
+      if (isSupportedAssignmentBinary(node)) {
+        const assignmentTarget = node.left as ts.Identifier;
+        const declRef = resolveDecl(assignmentTarget.text);
+        if (declRef !== null) {
+          addSite({
+            kind: "write",
+            writeKind: "assignment",
+            symbolName: assignmentTarget.text,
+            declRef,
+            span: spanOf(sf, assignmentTarget),
+            // The LHS identifier remains the site anchor, but the write does
+            // not complete until the RHS has been evaluated.
+            orderSpan: spanOf(sf, node),
+          });
+        }
       }
     } else if (ts.isCallExpression(node)) {
       const calleeExpression = node.expression;
@@ -714,7 +798,9 @@ export function enumerateValueFlowCandidates(
   for (const write of writes) {
     for (const read of reads) {
       if (write.declRef === null || write.declRef !== read.declRef) continue;
-      if (!after(read.span, write.span)) continue;
+      // A read only observes a write that has already completed, so ordering
+      // compares the write completion against the read anchor start.
+      if (!spanEndsBefore(write.orderSpan, read.span)) continue;
       candidates.push(Object.freeze({
         candidateRef: `cand:${write.siteRef}->${read.siteRef}`,
         relationKind: "reaching_def",
@@ -800,14 +886,16 @@ interface InterveningWrite {
   readonly siteRef: Ref;
   readonly symbolName: string;
   readonly span: ValueFlowSpan;
+  readonly orderSpan: ValueFlowSpan;
   readonly conditionalKinds: readonly string[];
 }
 
 function interveningWrites(
   observation: ValueFlowRawObservation,
   sourceDeclRef: Ref,
+  sourceSiteRef: Ref,
   sourceExecutionRef: Ref,
-  sourceSpan: ValueFlowSpan,
+  sourceOrderSpan: ValueFlowSpan,
   sinkSpan: ValueFlowSpan,
   predicate: (declRef: Ref) => boolean,
 ): readonly InterveningWrite[] {
@@ -817,16 +905,19 @@ function interveningWrites(
     // Count every actual write in the source execution domain, including
     // declaration writes with initializers (for example repeated `var`).
     .filter(site => site.executionRef === sourceExecutionRef)
-    .filter(site => after(site.orderSpan, sourceSpan) && spanEndsBefore(site.orderSpan, sinkSpan))
+    .filter(site => site.siteRef !== sourceSiteRef
+      && spanEndAfter(site.orderSpan, sourceOrderSpan)
+      && spanEndsBefore(site.orderSpan, sinkSpan))
     .filter(site => predicate(site.declRef))
     .sort((left, right) => {
-      if (left.span.startLine !== right.span.startLine) return left.span.startLine - right.span.startLine;
-      return left.span.startColumn - right.span.startColumn;
+      if (left.orderSpan.endLine !== right.orderSpan.endLine) return left.orderSpan.endLine - right.orderSpan.endLine;
+      return left.orderSpan.endColumn - right.orderSpan.endColumn;
     })
     .map(site => Object.freeze({
       siteRef: site.siteRef,
       symbolName: site.symbolName,
       span: site.span,
+      orderSpan: site.orderSpan,
       conditionalKinds: site.conditionalKinds,
     })));
 }
@@ -909,16 +1000,18 @@ function orderFlowForReachingDef(
   const same = interveningWrites(
     observation,
     sourceDeclRef,
+    source.siteRef,
     source.executionRef,
-    source.span,
+    source.orderSpan,
     sink.span,
     declRef => declRef === sourceDeclRef,
   );
   const other = interveningWrites(
     observation,
     sourceDeclRef,
+    source.siteRef,
     source.executionRef,
-    source.span,
+    source.orderSpan,
     sink.span,
     declRef => declRef !== sourceDeclRef,
   );
