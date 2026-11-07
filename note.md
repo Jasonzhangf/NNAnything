@@ -2815,3 +2815,7 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 语料路径只读核对：gcm-gap1-04 原始公开回执引用 `gcm-mappings-03/corpus`；`final-replay/README.md` 明确最终回放改用 `gcm-gap1-03/corpus/ready-slice`，它是 Carol 唯一已审 generator 的纯机械 staging adapter 输出。Iris final replay 与 Henry 自有 config 的公开 CLI 回放均为 READY，Henry receipt `status=READY_EVIDENCE_COLLECTED`，与 Iris final replay 的 data/student/supervision rows 为 15/67/15 语义一致；Henry 未签场景 PASS。
 - 该预检只确认作者证据与最终语料路径自洽，不替代 reviewer Alice 的正式定点复查。当前 P0 `iris-real-converter-engineering-20261106` 与 Henry 的完整 22 场景 replay 仍由同一 reviewer gate 阻挡。
 - 需用户裁定：让 Alice 恢复可接收 direct input 并消费 `m1793999283029-1674`，或指定一名获授权的独立替代 reviewer。裁定前不关闭 P0、不伪造 PASS、不开始训练/集成；未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-07 master 巡检：无变化（02:44Z）
+
+- 已消费 `m1794019389162-280`；inbox `unread=0`。CEO status 仍为 Alice，`is_current=false`。`project-patrol` armed、无 runtime gap；board 仍无 ready 且已授权可派工作；Alice 的 `m1793999283029-1674` 仍 `state=pending`、`answered=false`，worker 状态仍 `can_accept_direct_input=false`；无新增 direct-message 或状态变化。
