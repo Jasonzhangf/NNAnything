@@ -549,3 +549,135 @@ test("resume rejects a changed resource reference as an incompatible resume", as
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("unified train emits thisRun/cumulative timing and persists the committed cut point", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 2 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "completed");
+    assert.equal(typeof report.thisRun.loadSeconds, "number");
+    assert.equal(typeof report.thisRun.dataValidationSeconds, "number");
+    assert.equal(typeof report.thisRun.optimizationSeconds, "number");
+    assert.equal(typeof report.thisRun.checkpointIoSecs.totalSeconds, "number");
+    assert.equal(report.thisRun.evaluationSeconds, null);
+    assert.equal(typeof report.thisRun.totalWallSeconds, "number");
+    assert.equal(typeof report.thisRun.rowsPerSecond, "number");
+    assert.ok(
+      report.thisRun.totalWallSeconds
+        >= report.thisRun.dataValidationSeconds + report.thisRun.optimizationSeconds,
+    );
+    assert.equal(report.cumulative.optimizerSteps, 2);
+    assert.equal(report.cumulative.processedRows, report.counts.learnedRows * 2);
+    assert.equal(typeof report.cumulative.optimizationSeconds, "number");
+    assert.ok(report.cumulative.totalWallSeconds <= report.thisRun.totalWallSeconds);
+
+    const checkpoint = await readJson(`${paths.packagePath}.checkpoint.json`);
+    assert.equal(checkpoint.cumulativeTimingSeconds, report.cumulative.totalWallSeconds);
+    assert.deepEqual(checkpoint.timing.cumulative, report.cumulative);
+    assert.deepEqual(checkpoint.timing.timingCutPoint, {
+      committedOptimizerSteps: 2,
+      committedProcessedRows: report.counts.learnedRows * 2,
+      reason: "epoch_commit",
+    });
+
+    const markdown = await readFile(join(paths.outputDir, "run-report.md"), "utf8");
+    assert.match(markdown, /thisRun\.totalWallSeconds/);
+    assert.match(markdown, /cumulative\.optimizerSteps/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("unified resume adds only newly committed timing to cumulative", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 4, epochsThisRun: 2 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+    const paused = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(paused.status, "paused");
+    assert.equal(paused.cumulative.optimizerSteps, 2);
+    assert.equal(typeof paused.cumulative.optimizationSeconds, "number");
+
+    const config = await readJson(paths.configPath);
+    delete config.training.epochsThisRun;
+    await writeJson(paths.configPath, config);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 0);
+
+    const resumed = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(resumed.status, "completed");
+    assert.equal(resumed.thisRun.optimizationSeconds > 0, true);
+    assert.equal(resumed.cumulative.optimizerSteps, 4);
+    assert.ok(
+      resumed.cumulative.optimizationSeconds
+        >= paused.cumulative.optimizationSeconds,
+    );
+    assert.equal(typeof resumed.thisRun.loadSeconds, "number");
+    assert.equal(typeof resumed.thisRun.checkpointIoSecs.totalSeconds, "number");
+
+    const checkpoint = await readJson(`${paths.packagePath}.checkpoint.json`);
+    assert.equal(checkpoint.timing.cumulative.optimizerSteps, 4);
+    assert.equal(checkpoint.timing.timingCutPoint.committedOptimizerSteps, 4);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("legacy checkpoint without timing keeps cumulative unrecorded", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 4, epochsThisRun: 2 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+
+    const checkpointPath = `${paths.packagePath}.checkpoint.json`;
+    const checkpoint = await readJson(checkpointPath);
+    delete checkpoint.timing;
+    checkpoint.cumulativeTimingSeconds = null;
+    await writeJson(checkpointPath, checkpoint);
+
+    const config = await readJson(paths.configPath);
+    delete config.training.epochsThisRun;
+    await writeJson(paths.configPath, config);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 0);
+
+    const resumed = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(resumed.status, "completed");
+    assert.equal(typeof resumed.thisRun.optimizationSeconds, "number");
+    assert.equal(resumed.cumulative, null);
+    const checkpointAfter = await readJson(checkpointPath);
+    assert.equal(checkpointAfter.cumulativeTimingSeconds, null);
+    assert.equal(checkpointAfter.timing, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("checkpoint save failure is typed and retains measured thisRun timing", async () => {
+  const root = await makeCorpus();
+  try {
+    const checkpointDirectory = join(root, "checkpoint-as-directory");
+    await mkdir(checkpointDirectory, { recursive: true });
+    const paths = await makeConfig(root, {
+      maxEpochs: 2,
+      checkpointPath: checkpointDirectory,
+    });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 1);
+
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "failed");
+    assert.equal(report.error.code, "CHECKPOINT_SAVE_ERROR");
+    assert.equal(typeof report.thisRun.optimizationSeconds, "number");
+    assert.equal(typeof report.thisRun.checkpointIoSecs.totalSeconds, "number");
+    assert.equal(typeof report.thisRun.totalWallSeconds, "number");
+    assert.equal(report.cumulative, null);
+    await assert.rejects(readFile(paths.packagePath, "utf8"), error => error.code === "ENOENT");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -28,12 +28,15 @@ import {
 import {
   assertResumeRecipeCompatible,
   createUnifiedTrainingCheckpoint,
+  saveUnifiedTrainingCheckpointAtomicWithTiming,
   saveUnifiedTrainingCheckpointAtomic,
   type UnifiedTrainingCheckpoint,
+  type UnifiedTrainingCheckpointAtomicSaveReceipt,
 } from "./unified-training-checkpoint.js";
 import { UNIFIED_STUDENT_ROW_SCHEMA, type StudentCandidateRow } from "./unified-student-converter.js";
 import { UNIFIED_SUPERVISION_ROW_SCHEMA } from "./unified-supervision-converter.js";
 import { validateMissingModeConsistency } from "./unified-missing-mode.js";
+import { monotonicSeconds, type UnifiedPersistedTiming } from "./unified-timing.js";
 
 export const UNIFIED_TRAIN_CONFIG_SCHEMA = "nnanything.unified.train-config.v1" as const;
 
@@ -120,6 +123,11 @@ export interface UnifiedTrainingRunOptions {
   readonly resumeFrom?: UnifiedTrainingCheckpoint;
   /** Bounded invocation: run at most this many epochs in this call. */
   readonly epochsThisRun?: number;
+}
+
+export interface UnifiedTrainExecutionTiming {
+  readonly optimizationSeconds: number;
+  readonly cutPointNs: bigint;
 }
 
 export class UnifiedTrainDataError extends Error {
@@ -230,7 +238,11 @@ export function runUnifiedTraining(
   groups: readonly EncodedGroup[],
   config: UnifiedTrainConfig,
   options: UnifiedTrainingRunOptions = {},
-): { readonly report: UnifiedTrainReport; readonly tensors: UnifiedTensors } {
+): {
+  readonly report: UnifiedTrainReport;
+  readonly tensors: UnifiedTensors;
+  readonly timing: UnifiedTrainExecutionTiming;
+} {
   validateUnifiedTrainConfig(config);
   if (groups.length === 0) throw new UnifiedTrainDataError("no trainable groups");
   const epochsThisRun = options.epochsThisRun;
@@ -262,6 +274,7 @@ export function runUnifiedTraining(
     : Math.min(config.maxEpochs, startEpoch + epochsThisRun);
   let stopReason: UnifiedStopReason =
     endEpoch >= config.maxEpochs ? "epoch_limit_exhausted" : "invocation_budget_exhausted";
+  const optimizationStartedNs = process.hrtime.bigint();
 
   for (let epoch = startEpoch; epoch < endEpoch; epoch += 1) {
     const before = cloneMutable(tensors);
@@ -284,6 +297,8 @@ export function runUnifiedTraining(
       break;
     }
   }
+  const cutPointNs = process.hrtime.bigint();
+  const optimizationSeconds = monotonicSeconds(optimizationStartedNs, cutPointNs);
 
   const losses = epochs.filter(record => record.finite).map(record => record.epochLoss);
   let monotonicViolations = 0;
@@ -320,7 +335,11 @@ export function runUnifiedTraining(
     epochs,
     violations,
   };
-  return { report, tensors: tensors as UnifiedTensors };
+  return {
+    report,
+    tensors: tensors as UnifiedTensors,
+    timing: { optimizationSeconds, cutPointNs },
+  };
 }
 
 export async function saveUnifiedTrainPackage(
@@ -344,6 +363,7 @@ export async function saveUnifiedTrainingCheckpoint(
   config: UnifiedTrainConfig,
   report: UnifiedTrainReport,
   tensors: UnifiedTensors,
+  timing?: UnifiedPersistedTiming,
 ): Promise<UnifiedTrainingCheckpoint> {
   const checkpoint = createUnifiedTrainingCheckpoint({
     config,
@@ -351,9 +371,32 @@ export async function saveUnifiedTrainingCheckpoint(
     epochRecords: report.epochs,
     violations: report.violations,
     tensors,
+    ...(timing !== undefined ? { timing } : {}),
   });
   await saveUnifiedTrainingCheckpointAtomic(checkpointPath, checkpoint);
   return checkpoint;
+}
+
+export async function saveUnifiedTrainingCheckpointWithTiming(
+  checkpointPath: string,
+  config: UnifiedTrainConfig,
+  report: UnifiedTrainReport,
+  tensors: UnifiedTensors,
+  timing: UnifiedPersistedTiming,
+): Promise<{
+  readonly checkpoint: UnifiedTrainingCheckpoint;
+  readonly io: UnifiedTrainingCheckpointAtomicSaveReceipt["io"];
+}> {
+  const checkpoint = createUnifiedTrainingCheckpoint({
+    config,
+    completedEpochs: report.completedEpochs,
+    epochRecords: report.epochs,
+    violations: report.violations,
+    tensors,
+    timing,
+  });
+  const saved = await saveUnifiedTrainingCheckpointAtomicWithTiming(checkpointPath, checkpoint);
+  return { checkpoint, io: saved.io };
 }
 
 export interface UnifiedPackageReloadReceipt {

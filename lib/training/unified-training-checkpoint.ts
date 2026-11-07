@@ -15,6 +15,11 @@ import type {
   UnifiedModelPackageResources,
 } from "./unified-model-package.js";
 import type { UnifiedTrainConfig, UnifiedTrainEpochRecord } from "./unified-train-config.js";
+import { monotonicSeconds, type UnifiedCheckpointIoTiming } from "./unified-timing.js";
+import type {
+  UnifiedCumulativeTiming,
+  UnifiedTimingCutPoint,
+} from "./unified-timing.js";
 
 export const UNIFIED_TRAINING_CHECKPOINT_SCHEMA =
   "nnanything.unified.training-checkpoint.v1" as const;
@@ -47,11 +52,21 @@ export interface UnifiedTrainingCheckpoint {
   readonly completedEpochs: number;
   /** The fixed recipe has no DEV early stop; this typed slot prevents guessing. */
   readonly earlyStop: { readonly devEarlyStopEnabled: false };
-  /** The unified fitter does not measure timing; null stays explicit, never 0. */
-  readonly cumulativeTimingSeconds: null;
+  /**
+   * Backwards-compatible committed wall summary. New checkpoints carry the full
+   * committed cumulative; historical checkpoints stay null (unrecorded).
+   */
+  readonly cumulativeTimingSeconds: number | null;
+  /** Committed timing ledger; null/unrecorded for historical checkpoints. */
+  readonly timing: UnifiedPersistedTiming | null;
   readonly epochRecords: readonly UnifiedTrainEpochRecord[];
   readonly violations: readonly string[];
   readonly tensors: UnifiedTensors;
+}
+
+interface UnifiedPersistedTiming {
+  readonly cumulative: UnifiedCumulativeTiming;
+  readonly timingCutPoint: UnifiedTimingCutPoint;
 }
 
 export class UnifiedTrainingCheckpointError extends Error {
@@ -69,6 +84,7 @@ export interface UnifiedTrainingCheckpointInput {
   readonly epochRecords: readonly UnifiedTrainEpochRecord[];
   readonly violations: readonly string[];
   readonly tensors: UnifiedTensors;
+  readonly timing?: UnifiedPersistedTiming;
 }
 
 export interface UnifiedTrainingCheckpointReloadReceipt {
@@ -217,13 +233,109 @@ function validateEarlyStop(raw: unknown): UnifiedTrainingCheckpoint["earlyStop"]
   return { devEarlyStopEnabled: false };
 }
 
-function validateCumulativeTimingSeconds(
-  raw: unknown,
-): UnifiedTrainingCheckpoint["cumulativeTimingSeconds"] {
-  if (raw !== null) {
-    throw invalid("cumulativeTimingSeconds must be null; the unified fitter does not measure timing");
+function validateCumulativeTimingSeconds(raw: unknown): number | null {
+  if (raw === null) return null;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    throw invalid("cumulativeTimingSeconds must be null or a nonnegative finite number");
   }
-  return null;
+  return raw;
+}
+
+function validateUnifiedPersistedTiming(raw: unknown): UnifiedPersistedTiming | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw invalid("timing must be an object or null");
+  }
+  const timing = raw as Record<string, unknown>;
+  const cumulative = validateCumulativeTiming(timing.cumulative);
+  const timingCutPoint = validateTimingCutPoint(timing.timingCutPoint);
+  return { cumulative, timingCutPoint };
+}
+
+function validateNonnegativeFinite(raw: unknown, label: string): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    throw invalid(`${label} must be a nonnegative finite number`);
+  }
+  return raw;
+}
+
+function validateNonnegativeInteger(raw: unknown, label: string): number {
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
+    throw invalid(`${label} must be a nonnegative integer`);
+  }
+  return raw;
+}
+
+function validateCumulativeTiming(raw: unknown): UnifiedCumulativeTiming {
+  const cumulative = assertObject(raw, "timing.cumulative");
+  const loadSeconds = validateNonnegativeFinite(cumulative.loadSeconds, "timing.cumulative.loadSeconds");
+  const dataValidationSeconds = validateNonnegativeFinite(
+    cumulative.dataValidationSeconds,
+    "timing.cumulative.dataValidationSeconds",
+  );
+  const optimizationSeconds = validateNonnegativeFinite(
+    cumulative.optimizationSeconds,
+    "timing.cumulative.optimizationSeconds",
+  );
+  const totalWallSeconds = validateNonnegativeFinite(
+    cumulative.totalWallSeconds,
+    "timing.cumulative.totalWallSeconds",
+  );
+  const optimizerSteps = validateNonnegativeInteger(
+    cumulative.optimizerSteps,
+    "timing.cumulative.optimizerSteps",
+  );
+  const processedRows = validateNonnegativeInteger(
+    cumulative.processedRows,
+    "timing.cumulative.processedRows",
+  );
+  return {
+    loadSeconds,
+    dataValidationSeconds,
+    optimizationSeconds,
+    checkpointIoSecs: validateCheckpointIoTiming(
+      cumulative.checkpointIoSecs,
+      "timing.cumulative.checkpointIoSecs",
+    ),
+    totalWallSeconds,
+    optimizerSteps,
+    processedRows,
+  };
+}
+
+function validateCheckpointIoTiming(
+  raw: unknown,
+  label: string,
+): UnifiedCheckpointIoTiming {
+  const io = assertObject(raw, label);
+  const serializeSeconds = validateNonnegativeFinite(io.serializeSeconds, `${label}.serializeSeconds`);
+  const atomicReplaceSeconds = validateNonnegativeFinite(
+    io.atomicReplaceSeconds,
+    `${label}.atomicReplaceSeconds`,
+  );
+  const packageReloadSeconds = validateNonnegativeFinite(
+    io.packageReloadSeconds,
+    `${label}.packageReloadSeconds`,
+  );
+  const totalSeconds = validateNonnegativeFinite(io.totalSeconds, `${label}.totalSeconds`);
+  return { serializeSeconds, atomicReplaceSeconds, packageReloadSeconds, totalSeconds };
+}
+
+function validateTimingCutPoint(raw: unknown): UnifiedTimingCutPoint {
+  const cutPoint = assertObject(raw, "timing.timingCutPoint");
+  const committedOptimizerSteps = validateNonnegativeInteger(
+    cutPoint.committedOptimizerSteps,
+    "timing.timingCutPoint.committedOptimizerSteps",
+  );
+  const committedProcessedRows = validateNonnegativeInteger(
+    cutPoint.committedProcessedRows,
+    "timing.timingCutPoint.committedProcessedRows",
+  );
+  const reason = cutPoint.reason;
+  if (reason !== "epoch_commit" && reason !== "paused") {
+    throw invalid("timing.timingCutPoint.reason must be epoch_commit or paused");
+  }
+  return { committedOptimizerSteps, committedProcessedRows, reason };
 }
 
 function validateEpochRecords(
@@ -290,6 +402,19 @@ export function validateUnifiedTrainingCheckpoint(
   if (epochRecords.length !== completedEpochs) {
     throw invalid("epochRecords must have exactly completedEpochs entries");
   }
+  const timing = validateUnifiedPersistedTiming(checkpoint.timing);
+  const cumulativeTimingSeconds = validateCumulativeTimingSeconds(
+    checkpoint.cumulativeTimingSeconds,
+  );
+  if (timing === null && cumulativeTimingSeconds !== null) {
+    throw invalid("cumulativeTimingSeconds requires a committed timing object");
+  }
+  if (
+    timing !== null
+    && cumulativeTimingSeconds !== timing.cumulative.totalWallSeconds
+  ) {
+    throw invalid("cumulativeTimingSeconds must equal timing.cumulative.totalWallSeconds");
+  }
   return {
     schema: UNIFIED_TRAINING_CHECKPOINT_SCHEMA,
     modelId: assertNonEmptyString(checkpoint.modelId, "modelId"),
@@ -304,9 +429,8 @@ export function validateUnifiedTrainingCheckpoint(
     recipe,
     completedEpochs,
     earlyStop: validateEarlyStop(checkpoint.earlyStop),
-    cumulativeTimingSeconds: validateCumulativeTimingSeconds(
-      checkpoint.cumulativeTimingSeconds,
-    ),
+    cumulativeTimingSeconds,
+    timing,
     epochRecords,
     violations: validateViolations(checkpoint.violations),
     tensors: validateTensors(checkpoint.tensors),
@@ -336,17 +460,24 @@ export function createUnifiedTrainingCheckpoint(
     },
     completedEpochs: input.completedEpochs,
     earlyStop: { devEarlyStopEnabled: false },
-    cumulativeTimingSeconds: null,
+    cumulativeTimingSeconds: input.timing?.cumulative.totalWallSeconds ?? null,
+    timing: input.timing ?? null,
     epochRecords: input.epochRecords,
     violations: input.violations,
     tensors: input.tensors,
   });
 }
 
-export async function saveUnifiedTrainingCheckpointAtomic(
+export interface UnifiedTrainingCheckpointAtomicSaveReceipt {
+  readonly checkpointPath: string;
+  readonly io: UnifiedCheckpointIoTiming;
+}
+
+export async function saveUnifiedTrainingCheckpointAtomicWithTiming(
   checkpointPath: string,
   checkpoint: UnifiedTrainingCheckpoint,
-): Promise<string> {
+): Promise<UnifiedTrainingCheckpointAtomicSaveReceipt> {
+  const startedNs = process.hrtime.bigint();
   const validated = validateUnifiedTrainingCheckpoint(checkpoint);
   const resolved = resolve(checkpointPath);
   await mkdir(dirname(resolved), { recursive: true });
@@ -358,8 +489,27 @@ export async function saveUnifiedTrainingCheckpointAtomic(
   } finally {
     await handle.close();
   }
+  const serializeSeconds = monotonicSeconds(startedNs);
+  const atomicStartedNs = process.hrtime.bigint();
   await rename(tempPath, resolved);
-  return resolved;
+  const atomicReplaceSeconds = monotonicSeconds(atomicStartedNs);
+  return {
+    checkpointPath: resolved,
+    io: {
+      serializeSeconds,
+      atomicReplaceSeconds,
+      packageReloadSeconds: 0,
+      totalSeconds: serializeSeconds + atomicReplaceSeconds,
+    },
+  };
+}
+
+export async function saveUnifiedTrainingCheckpointAtomic(
+  checkpointPath: string,
+  checkpoint: UnifiedTrainingCheckpoint,
+): Promise<string> {
+  const receipt = await saveUnifiedTrainingCheckpointAtomicWithTiming(checkpointPath, checkpoint);
+  return receipt.checkpointPath;
 }
 
 export async function loadUnifiedTrainingCheckpointFromFile(
