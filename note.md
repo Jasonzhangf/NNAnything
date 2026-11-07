@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-07 Jenny：值流 rev8 REVIEW 路由 Carol，worker-idle 消费（18:35Z）
+
+- 消费 Alice `m1794076261913-6176`：`value-flow-shared-projection-engineering-20261107` 候选 `80c24ba` subject_revision 8 正式 REWORK。证据 `/Volumes/Intel/playground/nnanything-runs/value-flow-shared-projection-engineering-20261107/alice-review.md`。原后置声明绑定与未调用函数执行域反例已闭合，不重审 encoder/异常处理。
+- 已发 Carol durable 返工指令 `m1794076477468-6203`（reply-on-completion）：按当前支持切片一并自检声明身份、实际写点和调用未知边界；两项 P1 为调用 `f()` 后仍把外层候选当完整 eligible，以及重复 `var` 被当不同绑定并漏掉初始赋值。要求红测先于修复，不能证明调用影响时显式 unsupported/not_ready；不改 gold/阈值/词表/权重，不训练、不集成、不安装，不只按示例打补丁。
+- 消费 worker-idle `m1794076357376-6187`；未发现新增 ready 或待集成工作。goal one-shot `sub-m1794075896830-6155` 仍 armed，project-patrol `sub-m1793963843713-143` 仍 armed。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装；未操作 tmux/daemon。
+
 ## 2026-11-07 Jenny：goal deadline 续订（18:25Z）
 
 - 消费 goal deadline `m1794075862495-6153`（LAST_REMINDER，subject `goal:sha256:b9c0...f9606140c48950d5a8b4e0ca678`）；旧 one-shot `sub-m1794074061797-5998` 已被 consumed，`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED` 如实记录后处理。
