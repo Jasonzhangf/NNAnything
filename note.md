@@ -3180,3 +3180,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - `appsdk goal status` 复核：active=true、desired=subscribed、observed=subscribed；本 roadmap 文件 20:39:39Z 注册、interval 30m，尚未触发，无需重订。
 - 下一轮复核项：Iris 是否接受新任务；goal ≈21:09Z 触发后续订；四 Emma 子任务 board 写入；B-A1 Carol 续修。project patrol `sub-m1793963843713-143` armed，Kate 巡检订阅 `sub-m1794030974692-804` armed（next≈21:56Z）。
 - 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon；main `f49ad6c=origin/main`，主工作树仅保护性未跟踪 fixture。
+
+## 2026-11-07 master：B-A1 rev1 REWORK 与 P1-1 返工派发，roadmap 同步（22:27Z）
+
+- 消费通知批次（worker-idle、m1794090140444-7841 B-A1 交付回执、m1794090151156-7844 Alice 正式 REWORK、m1794090449714-7883 Kate round-27）。B-A1 `b-a1-unified-research-prep-20261107` board rev8、status=rework，Alice 审计 `/Volumes/Intel/playground/nnanything-runs/b-a1-unified-research-prep-20261107/alice-review.md`。
+- 已向 Carol 投递 `m1794090296255-7857`：按 Alice 六项 P1 修订同一目录三份设计并重交；选定与固定聚合相容的监督目标并给公式/梯度/分母及单正、全合法双候选、正负混合、整体平移四个手算反例；明确 relation/select 适配 owner；删除旧线性 support 正式输入；补齐 NOT_READY 14 槽恢复条件与 encoder 路由；恢复 A2 双 text 同型反例；写清 loss 达标/未收敛判据与缺测/歧义/监督缺失分母。不实现、不训练、不改权重-gold-threshold-监督-采用。
+- 已向 Iris 投递 `m1794090412791-7873`：P1-1 `p1-1-typed-dynamic-recursive-engineering-iris-20261107` 在原 worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` 按 Alice 四项 P1 返工（请求内多步真实推进、真实执行回执与后态、previousExecution 进入下一步输入、typed bridge 保留状态与请求身份），重跑 build/bridge/terminal/multistep 与 public converter acceptance 后交 Alice，带 `--evidence`；保留 implementation-result.md 已列 INCOMPLETE；不改权重/gold/threshold/采用、不 merge/push。
+- roadmap 已同步：新增 P1-1 typed/dynamic §2.5 行（候选 2d1217e branch-only、Alice REWORK、Iris 返工中）；B-A1 行改为 rev1 交付后 Alice 正式 REWORK 六项、Carol 续修中；Emma 四子任务按 Alice 裁定记为 parked-pending-design-peer（owner missing、恢复条件、不冒用身份）。
+- 订阅复核：goal active/desired=subscribed/observed=subscribed（本 roadmap 30m）；project patrol `sub-m1793963843713-143` armed。B-R 逐例归因独立继续。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用、未产品接线、未安装 runtime、未动 tmux/daemon；main 仅 roadmap/note 写入，P1-1 2d1217e 未 push/merge。
