@@ -421,16 +421,22 @@ interface ProjectionEncode {
   readonly reason: MissingReason | null;
 }
 
+function isIntegerInRange(value: number, min: number, max: number): boolean {
+  return Number.isInteger(value) && value >= min && value <= max;
+}
+
 // Map a typed Observed projection field to either a real slot value or a
-// missing-mode declaration per the accepted Stage A state table. Unsupported
-// control flow keeps its legal value and does not generate a missingMode entry;
-// the reject reason stays on the original Observed admissibility record.
+// missing-mode declaration per the accepted Stage A state table. Only x[51]
+// control flow may retain a legal numeric value while Observed.state is
+// `unsupported`; every other slot falls to -1 plus a missingMode entry and the
+// reject reason stays on the original Observed admissibility record.
 function encodeProjectionSlot<T>(
   slot: number,
   block: EncoderMissingMode["block"],
   fieldRef: string,
   value: Observed<T>,
   code: (v: T) => number,
+  allowUnsupportedValue = false,
 ): ProjectionEncode {
   if (value.state === "known") {
     if (value.value === undefined) {
@@ -442,15 +448,15 @@ function encodeProjectionSlot<T>(
     }
     return { slot, block, fieldRef, value: v, reason: null };
   }
-  // Unsupported control flow may retain a legal value (e.g. x[51] orderFlow 0);
-  // a true whole-field unsupported falls through to the missing path.
-  if (value.state === "unsupported" && value.value !== undefined) {
-    const v = code(value.value);
-    if (v === -1) {
-      // Out-of-slice enum with no legal value: -1 plus declared unsupported reason.
-      return { slot, block, fieldRef, value: -1, reason: value.reason ?? "unsupported_pattern" };
+  if (value.state === "unsupported") {
+    if (allowUnsupportedValue && value.value !== undefined) {
+      const v = code(value.value);
+      if (v === -1) {
+        return { slot, block, fieldRef, value: -1, reason: value.reason ?? "unsupported_pattern" };
+      }
+      return { slot, block, fieldRef, value: v, reason: null };
     }
-    return { slot, block, fieldRef, value: code(value.value), reason: null };
+    return { slot, block, fieldRef, value: -1, reason: value.reason ?? "unsupported_pattern" };
   }
   const reason: MissingReason = value.reason
     ?? (value.state === "conflicting" ? "contract_mismatch" : "not_requested");
@@ -469,12 +475,18 @@ function encodeRelationshipProjection(
   projection: RelationshipProjection,
   missingMode: EncoderMissingMode[],
 ): RelationshipSlotResult {
-  const relationKind = encodeProjectionSlot(15, "G1", "x[15].relationKind", projection.relationKind, k => RELATION_KIND_CODE[k]);
+  const relationKind = encodeProjectionSlot(15, "G1", "x[15].relationKind", projection.relationKind,
+    k => RELATION_KIND_CODE[k] ?? -1,
+  );
   const sourceRole = encodeProjectionSlot(23, "G2", "x[23].sourceRoleAndOrdinal", projection.sourceRoleAndOrdinal,
-    ({ roleIndex, ordinalIndex }) => (ordinalIndex < 0 || ordinalIndex > 1 ? -1 : (roleIndex * 4 + ordinalIndex) / 19),
+    ({ roleIndex, ordinalIndex }) => (isIntegerInRange(roleIndex, 0, 4) && isIntegerInRange(ordinalIndex, 0, 1)
+      ? (roleIndex * 4 + ordinalIndex) / 19
+      : -1),
   );
   const sinkRole = encodeProjectionSlot(31, "G3", "x[31].sinkRoleAndOrdinal", projection.sinkRoleAndOrdinal,
-    ({ roleIndex, ordinalIndex }) => (ordinalIndex < 0 || ordinalIndex > 1 ? -1 : (roleIndex * 4 + ordinalIndex) / 19),
+    ({ roleIndex, ordinalIndex }) => (isIntegerInRange(roleIndex, 0, 4) && isIntegerInRange(ordinalIndex, 0, 1)
+      ? (roleIndex * 4 + ordinalIndex) / 19
+      : -1),
   );
   const orderFlow = encodeProjectionSlot(
     51,
@@ -482,11 +494,14 @@ function encodeRelationshipProjection(
     "x[51].orderFlowAndCoverage",
     projection.orderFlowAndCoverage,
     ({ orderFlowIndex, coverageIndex }) =>
-      (orderFlowIndex < 0 || orderFlowIndex > 9 || coverageIndex < 0 || coverageIndex > 3
-        ? -1
-        : (orderFlowIndex * 4 + coverageIndex) / 39),
+      (isIntegerInRange(orderFlowIndex, 0, 9) && isIntegerInRange(coverageIndex, 0, 3)
+        ? (orderFlowIndex * 4 + coverageIndex) / 39
+        : -1),
+    true,
   );
-  const binding = encodeProjectionSlot(55, "G6", "x[55].bindingResolution", projection.bindingResolution, c => BINDING_RESOLUTION_CODE[c]);
+  const binding = encodeProjectionSlot(55, "G6", "x[55].bindingResolution", projection.bindingResolution,
+    c => BINDING_RESOLUTION_CODE[c] ?? -1,
+  );
 
   for (const e of [relationKind, sourceRole, sinkRole, orderFlow, binding]) {
     if (e.value === -1) {

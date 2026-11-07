@@ -361,50 +361,6 @@ test("read failure maps to missing + observation_failed, no failed state", () =>
   ]);
 });
 
-test("read failure maps to missing + observation_failed: -1 + missingMode, no failed state", () => {
-  const ctx = baseContext();
-  ctx.relationshipProjection = {
-    relationKind: knownValue("local_assign"),
-    sourceRoleAndOrdinal: {
-      state: "missing",
-      reason: "observation_failed",
-      value: undefined,
-      evidenceRefs: ["ev:rp"],
-    },
-    sinkRoleAndOrdinal: knownValue(role(2, 0)),
-    orderFlowAndCoverage: knownValue({ orderFlowIndex: 7, coverageIndex: 2 }),
-    bindingResolution: knownValue(binding(0.5)),
-    evidenceRefs: ["ev:rp"],
-  };
-  const res = encode(ctx);
-  assert.equal(res.vector[23], -1);
-  assert.deepEqual(res.missingMode, [
-    { block: "G2", fieldRef: "x[23].sourceRoleAndOrdinal", reason: "observation_failed", slotIndex: 23, fill: -1 },
-  ]);
-});
-
-test("read/parse/timeout failure maps to missing + observation_failed, no failed state", () => {
-  const ctx = baseContext();
-  ctx.relationshipProjection = {
-    relationKind: knownValue("local_assign"),
-    sourceRoleAndOrdinal: {
-      state: "missing",
-      reason: "observation_failed",
-      value: undefined,
-      evidenceRefs: ["ev:rp"],
-    },
-    sinkRoleAndOrdinal: knownValue(role(2, 0)),
-    orderFlowAndCoverage: knownValue({ orderFlowIndex: 7, coverageIndex: 2 }),
-    bindingResolution: knownValue(binding(0.5)),
-    evidenceRefs: ["ev:rp"],
-  };
-  const res = encode(ctx);
-  assert.equal(res.vector[23], -1);
-  assert.deepEqual(res.missingMode, [
-    { block: "G2", fieldRef: "x[23].sourceRoleAndOrdinal", reason: "observation_failed", slotIndex: 23, fill: -1 },
-  ]);
-});
-
 test("unsupported ordinal with no legal role code -> -1 + unsupported_pattern", () => {
   const ctx = baseContext();
   ctx.relationshipProjection = {
@@ -429,6 +385,116 @@ test("unsupported x[51] with out-of-slice enum keeps -1 + unsupported_pattern", 
     sourceRoleAndOrdinal: knownValue(role(1, 0)),
     sinkRoleAndOrdinal: knownValue(role(1, 0)),
     orderFlowAndCoverage: unsupportedValue({ orderFlowIndex: 10, coverageIndex: 2 }, "unsupported_pattern"),
+    bindingResolution: knownValue(binding(0)),
+    evidenceRefs: ["ev:rp"],
+  };
+  const res = encode(ctx);
+  assert.equal(res.vector[51], -1);
+  assert.deepEqual(res.missingMode, [
+    { block: "G6", fieldRef: "x[51].orderFlowAndCoverage", reason: "unsupported_pattern", slotIndex: 51, fill: -1 },
+  ]);
+});
+
+test("unsupported whole-field values on x[15]/x[23]/x[31]/x[55] fall back to -1 + missingMode", () => {
+  const ctx = baseContext();
+  ctx.relationshipProjection = {
+    relationKind: unsupportedValue("local_assign", "unsupported_pattern"),
+    sourceRoleAndOrdinal: unsupportedValue(role(1, 0), "unsupported_pattern"),
+    sinkRoleAndOrdinal: unsupportedValue(role(2, 0), "unsupported_pattern"),
+    orderFlowAndCoverage: knownValue({ orderFlowIndex: 7, coverageIndex: 2 }),
+    bindingResolution: unsupportedValue(binding(0.5), "unsupported_pattern"),
+    evidenceRefs: ["ev:rp"],
+  };
+  const res = encode(ctx);
+  assert.equal(res.vector[15], -1);
+  assert.equal(res.vector[23], -1);
+  assert.equal(res.vector[31], -1);
+  assert.equal(res.vector[55], -1);
+  assert.deepEqual(res.missingMode, [
+    { block: "G1", fieldRef: "x[15].relationKind", reason: "unsupported_pattern", slotIndex: 15, fill: -1 },
+    { block: "G2", fieldRef: "x[23].sourceRoleAndOrdinal", reason: "unsupported_pattern", slotIndex: 23, fill: -1 },
+    { block: "G3", fieldRef: "x[31].sinkRoleAndOrdinal", reason: "unsupported_pattern", slotIndex: 31, fill: -1 },
+    { block: "G6", fieldRef: "x[55].bindingResolution", reason: "unsupported_pattern", slotIndex: 55, fill: -1 },
+  ]);
+});
+
+test("legal enum endpoints encode exact codes on all five slots", () => {
+  const ctx = baseContext();
+  ctx.relationshipProjection = {
+    relationKind: knownValue("return_to_call_lhs"),
+    sourceRoleAndOrdinal: knownValue(role(4, 1)),
+    sinkRoleAndOrdinal: knownValue(role(0, 1)),
+    orderFlowAndCoverage: knownValue({ orderFlowIndex: 9, coverageIndex: 3 }),
+    bindingResolution: knownValue(binding(1)),
+    evidenceRefs: ["ev:rp"],
+  };
+  const res = encode(ctx);
+  assert.equal(res.vector[15], 1);
+  assert.equal(res.vector[23], 17 / 19);
+  assert.equal(res.vector[31], 1 / 19);
+  assert.equal(res.vector[51], 1);
+  assert.equal(res.vector[55], 1);
+  assert.deepEqual(res.missingMode, []);
+});
+
+test("negative roleIndex maps x[23] to -1 + unsupported_pattern", () => {
+  const ctx = baseContext();
+  ctx.relationshipProjection = {
+    relationKind: knownValue("local_assign"),
+    sourceRoleAndOrdinal: knownValue(role(-1, 0)),
+    sinkRoleAndOrdinal: knownValue(role(1, 0)),
+    orderFlowAndCoverage: knownValue({ orderFlowIndex: 7, coverageIndex: 2 }),
+    bindingResolution: knownValue(binding(0)),
+    evidenceRefs: ["ev:rp"],
+  };
+  const res = encode(ctx);
+  assert.equal(res.vector[23], -1);
+  assert.deepEqual(res.missingMode, [
+    { block: "G2", fieldRef: "x[23].sourceRoleAndOrdinal", reason: "unsupported_pattern", slotIndex: 23, fill: -1 },
+  ]);
+});
+
+test("out-of-range roleIndex maps x[23] to -1 + unsupported_pattern", () => {
+  const ctx = baseContext();
+  ctx.relationshipProjection = {
+    relationKind: knownValue("local_assign"),
+    sourceRoleAndOrdinal: knownValue(role(5, 0)),
+    sinkRoleAndOrdinal: knownValue(role(1, 0)),
+    orderFlowAndCoverage: knownValue({ orderFlowIndex: 7, coverageIndex: 2 }),
+    bindingResolution: knownValue(binding(0)),
+    evidenceRefs: ["ev:rp"],
+  };
+  const res = encode(ctx);
+  assert.equal(res.vector[23], -1);
+  assert.deepEqual(res.missingMode, [
+    { block: "G2", fieldRef: "x[23].sourceRoleAndOrdinal", reason: "unsupported_pattern", slotIndex: 23, fill: -1 },
+  ]);
+});
+
+test("decimal ordinalIndex maps x[31] to -1 + unsupported_pattern", () => {
+  const ctx = baseContext();
+  ctx.relationshipProjection = {
+    relationKind: knownValue("local_assign"),
+    sourceRoleAndOrdinal: knownValue(role(1, 0)),
+    sinkRoleAndOrdinal: knownValue(role(2, 0.5)),
+    orderFlowAndCoverage: knownValue({ orderFlowIndex: 7, coverageIndex: 2 }),
+    bindingResolution: knownValue(binding(0)),
+    evidenceRefs: ["ev:rp"],
+  };
+  const res = encode(ctx);
+  assert.equal(res.vector[31], -1);
+  assert.deepEqual(res.missingMode, [
+    { block: "G3", fieldRef: "x[31].sinkRoleAndOrdinal", reason: "unsupported_pattern", slotIndex: 31, fill: -1 },
+  ]);
+});
+
+test("non-finite orderFlowIndex maps x[51] to -1 + unsupported_pattern", () => {
+  const ctx = baseContext();
+  ctx.relationshipProjection = {
+    relationKind: knownValue("local_assign"),
+    sourceRoleAndOrdinal: knownValue(role(1, 0)),
+    sinkRoleAndOrdinal: knownValue(role(1, 0)),
+    orderFlowAndCoverage: knownValue({ orderFlowIndex: Number.NaN, coverageIndex: 2 }),
     bindingResolution: knownValue(binding(0)),
     evidenceRefs: ["ev:rp"],
   };
