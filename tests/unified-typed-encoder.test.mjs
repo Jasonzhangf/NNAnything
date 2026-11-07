@@ -15,7 +15,36 @@ function declaration(overrides = {}) {
   };
 }
 
+function resolvedCurrentRelation(declaration, callSiteRef = "call:closure.ts:1") {
+  return {
+    pendingRelationRef: "relation:closure.ts:makeShadow:addOffset",
+    callSiteRef,
+    binding: {
+      state: "known",
+      value: {
+        symbolRef: declaration.declarationRef,
+        callSiteRef,
+        role: declaration.role,
+        bindingMode: "bound",
+        resolution: {
+          status: "resolved",
+          declarationRef: declaration.declarationRef,
+          moduleRef: declaration.moduleRef,
+          evidenceRefs: declaration.evidenceRefs,
+        },
+        declarationRefs: [declaration],
+        scopeRef: null,
+        evidenceRefs: declaration.evidenceRefs,
+      },
+      evidenceRefs: ["ev:relation"],
+    },
+  };
+}
+
 function episode(overrides = {}) {
+  const observedDeclarations = overrides.observedDeclarations ?? [
+    declaration({ declarationRef: "decl:closure.ts:makeShadow:local:base", role: "shadow" }),
+  ];
   return {
     sampleId: "typed-encoder",
     stepId: "step:0",
@@ -30,9 +59,8 @@ function episode(overrides = {}) {
     callSiteRef: "call:closure.ts:1",
     requestedDeclaration: declaration(),
     observedFacts: ["typed local observation"],
-    observedDeclarations: [
-      declaration({ declarationRef: "decl:closure.ts:makeShadow:local:base", role: "shadow" }),
-    ],
+    observedDeclarations,
+    currentRelation: resolvedCurrentRelation(observedDeclarations[0]),
     observedBindings: [],
     remainingObligations: [],
     evidenceRefs: ["ev:pre-state"],

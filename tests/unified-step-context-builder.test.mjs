@@ -41,8 +41,8 @@ function edge(overrides = {}) {
     targetModule: { state: "known", value: "module:closure.ts", evidenceRefs: ["ev:edge"] },
     moduleSpecifierRaw: "./closure",
     sourceContent: {
-      state: "observed",
-      resultRefs: ["source:closure.ts"],
+      state: "not_requested",
+      resultRefs: [],
       reason: null,
       evidenceRefs: ["ev:edge"],
     },
@@ -71,7 +71,22 @@ function episode(overrides = {}) {
     observedFacts: ["makeShadow declares local base at line 12", "inner addOffset calls local base"],
     observedDeclarations: [declaration({ role: "shadow", declarationRef: "decl:closure.ts:makeShadow:local:base" })],
     observedBindings: [edge()],
-    remainingObligations: [{ kind: "observe", ref: "obligation:registry", informationGain: 1 }],
+    remainingObligations: [
+      {
+        kind: "advance",
+        ref: "edge:closure.ts:import:1",
+        pendingRelationRef: PENDING,
+        arguments: [{ name: "target", type: "binding_edge", valueRef: "edge:closure.ts:import:1" }],
+        informationGain: 1,
+      },
+      {
+        kind: "observe",
+        ref: "obligation:registry",
+        pendingRelationRef: PENDING,
+        arguments: [{ name: "target", type: "call_site", valueRef: "call:closure.ts:1" }],
+        informationGain: 1,
+      },
+    ],
     evidenceRefs: ["evidence/pre-state.jsonl#typed-sample"],
     failureMode: null,
     derivationFamily: "family:typed",
@@ -84,9 +99,33 @@ test("typed observations project field-for-field into StepContext", () => {
   const requested = declaration();
   const observed = declaration({ declarationRef: "decl:closure.ts:makeShadow:local:base", role: "shadow" });
   const observedEdge = edge();
+  const relationProjection = {
+    symbolRef: observed.declarationRef,
+    callSiteRef: "call:closure.ts:1",
+    role: "export",
+    bindingMode: "bound",
+    resolution: {
+      status: "resolved",
+      declarationRef: observed.declarationRef,
+      moduleRef: observed.moduleRef,
+      evidenceRefs: observed.evidenceRefs,
+    },
+    declarationRefs: [observed],
+    scopeRef: null,
+    evidenceRefs: observed.evidenceRefs,
+  };
   const context = relationStepContext(episode({
     requestedDeclaration: requested,
     observedDeclarations: [observed],
+    currentRelation: {
+      pendingRelationRef: PENDING,
+      callSiteRef: "call:closure.ts:1",
+      binding: {
+        state: "known",
+        value: relationProjection,
+        evidenceRefs: ["ev:relation"],
+      },
+    },
     observedBindings: [observedEdge],
   }));
 
@@ -112,7 +151,12 @@ test("typed observations project field-for-field into StepContext", () => {
   for (const judge of judges) {
     assert.equal(judge.targetRef, PENDING);
     assert.equal(judge.arguments[0].valueRef, PENDING);
-    assert.equal(judge.bindingProjection?.declarationRefs[0]?.declarationRef, observed.declarationRef);
+    assert.equal(judge.bindingProjection?.resolution.status, "resolved");
+    assert.equal(judge.bindingProjection?.resolution.declarationRef, observed.declarationRef);
+    assert.equal(
+      judge.bindingProjection?.declarationRefs.find(item => item.declarationRef === observed.declarationRef)?.declarationRef,
+      observed.declarationRef,
+    );
   }
   assert.deepEqual(
     context.candidateGroup.candidates.map(candidate => candidate.optionSemantics),
@@ -173,7 +217,12 @@ test("zero-gain observe obligation must not produce observe or DEFER candidates"
   const context = relationStepContext(episode({
     observedDeclarations: [],
     observedBindings: [],
-    remainingObligations: [{ kind: "observe", ref: "obligation:zero-gain", informationGain: 0 }],
+    remainingObligations: [{
+      kind: "observe",
+      ref: "obligation:zero-gain",
+      pendingRelationRef: PENDING,
+      informationGain: 0,
+    }],
   }));
   const semantics = context.candidateGroup.candidates.map(candidate => candidate.optionSemantics);
   assert.ok(!semantics.includes("observe"), "zero-gain observe must not generate observe candidate");
@@ -205,7 +254,12 @@ test("advance obligation backed by a reachable edge produces an executable advan
   const context = relationStepContext(episode({
     observedDeclarations: [],
     observedBindings: [edge()],
-    remainingObligations: [{ kind: "advance", ref: "edge:closure.ts:import:1", informationGain: 1 }],
+    remainingObligations: [{
+      kind: "advance",
+      ref: "edge:closure.ts:import:1",
+      pendingRelationRef: PENDING,
+      informationGain: 1,
+    }],
   }));
   const advance = context.candidateGroup.candidates.find(candidate => candidate.optionSemantics === "advance");
   assert.equal(advance?.candidateKind, "action");
@@ -219,25 +273,27 @@ test("advance obligation backed by a reachable edge produces an executable advan
   );
 });
 
-test("advance obligation without a reachable edge is an explicit missing projection", () => {
+test("advance obligation without a reachable edge stays a qualification gap", () => {
   const context = relationStepContext(episode({
     observedDeclarations: [],
     observedBindings: [],
-    remainingObligations: [{ kind: "advance", ref: "obligation:advance", informationGain: 1 }],
+    remainingObligations: [{
+      kind: "advance",
+      ref: "obligation:advance",
+      pendingRelationRef: PENDING,
+      informationGain: 1,
+    }],
   }));
   const semantics = context.candidateGroup.candidates.map(candidate => candidate.optionSemantics);
   assert.ok(!semantics.includes("advance"), "no reachable edge must not fabricate an advance candidate");
-  assert.ok(!semantics.includes("DEFER"), "an unexecutable advance obligation must not create DEFER");
-  assert.ok(
-    context.candidateGroup.candidates.some(candidate => candidate.optionSemantics === "RETURN"),
-    "terminal state without a legal advance must still emit RETURN",
-  );
+  assert.equal(context.localCandidateCursor?.state, "open", "a missing advance edge must keep the cursor open");
+  assert.ok(semantics.includes("DEFER"), "an unexecutable positive advance must not close the relation");
+  assert.ok(!semantics.includes("RETURN"), "a missing advance edge must block RETURN");
   assert.ok(
     context.missingProjections.some(projection =>
       projection.targetRef === "obligation:advance" &&
       projection.fieldRef === "obligations.advance" &&
-      projection.state === "missing" &&
-      projection.reason === "observation_failed"
+      projection.state === "missing"
     ),
     "the unexecutable advance obligation must be recorded as an explicit missing projection",
   );
@@ -250,22 +306,125 @@ test("non-reachable edge does not become an executable advance", () => {
       edgeRef: "edge:closure.ts:shadow:1",
       visibility: { state: "known", value: "shadowed", evidenceRefs: ["ev:edge"] },
     })],
-    remainingObligations: [{ kind: "advance", ref: "edge:closure.ts:shadow:1", informationGain: 1 }],
+    remainingObligations: [{
+      kind: "advance",
+      ref: "edge:closure.ts:shadow:1",
+      pendingRelationRef: PENDING,
+      informationGain: 1,
+    }],
   }));
   const semantics = context.candidateGroup.candidates.map(candidate => candidate.optionSemantics);
   assert.ok(!semantics.includes("advance"), "non-reachable edge must not produce an advance candidate");
-  assert.ok(!semantics.includes("DEFER"), "a non-reachable advance obligation must not create DEFER");
-  assert.ok(
-    context.candidateGroup.candidates.some(candidate => candidate.optionSemantics === "RETURN"),
-    "terminal state without a reachable advance must still emit RETURN",
-  );
+  assert.equal(context.localCandidateCursor?.state, "open", "a non-reachable advance must keep the cursor open");
+  assert.ok(semantics.includes("DEFER"), "a non-reachable positive advance must not close the relation");
+  assert.ok(!semantics.includes("RETURN"), "a non-reachable advance must block RETURN");
   assert.ok(
     context.missingProjections.some(projection =>
       projection.targetRef === "edge:closure.ts:shadow:1" &&
       projection.fieldRef === "obligations.advance" &&
-      projection.state === "missing" &&
-      projection.reason === "observation_failed"
+      projection.state === "missing"
     ),
     "the non-reachable advance obligation must be recorded as an explicit missing projection",
   );
+});
+
+test("unreadable advance source stays a qualification gap", () => {
+  const context = relationStepContext(episode({
+    observedDeclarations: [],
+    observedBindings: [edge({
+      sourceContent: {
+        state: "unsupported",
+        resultRefs: [],
+        reason: "unsupported_pattern",
+        evidenceRefs: ["ev:edge"],
+      },
+    })],
+    remainingObligations: [{
+      kind: "advance",
+      ref: "edge:closure.ts:import:1",
+      pendingRelationRef: PENDING,
+      informationGain: 1,
+    }],
+  }));
+  const semantics = context.candidateGroup.candidates.map(candidate => candidate.optionSemantics);
+
+  assert.ok(!semantics.includes("advance"), "an unreadable source must not fabricate an advance");
+  assert.equal(context.localCandidateCursor?.state, "open");
+  assert.ok(semantics.includes("DEFER"), "an unreadable source must keep the relation open");
+  assert.ok(!semantics.includes("RETURN"), "an unreadable source must block RETURN");
+  assert.ok(context.missingProjections.some(projection =>
+    projection.targetRef === "edge:closure.ts:import:1" &&
+    projection.fieldRef === "obligations.advance" &&
+    projection.state === "missing"
+  ));
+});
+
+test("invalid advance arguments stay a qualification gap", () => {
+  const context = relationStepContext(episode({
+    observedDeclarations: [],
+    observedBindings: [edge()],
+    remainingObligations: [{
+      kind: "advance",
+      ref: "edge:closure.ts:import:1",
+      pendingRelationRef: PENDING,
+      arguments: [{ name: "target", type: "binding_edge", valueRef: null }],
+      informationGain: 1,
+    }],
+  }));
+  const semantics = context.candidateGroup.candidates.map(candidate => candidate.optionSemantics);
+
+  assert.ok(!semantics.includes("advance"), "invalid arguments must not fabricate an advance");
+  assert.equal(context.localCandidateCursor?.state, "open");
+  assert.ok(semantics.includes("DEFER"), "invalid arguments must keep the relation open");
+  assert.ok(!semantics.includes("RETURN"), "invalid arguments must block RETURN");
+  assert.ok(context.missingProjections.some(projection =>
+    projection.targetRef === "edge:closure.ts:import:1" &&
+    projection.fieldRef === "obligations.advance" &&
+    projection.state === "missing"
+  ));
+});
+
+test("missing pendingRelationRef on a remaining obligation stays a qualification gap", () => {
+  const context = relationStepContext(episode({
+    observedDeclarations: [],
+    observedBindings: [edge()],
+    remainingObligations: [{
+      kind: "advance",
+      ref: "edge:closure.ts:import:1",
+      informationGain: 1,
+    }],
+  }));
+  const semantics = context.candidateGroup.candidates.map(candidate => candidate.optionSemantics);
+
+  assert.ok(!semantics.includes("advance"), "a missing relation ref must not fabricate an advance");
+  assert.equal(context.localCandidateCursor?.state, "open");
+  assert.ok(semantics.includes("DEFER"), "a missing relation ref must keep the relation open");
+  assert.ok(!semantics.includes("RETURN"), "a missing relation ref must block RETURN");
+  assert.ok(context.missingProjections.some(projection =>
+    projection.targetRef === "edge:closure.ts:import:1" &&
+    projection.fieldRef === "remainingObligations.pendingRelationRef" &&
+    projection.state === "missing"
+  ));
+});
+
+test("explicit other pendingRelationRef is not current and is not a gap", () => {
+  const context = relationStepContext(episode({
+    observedDeclarations: [],
+    observedBindings: [edge()],
+    remainingObligations: [{
+      kind: "advance",
+      ref: "edge:closure.ts:import:1",
+      pendingRelationRef: "relation:other",
+      informationGain: 1,
+    }],
+  }));
+  const semantics = context.candidateGroup.candidates.map(candidate => candidate.optionSemantics);
+
+  assert.ok(!semantics.includes("advance"), "an unrelated obligation must not become an advance");
+  assert.ok(!semantics.includes("DEFER"), "an unrelated obligation must not create DEFER");
+  assert.ok(semantics.includes("RETURN"), "an unrelated obligation leaves the local relation terminal");
+  assert.equal(context.localCandidateCursor?.state, "closed");
+  assert.equal(context.missingProjections.some(projection =>
+    projection.targetRef === "edge:closure.ts:import:1"
+  ), false);
 });

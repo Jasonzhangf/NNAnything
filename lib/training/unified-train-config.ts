@@ -143,6 +143,13 @@ export function buildEncodedGroups(
         `group ${group.group_id} has student=${group.partition} supervision=${supervision.partition}; both partitions must be TRAIN`,
       );
     }
+    if (supervision.trainingEligible === false) {
+      throw new UnifiedTrainDataError(
+        `group ${group.group_id} (source=${group.sourceGroup}, sample=${group.sampleId}, `
+        + `step=${group.stepId}) is not training-eligible; `
+        + `ineligible supervision must be rejected explicitly`,
+      );
+    }
     const candidates: EncodedCandidate[] = group.candidates.map(candidate => ({
       candidateRef: candidate.candidateRef,
       input: candidate.input,
@@ -335,6 +342,9 @@ export async function loadStudentRowsFile(rowsPath: string): Promise<readonly St
     readonly group_id: string;
     readonly sampleId: string;
     readonly sourceGroup: string;
+    readonly stepId?: string;
+    readonly targetRef?: string;
+    readonly pendingRelationRef?: string | null;
     readonly candidateRef: string;
     readonly optionSemantics: string;
     readonly candidateKind: StudentCandidateRow["candidateKind"];
@@ -345,6 +355,9 @@ export async function loadStudentRowsFile(rowsPath: string): Promise<readonly St
     readonly group_id: string;
     readonly sampleId: string;
     readonly requestRef: string;
+    readonly stepId: string;
+    readonly targetRef: string;
+    readonly pendingRelationRef: string | null;
     readonly sourceGroup: string;
     readonly language: string;
     readonly adapterRef: string;
@@ -381,6 +394,13 @@ export async function loadStudentRowsFile(rowsPath: string): Promise<readonly St
         group_id: record.group_id,
         sampleId: record.sampleId,
         requestRef: String(record.requestRef ?? ""),
+        stepId: String(record.stepId ?? ""),
+        targetRef: String(record.targetRef ?? ""),
+        pendingRelationRef: record.pendingRelationRef === null
+          ? null
+          : record.pendingRelationRef === undefined
+            ? null
+            : String(record.pendingRelationRef),
         sourceGroup: record.sourceGroup,
         language: String(record.language ?? ""),
         adapterRef: String(record.adapterRef ?? ""),
