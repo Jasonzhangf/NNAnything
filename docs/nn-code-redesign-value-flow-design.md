@@ -319,32 +319,36 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | 槽位 | 共享语义 | 编码 |
 | --- | --- | --- |
 | `x[15]` | `relationKindCode` | `0=not_applicable`；`1/7=reaching_def`、`2/7=local_init`、`3/7=local_assign`、`4/7=destructure_extract`、`5/7=arg_to_param`、`6/7=return_from_fn`、`7/7=return_to_call_lhs` |
-| `x[23]` | `sourceRoleAndOrdinalCode` | `(roleIndex*4 + min(ordinal,3))/19`；roleIndex `0=unknown`、`1=definition/write`、`2=argument`、`3=return`、`4=other`；ordinal 对 argument 源保留 `0/1` |
-| `x[31]` | `sinkRoleAndOrdinalCode` | `(roleIndex*4 + min(ordinal,3))/19`；roleIndex `0=unknown`、`1=read`、`2=parameter`、`3=assignment_target`、`4=other`；ordinal 对 parameter 汇保留 `0/1` |
-| `x[51]` | `orderFlowAndCoverageCode` | `(orderFlowIndex*4 + coverageIndex)/31`；orderFlowIndex `0=undetermined`、`1=ordered before no intervening write`、`2=same-decl unconditional intervening write`、`3=same-decl conditional intervening write`、`4=other-decl unconditional intervening write`、`5=other-decl conditional intervening write`、`6=same-decl unconditional then same-decl conditional intervening write`、`7=non-ordering`；coverageIndex `0=missing`、`1=partial`、`2=complete`、`3=not_applicable` |
+| `x[23]` | `sourceRoleAndOrdinalCode` | `(roleIndex*4 + ordinalIndex)/19`；roleIndex `0=unknown`、`1=definition/write`、`2=argument`、`3=return`、`4=other`；本切片 argument ordinal 只接受 `0/1`，其他序号为 unsupported |
+| `x[31]` | `sinkRoleAndOrdinalCode` | `(roleIndex*4 + ordinalIndex)/19`；roleIndex `0=unknown`、`1=read`、`2=parameter`、`3=assignment_target`、`4=other`；本切片 parameter ordinal 只接受 `0/1`，其他序号为 unsupported |
+| `x[51]` | `orderFlowAndCoverageCode` | `(orderFlowIndex*4 + coverageIndex)/39`；orderFlowIndex `0=undetermined`、`1=ordered before no intervening write`、`2=same-decl unconditional intervening write`、`3=same-decl conditional intervening write`、`4=other-decl unconditional intervening write`、`5=other-decl conditional intervening write`、`6=same-decl unconditional then same-decl conditional intervening write`、`7=non-ordering`、`8=same-decl conditional writes cover all feasible branches`、`9=same-decl conditional writes cover only one feasible branch`；coverageIndex `0=missing`、`1=partial`、`2=complete`、`3=not_applicable` |
 | `x[55]` | `bindingResolutionCode`（仅 callee 解析，不含覆盖） | `0=not_applicable`，`0.25=unresolved`，`0.5=same callee`，`0.75=different callee`，`1=ambiguous/dynamic` |
 
-`x[51]` 明确打包两个独立字段，但数值可以机械拆回：`orderFlowIndex` 表源点到汇点的“已观测写前缀”摘要，即源点之后到汇点之前出现的中间写序列（声明身份是否同目标、无条件/条件分支）；`coverageIndex` 表该候选观测覆盖。它不写“该写构成 kill”或关系真值。`x[55]` 只表 callee 解析状态，不携带覆盖或序号。序号相等比较只由 `x[23]` 和 `x[31]` 的 role/ordinal 码承载，`x[55]` 不因参数序号不匹配而改变。`same-decl`/`other-decl` 由 adapter 比较已观测声明 ref 的相等性得出，是语法/身份事实，不是 reaching-def 真值。
+`x[51]` 明确打包两个独立字段，但数值可以机械拆回：`orderFlowIndex` 表源点到汇点的“已观测写前缀”摘要，即源点之后到汇点之前出现的中间写序列（声明身份是否同目标、无条件/条件分支、分支覆盖归属）；`coverageIndex` 表该候选观测覆盖。它不写“该写构成 kill”或关系真值。`x[55]` 只表 callee 解析状态，不携带覆盖或序号。序号相等比较只由 `x[23]` 和 `x[31]` 的 role/ordinal 码承载，`x[55]` 不因参数序号不匹配而改变。`same-decl`/`other-decl` 由 adapter 比较已观测声明 ref 的相等性得出，是语法/身份事实，不是 reaching-def 真值。
 
-`orderFlowIndex` 的过滤与压缩合同如下：只把源点之后、汇点之前且目标声明等于候选源声明的写作为 kill-relevant 序列；若没有同声明写，则把已观测的其他声明写归为 `other-decl` 对照。若同时存在同声明和其他声明写，其他声明写不进入该候选的 kill-relevant 前缀，因为它们不能覆盖候选源声明。多写只允许以下压缩：全无条件 → `2`；全条件 → `3`；先有无条件、后有条件 → `6`。其他混合顺序必须为 `0=undetermined` 并带 unsupported/missing reason，不得按猜测压成已知序列。
+本设计首个有限实验切片只支持最多两个位置参数的 `arg_to_param` 索引：argument/parameter ordinal 仅接受 `0/1`。其他 arity 或 higher ordinal 必须在准入处显式 unsupported，并以 `x[23]/x[31]=-1` 加 missingMode 记录，不得把 ordinal 3 和 4 合成同一个码；范围外样例不计入 value-flow 完成分母。分支压缩使用 `orderFlowIndex=8`（两个可行分支都有同声明条件写，旧值双分支均被杀）与 `9`（只有一个可行分支有同声明条件写，旧值沿另一分支保留 may 路径）；分支结构或覆盖路径未观察时保持 `0=undetermined`。
+
+`orderFlowIndex` 的过滤与压缩合同如下：只把源点之后、汇点之前且目标声明等于候选源声明的写作为 kill-relevant 序列；若没有同声明写，则把已观测的其他声明写归为 `other-decl` 对照。若同时存在同声明和其他声明写，其他声明写不进入该候选的 kill-relevant 前缀，因为它们不能覆盖候选源声明。多写压缩先判分支覆盖：两个可行分支都有同声明条件写 → `8`；只有一个可行分支有同声明条件写 → `9`。分支覆盖归属未观察时，才退回普通序列压缩：全无条件 → `2`；全条件 → `3`；先有无条件、后有条件 → `6`。其他混合顺序必须为 `0=undetermined` 并带 unsupported/missing reason，不得按猜测压成已知序列。
 
 该扩展下的关键槽位差异为：
 
 | 例子 | `x[15]` | `x[23]` | `x[31]` | `x[51]` | `x[55]` |
 | --- | --- | --- | --- | --- | --- |
-| `r_kill_pos` | `1/7` | `4/19` | `4/19` | `6/31` | `0` |
-| `r_kill_neg` | `1/7` | `4/19` | `4/19` | `10/31` | `0` |
-| `r_other_write` | `1/7` | `4/19` | `4/19` | `18/31` | `0` |
-| `r_cond_may` | `1/7` | `4/19` | `4/19` | `14/31` | `0` |
-| `r_cond_neg` | `1/7` | `4/19` | `4/19` | `26/31` | `0` |
-| `r_cond_missing_body` | `1/7` | `4/19` | `4/19` | `12/31` | `0` |
+| `r_kill_pos` | `1/7` | `4/19` | `4/19` | `6/39` | `0` |
+| `r_kill_neg` | `1/7` | `4/19` | `4/19` | `10/39` | `0` |
+| `r_other_write` | `1/7` | `4/19` | `4/19` | `18/39` | `0` |
+| `r_cond_may` | `1/7` | `4/19` | `4/19` | `14/39` | `0` |
+| `r_cond_neg` | `1/7` | `4/19` | `4/19` | `26/39` | `0` |
+| `r_cond_missing_body` | `1/7` | `4/19` | `4/19` | `12/39` | `0` |
 | `r_cond_missing_order` | `1/7` | `4/19` | `4/19` | `0` | `0` |
-| `r_arg0_pos` | `5/7` | `8/19` | `8/19` | `30/31` | `0.5` |
-| `r_arg1_pos` | `5/7` | `9/19` | `9/19` | `30/31` | `0.5` |
-| `r_arg_swap` | `5/7` | `9/19` | `8/19` | `30/31` | `0.5` |
-| `r_arg_other_callee` | `5/7` | `8/19` | `8/19` | `30/31` | `0.75` |
-| `r_arg_missing_arg` | `5/7` | `0` | `9/19` | `28/31` | `0.25` |
-| `r_arg_missing_param` | `5/7` | `9/19` | `0` | `28/31` | `0.25` |
+| `r_branch_kill` | `1/7` | `4/19` | `4/19` | `34/39` | `0` |
+| `r_branch_may` | `1/7` | `4/19` | `4/19` | `38/39` | `0` |
+| `r_arg0_pos` | `5/7` | `8/19` | `8/19` | `30/39` | `0.5` |
+| `r_arg1_pos` | `5/7` | `9/19` | `9/19` | `30/39` | `0.5` |
+| `r_arg_swap` | `5/7` | `9/19` | `8/19` | `30/39` | `0.5` |
+| `r_arg_other_callee` | `5/7` | `8/19` | `8/19` | `30/39` | `0.75` |
+| `r_arg_missing_arg` | `5/7` | `0` | `9/19` | `28/39` | `0.25` |
+| `r_arg_missing_param` | `5/7` | `9/19` | `0` | `28/39` | `0.25` |
 
 每个对照的原始字段值、独立推导、完整槽位差异及缺测状态如下表。`orderFlowIndex`/`coverageIndex` 只从 adapter 已观测的语法与身份事实导出，不调用 reaching-def/analyzer 真值；kill 是待判定关系结论，不是输入：
 
@@ -357,6 +361,8 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | `r_cond_neg` | `d0..u2` 中间：先 `d1` 同声明无条件写，再 `d2` 同声明条件写 | `6`（same-decl unconditional then same-decl conditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
 | `r_cond_missing_body` | 同 `r_cond_may`，条件写和顺序可见，但分支体内容未观察 | `3`（same-decl conditional intervening write） | `0`（missing） | 同上 | `4/19` | `4/19` | `0` |
 | `r_cond_missing_order` | 条件写本身或 `d1 -> d2 -> u2` 顺序未观察 | `0`（undetermined） | `0`（missing） | 同上 | `4/19` | `4/19` | `0` |
+| `r_branch_kill` | `if` 与 `else` 两个可行分支各有一个同声明条件写 | `8`（same-decl conditional writes cover all feasible branches） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_branch_may` | 只有 `if` 分支有连续两个同声明条件写，`else` 分支无写 | `9`（same-decl conditional writes cover only one feasible branch） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
 | `r_arg0_pos` | callee 形参表在调用点之前可见；跨函数绑定非顺序域 | `7`（non-ordering） | `2`（complete） | `a0_0`=argument ordinal0，`p_f0`=parameter ordinal0，callee `f` | `8/19` | `8/19` | `0.5` |
 | `r_arg1_pos` | 同上 | `7` | `2` | `a0_1`=argument ordinal1，`p_f1`=parameter ordinal1，callee `f` | `9/19` | `9/19` | `0.5` |
 | `r_arg_swap` | 同上 | `7` | `2` | `a0_1`=argument ordinal1，`p_f0`=parameter ordinal0，callee `f` | `9/19` | `8/19` | `0.5` |
@@ -364,7 +370,7 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | `r_arg_missing_arg` | 调用实参列表覆盖缺测 | `7`（non-ordering） | `0`（missing） | 源侧 argument 未解析，形参侧 `p_f1` 可见 | `0` | `9/19` | `0.25` |
 | `r_arg_missing_param` | 形参表覆盖缺测 | `7`（non-ordering） | `0`（missing） | 源侧 `a0_1` 可见，目标侧 parameter 未解析 | `9/19` | `0` | `0.25` |
 
-表内 `x[23]` 与 `x[31]` 保留源/汇角色和参数序号，`x[51]` 保留有序中间写序列摘要（声明身份、条件性/无条件性）、coverage，`x[55]` 保留 callee 解析状态。`judge=true/false/unknown` 仍由 G4 `x[36..38]` 表示，声明身份仍由 G5/G7 原槽位表示。`r_arg_swap` 与 `r_arg0_pos` 只在 `x[23]`/`x[31]` 上区分序号；`r_arg_other_callee` 与 `r_arg0_pos` 只在 `x[55]` 上区分 callee；`r_arg_missing_arg`/`r_arg_missing_param` 分别由 `x[23]` 或 `x[31]` 的 unknown 角色与 `x[51]` 的 missing coverage 表示，二者都保持 `x[55]=0.25` 但不会被混同。`r_cond_missing_body` 与 `r_cond_missing_order` 分别用 `x[51]=12/31`（顺序/条件写已观测，内容缺测）和 `0`（顺序/条件写本身 undetermined）表示。`r_kill_neg` 与 `r_cond_neg` 分别是“同声明无条件写”和“同声明无条件写后同一声明条件写”，`x[51]` 上以 `10/31` 与 `26/31` 区分；它们都表示 `d0` 已被 `d1` kill，但程序结构不同，编码必须可辨。`x[51]` 不写 kill，也不写关系真值。
+表内 `x[23]` 与 `x[31]` 保留源/汇角色和参数序号，`x[51]` 保留有序中间写序列摘要（声明身份、条件性/无条件性、分支覆盖归属）、coverage，`x[55]` 保留 callee 解析状态。`judge=true/false/unknown` 仍由 G4 `x[36..38]` 表示，声明身份仍由 G5/G7 原槽位表示。`r_arg_swap` 与 `r_arg0_pos` 只在 `x[23]`/`x[31]` 上区分序号；`r_arg_other_callee` 与 `r_arg0_pos` 只在 `x[55]` 上区分 callee；`r_arg_missing_arg`/`r_arg_missing_param` 分别由 `x[23]` 或 `x[31]` 的 unknown 角色与 `x[51]` 的 missing coverage 表示，二者都保持 `x[55]=0.25` 但不会被混同。`r_cond_missing_body` 与 `r_cond_missing_order` 分别用 `x[51]=12/39`（顺序/条件写已观测，内容缺测）和 `0`（顺序/条件写本身 undetermined）表示。`r_kill_neg` 与 `r_cond_neg` 分别是“同声明无条件写”和“同声明无条件写后同一声明条件写”，`x[51]` 上以 `10/39` 与 `26/39` 区分；`r_branch_kill` 与 `r_branch_may` 分别是“两个可行分支都有同声明条件写”和“只有一个可行分支有同声明条件写”，`x[51]` 上以 `34/39` 与 `38/39` 区分。`x[51]` 不写 kill，也不写关系真值。
 
 ### 6.3 共享投影最小差异
 
@@ -390,7 +396,10 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | 执行/覆盖失败 | 读取、解析、timeout、截断或 worker 错误 | 原错保留，`failed`/`incomplete` |
 | unsupported language | 语言不在已注册支持域 | 显式 `rejected` |
 | out of scope | 文件或候选在 `scopePaths` 外 | 显式 `rejected` |
+| 超出双参数切片 | argument/parameter ordinal 或 arity 不在当前 `0/1` 切片 | 显式 `unsupported`，记录 `missingMode`，不并入语义 unknown |
 | 动态属性/绑定 | 只有当前局部证据时才判定；不能一律 unknown | 有证据则 true/false，否则 unknown |
+
+本设计首个有限实验切片只接受最多两个位置参数的 `arg_to_param` 索引；argument/parameter ordinal 仅支持 `0/1`。更高 arity 或 `ordinal>1` 必须在准入处显式 unsupported，不得把序号 3 与 4 合成同一个码，也不得把范围外样例计入 value-flow 完成分母。
 
 `resultMode=all` 下任意未收口 unknown、截断、覆盖失败或执行失败都阻止根 `achieved`；已具名且 coverage complete 的语义 unknown 可以作为对应义务的终态，但不能被写成 true/false。`resultMode=one` 只允许在固定引擎验证一条路径后早停；剩余候选只报告为未覆盖，不得判定为 false、不得声称完整调用图、不得把模型自报 true 当见证。已知错误在所有模式下都不能被 unknown 或早停替代。
 
@@ -460,6 +469,8 @@ typed request and scope
 - `admissions.json`：分区、来源族、可用性、验证隔离和拒绝原因；
 - `readiness.json`：完整候选枚举、数据门状态和缺口。
 
+`admissions.json` 只接受 argument/parameter ordinal `0/1` 的 `arg_to_param` 候选；更高 arity 或序号记为 unsupported/out_of_slice，不进入本切片完成分母，并保留为后续完成项。
+
 ## 10. 独立评价与验收
 
 ### 10.1 独立 oracle
@@ -486,8 +497,9 @@ typed request and scope
 5. `truncated`、`failed`、`budget_exhausted`、`unsupported`、`out_of_scope` 计数；
 6. 根 `achieved` / `unknown` / `rejected` / `incomplete` 比例；
 7. 泄漏检查：学生输入包含 gold、完整链、未来回执或 oracle 的样例数必须为 0。
+8. 超出双参数切片的候选数 / 总候选数，以及其中显式 unsupported 且未进入完成分母的计数。
 
-`label_missing` 不计入正确率分母但保留证据；unknown 不得从覆盖分母静默删除；`one` 模式不得冒充 `all` 完整覆盖。
+`label_missing` 不计入正确率分母但保留证据；unknown 不得从覆盖分母静默删除；`one` 模式不得冒充 `all` 完整覆盖。超出 `0/1` 切片的候选必须显式 unsupported，不得计入当前 value-flow 完成分母。
 
 ### 10.3 最终硬门
 
@@ -498,6 +510,7 @@ typed request and scope
 5. verification 来源不进入拟合、样本构造、选参或候选选择。
 6. 学生输入不含 gold、teacher 最终链、A_g、未来回执或完整调用图答案。
 7. 新候选保持 `uncalibrated/not_applied`，直到独立评价和旧能力回归全部通过并进入模型演进采用流程。
+8. argument/parameter ordinal 仅支持 `0/1`；更高 arity 或序号显式 unsupported，且不进入完成分母。
 
 任一项不满足即 `INCOMPLETE` 或 `FAIL`，不能降级为 PASS。
 
@@ -520,6 +533,7 @@ typed request and scope
 4. 共享训练环境、真实 runner、保存/回载入口和数据门验收。
 5. 旧调用图能力回归清单与独立评价执行。
 6. Alice 对本设计的设计审计；通过前不启动 fit。
+7. 更高 arity 与 `ordinal>1` 的可辨编码、样本和独立验收作为后续完成项；当前双参数切片通过不能冒称全值流完成。
 
 ## 13. 参考
 
