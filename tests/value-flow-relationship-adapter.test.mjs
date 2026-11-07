@@ -86,6 +86,45 @@ function caller() {
 }
 `;
 
+const SHADOWED_DECL = `
+function shadowed() {
+  let x = 0;
+  { let x = 1; x = 2; }
+  const u = x;
+}
+`;
+
+const INCREMENT_WRITE = `
+function incrementWrite() {
+  let x = 0;
+  x++;
+  const u = x;
+}
+`;
+
+const NESTED_IF = `
+function nestedIf(a, b) {
+  let x = 0;
+  if (a) { if (b) { x = 1; } }
+  const u = x;
+}
+`;
+
+const SYNTAX_ERROR = `
+function syntaxError() {
+  let x = ;
+  const u = x;
+}
+`;
+
+const SHADOWED_CALLEES = `
+function g(a) { return a; }
+function caller() {
+  function g(a) { return a; }
+  g(1);
+}
+`;
+
 function observe(sourceText) {
   return observeValueFlowSource({ relPath: "fixture.ts", sourceText });
 }
@@ -138,6 +177,15 @@ function argToParamCandidate(source, sink) {
   };
 }
 
+function firstReachingCandidate(observations) {
+  const source = observations.sites.find(s =>
+    s.kind === "write" && s.symbolName === "x" && s.span.startLine === 3);
+  const sink = observations.sites.find(s =>
+    s.kind === "read" && s.symbolName === "x" && source !== undefined && s.declRef === source.declRef);
+  assert.ok(source && sink, "expected outer declaration and later read");
+  return reachingDefCandidate(source, sink);
+}
+
 function slots(student) {
   const x = student.xByOption["judge=unknown"];
   return { x15: x[15], x23: x[23], x31: x[31], x51: x[51], x55: x[55], missingMode: student.missingMode };
@@ -172,9 +220,28 @@ test("raw observation exposes write/read sites and branch conditionality", () =>
 
 test("raw observation keeps call ordinals and parameter ordinals", () => {
   const observations = observe(CALLS);
-  assert.equal(argSite(observations, "g", 0).ordinalIndex, 0);
+  const g0 = argSite(observations, "g", 0);
+  assert.equal(g0.ordinalIndex, 0);
+  assert.ok(g0.calleeDeclRef);
+  assert.equal(g0.calleeDeclRef, paramSite(observations, "g", 0).ownerDeclRef);
+  assert.notEqual(g0.calleeDeclRef, paramSite(observations, "h", 0).ownerDeclRef);
   assert.equal(argSite(observations, "g", 1).ordinalIndex, 1);
   assert.equal(paramSite(observations, "h", 1).ordinalIndex, 1);
+});
+
+test("callee and parameter binding use declaration identity rather than names", () => {
+  const observations = observe(SHADOWED_CALLEES);
+  const call = argSite(observations, "g", 0);
+  const params = observations.sites.filter(site => site.kind === "param" && site.ordinalIndex === 0);
+  assert.equal(params.length, 2);
+  const matching = params.filter(site => site.ownerDeclRef === call.calleeDeclRef);
+  const other = params.filter(site => site.ownerDeclRef !== call.calleeDeclRef);
+  assert.equal(matching.length, 1);
+  assert.equal(other.length, 1);
+  const same = projectValueFlowRelationship(argToParamCandidate(call, matching[0]), observations);
+  const different = projectValueFlowRelationship(argToParamCandidate(call, other[0]), observations);
+  assert.equal(same.projection.bindingResolution.value, "same_callee");
+  assert.equal(different.projection.bindingResolution.value, "different_callee");
 });
 
 test("candidate enumeration yields raw pairs without truth fields", () => {
@@ -351,6 +418,65 @@ test("missing coverage stays not-ready and keeps a denominator-eligible candidat
     x55: 0,
     missingMode: [],
   });
+});
+
+test("shadows, unary writes, nested control flow, and parse failures stay isolated", () => {
+  const shadowed = observe(SHADOWED_DECL);
+  const shadowedResult = projectValueFlowRelationship(firstReachingCandidate(shadowed), shadowed);
+  assert.deepEqual(shadowedResult.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.deepEqual(shadowedResult.projection.orderFlowAndCoverage, {
+    state: "known",
+    value: { orderFlowIndex: 4, coverageIndex: 2 },
+    evidenceRefs: shadowedResult.projection.orderFlowAndCoverage.evidenceRefs,
+  });
+  assert.ok(shadowedResult.projection.orderFlowAndCoverage.evidenceRefs.length > 0);
+
+  const increment = observe(INCREMENT_WRITE);
+  assert.ok(increment.unsupportedSyntaxRecords.some(record => record.kind === "unary_write"));
+  const incrementResult = projectValueFlowRelationship(firstReachingCandidate(increment), increment);
+  assert.deepEqual(incrementResult.admission, {
+    denominatorEligible: false,
+    status: "unsupported",
+    reasons: ["increment_out_of_slice"],
+  });
+
+  const nested = observe(NESTED_IF);
+  const nestedResult = projectValueFlowRelationship(firstReachingCandidate(nested), nested);
+  assert.deepEqual(nestedResult.admission, {
+    denominatorEligible: false,
+    status: "unsupported",
+    reasons: ["control_flow_out_of_slice"],
+  });
+  assert.equal(nestedResult.projection.orderFlowAndCoverage.value.orderFlowIndex, 0);
+
+  const invalid = observe(SYNTAX_ERROR);
+  assert.ok(invalid.parseError !== null, "expected TypeScript parse diagnostic");
+  const missingCandidate = {
+    candidateRef: "cand:parse-failure",
+    relationKind: "reaching_def",
+    source: { observed: false, siteRef: null, role: "write", ordinalIndex: null },
+    sink: { observed: false, siteRef: null, role: "read", ordinalIndex: null },
+    coverage: { orderObserved: true, bodyObserved: true },
+  };
+  const invalidResult = projectValueFlowRelationship(missingCandidate, invalid);
+  assert.deepEqual(invalidResult.admission, {
+    denominatorEligible: true,
+    status: "not_ready",
+    reasons: ["observation_failed"],
+  });
+  assert.deepEqual(invalidResult.projection.orderFlowAndCoverage, {
+    state: "missing",
+    reason: "observation_failed",
+    evidenceRefs: invalidResult.projection.orderFlowAndCoverage.evidenceRefs,
+  });
+  const missingStudent = encodeValueFlowRelationshipStudent(missingCandidate, invalid);
+  assert.equal(missingStudent.xByOption["judge=unknown"][51], -1);
+  assert.ok(missingStudent.missingMode.some(entry =>
+    entry.slotIndex === 51 && entry.reason === "observation_failed"));
 });
 
 test("student evidence exposes only encoder inputs and versions", () => {

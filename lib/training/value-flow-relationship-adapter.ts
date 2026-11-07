@@ -44,6 +44,8 @@ export interface ValueFlowRawSite {
   readonly writeKind: "declaration" | "assignment" | null;
   readonly symbolName: string;
   readonly declRef: Ref | null;
+  readonly calleeDeclRef: Ref | null;
+  readonly ownerDeclRef: Ref | null;
   readonly span: ValueFlowSpan;
   readonly scopeChain: readonly string[];
   readonly conditionalKinds: readonly string[];
@@ -60,11 +62,18 @@ export interface ValueFlowControlRecord {
   readonly hasElse: boolean;
 }
 
+export interface ValueFlowUnsupportedSyntaxRecord {
+  readonly kind: "unary_write" | "nested_if" | "try" | "switch" | "with";
+  readonly reason: "increment_out_of_slice" | "control_flow_out_of_slice";
+  readonly span: ValueFlowSpan;
+}
+
 export interface ValueFlowRawObservation {
   readonly relPath: string;
   readonly parseError: string | null;
   readonly sites: readonly ValueFlowRawSite[];
   readonly controlRecords: readonly ValueFlowControlRecord[];
+  readonly unsupportedSyntaxRecords: readonly ValueFlowUnsupportedSyntaxRecord[];
 }
 
 export interface ValueFlowCandidateSide {
@@ -154,6 +163,12 @@ function before(left: ValueFlowSpan, right: ValueFlowSpan): boolean {
   return false;
 }
 
+function spanEndsAfter(left: ValueFlowSpan, right: ValueFlowSpan): boolean {
+  if (left.endLine !== right.startLine) return left.endLine > right.startLine;
+  if (left.endColumn !== right.startColumn) return left.endColumn > right.startColumn;
+  return false;
+}
+
 function contains(outer: ValueFlowSpan | null, inner: ValueFlowSpan): boolean {
   if (outer === null) return false;
   if (outer.startLine < inner.startLine || (outer.startLine === inner.startLine && outer.startColumn <= inner.startColumn)) {
@@ -166,24 +181,15 @@ function bindingIdentifier(name: ts.BindingName): ts.Identifier | null {
   return ts.isIdentifier(name) ? name : null;
 }
 
-function collectDeclaredSymbols(sf: ts.SourceFile): Set<string> {
-  const names = new Set<string>();
-  const visit = (node: ts.Node): void => {
-    if (ts.isVariableDeclaration(node)) {
-      const identifier = bindingIdentifier(node.name);
-      if (identifier !== null) names.add(identifier.text);
-    } else if (ts.isParameter(node)) {
-      const identifier = bindingIdentifier(node.name);
-      if (identifier !== null) names.add(identifier.text);
-    } else if (ts.isFunctionDeclaration(node) && node.name !== undefined) {
-      names.add(node.name.text);
-    } else if (ts.isClassDeclaration(node) && node.name !== undefined) {
-      names.add(node.name.text);
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sf);
-  return names;
+function parseErrorOf(sf: ts.SourceFile): string | null {
+  const diagnostics = (sf as ts.SourceFile & {
+    readonly parseDiagnostics?: readonly ts.Diagnostic[];
+  }).parseDiagnostics ?? [];
+  if (diagnostics.length === 0) return null;
+  return diagnostics.map(diagnostic => {
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+    return `TS${diagnostic.code}: ${message}`;
+  }).join("; ");
 }
 
 function isPropertyAccessName(node: ts.Node): boolean {
@@ -258,15 +264,58 @@ function textOf(sf: ts.SourceFile, node: ts.Node, limit = 80): string {
 
 function walkSource(sourceText: string, relPath: string): ValueFlowRawObservation {
   const sf = ts.createSourceFile(relPath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const declared = collectDeclaredSymbols(sf);
   const sites: ValueFlowRawSite[] = [];
   const controlRecords: ValueFlowControlRecord[] = [];
+  const unsupportedSyntaxRecords: ValueFlowUnsupportedSyntaxRecord[] = [];
   const scopeStack: string[] = [];
+  type LexicalScope = Readonly<{
+    kind: "function" | "block";
+    declarations: Map<string, Ref>;
+  }>;
+  const lexicalScopes: LexicalScope[] = [Object.freeze({
+    kind: "block",
+    declarations: new Map<string, Ref>(),
+  })];
   type Frame = Readonly<{
     kinds: readonly string[];
     insideLoop: boolean;
   }>;
   const frameStack: Frame[] = [Object.freeze({ kinds: Object.freeze([]), insideLoop: false })];
+
+  function currentLexicalScope(): LexicalScope {
+    return lexicalScopes[lexicalScopes.length - 1] as LexicalScope;
+  }
+
+  function nearestFunctionScope(): LexicalScope {
+    for (let index = lexicalScopes.length - 1; index >= 0; index -= 1) {
+      const scope = lexicalScopes[index];
+      if (scope?.kind === "function") return scope;
+    }
+    return lexicalScopes[0] as LexicalScope;
+  }
+
+  function declareIn(scope: LexicalScope, name: string, declRef: Ref): void {
+    scope.declarations.set(name, declRef);
+  }
+
+  function resolveDecl(name: string): Ref | null {
+    for (let index = lexicalScopes.length - 1; index >= 0; index -= 1) {
+      const declaration = lexicalScopes[index]?.declarations.get(name);
+      if (declaration !== undefined) return declaration;
+    }
+    return null;
+  }
+
+  function pushBlockScope(): void {
+    lexicalScopes.push(Object.freeze({
+      kind: "block",
+      declarations: new Map<string, Ref>(),
+    }));
+  }
+
+  function popBlockScope(): void {
+    lexicalScopes.pop();
+  }
 
   function conditionalKinds(): readonly string[] {
     return frameStack.flatMap(frame => frame.kinds);
@@ -281,6 +330,8 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     readonly writeKind?: "declaration" | "assignment";
     readonly symbolName: string;
     readonly declRef: Ref | null;
+    readonly calleeDeclRef?: Ref | null;
+    readonly ownerDeclRef?: Ref | null;
     readonly span: ValueFlowSpan;
     readonly calleeName?: string | null;
     readonly ordinalIndex?: number | null;
@@ -299,6 +350,8 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
       writeKind: input.writeKind ?? null,
       symbolName: input.symbolName,
       declRef: input.declRef,
+      calleeDeclRef: input.calleeDeclRef ?? null,
+      ownerDeclRef: input.ownerDeclRef ?? null,
       span: input.span,
       scopeChain: Object.freeze([...scopeStack]),
       conditionalKinds: Object.freeze(conditionalKinds()),
@@ -308,42 +361,109 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     }));
   }
 
+  function declarationRefFor(name: string, span: ValueFlowSpan): Ref {
+    return `${relPath}#${name}@decl(${spanKey(span)})`;
+  }
+
   function visit(node: ts.Node): void {
     if (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)
       || ts.isMethodDeclaration(node) || ts.isArrowFunction(node) || ts.isConstructorDeclaration(node)) {
       const nameNode = (node as ts.FunctionLikeDeclaration).name;
+      let ownerDeclRef: Ref | null = null;
+      if (nameNode !== undefined && ts.isIdentifier(nameNode)) {
+        const nameSpan = spanOf(sf, nameNode);
+        ownerDeclRef = declarationRefFor(nameNode.text, nameSpan);
+        if (ts.isFunctionDeclaration(node)) {
+          declareIn(currentLexicalScope(), nameNode.text, ownerDeclRef);
+        }
+      }
       if (nameNode !== undefined && ts.isIdentifier(nameNode)) {
         scopeStack.push(nameNode.text);
       } else {
         scopeStack.push(`<anon:${spanKey(spanOf(sf, node))}>`);
+      }
+      const functionScope: LexicalScope = Object.freeze({
+        kind: "function",
+        declarations: new Map<string, Ref>(),
+      });
+      lexicalScopes.push(functionScope);
+      if (ownerDeclRef !== null && nameNode !== undefined && ts.isIdentifier(nameNode)
+        && !ts.isFunctionDeclaration(node)) {
+        declareIn(functionScope, nameNode.text, ownerDeclRef);
       }
       const parameters = (node as ts.FunctionLikeDeclaration).parameters;
       parameters.forEach((param, ordinalIndex) => {
         const identifier = bindingIdentifier(param.name);
         if (identifier === null) return;
         const span = spanOf(sf, identifier);
+        const declRef = declarationRefFor(identifier.text, span);
+        declareIn(functionScope, identifier.text, declRef);
         addSite({
           kind: "param",
           symbolName: identifier.text,
-          declRef: `${relPath}#${identifier.text}@decl(${spanKey(span)})`,
+          declRef,
+          ownerDeclRef,
           span,
           ordinalIndex,
         });
       });
       ts.forEachChild(node, visit);
+      lexicalScopes.pop();
       scopeStack.pop();
       return;
+    }
+
+    if (ts.isBlock(node)) {
+      pushBlockScope();
+      ts.forEachChild(node, visit);
+      popBlockScope();
+      return;
+    }
+
+    if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+      if (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) {
+        unsupportedSyntaxRecords.push(Object.freeze({
+          kind: "unary_write",
+          reason: "increment_out_of_slice",
+          span: spanOf(sf, node),
+        }));
+      }
+    }
+
+    if (ts.isTryStatement(node)) {
+      unsupportedSyntaxRecords.push(Object.freeze({
+        kind: "try",
+        reason: "control_flow_out_of_slice",
+        span: spanOf(sf, node),
+      }));
+    } else if (ts.isSwitchStatement(node)) {
+      unsupportedSyntaxRecords.push(Object.freeze({
+        kind: "switch",
+        reason: "control_flow_out_of_slice",
+        span: spanOf(sf, node),
+      }));
+    } else if (ts.isWithStatement(node)) {
+      unsupportedSyntaxRecords.push(Object.freeze({
+        kind: "with",
+        reason: "control_flow_out_of_slice",
+        span: spanOf(sf, node),
+      }));
     }
 
     if (ts.isVariableDeclaration(node)) {
       const identifier = bindingIdentifier(node.name);
       if (identifier !== null) {
         const declSpan = spanOf(sf, identifier);
+        const declRef = declarationRefFor(identifier.text, declSpan);
+        const declarationList = node.parent;
+        const blockScoped = ts.isVariableDeclarationList(declarationList)
+          && (declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
+        declareIn(blockScoped ? currentLexicalScope() : nearestFunctionScope(), identifier.text, declRef);
         addSite({
           kind: "write",
           writeKind: "declaration",
           symbolName: identifier.text,
-          declRef: `${relPath}#${identifier.text}@decl(${spanKey(declSpan)})`,
+          declRef,
           span: declSpan,
         });
       }
@@ -353,26 +473,30 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         || node.operatorToken.kind === ts.SyntaxKind.MinusEqualsToken
         || node.operatorToken.kind === ts.SyntaxKind.AsteriskEqualsToken
         || node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken)
-      && ts.isIdentifier(node.left)
-      && declared.has(node.left.text)) {
-      addSite({
-        kind: "write",
-        writeKind: "assignment",
-        symbolName: node.left.text,
-        declRef: null,
-        span: spanOf(sf, node.left),
-      });
+      && ts.isIdentifier(node.left)) {
+      const declRef = resolveDecl(node.left.text);
+      if (declRef !== null) {
+        addSite({
+          kind: "write",
+          writeKind: "assignment",
+          symbolName: node.left.text,
+          declRef,
+          span: spanOf(sf, node.left),
+        });
+      }
     } else if (ts.isCallExpression(node)) {
       const calleeExpression = node.expression;
       if (!ts.isIdentifier(calleeExpression)) {
         ts.forEachChild(node, visit);
         return;
       }
+      const calleeDeclRef = resolveDecl(calleeExpression.text);
       node.arguments.forEach((argument, ordinalIndex) => {
         addSite({
           kind: "call_arg",
           symbolName: sf.text.slice(argument.getStart(sf), argument.getEnd()).slice(0, 80),
           declRef: null,
+          calleeDeclRef,
           span: spanOf(sf, argument),
           calleeName: calleeExpression.text,
           ordinalIndex,
@@ -381,6 +505,13 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     }
 
     if (ts.isIfStatement(node)) {
+      if (frameStack.some(frame => frame.kinds.some(kind => kind === "if_true" || kind === "if_false"))) {
+        unsupportedSyntaxRecords.push(Object.freeze({
+          kind: "nested_if",
+          reason: "control_flow_out_of_slice",
+          span: spanOf(sf, node),
+        }));
+      }
       const conditionSpan = spanOf(sf, node.expression);
       const trueBranchSpan = spanOf(sf, node.thenStatement);
       const falseBranchSpan = node.elseStatement === undefined ? null : spanOf(sf, node.elseStatement);
@@ -420,8 +551,9 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     }
 
     if (ts.isIdentifier(node)) {
+      const declRef = resolveDecl(node.text);
       const isRead =
-        declared.has(node.text)
+        declRef !== null
         && !isPropertyAccessName(node)
         && !isImportSpecifierName(node)
         && !isExportSpecifierName(node)
@@ -433,7 +565,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         addSite({
           kind: "read",
           symbolName: node.text,
-          declRef: null,
+          declRef,
           span: spanOf(sf, node),
         });
       }
@@ -446,9 +578,10 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
   const unique = [...new Map(sites.map(site => [site.siteRef, site] as const)).values()];
   return Object.freeze({
     relPath,
-    parseError: null,
+    parseError: parseErrorOf(sf),
     sites: Object.freeze(unique),
     controlRecords: Object.freeze(controlRecords),
+    unsupportedSyntaxRecords: Object.freeze(unsupportedSyntaxRecords),
   });
 }
 
@@ -478,7 +611,7 @@ export function enumerateValueFlowCandidates(
   const candidates: ValueFlowRelationshipCandidate[] = [];
   for (const write of writes) {
     for (const read of reads) {
-      if (write.symbolName !== read.symbolName) continue;
+      if (write.declRef === null || write.declRef !== read.declRef) continue;
       if (!after(read.span, write.span)) continue;
       candidates.push(Object.freeze({
         candidateRef: `cand:${write.siteRef}->${read.siteRef}`,
@@ -523,6 +656,14 @@ function missing(evidenceRefs: readonly string[], reason = "not_requested"): Obs
   return Object.freeze({ state: "not_observed", reason, evidenceRefs }) as Observed<never>;
 }
 
+function observationFailed(evidenceRefs: readonly string[]): Observed<never> {
+  return Object.freeze({
+    state: "missing",
+    reason: "observation_failed",
+    evidenceRefs,
+  }) as Observed<never>;
+}
+
 function unsupportedNoValue(evidenceRefs: readonly string[]): Observed<never> {
   return Object.freeze({
     state: "unsupported",
@@ -562,15 +703,17 @@ interface InterveningWrite {
 
 function interveningWrites(
   observation: ValueFlowRawObservation,
+  sourceDeclRef: Ref,
   sourceSpan: ValueFlowSpan,
   sinkSpan: ValueFlowSpan,
-  predicate: (site: ValueFlowRawSite) => boolean,
+  predicate: (declRef: Ref) => boolean,
 ): readonly InterveningWrite[] {
   return Object.freeze(observation.sites
     .filter(site => site.kind === "write")
     .filter(site => site.writeKind === "assignment")
+    .filter((site): site is ValueFlowRawSite & { readonly declRef: Ref } => site.declRef !== null)
     .filter(site => after(site.span, sourceSpan) && before(site.span, sinkSpan))
-    .filter(predicate)
+    .filter(site => predicate(site.declRef))
     .sort((left, right) => {
       if (left.span.startLine !== right.span.startLine) return left.span.startLine - right.span.startLine;
       return left.span.startColumn - right.span.startColumn;
@@ -614,14 +757,14 @@ function loopFlowUnsupported(
   observation: ValueFlowRawObservation,
   sourceSpan: ValueFlowSpan,
   sinkSpan: ValueFlowSpan,
-  symbolName: string,
+  sourceDeclRef: Ref,
 ): boolean {
   return observation.controlRecords.some(record => {
     if (record.kind !== "loop") return false;
     if (!after(record.conditionSpan, sourceSpan) || !before(record.conditionSpan, sinkSpan)) return false;
     return observation.sites.some(site =>
       site.kind === "write"
-      && site.symbolName === symbolName
+      && site.declRef === sourceDeclRef
       && contains(record.trueBranchSpan, site.span));
   });
 }
@@ -636,24 +779,28 @@ function orderFlowForReachingDef(
   readonly unsupported: boolean;
   readonly reasons: readonly string[];
 }> {
-  if (loopFlowUnsupported(observation, source.span, sink.span, source.symbolName)) {
+  const flowReason = unsupportedFlowReason(observation, source, sink);
+  if (flowReason !== null) {
     return Object.freeze({
       value: Object.freeze({ orderFlowIndex: 0, coverageIndex: 2 }),
       unsupported: true,
-      reasons: Object.freeze(["control_flow_out_of_slice"]),
+      reasons: Object.freeze([flowReason]),
     });
   }
+  const sourceDeclRef = source.declRef as Ref;
   const same = interveningWrites(
     observation,
+    sourceDeclRef,
     source.span,
     sink.span,
-    site => site.symbolName === source.symbolName,
+    declRef => declRef === sourceDeclRef,
   );
   const other = interveningWrites(
     observation,
+    sourceDeclRef,
     source.span,
     sink.span,
-    site => site.symbolName !== source.symbolName,
+    declRef => declRef !== sourceDeclRef,
   );
   let orderFlowIndex = 0;
   if (!candidate.coverage.orderObserved) {
@@ -699,14 +846,19 @@ function orderFlowForReachingDef(
   });
 }
 
-function controlFlowUnsupported(
+function unsupportedFlowReason(
   observation: ValueFlowRawObservation,
   source: ValueFlowRawSite | null,
   sink: ValueFlowRawSite | null,
-  symbolName: string,
-): boolean {
-  if (source === null || sink === null) return false;
-  return loopFlowUnsupported(observation, source.span, sink.span, symbolName);
+): string | null {
+  if (source === null || sink === null) return null;
+  const syntaxRecord = observation.unsupportedSyntaxRecords.find(record =>
+    before(record.span, sink.span) && spanEndsAfter(record.span, source.span));
+  if (syntaxRecord !== undefined) return syntaxRecord.reason;
+  if (source.declRef !== null && loopFlowUnsupported(observation, source.span, sink.span, source.declRef)) {
+    return "control_flow_out_of_slice";
+  }
+  return null;
 }
 
 function bindingForArgToParam(
@@ -716,11 +868,10 @@ function bindingForArgToParam(
   sink: ValueFlowRawSite | null,
 ): BindingResolutionCode {
   if (!observedSide(candidate.source) || !observedSide(candidate.sink)) return "unresolved";
-  const callee = source?.calleeName ?? null;
-  if (callee === null) return "ambiguous_dynamic";
-  const paramOwner = sink?.scopeChain[0] ?? null;
-  if (paramOwner === null) return "unresolved";
-  return callee === paramOwner ? "same_callee" : "different_callee";
+  const calleeDeclRef = source?.calleeDeclRef ?? null;
+  const paramOwnerDeclRef = sink?.ownerDeclRef ?? null;
+  if (calleeDeclRef === null || paramOwnerDeclRef === null) return "unresolved";
+  return calleeDeclRef === paramOwnerDeclRef ? "same_callee" : "different_callee";
 }
 
 export function projectValueFlowRelationship(
@@ -734,18 +885,25 @@ export function projectValueFlowRelationship(
   let status: ValueFlowAdmissionStatus = "eligible";
   let denominatorEligible = true;
 
-  if (ordinalOutOfSlice(candidate.source) || ordinalOutOfSlice(candidate.sink)) {
+  if (observation.parseError !== null) {
+    reasons.push("observation_failed");
+    status = "not_ready";
+  } else if (ordinalOutOfSlice(candidate.source) || ordinalOutOfSlice(candidate.sink)) {
     reasons.push("ordinal_out_of_slice");
     denominatorEligible = false;
     status = "unsupported";
   }
   if (source !== null && sink !== null
-    && controlFlowUnsupported(observation, source, sink, source.symbolName)) {
-    reasons.push("control_flow_out_of_slice");
-    denominatorEligible = false;
-    status = "unsupported";
+    && !observation.parseError) {
+    const flowReason = unsupportedFlowReason(observation, source, sink);
+    if (flowReason !== null) {
+      reasons.push(flowReason);
+      denominatorEligible = false;
+      status = "unsupported";
+    }
   }
-  if (!candidate.coverage.orderObserved || !candidate.coverage.bodyObserved) {
+  if (observation.parseError === null
+    && (!candidate.coverage.orderObserved || !candidate.coverage.bodyObserved)) {
     if (status === "eligible") status = "not_ready";
     if (!candidate.coverage.orderObserved) reasons.push("order_flow_not_observed");
     if (!candidate.coverage.bodyObserved) reasons.push("branch_body_not_observed");
@@ -757,7 +915,9 @@ export function projectValueFlowRelationship(
     : "not_applicable";
 
   let orderFlow: Observed<OrderFlowAndCoverageValue>;
-  if (relationKind === "arg_to_param") {
+  if (observation.parseError !== null) {
+    orderFlow = observationFailed(evidenceRefs);
+  } else if (relationKind === "arg_to_param") {
     const coverageIndex = candidate.coverage.orderObserved && candidate.coverage.bodyObserved ? 2 : 0;
     orderFlow = known(Object.freeze({ orderFlowIndex: 7, coverageIndex }), evidenceRefs);
   } else if (source !== null && sink !== null) {
