@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-07 Jenny：值流 rev12 生命周期闭环，Carol 收口完成（19:59Z）
+
+- Carol 回执 `m1794081557712-6878`：`worktree remove` exit 0；`branch -d value-flow-shared-projection-engineering-20261107`（was a76017d）成功；目录不存在；`collab task close` 返回 `status=closed`、`delivery_complete=true`、`completion_missing=[]`、`disposition=integrated`、`cleanup.receipt_id=cleanup-value-flow-shared-projection-engineering-20261107-1794081509650`、`cleanup.result=verified`。值流共享投影工程 rev12 完整闭环。
+- worktree 现为 3 个（main、B-R、p1-1）；`pending_merges` 空；主树仅保护性未跟踪 fixture。
+- Henry B-R 续派 `m1794080511810-6728` 已消费（answered=false），worktree clean 且落后 main；runs 目录尚无 fit/评价新产物，按巡检间隔不重复催派，等 Henry 实际产出或真实阻塞回执。
+- 本轮边界：只做集成、验证、推送、board 生命周期与资源收口；未训练、未 fit、未改权重/gold/threshold/采用状态，未产品接线、未安装、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：值流 rev12 已集成 8e02540，待 Carol 清理关闭（19:54Z）
 
 - 消费 Alice accept 与交付通知（`m1794080729490-6773`、`m1794080899191-6788`、`m1794080907324-6789`、`m1794080907376-6790`、`m1794080907431-6791`、`m1794080975527-6800`、`m1794080975668-6801`）及 worker-idle 批次；三次义务完成通知确认 rev7/rev8/rev10 缺口均并入 rev12 接受结果。
