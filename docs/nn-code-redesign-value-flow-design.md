@@ -217,8 +217,10 @@ let w = x; // u2
 | `r_kill_pos = (d0, u0, reaching_def)` | `d0` 到达 `u0` | `true` |
 | `r_kill_neg = (d0, u1, reaching_def)` | `d0` 被同声明无条件 `d1` 后 kill，不能到达 `u1` | `false` |
 | `r_other_write = (d0, u_other, reaching_def)` | `d_other` 写的是另一声明 `y`，不 kill `x` 的 `d0` | `true` |
-| `r_cond_may = (d0, u2, reaching_def)` | 条件写 `d2` 只杀分支内旧值；未赋值分支仍让 `d0` may-reach `u2` | `true`，`may_branch_disjunction` |
-| `r_cond_missing = (d0, u2, reaching_def)` | 分支体或顺序未观察，不能确认可用分支路径 | `unknown`，原因是缺测 |
+| `r_cond_may = (d1, u2, reaching_def)` | 分支前最新无条件写 `d1`，`c=false` 时 `d1` 到达 `u2`；`c=true` 时 `d2` 到达 `u2` | `true`，`may_branch_disjunction` |
+| `r_cond_neg = (d0, u2, reaching_def)` | `d1` 已在分支前无条件覆盖 `d0`，因此 `d0` 不能到达 `u2` | `false` |
+| `r_cond_missing_body = (d1, u2, reaching_def)` | 条件写 `d2` 和顺序已观察，但分支体内容/逃逸未观察 | `unknown`，原因是分支内容缺测 |
+| `r_cond_missing_order = (d1, u2, reaching_def)` | 条件写本身或 `d1 -> d2 -> u2` 顺序未观察 | `unknown`，原因是顺序缺测，orderFlowIndex 必须为 undetermined |
 
 adapter 原始事实只包含：
 
@@ -226,7 +228,8 @@ adapter 原始事实只包含：
 - `d0`、`d1`、`d_other` 是写入点，`u0`、`u_other`、`u1`、`u2` 是读取点；
 - `d_other` 的声明与 `d0` 不同；`d1`、`d2` 与 `d0` 同声明；
 - `d1` 无条件，`d2` 位于可观测 `if` 分支内；分支结构、branch-join 和 coverage 回执可见；
-- `r_cond_missing` 的对照只改变 coverage：分支体或顺序未观察时，相应事实为 missing，而不是被补成 false；
+- `d1` 在 `d2` 之前，`d0` 在 `d1` 之前；因此 `r_cond_may` 的源点是 `d1`，不是 `d0`；
+- `r_cond_missing_body` 保留已观测的条件写和顺序，只把分支体内容标为 missing；`r_cond_missing_order` 把条件写/顺序本身标为 missing，`orderFlowIndex` 不得填成已知的 `3`；
 - 不包含“`d0` reaches `u0`”“`d1` kills `d0`”“`d0` may-reach `u2`”的最终关系判断。
 
 学生语义职责：
@@ -234,10 +237,11 @@ adapter 原始事实只包含：
 - 对 `r_kill_pos`，选择 `judge=true`，并让固定引擎验证 `d0 -> u0` 的顺序和局部写读事实。
 - 对 `r_kill_neg`，选择 `judge=false`，前提是当前 scope 的必要写入点已完整枚举，且固定引擎验证 `d1` 是 `u1` 前顺序覆盖的同声明无条件重赋值。
 - 对 `r_other_write`，选择 `judge=true`；`d_other` 的声明身份与 `d0` 不同，不能把它当作同变量 kill。
-- 对 `r_cond_may`，选择 `judge=true` 并保留 `may_branch_disjunction`；条件 `c` 的运行值未观测不等于缺测。只要分支结构完整，未赋值分支仍提供静态 may 路径。
-- 只有当分支体不可见、顺序缺失、别名/动态属性边界未知或 coverage 不完整时，才选择 `judge=unknown`；原因标为缺测或动态边界，不能归因于“条件写本身只能 unknown”。
+- 对 `r_cond_may`，选择 `judge=true` 并保留 `may_branch_disjunction`；条件 `c` 的运行值未观测不等于缺测。`d1` 在 `c=false` 分支到达 `u2`，`d2` 在 `c=true` 分支到达 `u2`。
+- 对 `r_cond_neg`，选择 `judge=false`；`d1` 在分支前已无条件覆盖 `d0`，后续条件写不能复活 `d0`。
+- 对 `r_cond_missing_body`，选择 `judge=unknown`，因为条件写和顺序可见但分支内容不完整；对 `r_cond_missing_order`，同样 `unknown`，但 `orderFlowIndex` 必须是 `0=undetermined`，不能把未观测顺序写成已知条件写。两者原因字段分别保留分支内容缺测或顺序缺测。
 
-独立 oracle 使用独立静态证明或离线 analyzer 记录 `r_kill_pos=true`、`r_kill_neg=false`、顺序 span、kill 证明和 coverage。oracle 证据不进入学生 StepContext。
+独立 oracle 使用独立静态证明或离线 analyzer 记录 `r_kill_pos=true`、`r_kill_neg=false`、`r_cond_may=true`、`r_cond_neg=false`、`r_cond_missing_body=unknown`、`r_cond_missing_order=unknown`、顺序 span、kill 证明和 coverage。oracle 证据不进入学生 StepContext。
 
 #### 5.5.2 `arg_to_param` 正反例
 
@@ -258,9 +262,10 @@ g(7, 8); // a1_0 -> p_g0, a1_1 -> p_g1
 | `r_arg1_pos = (a0_1, p_f1, arg_to_param)` | 同一 callee 的第 1 实参到第 1 形参 | `true` |
 | `r_arg_swap = (a0_1, p_f0, arg_to_param)` | 同一 callee，但实参序号与形参序号不匹配 | `false` |
 | `r_arg_other_callee = (a1_0, p_f0, arg_to_param)` | 不同 callee `g` 的实参到 `f` 的形参 | `false` |
-| `r_arg_missing = (a0_1, p_f1, arg_to_param)` | 调用实参列表或形参表有一侧 coverage 不完整 | `unknown` |
+| `r_arg_missing_arg = (a0_1, p_f1, arg_to_param)` | 实参列表覆盖不完整 | `unknown` |
+| `r_arg_missing_param = (a0_1, p_f1, arg_to_param)` | 形参表覆盖不完整 | `unknown` |
 
-adapter 原始事实只包含函数声明、形参顺序与 span、调用表达式、callee 的局部标识符、实参顺序与 span、callee/形参声明身份一致性证据以及两侧 coverage；不包含最终参数绑定结果。学生必须读取 callee 身份、实参序号、形参序号和覆盖状态，选择 `true`、`false` 或 `unknown`。序号相同且 callee 身份一致时可为 `true`；同 callee 但序号不同、或 callee 不同时可为 `false`；任何一侧 coverage 不完整时只能 `unknown`。独立 oracle 在评价旁路给出绑定证明和 negative/unknown reason。
+adapter 原始事实只包含函数声明、形参顺序与 span、调用表达式、callee 的局部标识符、实参顺序与 span、callee/形参声明身份一致性证据以及两侧 coverage；不包含最终参数绑定结果。学生必须读取 callee 身份、实参序号、形参序号和覆盖状态，选择 `true`、`false` 或 `unknown`。序号相同且 callee 身份一致时可为 `true`；同 callee 但序号不同、或 callee 不同时可为 `false`；实参或形参任一侧 coverage 不完整时只能 `unknown`。`r_arg_missing_arg` 与 `r_arg_missing_param` 的 `bindingResolutionCode` 都标记为 `unresolved`，但这不是“coverage 缺失必然推出未解析”的通用规则；这两个对照各自明确缺少绑定所需的实参或形参侧事实，其他 coverage 缺失若绑定事实仍可见，`bindingResolutionCode` 保持不变。两者的区别只在 `coverageIndex` 的缺测侧。独立 oracle 在评价旁路给出绑定证明和 negative/unknown reason。
 
 删除模型后，adapter 只能报告 `a0_0`、`a0_1`、`a1_0`、`a1_1`、`p_f0`、`p_f1`、`p_g0`、`p_g1` 和调用位置，不能自行决定上述候选的终态。候选因此保持待判，不会在没有模型或独立 oracle 的情况下生成 achieved。
 
@@ -302,10 +307,10 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 | `x[24..31]` G3 | 技能类别和 executor 可用性 | `x[31]` 当前保留为 0 |
 | `x[32..39]` G4 | 参数覆盖、类型、judge one-hot、缺失参数 | `x[36..38]` 只表示 `judge=true/false/unknown` |
 | `x[40..47]` G5 | target kind 可用性、证据存在、声明名称/类型一致 | 不表示边类型、源汇角色、顺序或 kill |
-| `x[48..55]` G6 | control、candidate kind、参数投影 | `x[51]` 与 `x[55]` 当前保留为 0 |
+| `x[48..55]` G6 | control、candidate kind、参数投影 | `x[51]` 提出 `orderFlowAndCoverageCode`，`x[55]` 提出 `bindingResolutionCode`；均为 §6.2 的共享扩展提案，未经 Alice 审计前不实现 |
 | `x[56..63]` G7 | route 和 declaration identity | 只表示声明身份的一致性，不表示关系本身 |
 
-当前结构不能从标准字段中独立表达 `edgeKind`、源/汇程序点角色、顺序关系、Kill 事实或 callee 绑定状态。两个候选即使对应不同关系，只要 fact 数量和第一条 declaration 相同，就可能产生相同的主要向量。因此当前 `nnanything.unified-step.v1` 不能直接承担上述正反例的可辨性交付。
+当前结构不能从标准字段中独立表达 `edgeKind`、源/汇程序点角色、顺序关系、条件性/无条件性、callee 绑定、参数序号或覆盖状态；kill 结论也不是编码器输入。两个候选即使对应不同关系，只要 fact 数量和第一条 declaration 相同，就可能产生相同的主要向量。因此当前 `nnanything.unified-step.v1` 不能直接承担上述正反例的可辨性交付。
 
 ### 6.2 定点例的 64-slot 映射
 
@@ -313,35 +318,59 @@ adapter 原始事实只包含函数声明、形参顺序与 span、调用表达�
 
 | 槽位 | 共享语义 | 编码 |
 | --- | --- | --- |
-| `x[15]` | `relationKindCode` | `0=not_applicable`；`1/7=reaching_def`、`2/7=local_init`、`3/7=local_assign`、`4/7=destructure_extract`、`5/7=arg_to_param`、`6/7=return_from_fn`、`1=return_to_call_lhs` |
-| `x[23]` | `sourceRoleCode` | `0=unknown`，`0.25=definition/write`，`0.5=argument`，`0.75=return`，`1=other` |
-| `x[31]` | `sinkRoleCode` | `0=unknown`，`0.25=read`，`0.5=parameter`，`0.75=assignment_target`，`1=other` |
-| `x[51]` | `orderFlowCode`（仅顺序，不压缩 kill） | `0=undetermined`，`0.25=ordered before without intervening write`，`0.5=ordered after observed intervening write`，`0.75=branch/loop boundary`，`1=complete/non-ordering fact` |
-| `x[55]` | `bindingCoverageCode`（仅绑定解析，不压缩覆盖完整） | `0=unresolved`，`0.5=observed mismatch/ambiguous`，`1=resolved` |
+| `x[15]` | `relationKindCode` | `0=not_applicable`；`1/7=reaching_def`、`2/7=local_init`、`3/7=local_assign`、`4/7=destructure_extract`、`5/7=arg_to_param`、`6/7=return_from_fn`、`7/7=return_to_call_lhs` |
+| `x[23]` | `sourceRoleAndOrdinalCode` | `(roleIndex*4 + min(ordinal,3))/19`；roleIndex `0=unknown`、`1=definition/write`、`2=argument`、`3=return`、`4=other`；ordinal 对 argument 源保留 `0/1` |
+| `x[31]` | `sinkRoleAndOrdinalCode` | `(roleIndex*4 + min(ordinal,3))/19`；roleIndex `0=unknown`、`1=read`、`2=parameter`、`3=assignment_target`、`4=other`；ordinal 对 parameter 汇保留 `0/1` |
+| `x[51]` | `orderFlowAndCoverageCode` | `(orderFlowIndex*4 + coverageIndex)/31`；orderFlowIndex `0=undetermined`、`1=ordered before no intervening write`、`2=same-decl unconditional intervening write`、`3=same-decl conditional intervening write`、`4=other-decl unconditional intervening write`、`5=other-decl conditional intervening write`、`6=same-decl unconditional then same-decl conditional intervening write`、`7=non-ordering`；coverageIndex `0=missing`、`1=partial`、`2=complete`、`3=not_applicable` |
+| `x[55]` | `bindingResolutionCode`（仅 callee 解析，不含覆盖） | `0=not_applicable`，`0.25=unresolved`，`0.5=same callee`，`0.75=different callee`，`1=ambiguous/dynamic` |
 
-`orderFlowCode` 只记录程序点顺序与是否存在中间写，不把“观察到中间写”与“该写构成 kill”合并。是否 kill 由 path evidence 与 coverage 单独判定，不写入 `x[51]`。`bindingCoverageCode` 只记录 callee/形参绑定解析状态，不把“绑定已解析”与“观测完整”合并；覆盖完整性与截断、失败、未读候选保留在 State.coverage，不压缩进 `x[55]`。这避免了两个独立事实被一个码混淆，也保留缺测可表达性。
+`x[51]` 明确打包两个独立字段，但数值可以机械拆回：`orderFlowIndex` 表源点到汇点的“已观测写前缀”摘要，即源点之后到汇点之前出现的中间写序列（声明身份是否同目标、无条件/条件分支）；`coverageIndex` 表该候选观测覆盖。它不写“该写构成 kill”或关系真值。`x[55]` 只表 callee 解析状态，不携带覆盖或序号。序号相等比较只由 `x[23]` 和 `x[31]` 的 role/ordinal 码承载，`x[55]` 不因参数序号不匹配而改变。`same-decl`/`other-decl` 由 adapter 比较已观测声明 ref 的相等性得出，是语法/身份事实，不是 reaching-def 真值。
+
+`orderFlowIndex` 的过滤与压缩合同如下：只把源点之后、汇点之前且目标声明等于候选源声明的写作为 kill-relevant 序列；若没有同声明写，则把已观测的其他声明写归为 `other-decl` 对照。若同时存在同声明和其他声明写，其他声明写不进入该候选的 kill-relevant 前缀，因为它们不能覆盖候选源声明。多写只允许以下压缩：全无条件 → `2`；全条件 → `3`；先有无条件、后有条件 → `6`。其他混合顺序必须为 `0=undetermined` 并带 unsupported/missing reason，不得按猜测压成已知序列。
 
 该扩展下的关键槽位差异为：
 
 | 例子 | `x[15]` | `x[23]` | `x[31]` | `x[51]` | `x[55]` |
 | --- | --- | --- | --- | --- | --- |
-| `r_kill_pos` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.25` | `1` |
-| `r_kill_neg` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.5` | `1` |
-| `r_arg0_pos` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `1` |
-| `r_arg1_pos` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `1` |
-| `r_arg_swap` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0.5` |
-| `r_arg_other_callee` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0.5` |
-| `r_arg_missing` | `5/7`（`arg_to_param`） | `0.5` | `0.5` | `1` | `0` |
-| `r_cond_may` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.75` | `1` |
-| `r_cond_missing` | `1/7`（`reaching_def`） | `0.25` | `0.25` | `0.75` | `0` |
+| `r_kill_pos` | `1/7` | `4/19` | `4/19` | `6/31` | `0` |
+| `r_kill_neg` | `1/7` | `4/19` | `4/19` | `10/31` | `0` |
+| `r_other_write` | `1/7` | `4/19` | `4/19` | `18/31` | `0` |
+| `r_cond_may` | `1/7` | `4/19` | `4/19` | `14/31` | `0` |
+| `r_cond_neg` | `1/7` | `4/19` | `4/19` | `26/31` | `0` |
+| `r_cond_missing_body` | `1/7` | `4/19` | `4/19` | `12/31` | `0` |
+| `r_cond_missing_order` | `1/7` | `4/19` | `4/19` | `0` | `0` |
+| `r_arg0_pos` | `5/7` | `8/19` | `8/19` | `30/31` | `0.5` |
+| `r_arg1_pos` | `5/7` | `9/19` | `9/19` | `30/31` | `0.5` |
+| `r_arg_swap` | `5/7` | `9/19` | `8/19` | `30/31` | `0.5` |
+| `r_arg_other_callee` | `5/7` | `8/19` | `8/19` | `30/31` | `0.75` |
+| `r_arg_missing_arg` | `5/7` | `0` | `9/19` | `28/31` | `0.25` |
+| `r_arg_missing_param` | `5/7` | `9/19` | `0` | `28/31` | `0.25` |
 
-表内 `x[51]` 和 `x[55]` 只放原始顺序与绑定解析状态，不放 kill 结论、覆盖完整结论或“关系为 true/false”的 oracle 标签。`judge=true/false/unknown` 仍由 G4 `x[36..38]` 表示，声明身份仍由 G5/G7 原槽位表示。`r_arg_missing` 的 `x[55]=0` 与 `r_arg_swap` 的 `x[55]=0.5` 区分“绑定未解析”与“绑定已观测但不匹配”，两者不会被合并成同一码。
+每个对照的原始字段值、独立推导、完整槽位差异及缺测状态如下表。`orderFlowIndex`/`coverageIndex` 只从 adapter 已观测的语法与身份事实导出，不调用 reaching-def/analyzer 真值；kill 是待判定关系结论，不是输入：
+
+| 候选 | 原始顺序/中间写事实（adapter 可见） | `orderFlowIndex` | `coverageIndex` | 角色/序号/绑定事实 | `x[23]` | `x[31]` | `x[55]` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `r_kill_pos` | `u0` 在 `d0` 后、`d1` 前；`d0..u0` 中间无对 `x` 的写 | `1`（无中间写） | `2`（complete） | `d0`=write，`u0`=read；无 callee | `4/19` | `4/19` | `0` |
+| `r_kill_neg` | `u1` 在 `d1` 后；`d1` 是同声明无条件写 | `2`（same-decl unconditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_other_write` | `u_other` 在 `d_other` 后；`d_other` 是 `y` 声明，非 `x` | `4`（other-decl unconditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_cond_may` | `u2` 在 `d2` 后；`d2` 是 `x` 的同声明条件写（`d1` 是源点，不在 `d1..u2` 中间） | `3`（same-decl conditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_cond_neg` | `d0..u2` 中间：先 `d1` 同声明无条件写，再 `d2` 同声明条件写 | `6`（same-decl unconditional then same-decl conditional intervening write） | `2`（complete） | 同上 | `4/19` | `4/19` | `0` |
+| `r_cond_missing_body` | 同 `r_cond_may`，条件写和顺序可见，但分支体内容未观察 | `3`（same-decl conditional intervening write） | `0`（missing） | 同上 | `4/19` | `4/19` | `0` |
+| `r_cond_missing_order` | 条件写本身或 `d1 -> d2 -> u2` 顺序未观察 | `0`（undetermined） | `0`（missing） | 同上 | `4/19` | `4/19` | `0` |
+| `r_arg0_pos` | callee 形参表在调用点之前可见；跨函数绑定非顺序域 | `7`（non-ordering） | `2`（complete） | `a0_0`=argument ordinal0，`p_f0`=parameter ordinal0，callee `f` | `8/19` | `8/19` | `0.5` |
+| `r_arg1_pos` | 同上 | `7` | `2` | `a0_1`=argument ordinal1，`p_f1`=parameter ordinal1，callee `f` | `9/19` | `9/19` | `0.5` |
+| `r_arg_swap` | 同上 | `7` | `2` | `a0_1`=argument ordinal1，`p_f0`=parameter ordinal0，callee `f` | `9/19` | `8/19` | `0.5` |
+| `r_arg_other_callee` | 同上 | `7` | `2` | `a1_0`=argument ordinal0，`p_f0`=parameter ordinal0，callee `g`（不同） | `8/19` | `8/19` | `0.75` |
+| `r_arg_missing_arg` | 调用实参列表覆盖缺测 | `7`（non-ordering） | `0`（missing） | 源侧 argument 未解析，形参侧 `p_f1` 可见 | `0` | `9/19` | `0.25` |
+| `r_arg_missing_param` | 形参表覆盖缺测 | `7`（non-ordering） | `0`（missing） | 源侧 `a0_1` 可见，目标侧 parameter 未解析 | `9/19` | `0` | `0.25` |
+
+表内 `x[23]` 与 `x[31]` 保留源/汇角色和参数序号，`x[51]` 保留有序中间写序列摘要（声明身份、条件性/无条件性）、coverage，`x[55]` 保留 callee 解析状态。`judge=true/false/unknown` 仍由 G4 `x[36..38]` 表示，声明身份仍由 G5/G7 原槽位表示。`r_arg_swap` 与 `r_arg0_pos` 只在 `x[23]`/`x[31]` 上区分序号；`r_arg_other_callee` 与 `r_arg0_pos` 只在 `x[55]` 上区分 callee；`r_arg_missing_arg`/`r_arg_missing_param` 分别由 `x[23]` 或 `x[31]` 的 unknown 角色与 `x[51]` 的 missing coverage 表示，二者都保持 `x[55]=0.25` 但不会被混同。`r_cond_missing_body` 与 `r_cond_missing_order` 分别用 `x[51]=12/31`（顺序/条件写已观测，内容缺测）和 `0`（顺序/条件写本身 undetermined）表示。`r_kill_neg` 与 `r_cond_neg` 分别是“同声明无条件写”和“同声明无条件写后同一声明条件写”，`x[51]` 上以 `10/31` 与 `26/31` 区分；它们都表示 `d0` 已被 `d1` kill，但程序结构不同，编码必须可辨。`x[51]` 不写 kill，也不写关系真值。
 
 ### 6.3 共享投影最小差异
 
 如果上述扩展被审计接受，最小共享差异是：
 
-1. 在统一 StepContext 增加通用的 `relationshipProjection`，包含 `relationKind`、`sourceSiteRef`、`sinkSiteRef`、`sourceRole`、`sinkRole`、`orderFlow`、`bindingCoverage` 和证据引用；字段由 adapter 的原始事实填充，不由 gold 或 analyzer 真值填充。`orderFlow`、kill、binding resolution、coverage completeness 各自独立导出，各自携带缺测码；不把中间写与 kill、或绑定解析与覆盖完整折叠成一个码。
+1. 在统一 StepContext 增加通用的 `relationshipProjection`，包含 `relationKind`、`sourceSiteRef`、`sinkSiteRef`、`sourceRoleAndOrdinal`、`sinkRoleAndOrdinal`、`orderFlowAndCoverage`、`bindingResolution` 和证据引用；字段由 adapter 的原始事实填充，不由 gold 或 analyzer 真值填充。中间写身份、条件性/无条件性、callee 绑定、参数序号和 coverage completeness 各自独立导出，各自携带缺测码；不把中间写与 kill、或绑定解析与覆盖完整折叠成一个码。
 2. 在 `unified-encoder` 中按 §6.2 填充当前保留的 `x[15]`、`x[23]`、`x[31]`、`x[51]`、`x[55]`，并提升统一 encoder 版本；不改变 64 维长度。
 3. 旧 profile 按版本加载，不能在未迁移的情况下接收新槽位；新增关系字段必须保持缺失可表达，不能补 0 冒充观测。
 4. 在实现前先由 Alice 审计字段是否真的共享、是否有旧能力回归、是否出现 relation-specific 私有分支；未通过前不启动 fit、不生成新训练语料。
