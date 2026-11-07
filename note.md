@@ -2829,3 +2829,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 剩余阻断：独立 reviewer 标 P1，完整回放 7 个场景仍 INCOMPLETE，READY CLI 回执不等于完成全回放；不签全量 PASS。
 - 本轮不开训练、不改权重/gold/threshold/采用、不提交合并、不关闭任何任务。
 - 下一步：按已裁定的最终路径，由 Henry 运行 7 个 INCOMPLETE 场景并记录原始输入/输出/退出码/断言结果；结果复验后再走 milestone 交付与整体 Review。
+
+## 2026-11-07 master 巡检：Henry 七场景回放完成，5 PASS / 2 INCOMPLETE，等待 reviewer 接受（04:22Z）
+
+- 已消费 worker-idle m1794025158348-307 / m1794025230311-319 / m1794025264296-322 与 Henry 结果消息 m1794025325651-332；inbox unread=0。
+- Henry board rev 10：七场景回放在已裁定最终路径完成——Carol fixed-stepwise 生成器 ready-slice corpus + Iris gcm-gap1-04 最终配置 + 候选 worktree tsjs-real-converter-acceptance-20261106/dist/training/l2-standard-runner.js 公开入口；未改产品、语料、权重、gold、threshold、采用、安装，仅修改 Henry 自有 run-independent-verification.mjs。
+- 结果：5 PASS（zero-gain、unknown-gain、multi-declaration-order、ambiguous、public-entry）、0 FAIL、2 INCOMPLETE（request-missing 正向缺测比较因 loader 先拒绝 request.requestedDeclaration 而不可达；repeat-read 因 accepted schema 无 invalidation/recovery 字段）。两项反向拒绝均 PASS。multi-declaration-order 以 slots [41,44,45,46,47,60,61,62,63] 绑定/比较恒等断言通过，非削弱断言。原始逐项回执：/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/.worker-runs/henry-converter-post-rework-independent-verification-20261106/output/remaining-scenarios/replay-remaining-scenarios.receipt.json。
+- 未签全量 PASS；完整 22 场景仍待 reviewer 接受。Alice Desktop 仍不可接收 direct input（can_accept_direct_input=false），m1793999283029-1674 仍 pending。按 CEO 指令 m1794021898537-55，如 Alice 仍不可达，按 Review 合同安排独立 reviewer 完成 milestone 接受，不冒充 Alice、不绕过正式验收。
+- 产品代码、语料、权重、gold、threshold、采用、产品接线、runtime 安装均未改。
