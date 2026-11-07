@@ -41,8 +41,11 @@ function groupsHtml(profile,page,placements=null) {
 export function renderPage(profile,scenario,choices=[profile],options={}) {
   const columns=Math.max(1,Math.min(4,profile.layout.columns));
   const width=Math.max(400,Math.min(1500,profile.layout.maxWidth));
-  const placeholder=typeof profile.input?.placeholder==='string'?profile.input.placeholder:'';
-  const input=profile.input.tag==='textarea'?`<textarea id="query" name="q" rows="1" placeholder="${escape(placeholder)}"></textarea>`:`<input id="query" name="q" type="${profile.input.type==='search'?'search':'text'}" placeholder="${escape(placeholder)}">`;
+  const placeholder=typeof options.placeholder==='string'?options.placeholder:typeof profile.input?.placeholder==='string'?profile.input.placeholder:'';
+  const readonly=options.readonly===true?' readonly':'';
+  const input=profile.input.tag==='textarea'
+    ? `<textarea id="query" name="q" rows="1" placeholder="${escape(placeholder)}"${readonly}></textarea>`
+    : `<input id="query" name="q" type="${profile.input.type==='search'?'search':'text'}" placeholder="${escape(placeholder)}"${readonly}>`;
   // Only pre-rendered application content crosses into the page, never the source profile or teacher IDs.
   const mainPages=[groupsHtml(profile,1,['main']),groupsHtml(profile,2,['main'])];
   const relatedPages=[groupsHtml(profile,1,['related']),groupsHtml(profile,2,['related'])];

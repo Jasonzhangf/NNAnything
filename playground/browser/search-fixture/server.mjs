@@ -13,7 +13,14 @@ export function createFixtureServer() {
   return http.createServer((request,response)=>{
     const url=new URL(request.url,'http://127.0.0.1');
     if(url.pathname==='/favicon.ico'){response.writeHead(204);response.end();return;}
-    if(url.pathname==='/family-b/'||url.pathname==='/family-b'){response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});response.end(renderFamilyBPage());return;}
+    if(url.pathname==='/family-b/'||url.pathname==='/family-b'){
+      response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
+      response.end(renderFamilyBPage({
+        placeholder:url.searchParams.get('placeholder')??undefined,
+        readonly:url.searchParams.get('readonly')==='true',
+      }));
+      return;
+    }
     if(url.pathname==='/family-b/client.js'){response.writeHead(200,{'Content-Type':'text/javascript; charset=utf-8','Cache-Control':'no-store'});response.end(familyBClient);return;}
     if(url.pathname==='/family-b/api/search'){
       const query=url.searchParams.get('q')??'';const requestRef=url.searchParams.get('request')??'';const scenario=url.searchParams.get('scenario')??'normal';
@@ -29,7 +36,12 @@ export function createFixtureServer() {
     const query=url.searchParams.get('q')??'';
     if(!profile||!scenarios.includes(scenario)){response.writeHead(400);response.end('Unknown fixture configuration');return;}
     response.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
-    response.end(renderPage(profile,scenario,profiles,{query,scenarios}));
+    response.end(renderPage(profile,scenario,profiles,{
+      query,
+      scenarios,
+      placeholder:url.searchParams.get('placeholder')??undefined,
+      readonly:url.searchParams.get('readonly')==='true',
+    }));
   });
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
