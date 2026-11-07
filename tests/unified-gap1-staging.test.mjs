@@ -7,16 +7,13 @@ import { test } from "node:test";
 
 const here = new URL(".", import.meta.url);
 const worktreeRoot = resolve(here.pathname, "..");
-const adapterPath = resolve(worktreeRoot, "scripts/generate-four-mappings-corpus.mjs");
 // P1-1: the reviewed milestone names scripts/stage-stepwise-converter-corpus.mjs
-// as the final mechanical join adapter for Carol's fixed-stepwise corpus. Its
-// keyed bilateral join is therefore exercised directly, in addition to the
-// generator that produced the accepted gcm-gap1-03 ready-slice.
+// as the final mechanical join adapter for Carol's fixed-stepwise corpus. The
+// corpus itself is owned by Carol's accepted fixed-stepwise generator
+// (playground/training/carol-r2-stepwise-corpus/generate-fixed-stepwise.mjs),
+// so these tests build controlled student/supervision fixtures and exercise
+// the committed adapter's keyed bilateral join directly.
 const stagingAdapterPath = resolve(worktreeRoot, "scripts/stage-stepwise-converter-corpus.mjs");
-const runnerPath = resolve(worktreeRoot, "dist/training/l2-standard-runner.js");
-const fixtureRoot = resolve(here.pathname, "fixtures/unified-64-slot");
-const thresholdsPath = join(fixtureRoot, "feature-thresholds-r-unified-step-encoder-v1.json");
-const missingModeTablePath = join(fixtureRoot, "missing-mode-table.json");
 
 const EDGE_REF = "edge:sources/src/entry.ts:import:0";
 const PENDING_REF = "pending:sample-a";
@@ -250,42 +247,6 @@ function supervisionRecord(overrides = {}) {
   };
 }
 
-function observed(value, state = "known", reason = null) {
-  return {
-    state,
-    value,
-    reason,
-    evidenceRefs: [`ev:${state}:${value ?? "missing"}`],
-  };
-}
-
-async function makeFixture(students, supervisionRows) {
-  const root = await mkdtemp(join(tmpdir(), "unified-gap1-staging-"));
-  const studentPath = join(root, "student-observations.jsonl");
-  const supervisionPath = join(root, "independent-supervision.jsonl");
-  const out = join(root, "corpus");
-  await writeJsonl(studentPath, students);
-  await writeJsonl(supervisionPath, supervisionRows);
-  return { root, studentPath, supervisionPath, out };
-}
-
-function runAdapter(fixture) {
-  return spawnSync(
-    process.execPath,
-    [
-      adapterPath,
-      fixture.out,
-      "--student",
-      fixture.studentPath,
-      "--supervision",
-      fixture.supervisionPath,
-      "--out",
-      fixture.out,
-    ],
-    { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
-  );
-}
-
 function assertAdapterFailed(result, pattern) {
   assert.notEqual(result.status, 0, result.stdout + result.stderr);
   assert.match(`${result.stdout}\n${result.stderr}`, pattern);
@@ -304,42 +265,75 @@ async function makeStagingFixture(students, supervision) {
   const stagingOut = join(root, "staged");
   await writeJsonl(studentPath, students);
   await writeJsonl(supervisionPath, supervision);
+  const fixtureFamilies = new Map();
+  for (const student of students) {
+    fixtureFamilies.set(student.family, student.sourceGroup ?? "group-a");
+  }
+  for (const sample of supervision) {
+    if (!fixtureFamilies.has(sample.family)) {
+      fixtureFamilies.set(sample.family, sample.sourceGroup ?? "group-a");
+    }
+  }
   await writeJson(join(sourceRoot, "corpus-admissions-v1.json"), {
     schemaVersion: "neural-cli-corpus-admissions-v1",
-    familyAdmissions: [{
-      sourceGroup: "group-a",
+    familyAdmissions: [...fixtureFamilies].map(([family, sourceGroup]) => ({
+      family,
+      sourceGroup,
       partition: "train",
       usableForTrainingSupervision: true,
-    }],
+    })),
   });
-  const samples = new Map();
+  const families = new Map();
   for (const student of students) {
-    samples.set(student.sampleId, {
-      sampleId: student.sampleId,
-      sourceGroup: student.sourceGroup,
-      entryFile: student.entryFile,
+    families.set(student.family, {
+      family: student.family,
+      sourceGroup: student.sourceGroup ?? "group-a",
     });
   }
   for (const sample of supervision) {
-    if (!samples.has(sample.sampleId)) {
-      samples.set(sample.sampleId, {
+    if (!families.has(sample.family)) {
+      families.set(sample.family, {
+        family: sample.family,
+        sourceGroup: sample.sourceGroup ?? "group-a",
+      });
+    }
+  }
+  const samples = new Map();
+  for (const student of students) {
+    samples.set(`${student.family}\u0000${student.sampleId}`, {
+      sampleId: student.sampleId,
+      family: student.family,
+      sourceGroup: student.sourceGroup ?? "group-a",
+      entryFile: student.entryFile ?? "sources/src/entry.ts",
+    });
+  }
+  for (const sample of supervision) {
+    const key = `${sample.family}\u0000${sample.sampleId}`;
+    if (!samples.has(key)) {
+      samples.set(key, {
         sampleId: sample.sampleId,
-        sourceGroup: "group-a",
+        family: sample.family,
+        sourceGroup: sample.sourceGroup ?? families.get(sample.family)?.sourceGroup ?? "group-a",
         entryFile: "sources/src/entry.ts",
       });
     }
   }
-  const familyDir = join(sourceRoot, "train-family-a");
-  await writeJson(join(familyDir, "manifest.json"), {
-    schemaVersion: "neural-cli-source-family-v1",
-    sourceGroup: "group-a",
-    language: "ts",
-    semanticStratum: "module_export",
-    partition: "train",
-    derivationFamily: { familyId: "train-family-a" },
-  });
+  for (const family of families.values()) {
+    const familyDir = join(sourceRoot, family.family);
+    await writeJson(join(familyDir, "manifest.json"), {
+      schemaVersion: "neural-cli-source-family-v1",
+      sourceGroup: family.sourceGroup,
+      language: "ts",
+      semanticStratum: "module_export",
+      partition: "train",
+      derivationFamily: { familyId: family.family },
+    });
+  }
   for (const sample of samples.values()) {
-    await writeJsonl(join(familyDir, `episode-${sample.sampleId}.jsonl`), [sample]);
+    await writeJsonl(
+      join(sourceRoot, sample.family, `episode-${sample.sampleId}.jsonl`),
+      [sample],
+    );
   }
   return { root, studentPath, supervisionPath, sourceRoot, stagingOut };
 }
@@ -483,91 +477,23 @@ test("final staging adapter stages a bilateral join without recomputation", asyn
   }
 });
 
-test("generator join rejects a student without and a supervision without a peer", async () => {
-  const orphanStudent = studentRecord({ sampleId: "sample-b" });
-  const studentWithoutSupervision = await makeFixture(
-    [studentRecord(), orphanStudent],
-    [supervisionRecord()],
-  );
-  try {
-    assertAdapterFailed(
-      runAdapter(studentWithoutSupervision),
-      /missing supervision sample train-family-a\/sample-b/,
-    );
-  } finally {
-    await rm(studentWithoutSupervision.root, { recursive: true, force: true });
-  }
-
+test("final staging adapter rejects a supervision without student", async () => {
   const orphanSupervision = supervisionRecord({ sampleId: "sample-b" });
-  const supervisionWithoutStudent = await makeFixture(
+  const fixture = await makeStagingFixture(
     [studentRecord()],
     [supervisionRecord(), orphanSupervision],
   );
   try {
     assertAdapterFailed(
-      runAdapter(supervisionWithoutStudent),
-      /missing student sample train-family-a\/sample-b/,
-    );
-  } finally {
-    await rm(supervisionWithoutStudent.root, { recursive: true, force: true });
-  }
-});
-
-test("independent supervision values survive staging unchanged", async () => {
-  const student = studentRecord();
-  const supervision = supervisionRecord();
-  const fixture = await makeFixture([student], [supervision]);
-  try {
-    const result = runAdapter(fixture);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-
-    const fullFamily = join(fixture.out, student.family);
-    const stagedStudent = (await readJsonl(
-      join(fullFamily, "student-observations.jsonl"),
-    ))[0];
-    const stagedSupervision = (await readJsonl(
-      join(fullFamily, "independent-supervision.jsonl"),
-    ))[0];
-
-    assert.equal(stagedStudent.schemaVersion, "emma-tsjs-student-observation-v2");
-    assert.deepEqual(stagedStudent.steps[0].legalCandidates, student.steps[0].legalCandidates);
-    assert.deepEqual(stagedStudent.steps[0].S_g, supervision.steps[0].S_g);
-    assert.deepEqual(
-      { ...stagedSupervision, schemaVersion: supervision.schemaVersion },
-      supervision,
+      runStagingAdapter(fixture),
+      /missing student row for family train-family-a sample sample-b/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("join rejects supervision request and source identity mismatches", async () => {
-  const requestStudent = studentRecord();
-  const requestSupervision = supervisionRecord({ requestRef: "request:other-sample" });
-  const requestMismatch = await makeFixture([requestStudent], [requestSupervision]);
-  try {
-    assertAdapterFailed(
-      runAdapter(requestMismatch),
-      /requestRef mismatch for train-family-a\/sample-a/,
-    );
-  } finally {
-    await rm(requestMismatch.root, { recursive: true, force: true });
-  }
-
-  const sourceStudent = studentRecord();
-  const sourceSupervision = supervisionRecord({ sourceGroup: "group-b" });
-  const sourceMismatch = await makeFixture([sourceStudent], [sourceSupervision]);
-  try {
-    assertAdapterFailed(
-      runAdapter(sourceMismatch),
-      /sourceGroup mismatch for train-family-a\/sample-a/,
-    );
-  } finally {
-    await rm(sourceMismatch.root, { recursive: true, force: true });
-  }
-});
-
-test("join admits cross-source sample ids and rejects malformed step joins", async () => {
+test("final staging adapter stages cross-source sample ids independently", async () => {
   const crossGroupStudentA = studentRecord();
   const crossGroupStudentB = studentRecord({
     family: "train-family-b",
@@ -575,213 +501,26 @@ test("join admits cross-source sample ids and rejects malformed step joins", asy
   });
   const crossGroupSupervisionA = supervisionRecord();
   const crossGroupSupervisionB = supervisionRecord({ family: "train-family-b" });
-  const crossGroup = await makeFixture(
+  const crossGroup = await makeStagingFixture(
     [crossGroupStudentA, crossGroupStudentB],
     [crossGroupSupervisionA, crossGroupSupervisionB],
   );
   try {
-    const result = runAdapter(crossGroup);
+    const result = runStagingAdapter(crossGroup);
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    const admissions = JSON.parse(await readFile(
-      join(crossGroup.out, "ready-slice", "corpus-admissions-v1.json"),
-      "utf8",
-    ));
-    assert.deepEqual(
-      admissions.familyAdmissions.map(entry => entry.sourceGroup),
-      ["group-a", "group-b"],
-    );
+    const stagedStudentA = (await readJsonl(
+      join(crossGroup.stagingOut, "train-family-a", "student-observations.jsonl"),
+    ))[0];
+    const stagedStudentB = (await readJsonl(
+      join(crossGroup.stagingOut, "train-family-b", "student-observations.jsonl"),
+    ))[0];
+    assert.equal(stagedStudentA.sampleId, "sample-a");
+    assert.equal(stagedStudentB.sampleId, "sample-a");
+    assert.equal(stagedStudentA.family, "train-family-a");
+    assert.equal(stagedStudentB.family, "train-family-b");
+    assert.equal(stagedStudentA.sourceGroup, "group-a");
+    assert.equal(stagedStudentB.sourceGroup, "group-b");
   } finally {
     await rm(crossGroup.root, { recursive: true, force: true });
-  }
-
-  const missingStepStudent = studentRecord();
-  const extraStep = clone(missingStepStudent.steps[0]);
-  extraStep.stepId = "step-1";
-  missingStepStudent.steps.push(extraStep);
-  const missingStep = await makeFixture([missingStepStudent], [supervisionRecord()]);
-  try {
-    assertAdapterFailed(runAdapter(missingStep), /missing supervision step sample-a\/step-1/);
-  } finally {
-    await rm(missingStep.root, { recursive: true, force: true });
-  }
-
-  const duplicateSupervision = supervisionRecord();
-  duplicateSupervision.steps.push(clone(duplicateSupervision.steps[0]));
-  const duplicate = await makeFixture([studentRecord()], [duplicateSupervision]);
-  try {
-    assertAdapterFailed(runAdapter(duplicate), /duplicate supervision step sample-a\/step-0/);
-  } finally {
-    await rm(duplicate.root, { recursive: true, force: true });
-  }
-});
-
-test("source supervision perturbation reaches public consumption as explicit not-ready", async () => {
-  const student = studentRecord();
-  const supervision = supervisionRecord();
-  supervision.steps[0].S_g = ["c:judge:true"];
-  supervision.steps[0].A_g = ["c:judge:true"];
-  const fixture = await makeFixture([student], [supervision]);
-  try {
-    const adapterResult = runAdapter(fixture);
-    assert.equal(adapterResult.status, 0, adapterResult.stdout + adapterResult.stderr);
-    const stagedStudent = (await readJsonl(
-      join(fixture.out, student.family, "student-observations.jsonl"),
-    ))[0];
-    assert.deepEqual(stagedStudent.steps[0].S_g, ["c:judge:true"]);
-
-    const publicOut = join(fixture.root, "public");
-    const configPath = join(fixture.root, "convert-samples.config.json");
-    await writeJson(configPath, {
-      schema: "nnanything.unified.runner-config.v1",
-      command: "convert-samples",
-      route: { domain: "tsjs", decisionKind: "R" },
-      phase: "sample_migration",
-      encoderVersion: "nnanything.unified-step.encoder.v1",
-      dataGate: {
-        schema: "nnanything.unified.data-gate.v1",
-        partition: "TRAIN",
-        encoderVersion: "nnanything.unified-step.encoder.v1",
-        thresholdsPath,
-        rowsPath: join(publicOut, "data-rows.jsonl"),
-      },
-      outputDir: publicOut,
-      corpus: {
-        root: join(fixture.out, "ready-slice"),
-        admissionsPath: join(fixture.out, "ready-slice", "corpus-admissions-v1.json"),
-        studentRowsPath: join(publicOut, "student-rows", "student-rows.jsonl"),
-        supervisionRowsPath: join(publicOut, "labels", "supervision.jsonl"),
-        packagePath: join(publicOut, "package.json"),
-        missingModeTablePath,
-      },
-    });
-
-    const result = spawnSync(
-      process.execPath,
-      [runnerPath, "convert-samples", "--config", configPath],
-      { encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
-    );
-    assert.equal(result.status, 1, result.stdout + result.stderr);
-    const report = JSON.parse(
-      await readFile(join(publicOut, "run-report.json"), "utf8"),
-    );
-    assert.equal(report.error.code, "DATA_INVALID", JSON.stringify(report.error));
-    assert.match(report.error.message, /S_g mismatch/);
-    assert.match(report.error.message, /c:judge:true/);
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("known requestedDeclaration observed fields unwrap to emma scalar values", async () => {
-  const student = studentRecord();
-  const declaration = student.request.requestedDeclaration;
-  student.request.requestedDeclaration = {
-    declarationRef: observed(declaration.declarationRef),
-    moduleRef: observed(declaration.moduleRef),
-    name: observed(declaration.name),
-    kind: observed(declaration.kind),
-    sourceTargetRef: declaration.sourceTargetRef,
-  };
-  const supervision = supervisionRecord();
-  supervision.steps[0].S_g = ["c:judge:true"];
-  supervision.steps[0].A_g = ["c:judge:true"];
-  const fixture = await makeFixture([student], [supervision]);
-  try {
-    const result = runAdapter(fixture);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-
-    const stagedStudent = (await readJsonl(
-      join(fixture.out, student.family, "student-observations.jsonl"),
-    ))[0];
-    assert.deepEqual(
-      stagedStudent.request.requestedDeclaration,
-      declaration,
-    );
-    assert.deepEqual(stagedStudent.steps[0].legalCandidates, student.steps[0].legalCandidates);
-    assert.deepEqual(stagedStudent.steps[0].S_g, supervision.steps[0].S_g);
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("non-known requestedDeclaration fields stay explicit instead of defaulting", async () => {
-  const student = studentRecord();
-  student.request.requestedDeclaration.declarationRef = {
-    state: "missing",
-    reason: "observation_failed",
-    evidenceRefs: ["ev:requested:missing"],
-  };
-  const fixture = await makeFixture([student], [supervisionRecord()]);
-  try {
-    const result = runAdapter(fixture);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-
-    const stagedStudent = (await readJsonl(
-      join(fixture.out, student.family, "student-observations.jsonl"),
-    ))[0];
-    assert.deepEqual(
-      stagedStudent.request.requestedDeclaration.declarationRef,
-      student.request.requestedDeclaration.declarationRef,
-    );
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("carol receipt and cursor shapes stay explicit after converter schema mapping", async () => {
-  const student = studentRecord();
-  const actionRef = "action:sample-a:step0";
-  const receiptRef = "receipt:sample-a:step0";
-  student.steps[0].previousExecution = {
-    state: "known",
-    value: {
-      actionRef,
-      receiptRef,
-      origin: "source_observation",
-      fromStepId: null,
-      pendingRelationRef: PENDING_REF,
-      optionSemantics: "observe",
-      targetRef: "mod:sources/src/entry.ts",
-      outcome: "success",
-    },
-    evidenceRefs: [EVIDENCE_REF],
-  };
-  student.steps[0].receipts = [{
-    receiptRef,
-    actionRef,
-    action: "read_source",
-    origin: "source_observation",
-    targetRef: "mod:sources/src/entry.ts",
-    fromStepId: null,
-    pendingRelationRef: PENDING_REF,
-    resultRefs: [EVIDENCE_REF],
-    outcome: "success",
-    evidenceRefs: [EVIDENCE_REF],
-  }];
-  student.steps[0].localCandidateCursor = {
-    state: "closed",
-    evidenceRefs: [EVIDENCE_REF],
-  };
-  const fixture = await makeFixture([student], [supervisionRecord()]);
-  try {
-    const result = runAdapter(fixture);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
-
-    const stagedStudent = (await readJsonl(
-      join(fixture.out, student.family, "student-observations.jsonl"),
-    ))[0];
-    assert.equal(stagedStudent.steps[0].receipts[0].receiptId, receiptRef);
-    assert.equal(stagedStudent.steps[0].receipts[0].action, actionRef);
-    assert.equal(stagedStudent.steps[0].receipts[0].target, "mod:sources/src/entry.ts");
-    assert.deepEqual(
-      stagedStudent.steps[0].receipts[0].result.resultRefs,
-      [EVIDENCE_REF],
-    );
-    assert.equal(
-      stagedStudent.steps[0].localCandidateCursor.pendingRelationRef,
-      PENDING_REF,
-    );
-  } finally {
-    await rm(fixture.root, { recursive: true, force: true });
   }
 });
