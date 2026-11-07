@@ -2864,3 +2864,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - roadmap 已同步 B-R 派发状态并提交推送：`464326f`、`6066a72`（main/`origin/main`）。
 - 已请 Iris 同步 `nnanything-overall-redesign-orchestration-r1` next_step 当前事实（B-A1 已 integrated、fixed-env 已改派 Iris、value-flow 为 rework rev15）。
 - 未改产品代码、权重、gold、threshold、采用、产品接线、runtime 安装；未训练、未集成新候选。工作树保护目录保持不动。
+
+## 2026-11-07 master：fixed-env REWORK 裁定派 Carol，roadmap 同步 B-R/B-A1 集成（12:28Z）
+
+- 已消费 m1794052917486-3426（Kate round-11）、m1794053365488-3491（Iris fixed-env REWORK）、m1794053389414-3495（goal deadline）、若干 worker-idle；project-patrol armed。
+- Iris fixed-env REWORK 已按研究归属派 Carol：`fixed-env-research-adjudication-carol-20261107`（p1 read_only，reviewer Alice），范围是 accepted TS/JS package 与 independent Rust verification 准入证据如何进入 unified transfer evaluator、当前交单次评分机制切片还是承担真实决策接线；Alice 审计路径已传。Iris 收到通知后继续不依赖裁定的独立修正，不集成。
+- Carol timing/evaluate 设计返修已按 Alice F1-F3 派发：`tsjs-timing-evaluate-design-rework-carol-20261107`（p1 read_only，reviewer Alice），仅改设计文件，不改产品/权重/gold/threshold/采用。两项 Carol 任务均已被 Carol 接受并 working。
+- longhorizon 30m 订阅已重新武装（`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m`）；project-patrol sub-m1793963843713-143 保持 armed。
+- roadmap 已同步 B-R 阶段二 `734c94d`=integrated+closed（merge `a30c10b`）、B-A1 `ee88d37`=integrated（merge `498557a`）、fixed-env/Iris rev7 REWORK+Carol 裁定、value-flow 阶段B engineering rev3、timing/evaluate 设计返修派发；本轮随 note 一起提交推送。
+- Emma presence missing、pending_notifications=7。四个 nn-code-redesign 子任务（learning-loop/search-read/symbols-rust/symbols-swift）仍 rev5 working 且 next_step 为空；向 Emma 的同步消息因 `TMUX_ENDPOINT_MISSING` 投递失败（durable `m1794054834120-3686`），待其恢复后消费。不越权改他人任务。
+- 未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装；未训练、未集成新候选。
