@@ -79,6 +79,12 @@ function loopWrite(c) {
 }
 `;
 
+const FOR_INIT_WRITE = `
+let x = 0;
+for (x = 1; false; ) {}
+console.log(x);
+`;
+
 const THREE_ARGS = `
 function three(a, b) { return a; }
 function caller() {
@@ -150,6 +156,23 @@ function f() {
   x = 1;
 }
 console.log(x);
+`;
+
+const CALLED_FUNCTION_WRITE = `
+let x = 0;
+function f() {
+  x = 1;
+}
+f();
+console.log(x);
+`;
+
+const REPEATED_VAR = `
+function f() {
+  var x = 0;
+  var x;
+  console.log(x);
+}
 `;
 
 const LOCAL_SEQUENTIAL_WRITE = `
@@ -351,6 +374,43 @@ test("function bodies are isolated execution domains for local reaching definiti
   assert.equal(localResult.projection.orderFlowAndCoverage.value.orderFlowIndex, 2);
 });
 
+test("real calls keep their raw fact and leave uncovered call effects unsupported", () => {
+  const observations = observe(CALLED_FUNCTION_WRITE);
+  assert.ok(observations.sites.some(site =>
+    site.kind === "call" && site.calleeName === "f" && site.ordinalIndex === null),
+  "expected a raw zero-argument call fact");
+
+  const source = writeSite(observations, "x", 2);
+  const sink = readSite(observations, "x", 7);
+  const result = projectValueFlowRelationship(reachingDefCandidate(source, sink), observations);
+  assert.deepEqual(result.admission, {
+    denominatorEligible: false,
+    status: "unsupported",
+    reasons: ["call_effect_out_of_slice"],
+  });
+});
+
+test("repeated var shares one binding and an uninitialized duplicate is not a write", () => {
+  const observations = observe(REPEATED_VAR);
+  const writes = observations.sites.filter(site =>
+    site.kind === "write" && site.symbolName === "x");
+  assert.equal(writes.length, 1, "only the initialized var declaration writes");
+  assert.equal(writes[0].span.startLine, 3);
+  assert.equal(observations.sites.some(site =>
+    site.kind === "write" && site.symbolName === "x" && site.span.startLine === 4), false);
+
+  const source = writeSite(observations, "x", 3);
+  const sink = readSite(observations, "x", 5);
+  assert.equal(sink.declRef, source.declRef);
+  const result = projectValueFlowRelationship(reachingDefCandidate(source, sink), observations);
+  assert.deepEqual(result.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.equal(result.projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+});
+
 test("candidate enumeration yields raw pairs without truth fields", () => {
   const observations = observe(KILL_AND_ORDER);
   const reaching = enumerateValueFlowCandidates(observations)
@@ -500,6 +560,19 @@ test("admission isolates out-of-slice ordinals and loop control flow", () => {
   const loopStudent = encodeValueFlowRelationshipStudent(reachingDefCandidate(loopSource, loopSink), loop);
   assert.equal(loopStudent.xByOption["judge=unknown"][51], 2 / 39);
   assert.equal(loopStudent.missingMode.some(entry => entry.slotIndex === 51), false);
+});
+
+test("loop constructs are unsupported even when the write sits in the for header", () => {
+  const observations = observe(FOR_INIT_WRITE);
+  const source = writeSite(observations, "x", 2);
+  const sink = readSite(observations, "x", 4);
+  const result = projectValueFlowRelationship(reachingDefCandidate(source, sink), observations);
+  assert.deepEqual(result.admission, {
+    denominatorEligible: false,
+    status: "unsupported",
+    reasons: ["control_flow_out_of_slice"],
+  });
+  assert.equal(result.projection.orderFlowAndCoverage.value.orderFlowIndex, 0);
 });
 
 test("missing coverage stays not-ready and keeps a denominator-eligible candidate", () => {

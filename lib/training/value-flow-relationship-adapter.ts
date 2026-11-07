@@ -36,7 +36,7 @@ export interface ValueFlowSpan {
   readonly endColumn: number;
 }
 
-export type ValueFlowRawSiteKind = "write" | "read" | "call_arg" | "param";
+export type ValueFlowRawSiteKind = "write" | "read" | "call_arg" | "param" | "call";
 
 export interface ValueFlowRawSite {
   readonly siteRef: Ref;
@@ -170,6 +170,11 @@ function spanEndsAfter(left: ValueFlowSpan, right: ValueFlowSpan): boolean {
   return false;
 }
 
+function spanEndsBefore(left: ValueFlowSpan, right: ValueFlowSpan): boolean {
+  if (left.endLine !== right.startLine) return left.endLine < right.startLine;
+  return left.endColumn <= right.startColumn;
+}
+
 function contains(outer: ValueFlowSpan | null, inner: ValueFlowSpan): boolean {
   if (outer === null) return false;
   if (outer.startLine < inner.startLine || (outer.startLine === inner.startLine && outer.startColumn <= inner.startColumn)) {
@@ -300,6 +305,12 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     scope.declarations.set(name, declRef);
   }
 
+  function declareVarIn(scope: LexicalScope, name: string, declRef: Ref): void {
+    // Repeated `var` declarations share one hoisted binding; the first
+    // declaration position remains the canonical identity for all uses.
+    if (!scope.declarations.has(name)) scope.declarations.set(name, declRef);
+  }
+
   function resolveDecl(name: string): Ref | null {
     for (let index = lexicalScopes.length - 1; index >= 0; index -= 1) {
       const declaration = lexicalScopes[index]?.declarations.get(name);
@@ -381,11 +392,13 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
           const identifier = bindingIdentifier(declaration.name);
           if (identifier === null) continue;
           const declSpan = spanOf(sf, identifier);
-          declareIn(
-            blockScoped ? currentLexicalScope() : nearestFunctionScope(),
-            identifier.text,
-            declarationRefFor(identifier.text, declSpan),
-          );
+          const scope = blockScoped ? currentLexicalScope() : nearestFunctionScope();
+          const declRef = declarationRefFor(identifier.text, declSpan);
+          if (blockScoped) {
+            declareIn(scope, identifier.text, declRef);
+          } else {
+            declareVarIn(scope, identifier.text, declRef);
+          }
         }
       }
     }
@@ -399,7 +412,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         const identifier = bindingIdentifier(declaration.name);
         if (identifier === null) continue;
         const declSpan = spanOf(sf, identifier);
-        declareIn(scope, identifier.text, declarationRefFor(identifier.text, declSpan));
+        declareVarIn(scope, identifier.text, declarationRefFor(identifier.text, declSpan));
       }
     }
     ts.forEachChild(node, child => predeclareHoistedVarDeclarations(child, scope));
@@ -501,18 +514,30 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
       const identifier = bindingIdentifier(node.name);
       if (identifier !== null) {
         const declSpan = spanOf(sf, identifier);
-        const declRef = declarationRefFor(identifier.text, declSpan);
         const declarationList = node.parent;
         const blockScoped = ts.isVariableDeclarationList(declarationList)
           && (declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
-        declareIn(blockScoped ? currentLexicalScope() : nearestFunctionScope(), identifier.text, declRef);
-        addSite({
-          kind: "write",
-          writeKind: "declaration",
-          symbolName: identifier.text,
-          declRef,
-          span: declSpan,
-        });
+        const scope = blockScoped ? currentLexicalScope() : nearestFunctionScope();
+        let declRef: Ref;
+        if (blockScoped) {
+          declRef = declarationRefFor(identifier.text, declSpan);
+          declareIn(scope, identifier.text, declRef);
+        } else {
+          declRef = scope.declarations.get(identifier.text)
+            ?? declarationRefFor(identifier.text, declSpan);
+          declareVarIn(scope, identifier.text, declRef);
+        }
+        // An uninitialized `var x;` only establishes the hoisted binding; it
+        // performs no assignment and must not be recorded as a write.
+        if (blockScoped || node.initializer !== undefined) {
+          addSite({
+            kind: "write",
+            writeKind: "declaration",
+            symbolName: identifier.text,
+            declRef,
+            span: declSpan,
+          });
+        }
       }
     } else if (ts.isBinaryExpression(node)
       && (node.operatorToken.kind === ts.SyntaxKind.EqualsToken
@@ -533,22 +558,36 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
       }
     } else if (ts.isCallExpression(node)) {
       const calleeExpression = node.expression;
-      if (!ts.isIdentifier(calleeExpression)) {
-        ts.forEachChild(node, visit);
-        return;
-      }
-      const calleeDeclRef = resolveDecl(calleeExpression.text);
-      node.arguments.forEach((argument, ordinalIndex) => {
-        addSite({
-          kind: "call_arg",
-          symbolName: sf.text.slice(argument.getStart(sf), argument.getEnd()).slice(0, 80),
-          declRef: null,
-          calleeDeclRef,
-          span: spanOf(sf, argument),
-          calleeName: calleeExpression.text,
-          ordinalIndex,
-        });
+      const calleeName = ts.isIdentifier(calleeExpression)
+        ? calleeExpression.text
+        : textOf(sf, calleeExpression);
+      const calleeDeclRef = ts.isIdentifier(calleeExpression)
+        ? resolveDecl(calleeExpression.text)
+        : null;
+      // Keep every call, including zero-argument calls, so a reaching-def
+      // interval that crosses an uncaptured call effect stays isolated.
+      addSite({
+        kind: "call",
+        symbolName: calleeName,
+        declRef: null,
+        calleeDeclRef,
+        span: spanOf(sf, node),
+        calleeName,
+        ordinalIndex: null,
       });
+      if (ts.isIdentifier(calleeExpression)) {
+        node.arguments.forEach((argument, ordinalIndex) => {
+          addSite({
+            kind: "call_arg",
+            symbolName: sf.text.slice(argument.getStart(sf), argument.getEnd()).slice(0, 80),
+            declRef: null,
+            calleeDeclRef,
+            span: spanOf(sf, argument),
+            calleeName: calleeExpression.text,
+            ordinalIndex,
+          });
+        });
+      }
     }
 
     if (ts.isIfStatement(node)) {
@@ -807,16 +846,25 @@ function loopFlowUnsupported(
   observation: ValueFlowRawObservation,
   sourceSpan: ValueFlowSpan,
   sinkSpan: ValueFlowSpan,
-  sourceDeclRef: Ref,
 ): boolean {
-  return observation.controlRecords.some(record => {
-    if (record.kind !== "loop") return false;
-    if (!after(record.conditionSpan, sourceSpan) || !before(record.conditionSpan, sinkSpan)) return false;
-    return observation.sites.some(site =>
-      site.kind === "write"
-      && site.declRef === sourceDeclRef
-      && contains(record.trueBranchSpan, site.span));
-  });
+  // The accepted slice declares every loop out of scope, so any loop that
+  // overlaps the source-to-sink interval must stay isolated. This also covers
+  // header forms (for-initializer / incrementor) that are not otherwise walked.
+  return observation.controlRecords.some(record =>
+    record.kind === "loop"
+    && before(record.conditionSpan, sinkSpan)
+    && spanEndsAfter(record.conditionSpan, sourceSpan));
+}
+
+function callEffectUncovered(
+  observation: ValueFlowRawObservation,
+  sourceSpan: ValueFlowSpan,
+  sinkSpan: ValueFlowSpan,
+): boolean {
+  return observation.sites.some(site =>
+    site.kind === "call"
+    && after(site.span, sourceSpan)
+    && spanEndsBefore(site.span, sinkSpan));
 }
 
 function orderFlowForReachingDef(
@@ -908,10 +956,15 @@ function unsupportedFlowReason(
   if (candidate.relationKind === "reaching_def" && source.executionRef !== sink.executionRef) {
     return "execution_domain_out_of_slice";
   }
+  if (candidate.relationKind === "reaching_def"
+    && callEffectUncovered(observation, source.span, sink.span)) {
+    return "call_effect_out_of_slice";
+  }
   const syntaxRecord = observation.unsupportedSyntaxRecords.find(record =>
     before(record.span, sink.span) && spanEndsAfter(record.span, source.span));
   if (syntaxRecord !== undefined) return syntaxRecord.reason;
-  if (source.declRef !== null && loopFlowUnsupported(observation, source.span, sink.span, source.declRef)) {
+  if (candidate.relationKind === "reaching_def"
+    && loopFlowUnsupported(observation, source.span, sink.span)) {
     return "control_flow_out_of_slice";
   }
   return null;
