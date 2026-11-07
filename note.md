@@ -2807,3 +2807,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 跨项目代唤：先带 `--reply-required` 的 `collab send` 返回 `SEND_REPLY_POLICY_UNSUPPORTED`；去掉该参数后成功发送 durable `m1794016936650-197` 至 `fanzhang.Alice`，回执 `cross_project=true`、`notification=tmux-input-submitted`、无回复义务。该消息只要求消费/回复既有 NNAning 消息 `m1793999283029-1674`，或告知可用的 NNAning Alice 入口，不创建新任务。
 - Board 仍无 ready 且已授权可派工作；David 继续按用户授权冲突 PARKED，Henry 全量 22 场景回放保持 gated，Iris converter 任务保持 delivered 等复查，Grace/Carol/Iris/Henry/Emma 的 board-idle 按已记录解除条件保持取消。工作树仅 main（`a12910b`，仅本条 note 改动）与 Iris converter protected hold；既有未跟踪 `tests/fixtures/tsjs-symbols/` 不动。
 - 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-07 master 巡检：gcm-gap1-04 只读预检与 reviewer 通道裁定请求（02:16Z）
+
+- Alice worker record：`presence=present`、`endpoint_live=true`、`thread_state=idle`、`latest_turn_status=completed`、`can_accept_direct_input=false`、`pending_notifications=6`。`m1793999283029-1674` 仍 `state=pending`、`answered=false`；其 desktop bridge 首次投递失败保持 `retryable=false`。跨项目代唤 `m1794016936650-197` 已 `tmux-input-submitted`，尚未收到回复。
+- 只读预检 gcm-gap1-04：`red-tests.exit=1`，记录预修 A 的 `RUNNER_ERROR` 与 B 的两个 typed-encoder 失败；`green-tests.exit=0`、45/45 pass；`build.exit=0`；`unified-full.exit=0`、126/126 pass。公开 `convert-samples`/`validate-data` 均 exit 0、`status=READY`、`dataGate=READY`，为 15 groups/67 student rows/15 supervision rows/0 labelMissingExcluded/15 trainable。
+- 语料路径只读核对：gcm-gap1-04 原始公开回执引用 `gcm-mappings-03/corpus`；`final-replay/README.md` 明确最终回放改用 `gcm-gap1-03/corpus/ready-slice`，它是 Carol 唯一已审 generator 的纯机械 staging adapter 输出。Iris final replay 与 Henry 自有 config 的公开 CLI 回放均为 READY，Henry receipt `status=READY_EVIDENCE_COLLECTED`，与 Iris final replay 的 data/student/supervision rows 为 15/67/15 语义一致；Henry 未签场景 PASS。
+- 该预检只确认作者证据与最终语料路径自洽，不替代 reviewer Alice 的正式定点复查。当前 P0 `iris-real-converter-engineering-20261106` 与 Henry 的完整 22 场景 replay 仍由同一 reviewer gate 阻挡。
+- 需用户裁定：让 Alice 恢复可接收 direct input 并消费 `m1793999283029-1674`，或指定一名获授权的独立替代 reviewer。裁定前不关闭 P0、不伪造 PASS、不开始训练/集成；未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
