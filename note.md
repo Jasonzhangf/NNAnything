@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-07 Jenny：P0 P1-1 工程改派 Iris 与 P0 任务停滞记录（16:40Z）
+
+- 长程 goal deadline `m1794070120507-5549` 已消费；30m one-shot 未续导致 `GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED`，已用同 goal/同 30m 间隔显式重订，`appsdk goal status` 返回 active/subscribed、desired=subscribed、error=null；项目巡检 `sub-m1793963843713-143` 保持 armed。
+- 值流纠偏闭合：`value-flow-shared-projection-engineering-20261107` 的 next_step 已由纠偏指令 m1794069194881-5471 落实为「原始观测投影实施 + 真实 consumer 采证」，Carol 保持 working（present），仅保留真实 adapter 缺口，不重复送审未变候选 218ef31。
+- P1-1 改派：按 Alice 已 ACCEPT 的 `alice-overall-redesign-route-r1.md` 授权，把 P1-1（typed 观测/请求身份投影、动态候选、§2.5 runRecursiveGoal 真实接线）指派给 Iris（NNAnything.Iris，present/idle，可用 GCM），durable 回执 `m1794070682316-5598`，reply-on-completion。已 force-close 的 david-fixed-env-engineering-gap-20261106 的 republish 缺口并入同一指派。
+- P0 任务停滞：`jenny-tsjs-first-fit-converter-train-config-r1`（P0，rev19 rework）自 11-06 02:10 起无更新；collab who 显示原 owner Emma agent_state=unknown、presence=missing、pending_notifications=9，会话不可达，无法 owner-only board update。board 生命周期待 Emma 会话恢复 live 或工程交付后按剩余范围再裁定；交付与集成责任保留在 Jenny，Alice 仍为 reviewer。
+- 巡检状态：Henry 在 `tsjs-timing-runner-engineering-henry-20261107` rework；Grace 巡检 rev13 第九轮完成；origin/main tip `b2a992d` 与本地 main 一致（ahead/behind 0/0）。
+- 边界：未改产品代码/权重/gold/threshold/采用，未安装 runtime，未操作 tmux/daemon 生命周期；`tests/fixtures/tsjs-symbols/` 保持 PROTECTED_HOLD。
+
 ## 2026-11-07 Jenny：MVP 调度纠偏与 B-A1 fallback（06:35Z）
 
 - 用户当前指令已恢复 nn-code 与浏览器训练/交付长程目标；goal `docs/autonomous-capability-roadmap.md` 为 active/subscribed，30m deadline 已续订，project patrol armed。
