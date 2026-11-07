@@ -492,3 +492,56 @@ test("resume rejects an invalid checkpoint instead of fabricating a completion",
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("resume rejects an encoder-version change as an incompatible resume", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 4, epochsThisRun: 2 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+    const checkpointBefore = await readJson(`${paths.packagePath}.checkpoint.json`);
+    assert.equal(checkpointBefore.encoderVersion, "nnanything.unified-step.encoder.v1");
+
+    const changed = await readJson(paths.configPath);
+    changed.encoderVersion = "nnanything.unified-step.encoder.v2";
+    await writeJson(paths.configPath, changed);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 1);
+
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "failed");
+    assert.equal(report.error.code, "CHECKPOINT_INVALID");
+    assert.match(report.error.message, /encoderVersion/);
+    // The committed checkpoint is preserved and unchanged.
+    const checkpointAfter = await readJson(`${paths.packagePath}.checkpoint.json`);
+    assert.deepEqual(checkpointAfter, checkpointBefore);
+    await assert.rejects(readFile(paths.packagePath, "utf8"), error => error.code === "ENOENT");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("resume rejects a changed resource reference as an incompatible resume", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 4, epochsThisRun: 2 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+    const checkpointBefore = await readJson(`${paths.packagePath}.checkpoint.json`);
+    assert.equal(checkpointBefore.resources.missingModeTableRef, missingModeTablePath);
+
+    const changed = await readJson(paths.configPath);
+    changed.corpus.missingModeTablePath = join(root, "other-missing-mode-table.json");
+    await writeJson(paths.configPath, changed);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 1);
+
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "failed");
+    assert.equal(report.error.code, "CHECKPOINT_INVALID");
+    assert.match(report.error.message, /resources/);
+    const checkpointAfter = await readJson(`${paths.packagePath}.checkpoint.json`);
+    assert.deepEqual(checkpointAfter, checkpointBefore);
+    await assert.rejects(readFile(paths.packagePath, "utf8"), error => error.code === "ENOENT");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

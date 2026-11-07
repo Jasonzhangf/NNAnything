@@ -10,7 +10,10 @@
 import { mkdir, open, readFile, rename } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { UNIFIED_PARAMETER_COUNTS, type UnifiedTensors } from "./unified-forward.js";
-import type { ModelRoute } from "./unified-model-package.js";
+import type {
+  ModelRoute,
+  UnifiedModelPackageResources,
+} from "./unified-model-package.js";
 import type { UnifiedTrainConfig, UnifiedTrainEpochRecord } from "./unified-train-config.js";
 
 export const UNIFIED_TRAINING_CHECKPOINT_SCHEMA =
@@ -30,6 +33,10 @@ export interface UnifiedTrainingCheckpoint {
   readonly modelId: string;
   readonly version: string;
   readonly route: ModelRoute;
+  readonly inputSchema: "nnanything.unified-step.v1";
+  readonly encoderVersion: string;
+  /** The typed resources the checkpoint was trained against; resume must reuse them. */
+  readonly resources: UnifiedModelPackageResources;
   readonly architecture: {
     readonly input: 64;
     readonly hidden: readonly [64, 64];
@@ -131,6 +138,27 @@ function validateRoute(raw: unknown): ModelRoute {
     throw invalid("route.decisionKind must be one of R/D/E/A");
   }
   return { domain, decisionKind };
+}
+
+function validateResources(raw: unknown): UnifiedModelPackageResources {
+  const resources = assertObject(raw, "resources");
+  const thresholdsSchema = assertNonEmptyString(resources.thresholdsSchema, "resources.thresholdsSchema");
+  const missingModeSchema = assertNonEmptyString(resources.missingModeSchema, "resources.missingModeSchema");
+  if (thresholdsSchema !== "nnanything.feature-thresholds.v1") {
+    throw invalid("resources.thresholdsSchema must be nnanything.feature-thresholds.v1");
+  }
+  if (missingModeSchema !== "nnanything.unified.missing-mode.v1") {
+    throw invalid("resources.missingModeSchema must be nnanything.unified.missing-mode.v1");
+  }
+  return {
+    thresholdsRef: assertNonEmptyString(resources.thresholdsRef, "resources.thresholdsRef"),
+    thresholdsSchema,
+    missingModeTableRef: assertNonEmptyString(
+      resources.missingModeTableRef,
+      "resources.missingModeTableRef",
+    ),
+    missingModeSchema,
+  };
 }
 
 function validateArchitecture(
@@ -267,6 +295,11 @@ export function validateUnifiedTrainingCheckpoint(
     modelId: assertNonEmptyString(checkpoint.modelId, "modelId"),
     version: assertNonEmptyString(checkpoint.version, "version"),
     route: validateRoute(checkpoint.route),
+    inputSchema: checkpoint.inputSchema === "nnanything.unified-step.v1"
+      ? "nnanything.unified-step.v1"
+      : (() => { throw invalid("checkpoint.inputSchema must be nnanything.unified-step.v1"); })(),
+    encoderVersion: assertNonEmptyString(checkpoint.encoderVersion, "encoderVersion"),
+    resources: validateResources(checkpoint.resources),
     architecture: validateArchitecture(checkpoint.architecture),
     recipe,
     completedEpochs,
@@ -289,6 +322,9 @@ export function createUnifiedTrainingCheckpoint(
     modelId: config.modelId,
     version: config.version,
     route: config.route,
+    inputSchema: config.inputSchema,
+    encoderVersion: config.encoderVersion,
+    resources: config.resources,
     architecture: { input: 64, hidden: [64, 64], output: 1, activation: "relu" },
     recipe: {
       optimizer: config.optimizer,
@@ -359,6 +395,22 @@ export function assertResumeRecipeCompatible(
     || checkpoint.route.decisionKind !== config.route.decisionKind
   ) {
     mismatch("route", config.route, checkpoint.route);
+  }
+  if (checkpoint.inputSchema !== config.inputSchema) {
+    mismatch("inputSchema", config.inputSchema, checkpoint.inputSchema);
+  }
+  if (checkpoint.encoderVersion !== config.encoderVersion) {
+    mismatch("encoderVersion", config.encoderVersion, checkpoint.encoderVersion);
+  }
+  const ckptResources = checkpoint.resources;
+  const configResources = config.resources;
+  if (
+    ckptResources.thresholdsRef !== configResources.thresholdsRef
+    || ckptResources.thresholdsSchema !== configResources.thresholdsSchema
+    || ckptResources.missingModeTableRef !== configResources.missingModeTableRef
+    || ckptResources.missingModeSchema !== configResources.missingModeSchema
+  ) {
+    mismatch("resources", configResources, ckptResources);
   }
   if (checkpoint.recipe.optimizer !== config.optimizer) {
     mismatch("optimizer", config.optimizer, checkpoint.recipe.optimizer);

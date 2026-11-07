@@ -590,6 +590,8 @@ function buildUnifiedTrainConfig(config: UnifiedRunnerConfig): UnifiedTrainConfi
   return {
     schema: UNIFIED_TRAIN_CONFIG_SCHEMA,
     route: config.route,
+    inputSchema: "nnanything.unified-step.v1",
+    encoderVersion: config.encoderVersion,
     architecture: { input: 64, hidden: [64, 64], output: 1 },
     optimizer: training.optimizer,
     learningRate: training.learningRate,

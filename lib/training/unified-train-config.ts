@@ -46,6 +46,8 @@ export type UnifiedStopReason =
 export interface UnifiedTrainConfig {
   readonly schema: typeof UNIFIED_TRAIN_CONFIG_SCHEMA;
   readonly route: ModelRoute;
+  readonly inputSchema: "nnanything.unified-step.v1";
+  readonly encoderVersion: string;
   readonly architecture: { readonly input: 64; readonly hidden: readonly [64, 64]; readonly output: 1 };
   readonly optimizer: "full_batch_sgd";
   readonly learningRate: number;
@@ -131,6 +133,18 @@ export class UnifiedTrainDataError extends Error {
 export function validateUnifiedTrainConfig(config: UnifiedTrainConfig): void {
   if (config.schema !== UNIFIED_TRAIN_CONFIG_SCHEMA) throw new TypeError("train config schema mismatch");
   if (config.optimizer !== "full_batch_sgd") throw new TypeError("optimizer must be full_batch_sgd");
+  if (config.inputSchema !== "nnanything.unified-step.v1") {
+    throw new TypeError("inputSchema must be nnanything.unified-step.v1");
+  }
+  if (typeof config.encoderVersion !== "string" || config.encoderVersion.length === 0) {
+    throw new TypeError("encoderVersion must be a non-empty string");
+  }
+  if (config.resources.thresholdsSchema !== "nnanything.feature-thresholds.v1") {
+    throw new TypeError("resources.thresholdsSchema must be nnanything.feature-thresholds.v1");
+  }
+  if (config.resources.missingModeSchema !== "nnanything.unified.missing-mode.v1") {
+    throw new TypeError("resources.missingModeSchema must be nnanything.unified.missing-mode.v1");
+  }
   if (!Number.isFinite(config.learningRate) || config.learningRate <= 0) {
     throw new TypeError("learningRate must be positive and finite");
   }

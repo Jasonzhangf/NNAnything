@@ -143,10 +143,13 @@ early-stop state 属于独立的 `nnanything.unified.training-checkpoint.v1`。�
 
 当前实现边界：
 
-- checkpoint 只保存 committed epoch boundary 的 tensors、固定 recipe、epoch records、
-  prior violations、`devEarlyStopEnabled=false` 和显式 `cumulativeTimingSeconds=null`；
-- `resume` 必须使用与 checkpoint 相同的 model/version/route/recipe，任一 mismatch
-  显式 `CHECKPOINT_INVALID`，不重新初始化或 fallback；
+- checkpoint 只保存 committed epoch boundary 的 tensors、固定 recipe、typed 编码版本
+  （`inputSchema`/`encoderVersion`）、已训练资源引用（thresholds/missing-mode）、
+  epoch records、prior violations、`devEarlyStopEnabled=false` 和显式
+  `cumulativeTimingSeconds=null`；
+- `resume` 必须使用与 checkpoint 相同的 model/version/route/recipe/`inputSchema`/
+  `encoderVersion`/资源引用，任一 mismatch 显式 `CHECKPOINT_INVALID`，不重新初始化
+  或 fallback；换训练数据、new encoder 或新资源引用不能隐式当作同一次 resume；
 - bounded `epochsThisRun` 会返回 `status=paused`，只写 checkpoint，不写 candidate
   package；完成 maxEpochs 后 `resume` 写 package 并做新进程 reload；
 - checkpoint 保存采用 atomic rename，保存后在新 Node 进程 reload 并核对 tensors、
@@ -163,6 +166,7 @@ early-stop state 属于独立的 `nnanything.unified.training-checkpoint.v1`。�
 | model package schema 与固定 tensor shape | PASS |
 | atomic save 与 new-process tensor reload | PASS（无 fit 的合成 tensor 回执） |
 | threshold 与 missing-mode 资源引用解析 | PASS |
+| checkpoint 保存 typed 编码版本与资源语义引用 | PASS，`inputSchema`/`encoderVersion`/`resources` 均入 checkpoint，resume 逐项比对 |
 | TRAIN-only 拟合与 DEV/VERIFICATION 拒绝 | PASS |
 | committed epoch 参数状态持久化 | PASS，独立 checkpoint schema |
 | completed epoch 与 epoch 历史持久化 | PASS，checkpoint 新进程核对 |
@@ -172,6 +176,18 @@ early-stop state 属于独立的 `nnanything.unified.training-checkpoint.v1`。�
 
 这里不追加以 tensor hash 或 frozen snapshot 代替 checkpoint 状态。必要的恢复状态必须是
 typed、可核对的训练状态。
+
+### 5.4 计时与 evaluate 的剩余责任
+
+本 milestone 只完成 checkpoint 与 typed 恢复边界，不宣称“完整首训入口已就绪”。
+
+- `cumulativeTimingSeconds` 被类型与校验硬限定为 `null`：统一 fitter 当前不测量每轮或
+  每头耗时，也不累计续训时长。研究 owner 需在既有合同中确定每次/每头实际耗时、续训
+  累计方式与墙钟字段，工程接入后才允许以时间作为 fit 准入条件。不得伪造 0，也不以
+  轮次数代替 loss 目标。
+- `evaluate` 仍为 `NOT_READY`：独立 holdout 语义评价与旧能力回归未接入运行入口。
+- 上述两部分的 owner 是研究设计 owner（Carol），准入依赖是 Alice 接受独立评价与计时
+  合同；完成并接入后再启动真实 fit。
 
 ## 6. 最小验证命令
 
@@ -203,6 +219,7 @@ node dist/training/l2-standard-runner.js validate-data --config tests/fixtures/u
 - `validate-data` fixture exit 0。
 - 没有执行 `train`、`resume` 或任何真实 fit。
 
-在本入口与回载合同范围内，未通过项只有一个根因：训练恢复状态尚未有独立 checkpoint
-contract 和实现。它不阻断 tensor inference package 的保存与回载，但阻断真实 resume
-验收。
+在本入口与回载合同范围内，独立 checkpoint contract 与 typed resume 兼容检查已实现。
+仍未通过的是 `evaluate` 与累计计时：前者保持 `NOT_READY`，后者保持
+`cumulativeTimingSeconds=null`。这两项不阻断准备工程与合成 tensor 回执，但阻断真实
+fit 的完整首训入口验收。

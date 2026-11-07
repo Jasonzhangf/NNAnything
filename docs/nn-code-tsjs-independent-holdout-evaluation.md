@@ -152,6 +152,13 @@ unknown 时，虽然会产生 violation 并使 `overall=incomplete`，数值 `un
 当前 evaluator 已补 `validUnknown` 四项计数，并把 `unknownRecall` 限定为
 gold=unknown 子集。红测保留为
 `known-gold unknown must not count toward valid unknown recall`，现回执为 exit 0。
+
+缺终态 judge 的计数补充：合法失败轨迹可以存在 student run，但 `steps` 为空或只含
+`observe/advance`。该样本没有 terminal judge 时，必须对 gold=unknown 计一次
+`validUnknown.missed`；完全无 run 也只计一次，不能重复计数，也不能从召回分母消失。
+对应红测覆盖有 run 无 judge、完全无 run，以及一个正确 unknown 混一个 missed 的分母
+对照；任何情况下不得产生 `NaN` 或把缺失终态当作 correct。
+
 该修复只证明 evaluator 的有效 unknown 分母与召回语义；不证明真实 holdout 已执行。
 
 当前边界：

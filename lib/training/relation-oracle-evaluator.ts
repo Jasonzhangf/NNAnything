@@ -236,6 +236,7 @@ export function evaluateRelationOracle(
     if (judgeEntry === undefined) {
       predictionMissing += 1;
       violations.push(`sample ${sample.sampleId} has no terminal judge step`);
+      if (sample.gold === "unknown") validUnknownMissed += 1;
     } else {
       predictionTotal += 1;
       const judge = judgeEntry.judge;
@@ -271,7 +272,6 @@ export function evaluateRelationOracle(
         gaps: [],
       });
       violations.push(`sample ${sample.sampleId} has no student run for root evaluation`);
-      if (sample.gold === "unknown") validUnknownMissed += 1;
       const stepOutcome: StepOutcome = "unknown";
       stepEntries.push({
         sampleId: sample.sampleId,
