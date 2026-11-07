@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import type { EncoderMissingMode } from "./unified-encoder.js";
 import {
   applyFullBatchSgd,
+  cloneTensors,
   createXavierTensors,
   type MutableUnifiedTensors,
   type UnifiedTensors,
@@ -24,6 +25,12 @@ import {
   type UnifiedModelPackage,
   type UnifiedModelPackageResources,
 } from "./unified-model-package.js";
+import {
+  assertResumeRecipeCompatible,
+  createUnifiedTrainingCheckpoint,
+  saveUnifiedTrainingCheckpointAtomic,
+  type UnifiedTrainingCheckpoint,
+} from "./unified-training-checkpoint.js";
 import { UNIFIED_STUDENT_ROW_SCHEMA, type StudentCandidateRow } from "./unified-student-converter.js";
 import { UNIFIED_SUPERVISION_ROW_SCHEMA } from "./unified-supervision-converter.js";
 import { validateMissingModeConsistency } from "./unified-missing-mode.js";
@@ -33,11 +40,14 @@ export const UNIFIED_TRAIN_CONFIG_SCHEMA = "nnanything.unified.train-config.v1" 
 export type UnifiedStopReason =
   | "epoch_limit_exhausted"
   | "non_finite"
+  | "invocation_budget_exhausted"
   | "data_invalid";
 
 export interface UnifiedTrainConfig {
   readonly schema: typeof UNIFIED_TRAIN_CONFIG_SCHEMA;
   readonly route: ModelRoute;
+  readonly inputSchema: "nnanything.unified-step.v1";
+  readonly encoderVersion: string;
   readonly architecture: { readonly input: 64; readonly hidden: readonly [64, 64]; readonly output: 1 };
   readonly optimizer: "full_batch_sgd";
   readonly learningRate: number;
@@ -66,7 +76,7 @@ export interface UnifiedTrainEpochRecord {
 
 export interface UnifiedTrainReport {
   readonly schema: "nnanything.unified.train-report.v1";
-  readonly status: "completed" | "failed" | "DATA_INVALID";
+  readonly status: "completed" | "paused" | "failed" | "DATA_INVALID";
   readonly stopReason: UnifiedStopReason;
   readonly completedEpochs: number;
   readonly initialLoss: number | null;
@@ -105,6 +115,13 @@ export interface UnifiedTrainRunReceipt {
   readonly resources: UnifiedModelPackageResources;
 }
 
+export interface UnifiedTrainingRunOptions {
+  /** Continue from this committed checkpoint boundary instead of Xavier init. */
+  readonly resumeFrom?: UnifiedTrainingCheckpoint;
+  /** Bounded invocation: run at most this many epochs in this call. */
+  readonly epochsThisRun?: number;
+}
+
 export class UnifiedTrainDataError extends Error {
   readonly code = "DATA_INVALID" as const;
   constructor(message: string) {
@@ -116,6 +133,18 @@ export class UnifiedTrainDataError extends Error {
 export function validateUnifiedTrainConfig(config: UnifiedTrainConfig): void {
   if (config.schema !== UNIFIED_TRAIN_CONFIG_SCHEMA) throw new TypeError("train config schema mismatch");
   if (config.optimizer !== "full_batch_sgd") throw new TypeError("optimizer must be full_batch_sgd");
+  if (config.inputSchema !== "nnanything.unified-step.v1") {
+    throw new TypeError("inputSchema must be nnanything.unified-step.v1");
+  }
+  if (typeof config.encoderVersion !== "string" || config.encoderVersion.length === 0) {
+    throw new TypeError("encoderVersion must be a non-empty string");
+  }
+  if (config.resources.thresholdsSchema !== "nnanything.feature-thresholds.v1") {
+    throw new TypeError("resources.thresholdsSchema must be nnanything.feature-thresholds.v1");
+  }
+  if (config.resources.missingModeSchema !== "nnanything.unified.missing-mode.v1") {
+    throw new TypeError("resources.missingModeSchema must be nnanything.unified.missing-mode.v1");
+  }
   if (!Number.isFinite(config.learningRate) || config.learningRate <= 0) {
     throw new TypeError("learningRate must be positive and finite");
   }
@@ -200,15 +229,41 @@ function cloneMutable(tensors: UnifiedTensors): MutableUnifiedTensors {
 export function runUnifiedTraining(
   groups: readonly EncodedGroup[],
   config: UnifiedTrainConfig,
+  options: UnifiedTrainingRunOptions = {},
 ): { readonly report: UnifiedTrainReport; readonly tensors: UnifiedTensors } {
   validateUnifiedTrainConfig(config);
   if (groups.length === 0) throw new UnifiedTrainDataError("no trainable groups");
-  const tensors = createXavierTensors(config.seed);
+  const epochsThisRun = options.epochsThisRun;
+  if (
+    epochsThisRun !== undefined
+    && (!Number.isInteger(epochsThisRun) || epochsThisRun <= 0)
+  ) {
+    throw new TypeError("epochsThisRun must be a positive integer");
+  }
+  const tensors: MutableUnifiedTensors = options.resumeFrom !== undefined
+    ? cloneTensors(options.resumeFrom.tensors)
+    : createXavierTensors(config.seed);
   const epochs: UnifiedTrainEpochRecord[] = [];
   const violations: string[] = [];
-  let stopReason: UnifiedStopReason = "epoch_limit_exhausted";
+  let startEpoch = 0;
+  if (options.resumeFrom !== undefined) {
+    assertResumeRecipeCompatible(options.resumeFrom, config);
+    startEpoch = options.resumeFrom.completedEpochs;
+    if (startEpoch >= config.maxEpochs) {
+      throw new UnifiedTrainDataError(
+        `checkpoint is already at completedEpochs=${startEpoch} of maxEpochs=${config.maxEpochs}`,
+      );
+    }
+    epochs.push(...options.resumeFrom.epochRecords);
+    violations.push(...options.resumeFrom.violations);
+  }
+  const endEpoch = epochsThisRun === undefined
+    ? config.maxEpochs
+    : Math.min(config.maxEpochs, startEpoch + epochsThisRun);
+  let stopReason: UnifiedStopReason =
+    endEpoch >= config.maxEpochs ? "epoch_limit_exhausted" : "invocation_budget_exhausted";
 
-  for (let epoch = 0; epoch < config.maxEpochs; epoch += 1) {
+  for (let epoch = startEpoch; epoch < endEpoch; epoch += 1) {
     const before = cloneMutable(tensors);
     let result: EpochResult;
     try {
@@ -248,7 +303,12 @@ export function runUnifiedTraining(
   }
   const report: UnifiedTrainReport = {
     schema: "nnanything.unified.train-report.v1",
-    status: stopReason === "non_finite" ? "failed" : "completed",
+    status:
+      stopReason === "non_finite"
+        ? "failed"
+        : stopReason === "invocation_budget_exhausted"
+          ? "paused"
+          : "completed",
     stopReason,
     completedEpochs: epochs.length,
     initialLoss: losses.length > 0 ? (losses[0] as number) : null,
@@ -277,6 +337,23 @@ export async function saveUnifiedTrainPackage(
   });
   await saveUnifiedModelPackageAtomic(packagePath, pkg);
   return pkg;
+}
+
+export async function saveUnifiedTrainingCheckpoint(
+  checkpointPath: string,
+  config: UnifiedTrainConfig,
+  report: UnifiedTrainReport,
+  tensors: UnifiedTensors,
+): Promise<UnifiedTrainingCheckpoint> {
+  const checkpoint = createUnifiedTrainingCheckpoint({
+    config,
+    completedEpochs: report.completedEpochs,
+    epochRecords: report.epochs,
+    violations: report.violations,
+    tensors,
+  });
+  await saveUnifiedTrainingCheckpointAtomic(checkpointPath, checkpoint);
+  return checkpoint;
 }
 
 export interface UnifiedPackageReloadReceipt {

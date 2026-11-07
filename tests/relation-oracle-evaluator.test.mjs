@@ -108,6 +108,99 @@ test("unknown gold guessed as true is not accepted", () => {
   assert.equal(report.unknownRecall, 0);
 });
 
+test("known-gold unknown must not count toward valid unknown recall", () => {
+  const samples = [
+    sample({ sampleId: "known-true", gold: "true" }),
+    sample({ sampleId: "valid-unknown", gold: "unknown" }),
+  ];
+  const runs = [
+    run({
+      sampleId: "known-true",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=unknown", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+    }),
+    run({
+      sampleId: "valid-unknown",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=unknown", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.overall, "incomplete");
+  assert.equal(report.unknownRecall, 1);
+  assert.deepEqual(report.validUnknown, {
+    correct: 1,
+    missed: 0,
+    wrongTrueOrFalse: 0,
+    finalUnknown: 1,
+  });
+});
+
+test("unknown gold with a run but no terminal judge counts as missed, not NaN", () => {
+  const samples = [sample({ sampleId: "unknown-no-judge", gold: "unknown" })];
+  const runs = [
+    run({
+      sampleId: "unknown-no-judge",
+      steps: [],
+      rootConditionStates: [],
+      rootSatisfied: null,
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.overall, "incomplete");
+  assert.equal(report.studentPrediction.total, 0);
+  assert.equal(report.studentPrediction.missing, 1);
+  assert.equal(Number.isNaN(report.unknownRecall), false);
+  assert.equal(report.unknownRecall, 0);
+  assert.deepEqual(report.validUnknown, {
+    correct: 0,
+    missed: 1,
+    wrongTrueOrFalse: 0,
+    finalUnknown: 0,
+  });
+});
+
+test("unknown recall keeps an absent run in the denominator exactly once", () => {
+  const samples = [sample({ sampleId: "unknown-no-run", gold: "unknown" })];
+  const report = evaluateRelationOracle(samples, []);
+
+  assert.equal(report.unknownRecall, 0);
+  assert.deepEqual(report.validUnknown, {
+    correct: 0,
+    missed: 1,
+    wrongTrueOrFalse: 0,
+    finalUnknown: 0,
+  });
+});
+
+test("a missed unknown and a correct unknown do not overstate recall", () => {
+  const samples = [
+    sample({ sampleId: "correct-unknown", gold: "unknown" }),
+    sample({ sampleId: "missed-unknown", gold: "unknown" }),
+  ];
+  const runs = [
+    run({
+      sampleId: "correct-unknown",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=unknown", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.unknownRecall, 0.5);
+  assert.deepEqual(report.validUnknown, {
+    correct: 1,
+    missed: 1,
+    wrongTrueOrFalse: 0,
+    finalUnknown: 1,
+  });
+});
+
 test("label missing is excluded from the correctness denominator", () => {
   const samples = [sample({ sampleId: "missing", labelMissing: true })];
   const runs = [];

@@ -54,6 +54,8 @@ function config(overrides = {}) {
   return {
     schema: UNIFIED_TRAIN_CONFIG_SCHEMA,
     route: { domain: "tsjs", decisionKind: "R" },
+    inputSchema: "nnanything.unified-step.v1",
+    encoderVersion: "nnanything.unified-step.encoder.v1",
     architecture: { input: 64, hidden: [64, 64], output: 1 },
     optimizer: "full_batch_sgd",
     learningRate: 0.01,
