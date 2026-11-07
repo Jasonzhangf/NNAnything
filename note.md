@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-07 Jenny：MVP 调度纠偏与 B-A1 fallback（06:35Z）
+
+- 用户当前指令已恢复 nn-code 与浏览器训练/交付长程目标；goal `docs/autonomous-capability-roadmap.md` 为 active/subscribed，30m deadline 已续订，project patrol armed。
+- 通知消费：已消费 Kate 第三轮巡检、Carol TS/JS next_step 回执、worker-idle 与 master patrol 批次；本轮无新增产品写入。
+- Board 纠偏：B-A1 `b-a1-text-search-object-binding-20261107` 已在 pending rev2 记录 Jack `BOARD_DURABILITY_FAILED target_closing` fence，未重复盲邀请，改用独立 GCM fallback；David fixed-env `invited rev9` 已发接受/谢绝指令；Iris 已收 commit/rebase/复测与 orchestration next_step 指令；Carol 已将 `rev23` 停工文案改为停工解除，并把 training `rev5` 绑定到 worktree `tsjs-symbols-train-20261107`，准入前不启动 fit。
+- 可复用事实：converter 内容级 recheck PASS，Henry `5 PASS / 0 FAIL / 2 INCOMPLETE`，request-missing 与 repeat-read 保留；正式场景口径不写成 22/22 PASS。
+- 资源边界：未改候选 worktree、未改权重/gold/threshold/采用、未安装 runtime、未操作 tmux/daemon 生命周期；`tests/fixtures/tsjs-symbols/` 保持 PROTECTED_HOLD。
+
 ## 2026-11-05 Jenny：longhorizon、board 与项目巡检刷新（02:38Z）
 
 - 用户当前指令：继续执行尚未完成的任务，需要工具时直接调用，任务完成时给出总结。本条只把授权范围续到 board/goal 维护、只读审计和停工收口；它没有明确恢复被推翻的整体设计，也没有明确授权训练。

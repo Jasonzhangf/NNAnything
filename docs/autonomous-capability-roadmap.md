@@ -152,7 +152,7 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 
 交付目标：先闭合 B-R 基础保留表示缺口，再做 B-A1 普通 text 搜索的目标到对象自主绑定。B-A1 首切片只要求普通 text 搜索；显式绑定入口继续作为基线，不得把辅助绑定冒称自主识别。
 
-- 当前 owner：B-R 原 owner Bob（cold，`task_ids=[]`）不可用；交付前须由 master 改派可用 peer 或 GCM 执行，不把离线 owner 当作 ready 工作的阻塞理由。
+- 当前 owner：B-R 已改派 Henry（`b-r-browser-base-reddiagnosis-r2-20261107` working）；B-A1 已上板 `b-a1-text-search-object-binding-20261107` pending。原指定 Jack 的邀请被 context fence 拒绝，保留 pending 并由独立 GCM 执行 fallback，不把离线或 fencing owner 当作 ready 工作的阻塞理由。
 - 真实入口：浏览器 adapter 公开观察/分类 consumer、`operation-episode` 与 `recursive-goal` 搜索入口；B-A1 先跑显式绑定基线，再跑目标到对象自主绑定。
 - 验收证据：B-R 同投影异 gold 表示缺口的红测与修复绿测；焦点反例与旧能力回归；B-A1 目标到对象关系/动作样本；真实页面 fixture 的输入、提交、结果归属与观察回执。
 - 完成门：B-R 达标前只阻塞依赖该分类保证的运行验收，不阻塞独立关系设计；B-A1 不得把未知/缺测补 false；候选保持 `uncalibrated/not_applied`；不新增站点分支；不改既有权重/gold/threshold/采用。
@@ -161,8 +161,8 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 
 | 工作线 | owner | reviewer | 状态 |
 | --- | --- | --- | --- |
-| converter P1 正式复核 | Iris | Alice / 独立 reviewer | 两轮独立 recheck PASS，待正式接受 |
+| converter P1 正式复核 | Iris | Alice / 独立 reviewer | 内容级两轮 recheck PASS；候选 commit、rebase 与新鲜复测待完成 |
 | fixed-env evaluator + §2.5 接线 | David | Alice | 已邀请，待接受 |
 | TS/JS 训练阶段 | Carol | Alice | 已派发，恢复 working |
-| browser B-R / B-A1 | 待改派 | Alice | 未上板，本轮补齐 |
+| browser B-R / B-A1 | Henry / Jack（fenced，fallback GCM） | Alice | B-R working；B-A1 pending rev2 |
 | 训练隔离巡检 | Kate / Grace | — | 常驻巡检，不接普通 board 任务 |
