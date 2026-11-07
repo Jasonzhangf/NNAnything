@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-07 Jenny：note 授权边界纠偏 + 值流 rev10 REWORK 诊断派发（19:10Z）
+
+- 接受 Kate round-18 定向 P2（m1794078164732-6356，回执 `/Volumes/Intel/playground/nnanything-runs/kate-jenny-patrol-20261106/round-18-20261107T1859Z.md`）：note 18:20Z/18:25Z 中「两项范围裁定前只读/停工；P1-1 保持待派」属授权边界倒退表述。AGENTS.md 当前授权状态为用户 2026-11-07 指示（取代 2026-11-05 停工范围，长期目标为 nn-code 与浏览器训练交付）；实际线 P1-1 已 Iris 实施、value-flow 已 Carol 返工。本轮已在 18:25Z/18:20Z 段落就地标注纠偏，并以本段为生效事实；不再重复「待用户裁定」表述。
+- 消费 Alice rev10 REWORK（m1794078384425-6385）：`98b449c` 闭合 rev9 两处 P1（重复 var 初始化写、未调用函数体跨域误拒），新 P1 为普通赋值仍按左侧文本位置计写入时间（`let x=0; x=x+1;` 初始写→RHS 读被当 covered，LHS 写→自身 RHS 读也 eligible），要求统一真实写入完成位置在候选顺序与 interveningWrites 中的用途。
+- 第一轮诊断（rev9，gpt-6.1-sol 只读，exit 0）落盘 `.../diagnosis-sol-20261107/{diagnosis,fix-plan,reuse}.md`：根因 `interveningWrites` 只接 assignment（第 801 行）与 `callEffectUncovered` 缺 executionRef（第 859–867 行）；其中两处 P1 已由 rev10 闭合，复用清单保留。
+- 按升级规则派第二轮独立 OAuth gpt-6.1-sol 只读诊断（仅 rev10 新 P1，rev9 闭合项不重审，exit 0），落盘 `.../diagnosis-sol-rev10-20261107/{diagnosis,fix-plan,reuse}.md`：根因普通赋值 `orderSpan` 默认取 LHS 区间（第 376 行）、候选枚举用 `after(read.span, write.span)`（第 717 行）、中间写排序仍用文本起点（第 823–824 行）；修法为统一写完成顺序给枚举/中间写/排序共用，范围外复杂赋值显式 `assignment_out_of_slice`。
+- 已把第二轮 fix-plan 转 Carol durable（m1794078666537-6428，reply-on-completion）：先红后修、统一写完成顺序、补范围外隔离与 red 对照，公开链验证后交回 Alice。原树仍单 writer Carol，不并行 Astra，不重做训练设计。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装；未操作 tmux/daemon。
+
 ## 2026-11-07 Jenny：值流 rev8 REVIEW 路由 Carol，worker-idle 消费（18:35Z）
 
 - 消费 Alice `m1794076261913-6176`：`value-flow-shared-projection-engineering-20261107` 候选 `80c24ba` subject_revision 8 正式 REWORK。证据 `/Volumes/Intel/playground/nnanything-runs/value-flow-shared-projection-engineering-20261107/alice-review.md`。原后置声明绑定与未调用函数执行域反例已闭合，不重审 encoder/异常处理。
@@ -11,13 +20,13 @@
 
 - 消费 goal deadline `m1794075862495-6153`（LAST_REMINDER，subject `goal:sha256:b9c0...f9606140c48950d5a8b4e0ca678`）；旧 one-shot `sub-m1794074061797-5998` 已被 consumed，`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED` 如实记录后处理。
 - 续订：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m`，新 one-shot `sub-m1794075896830-6155` armed，trigger≈18:54Z；`active=true/observed=subscribed/desired=subscribed/error=null`。project patrol `sub-m1793963843713-143` armed。
-- 说明：本轮无新增可派 work，维持前轮边界（两项范围裁定前只做只读审计、board/goal 维护与停工收口；value-flow Carol 在案返工，P1-1 待裁定后派 GCM 实现）。
+- 说明：本轮无新增可派 work（当时误用停工表述，已纠偏见 19:10Z 段：AGENTS.md 当前授权为用户 2026-11-07 指示取代 2026-11-05 停工范围；value-flow Carol 在案返工，P1-1 已按授权派 Iris 实施）。
 
 ## 2026-11-07 Jenny：project-patrol 本轮收口，无其他可派（18:20Z）
 
 - 巡检范围：8 条 board open 任务、goal 一键订阅、project patrol 订阅、3 个 worktree、工作线活跃度与空闲 peer。
 - 结论：无新增可派 ready 工作。Grace 审计任务仍 working（completion missing review，由 Grace 自主收口）；P0 Emma 任务保持 rework/parked（Emma missing，不可越权改状态）；4 个 nn-code-redesign 保持 parked-pending-design-peer；总体重设计 orchestration working（等待用户裁定两项范围）；value-flow 已路由 Carol REWORK（m1794075112753-6103，reply-on-completion）。
-- 授权边界：两项范围裁定（恢复整体重设计+设计师审批训练；64 维/两层/统一格式/固定引擎是否仍为约束）尚未获得用户直接裁定前，仅继续只读审计、证据盘点、board/goal 维护与停工收口；不派实现/训练/采样/接线/采用/安装。P1-1 GCM implementation worker 保持待派，不在本轮实施。
+- 授权边界（已纠偏见 19:10Z 段）：原文误写「待用户裁定前仅只读/停工、P1-1 保持待派」。AGENTS.md 当前授权状态为用户 2026-11-07 指示（取代 2026-11-05 停工范围），长期目标为 nn-code 与浏览器训练交付；64 维/两层/统一格式/固定推理引擎仍为用户直接约束，不改既有权重、gold、threshold、采用状态，不产品接线，不安装全局 runtime。
 - 续订：one-shot `sub-m1794074061797-5998` armed，trigger≈18:24Z，fired_count=0；project patrol armed；本轮无需重订，下轮到期后按 `appsdk goal subscribe` 续订。
 - 边界：未改产品代码/权重/gold/threshold，未动 tmux/daemon，未安装 runtime；`tests/fixtures/tsjs-symbols/`、`playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
 
