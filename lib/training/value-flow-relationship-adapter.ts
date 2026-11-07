@@ -74,7 +74,8 @@ export interface ValueFlowUnsupportedSyntaxRecord {
     | "with"
     | "compound_assignment"
     | "nested_assignment"
-    | "complex_assignment";
+    | "complex_assignment"
+    | "conditional_assignment";
   readonly reason: "increment_out_of_slice" | "control_flow_out_of_slice" | "assignment_out_of_slice";
   readonly span: ValueFlowSpan;
   readonly executionRef: Ref;
@@ -280,6 +281,26 @@ function isComplexAssignment(node: ts.Node): boolean {
   return ts.isBinaryExpression(node)
     && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
     && !ts.isIdentifier(node.left);
+}
+
+function isShortCircuitBinary(node: ts.BinaryExpression): boolean {
+  return node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+    || node.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    || node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken;
+}
+
+function isAssignmentInsideConditionalContext(node: ts.Node): boolean {
+  let current = node;
+  let parent = parenthesizedParent(current.parent);
+  while (parent !== undefined) {
+    if (ts.isConditionalExpression(parent) || (ts.isBinaryExpression(parent) && isShortCircuitBinary(parent))) {
+      return true;
+    }
+    if (ts.isStatement(parent)) return false;
+    current = parent;
+    parent = parenthesizedParent(current.parent);
+  }
+  return false;
 }
 
 function containsNestedAssignment(node: ts.Node): boolean {
@@ -621,6 +642,15 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
       if (isCompoundAssignmentBinary(node)) {
         unsupportedSyntaxRecords.push(Object.freeze({
           kind: "compound_assignment",
+          reason: "assignment_out_of_slice",
+          span: spanOf(sf, node),
+          executionRef: currentExecutionRef,
+        }));
+        return;
+      }
+      if (isAssignmentInsideConditionalContext(node)) {
+        unsupportedSyntaxRecords.push(Object.freeze({
+          kind: "conditional_assignment",
           reason: "assignment_out_of_slice",
           span: spanOf(sf, node),
           executionRef: currentExecutionRef,

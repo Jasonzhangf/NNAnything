@@ -156,6 +156,34 @@ x = (c ? (x = 1) : 2);
 x;
 `;
 
+const SHORT_CIRCUIT_AND_ASSIGNMENT = `
+let c = true;
+let x = 0;
+c && (x = 1);
+x;
+`;
+
+const SHORT_CIRCUIT_OR_ASSIGNMENT = `
+let c = false;
+let x = 0;
+c || (x = 1);
+x;
+`;
+
+const NULLISH_ASSIGNMENT = `
+let c = null;
+let x = 0;
+c ?? (x = 1);
+x;
+`;
+
+const CONDITIONAL_EXPR_ASSIGNMENT = `
+let c = true;
+let x = 0;
+c ? (x = 1) : 0;
+x;
+`;
+
 const UNCALLED_CALL_BODY = `
 let x = 0;
 function f() {
@@ -636,6 +664,29 @@ test("out-of-slice assignment forms stay unsupported", () => {
     { sourceText: COMPOUND_ASSIGNMENT, sourceLine: 2, sinkLine: 4, kind: "compound_assignment" },
     { sourceText: DESTRUCTURING_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "complex_assignment" },
     { sourceText: CONDITIONAL_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "nested_assignment" },
+  ];
+  for (const sourceCase of cases) {
+    const observations = observe(sourceCase.sourceText);
+    assert.ok(observations.unsupportedSyntaxRecords.some(record =>
+      record.kind === sourceCase.kind && record.reason === "assignment_out_of_slice"));
+    const result = projectValueFlowRelationship(reachingDefCandidate(
+      writeSite(observations, "x", sourceCase.sourceLine),
+      readSite(observations, "x", sourceCase.sinkLine),
+    ), observations);
+    assert.deepEqual(result.admission, {
+      denominatorEligible: false,
+      status: "unsupported",
+      reasons: ["assignment_out_of_slice"],
+    });
+  }
+});
+
+test("assignments inside short-circuit or conditional expressions stay unsupported", () => {
+  const cases = [
+    { sourceText: SHORT_CIRCUIT_AND_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "conditional_assignment" },
+    { sourceText: SHORT_CIRCUIT_OR_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "conditional_assignment" },
+    { sourceText: NULLISH_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "conditional_assignment" },
+    { sourceText: CONDITIONAL_EXPR_ASSIGNMENT, sourceLine: 3, sinkLine: 5, kind: "conditional_assignment" },
   ];
   for (const sourceCase of cases) {
     const observations = observe(sourceCase.sourceText);
