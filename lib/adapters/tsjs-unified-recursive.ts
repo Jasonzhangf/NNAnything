@@ -35,6 +35,7 @@ import type {
 } from "../training/unified-encoder.js";
 import { encodeUnifiedCandidateGroup } from "../training/unified-encoder.js";
 import { forwardUnifiedScore } from "../training/unified-forward.js";
+import type { UnifiedTensors } from "../training/unified-forward.js";
 import {
   MODEL_INCOMPATIBLE,
   UnifiedModelPackageError,
@@ -77,14 +78,24 @@ export interface TsJsUnifiedCandidateChoice {
   readonly candidateRef: string;
   readonly skillRef: string;
   readonly optionSemantics: string;
+  readonly targetRef: string | null;
   readonly score: number;
 }
 
-export type TsJsUnifiedTerminalJudgement = "judge=true" | "judge=false" | "judge=unknown";
+export type TsJsUnifiedTerminalJudgement =
+  | "judge=true"
+  | "judge=false"
+  | "judge=unknown"
+  | "none";
 
 export interface TsJsUnifiedExecutionReceipt {
   readonly receiptId: string;
-  readonly action: "submit_terminal_judgement";
+  readonly action:
+    | "submit_terminal_judgement"
+    | "submit_read"
+    | "submit_observe"
+    | "submit_control";
+  readonly actionRef: string;
   readonly candidateRef: string;
   readonly terminalJudgement: TsJsUnifiedTerminalJudgement;
   readonly postStateRef: string;
@@ -223,6 +234,22 @@ function chooseCandidate(
   return sorted[0]!;
 }
 
+function encodedScores(
+  context: StepContext,
+  thresholds: Parameters<typeof encodeUnifiedCandidateGroup>[1],
+  tensors: UnifiedTensors,
+): readonly { readonly candidate: Candidate; readonly score: number }[] {
+  return encodeUnifiedCandidateGroup(context, thresholds).flatMap(result => {
+    const candidate = context.candidateGroup.candidates.find(
+      item => item.candidateRef === result.candidateRef,
+    );
+    if (candidate === undefined) return [];
+    const score = forwardUnifiedScore(result.vector, tensors);
+    if (!Number.isFinite(score)) return [];
+    return [{ candidate, score }];
+  });
+}
+
 function evidenceFor(state: DecisionState, prefix = "initial:"): readonly {
   readonly id: string;
   readonly stateRef: string;
@@ -294,6 +321,64 @@ function evaluateStructuralRoot(
     && postState.candidateGroupRef === state.candidateGroupRef;
 
   return structurallyClosed
+    ? {
+        result: "satisfied",
+        satisfaction: 100,
+        necessaryConditionsMet: true,
+        evidenceRefs: currentEvidenceRefs,
+      }
+    : {
+        result: "unsatisfied",
+        satisfaction: 0,
+        necessaryConditionsMet: false,
+        evidenceRefs: currentEvidenceRefs,
+      };
+}
+
+/**
+ * Step-level evaluation for the multi-step consumer. One engine invocation
+ * verifies that the current step's selected legal action has a matching
+ * committed receipt and post-state. It does not claim the sample relation is
+ * verified before a terminal judge.
+ */
+function evaluateMultiStepRoot(
+  state: DecisionState,
+  evidence: readonly { readonly id: string; readonly stateRef: string; readonly validity: string }[],
+): StructuralRootEvaluation {
+  const chosen = state.chosenCandidateRef === null
+    ? null
+    : state.context.candidateGroup.candidates.find(
+        candidate => candidate.candidateRef === state.chosenCandidateRef,
+      ) ?? null;
+  const currentEvidenceRefs = evidence
+    .filter(item => item.stateRef === state.stateRef && item.validity === "valid")
+    .map(item => item.id);
+
+  if (
+    chosen === null
+    || state.executionReceipt === null
+    || state.observedPostState === null
+    || currentEvidenceRefs.length === 0
+  ) {
+    return {
+      result: "unknown",
+      satisfaction: null,
+      necessaryConditionsMet: false,
+      evidenceRefs: currentEvidenceRefs,
+    };
+  }
+
+  const receipt = state.executionReceipt;
+  const postState = state.observedPostState;
+  const stepClosed =
+    receipt.candidateRef === chosen.candidateRef
+    && receipt.postStateRef === state.stateRef
+    && postState.candidateRef === chosen.candidateRef
+    && postState.stateRef === state.stateRef
+    && postState.postStateRef === state.stateRef
+    && postState.candidateGroupRef === state.candidateGroupRef;
+
+  return stepClosed
     ? {
         result: "satisfied",
         satisfaction: 100,
@@ -548,11 +633,13 @@ export async function runTsJsUnifiedDecision(
         candidateRef: chosen.candidate.candidateRef,
         skillRef: SKILL_ID,
         optionSemantics: chosen.candidate.optionSemantics,
+        targetRef: chosen.candidate.targetRef,
         score: chosen.score,
       };
       const executionReceipt: TsJsUnifiedExecutionReceipt = {
         receiptId: `${request.requestId}:${chosen.candidate.candidateRef}`,
         action: "submit_terminal_judgement",
+        actionRef: chosen.candidate.candidateRef,
         candidateRef: chosen.candidate.candidateRef,
         terminalJudgement: chosen.candidate.optionSemantics as TsJsUnifiedTerminalJudgement,
         postStateRef: `${input.state.stateRef}:post:1`,
@@ -688,4 +775,444 @@ export async function runTsJsUnifiedDecision(
     rootEvaluation,
     recursiveGoal,
   };
+}
+
+export interface TsJsUnifiedMultiStepDecisionRequest {
+  readonly requestId: string;
+  readonly packagePath: string;
+  readonly episodes: readonly RelationStepEpisode[];
+  readonly grantedEffects: readonly string[] | ReadonlySet<string>;
+  readonly limits?: {
+    readonly maxTransitions?: number;
+    readonly maxDepth?: number;
+    readonly maxDerivedGoals?: number;
+  };
+}
+
+export interface TsJsUnifiedStepSampleReceipt {
+  readonly stepId: string;
+  readonly optionSemantics: string;
+  readonly targetRef: string | null;
+  readonly postStepId: string | null;
+  readonly actionRef: string | null;
+  readonly receipt: {
+    readonly receiptId: string;
+    readonly receiptRef: string;
+  } | null;
+  readonly previousExecutionReceiptId: string | null;
+  readonly outcome: "success" | "failed" | "unknown";
+}
+
+export interface TsJsUnifiedMultiStepDecisionResult {
+  readonly modelBinding: Readonly<{
+    readonly packageRef: string;
+    readonly modelId: string;
+    readonly version: string;
+    readonly route: Readonly<{ readonly domain: string; readonly decisionKind: string }>;
+  }>;
+  readonly recursiveGoal: RecursiveGoalResponse<
+    DecisionGoal,
+    DecisionState,
+    DecisionBindings,
+    DecisionEvidence,
+    DecisionEffect,
+    DecisionReceiptPayload,
+    null
+  >;
+  readonly sampleReceipt: {
+    readonly sampleId: string;
+    readonly steps: readonly TsJsUnifiedStepSampleReceipt[];
+  };
+  readonly steps: readonly Readonly<{
+    readonly stepId: string;
+    readonly recursiveGoal: RecursiveGoalResponse<
+      DecisionGoal,
+      DecisionState,
+      DecisionBindings,
+      DecisionEvidence,
+      DecisionEffect,
+      DecisionReceiptPayload,
+      null
+    >;
+  }>[];
+}
+
+/**
+ * Scores the current unified candidate group and selects the legal candidate
+ * with the highest model score. The fixed 64-dim/2-layer forward path owns the
+ * decision; no hand-written preference or gold field can override it.
+ */
+export async function runTsJsUnifiedMultiStepDecision(
+  request: TsJsUnifiedMultiStepDecisionRequest,
+): Promise<TsJsUnifiedMultiStepDecisionResult> {
+  const grantedEffects = grantedSet(request.grantedEffects);
+  if (!grantedEffects.has("read_only")) {
+    throw new TypeError("tsjs unified multi-step decision requires the read_only effect");
+  }
+  if (!Array.isArray(request.episodes) || request.episodes.length === 0) {
+    throw new TypeError("tsjs unified multi-step decision requires at least one episode");
+  }
+
+  const loaded = await loadUnifiedModelPackageFromFile(request.packagePath);
+  const binding = loaded.bind();
+  assertRoute(binding);
+  const thresholds = await loadFeatureThresholdsFromFile(loaded.resolvedResources.thresholdsPath);
+  await loadMissingModeTableFromFile(loaded.resolvedResources.missingModeTablePath);
+
+  const ordered = request.episodes.map((episode, index) => ({
+    episode,
+    index,
+  })).sort((left, right) =>
+    left.episode.stepId.localeCompare(right.episode.stepId)
+  );
+  const sampleId = ordered[0]!.episode.sampleId;
+  if (ordered.some(item => item.episode.sampleId !== sampleId)) {
+    throw new TypeError("multi-step episodes must belong to one sample");
+  }
+
+  const stepResults: {
+    readonly stepId: string;
+    readonly recursiveGoal: RecursiveGoalResponse<
+      DecisionGoal,
+      DecisionState,
+      DecisionBindings,
+      DecisionEvidence,
+      DecisionEffect,
+      DecisionReceiptPayload,
+      null
+    >;
+  }[] = [];
+  const steps: TsJsUnifiedStepSampleReceipt[] = [];
+  let previousReceiptId: string | null = null;
+
+  for (let cursor = 0; cursor < ordered.length; cursor += 1) {
+    const current = ordered[cursor]!.episode;
+    const stepContext = relationStepContext(current);
+    const state = initialState(stepContext);
+    const rootGoal: DecisionGoal = {
+      kind: "verify",
+      targetRef: current.sampleId,
+      contextId: stepContext.contextId,
+    };
+    const rootBindings: DecisionBindings = {
+      packageRef: binding.packageRef,
+      modelId: binding.modelId,
+      modelVersion: binding.version,
+      contextId: stepContext.contextId,
+      grantedEffects: [...grantedEffects],
+    };
+
+    const skills = [
+      {
+        id: SKILL_ID,
+        version: SKILL_VERSION,
+        mode: "atomic",
+        capability: "relation.judge",
+        evaluatorId: EVALUATOR_ID,
+        requiredEffects: ["read_only"],
+        allowedEffects: ["read_only"],
+        retry: "never",
+        effectClass: "read_only",
+      },
+      {
+        id: RELATION_READ_SKILL_ID,
+        version: "relation.read.v1",
+        mode: "atomic",
+        capability: "relation.read",
+        evaluatorId: EVALUATOR_ID,
+        requiredEffects: ["read_only"],
+        allowedEffects: ["read_only"],
+        retry: "never",
+        effectClass: "read_only",
+      },
+      {
+        id: RELATION_OBSERVE_SKILL_ID,
+        version: "relation.observe.v1",
+        mode: "atomic",
+        capability: "relation.observe",
+        evaluatorId: EVALUATOR_ID,
+        requiredEffects: ["read_only"],
+        allowedEffects: ["read_only"],
+        retry: "never",
+        effectClass: "read_only",
+      },
+      {
+        id: RELATION_CONTROL_SKILL_ID,
+        version: "relation.control.v1",
+        mode: "atomic",
+        capability: "relation.control",
+        evaluatorId: EVALUATOR_ID,
+        requiredEffects: ["read_only"],
+        allowedEffects: ["read_only"],
+        retry: "never",
+        effectClass: "read_only",
+      },
+    ] as const;
+    const evaluators = [{
+      id: EVALUATOR_ID,
+      goalType: "verify",
+      thresholdContract: "0..100",
+      allowsPartialSatisfaction: false,
+    }] as const;
+    const selectors = [{
+      id: SELECTOR_ID,
+      skillIds: [SKILL_ID, RELATION_READ_SKILL_ID, RELATION_OBSERVE_SKILL_ID, RELATION_CONTROL_SKILL_ID],
+    }] as const;
+
+    const adapter: DecisionAdapter = {
+      validateRequest: async (envelope: RecursiveGoalRequestEnvelope): Promise<
+        ValidatedRequest<DecisionGoal, DecisionState, DecisionBindings, DecisionEvidence, DecisionEffect, DecisionReceiptPayload, null>
+      > => ({
+        requestId: envelope.requestId,
+        rootGoal,
+        satisfactionThreshold: 100,
+        rootBindings,
+        state,
+        rootEvaluatorId: EVALUATOR_ID,
+        rootSelectorId: SELECTOR_ID,
+        ...(envelope.limits !== undefined ? { limits: envelope.limits } : {}),
+        initialObservation: {
+          stateId: state.stateRef,
+          evidence: evidenceFor(state),
+        },
+        continuation: null,
+      }),
+      supports: (input: SupportsInput<DecisionGoal, DecisionBindings>) =>
+        input.goal.kind === "verify" && input.skill.id !== "",
+      evaluate: async (input: EvaluationInput<DecisionGoal, DecisionState, DecisionBindings, DecisionEvidence>): Promise<EvaluationReceipt> => ({
+        evaluatorId: EVALUATOR_ID,
+        ...evaluateMultiStepRoot(input.state, input.evidence),
+      }),
+      select: async (input: SelectionInput<DecisionGoal, DecisionState, DecisionBindings, DecisionEvidence>): Promise<Selection> => {
+        const scores = encodedScores(input.state.context, thresholds, binding.tensors);
+        if (scores.length === 0) {
+          return { kind: "no_capability", searchedSkillIds: input.candidates.map(skill => skill.id) };
+        }
+        const chosen = chooseCandidate(input.state.context, scores);
+        const enabledSkill = input.candidates.find(skill => skill.id === chosen.candidate.skillRef);
+        if (enabledSkill === undefined) {
+          return { kind: "no_capability", searchedSkillIds: input.candidates.map(skill => skill.id) };
+        }
+        return { kind: "selected", skillId: enabledSkill.id };
+      },
+      derive: async (input: DerivationInput<DecisionGoal, DecisionState, DecisionBindings, DecisionEvidence, null>) => ({
+        conditions: [],
+        nextCursor: null,
+        expansion: "closed",
+      }),
+      executeAtomic: async (input: AtomicInput<DecisionGoal, DecisionState, DecisionBindings, DecisionEvidence>) => {
+        if (!grantedEffects.has("read_only")) {
+          return {
+            runId: `${request.requestId}:rejected`,
+            executorInvoked: false,
+            outcome: "rejected",
+            sourceResult: null,
+            newState: null,
+            evidence: [],
+            executionErrors: [diagnostic("effect_denied", "effect", "read_only effect was not granted")],
+            verificationErrors: [],
+            effect: { knowledge: "none", confirmedEffects: [], receiptRef: null },
+          };
+        }
+
+        const scores = encodedScores(input.state.context, thresholds, binding.tensors);
+        if (scores.length === 0) {
+          return {
+            runId: `${request.requestId}:failed`,
+            executorInvoked: true,
+            outcome: "failed",
+            sourceResult: null,
+            newState: null,
+            evidence: [],
+            executionErrors: [diagnostic("execution_failed", "execution", "no finite candidates in the current candidate group")],
+            verificationErrors: [],
+            effect: { knowledge: "none", confirmedEffects: [], receiptRef: null },
+          };
+        }
+        const chosen = chooseCandidate(input.state.context, scores);
+        if (chosen.candidate.skillRef !== input.skill.id) {
+          return {
+            runId: `${request.requestId}:failed:${current.stepId}`,
+            executorInvoked: true,
+            outcome: "failed",
+            sourceResult: null,
+            newState: null,
+            evidence: [],
+            executionErrors: [diagnostic(
+              "invalid_binding",
+              "selection",
+              `selected skill ${input.skill.id} does not match scored candidate ${chosen.candidate.skillRef}`,
+            )],
+            verificationErrors: [],
+            effect: { knowledge: "none", confirmedEffects: [], receiptRef: null },
+          };
+        }
+        const candidateChoice: TsJsUnifiedCandidateChoice = {
+          candidateRef: chosen.candidate.candidateRef,
+          skillRef: chosen.candidate.skillRef,
+          optionSemantics: chosen.candidate.optionSemantics,
+          targetRef: chosen.candidate.targetRef,
+          score: chosen.score,
+        };
+        const stepId = input.state.context.stepId;
+        const actionKind = candidateSemanticsAction(chosen.candidate.optionSemantics);
+        const receiptId = `${request.requestId}:${stepId}:${chosen.candidate.candidateRef}`;
+        const actionRef = `${request.requestId}:${stepId}:${actionKind}`;
+        const postStateRef = `${input.state.stateRef}:post:${stepId}`;
+        const executionReceipt: TsJsUnifiedExecutionReceipt = {
+          receiptId,
+          action: actionKind,
+          actionRef,
+          candidateRef: chosen.candidate.candidateRef,
+          terminalJudgement: actionKind === "submit_terminal_judgement"
+            ? chosen.candidate.optionSemantics as TsJsUnifiedTerminalJudgement
+            : "none",
+          postStateRef,
+          outcome: "success",
+          evidenceRefs: chosen.candidate.evidenceRefs,
+        };
+        const observedPostState: TsJsUnifiedObservedPostState = {
+          stateRef: postStateRef,
+          postStateRef,
+          candidateRef: chosen.candidate.candidateRef,
+          terminalJudgement: executionReceipt.terminalJudgement,
+          observedFacts: input.state.context.state.facts.map(item => item.factRef),
+          candidateGroupRef: input.state.candidateGroupRef,
+          cursorClosed: input.state.context.localCandidateCursor?.state === "closed",
+        };
+        const payload: DecisionReceiptPayload = {
+          candidateChoice,
+          executionReceipt,
+          observedPostState,
+        };
+        const nextState = advanceState(input.state, payload);
+        return {
+          runId: `${request.requestId}:run:${stepId}`,
+          executorInvoked: true,
+          outcome: "succeeded",
+          sourceResult: { tag: RECEIPT_TAG, value: payload },
+          newState: { id: postStateRef, value: nextState },
+          evidence: evidenceFor(nextState, `post:${stepId}:`),
+          executionErrors: [],
+          verificationErrors: [],
+          effect: {
+            knowledge: "known",
+            confirmedEffects: [{ effect: "read_only", source: "tsjs-unified-recursive" }],
+            receiptRef: executionReceipt.receiptId,
+          },
+        };
+      },
+      validateAtomicReceipt: (raw: unknown): AtomicReceipt<
+        DecisionState,
+        DecisionEvidence,
+        DecisionEffect,
+        DecisionReceiptPayload
+      > => readAtomicReceipt(raw, {
+        state: readDecisionState,
+        evidencePayload: readEvidence,
+        effectFact: readEffect,
+        receiptPayload: readReceiptPayload,
+      }),
+      measureProgress: (input: {
+        readonly goal: DecisionGoal;
+        readonly before: DecisionState;
+        readonly after: DecisionState;
+        readonly previousEvaluation: EvaluationReceipt;
+        readonly currentEvaluation: EvaluationReceipt;
+      }): ProgressReceipt => {
+        const advanced = input.before.chosenCandidateRef === null && input.after.chosenCandidateRef !== null;
+        return { improved: advanced, reason: advanced ? "facts_improved" : "none", comparable: true };
+      },
+    };
+
+    const dependencies: RecursiveGoalDependencies<
+      DecisionGoal,
+      DecisionState,
+      DecisionBindings,
+      DecisionEvidence,
+      DecisionEffect,
+      DecisionReceiptPayload,
+      null
+    > = {
+      adapter,
+      enabledSkills: [...skills],
+      enabledEvaluators: [...evaluators],
+      selectors: [...selectors],
+      comparators: comparators(),
+      grantedEffects,
+    };
+
+    const envelope: RecursiveGoalRequestEnvelope = {
+      schema: "nnanything.recursive-goal.request.v1",
+      requestId: `${request.requestId}:${current.stepId}`,
+      rootGoal,
+      satisfactionThreshold: 100,
+      rootBindings,
+      state,
+      rootEvaluatorId: EVALUATOR_ID,
+      rootSelectorId: SELECTOR_ID,
+      ...(request.limits === undefined ? {} : { limits: request.limits }),
+      initialObservation: {
+        stateId: state.stateRef,
+        evidence: evidenceFor(state),
+      },
+    };
+
+    const recursiveGoal = await runRecursiveGoal(envelope, dependencies);
+    stepResults.push({ stepId: current.stepId, recursiveGoal });
+
+    const atomic = recursiveGoal.kind === "run_result"
+      ? recursiveGoal.report.atomicResults.find(result => result.outcome === "succeeded")
+      : undefined;
+    const source = atomic?.sourceResult ?? null;
+    const payload = source !== null && "tag" in source && source.tag === RECEIPT_TAG
+      ? source.value
+      : null;
+    const executionReceipt = payload?.executionReceipt ?? null;
+    const candidate = payload?.candidateChoice ?? null;
+    const nextStep = cursor + 1 < ordered.length
+      ? ordered[cursor + 1]!.episode
+      : null;
+    const nextStepId = nextStep?.stepId ?? null;
+    const stepReceipt: TsJsUnifiedStepSampleReceipt = {
+      stepId: current.stepId,
+      optionSemantics: candidate?.optionSemantics ?? "unknown",
+      targetRef: candidate?.targetRef ?? null,
+      postStepId: nextStepId,
+      actionRef: executionReceipt?.actionRef ?? null,
+      receipt: executionReceipt === null
+        ? null
+        : { receiptId: executionReceipt.receiptId, receiptRef: executionReceipt.receiptId },
+      previousExecutionReceiptId: previousReceiptId,
+      outcome: executionReceipt === null ? "failed" : "success",
+    };
+    steps.push(stepReceipt);
+    if (executionReceipt !== null) {
+      previousReceiptId = executionReceipt.receiptId;
+    }
+  }
+
+  return {
+    modelBinding: {
+      packageRef: binding.packageRef,
+      modelId: binding.modelId,
+      version: binding.version,
+      route: binding.route,
+    },
+    recursiveGoal: stepResults[stepResults.length - 1]!.recursiveGoal,
+    sampleReceipt: {
+      sampleId,
+      steps,
+    },
+    steps: stepResults,
+  };
+}
+
+function candidateSemanticsAction(
+  optionSemantics: string,
+): TsJsUnifiedExecutionReceipt["action"] {
+  if (optionSemantics === "advance") return "submit_read";
+  if (optionSemantics === "observe") return "submit_observe";
+  if (optionSemantics === "DEFER" || optionSemantics === "RETURN") return "submit_control";
+  return "submit_terminal_judgement";
 }
