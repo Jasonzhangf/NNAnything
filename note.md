@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-07 Jenny：B-A1 准备被 Alice REWORK、goal 续订（21:48Z）
+
+- 消息：消费并处理 `m1794087729345-7586`（Carol 交付 b-a1-research-prep-20261107：三份设计文档已落盘，delivery_kind read_only，无代码候选，等 Alice 审查）、`m1794087766282-7593`（Alice 正式 REWORK，board rev3 rework，审查证据 `/Volumes/Intel/playground/nnanything-runs/b-a1-research-prep-20261107/alice-review.md`）、`m1794087781724-7596`（goal deadline 已 consumed）。
+- 已发 durable REWORK 指令 `m1794088100807-7617`（reply-on-completion）给 Carol，要求三组修订：1) 不得把旧线性关系成员→旧 binder 拟合写成后续方案，统一 64 维/两层/固定推理为强制而非可选；旧 27 维双线性/36 wire 单线性标注为历史/待迁移材料；成员语义可保留，但可训练结构须满足统一约束，或给出已授权例外（当前未见）。2) 分开原始 typed missing、统一 encoder 数值 sentinel+missingMode、旧线性区间诊断；两层网络不得沿用 `w_k=0` 即无依赖的旧线性判据；统一模型缺测资格沿已接受 B1 前置门处理；神经网络区间推理列为未就绪研究问题，不在本合同规定。3) 样本规则不按删特征后模型输出自动判错，须直接比较固定独立 gold 与输出；`class/id/URL` 等不进学生投影，但保留原始观测包与来源关联。边界不变：design-only、槽位可未就绪、不实现/训练/拟合/采样/接线/改权重-gold-threshold-采用；后续统一数值/损失/监督映射/固定入口由 Jenny 排给研究员，不交普通执行者现场决定；B-R 独立继续。
+- goal 重订：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m`（21:48:30Z，active=true/desired=subscribed/observed=subscribed）；project patrol armed。
+- board 其余任务无变化：P1-1 (Iris, rev3, Alice review 未回，候选 `2d1217e`)；Grace 巡检 working；四个 Emma 子任务 parked-pending-design-peer；P0 orchestration/Iris working。无 ready、无阻塞、无待集成，不催派、不替审。
+- 资源：main `79ceb68` 与远端同步；worktree 2 个（main、p1-1 `2d1217e`）；主树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`。本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：round-25 巡检，无新增可派/待集成（21:31Z）
 
 - 消费 worker-idle 批次 `m1794086768488-7485`、`m1794086910433-7500`（后者 newly_idle=Carol session）；续查 inbox count=0。`collab board show`：`ready_authorized_work=false`、`blocked=[]`、`completed_or_freed=[]`、`pending_merges` 空、idle=4、`delivery_state=notified_unconsumed`（唤醒态，无新消息）。
