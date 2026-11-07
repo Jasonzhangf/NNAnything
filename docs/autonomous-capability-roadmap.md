@@ -142,7 +142,7 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 交付目标：TS/JS 符号表做成一条可用的训练闭环。设计子交付已由 Alice 接受并集成 main `c576a3f`；剩余是训练、保存、新进程回载、独立留出语义评价与旧 nn-code 能力回归。
 
 - 设计 owner：Carol（`nn-code-redesign-symbols-tsjs-r1` 已 merged）；训练后继由 `nn-code-redesign-symbols-tsjs-training-20261107` 承接，当前仅准备，未启动 fit。
-- converter/train/config 工程：Iris 的 `iris-real-converter-engineering-20261106` 已接受并集成；shared fixed-env evaluator 与 §2.5 runRecursiveGoal 接线拟承接者 David，`david-fixed-env-engineering-gap-20261106` 邀请未接受，typed owner 仍 Jenny，由 master 继续调度。
+- converter/train/config 工程：Iris 的 `iris-real-converter-engineering-20261106` 已接受并集成；shared fixed-env evaluator 与 §2.5 runRecursiveGoal 接线改由 `fixed-env-engineering-gap-iris-20261107` 承接，explicit executor Iris，邀约 rev1，typed owner Jenny。原 David-pinned child 因 3.5h 未接受已 force-close；Emma 1201b508 未交付内容保持 PROTECTED_HOLD，不复用为已交付。
 - 真实入口：公开 `convert-samples` / `validate-data`、`l2-standard-runner` 训练入口、保存包新进程回载入口。
 - 验收证据：build exit 0；unified-full 与受影响测试原始回执；公开 CLI READY；红/绿与变异对照；独立留出语义评价；旧 nn-code 能力回归。
 - 完成门：候选包保存并新进程回载；独立留出评价与旧能力回归通过；候选保持 `uncalibrated/not_applied`，直到 model-evolution 采用规则满足。已知符号关系 100% 正确、未知 judge=unknown、无截断/遗漏、训练输入不含未来信息、独立来源不进拟合。
@@ -152,7 +152,7 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 
 交付目标：先闭合 B-R 基础保留表示缺口，再做 B-A1 普通 text 搜索的目标到对象自主绑定。B-A1 首切片只要求普通 text 搜索；显式绑定入口继续作为基线，不得把辅助绑定冒称自主识别。
 
-- 当前 owner：B-R 只读诊断已审计接受并关闭（`alice-browser-reddiagnosis-audit-20261107.md`）；测量进入聚焦投影的证据有效，但训练 consumer/recipe 及完整请求准备仍待执行，拟合未评价。B-A1 候选 rev5 真实 live 验收 INCOMPLETE，board rev9 invited 给拟执行者 Henry，typed owner 仍为 Jenny；宿主能力诊断 `b-a1-host-capability-diagnosis-20261107` 交付类型已修正为 read_only 并获接受，loopback/Chrome/Git 三项 READY，由可执行 peer 复用原候选完成真实入口验收。原 EPERM、Chrome Abort trap 6、ref lock 失败保留。
+- 当前 owner：B-R 只读诊断已审计接受并关闭（`alice-browser-reddiagnosis-audit-20261107.md`）；测量进入聚焦投影的证据有效，但训练 consumer/recipe 及完整请求准备仍待执行，拟合未评价。B-A1 普通 text 搜索显式绑定基线已由 Henry 完成两轮 live：Alice 定点 REWORK 后候选 `ee88d37` 正式 ACCEPT，master merge `498557a` 集成 main 并 push，Henry 清理候选 worktree/branch 并 task close 完成，状态 integrated；仅显式绑定 consumer 交付，不是自主对象绑定、训练或采用。原 EPERM、Chrome Abort trap 6、ref lock 失败保留。
 - 真实入口：浏览器 adapter 公开观察/分类 consumer、`operation-episode` 与 `recursive-goal` 搜索入口；B-A1 先跑显式绑定基线，再跑目标到对象自主绑定。
 - 验收证据：B-R 同投影异 gold 表示缺口的红测与修复绿测；焦点反例与旧能力回归；B-A1 目标到对象关系/动作样本；真实页面 fixture 的输入、提交、结果归属与观察回执。
 - 完成门：B-R 达标前只阻塞依赖该分类保证的运行验收，不阻塞独立关系设计；B-A1 不得把未知/缺测补 false；候选保持 `uncalibrated/not_applied`；不新增站点分支；不改既有权重/gold/threshold/采用。
@@ -162,11 +162,11 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 | 工作线 | owner | reviewer | 状态 |
 | --- | --- | --- | --- |
 | converter 四项映射工程 | Iris | Alice | f752715 已接受并集成 main `9b4a462`；训练后继尚未启动 fit |
-| fixed-env evaluator + §2.5 接线 | David | Alice | rev9 invited，邀请未接受；typed owner 仍 Jenny，master 继续调度 |
+| fixed-env evaluator + §2.5 接线 | Iris | Alice | rev1 invited（fixed-env-engineering-gap-iris-20261107）；原 David-pinned child 已 force-close，Emma 1201b508 保持 PROTECTED_HOLD |
 | TS/JS 符号表训练准备 | Carol | Alice | 设计子交付已 merged；训练后继 child 已启动准备但未启动 fit，等 shared fixed-env 与 converter 准入 |
-| TS/JS value-flow 设计 | Carol | Alice | 0c16fd7 accepted：双参数、简单分支有限切片设计通过；共享投影/adapter 准备可拆派，fit 仍待准入 |
+| TS/JS value-flow 设计 | Carol | Alice | 0c16fd7 accepted；阶段A共享投影审计被 Alice 定点 REWORK：缺测-1/undetermined 0/角色 unknown 0 编码冲突待研究owner统一，探针降级为合成诊断；阶段B实现与 fit 仍待准入 |
 | browser B-R | Henry | Alice | 只读诊断已审计接受并关闭；训练 consumer/recipe、完整请求准备及拟合仍开放 |
-| browser B-A1 | Henry（invited；typed owner Jenny） | Alice | rev9 invited：宿主能力诊断 read_only accepted，三项探针 READY，真实 suite 仍待执行 |
+| browser B-A1 | Henry | Alice | ee88d37 accepted，merge 498557a 已集成 main 并关闭；显式绑定基线交付，非自主对象绑定/训练/采用 |
 | 训练隔离巡检 | Kate / Grace | — | 常驻巡检，不接普通 board 任务 |
 
 Emma 旧树与未交付内容保留；其中 converter/fixed-env 的未完成工程依赖由对应 Iris/David 承接任务核销，未因改派而消失。Rust/Swift 等非当前首训前置可后置；承接未接受或尚未交付时由 master 继续调度，不等待 Emma 返回。
