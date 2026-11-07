@@ -54,15 +54,21 @@ import {
 } from "./unified-data-gate.js";
 import {
   UNIFIED_STUDENT_ROW_SCHEMA,
+  STEPWISE_STUDENT_OBSERVATIONS_FILE,
   convertEpisodeToStudentGroup,
+  loadStepwiseEpisodeFamily,
   loadEpisodeFamily,
+  StepwiseStudentDataError,
   type StudentGroup,
 } from "./unified-student-converter.js";
 import {
+  STEPWISE_SUPERVISION_FILE,
   convertGoldToSupervisionRow,
+  loadStepwiseSupervisionFamily,
   loadGoldFamily,
   type SupervisionRow,
 } from "./unified-supervision-converter.js";
+import type { RelationStepEpisode } from "./unified-step-context-builder.js";
 import {
   UNIFIED_TRAIN_CONFIG_SCHEMA,
   buildEncodedGroups,
@@ -484,6 +490,9 @@ function studentRowsForRunner(groups: readonly StudentGroup[]): readonly Record<
       group_id: group.group_id,
       sampleId: group.sampleId,
       requestRef: group.requestRef,
+      stepId: group.stepId,
+      targetRef: group.targetRef,
+      pendingRelationRef: group.pendingRelationRef,
       sourceGroup: group.sourceGroup,
       language: group.language,
       adapterRef: group.adapterRef,
@@ -2124,26 +2133,58 @@ export async function executeUnifiedRunnerRoute(
     if (command === "convert-samples") {
       const admissions = await loadUnifiedFamilyAdmissions(corpus.admissionsPath);
       const familyDirs = await discoverUnifiedFamilyDirs(corpus.root);
-      const episodes = [];
-      const goldRecords = [];
+      const episodes: RelationStepEpisode[] = [];
+      const supervisionRows: SupervisionRow[] = [];
       for (const familyDir of familyDirs) {
         const manifest = await loadUnifiedFamilyManifestSource(familyDir);
         requireAdmittedTrainingSource(admissions, manifest.sourceGroup);
         requireAdmittedSourcePartition(admissions, manifest.sourceGroup, manifest.partition);
-        const familyEpisodes = await loadEpisodeFamily(familyDir);
+        const stepwiseStudentPath = join(familyDir, STEPWISE_STUDENT_OBSERVATIONS_FILE);
+        const stepwiseSupervisionPath = join(familyDir, STEPWISE_SUPERVISION_FILE);
+        const hasStepwiseStudent = existsSync(stepwiseStudentPath);
+        const hasStepwiseSupervision = existsSync(stepwiseSupervisionPath);
+        if (hasStepwiseStudent !== hasStepwiseSupervision) {
+          throw new UnifiedTrainDataError(
+            `family ${familyDir} must provide both ${STEPWISE_STUDENT_OBSERVATIONS_FILE} and ${STEPWISE_SUPERVISION_FILE}`,
+          );
+        }
+        const familyEpisodes = hasStepwiseStudent
+          ? await loadStepwiseEpisodeFamily(familyDir)
+          : await loadEpisodeFamily(familyDir);
         for (const episode of familyEpisodes) {
           requireAdmittedTrainingSource(admissions, episode.sourceGroup);
           requireAdmittedSourcePartition(admissions, episode.sourceGroup, episode.partition);
         }
         episodes.push(...familyEpisodes);
-        const familyGold = await loadGoldFamily(familyDir);
-        for (const gold of familyGold) {
-          requireAdmittedTrainingSource(admissions, gold.sourceGroup);
-          requireAdmittedSourcePartition(admissions, gold.sourceGroup, gold.partition);
+        if (hasStepwiseStudent) {
+          const familySupervisionRows = await loadStepwiseSupervisionFamily(familyDir);
+          for (const row of familySupervisionRows) {
+            requireAdmittedTrainingSource(admissions, row.sourceGroup);
+            requireAdmittedSourcePartition(admissions, row.sourceGroup, row.partition);
+          }
+          supervisionRows.push(...familySupervisionRows);
+        } else {
+          const familyGold = await loadGoldFamily(familyDir);
+          for (const gold of familyGold) {
+            requireAdmittedTrainingSource(admissions, gold.sourceGroup);
+            requireAdmittedSourcePartition(admissions, gold.sourceGroup, gold.partition);
+          }
+          supervisionRows.push(...familyGold.map(record => convertGoldToSupervisionRow(record)));
         }
-        goldRecords.push(...familyGold);
       }
       const studentGroups = episodes.map(episode => convertEpisodeToStudentGroup(episode));
+      episodes.forEach((episode, index) => {
+        const group = studentGroups[index];
+        if (group === undefined || episode.sourceCandidateRefs === undefined) return;
+        const expected = [...episode.sourceCandidateRefs].sort();
+        const actual = group.candidates.map(candidate => candidate.candidateRef).sort();
+        if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+          throw new UnifiedTrainDataError(
+            `stepwise S_g mismatch for ${episode.sourceGroup}/${episode.sampleId}/${episode.stepId}: `
+            + `source=${JSON.stringify(expected)} generated=${JSON.stringify(actual)}`,
+          );
+        }
+      });
       const studentRows = studentRowsForRunner(studentGroups);
       await writeJsonlAtomic(studentRowsPath, studentRows);
       counts = {
@@ -2154,7 +2195,6 @@ export async function executeUnifiedRunnerRoute(
         trainableGroups: 0,
       };
 
-      const supervisionRows = goldRecords.map(record => convertGoldToSupervisionRow(record));
       await writeJsonlAtomic(supervisionRowsPath, supervisionRows);
       const gateRows = dataGateRowsForRunner(studentGroups, supervisionRows, config.route);
       await writeJsonlAtomic(dataGateRowsPath, gateRows);
@@ -2234,7 +2274,11 @@ export async function executeUnifiedRunnerRoute(
     return await finalize("completed", 0);
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
-    if (caught instanceof UnifiedTrainDataError) {
+    if (caught instanceof UnifiedTrainDataError || caught instanceof StepwiseStudentDataError) {
+      error = { code: "DATA_INVALID", message };
+      return await finalize("DATA_INVALID", 1);
+    }
+    if (message === "candidate group must be complete before encoding") {
       error = { code: "DATA_INVALID", message };
       return await finalize("DATA_INVALID", 1);
     }

@@ -80,6 +80,49 @@ export interface BindingProjection {
   readonly evidenceRefs: readonly EvidenceRef[];
 }
 
+export type InformationGainValue =
+  | "advances_chain"
+  | "resolves_target"
+  | "none";
+
+export interface CurrentRelationProjection {
+  readonly pendingRelationRef: Ref;
+  readonly callSiteRef: Ref;
+  readonly binding: Observed<BindingProjection>;
+}
+
+export interface RemainingObligationProjection {
+  readonly kind: "observe" | "advance";
+  readonly ref: Ref;
+  readonly pendingRelationRef: Ref;
+  readonly skillRef: Ref;
+  readonly arguments: readonly {
+    readonly name: string;
+    readonly type: string;
+    readonly valueRef: Ref | null;
+  }[];
+  readonly informationGain: Observed<InformationGainValue>;
+  readonly informationGainExplanation?: string;
+  readonly evidenceRefs: readonly EvidenceRef[];
+}
+
+export interface PreviousExecutionProjection {
+  readonly actionRef: Ref;
+  readonly receiptRef: Ref | null;
+  readonly origin: "source_observation" | "model_execution";
+  readonly fromStepId: string | null;
+  readonly pendingRelationRef: Ref;
+  readonly optionSemantics: "observe" | "advance";
+  readonly targetRef: Ref;
+  readonly outcome: "success" | "partial" | "failed" | "unknown";
+}
+
+export interface LocalCandidateCursorProjection {
+  readonly pendingRelationRef: Ref;
+  readonly state: "closed" | "open" | "failed";
+  readonly evidenceRefs: readonly EvidenceRef[];
+}
+
 export interface BindingEdge {
   readonly edgeRef: Ref;
   readonly callSiteRef: Ref | null;
@@ -171,6 +214,10 @@ export interface StepContext {
   readonly missingProjections: readonly MissingProjection[];
   readonly bindingProjections: readonly BindingProjection[];
   readonly bindingEdges: readonly BindingEdge[];
+  readonly currentRelation?: CurrentRelationProjection | null;
+  readonly remainingObligations?: readonly RemainingObligationProjection[];
+  readonly previousExecution?: Observed<PreviousExecutionProjection | null>;
+  readonly localCandidateCursor?: LocalCandidateCursorProjection;
   readonly inputSchema: "nnanything.unified-step.v1";
 }
 
@@ -263,8 +310,32 @@ function findEdge(context: StepContext, candidate: Candidate): BindingEdge | nul
 
 function currentDeclaration(candidate: Candidate): DeclarationIdentity | null {
   const projection = candidate.bindingProjection;
-  if (!projection || projection.declarationRefs.length === 0) return null;
-  return projection.declarationRefs[0] ?? null;
+  if (!projection || projection.resolution.status !== "resolved") return null;
+  const resolution = projection.resolution;
+  const matches = projection.declarationRefs.filter(
+    declaration => declaration.declarationRef === resolution.declarationRef,
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      `DATA_INVALID: resolved declarationRef ${resolution.declarationRef} must match exactly one observed declaration`,
+    );
+  }
+  const declaration = matches[0];
+  if (declaration === undefined) {
+    throw new Error(
+      `DATA_INVALID: resolved declarationRef ${resolution.declarationRef} is missing from observed declarations`,
+    );
+  }
+  if (
+    resolution.moduleRef !== null
+    && declaration.moduleRef !== null
+    && resolution.moduleRef !== declaration.moduleRef
+  ) {
+    throw new Error(
+      `DATA_INVALID: resolved declaration moduleRef ${resolution.moduleRef} conflicts with observed moduleRef ${declaration.moduleRef}`,
+    );
+  }
+  return declaration;
 }
 
 function symbolPart(ref: Ref): string | null {
@@ -316,6 +387,10 @@ export function encodeUnifiedCandidate(
   const skill = context.skills.find(s => s.skillRef === candidate.skillRef) ?? null;
   const edge = findEdge(context, candidate);
   const decl = currentDeclaration(candidate);
+  const ambiguousDeclarationRefs = candidate.bindingProjection?.resolution.status === "ambiguous"
+    ? candidate.bindingProjection.resolution.declarationRefs
+    : [];
+  const observedDeclarationCarrier = decl !== null || ambiguousDeclarationRefs.length !== 0;
   const targetSymbol = symbolPart(context.goal.targetRef) ?? "";
   const requestedKind = requested?.kind ?? null;
   const currentKind = decl?.kind ?? null;
@@ -379,7 +454,7 @@ export function encodeUnifiedCandidate(
   }) ? 1 : 0;
   x[43] = candidate.evidenceRefs.length > 0 ? 1 : 0;
   if (isJudge) {
-    x[44] = decl !== null ? 1 : 0;
+    x[44] = observedDeclarationCarrier ? 1 : 0;
     x[45] = decl !== null && requested !== null ? (decl.name === requested.name ? 1 : 0) : -1;
     x[46] = decl !== null && requested !== null ? (decl.kind === requested.kind ? 1 : 0) : -1;
     x[47] = decl !== null && requested !== null ? 0 : 0.5;

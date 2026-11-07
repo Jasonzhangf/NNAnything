@@ -98,12 +98,27 @@ test("typed observations produce dynamic candidates without reading correction t
       targetName: "base",
       targetModule: { state: "known", value: "module:closure.ts", evidenceRefs: ["ev:edge"] },
       moduleSpecifierRaw: "./closure",
-      sourceContent: { state: "observed", resultRefs: [], reason: null, evidenceRefs: ["ev:edge"] },
+      sourceContent: { state: "not_requested", resultRefs: [], reason: null, evidenceRefs: ["ev:edge"] },
       visibility: { state: "known", value: "reachable", evidenceRefs: ["ev:edge"] },
       hopDepth: 1,
       evidenceRefs: ["ev:edge"],
     }],
-    remainingObligations: [{ kind: "observe", ref: "obligation:registry", informationGain: 1 }],
+    remainingObligations: [
+      {
+        kind: "advance",
+        ref: "edge:closure.ts:import:1",
+        pendingRelationRef: "relation:closure.ts:makeShadow:addOffset",
+        arguments: [{ name: "target", type: "binding_edge", valueRef: "edge:closure.ts:import:1" }],
+        informationGain: 1,
+      },
+      {
+        kind: "observe",
+        ref: "obligation:registry",
+        pendingRelationRef: "relation:closure.ts:makeShadow:addOffset",
+        arguments: [{ name: "target", type: "call_site", valueRef: "call:closure.ts:1" }],
+        informationGain: 1,
+      },
+    ],
   };
   const withoutCorrection = convertEpisodeToStudentGroup(base);
   const withPostHocCorrection = convertEpisodeToStudentGroup({
@@ -142,7 +157,12 @@ test("open enumeration cursor stays unencodable before training", () => {
     },
     observedBindings: [],
     observedDeclarations: [],
-    remainingObligations: [{ kind: "observe", ref: "obligation:registry", informationGain: 1 }],
+    remainingObligations: [{
+      kind: "observe",
+      ref: "obligation:registry",
+      pendingRelationRef: "relation:closure.ts:makeAdder:addOffset",
+      informationGain: 1,
+    }],
     cursorOpen: true,
   });
   assert.equal(context.candidateGroup.enumeration, "truncated");

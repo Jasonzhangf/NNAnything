@@ -92,7 +92,11 @@ async function makeCorpus({ badGold = false } = {}) {
     {
       sampleId: "episode-1",
       stepId: "step-2",
-      observedFacts: ["import helper from ./two"],
+      // Two observed facts give this step a genuinely distinct encoded state.
+      // The pre-rework fixture relied on inferring the pending declaration from
+      // observedDeclarations[0], which the converter contract now forbids
+      // (multi-declaration current-relation projection stays INCOMPLETE).
+      observedFacts: ["import helper from ./two", "helper imported through two hops"],
       callSiteRef: "call:two:helper",
       pendingRelationRef: "relation:two:helper",
       requestedDeclaration,
