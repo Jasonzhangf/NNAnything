@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-07 Jenny：B-A1 研究准备收口、衔接统一决策研究（21:55Z）
+
+- 消息：消费 `m1794088221570-7628`（Alice subject_revision 2 正式 ACCEPT b-a1-research-prep-20261107：三组 finding 闭合，统一 64/两层为唯一后继路线，旧线性降为历史；两处非阻断概述残词留待下轮数值细化修正）、`m1794088269035-7631`（Carol 收口：collab task close 返回 status=closed、delivery_complete=true、completion_missing=[]，cleanup receipt `cleanup-b-a1-research-prep-20261107-1794088256372`，无 worktree/分支需回收）。
+- 系统抽核 Alice 接受证据 `/Volumes/Intel/playground/nnanything-runs/b-a1-research-prep-20261107/alice-review.md` 与三份修订文档，确认修订 2 三处实质落盘：训练设计 `trainBA1UnifiedRelationDecision` 占位明确未就绪、旧 `trainUsageRelation`/`trainSearchInputHostBinder` 不得改名冒充；数值文档三层缺测规则、旧 `w_k=0` 判据不得迁入统一模型；样本骨架 A2 直接比较固定独立 gold、原始证据保留而学生投影剔除禁用字段。
+- 派下一增量 `b-a1-unified-research-prep-20261107`（design，priority p1，executor Carol，reviewer Alice，parent `nnanything-overall-redesign-orchestration-r1`）：统一槽位与观测映射、可训练监督与 loss 目标、`trainBA1UnifiedRelationDecision` 固定入口设计/准备；仅设计/合同/样本骨架，不改生产代码/wire/gold/权重/threshold/监督/采用，不训练/拟合/采样/接线/安装；顺带修正 Alice 两处非阻断残词；B-R 独立继续。已 `board publish`+`board dispatch`，board rev2 invited，等待 Carol accept。
+- 角色缺口记录：研究员标签（资深研究员）当前仅 Emma 且 presence=missing；本线沿既有 B-A1 设计 owner Carol 承接、Alice 独立审计，Emma 恢复后按主目标优先级交接。
+- 资源与订阅：main `a74cddf` 与远端同步；worktree 2 个（main、p1-1 `2d1217e`）；goal active/subscribed（21:48:30Z，30m，本轮未 consumed）；project patrol armed；主树仅保护性未跟踪 `playground/browser/search/b-a1/cua-fixture.html`。未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：B-A1 准备被 Alice REWORK、goal 续订（21:48Z）
 
 - 消息：消费并处理 `m1794087729345-7586`（Carol 交付 b-a1-research-prep-20261107：三份设计文档已落盘，delivery_kind read_only，无代码候选，等 Alice 审查）、`m1794087766282-7593`（Alice 正式 REWORK，board rev3 rework，审查证据 `/Volumes/Intel/playground/nnanything-runs/b-a1-research-prep-20261107/alice-review.md`）、`m1794087781724-7596`（goal deadline 已 consumed）。
