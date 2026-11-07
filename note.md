@@ -2727,3 +2727,67 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - `henry-converter-post-rework-independent-verification-20261106`：保持 pending 并补门禁（rev2）：Iris 缺口1/2/3 修复 + Alice 定点复查 + 修订候选/配置就绪后启动；read_only。
 - 当前未关闭队列：P0 `iris-real-converter-engineering-20261106` rework（Iris 修缺口2/3）；P0 Emma 首训/工程三条；P0 整体重设计编排 working（Iris）；P1 Carol TSJS merged（保留训练后继）；P1 David park；P1 Henry gate；P1 Grace 巡检 working；Emma 名下 6 条 redesign 因 presence missing 保留原 owner。未发现其他可派且已授权的实现/训练工作。
 - Longhorizon goal active/subscribed；project patrol `sub-m1793963843713-143` armed；Grace 4h deadline 下一触发约 2.6 小时后。本轮未改产品代码、语料、权重、gold、threshold、采用或 runtime 安装。
+- 已消费 worker-idle 批次 `m1793996425489-1515`、`m1793996463504-1517`；收件箱归零。按当前授权冲突，不派实现/训练/接线/采用/安装；已就绪且授权的工作仍为空，保持 board/goal 维护与只读审计，不改代码、权重、gold、threshold、采用或 runtime 安装。
+- 已消费 Alice 审计 `m1793997771155-1589`：`iris-real-converter-engineering-20261106` 保持 rework；已接受监督原值直通/解包，剩余 gap1-02 仅来源/请求 join 正确性，证据 `alice-iris-four-mappings-audit-20261106.md` §gap1-02定点复核。board 已记录该 review evidence 与 next_step；当前冻结下未派实现，缺口2/3 仍待独立回执，不据本轮合法 READY 宣称整体准入。
+- 已消费 `m1793997868534-1590`：Iris 已在任务范围内派出 `gcm-gap1-03` 修复来源/请求 join 与跨来源同名复合身份，并保留不重算监督、不触碰 gap2/3 脏状态的边界。尝试由 master 更新 board next_step 返回 `only the task owner may update its lifecycle`，未绕过 owner 权限；保留 Iris 当前 rework 状态，待其完成并交 Alice 复查。
+- 已消费 goal deadline `m1793998099569-1595`；`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m` 已重新 arm 同一目标，`appsdk longhorizon show` 已复核，project patrol 保持 armed。工作树仅 main 与 Iris converter protected hold；main 只有 `note.md` 巡检记录及既有未跟踪 `tests/fixtures/tsjs-symbols/`，无 pending merge 或可安全清理资源。当前冻结下不派实现/训练/接线/采用/安装。
+- 已消费 board-idle `m1793998186485-1600`；复核 `david-fixed-env-engineering-gap-20261106`（PARKED，待用户裁决）与 `henry-converter-post-rework-independent-verification-20261106`（GATED，待 Iris 缺口1/2/3修复和 Alice 复查）。已分别取消两项 board-idle 唤醒并写入解除条件，`notify status` 回执 `eligible_task_ids=[]`、两项均在 `cancelled_tasks`；任务本体与 direct-message 保留，清除门禁后才能 rearm。
+
+## 2026-11-06 master 巡检：gap1-03 接受、gcm-gap1-04 派工、Henry 局部解阻（20:59Z）
+
+- 已消费 `m1793998423316-1609`（Alice gap1-03 与 gap2/3 核心接受）、`m1793998591544-1627`（Iris 已派 `gcm-gap1-04`）、`m1793998518591-1624`/`m1793998600958-1630`（worker-idle 批次）；inbox 归零。
+- 只读复核 `gcm-gap1-03` 产物（result/notes/self-check/red+green/build/convert/validate/`candidate-gap1-03.diff`）：diff 只含 `scripts/generate-four-mappings-corpus.mjs` 与 `tests/unified-gap1-staging.test.mjs` 两个新增文件，未触碰 `lib/training/*` gap2/3 脏状态；join 边界比较 `requestRef` 与（服务提供时）`sourceGroup`，跨来源同名按 family 唯一来源区分，监督 `S_g/A_g/agSubsetOfSg/labelAuthority/oracleKind/unknownReason/trainingEligible/notReadyReason` 原值直通；与 Alice §gap1-03 接受结论一致，不重复再审。
+- 剩余两项由 Iris 在 `iris-real-converter-engineering-20261106` 内派 `gcm-gap1-04`：A 公开资格缺口反例改显式 data/not-ready 归类；B `unified-typed-encoder` tests 118/119（`requestedDeclaration` 身份槽 + `allowedTargetKinds`）按 `BindingProjection.resolution` 真实合同修 owner 或 fixture，保留身份断言。完成后由 Alice 点复查；已接受部分不重做。
+- 按 Alice 明示「Henry 可并行接已有 §13 独立核验准备/已就绪部分」：`henry-converter-post-rework-independent-verification-20261106` 更新到 revision 3，next 写局部解禁——Henry 并行做只读 §13 22 场景回放脚手架、独立 config 副本、仅验证已稳定输入；完整 22 场景仍 gate 在 gcm-gap1-04 完成 + Alice 点复查 + 修订候选/配置就绪。已 `board invite --to Henry --expected-revision 3`（`board-invite-...-4`，`tmux-input-submitted`）。
+- 状态：P0 `iris-real-converter-engineering-20261106` rework（Iris 执行 gcm-gap1-04）；P1 `henry-converter-post-rework-independent-verification-20261106` invited（Henry）；P1 `david-fixed-env-engineering-gap-20261106` 继续 PARKED 待用户授权裁定，不改 board-idle；Henry 任务 board-idle 保留取消，等 Henry 接受后归属转移为 Henry、由 Henry 自管。
+- 工作树仍为 main + Iris `tsjs-real-converter-acceptance-20261106` protected hold（dirty，gap2/3 既有改动保留）；main 仅 `note.md` 巡检与既有未跟踪 `tests/fixtures/tsjs-symbols/`。`appsdk goal status` = `docs/autonomous-capability-roadmap.md` active/subscribed 30m；project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装；派出的是既有 P0 复核任务的延续与只读独立验证准备。
+
+## 2026-11-06 master 巡检：gcm-gap1-04 在途复核（21:03Z）
+
+- 已消费 worker-idle 批次 `m1793998719603-1633` 与 `m1793998866546-1644`；`collab context`/`collab recv` 后 inbox 归零。
+- `gcm-gap1-04` 一次性 worker 仍在运行（PID 77087），已落 `red-tests.log`、`green-tests.log`、`build.log`/`build.exit`、`unified-full.log`/`unified-full.exit`；受影响两套与 unified 全量 126/126 pass，tests 118/119 及公开反例归类均转绿。尚未落 `result.md`、`notes.md`、`self-check.md`、`candidate-gap1-04.diff` 与公开 `convert-samples`/`validate-data` 回执，等待 worker 完成，不中断、不重复派工。
+- `henry-converter-post-rework-independent-verification-20261106` 当前 owner Henry、status working，尚无对应产物；接受仅约 3 分钟，不按 idle 催促。`david-fixed-env-engineering-gap-20261106` 继续 PARKED 待用户授权裁定。`appsdk goal` 与 project patrol 保持 armed。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-06 master 巡检：收件归零与 gcm-gap1-04 收口复核（21:05Z）
+
+- 已消费 `m1793998956510-1650` 与 `m1793999068494-1654`（worker-idle，来自 Henry）；`collab context`/`collab recv` 后 inbox 归零。
+- `gcm-gap1-04` 已落 `candidate-gap1-04.diff`、red/green/build/unified-full receipts，以及 `convert-samples`/`validate-data` receipts、run-reports 和输出。unified-full 126/126 pass；tests 118/119 及公开资格反例归类均转绿；`build.exit=0`。
+- 合同列出的 `result.md`、`notes.md`、`self-check.md` 仍未出现；worker 进程仍存活但已近 9 分钟无 CPU。不杀死、不重启、不重复派工，等 Iris 完成并向 Alice 交回，再按 Alice 点复查决定 board 变更。
+- Henry board 状态为 busy，正在执行只读 §13 独立验证准备；完整回放仍 gate 在 gcm-gap1-04 完成 + Alice 点复查 + 修订候选配置就绪。`david-fixed-env-engineering-gap-20261106` 继续 PARKED 待用户授权裁定。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-06 master 巡检：gcm-gap1-04 交付与 Alice 定点复查路由（21:08Z）
+
+- 已消费 Henry `m1793999224740-1668`：稳定阶段完成，22+1 场景脚手架、独立 config 和稳定输入验证落盘；209/209 断言通过，16 场景 PASS，7 场景因全量 replay gate 保持 INCOMPLETE。
+- 只读核对 `gcm-gap1-04`：`result.md`、`receipts/self-check.md`、red/green、build、unified-full、convert-samples/validate-data 和 candidate diff 均已落盘。A 将已知 `candidate group must be complete before encoding` 映射为 `DATA_INVALID`，保留 message、非零退出和无 package；B 仅补 fixture 的显式 `currentRelation.binding.value.resolution`，身份断言未变；unified 126/126，build exit 0。Henry 指出的语料路径差异已保留为待裁定事实：gcm 公开回执使用 `gcm-mappings-03/corpus`，Henry 独立 config 使用 Carol family 语料。
+- 已向 Alice 发出定点复查消息 `m1793999283029-1674`，要求接受或退回 A/B，并明确全量 22 场景应采用哪个 converter/config/corpus 路径；该消息 durable/pending，但 desktop bridge wake 返回 host response timeout，未重试该 wake。已向 Iris 发出 `m1793999283066-1675`，要求更新 board next_step、发布最终路径并交 Alice，tmux 投递回执为 submitted。另已消费新 worker-idle `m1793999260550-1672`、`m1793999272504-1673`，inbox 归零。
+- Henry 全量回放仍未启动；`david-fixed-env-engineering-gap-20261106` 仍 PARKED。未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-06 master 巡检：重复任务收口与 Henry 回放门禁预备（21:55Z）
+
+- 已消费 worker-idle `m1794001823497-1798`、`m1794001976512-1801` 及相关批次；`collab recv` 后 inbox 归零。
+- Jenny 裁定 `jenny-tsjs-first-fit-engineering-david-r1` 与 `iris-real-converter-engineering-20261106` 重复，已用 `collab task close --force` 关闭，收据 `cleanup-manual-jenny-tsjs-first-fit-engineering-david-r1-1794001924204`。剩余 fixed-env/train/config/§2.5 评估接线保留在 `jenny-tsjs-first-fit-converter-train-config-r1` 与 `david-fixed-env-engineering-gap-20261106`，不新增实现、不训练、不合并、不推送。
+- Henry 在 21:54Z 完成回放门禁预备：独立 config 已解析；使用 Iris 最终候选/worktree build 与 Henry 自有 config 执行公开 CLI replay；`convert-samples` exit 0、READY、dataGate READY、15 groups/67 student rows/15 supervision rows/15 trainable groups；`validate-data` exit 0、READY、dataGate READY、15 learned rows。回执 `output/final-replay/henry-public-cli-replay.receipt.json`。未签任何场景 PASS，完整 22 场景断言仍只等 Alice 对 gcm-gap1-04/修订候选的定点复查接受。
+- Iris `iris-real-converter-engineering-20261106` 保持 delivered；Alice 当前 idle 且 desktop_bridge transport 显示 `can_accept_direct_input=false`、有 4 条 pending notifications，未再重试 desktop wake。只等 Alice 消费 `m1793999258052-1670` 后，Henry 才能完成全量 replay 并进入完整 milestone Review。
+- Longhorizon goal `docs/autonomous-capability-roadmap.md` active/armed 30m；project patrol `sub-m1793963843713-143` armed；Henry/Grace/Emma/Iris 的 board-idle 唤醒按已记录等待条件取消或保持取消。主工作树仍仅 `note.md` 巡检改动和既有 `tests/fixtures/tsjs-symbols/` 未跟踪目录；Iris converter worktree 仍为 protected hold。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-06 master 巡检：P0 门禁保持、Emma 通道缺口与受保护候选（23:27Z）
+
+- 已消费 `m1794007383618-2197`，本轮无重复 `collab recv`。`project-patrol` 保持 armed，目标节奏 1,500,000 ms 无 runtime gap。
+- 未关闭主线：`iris-real-converter-engineering-20261106` 仍 delivered，等待 Alice 定点复查、集成与关闭；`henry-converter-post-rework-independent-verification-20261106` 稳定阶段已完成，22 场景完整回放继续被同一 Alice 复查门禁挡住；`nnanything-overall-redesign-orchestration-r1` 与 fixed-env 相关任务保持原依赖。
+- `david-fixed-env-engineering-gap-20261106` 继续因两条用户方向冲突 park，未启动实现；`grace-nncode-browser-architecture-patrol-20261106` 第五轮已消费，等待真实第六轮 deadline 或 board/代码新变化，不补重复巡检。
+- Emma 当前 presence missing、endpoint null，其名下 redesign/fixed-env 任务不能视为 ready；Carol、Henry、Iris、Grace idle 但对应任务已按复查或等待条件取消，不重复手动唤醒。
+- 资源现状：main `a81e026`；`tsjs-real-converter-acceptance-20261106` worktree 仍含未提交候选改动并落后 main，保持 protected hold，等待 Alice 复查与后续集成，不做清理。
+- 已消费 goal deadline `m1794007807583-2225`；`appsdk goal status` 显示该 one-shot 订阅已 consumed。当前没有新增可执行工作，且 25 分钟 project patrol 已覆盖后续巡检，本轮不重复 rearm 30 分钟 goal deadline。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+
+## 2026-11-07 master 巡检：收件归零与无 ready 派单（00:15Z）
+
+- 已消费 `m1794010385602-2356`；inbox 当前 `unread=0`，无新增 direct-message。当前 master 为 Jenny，`ready_authorized_work=false`。
+- `project-patrol` 保持 armed：`sub-m1793963843713-143`、目标节奏 1,500,000 ms、`cadence_runtime_gap=null`；direct-message 订阅保留。
+- 未找到可自行推进的 ready 工作或可安全清理的自有资源。P0 converter、Henry 全量 replay、fixed-env 集成、David 授权裁定仍按原有外部门禁保留，不重复唤醒或改派。
+- main 仍 `a81e026`；工作树仅本条 note 与既有未跟踪 `tests/fixtures/tsjs-symbols/`。Iris converter worktree 继续作为 protected hold，等待 Alice 复查与集成。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
