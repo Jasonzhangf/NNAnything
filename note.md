@@ -2952,3 +2952,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - roadmap 已同步：fixed-env 状态改为 lineage merge `df68ce68` 后候选为 main 祖先、follow-up 补记；TS/JS timing 基线更新为 `df68ce68`，Henry 交付前须 rebase。
 - 轮末核对：main `df68ce68=origin/main`，`git status` 仅保护性未跟踪 fixture；fixed-env、value-flow worktree 仍 PROTECTED_HOLD；project-patrol 与 goal deadline 订阅保持 armed。
 - 本轮未训练、未改权重/gold/threshold/采用、未产品接线、未安装 runtime；除 lineage merge 外无新产品代码写入。
+
+## 2026-11-07 master：patrol board 同步与 Emma 投递缺口（16:10Z）
+
+- 消费 Kate round-15 巡检回执：fixed-env 集成事实与 roadmap/note 一致，无偏离；三处 board `next_step` 滞后需按实际事实同步。
+- 已向 Iris 发送两处 next_step 同步请求（`jenny-tsjs-fixed-env-implementation-integration-r1`、`nnanything-overall-redesign-orchestration-r1`，消息 `m1794067481847-5245`，tmux 已投递）。
+- 向 Emma 发送五处 next_step/后置标注请求时返回 `TMUX_ENDPOINT_MISSING`；消息 `m1794067491600-5246` durable 但未 wake，按 daemon 指示不重试，待 Emma 恢复后 `collab recv` 领取。
+- 本轮仅执行只读 board 巡检与消息投递；未训练、未改权重/gold/threshold/采用、未产品接线、未安装，未动 tmux/daemon；main `817c5c2=origin/main`，goal 单次订阅 `sub-m1794068319837-5356` armed，project-patrol `sub-m1793963843713-143` armed。
