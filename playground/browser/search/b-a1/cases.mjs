@@ -80,6 +80,7 @@ function expected(overrides = {}) {
     neighborUnchanged: true,
     inputValue: QUERY,
     initialPlaceholderIsQuery: false,
+    failureEpisode: null,
     ...overrides,
   };
 }
@@ -163,6 +164,14 @@ export const B_A1_CASE_ROWS = [
       observationErrors: true,
       inputValue: QUERY,
       initialPlaceholderIsQuery: false,
+      failureEpisode: {
+        stateNull: true,
+        checkedObservationIdNull: true,
+        effectKnowledge: 'unknown',
+        observationStatus: 'failed',
+        unmetFacts: ['value', 'editable'],
+        freshness: 'after_action',
+      },
     }),
   ),
 ];
