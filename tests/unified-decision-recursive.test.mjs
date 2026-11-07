@@ -165,8 +165,30 @@ test("choice, execution receipt, post-state, and root evaluation stay distinct",
   assert.notEqual(result.candidateChoice, result.executionReceipt);
   assert.notEqual(result.executionReceipt, result.observedPostState);
   assert.notEqual(result.observedPostState, result.rootEvaluation);
+  assert.equal(result.executionReceipt.action, "submit_terminal_judgement");
+  assert.equal(result.executionReceipt.candidateRef, result.candidateChoice.candidateRef);
+  assert.equal(result.observedPostState.candidateRef, result.candidateChoice.candidateRef);
+  assert.equal(result.observedPostState.terminalJudgement, "judge=true");
+  assert.equal(result.observedPostState.postStateRef, result.observedPostState.stateRef);
   assert.equal(result.rootEvaluation.state, "evaluated");
-  assert.equal(result.rootEvaluation.result, "unknown");
+  assert.equal(result.rootEvaluation.result, "satisfied");
+  assert.equal(result.rootEvaluation.satisfaction, 100);
+  assert.equal(result.rootEvaluation.evidenceRefs.length > 0, true);
+});
+
+test("structural root stays incomplete when the atomic post-state has no decision evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-decision-no-evidence-"));
+  const modelPath = await packagePath(root);
+  const result = await runTsJsUnifiedDecision({
+    requestId: "no-post-evidence",
+    packagePath: modelPath,
+    episode: episode({ evidenceRefs: [] }),
+    grantedEffects: ["read_only"],
+  });
+
+  assert.notEqual(result.rootEvaluation.state, "not_evaluated");
+  assert.notEqual(result.rootEvaluation.result, "satisfied");
+  assert.equal(result.rootEvaluation.satisfaction, null);
 });
 
 test("synthetic episode mechanics never read supervision fields", async () => {

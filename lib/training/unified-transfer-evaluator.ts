@@ -10,6 +10,7 @@
 // layer 2 and asks only `evaluateRelationOracle`.
 
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import type { UnifiedRelationFacts } from "../adapters/unified-relation-facts.js";
 import { relationFactsSemanticallyEqual } from "../adapters/unified-relation-facts.js";
 import type {
@@ -58,6 +59,19 @@ export interface UnifiedTransferEvaluationInput {
   readonly packagePath: string;
   readonly verificationPath?: string | null;
   readonly oraclePath?: string | null;
+  readonly packageAdmission?: TsJsPackageAdmission | null;
+  readonly verificationAdmissionsPath?: string | null;
+  readonly targetSourceGroup?: string | null;
+  readonly goldPath?: string | null;
+}
+
+export interface TsJsPackageAdmission {
+  readonly packagePath: string;
+  readonly modelId: string;
+  readonly version: string;
+  readonly reviewAccepted: boolean;
+  readonly reviewer?: string | null;
+  readonly reviewEvidenceRef?: string | null;
 }
 
 export interface AdapterSemanticAlignmentReport {
@@ -101,6 +115,7 @@ export interface EncodingInferenceConsistencyReport {
 
 export interface TransferPrerequisites {
   readonly acceptedTsJsPackage: boolean;
+  readonly independentTsJsVerification: boolean;
   readonly independentRustVerification: boolean;
   readonly independentOracleSource: boolean;
 }
@@ -135,6 +150,33 @@ interface OracleData {
   readonly schema: typeof UNIFIED_TRANSFER_ORACLE_SCHEMA;
   readonly source: string;
   readonly samples: readonly IndependentOracleSample[];
+  readonly rawSamples: readonly Record<string, unknown>[];
+}
+
+interface CorpusFamilyAdmission {
+  readonly sourceGroup: string;
+  readonly partition: string;
+  readonly usableForIndependentVerification: boolean;
+}
+
+interface CorpusAdmissions {
+  readonly schemaVersion: string;
+  readonly familyAdmissions: readonly CorpusFamilyAdmission[];
+}
+
+interface GoldRecord {
+  readonly sampleId: string;
+  readonly sourceGroup: string;
+  readonly partition: string;
+  readonly label: "true" | "false" | "unknown";
+  readonly labelAuthority: string;
+  readonly oracleKind: string;
+  readonly labelMissing: boolean;
+}
+
+interface EncodingInferenceResult {
+  readonly report: EncodingInferenceConsistencyReport;
+  readonly binding: UnifiedModelPackageBinding;
 }
 
 export class UnifiedTransferInputError extends Error {
@@ -202,7 +244,97 @@ function readOracleData(value: unknown): OracleData {
     schema: UNIFIED_TRANSFER_ORACLE_SCHEMA,
     source: value.source,
     samples: readOracleSamples(value.samples),
+    rawSamples: readOracleSamples(value.samples) as unknown as readonly Record<string, unknown>[],
   };
+}
+
+function readCorpusAdmissions(value: unknown): CorpusAdmissions {
+  if (!isRecord(value) || value.schemaVersion !== "neural-cli-corpus-admissions-v1") {
+    throw new UnifiedTransferInputError("corpus admissions schema must be neural-cli-corpus-admissions-v1");
+  }
+  if (!Array.isArray(value.familyAdmissions)) {
+    throw new UnifiedTransferInputError("corpus familyAdmissions must be an array");
+  }
+  return {
+    schemaVersion: value.schemaVersion,
+    familyAdmissions: value.familyAdmissions,
+  };
+}
+
+async function readCorpusAdmissionsFile(path: string | null | undefined): Promise<CorpusAdmissions | null> {
+  const raw = await readJsonFile(path);
+  if (raw === null) return null;
+  return readCorpusAdmissions(raw);
+}
+
+async function readGoldRecords(path: string | null | undefined): Promise<readonly GoldRecord[] | null> {
+  if (path === null || path === undefined) return null;
+  try {
+    const text = await readFile(path, "utf8");
+    const records = text.split("\n").filter(line => line.length > 0).map(line => JSON.parse(line));
+    if (!Array.isArray(records)) return null;
+    return records as readonly GoldRecord[];
+  } catch {
+    return null;
+  }
+}
+
+function admittedFamily(
+  admissions: CorpusAdmissions | null,
+  targetSourceGroup: string | null,
+): CorpusFamilyAdmission | null {
+  if (admissions === null || targetSourceGroup === null) return null;
+  const family = admissions.familyAdmissions.find(
+    item => item.sourceGroup === targetSourceGroup,
+  );
+  if (family === undefined) return null;
+  if (!family.usableForIndependentVerification || family.partition !== "verification") return null;
+  return family;
+}
+
+function independentTsJsVerificationAdmission(
+  admissions: CorpusAdmissions | null,
+  targetSourceGroup: string | null,
+  episodes: readonly RelationStepEpisode[],
+): boolean {
+  const family = admittedFamily(admissions, targetSourceGroup);
+  if (family === null || episodes.length === 0) return false;
+  return episodes.every(
+    episode => episode.sourceGroup === family.sourceGroup && episode.partition === "verification",
+  );
+}
+
+function independentOracleAdmission(
+  admissions: CorpusAdmissions | null,
+  targetSourceGroup: string | null,
+  goldRecords: readonly GoldRecord[] | null,
+  oracle: OracleData | null,
+): boolean {
+  const family = admittedFamily(admissions, targetSourceGroup);
+  if (family === null || goldRecords === null || oracle === null) return false;
+  const goldById = new Map(goldRecords.map(record => [record.sampleId, record]));
+  return oracle.samples.every((sample, index) => {
+    const gold = goldById.get(sample.sampleId);
+    const raw = oracle.rawSamples[index];
+    if (gold === undefined || raw === undefined) return false;
+    return gold.sourceGroup === family.sourceGroup
+      && gold.partition === family.partition
+      && gold.label === sample.gold
+      && gold.labelAuthority === raw.labelAuthority
+      && gold.oracleKind === raw.oracleKind;
+  });
+}
+
+function acceptedTsJsPackageAdmission(
+  admission: TsJsPackageAdmission | null | undefined,
+  packagePath: string,
+  binding: UnifiedModelPackageBinding,
+): boolean {
+  if (admission === null || admission === undefined) return false;
+  if (!admission.reviewAccepted) return false;
+  if (typeof admission.reviewEvidenceRef !== "string" || admission.reviewEvidenceRef.length === 0) return false;
+  if (resolve(admission.packagePath) !== resolve(packagePath)) return false;
+  return admission.modelId === binding.modelId && admission.version === binding.version;
 }
 
 async function readJsonFile(path: string | null | undefined): Promise<unknown | null> {
@@ -335,7 +467,7 @@ function encodingError(
 async function evaluateInference(
   packagePath: string,
   episodes: readonly RelationStepEpisode[],
-): Promise<EncodingInferenceConsistencyReport> {
+): Promise<EncodingInferenceResult> {
   const loaded = await loadUnifiedModelPackageFromFile(packagePath);
   const routeCompatible =
     loaded.package.route.domain === "tsjs" && loaded.package.route.decisionKind === "R";
@@ -455,25 +587,28 @@ async function evaluateInference(
   }
 
   return {
-    status:
-      routeCompatible &&
-      thresholdsValid &&
-      missingModeValid &&
-      failedCount === 0 &&
-      encodedCount > 0
-        ? "pass"
-        : "incomplete",
-    packageLoaded: true,
-    packageBound: true,
-    thresholdsValid,
-    missingModeValid,
-    routeCompatible,
-    encodedCount,
-    truncatedCount,
-    failedCount,
-    cursorClosed,
-    choices,
-    errors,
+    report: {
+      status:
+        routeCompatible &&
+        thresholdsValid &&
+        missingModeValid &&
+        failedCount === 0 &&
+        encodedCount > 0
+          ? "pass"
+          : "incomplete",
+      packageLoaded: true,
+      packageBound: true,
+      thresholdsValid,
+      missingModeValid,
+      routeCompatible,
+      encodedCount,
+      truncatedCount,
+      failedCount,
+      cursorClosed,
+      choices,
+      errors,
+    },
+    binding,
   };
 }
 
@@ -512,7 +647,12 @@ function studentRuns(
   return [...runsBySample].map(([sampleId, { steps, rootGaps }]) => ({
     sampleId,
     steps,
-    rootConditionStates: [],
+    // A transfer evaluator only sees model choices, never execution receipts or
+    // post-states. Structural closure must therefore stay unknown here.
+    rootConditionStates: [{
+      conditionRef: "root.structural_closure",
+      state: "unknown",
+    }],
     rootGaps,
     rootSatisfied: null,
   }));
@@ -526,20 +666,36 @@ export async function evaluateUnifiedTransfer(
   const verification = await readVerification(verificationPath);
   const oracle = await readOracle(oraclePath);
   const episodes = verification?.episodes ?? [];
+  const corpusAdmissions = await readCorpusAdmissionsFile(input.verificationAdmissionsPath);
+  const goldRecords = await readGoldRecords(input.goldPath);
+  const targetSourceGroup = input.targetSourceGroup ?? null;
 
   const adapterSemanticAlignment = evaluateAdapterAlignment(
     verification?.tsjsFacts ?? null,
     verification?.rustFacts ?? null,
     episodes,
   );
-  const encodingInferenceConsistency = await evaluateInference(input.packagePath, episodes);
+  const inference = await evaluateInference(input.packagePath, episodes);
+  const encodingInferenceConsistency = inference.report;
 
-  // No typed admission contract exists yet. Model loadability, a verification
-  // directory, and the oracle source whitelist are diagnostic inputs only, not
-  // admission evidence for actual TS/JS-to-Rust transfer.
+  // Admission requires typed resources, not loadability or directory presence.
   const independentRustVerification = false;
-  const independentOracleSource = false;
-  const acceptedTsJsPackage = false;
+  const independentTsJsVerification = independentTsJsVerificationAdmission(
+    corpusAdmissions,
+    targetSourceGroup,
+    episodes,
+  );
+  const independentOracleSource = independentOracleAdmission(
+    corpusAdmissions,
+    targetSourceGroup,
+    goldRecords,
+    oracle,
+  );
+  const acceptedTsJsPackage = acceptedTsJsPackageAdmission(
+    input.packageAdmission,
+    input.packagePath,
+    inference.binding,
+  );
 
   const labelMissingSamples = oracle === null
     ? []
@@ -555,6 +711,7 @@ export async function evaluateUnifiedTransfer(
   const actualTransferCorrectness: ActualTransferCorrectnessReport = {
     status:
       acceptedTsJsPackage &&
+      independentTsJsVerification &&
       independentRustVerification &&
       independentOracleSource &&
       oracleReport !== null &&
@@ -564,6 +721,7 @@ export async function evaluateUnifiedTransfer(
         : "incomplete",
     prerequisites: {
       acceptedTsJsPackage,
+      independentTsJsVerification,
       independentRustVerification,
       independentOracleSource,
     },

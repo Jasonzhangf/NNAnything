@@ -23,6 +23,15 @@ const RESOURCE_NAMES = {
 const TRANSFER_CLI = fileURLToPath(
   new URL("../playground/training/unified-transfer-evaluator.mjs", import.meta.url),
 );
+const CORPUS_ADMISSIONS_PATH = fileURLToPath(
+  new URL("../training/samples/neural-cli/tsjs/corpus-admissions-v1.json", import.meta.url),
+);
+const GOLD_PATH = fileURLToPath(
+  new URL(
+    "../training/samples/neural-cli/tsjs/verification-independent-callgraph-d/labels/gold.jsonl",
+    import.meta.url,
+  ),
+);
 
 const THRESHOLDS = {
   schema: "nnanything.feature-thresholds.v1",
@@ -98,6 +107,22 @@ function oracleSample(sampleId, overrides = {}) {
     goldSource: "manual-structural-proof",
     goldEvidence: [{ evidenceRef: `oracle:${sampleId}`, typeStep: "binding" }],
     labelMissing: false,
+    sourceGroup: "tsjs-verification-independent-callgraph-d",
+    partition: "verification",
+    labelAuthority: "researcher_structural_proof+typescript_compiler_api",
+    oracleKind: "independent_tsc+typescript_compiler_api",
+    ...overrides,
+  };
+}
+
+function packageAdmission(packagePath, overrides = {}) {
+  return {
+    packagePath,
+    modelId: "unified-transfer-synthetic",
+    version: "1",
+    reviewAccepted: true,
+    reviewer: "test-reviewer",
+    reviewEvidenceRef: "test-review-evidence",
     ...overrides,
   };
 }
@@ -424,4 +449,128 @@ test("label-missing samples are excluded from the denominator but retained as ev
     ["label-missing"],
   );
   assert.equal(report.actualTransferCorrectness.status, "incomplete");
+});
+
+test("TS/JS independent verification family does not grant Rust transfer admission", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-tsjs-family-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("tsjs-family"),
+    rustFacts: facts("tsjs-family"),
+    episodes: [episode("tsjs-family", {
+      sourceGroup: "tsjs-verification-independent-callgraph-d",
+      partition: "verification",
+    })],
+  });
+
+  const report = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    verificationAdmissionsPath: CORPUS_ADMISSIONS_PATH,
+    targetSourceGroup: "tsjs-verification-independent-callgraph-d",
+  });
+
+  assert.equal(report.actualTransferCorrectness.prerequisites.independentTsJsVerification, true);
+  assert.equal(report.actualTransferCorrectness.prerequisites.independentRustVerification, false);
+  assert.equal(report.actualTransferCorrectness.prerequisites.acceptedTsJsPackage, false);
+  assert.equal(report.actualTransferCorrectness.status, "incomplete");
+});
+
+test("verification admission with a TRAIN episode stays incomplete", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-train-mismatch-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("train-mismatch"),
+    rustFacts: facts("train-mismatch"),
+    episodes: [episode("train-mismatch", {
+      sourceGroup: "tsjs-verification-independent-callgraph-d",
+      partition: "train",
+    })],
+  });
+
+  const report = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    verificationAdmissionsPath: CORPUS_ADMISSIONS_PATH,
+    targetSourceGroup: "tsjs-verification-independent-callgraph-d",
+  });
+
+  assert.equal(report.actualTransferCorrectness.prerequisites.independentTsJsVerification, false);
+  assert.equal(report.actualTransferCorrectness.status, "incomplete");
+});
+
+test("package admission requires exact package path and model identity", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-package-admission-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("package-admission"),
+    rustFacts: facts("package-admission"),
+    episodes: [episode("package-admission")],
+  });
+
+  const matching = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    packageAdmission: packageAdmission(modelPath),
+  });
+  assert.equal(matching.actualTransferCorrectness.prerequisites.acceptedTsJsPackage, true);
+
+  const wrongPath = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    packageAdmission: packageAdmission(join(root, "other-package.json")),
+  });
+  assert.equal(wrongPath.actualTransferCorrectness.prerequisites.acceptedTsJsPackage, false);
+
+  const wrongModel = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    packageAdmission: packageAdmission(modelPath, { version: "2" }),
+  });
+  assert.equal(wrongModel.actualTransferCorrectness.prerequisites.acceptedTsJsPackage, false);
+});
+
+test("oracle source admission requires typed gold records and matching fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-oracle-admission-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("oracle-admission"),
+    rustFacts: facts("oracle-admission"),
+    episodes: [episode("d2-verification-positive-alias", {
+      sourceGroup: "tsjs-verification-independent-callgraph-d",
+      partition: "verification",
+    })],
+  });
+  const oracle = await oraclePath(root, [oracleSample("d2-verification-positive-alias")]);
+
+  const withoutGold = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    oraclePath: oracle,
+    verificationAdmissionsPath: CORPUS_ADMISSIONS_PATH,
+    targetSourceGroup: "tsjs-verification-independent-callgraph-d",
+  });
+  assert.equal(withoutGold.actualTransferCorrectness.prerequisites.independentOracleSource, false);
+
+  const withGold = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    oraclePath: oracle,
+    verificationAdmissionsPath: CORPUS_ADMISSIONS_PATH,
+    targetSourceGroup: "tsjs-verification-independent-callgraph-d",
+    goldPath: GOLD_PATH,
+  });
+  assert.equal(withGold.actualTransferCorrectness.prerequisites.independentOracleSource, true);
+
+  const fieldMismatch = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    oraclePath: await oraclePath(root, [oracleSample("d2-verification-positive-alias", {
+      oracleKind: "wrong_oracle_kind",
+    })]),
+    verificationAdmissionsPath: CORPUS_ADMISSIONS_PATH,
+    targetSourceGroup: "tsjs-verification-independent-callgraph-d",
+    goldPath: GOLD_PATH,
+  });
+  assert.equal(fieldMismatch.actualTransferCorrectness.prerequisites.independentOracleSource, false);
 });

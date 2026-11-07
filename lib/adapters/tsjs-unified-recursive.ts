@@ -52,11 +52,15 @@ import {
 
 const EVALUATOR_ID = "tsjs.unified.relation.root" as const;
 const SELECTOR_ID = "tsjs.unified.relation.selector" as const;
-const SKILL_ID = "tsjs.unified.relation.decision" as const;
+const SKILL_ID = "skill:relation.judge" as const;
+const SKILL_VERSION = "relation.judge.v1" as const;
+const RELATION_READ_SKILL_ID = "skill:relation.read" as const;
+const RELATION_OBSERVE_SKILL_ID = "skill:relation.observe" as const;
+const RELATION_CONTROL_SKILL_ID = "skill:relation.control" as const;
 const RECEIPT_TAG = "tsjs.unified.decision.v1" as const;
 
 interface DecisionGoal {
-  readonly kind: "tsjs.unified.relation.decision";
+  readonly kind: "verify";
   readonly targetRef: string;
   readonly contextId: string;
 }
@@ -76,15 +80,23 @@ export interface TsJsUnifiedCandidateChoice {
   readonly score: number;
 }
 
+export type TsJsUnifiedTerminalJudgement = "judge=true" | "judge=false" | "judge=unknown";
+
 export interface TsJsUnifiedExecutionReceipt {
   readonly receiptId: string;
-  readonly action: "score_relation_candidates";
+  readonly action: "submit_terminal_judgement";
+  readonly candidateRef: string;
+  readonly terminalJudgement: TsJsUnifiedTerminalJudgement;
+  readonly postStateRef: string;
   readonly outcome: "success";
   readonly evidenceRefs: readonly string[];
 }
 
 export interface TsJsUnifiedObservedPostState {
   readonly stateRef: string;
+  readonly postStateRef: string;
+  readonly candidateRef: string;
+  readonly terminalJudgement: TsJsUnifiedTerminalJudgement;
   readonly observedFacts: readonly string[];
   readonly candidateGroupRef: string;
   readonly cursorClosed: boolean;
@@ -107,6 +119,8 @@ interface DecisionState {
 
 interface DecisionEvidence {
   readonly evidenceRef: string;
+  readonly candidateRef?: string;
+  readonly postStateRef?: string;
 }
 
 interface DecisionEffect {
@@ -218,9 +232,80 @@ function evidenceFor(state: DecisionState, prefix = "initial:"): readonly {
   return state.context.state.evidence.map((item, index) => ({
     id: `${prefix}${item.evidenceRef}:${index}`,
     stateRef: state.stateRef,
-    payload: { evidenceRef: item.evidenceRef },
+    payload: {
+      evidenceRef: item.evidenceRef,
+      ...(state.chosenCandidateRef === null
+        ? {}
+        : {
+            candidateRef: state.chosenCandidateRef,
+            postStateRef: state.stateRef,
+          }),
+    },
     validity: "valid",
   }));
+}
+
+interface StructuralRootEvaluation {
+  readonly result: "satisfied" | "unsatisfied" | "unknown";
+  readonly satisfaction: number | null;
+  readonly necessaryConditionsMet: boolean;
+  readonly evidenceRefs: readonly string[];
+}
+
+function evaluateStructuralRoot(
+  state: DecisionState,
+  evidence: readonly { readonly id: string; readonly stateRef: string; readonly validity: string }[],
+): StructuralRootEvaluation {
+  const chosen = state.chosenCandidateRef === null
+    ? null
+    : state.context.candidateGroup.candidates.find(
+        candidate => candidate.candidateRef === state.chosenCandidateRef,
+      ) ?? null;
+  const currentEvidenceRefs = evidence
+    .filter(item => item.stateRef === state.stateRef && item.validity === "valid")
+    .map(item => item.id);
+
+  if (
+    chosen === null
+    || !chosen.optionSemantics.startsWith("judge=")
+    || state.executionReceipt === null
+    || state.observedPostState === null
+    || currentEvidenceRefs.length === 0
+  ) {
+    return {
+      result: "unknown",
+      satisfaction: null,
+      necessaryConditionsMet: false,
+      evidenceRefs: currentEvidenceRefs,
+    };
+  }
+
+  const terminalJudgement = chosen.optionSemantics as TsJsUnifiedTerminalJudgement;
+  const receipt = state.executionReceipt;
+  const postState = state.observedPostState;
+  const structurallyClosed =
+    receipt.candidateRef === chosen.candidateRef
+    && receipt.terminalJudgement === terminalJudgement
+    && receipt.postStateRef === state.stateRef
+    && postState.candidateRef === chosen.candidateRef
+    && postState.terminalJudgement === terminalJudgement
+    && postState.stateRef === state.stateRef
+    && postState.postStateRef === state.stateRef
+    && postState.candidateGroupRef === state.candidateGroupRef;
+
+  return structurallyClosed
+    ? {
+        result: "satisfied",
+        satisfaction: 100,
+        necessaryConditionsMet: true,
+        evidenceRefs: currentEvidenceRefs,
+      }
+    : {
+        result: "unsatisfied",
+        satisfaction: 0,
+        necessaryConditionsMet: false,
+        evidenceRefs: currentEvidenceRefs,
+      };
 }
 
 function diagnostic(
@@ -317,8 +402,8 @@ export async function runTsJsUnifiedDecision(
   const stepContext = relationStepContext(request.episode);
   const state = initialState(stepContext);
   const rootGoal: DecisionGoal = {
-    kind: "tsjs.unified.relation.decision",
-    targetRef: request.episode.targetRef,
+    kind: "verify",
+    targetRef: request.episode.sampleId,
     contextId: stepContext.contextId,
   };
   const rootBindings: DecisionBindings = {
@@ -329,20 +414,55 @@ export async function runTsJsUnifiedDecision(
     grantedEffects: [...grantedEffects],
   };
 
-  const skills = [{
-    id: SKILL_ID,
-    version: "1.0.0",
-    mode: "atomic",
-    capability: "tsjs.unified.relation.decision",
-    evaluatorId: EVALUATOR_ID,
-    requiredEffects: ["read_only"],
-    allowedEffects: ["read_only"],
-    retry: "never",
-    effectClass: "read_only",
-  }] as const;
+  const skills = [
+    {
+      id: SKILL_ID,
+      version: SKILL_VERSION,
+      mode: "atomic",
+      capability: "relation.judge",
+      evaluatorId: EVALUATOR_ID,
+      requiredEffects: ["read_only"],
+      allowedEffects: ["read_only"],
+      retry: "never",
+      effectClass: "read_only",
+    },
+    {
+      id: RELATION_READ_SKILL_ID,
+      version: "relation.read.v1",
+      mode: "atomic",
+      capability: "relation.read",
+      evaluatorId: EVALUATOR_ID,
+      requiredEffects: ["read_only"],
+      allowedEffects: ["read_only"],
+      retry: "never",
+      effectClass: "read_only",
+    },
+    {
+      id: RELATION_OBSERVE_SKILL_ID,
+      version: "relation.observe.v1",
+      mode: "atomic",
+      capability: "relation.observe",
+      evaluatorId: EVALUATOR_ID,
+      requiredEffects: ["read_only"],
+      allowedEffects: ["read_only"],
+      retry: "never",
+      effectClass: "read_only",
+    },
+    {
+      id: RELATION_CONTROL_SKILL_ID,
+      version: "relation.control.v1",
+      mode: "atomic",
+      capability: "relation.control",
+      evaluatorId: EVALUATOR_ID,
+      requiredEffects: ["read_only"],
+      allowedEffects: ["read_only"],
+      retry: "never",
+      effectClass: "read_only",
+    },
+  ] as const;
   const evaluators = [{
     id: EVALUATOR_ID,
-    goalType: "tsjs.unified.relation.decision",
+    goalType: "verify",
     thresholdContract: "0..100",
     allowsPartialSatisfaction: false,
   }] as const;
@@ -370,13 +490,10 @@ export async function runTsJsUnifiedDecision(
       continuation: null,
     }),
     supports: (input: SupportsInput<DecisionGoal, DecisionBindings>) =>
-      input.goal.kind === "tsjs.unified.relation.decision" && input.skill.id === SKILL_ID,
+      input.goal.kind === "verify" && input.skill.id === SKILL_ID,
     evaluate: async (input: EvaluationInput<DecisionGoal, DecisionState, DecisionBindings, DecisionEvidence>): Promise<EvaluationReceipt> => ({
       evaluatorId: EVALUATOR_ID,
-      result: "unknown",
-      satisfaction: null,
-      necessaryConditionsMet: false,
-      evidenceRefs: input.evidence.map(item => item.id),
+      ...evaluateStructuralRoot(input.state, input.evidence),
     }),
     select: async (input: SelectionInput<DecisionGoal, DecisionState, DecisionBindings, DecisionEvidence>): Promise<Selection> => {
       const hasSkill = input.candidates.some(skill => skill.id === SKILL_ID);
@@ -435,12 +552,18 @@ export async function runTsJsUnifiedDecision(
       };
       const executionReceipt: TsJsUnifiedExecutionReceipt = {
         receiptId: `${request.requestId}:${chosen.candidate.candidateRef}`,
-        action: "score_relation_candidates",
+        action: "submit_terminal_judgement",
+        candidateRef: chosen.candidate.candidateRef,
+        terminalJudgement: chosen.candidate.optionSemantics as TsJsUnifiedTerminalJudgement,
+        postStateRef: `${input.state.stateRef}:post:1`,
         outcome: "success",
         evidenceRefs: chosen.candidate.evidenceRefs,
       };
       const observedPostState: TsJsUnifiedObservedPostState = {
         stateRef: `${input.state.stateRef}:post:1`,
+        postStateRef: `${input.state.stateRef}:post:1`,
+        candidateRef: chosen.candidate.candidateRef,
+        terminalJudgement: chosen.candidate.optionSemantics as TsJsUnifiedTerminalJudgement,
         observedFacts: input.state.context.state.facts.map(fact => fact.factRef),
         candidateGroupRef: input.state.candidateGroupRef,
         cursorClosed: input.state.context.localCandidateCursor?.state === "closed",
