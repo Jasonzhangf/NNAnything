@@ -2912,7 +2912,8 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
 - Iris 已重交 board `fixed-env-engineering-gap-iris-20261107` rev16 status=working；next_step 记录已按批准合同实现 package/TSJS verification/oracle admission binding + evaluate() root condition + runTsJsUnifiedDecision 单步 relation judge，同时保留真实 Rust transfer、accepted TS/JS package 与 evaluate() root 语义为 INCOMPLETE；未训练、未采用、未集成。
 - `fixed-env-research-adjudication-carol-20261107` 已 Alice accept 并 board closed；研究裁定 rev4 为唯一研究合同。
-- `tsjs-timing-evaluate-design-rework-carol-20261107` rev7 REWORK；review_subject_revision 1。证据 /Volumes/Intel/playground/nnanything-runs/tsjs-timing-evaluate-design-review-20261107/review.md；timing/evaluate 单一时序字段统一仍待 Carol 窄修。
+- `tsjs-timing-evaluate-design-rework-carol-20261107` rev8 窄返工（此前 rev7 REWORK，review_subject_revision 1），next_step 已收窄为单一时序字段统一（commandStart / cut point / checkpointIoSecs / totalWallSeconds / resume accumulation 同一确定规则 + 一条 deterministic train-pause-resume 例子）；证据 /Volumes/Intel/playground/nnanything-runs/tsjs-timing-evaluate-design-review-20261107/review.md；evaluate 接线（F3）已闭合，验收依赖 Iris 公共 adapter。
+- 已对 Carol 发出更正消息 m1794059557613-4228：研究任务 rev4 已 accept 并 closed，忽略先前「交付 rev4」要求，不回开该任务；只按 timing rev8 范围窄修。
 - roadmap 与 note 已同步：fixed-env evaluator + §2.5 接线表格改为 board rev14 已批准 blocked（后续 rev16 working），候选 66a7710 五项闭合，研究合同 rev4 已 ACCEPT，Iris 按合同补准入与 evaluate() 根条件；TS/JS timing/evaluate 设计改为正式 REWORK（范围收窄为计时旧起点与累计字段/cut point，evaluate 接线已闭合可按共享 runner 单 writer 独立准备，验收依赖 Iris 公共入口；不阻塞 fixed-env）。
 - project patrol `sub-m1793963843713-143` armed；goal 订阅 `sub-m1794058333943-4090` armed（30m）。当前无 ready 且未派 board 工作，P0 `jenny-tsjs-first-fit-converter-train-config-r1` 仍 rev19 rework owner Emma presence missing，保持原状不越权。
 - 本轮未改产品代码、语料、权重/gold/threshold/采用、产品接线或 runtime 安装；未训练、未集成新候选。
