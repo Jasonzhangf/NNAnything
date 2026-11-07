@@ -28,6 +28,7 @@ function parseArgs(argv) {
     throw new Error("--package is required");
   }
   return args;
+}
 
 try {
   const args = parseArgs(process.argv.slice(2));

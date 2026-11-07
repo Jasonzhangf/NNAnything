@@ -12,7 +12,12 @@
 import { readFile } from "node:fs/promises";
 import type { UnifiedRelationFacts } from "../adapters/unified-relation-facts.js";
 import { relationFactsSemanticallyEqual } from "../adapters/unified-relation-facts.js";
-import type { EncoderResult, FeatureThresholds, StepContext } from "./unified-encoder.js";
+import type {
+  Candidate,
+  EncoderResult,
+  FeatureThresholds,
+  StepContext,
+} from "./unified-encoder.js";
 import { encodeUnifiedCandidateGroup } from "./unified-encoder.js";
 import { forwardUnifiedScore } from "./unified-forward.js";
 import {
@@ -72,6 +77,13 @@ export interface CandidateChoice {
   readonly score: number;
 }
 
+export interface EncodingInferenceError {
+  readonly stage: "thresholds" | "missingMode" | "encode" | "forward" | "candidateSelection";
+  readonly code: string | null;
+  readonly message: string;
+  readonly inputRef: string;
+}
+
 export interface EncodingInferenceConsistencyReport {
   readonly status: LayerStatus;
   readonly packageLoaded: boolean;
@@ -84,6 +96,7 @@ export interface EncodingInferenceConsistencyReport {
   readonly failedCount: number;
   readonly cursorClosed: boolean;
   readonly choices: readonly CandidateChoice[];
+  readonly errors: readonly EncodingInferenceError[];
 }
 
 export interface TransferPrerequisites {
@@ -282,36 +295,41 @@ function evaluateAdapterAlignment(
 
 function chooseJudge(
   episode: RelationStepEpisode,
-  context: StepContext,
-  encoded: readonly EncoderResult[],
-  binding: UnifiedModelPackageBinding,
-): CandidateChoice {
-  const byRef = new Map(
-    context.candidateGroup.candidates
-      .filter(candidate => candidate.optionSemantics.startsWith("judge="))
-      .map(candidate => [candidate.candidateRef, candidate]),
-  );
-  const scored: CandidateChoice[] = [];
-  for (const result of encoded) {
-    const candidate = byRef.get(result.candidateRef);
-    if (candidate === undefined) continue;
-    const score = forwardUnifiedScore(result.vector, binding.tensors);
-    scored.push({
+  scored: readonly { readonly candidateRef: string; readonly score: number }[],
+  candidatesByRef: ReadonlyMap<string, Candidate>,
+): CandidateChoice | null {
+  const judgeScores = scored.flatMap(({ candidateRef, score }) => {
+    const candidate = candidatesByRef.get(candidateRef);
+    if (candidate === undefined || !candidate.optionSemantics.startsWith("judge=")) return [];
+    return [{
       sampleId: episode.sampleId,
       stepId: episode.stepId,
-      candidateRef: candidate.candidateRef,
+      candidateRef,
       optionSemantics: candidate.optionSemantics,
       score,
-    });
-  }
-  if (scored.length === 0) {
-    throw new UnifiedTransferInputError(`episode ${episode.sampleId} has no judge candidates`);
-  }
-  scored.sort((left, right) => {
+    }];
+  });
+  if (judgeScores.length === 0) return null;
+  const choices = judgeScores;
+  choices.sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
     return left.candidateRef.localeCompare(right.candidateRef);
   });
-  return scored[0]!;
+  return choices[0]!;
+}
+
+function encodingError(
+  stage: EncodingInferenceError["stage"],
+  inputRef: string,
+  error: unknown,
+): EncodingInferenceError {
+  const code = (error as { readonly code?: unknown } | null)?.code;
+  return {
+    stage,
+    code: typeof code === "string" ? code : null,
+    message: error instanceof Error ? error.message : String(error),
+    inputRef,
+  };
 }
 
 async function evaluateInference(
@@ -329,20 +347,31 @@ async function evaluateInference(
     );
   }
 
+  const errors: EncodingInferenceError[] = [];
   let thresholdsValid = false;
   let missingModeValid = false;
   let thresholds: FeatureThresholds | null = null;
   try {
     thresholds = await loadFeatureThresholdsFromFile(loaded.resolvedResources.thresholdsPath);
     thresholdsValid = true;
-  } catch {
+  } catch (error) {
     thresholdsValid = false;
+    errors.push(encodingError(
+      "thresholds",
+      loaded.resolvedResources.thresholdsPath,
+      error,
+    ));
   }
   try {
     await loadMissingModeTableFromFile(loaded.resolvedResources.missingModeTablePath);
     missingModeValid = true;
-  } catch {
+  } catch (error) {
     missingModeValid = false;
+    errors.push(encodingError(
+      "missingMode",
+      loaded.resolvedResources.missingModeTablePath,
+      error,
+    ));
   }
 
   const binding = loaded.bind();
@@ -354,6 +383,10 @@ async function evaluateInference(
 
   for (const episode of episodes) {
     const context = relationStepContext(episode);
+    const inputRef = `${episode.sampleId}:${episode.stepId}`;
+    const candidatesByRef = new Map(
+      context.candidateGroup.candidates.map(candidate => [candidate.candidateRef, candidate]),
+    );
     if (context.candidateGroup.enumeration !== "complete") {
       truncatedCount += 1;
       failedCount += 1;
@@ -365,32 +398,60 @@ async function evaluateInference(
     }
     if (thresholds === null) {
       failedCount += 1;
+      errors.push(encodingError(
+        "encode",
+        inputRef,
+        new UnifiedTransferInputError("thresholds are unavailable"),
+      ));
       continue;
     }
     let encoded: readonly EncoderResult[];
     try {
       encoded = encodeUnifiedCandidateGroup(context, thresholds);
-    } catch {
+    } catch (error) {
       failedCount += 1;
+      errors.push(encodingError("encode", inputRef, error));
       continue;
     }
     let episodeFailed = false;
+    const scored: { readonly candidateRef: string; readonly score: number }[] = [];
     for (const result of encoded) {
       if (result.vector.length !== 64 || !result.vector.every(Number.isFinite)) {
         episodeFailed = true;
         failedCount += 1;
+        errors.push(encodingError(
+          "encode",
+          `${inputRef}:${result.candidateRef}`,
+          new UnifiedTransferInputError("encoded vector must have 64 finite entries"),
+        ));
         continue;
       }
       const score = forwardUnifiedScore(result.vector, binding.tensors);
       if (!Number.isFinite(score)) {
         episodeFailed = true;
         failedCount += 1;
+        errors.push(encodingError(
+          "forward",
+          `${inputRef}:${result.candidateRef}`,
+          new UnifiedTransferInputError("forward score is not finite"),
+        ));
         continue;
       }
       encodedCount += 1;
+      scored.push({ candidateRef: result.candidateRef, score });
     }
     if (episodeFailed) continue;
-    choices.push(chooseJudge(episode, context, encoded, binding));
+    const choice = chooseJudge(episode, scored, candidatesByRef);
+    if (choice === null) {
+      failedCount += 1;
+      errors.push(encodingError(
+        "candidateSelection",
+        inputRef,
+        new UnifiedTransferInputError(`episode ${episode.sampleId} has no judge candidates`),
+      ));
+      continue;
+    }
+    choices.push(choice);
   }
 
   return {
@@ -412,6 +473,7 @@ async function evaluateInference(
     failedCount,
     cursorClosed,
     choices,
+    errors,
   };
 }
 
@@ -419,27 +481,41 @@ function studentRuns(
   episodes: readonly RelationStepEpisode[],
   choices: readonly CandidateChoice[],
 ): readonly StudentRelationRun[] {
-  const choiceBySample = new Map(choices.map(choice => [choice.sampleId, choice]));
-  return episodes.map(episode => {
+  const choicesByStep = new Map(
+    choices.map(choice => [`${choice.sampleId}\0${choice.stepId}`, choice]),
+  );
+  const runsBySample = new Map<string, {
+    steps: StudentRelationStep[];
+    rootGaps: string[];
+  }>();
+  for (const episode of episodes) {
     const context = relationStepContext(episode);
-    const choice = choiceBySample.get(episode.sampleId);
+    const run = runsBySample.get(episode.sampleId) ?? {
+      steps: [],
+      rootGaps: [],
+    };
+    const choice = choicesByStep.get(`${episode.sampleId}\0${episode.stepId}`);
     const step: StudentRelationStep = {
       stepId: episode.stepId,
       optionSemantics: choice?.optionSemantics ?? "unknown",
-      executionReceiptRef: choice === undefined ? null : `evaluator:${choice.candidateRef}`,
-      postStateRef: context.state.stateRef,
+      executionReceiptRef: null,
+      postStateRef: null,
       evidenceRefs: episode.evidenceRefs,
     };
-    return {
-      sampleId: episode.sampleId,
-      steps: [step],
-      rootConditionStates: [],
-      rootGaps: context.missingProjections.map(projection =>
-        `${projection.fieldRef}:${projection.targetRef}`
-      ),
-      rootSatisfied: null,
-    };
-  });
+    run.steps.push(step);
+    for (const projection of context.missingProjections) {
+      const gap = `${projection.fieldRef}:${projection.targetRef}`;
+      if (!run.rootGaps.includes(gap)) run.rootGaps.push(gap);
+    }
+    runsBySample.set(episode.sampleId, run);
+  }
+  return [...runsBySample].map(([sampleId, { steps, rootGaps }]) => ({
+    sampleId,
+    steps,
+    rootConditionStates: [],
+    rootGaps,
+    rootSatisfied: null,
+  }));
 }
 
 export async function evaluateUnifiedTransfer(
@@ -458,13 +534,12 @@ export async function evaluateUnifiedTransfer(
   );
   const encodingInferenceConsistency = await evaluateInference(input.packagePath, episodes);
 
-  const independentRustVerification = verification !== null;
-  const independentOracleSource =
-    oracle !== null && INDEPENDENT_ORACLE_SOURCES.has(oracle.source);
-  const acceptedTsJsPackage =
-    encodingInferenceConsistency.packageLoaded &&
-    encodingInferenceConsistency.packageBound &&
-    encodingInferenceConsistency.routeCompatible;
+  // No typed admission contract exists yet. Model loadability, a verification
+  // directory, and the oracle source whitelist are diagnostic inputs only, not
+  // admission evidence for actual TS/JS-to-Rust transfer.
+  const independentRustVerification = false;
+  const independentOracleSource = false;
+  const acceptedTsJsPackage = false;
 
   const labelMissingSamples = oracle === null
     ? []
@@ -473,7 +548,7 @@ export async function evaluateUnifiedTransfer(
       .map(sample => ({ sampleId: sample.sampleId, targetRef: sample.targetRef }));
 
   let oracleReport: RelationOracleReport | null = null;
-  if (independentRustVerification && independentOracleSource && oracle !== null) {
+  if (verification !== null && oracle !== null && INDEPENDENT_ORACLE_SOURCES.has(oracle.source)) {
     oracleReport = evaluateRelationOracle(oracle.samples, studentRuns(episodes, encodingInferenceConsistency.choices));
   }
 

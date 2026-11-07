@@ -198,3 +198,16 @@ test("synthetic episode mechanics never read supervision fields", async () => {
   assert.equal(result.candidateChoice.optionSemantics, "judge=true");
   assert.equal(result.recursiveGoal.kind, "run_result");
 });
+
+test("public selection is score argmax only, with no external override field", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-decision-acceptance-"));
+  const modelPath = await packagePath(root);
+  const result = await runTsJsUnifiedDecision({
+    requestId: "no-acceptance-override",
+    packagePath: modelPath,
+    episode: episode(),
+    grantedEffects: ["read_only"],
+  });
+
+  assert.equal(result.candidateChoice.optionSemantics, "judge=true");
+});

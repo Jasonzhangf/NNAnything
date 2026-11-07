@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { test } from "node:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   MODEL_INCOMPATIBLE,
   MODEL_NOT_FOUND,
@@ -18,6 +20,9 @@ const RESOURCE_NAMES = {
   thresholds: "feature-thresholds.json",
   missingMode: "missing-mode.json",
 };
+const TRANSFER_CLI = fileURLToPath(
+  new URL("../playground/training/unified-transfer-evaluator.mjs", import.meta.url),
+);
 
 const THRESHOLDS = {
   schema: "nnanything.feature-thresholds.v1",
@@ -229,6 +234,65 @@ test("synthetic mechanics pass only the mechanics layers", async () => {
   assert.equal(report.actualTransferCorrectness.oracle, null);
 });
 
+test("public CLI reports incomplete transfer and exits non-zero", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-cli-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("cli"),
+    rustFacts: facts("cli"),
+    episodes: [episode("cli")],
+  });
+  const oracle = await oraclePath(root, [oracleSample("cli")]);
+  const reportPath = join(root, "report.json");
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      TRANSFER_CLI,
+      "--package",
+      modelPath,
+      "--verification",
+      verification,
+      "--oracle",
+      oracle,
+      "--report",
+      reportPath,
+    ],
+    { encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 1, result.stderr);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /adapter=pass inference=pass transfer=incomplete/);
+  const report = JSON.parse(await readFile(reportPath, "utf8"));
+  assert.equal(report.actualTransferCorrectness.status, "incomplete");
+});
+
+test("synthetic package and complete-format oracle do not establish actual transfer admission", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-synthetic-admission-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("synthetic-admission"),
+    rustFacts: facts("synthetic-admission"),
+    episodes: [episode("synthetic-admission")],
+  });
+  const oracle = await oraclePath(root, [
+    oracleSample("synthetic-admission"),
+  ]);
+
+  const report = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    oraclePath: oracle,
+  });
+
+  assert.equal(
+    report.actualTransferCorrectness.prerequisites.acceptedTsJsPackage,
+    false,
+  );
+  assert.equal(report.actualTransferCorrectness.status, "incomplete");
+});
+
 test("missing Rust verification or oracle source stays explicitly incomplete", async () => {
   const root = await mkdtemp(join(tmpdir(), "unified-transfer-prereq-"));
   const modelPath = await packagePath(root);
@@ -256,6 +320,57 @@ test("missing Rust verification or oracle source stays explicitly incomplete", a
   assert.equal(
     missingOracle.actualTransferCorrectness.prerequisites.independentOracleSource,
     false,
+  );
+});
+
+test("multi-step episodes keep one sample run and match choices by sample and step", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-multistep-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("multi-step"),
+    rustFacts: facts("multi-step"),
+    episodes: [
+      episode("multi-step", { stepId: "step:0" }),
+      episode("multi-step", { stepId: "step:1" }),
+    ],
+  });
+  const oracle = await oraclePath(root, [
+    oracleSample("multi-step"),
+  ]);
+
+  const report = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    oraclePath: oracle,
+  });
+
+  assert.deepEqual(
+    report.actualTransferCorrectness.oracle.perStepEvaluation.entries.map(entry => entry.stepId),
+    ["step:0", "step:1"],
+  );
+  assert.equal(report.actualTransferCorrectness.status, "incomplete");
+});
+
+test("threshold and missing-mode failures retain typed error evidence", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-resource-error-"));
+  const modelPath = await packagePath(root);
+  await writeFile(
+    join(root, RESOURCE_NAMES.thresholds),
+    `${JSON.stringify({ ...THRESHOLDS, schema: "nnanything.feature-thresholds.v0" }, null, 2)}\n`,
+  );
+
+  const report = await evaluateUnifiedTransfer({ packagePath: modelPath });
+
+  assert.equal(report.encodingInferenceConsistency.thresholdsValid, false);
+  assert.equal(
+    report.encodingInferenceConsistency.errors.some(error => error.code === "THRESHOLD_INVALID"),
+    true,
+  );
+  assert.equal(
+    report.encodingInferenceConsistency.errors.some(
+      error => error.stage === "thresholds" && error.inputRef === join(root, RESOURCE_NAMES.thresholds),
+    ),
+    true,
   );
 });
 
@@ -308,5 +423,5 @@ test("label-missing samples are excluded from the denominator but retained as ev
     report.actualTransferCorrectness.labelMissingSamples.map(sample => sample.sampleId),
     ["label-missing"],
   );
-  assert.equal(report.actualTransferCorrectness.status, "pass");
+  assert.equal(report.actualTransferCorrectness.status, "incomplete");
 });

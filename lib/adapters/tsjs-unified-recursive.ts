@@ -7,7 +7,6 @@
 // continuation, and reporting. It creates no second engine, runner, loop, or
 // ledger.
 
-import { isDeepStrictEqual } from "node:util";
 import type {
   AdapterDiagnostic,
   AtomicInput,
@@ -25,7 +24,6 @@ import type {
   RootEvaluation,
   Selection,
   SelectionInput,
-  StateRecord,
   SupportsInput,
   ValidatedRequest,
 } from "../workflow/recursive-goal/contracts.js";
@@ -56,7 +54,6 @@ const EVALUATOR_ID = "tsjs.unified.relation.root" as const;
 const SELECTOR_ID = "tsjs.unified.relation.selector" as const;
 const SKILL_ID = "tsjs.unified.relation.decision" as const;
 const RECEIPT_TAG = "tsjs.unified.decision.v1" as const;
-const EFFECT_KIND = "tsjs.unified.read.v1" as const;
 
 interface DecisionGoal {
   readonly kind: "tsjs.unified.relation.decision";
@@ -137,15 +134,6 @@ export interface TsJsUnifiedDecisionRequest {
     readonly maxDepth?: number;
     readonly maxDerivedGoals?: number;
   };
-  /**
-   * Explicit deterministic acceptance/test mode. This option is never used for
-   * production selection and is never derived from `goldAction`, `originalGold`,
-   * or any other supervision field on the episode.
-   */
-  readonly acceptance?: {
-    readonly mode: "test";
-    readonly expectedOptionSemantics?: "judge=true" | "judge=false" | "judge=unknown";
-  };
 }
 
 export interface TsJsUnifiedDecisionResult {
@@ -211,17 +199,9 @@ function advanceState(state: DecisionState, payload: DecisionReceiptPayload): De
 }
 
 function chooseCandidate(
-  context: StepContext,
+  _context: StepContext,
   scores: readonly { readonly candidate: Candidate; readonly score: number }[],
-  acceptance: TsJsUnifiedDecisionRequest["acceptance"],
 ): { readonly candidate: Candidate; readonly score: number } {
-  if (
-    acceptance?.mode === "test" &&
-    acceptance.expectedOptionSemantics !== undefined
-  ) {
-    const expected = scores.find(item => item.candidate.optionSemantics === acceptance.expectedOptionSemantics);
-    if (expected !== undefined) return expected;
-  }
   const sorted = [...scores].sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
     return left.candidate.candidateRef.localeCompare(right.candidate.candidateRef);
@@ -446,7 +426,7 @@ export async function runTsJsUnifiedDecision(
           effect: { knowledge: "none", confirmedEffects: [], receiptRef: null },
         };
       }
-      const chosen = chooseCandidate(input.state.context, scores, request.acceptance);
+      const chosen = chooseCandidate(input.state.context, scores);
       const candidateChoice: TsJsUnifiedCandidateChoice = {
         candidateRef: chosen.candidate.candidateRef,
         skillRef: SKILL_ID,
