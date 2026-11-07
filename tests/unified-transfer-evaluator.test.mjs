@@ -574,3 +574,84 @@ test("oracle source admission requires typed gold records and matching fields", 
   });
   assert.equal(fieldMismatch.actualTransferCorrectness.prerequisites.independentOracleSource, false);
 });
+
+test("oracle admission rejects raw source/partition mismatch and isolated samples", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-oracle-source-mismatch-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("oracle-source-mismatch"),
+    rustFacts: facts("oracle-source-mismatch"),
+    episodes: [episode("d2-verification-positive-alias", {
+      sourceGroup: "tsjs-verification-independent-callgraph-d",
+      partition: "verification",
+    })],
+  });
+  const base = {
+    packagePath: modelPath,
+    verificationPath: verification,
+    verificationAdmissionsPath: CORPUS_ADMISSIONS_PATH,
+    targetSourceGroup: "tsjs-verification-independent-callgraph-d",
+    goldPath: GOLD_PATH,
+  };
+
+  const sourceMismatch = await evaluateUnifiedTransfer({
+    ...base,
+    oraclePath: await oraclePath(root, [oracleSample("d2-verification-positive-alias", {
+      sourceGroup: "tsjs-train-closure-call-a",
+      partition: "train",
+    })]),
+  });
+  assert.equal(sourceMismatch.actualTransferCorrectness.prerequisites.independentOracleSource, false);
+
+  const isolated = await evaluateUnifiedTransfer({
+    ...base,
+    oraclePath: await oraclePath(root, [oracleSample("d2-verification-positive-pipeline")]),
+  });
+  assert.equal(isolated.actualTransferCorrectness.prerequisites.independentOracleSource, false);
+});
+
+test("oracle admission rejects labelMissing that disagrees with authoritative gold", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-oracle-label-missing-"));
+  const modelPath = await packagePath(root);
+  const verification = await verificationDir(root, {
+    tsjsFacts: facts("oracle-label-missing"),
+    rustFacts: facts("oracle-label-missing"),
+    episodes: [episode("d2-verification-positive-alias", {
+      sourceGroup: "tsjs-verification-independent-callgraph-d",
+      partition: "verification",
+    })],
+  });
+
+  const report = await evaluateUnifiedTransfer({
+    packagePath: modelPath,
+    verificationPath: verification,
+    oraclePath: await oraclePath(root, [oracleSample("d2-verification-positive-alias", {
+      labelMissing: true,
+    })]),
+    verificationAdmissionsPath: CORPUS_ADMISSIONS_PATH,
+    targetSourceGroup: "tsjs-verification-independent-callgraph-d",
+    goldPath: GOLD_PATH,
+  });
+
+  assert.equal(report.actualTransferCorrectness.prerequisites.independentOracleSource, false);
+});
+
+test("explicit gold path failures preserve the path and original error", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unified-transfer-gold-error-"));
+  const modelPath = await packagePath(root);
+  const missingGold = join(root, "missing-gold.jsonl");
+  await assert.rejects(
+    () => evaluateUnifiedTransfer({ packagePath: modelPath, goldPath: missingGold }),
+    error => error.code === "UNIFIED_TRANSFER_INPUT_INVALID"
+      && error.message.includes(missingGold),
+  );
+
+  const corruptGold = join(root, "corrupt-gold.jsonl");
+  await writeFile(corruptGold, "{not-json}\n");
+  await assert.rejects(
+    () => evaluateUnifiedTransfer({ packagePath: modelPath, goldPath: corruptGold }),
+    error => error.code === "UNIFIED_TRANSFER_INPUT_INVALID"
+      && error.message.includes(corruptGold)
+      && /JSON|Unexpected/.test(error.message),
+  );
+});

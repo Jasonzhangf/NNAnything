@@ -272,10 +272,14 @@ async function readGoldRecords(path: string | null | undefined): Promise<readonl
   try {
     const text = await readFile(path, "utf8");
     const records = text.split("\n").filter(line => line.length > 0).map(line => JSON.parse(line));
-    if (!Array.isArray(records)) return null;
+    if (!Array.isArray(records)) {
+      throw new UnifiedTransferInputError(`gold path ${path} must be a JSONL array of records`);
+    }
     return records as readonly GoldRecord[];
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof UnifiedTransferInputError) throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new UnifiedTransferInputError(`gold path ${path} is unreadable: ${reason}`);
   }
 }
 
@@ -309,17 +313,22 @@ function independentOracleAdmission(
   targetSourceGroup: string | null,
   goldRecords: readonly GoldRecord[] | null,
   oracle: OracleData | null,
+  episodes: readonly RelationStepEpisode[],
 ): boolean {
   const family = admittedFamily(admissions, targetSourceGroup);
   if (family === null || goldRecords === null || oracle === null) return false;
   const goldById = new Map(goldRecords.map(record => [record.sampleId, record]));
+  const episodeSampleIds = new Set(episodes.map(episode => episode.sampleId));
   return oracle.samples.every((sample, index) => {
     const gold = goldById.get(sample.sampleId);
     const raw = oracle.rawSamples[index];
     if (gold === undefined || raw === undefined) return false;
+    if (!episodeSampleIds.has(sample.sampleId)) return false;
+    if (raw.sourceGroup !== family.sourceGroup || raw.partition !== family.partition) return false;
     return gold.sourceGroup === family.sourceGroup
       && gold.partition === family.partition
       && gold.label === sample.gold
+      && gold.labelMissing === sample.labelMissing
       && gold.labelAuthority === raw.labelAuthority
       && gold.oracleKind === raw.oracleKind;
   });
@@ -690,6 +699,7 @@ export async function evaluateUnifiedTransfer(
     targetSourceGroup,
     goldRecords,
     oracle,
+    episodes,
   );
   const acceptedTsJsPackage = acceptedTsJsPackageAdmission(
     input.packageAdmission,
