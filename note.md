@@ -2888,3 +2888,14 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 资源：main 50e5a2e（文档同步）；fixed-env-gap-20261107 有 Iris 未交付修改，value-flow worktree 有 Carol 未交付修改，均保持 PROTECTED_HOLD；主树仅用户既有未跟踪 fixture，未动。
 - 订阅：project-patrol `sub-m1793963843713-143` armed，cadence 1500000ms；goal 30m deadline 已重新武装。CEO 为 Alice，ceo reply 已记录 revision 6；无 tmux/daemon 生命周期动作。
 - 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装。
+## 2026-11-07 master 巡检：固定环境研究返工窄改、Iris 跨权限限定切片、路图与目标订阅续期（13:38Z）
+
+- 消费 m1794057047402-3950（Alice 对 Carol fixed-env-research-adjudication subject_revision 3 的正式 REWORK 完成，证据 alice-fixed-env-engineering-audit-20261107.md 同名节），按轻协作不重做整体审计，只补两项研究缺口：
+   （1）§2.1/§2.4：integrationCommit 非运行时前置，包资格用 reviewAccepted/reviewEvidenceRef + 显式 packagePath + modelId/version，TS/JS 独立评价资格与 Rust transfer 准入区分，independentRustVerification fixed false/incomplete；
+   （2）§2.2/§2.4/§4：仅复用 corpus-admissions-v1.json 与 labels/gold.jsonl，不新增三套 registry，仅 TS/JS family 可授独立资格，TRAIN/DEV 孤立/错配 admission false/incomplete。
+- 将 Carol fixed-env-research-adjudication-carol-20261107 board rev13 rework窄返工合同以 collab send 发给 NNAnything.Carol（msg m1794057944975-4042），要求：核对落盘与文件一致、按时间序补「第三次修订」到 task-log、不重开 §3.3、不新增红测、不训练/集成，正式重交 Alice 作 subject revision 4 做窄复核；Alice accept 后，由 Jenny 调度 Iris 按已批准入口补剩余实现。
+- 将 fixed-env-engineering-gap-iris-20261107 blocked 已批准、独立可推进单步 adapter 判定切片（runTsJsUnifiedDecision、candidateRef 回执、post-state、结构 root 条件、typed stop reasons）合同以 collab send 发给 NNAnything.Iris（msg m1794057944952-4041），要求 Iris 用 collab task update --next 更新 board 范围； Iris 已 self-update board rev14（blocked，保留 66a7710，记录可独立切片）。预告：Iris 需再把 nnanything-overall-redesign-orchestration-r1 rev61 next_step 同步为固定环境最新已批范围（已 dispatch 消息 m1794058328362-4089）。
+- 路图 docs/autonomous-capability-roadmap.md 已同步：fixed-env evaluator + §2.5 接线改为 board rev13 已批准 blocked，候选 66a7710，五项局部修复 Alice 已闭合，准入与 evaluate() 根条件等 Carol rev13 + Alice 窄复核 accept；TS/JS timing/evaluate 设计改为 rev3 working，返修已派 Carol，next_step 待更新。
+- 目标订阅：deadline m1794057950396-4044 到期并发 LAST_REMINDER，已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m` 重新武装，新订阅 sub-m1794058333943-4090，armed，触发 ~30 分钟后。
+- Carol board 仍 rev13 rework，尚未按窄返工合同重交 rev4；关注她下一轮窄复核收口。项目 patrol sub-m1793963843713-143 仍 armed。
+- 本轮未改产品代码、语料、权重/gold/threshold/采用、产品接线、runtime 安装；未训练、未集成新候选。主工作树仅保留用户既有未跟踪项（playground/browser/search/b-a1/cua-fixture.html、tests/fixtures/tsjs-symbols/），两受保护 worktree dirty 不动。
