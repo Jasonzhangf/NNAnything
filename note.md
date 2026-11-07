@@ -3090,3 +3090,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - Alice 剩余三组 B-A1 状态矛盾：coverage/currentness 不得同时定义 reject 与 insufficient_observation；唯一最高分 selected 与多个过阈值不等分 ambiguous 的分支必须互斥；correct reject(outside_scope/stale_candidate) 不得要求违规事实通过 scope/currentness 门，gold 须补 kind/state/reason 形状。
 - Board 已为 rev11 rework、review_subject_revision 2，`next_step` 指向 `/Volumes/Intel/playground/nnanything-runs/b-a1-object-relation-binding-carol-20261107/alice-review.md`；已向 Carol 投递窄返工 `m1794084070410-7195`，要求同一四份文档用互斥决策表对齐 binder/gold/evaluator/sample，不训练、不实现、不改模型或监督。
 - roadmap browser B-A1 行已同步 rev2 窄返工与投递回执。主工作树仅保留用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html`；未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon。
+
+## 2026-11-07 master：round-21 处置、P0 升级 Alice、timing 集成回写（20:46Z）
+
+- 消费 Kate round-21 `m1794084154393-7205`。核对 `collab board` 与 `collab task status`：P0 `jenny-tsjs-first-fit-converter-train-config-r1` rev19 rework、owner Emma presence=missing、自 2026-11-06T02:10:32Z 无更新，completion_missing=[review,close]；4 个 owner=Emma 的 `nn-code-redesign-*`（learning-loop/search-read/symbols-rust/symbols-swift）status=working、next_step=null，与 roadmap 后置 design 不符。
+- timing 事实已核实：Henry `tsjs-timing-runner-engineering-henry-20261107` 已由 Alice accept `9d423a0`，master no-ff merge `66733c0` 集成 main 并 push，Henry 已清理并 close，`completion_missing=[]`，不再上板；roadmap line 168 已回写集成/close，同时修正 B-A1 line 170 的 rev2 窄返工。
+- 已向 Alice 升级 P0 与四项 board fidelity 裁定（`m1794084352392-7228`，durable）：Emma 缺席下由谁继续承担 converter/train/config 工程、恢复信号；是否允许 master 统一 re-park 四个 Emma-owned 子任务并写恢复条件。不越权改他人 board 状态。
+- 已向 Iris 发送总体编排 next_step 同步请求（`m1794084352443-7229`），补记 Emma 待裁定、四子任务 deferred、timing closed。目标订阅：goal one-shot `sub-m1794083979650-7176` armed（≈21:09Z），project patrol `sub-m1793963843713-143` armed。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime、未动 tmux/daemon；main `e566a57=origin/main`，主工作树仅用户既有未跟踪 fixture。
