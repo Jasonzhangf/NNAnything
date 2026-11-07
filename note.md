@@ -2874,3 +2874,9 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - roadmap 已同步 B-R 阶段二 `734c94d`=integrated+closed（merge `a30c10b`）、B-A1 `ee88d37`=integrated（merge `498557a`）、fixed-env/Iris rev7 REWORK+Carol 裁定、value-flow 阶段B engineering rev3、timing/evaluate 设计返修派发；本轮随 note 一起提交推送。
 - Emma presence missing、pending_notifications=7。四个 nn-code-redesign 子任务（learning-loop/search-read/symbols-rust/symbols-swift）仍 rev5 working 且 next_step 为空；向 Emma 的同步消息因 `TMUX_ENDPOINT_MISSING` 投递失败（durable `m1794054834120-3686`），待其恢复后消费。不越权改他人任务。
 - 未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装；未训练、未集成新候选。
+
+## 2026-11-07 master：fixed-env 研究裁定 REWORK 局部返修并行（12:40Z）
+
+- 已消费 m1794055219984-3733（Alice fixed-env 研究裁定 REWORK），并核对 board：`fixed-env-research-adjudication-carol-20261107` rev9 working，next 要求复用 corpus-admissions-v1.json 与 typed package acceptance 证据后重交；`fixed-env-engineering-gap-iris-20261107` rev8 working，Iris 已列明可独立修复项。
+- Alice 已明确五项可先并发给 Iris：expected 不覆盖 argmax、按 sample+step 关联、纯评分不造回执、消除重复 forward、保留原错。已通知 Iris 继续并提交；Carol 仍在返修完整裁定，不把局部修复停在全设计等待上。
+- 已通知 Carol 按 rework 缺口补准入与实际 episode/source/oracle 范围关联，并明确 TSJS 技能执行/New State/root 证据生产者；仍不训练、不改权重/gold/threshold/采用、不集成。
