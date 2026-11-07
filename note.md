@@ -2856,3 +2856,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 已派 Iris（m1794026425517-433，reply-on-completion）按 finding remediation 修复并重跑 staging/公开 CLI/独立 replay，再触发受影响 Review 复核；不改语料、权重/gold/threshold/采用、安装、训练或集成。
 - board：iris-real-converter-engineering-20261106 保持 delivered（rev 57，reviewer Alice）；master 无权重置（TASK_REQUIRED_REVIEWER）；Henry 验证任务 rev 12 delivered。两任务正式 review/close 仍 gate 在 Alice；独立 reviewer 裁决记入本 note。
 - 未改产品、语料、权重/gold/threshold/采用、产品接线、runtime 安装；未训练、未集成。候选 worktree 仍 dirty、基 dc3cc4f 落后 main，集成前需变基复测。
+
+## 2026-11-07 master 巡检：B-R 阶段二已派 Henry，roadmap 同步并推送（10:26Z）
+
+- 已消费 Kate 第八轮巡检 m1794045930167-2580 及若干 worker-idle/master-wake；longhorizon 目标 `docs/autonomous-capability-roadmap.md` 已重新武装，`appsdk goal status` active/subscribed，项目 patrol（sub-m1793963843713-143）保持 armed。
+- B-R 阶段二准备按已接受诊断合同 board 化并派 Henry：`b-r-browser-base-prep-henry-20261107`（p1，work_kind=code，executor Henry，reviewer Alice，branch `b-r-browser-base-prep-20261107`，base main 7d6aab8）。范围：用 capture-live recheck 重建完整 train/dev 请求、训练 consumer/recipe 接受 `explicit_negative_tabindex`（必要时按同一红测评估 `ignore.neutral_multi_child`）、补请求缺测量与配方缺 wire 的红/绿测试；禁止训练、评价候选、改生产 wire 语义/权重/gold/threshold/采用/安装。Henry 已接受，board=working。
+- roadmap 已同步 B-R 派发状态并提交推送：`464326f`、`6066a72`（main/`origin/main`）。
+- 已请 Iris 同步 `nnanything-overall-redesign-orchestration-r1` next_step 当前事实（B-A1 已 integrated、fixed-env 已改派 Iris、value-flow 为 rework rev15）。
+- 未改产品代码、权重、gold、threshold、采用、产品接线、runtime 安装；未训练、未集成新候选。工作树保护目录保持不动。
