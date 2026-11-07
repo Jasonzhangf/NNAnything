@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-07 Jenny：project-patrol 二次核对，无新增派发（18:06Z）
+
+- 消费 worker-idle 批次（`m1794073889372-5980`、`m1794074285407-6021`、`m1794074409386-6035`、`m1794074647479-6066` 等）；`collab recv` 已清空，`collab inbox` unread=0。
+- goal：`appsdk goal status` 返回 active/subscribed/error=null，one-shot `sub-m1794074061797-5998`（deadline，trigger 1794075861767≈18:04:21Z）armed/fired_count=0，project patrol `sub-m1793963843713-143` armed；无需重订。
+- board：`collab board show` 的 `master_wake.ready_authorized_work=false`、`pending_merges=`（空）、`goal_due=false`、无 blocked/timed-out、无 completed/freed；8 条 open 与 17:54Z 一致（Grace 巡检 working、P0 `jenny-tsjs-first-fit-converter-train-config-r1` rework/Emma missing、4 个 nn-code-redesign parked-pending-design-peer、value-flow Carol 返工、总体重设计 orchestration working）。
+- Git：main==origin/main `ad93db4`，工作树干净；仅既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 与 `tests/fixtures/tsjs-symbols/` 保持 PROTECTED_HOLD。
+- 资源：3 个 worktree（main、`p1-1-typed-dynamic-recursive-20261107`=Iris、`value-flow-shared-projection-engineering-20261107`=Carol），未超 10 上限；p1-1 最近活动 09:43–09:45 PT，value-flow tests 09:03 PT，均活跃，不回收。
+- 边界：授权冲突（停工收口 vs 整体重设计并行训练）未获用户直接裁定前，本轮仅 goal/board 维护与只读核对；未派实现/训练/采样/接线/采用/安装，未改产品代码/权重/gold/threshold，未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：master patrol 消费 deadline、续订 goal、无新增派发（17:54Z）
 
 - 消费 deadline LAST_REMINDER `m1794073863434-5974` 与 worker-idle 批次（`m1794073415575-5926` 等）；`collab inbox` 与 `collab recv` 已清空（unread 0）。
