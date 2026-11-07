@@ -46,6 +46,7 @@ export interface ValueFlowRawSite {
   readonly declRef: Ref | null;
   readonly calleeDeclRef: Ref | null;
   readonly ownerDeclRef: Ref | null;
+  readonly executionRef: Ref;
   readonly span: ValueFlowSpan;
   readonly scopeChain: readonly string[];
   readonly conditionalKinds: readonly string[];
@@ -276,6 +277,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     kind: "block",
     declarations: new Map<string, Ref>(),
   })];
+  let currentExecutionRef = `${relPath}#<program>`;
   type Frame = Readonly<{
     kinds: readonly string[];
     insideLoop: boolean;
@@ -352,6 +354,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
       declRef: input.declRef,
       calleeDeclRef: input.calleeDeclRef ?? null,
       ownerDeclRef: input.ownerDeclRef ?? null,
+      executionRef: currentExecutionRef,
       span: input.span,
       scopeChain: Object.freeze([...scopeStack]),
       conditionalKinds: Object.freeze(conditionalKinds()),
@@ -363,6 +366,43 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
 
   function declarationRefFor(name: string, span: ValueFlowSpan): Ref {
     return `${relPath}#${name}@decl(${spanKey(span)})`;
+  }
+
+  function predeclareDirectDeclarations(container: ts.SourceFile | ts.Block): void {
+    for (const statement of container.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name !== undefined
+        && ts.isIdentifier(statement.name)) {
+        const nameSpan = spanOf(sf, statement.name);
+        declareIn(currentLexicalScope(), statement.name.text, declarationRefFor(statement.name.text, nameSpan));
+      } else if (ts.isVariableStatement(statement)) {
+        const blockScoped = (statement.declarationList.flags
+          & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
+        for (const declaration of statement.declarationList.declarations) {
+          const identifier = bindingIdentifier(declaration.name);
+          if (identifier === null) continue;
+          const declSpan = spanOf(sf, identifier);
+          declareIn(
+            blockScoped ? currentLexicalScope() : nearestFunctionScope(),
+            identifier.text,
+            declarationRefFor(identifier.text, declSpan),
+          );
+        }
+      }
+    }
+  }
+
+  function predeclareHoistedVarDeclarations(node: ts.Node, scope: LexicalScope): void {
+    if (ts.isFunctionLike(node)) return;
+    if (ts.isVariableDeclarationList(node)
+      && (node.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0) {
+      for (const declaration of node.declarations) {
+        const identifier = bindingIdentifier(declaration.name);
+        if (identifier === null) continue;
+        const declSpan = spanOf(sf, identifier);
+        declareIn(scope, identifier.text, declarationRefFor(identifier.text, declSpan));
+      }
+    }
+    ts.forEachChild(node, child => predeclareHoistedVarDeclarations(child, scope));
   }
 
   function visit(node: ts.Node): void {
@@ -387,6 +427,11 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         declarations: new Map<string, Ref>(),
       });
       lexicalScopes.push(functionScope);
+      const previousExecutionRef = currentExecutionRef;
+      currentExecutionRef = ownerDeclRef ?? `${relPath}#<function@${spanKey(spanOf(sf, node))}>`;
+      if (node.body !== undefined) {
+        predeclareHoistedVarDeclarations(node.body, functionScope);
+      }
       if (ownerDeclRef !== null && nameNode !== undefined && ts.isIdentifier(nameNode)
         && !ts.isFunctionDeclaration(node)) {
         declareIn(functionScope, nameNode.text, ownerDeclRef);
@@ -408,6 +453,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
         });
       });
       ts.forEachChild(node, visit);
+      currentExecutionRef = previousExecutionRef;
       lexicalScopes.pop();
       scopeStack.pop();
       return;
@@ -415,6 +461,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
 
     if (ts.isBlock(node)) {
       pushBlockScope();
+      predeclareDirectDeclarations(node);
       ts.forEachChild(node, visit);
       popBlockScope();
       return;
@@ -574,6 +621,7 @@ function walkSource(sourceText: string, relPath: string): ValueFlowRawObservatio
     ts.forEachChild(node, visit);
   }
 
+  predeclareDirectDeclarations(sf);
   visit(sf);
   const unique = [...new Map(sites.map(site => [site.siteRef, site] as const)).values()];
   return Object.freeze({
@@ -704,6 +752,7 @@ interface InterveningWrite {
 function interveningWrites(
   observation: ValueFlowRawObservation,
   sourceDeclRef: Ref,
+  sourceExecutionRef: Ref,
   sourceSpan: ValueFlowSpan,
   sinkSpan: ValueFlowSpan,
   predicate: (declRef: Ref) => boolean,
@@ -712,6 +761,7 @@ function interveningWrites(
     .filter(site => site.kind === "write")
     .filter(site => site.writeKind === "assignment")
     .filter((site): site is ValueFlowRawSite & { readonly declRef: Ref } => site.declRef !== null)
+    .filter(site => site.executionRef === sourceExecutionRef)
     .filter(site => after(site.span, sourceSpan) && before(site.span, sinkSpan))
     .filter(site => predicate(site.declRef))
     .sort((left, right) => {
@@ -779,7 +829,7 @@ function orderFlowForReachingDef(
   readonly unsupported: boolean;
   readonly reasons: readonly string[];
 }> {
-  const flowReason = unsupportedFlowReason(observation, source, sink);
+  const flowReason = unsupportedFlowReason(candidate, observation, source, sink);
   if (flowReason !== null) {
     return Object.freeze({
       value: Object.freeze({ orderFlowIndex: 0, coverageIndex: 2 }),
@@ -791,6 +841,7 @@ function orderFlowForReachingDef(
   const same = interveningWrites(
     observation,
     sourceDeclRef,
+    source.executionRef,
     source.span,
     sink.span,
     declRef => declRef === sourceDeclRef,
@@ -798,6 +849,7 @@ function orderFlowForReachingDef(
   const other = interveningWrites(
     observation,
     sourceDeclRef,
+    source.executionRef,
     source.span,
     sink.span,
     declRef => declRef !== sourceDeclRef,
@@ -847,11 +899,15 @@ function orderFlowForReachingDef(
 }
 
 function unsupportedFlowReason(
+  candidate: ValueFlowRelationshipCandidate,
   observation: ValueFlowRawObservation,
   source: ValueFlowRawSite | null,
   sink: ValueFlowRawSite | null,
 ): string | null {
   if (source === null || sink === null) return null;
+  if (candidate.relationKind === "reaching_def" && source.executionRef !== sink.executionRef) {
+    return "execution_domain_out_of_slice";
+  }
   const syntaxRecord = observation.unsupportedSyntaxRecords.find(record =>
     before(record.span, sink.span) && spanEndsAfter(record.span, source.span));
   if (syntaxRecord !== undefined) return syntaxRecord.reason;
@@ -895,7 +951,7 @@ export function projectValueFlowRelationship(
   }
   if (source !== null && sink !== null
     && !observation.parseError) {
-    const flowReason = unsupportedFlowReason(observation, source, sink);
+    const flowReason = unsupportedFlowReason(candidate, observation, source, sink);
     if (flowReason !== null) {
       reasons.push(flowReason);
       denominatorEligible = false;

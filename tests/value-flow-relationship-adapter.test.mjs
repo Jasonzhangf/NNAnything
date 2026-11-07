@@ -125,6 +125,41 @@ function caller() {
 }
 `;
 
+const HOISTED_BLOCK_CALLEE = `
+function outer() {
+  function f(p) { return p; }
+  {
+    f(1);
+    function f(q) { return q; }
+  }
+}
+`;
+
+const FUNCTION_LOCAL_SHADOW = `
+let x = 0;
+function f() {
+  x = 1;
+  let x;
+}
+console.log(x);
+`;
+
+const UNCALLED_FUNCTION_WRITE = `
+let x = 0;
+function f() {
+  x = 1;
+}
+console.log(x);
+`;
+
+const LOCAL_SEQUENTIAL_WRITE = `
+function f() {
+  let x = 0;
+  x = 1;
+  const u = x;
+}
+`;
+
 function observe(sourceText) {
   return observeValueFlowSource({ relPath: "fixture.ts", sourceText });
 }
@@ -242,6 +277,78 @@ test("callee and parameter binding use declaration identity rather than names", 
   const different = projectValueFlowRelationship(argToParamCandidate(call, other[0]), observations);
   assert.equal(same.projection.bindingResolution.value, "same_callee");
   assert.equal(different.projection.bindingResolution.value, "different_callee");
+});
+
+test("block declarations bind calls even when the shadow is declared later", () => {
+  const observations = observe(HOISTED_BLOCK_CALLEE);
+  const call = argSite(observations, "f", 0);
+  const params = observations.sites.filter(site =>
+    site.kind === "param" && site.ordinalIndex === 0);
+  const outer = params.find(site => site.span.startLine === 3);
+  const inner = params.find(site => site.span.startLine === 6);
+  assert.ok(outer && inner);
+  assert.notEqual(call.calleeDeclRef, outer.ownerDeclRef);
+  assert.equal(call.calleeDeclRef, inner.ownerDeclRef);
+  assert.equal(
+    projectValueFlowRelationship(argToParamCandidate(call, outer), observations)
+      .projection.bindingResolution.value,
+    "different_callee",
+  );
+  assert.equal(
+    projectValueFlowRelationship(argToParamCandidate(call, inner), observations)
+      .projection.bindingResolution.value,
+    "same_callee",
+  );
+});
+
+test("later lexical declarations shadow outer bindings throughout a function body", () => {
+  const observations = observe(FUNCTION_LOCAL_SHADOW);
+  const outer = writeSite(observations, "x", 2);
+  const inner = writeSite(observations, "x", 4);
+  const sink = readSite(observations, "x", 7);
+  assert.notEqual(inner.declRef, outer.declRef);
+  assert.equal(sink.declRef, outer.declRef);
+  const result = projectValueFlowRelationship(reachingDefCandidate(outer, sink), observations);
+  assert.equal(result.projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+});
+
+test("function bodies are isolated execution domains for local reaching definitions", () => {
+  const observations = observe(UNCALLED_FUNCTION_WRITE);
+  const outer = writeSite(observations, "x", 2);
+  const inner = writeSite(observations, "x", 4);
+  const sink = readSite(observations, "x", 6);
+  const outerResult = projectValueFlowRelationship(reachingDefCandidate(outer, sink), observations);
+  assert.deepEqual(outerResult.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.equal(outerResult.projection.orderFlowAndCoverage.value.orderFlowIndex, 1);
+
+  const crossDomain = enumerateValueFlowCandidates(observations).find(candidate =>
+    candidate.relationKind === "reaching_def"
+    && candidate.source.siteRef === inner.siteRef
+    && candidate.sink.siteRef === sink.siteRef);
+  assert.ok(crossDomain, "expected the nested write to be enumerated for explicit admission");
+  assert.deepEqual(projectValueFlowRelationship(crossDomain, observations).admission, {
+    denominatorEligible: false,
+    status: "unsupported",
+    reasons: ["execution_domain_out_of_slice"],
+  });
+
+  const local = observe(LOCAL_SEQUENTIAL_WRITE);
+  const localSource = writeSite(local, "x", 3);
+  const localSink = readSite(local, "x", 5);
+  const localResult = projectValueFlowRelationship(
+    reachingDefCandidate(localSource, localSink),
+    local,
+  );
+  assert.deepEqual(localResult.admission, {
+    denominatorEligible: true,
+    status: "eligible",
+    reasons: [],
+  });
+  assert.equal(localResult.projection.orderFlowAndCoverage.value.orderFlowIndex, 2);
 });
 
 test("candidate enumeration yields raw pairs without truth fields", () => {
