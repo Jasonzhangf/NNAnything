@@ -166,7 +166,7 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 | TS/JS 符号表训练准备 | Carol | Alice | 设计子交付已 merged；训练准备切片 2cb4ee4 已接受并集成、任务 closed；fit 等 shared fixed-env 与 converter 准入 |
 | TS/JS value-flow 设计 | Carol | Alice | 0c16fd7 accepted；阶段A shared projection 审计修订接受；阶段B engineering `value-flow-shared-projection-engineering-20261107` rev21 rework（候选 218ef31，未跟踪 `value-flow-relationship-adapter.ts` + tests）：已按纠偏从原始解析事实实现 `relationshipProjection` 并补真实 consumer 采证，待真实链路/范围证据后再审；不 fit/不采用；fit 仍待 fixed-env 与 converter 准入 |
 | TS/JS timing/evaluate 设计 | Carol | Alice | subject_revision 4 已 Alice 正式 ACCEPT（read-only，no integration/close 已收口）；timing runner 工程 `tsjs-timing-runner-engineering-henry-20261107`（p1 code，reviewer Alice，只做 runner/checkpoint timing，不做 evaluate 接入）rev7 rework：候选 `ce3b7ce` base `9a8c8c5`，Henry 已按 Alice review 改 `l2-standard-runner/unified-timing/unified-training-checkpoint` 及测试，红/绿与 save/load 证据在 runs 目录；main 现为 `ff7d016`，交付前须 rebase；evaluate 接线复用 Iris adapter/recursive，后续独立派发，验收依赖 Iris 公共入口 |
-| browser B-R | Henry | Alice | 只读诊断已审计接受并关闭；阶段二 734c94d 已 Alice ACCEPT、merge `a30c10b` 集成 main 并关闭；拟合未评价 |
+| browser B-R | Henry | Alice | 只读诊断已审计接受并关闭；阶段二 734c94d 已 Alice ACCEPT、merge `a30c10b` 集成 main 并关闭；起始权重已由 `b-r-start-weight-recovery-henry-20261107` 接受为 `browser-ignore-capability-20261021/frozen-e200/training/weights/dom-basic-kinds/ignore-capability-4a60c08d-4c3a-4997-b576-44f92385a5d6.weight.json`（不宣称字节级同一，仍 not_applied）；拟合与评价已发布 `b-r-browser-fit-evaluation-henry-20261107` 邀请 Henry，待接受后执行 |
 | browser B-A1 | Henry | Alice | ee88d37 accepted，merge 498557a 已集成 main 并关闭；显式绑定基线交付，非自主对象绑定/训练/采用 |
 | 训练隔离巡检 | Kate / Grace | — | 常驻巡检，不接普通 board 任务 |
 

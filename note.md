@@ -1,5 +1,24 @@
 # 当前任务
 
+## 2026-11-07 Jenny：worker-idle 巡检、Henry 续派、Carol rev12 进行中（19:42Z）
+
+- 消费本轮 worker-idle 批次 `m1794080269342-6673`、`m1794080312438-6683`、`m1794080349459-6690`、`m1794080389509-6695`；inbox unread=0。
+- board：`master_wake.ready_authorized_work=false`；待处理 open 任务为 P0 orchestration（Iris working）、P1 value-flow（Carol rework）、P1 Grace 巡检（working）、P2 B-R（Henry working）、P0 Emma converter（offline/parked）与 4 个 parked design 子任务。
+- Carol 非空等：value-flow worktree 在 rev12 已产出 `red-adapter-rev12-public.log`、`green-adapter-rev12.log`、`green-adapter-rev12-unified.log`、`green-adapter-rev12-build.log`，`task-log.md` 19:42Z 仍在更新；不重复发送指令，等待正式 deliver 后再路由 Alice。
+- Henry 停在准备后无 fit 产物：已核实独占 worktree `b-r-browser-fit-evaluation-henry-20261107` 存在且 clean，base 5265e98，但尚无 run/reload/evaluation 证据；已发 durable `m1794080511810-6728`，要求继续 control/treatment fit、保存、回载、dev/旧能力评价，保存原始回执，候选保持 uncalibrated/not_applied，遇到真实阻塞按原错/尝试/恢复条件回报。
+- P1-1 Iris worktree 继续活跃：`gcm-implementation.log` 19:41Z 仍增长，未到可审交付点；不改派。
+- 资源与订阅：worktree 4 个（main、B-R、p1-1、value-flow），未超上限；goal one-shot `sub-m1794080205197-6672` armed，project patrol `sub-m1793963843713-143` armed。未改产品代码/权重/gold/threshold/采用，未安装、未动 tmux/daemon。
+
+## 2026-11-07 Jenny：值流 rev11 REWORK 路由 Carol、B-R 准备完成、goal 重订（19:36Z）
+
+- 消费 Alice rev11 REWORK `m1794080047943-6648`：值流 candidate 9577fc7 subject_revision 11 正式 REWORK。求值顺序已闭合，唯一缺口为条件表达式准入（`c && (x=1)`、`c ? (x=1) : 0` 被判 unconditional-write/complete/eligible，现有测试未覆盖条件上下文）。证据 `/Volumes/Intel/playground/nnanything-runs/value-flow-shared-projection-engineering-20261107/alice-review.md`；worktree 已有 `tests/value-flow-relationship-adapter.test.mjs` 改动，处于 red 修复中。
+- 路由 Carol 窄修：耐用消息 `m1794080127115-6665`（reply-on-completion）。范围：隔离短路/条件表达式赋值，保留普通赋值与已支持 if/else；不新增模型语义、不训练、不改 gold/权重/阈值/采用、不产品接线、不安装。先红后修，交回 Alice review，不自行集成或关闭。前一条误投 `fanzhang.Carol` 已以 `m1794080127055-6664` 更正。
+- B-R 拟合评价：Henry 回报准备完成、无阻塞 `m1794080189101-6670`（回应 `m1794080127007-6663`）。确认配方 `recipe-{control,treatment}.json`（200 epochs, lr=0.02, anchor=0.001, 19 wires）、请求 `raw/rebuild-final/{control,treatment,dev,usage}.json`、门禁 `verify-default.json`、起始权重 `frozen-e200/training/weights/dom-basic-kinds/ignore-capability-4a60c08d-4c3a-4997-b576-44f92385a5d6.weight.json`，入口 `playground/browser/focus-ignore/train.mjs`、`evaluate.mjs`。剩余：创建 worktree `/Volumes/Intel/playground/nnanything/b-r-browser-fit-evaluation-henry-20261107`（base origin/main），执行 control/treatment fit，保存候选，新进程回载，dev/旧能力逐例评价，失败/缺测/null 边界与 INCOMPLETE 清单，候选保持 uncalibrated/not_applied，最后 Alice review。
+- P1-1 Iris worktree `p1-1-typed-dynamic-recursive-20261107`（base 66733c0）活跃：4 个源码文件改动 + 2 个新测试文件，`gcm-implementation.log`/`task-log.md` 到 19:35 PT 仍在更新。
+- Grace 巡检 `grace-nncode-browser-architecture-patrol-20261106` working；P0 `jenny-tsjs-first-fit-converter-train-config-r1` 保持 rework/parked（Emma missing）；4 个 `nn-code-redesign-*` parked-pending-design-peer；总体重设计 orchestration working。
+- Goal one-shot `sub-m1794077749685-6325` 已 consumed；新订阅 `sub-m1794080205197-6672` armed（30m，trigger≈1794082005139）；project patrol `sub-m1793963843713-143` armed；collab inbox unread=0。
+- 本轮未改产品代码、语料、权重、gold、threshold、采用、产品接线或 runtime 安装；未操作 tmux/daemon；`tests/fixtures/tsjs-symbols/`、`playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
+
 ## 2026-11-07 Jenny：note 授权边界纠偏 + 值流 rev10 REWORK 诊断派发（19:10Z）
 
 - 接受 Kate round-18 定向 P2（m1794078164732-6356，回执 `/Volumes/Intel/playground/nnanything-runs/kate-jenny-patrol-20261106/round-18-20261107T1859Z.md`）：note 18:20Z/18:25Z 中「两项范围裁定前只读/停工；P1-1 保持待派」属授权边界倒退表述。AGENTS.md 当前授权状态为用户 2026-11-07 指示（取代 2026-11-05 停工范围，长期目标为 nn-code 与浏览器训练交付）；实际线 P1-1 已 Iris 实施、value-flow 已 Carol 返工。本轮已在 18:25Z/18:20Z 段落就地标注纠偏，并以本段为生效事实；不再重复「待用户裁定」表述。
