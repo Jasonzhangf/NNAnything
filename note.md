@@ -3901,3 +3901,25 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal：`appsdk goal status` 显示 12:07Z 重臂的订阅 `Active=true`、subscribed，project patrol `sub-m1793963843713-143` armed；本轮 `goal_due=false`，不重复续订。
 - 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；`HEAD=origin/main=e1076c9`，仅主工作树，未跟踪 fixture 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review、symbols 恢复条件、新的 ready 工作或下一次 goal deadline。
+
+## 2026-11-08 Jenny：Swift rev1 REWORK 转派 Carol 修 rev2，goal 续订（16:17Z）
+
+- 目的：消费 goal deadline `m1794153863456-3188`、Alice Swift REWORK `m1794153841779-3183`、Grace round-55 `m1794154126862-3216` 及 worker-idle/master-wake 批次，完成本轮续订与 Swift 设计线调度。
+- 证据：`collab recv` 已消费对应批次。board `nn-code-redesign-symbols-swift-r1` rev15 进入 `rework`，review_evidence=`/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-symbols-swift-20261108/alice-review.md`。Rust rev5 `fb2a012` 已由 Alice ACCEPT 并 closed，worktree 已清理。
+- 处置：已向 NNAnything.Carol 发送 `m1794154286825-3230`，要求按 Alice 两点意见修 rev2：全局 module/protocol/ObjC 未支持不能否定局部声明；nameSpan 缺失或无关 partial 不能排除有独立证据的声明。修后交 Alice 复审，design-only，不实施/训练/采样/接线。
+- 16:20Z 补充：Alice 对 Swift rev2 的局部资格、全局边界、partial/nameSpan 更正已复核接受；正式 REWORK 仅剩模块槽条件：必须请求与观测双方 moduleRef 非 null 才比较，不能只凭 requested 有模块。Alice 已给 Carol 准确反例和三处统一措辞要求，仍由 Carol 修订后复审。
+- goal：旧 one-shot 已 consumed；已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式 rearm，`appsdk goal status` Active=true/subscribed。project patrol `sub-m1793963843713-143` 保持 armed。
+- 边界：本轮只消费通知、只读核对 board/goal、发送 Swift 修正派单、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Carol 交付 Swift rev2 并交 Alice 复审；沿 board 继续跟踪 B-A1 runner/export（`8d11940`）与 CLI Phase A（`7db2c6a`）决定，或下一次 goal deadline。
+
+## 2026-11-08 Jenny：Swift rev3 ACCEPT 收口，首训前置观察派发与 P0 更新（16:30Z）
+
+- 目的：处理 Swift rev2→rev3 复审、Grace round-24 的 P0 stall 提醒，并核实首训前置、推动训练准备。
+- 证据：`collab recv` 已消费 Swift ACCEPT 与 Grace round-24 等通知。Swift `nn-code-redesign-symbols-swift-r1` 已由 Alice 在 subject_revision 3 `de3a56f` 正式 ACCEPT；Carol 已删除 worktree 与 branch，task close、completion_missing=[]。Rust 同样已 closed。Grace round-24 确认两 task 均 closed，并报告 Iris P0 `nnanything-overall-redesign-orchestration-r1` 连续 idle >1h50m、next_step 未随 symbols 收口更新。
+- 处置：
+  - 已向 Iris 发送 `m1794155253429-3321`，要求更新 P0 next_step：Rust/Swift design closed，当前待推进为 TS/JS 首训前置、`8d11940`、`7db2c6a`。
+  - 已向 Grace 回复 `m1794155304666-3329`，说明 master 已派 TS/JS 首训前置只读观察 worker 并已要求 Iris 更新 P0，不直接派无契约实现。
+  - 已新增任务合同 `/Volumes/Intel/playground/nnanything-runs/jenny-tsjs-first-fit-readiness-r1/task.md`，并启动独立 `codex exec --profile gcm` 只读观察 worker，要求核实 TS/JS 首训入口/64 槽 typed 分区/`8d11940` 解阻路径。GCM 启动时出现本地 MCP 通道错误（`Transport channel closed ... http://127.0.0.1:9090/mcp`），该 worker 仍在继续运行；已保留原错，不切换后端。
+- goal：旧 one-shot 已 consumed，已再次用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式 rearm；project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只消费通知、只读核对 board/goal、发送调度消息、写只读观察 worker 合同与启动观察 worker、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等首训观察 worker 回执，据此决定是否开 TS/JS fit 准备或补前置；等 Iris 更新 P0 next_step；继续跟踪 `8d11940` 与 `7db2c6a`。
