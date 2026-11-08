@@ -129,28 +129,48 @@ export interface BA1EvaluationCounts {
   readonly aggregator: number;
 }
 
+function requireNonEmptyString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TypeError(`${label} must be a non-empty string`);
+  }
+  return value;
+}
+
 /**
  * Reject is an independent typed channel: it is never folded into `none`, and a
  * bound non-selected gold must not carry a selectedRef.
  */
 export function validateBA1EvaluatorGold(gold: BA1EvaluatorGold): void {
-  if (gold.kind === "reject") {
-    if ("selectedRef" in gold && (gold as { selectedRef?: unknown }).selectedRef !== undefined) {
+  const raw = gold as unknown;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new TypeError("evaluator gold must be an object");
+  }
+  const record = raw as Record<string, unknown>;
+  if (record.kind !== "bound" && record.kind !== "reject") {
+    throw new TypeError("evaluator gold.kind must be bound or reject");
+  }
+  requireNonEmptyString(record.family, "evaluator gold.family");
+  requireNonEmptyString(record.group, "evaluator gold.group");
+  if (record.kind === "reject") {
+    if (Object.hasOwn(record, "selectedRef")) {
       throw new TypeError("a reject gold must not carry a selectedRef field");
     }
-    if (!BA1_CONTRACT_GATE_REASONS.includes(gold.reason)) {
-      throw new TypeError(`unknown reject reason: ${String(gold.reason)}`);
+    if (!BA1_CONTRACT_GATE_REASONS.includes(record.reason as BA1ContractGateReason)) {
+      throw new TypeError(`unknown reject reason: ${String(record.reason)}`);
     }
     return;
   }
-  if (gold.state === "selected") {
-    if (typeof gold.selectedRef !== "string" || gold.selectedRef.length === 0) {
+  if (!BA1_AGGREGATOR_STATES.includes(record.state as BA1AggregatorState)) {
+    throw new TypeError(`unknown bound gold state: ${String(record.state)}`);
+  }
+  if (record.state === "selected") {
+    if (typeof record.selectedRef !== "string" || record.selectedRef.length === 0) {
       throw new TypeError("a selected bound gold must name a non-empty selectedRef");
     }
     return;
   }
-  if (gold.selectedRef !== undefined && gold.selectedRef !== null) {
-    throw new TypeError(`a bound ${gold.state} gold must not carry a selectedRef`);
+  if (record.selectedRef !== undefined && record.selectedRef !== null) {
+    throw new TypeError(`a bound ${String(record.state)} gold must not carry a selectedRef`);
   }
 }
 
