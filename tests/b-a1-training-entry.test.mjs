@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -75,6 +75,7 @@ function studentRow(group_id, candidateRef, x) {
     sampleId: `s-${group_id}`,
     sourceGroup: "family-b-a1",
     partition: "TRAIN",
+    family: "model-semantic",
     candidateRef,
     x,
     missingMode: [],
@@ -90,6 +91,7 @@ function supervisionRow(group_id, allowedRefs) {
     sampleId: `s-${group_id}`,
     sourceGroup: "family-b-a1",
     partition: "TRAIN",
+    family: "model-semantic",
     supervisionStatus: "labeled_selected",
     goldAllowedCandidateRefs: allowedRefs,
     trainingEligible: true,
@@ -125,16 +127,43 @@ function config(overrides = {}) {
 
 async function writeResourceFiles(dir) {
   await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, "thresholds.json"), JSON.stringify({ schema: "nnanything.feature-thresholds.v1" }) + "\n");
-  await writeFile(join(dir, "missing.json"), JSON.stringify({ schema: "nnanything.unified.missing-mode.v1" }) + "\n");
-  await writeFile(join(dir, "slots.json"), JSON.stringify({ schema: "nnanything.b-a1.slot-map.v1" }) + "\n");
+  await writeFile(join(dir, "thresholds.json"), JSON.stringify({
+    schema: "nnanything.feature-thresholds.v1",
+    route: "browser/R",
+    encoderVersion: BA1_ENCODER_VERSION,
+    buckets: {
+      constraints: [0, 1, 2, 4],
+      knownFacts: [1, 2, 4, 8],
+      missingFacts: [0, 1, 2, 4],
+      objectRefs: [1, 2, 4, 8],
+      requiredArgsRatio: [0, 0.25, 0.5, 1],
+      requiredMissing: [0, 1, 2, 4],
+    },
+  }) + "\n");
+  await writeFile(join(dir, "missing.json"), JSON.stringify({
+    schema: "nnanything.unified.missing-mode.v1",
+    entries: [],
+  }) + "\n");
+  await writeFile(join(dir, "slots.json"), JSON.stringify({
+    schema: "nnanything.b-a1.slot-map.v1",
+    encoderVersion: BA1_ENCODER_VERSION,
+    slots: Array.from({ length: 64 }, (_, slot) => ({
+      slot,
+      field: `x${slot}`,
+      kind: [38, 39, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63].includes(slot)
+        ? "reserved-constant"
+        : "feature-or-constant",
+      value: [38, 39, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63].includes(slot) ? 0 : 1,
+    })),
+  }) + "\n");
 }
 
 async function writePackageResources(packageOutPath) {
   await writeResourceFiles(join(packageOutPath, ".."));
 }
 
-async function writeRows(dir, student, supervision) {
+async function writeRows(dir, student, supervision, options = {}) {
+  if (options.resources !== false) await writeResourceFiles(dir);
   await writeFile(join(dir, "student.jsonl"), student.map(r => JSON.stringify(r)).join("\n") + "\n");
   await writeFile(join(dir, "supervision.jsonl"), supervision.map(r => JSON.stringify(r)).join("\n") + "\n");
   return { studentRowsPath: join(dir, "student.jsonl"), supervisionRowsPath: join(dir, "supervision.jsonl") };
@@ -193,6 +222,7 @@ test("the fixed entry rejects an incompatible encoder version before training", 
     dir,
     [studentRow("g1", "c1", g1.candidates[0].input)],
     [supervisionRow("g1", ["c1"])],
+    { resources: false },
   );
   await assert.rejects(
     trainBA1UnifiedRelationDecision({
@@ -203,6 +233,123 @@ test("the fixed entry rejects an incompatible encoder version before training", 
     }),
     /encoderVersion must be/,
   );
+});
+
+test("the training entry rejects contract-gate and aggregator-test families before encoding", async () => {
+  const g1 = encodedGroup("g1", ["c1"]);
+  for (const family of ["contract-gate", "aggregator-test"]) {
+    const dir = await mkdtemp(join(tmpdir(), `b-a1-family-${family}-`));
+    const student = { ...studentRow("g1", "c1", g1.candidates[0].input), family };
+    const supervision = { ...supervisionRow("g1", ["c1"]), family };
+    const { studentRowsPath, supervisionRowsPath } = await writeRows(
+      dir,
+      [student],
+      [supervision],
+    );
+    await assert.rejects(
+      trainBA1UnifiedRelationDecision({
+        config: config(),
+        studentRowsPath,
+        supervisionRowsPath,
+        packageOutPath: join(dir, "pkg.json"),
+      }),
+      /only admits model-semantic/,
+    );
+  }
+});
+
+test("A_g duplicate refs and selected A_g cardinality are explicit data errors", async () => {
+  const g1 = encodedGroup("g1", ["c1", "c2"]);
+  const dupDir = await mkdtemp(join(tmpdir(), "b-a1-a-g-dup-"));
+  const { studentRowsPath, supervisionRowsPath } = await writeRows(
+    dupDir,
+    [
+      studentRow("g1", "c1", g1.candidates[0].input),
+      studentRow("g1", "c2", g1.candidates[1].input),
+    ],
+    [supervisionRow("g1", ["c1", "c1"])],
+  );
+  await assert.rejects(
+    trainBA1UnifiedRelationDecision({
+      config: config(),
+      studentRowsPath,
+      supervisionRowsPath,
+      packageOutPath: join(dupDir, "pkg.json"),
+    }),
+    /A_g contains duplicate refs/,
+  );
+
+  const cardinalityDir = await mkdtemp(join(tmpdir(), "b-a1-a-g-cardinality-"));
+  const cardinalityPaths = await writeRows(
+    cardinalityDir,
+    [
+      studentRow("g1", "c1", g1.candidates[0].input),
+      studentRow("g1", "c2", g1.candidates[1].input),
+    ],
+    [supervisionRow("g1", ["c1", "c2"])],
+  );
+  await assert.rejects(
+    trainBA1UnifiedRelationDecision({
+      config: config(),
+      studentRowsPath: cardinalityPaths.studentRowsPath,
+      supervisionRowsPath: cardinalityPaths.supervisionRowsPath,
+      packageOutPath: join(cardinalityDir, "pkg.json"),
+    }),
+    /exactly one allowed candidate/,
+  );
+});
+
+test("ambiguous A_g cardinality and non-training supervision statuses are rejected", async () => {
+  const g1 = encodedGroup("g1", ["c1", "c2"]);
+  const ambiguousDir = await mkdtemp(join(tmpdir(), "b-a1-a-g-ambiguous-"));
+  const ambiguousPaths = await writeRows(
+    ambiguousDir,
+    [
+      studentRow("g1", "c1", g1.candidates[0].input),
+      studentRow("g1", "c2", g1.candidates[1].input),
+    ],
+    [{
+      ...supervisionRow("g1", ["c1"]),
+      supervisionStatus: "labeled_ambiguous",
+    }],
+  );
+  await assert.rejects(
+    trainBA1UnifiedRelationDecision({
+      config: config(),
+      studentRowsPath: ambiguousPaths.studentRowsPath,
+      supervisionRowsPath: ambiguousPaths.supervisionRowsPath,
+      packageOutPath: join(ambiguousDir, "pkg.json"),
+    }),
+    /at least two allowed candidates/,
+  );
+
+  for (const [status, eligibility, evaluationClass] of [
+    ["labeled_none", false, "none"],
+    ["observation_missing", false, "insufficient"],
+    ["unresolved_supervision", false, "unresolved"],
+  ]) {
+    const dir = await mkdtemp(join(tmpdir(), `b-a1-status-${status}-`));
+    const supervision = {
+      ...supervisionRow("g1", ["c1"]),
+      supervisionStatus: status,
+      trainingEligible: eligibility,
+      evaluationClass,
+    };
+    const paths = await writeRows(
+      dir,
+      [studentRow("g1", "c1", g1.candidates[0].input)],
+      [supervision],
+    );
+    await assert.rejects(
+      trainBA1UnifiedRelationDecision({
+        config: config(),
+        studentRowsPath: paths.studentRowsPath,
+        supervisionRowsPath: paths.supervisionRowsPath,
+        packageOutPath: join(dir, "pkg.json"),
+      }),
+      /not training-eligible/,
+    );
+  }
 });
 
 test("student rows carrying a forbidden gold/allowed field fail before any optimizer step", async () => {
@@ -358,7 +505,7 @@ test("duplicate supervision, orphan supervision, source mismatch and ineligible 
       supervisionRowsPath: mismatchPaths.supervisionRowsPath,
       packageOutPath: join(mismatchDir, "pkg.json"),
     }),
-    /source mismatch/,
+    /source\/family mismatch/,
   );
 
   const ineligibleDir = await mkdtemp(join(tmpdir(), "b-a1-train-"));
@@ -443,6 +590,47 @@ test("student x that violates route gates or reserved slots is rejected by the r
   );
 });
 
+test("student x with non-route finite but illegal semantic values is rejected by slot semantics", async () => {
+  const g1 = encodedGroup("g1", ["c1"]);
+  for (const slot of [9, 12, 17, 27, 32, 42]) {
+    const bad = g1.candidates[0].input.slice();
+    bad[slot] = 2;
+    const dir = await mkdtemp(join(tmpdir(), `b-a1-slot-${slot}-`));
+    const { studentRowsPath, supervisionRowsPath } = await writeRows(
+      dir,
+      [studentRow("g1", "c1", bad)],
+      [supervisionRow("g1", ["c1"])],
+    );
+    await assert.rejects(
+      trainBA1UnifiedRelationDecision({
+        config: config(),
+        studentRowsPath,
+        supervisionRowsPath,
+        packageOutPath: join(dir, "pkg.json"),
+      }),
+      /route encoder rejected/,
+    );
+  }
+
+  const doubleType = g1.candidates[0].input.slice();
+  doubleType[18] = 1;
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-one-hot-"));
+  const { studentRowsPath, supervisionRowsPath } = await writeRows(
+    dir,
+    [studentRow("g1", "c1", doubleType)],
+    [supervisionRow("g1", ["c1"])],
+  );
+  await assert.rejects(
+    trainBA1UnifiedRelationDecision({
+      config: config(),
+      studentRowsPath,
+      supervisionRowsPath,
+      packageOutPath: join(dir, "pkg.json"),
+    }),
+    /exactly one 1/,
+  );
+});
+
 test("student x with an undeclared -1 sentinel fails the missingMode consistency gate", async () => {
   const g1 = encodedGroup("g1", ["c1"]);
   const bad = g1.candidates[0].input.slice();
@@ -464,13 +652,14 @@ test("student x with an undeclared -1 sentinel fails the missingMode consistency
   );
 });
 
-test("missing or unreadable resource files fail package reload", async () => {
+test("missing or invalid resource files fail before package reload", async () => {
   const g1 = encodedGroup("g1", ["c1"]);
   const dir = await mkdtemp(join(tmpdir(), "b-a1-train-"));
   const { studentRowsPath, supervisionRowsPath } = await writeRows(
     dir,
     [studentRow("g1", "c1", g1.candidates[0].input)],
     [supervisionRow("g1", ["c1"])],
+    { resources: false },
   );
   const packageDir = join(dir, "pkg");
   await mkdir(packageDir, { recursive: true });
@@ -485,4 +674,90 @@ test("missing or unreadable resource files fail package reload", async () => {
     }),
     error => error?.code === "DATA_INVALID" || /resource|unreadable|missing/.test(String(error?.message ?? error)),
   );
+});
+
+test("invalid resource content fails before any optimizer step or package output", async () => {
+  const g1 = encodedGroup("g1", ["c1"]);
+  const baseDir = await mkdtemp(join(tmpdir(), "b-a1-resource-"));
+  const { studentRowsPath, supervisionRowsPath } = await writeRows(
+    baseDir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+  );
+
+  for (const [name, patch] of [
+    ["wrong threshold encoder", { thresholds: { encoderVersion: "nnanything.unified-step.encoder.v2" } }],
+    ["missing threshold bucket", { thresholds: { buckets: { constraints: [0, 1, 2, 4] } } }],
+    ["wrong slot map schema", { slots: { schema: "not-b-a1" } }],
+    ["wrong slot map encoder", { slots: { encoderVersion: "wrong" } }],
+    ["wrong slot map cardinality", { slots: { slots: [{ slot: 0 }] } }],
+  ]) {
+    const dir = await mkdtemp(join(tmpdir(), `b-a1-resource-${name.replace(/\W+/g, "-")}-`));
+    await writeResourceFiles(dir);
+    if (patch.thresholds) {
+      const raw = JSON.parse(await readFile(join(dir, "thresholds.json"), "utf8"));
+      await writeFile(join(dir, "thresholds.json"), JSON.stringify({ ...raw, ...patch.thresholds }) + "\n");
+    }
+    if (patch.slots) {
+      const raw = JSON.parse(await readFile(join(dir, "slots.json"), "utf8"));
+      await writeFile(join(dir, "slots.json"), JSON.stringify({ ...raw, ...patch.slots }) + "\n");
+    }
+    await assert.rejects(
+      trainBA1UnifiedRelationDecision({
+        config: config({ maxEpochs: 3, fixedRecipe: false }),
+        studentRowsPath,
+        supervisionRowsPath,
+        packageOutPath: join(dir, "package.json"),
+      }),
+      error => {
+        assert.equal(error?.code, "DATA_INVALID");
+        return true;
+      },
+    );
+    await assert.rejects(readFile(join(dir, "package.json")));
+  }
+});
+
+test("missing resource files fail before any optimizer step or package output", async () => {
+  const g1 = encodedGroup("g1", ["c1"]);
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-resource-missing-"));
+  const { studentRowsPath, supervisionRowsPath } = await writeRows(
+    dir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+    { resources: false },
+  );
+  await assert.rejects(
+    trainBA1UnifiedRelationDecision({
+      config: config({ maxEpochs: 3, fixedRecipe: false }),
+      studentRowsPath,
+      supervisionRowsPath,
+      packageOutPath: join(dir, "package.json"),
+    }),
+    error => {
+      assert.equal(error?.code, "DATA_INVALID");
+      return true;
+    },
+  );
+  await assert.rejects(readFile(join(dir, "package.json")));
+});
+
+test("non-finite optimizer output is classified as non_finite, not data_invalid", async () => {
+  const g1 = encodedGroup("g1", ["c1"]);
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-nonfinite-"));
+  const { studentRowsPath, supervisionRowsPath } = await writeRows(
+    dir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+  );
+  const result = await trainBA1UnifiedRelationDecision({
+    config: config({ maxEpochs: 1, learningRate: 1e308, fixedRecipe: false }),
+    studentRowsPath,
+    supervisionRowsPath,
+    packageOutPath: join(dir, "package.json"),
+  });
+  assert.equal(result.report.status, "failed");
+  assert.equal(result.report.stopReason, "non_finite");
+  assert.equal(result.report.completedEpochs, 0);
+  assert.match(result.report.violations.join("\n"), /non-finite loss or gradient/);
 });

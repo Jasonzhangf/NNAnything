@@ -173,6 +173,38 @@ function assertLegalCandidate(candidate: BA1RouteCandidateInput): void {
   }
 }
 
+function failVector(candidateRef: string, slot: number, message: string): never {
+  throw new BA1RouteEncoderError("ILLEGAL_CANDIDATE", `candidate ${candidateRef} x[${slot}] ${message}`);
+}
+
+function assertBooleanSlots(
+  input: readonly number[],
+  slots: readonly number[],
+  candidateRef: string,
+): void {
+  for (const slot of slots) {
+    const value = input[slot];
+    if (value !== 0 && value !== 1) {
+      failVector(candidateRef, slot, "must be boolean 0/1");
+    }
+  }
+}
+
+function assertOneHotSlots(
+  input: readonly number[],
+  slots: readonly number[],
+  candidateRef: string,
+): void {
+  assertBooleanSlots(input, slots, candidateRef);
+  const activeCount = slots.filter(slot => input[slot] === 1).length;
+  if (activeCount !== 1) {
+    throw new BA1RouteEncoderError(
+      "ILLEGAL_CANDIDATE",
+      `candidate ${candidateRef} one-hot slots x${slots[0]}-x${slots[slots.length - 1]} must contain exactly one 1`,
+    );
+  }
+}
+
 /**
  * Validate an already encoded B-A1 student vector. Student rows carry x[64]
  * from the route converter; the fixed training entry still owns the route
@@ -201,6 +233,19 @@ export function assertBA1EncodedRouteVector(
       );
     }
   }
+  if (input[8] !== 1 && input[8] !== 0.5 && input[8] !== 0.25) {
+    failVector(candidateRef, 8, "must encode access as 1, 0.5, or 0.25");
+  }
+  assertOneHotSlots(input, [9, 10, 11], candidateRef);
+  assertBooleanSlots(input, [12, 13, 14, 15, 16], candidateRef);
+  assertOneHotSlots(input, [17, 18, 19, 20, 21, 22, 23], candidateRef);
+  assertBooleanSlots(input, [24, 25, 26], candidateRef);
+  assertOneHotSlots(input, [27, 28, 29, 30], candidateRef);
+  assertBooleanSlots(input, [31], candidateRef);
+  assertOneHotSlots(input, [32, 33, 34], candidateRef);
+  assertBooleanSlots(input, [35, 36, 37], candidateRef);
+  assertBooleanSlots(input, [40, 41], candidateRef);
+  assertOneHotSlots(input, [42, 43, 44], candidateRef);
   for (const [rawSlot, expected] of Object.entries(BA1_REQUIRED_GATE_SLOTS)) {
     const slot = Number(rawSlot);
     if (input[slot] !== expected) {

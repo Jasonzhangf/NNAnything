@@ -11,7 +11,7 @@
 
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   assertUnifiedTensors,
@@ -26,6 +26,7 @@ import {
   BA1_MARGIN,
   BA1_THETA,
   BA1GroupLossError,
+  BA1NonFiniteLossError,
   bA1FullBatchEpochStep,
   bA1ParameterLoss,
   bA1ThresholdDiagnosis,
@@ -36,6 +37,7 @@ import {
   BA1_INPUT_SCHEMA,
   BA1_ROUTE_DECISION_KIND,
   BA1_ROUTE_DOMAIN,
+  BA1_RESERVED_SLOTS,
   assertBA1EncodedRouteGroup,
 } from "./b-a1-route-encoder.js";
 import { validateMissingModeConsistency } from "./unified-missing-mode.js";
@@ -44,6 +46,7 @@ import {
   loadUnifiedModelPackageFromFile,
   saveUnifiedModelPackageAtomic,
   type UnifiedModelPackage,
+  type UnifiedModelPackageResources,
 } from "./unified-model-package.js";
 import {
   createUnifiedTrainingCheckpoint,
@@ -70,7 +73,11 @@ import {
   BA1_SEMANTIC_SUPERVISION_STATUSES,
   classifyBA1TrainingEligibility,
   type BA1SemanticSupervisionStatus,
+  type BA1SampleFamily,
 } from "./b-a1-sample-evaluator-skeleton.js";
+import {
+  validateMissingModeTable,
+} from "./unified-thresholds.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -124,6 +131,7 @@ export interface BA1StudentGroup {
   readonly sampleId: string;
   readonly sourceGroup: string;
   readonly partition: string;
+  readonly family: BA1SampleFamily;
   readonly candidates: readonly BA1StudentCandidateRow[];
 }
 
@@ -136,6 +144,7 @@ export interface BA1SupervisionRow {
   readonly goldAllowedCandidateRefs: readonly string[];
   readonly trainingEligible: boolean;
   readonly evaluationClass: string;
+  readonly family: BA1SampleFamily;
 }
 
 export class BA1TrainDataError extends Error {
@@ -180,6 +189,7 @@ export interface BA1PackageReloadReceipt extends UnifiedPackageReloadReceipt {
   readonly encoderVersion: string;
   readonly resourcesMatch: boolean;
   readonly resourceFilesRead: boolean;
+  readonly resourceContentValidated: boolean;
   readonly newProcessVerified: boolean;
 }
 
@@ -218,6 +228,17 @@ function requireKnownSupervisionStatus(value: unknown, groupId: string): BA1Sema
     throw new BA1TrainDataError(`supervision row ${groupId} has unknown supervisionStatus=${String(value)}`);
   }
   return value as BA1SemanticSupervisionStatus;
+}
+
+function requireKnownSampleFamily(value: unknown, label: string): BA1SampleFamily {
+  if (
+    value !== "model-semantic"
+    && value !== "contract-gate"
+    && value !== "aggregator-test"
+  ) {
+    throw new BA1TrainDataError(`${label} must be model-semantic, contract-gate, or aggregator-test; got ${String(value)}`);
+  }
+  return value;
 }
 
 export function validateBA1TrainConfig(config: BA1TrainConfig): void {
@@ -299,6 +320,7 @@ export async function loadBA1StudentRowsFile(rowsPath: string): Promise<readonly
     sampleId: string;
     sourceGroup: string;
     partition: string;
+    family: BA1SampleFamily;
     candidates: BA1StudentCandidateRow[];
   }>();
   for (const raw of records) {
@@ -308,6 +330,12 @@ export async function loadBA1StudentRowsFile(rowsPath: string): Promise<readonly
     const sampleId = requireNonEmptyString(raw.sampleId, `student row ${groupId} sampleId`);
     const sourceGroup = requireNonEmptyString(raw.sourceGroup, `student row ${groupId} sourceGroup`);
     const partition = requireNonEmptyString(raw.partition, `student row ${groupId} partition`);
+    const family = requireKnownSampleFamily(raw.family, `student row ${groupId} family`);
+    if (family !== "model-semantic") {
+      throw new BA1TrainDataError(
+        `student row ${groupId} has family=${family}; the training entry only admits model-semantic rows`,
+      );
+    }
     const forbidden = forbiddenStudentFields(raw);
     if (forbidden.length > 0) throw new BA1TrainDataError(`student row ${groupId} carries forbidden field(s): ${forbidden.join(", ")}`);
     if (raw.candidateKind !== "relation") throw new BA1TrainDataError(`student row ${groupId} candidateKind must be relation`);
@@ -326,15 +354,16 @@ export async function loadBA1StudentRowsFile(rowsPath: string): Promise<readonly
     const candidateRef = requireNonEmptyString(raw.candidateRef, `student row ${groupId} candidateRef`);
     let group = groups.get(groupId);
     if (!group) {
-      group = { group_id: groupId, sampleId, sourceGroup, partition, candidates: [] };
+      group = { group_id: groupId, sampleId, sourceGroup, partition, family, candidates: [] };
       groups.set(groupId, group);
     } else if (
       group.sampleId !== sampleId
       || group.sourceGroup !== sourceGroup
       || group.partition !== partition
+      || group.family !== family
     ) {
       throw new BA1TrainDataError(
-        `student group ${groupId} has inconsistent sampleId/sourceGroup/partition across rows`,
+        `student group ${groupId} has inconsistent sampleId/sourceGroup/partition/family across rows`,
       );
     }
     group.candidates.push({
@@ -361,6 +390,12 @@ export async function loadBA1SupervisionRowsFile(rowsPath: string): Promise<read
     const forbidden = forbiddenSupervisionFields(raw);
     if (forbidden.length > 0) throw new BA1TrainDataError(`supervision row ${groupId} carries forbidden field(s): ${forbidden.join(", ")}`);
     const supervisionStatus = requireKnownSupervisionStatus(raw.supervisionStatus, groupId);
+    const family = requireKnownSampleFamily(raw.family, `supervision row ${groupId} family`);
+    if (family !== "model-semantic") {
+      throw new BA1TrainDataError(
+        `supervision row ${groupId} has family=${family}; the training entry only admits model-semantic rows`,
+      );
+    }
     const eligibility = classifyBA1TrainingEligibility(supervisionStatus);
     if (raw.trainingEligible !== eligibility.trainingEligible) {
       throw new BA1TrainDataError(
@@ -384,6 +419,7 @@ export async function loadBA1SupervisionRowsFile(rowsPath: string): Promise<read
       goldAllowedCandidateRefs: raw.goldAllowedCandidateRefs as readonly string[],
       trainingEligible: eligibility.trainingEligible,
       evaluationClass: eligibility.evaluationClass,
+      family,
     });
   }
   return rows;
@@ -394,6 +430,9 @@ export function buildBA1EncodedGroups(
   supervisionRows: readonly BA1SupervisionRow[],
 ): readonly EncodedGroup[] {
   const supervisionByGroup = new Map(supervisionRows.map(row => [row.group_id, row]));
+  if (supervisionByGroup.size !== supervisionRows.length) {
+    throw new BA1TrainDataError("supervision rows contain duplicate group ids");
+  }
   const groups: EncodedGroup[] = [];
   const seen = new Set<string>();
   for (const group of studentGroups) {
@@ -404,9 +443,15 @@ export function buildBA1EncodedGroups(
     if (
       supervision.sampleId !== group.sampleId
       || supervision.sourceGroup !== group.sourceGroup
+      || supervision.family !== group.family
     ) {
       throw new BA1TrainDataError(
-        `student/supervision source mismatch for ${group.group_id}`,
+        `student/supervision source/family mismatch for ${group.group_id}`,
+      );
+    }
+    if (group.family !== "model-semantic") {
+      throw new BA1TrainDataError(
+        `group ${group.group_id} family=${group.family} is not allowed to enter TRAIN optimization`,
       );
     }
     if (group.partition !== "TRAIN" || supervision.partition !== "TRAIN") {
@@ -425,9 +470,23 @@ export function buildBA1EncodedGroups(
     }));
     const refs = new Set(candidates.map(candidate => candidate.candidateRef));
     if (refs.size !== candidates.length) throw new BA1TrainDataError(`group ${group.group_id} has duplicate candidate refs`);
-    if (supervision.goldAllowedCandidateRefs.length === 0) throw new BA1TrainDataError(`empty A_g for ${group.group_id}`);
+    const allowedRefs = [...new Set(supervision.goldAllowedCandidateRefs)];
+    if (allowedRefs.length !== supervision.goldAllowedCandidateRefs.length) {
+      throw new BA1TrainDataError(`group ${group.group_id} A_g contains duplicate refs`);
+    }
+    if (allowedRefs.length === 0) throw new BA1TrainDataError(`empty A_g for ${group.group_id}`);
     for (const ref of supervision.goldAllowedCandidateRefs) {
       if (!refs.has(ref)) throw new BA1TrainDataError(`A_g ref ${ref} outside S_g for ${group.group_id}`);
+    }
+    if (supervision.supervisionStatus === "labeled_selected" && allowedRefs.length !== 1) {
+      throw new BA1TrainDataError(
+        `labeled_selected group ${group.group_id} must have exactly one allowed candidate`,
+      );
+    }
+    if (supervision.supervisionStatus === "labeled_ambiguous" && allowedRefs.length < 2) {
+      throw new BA1TrainDataError(
+        `labeled_ambiguous group ${group.group_id} must have at least two allowed candidates`,
+      );
     }
     try {
       assertBA1EncodedRouteGroup({
@@ -466,7 +525,7 @@ function maxAbsGrad(previous: UnifiedTensors, next: UnifiedTensors, learningRate
 function assertTensorsFinite(tensors: UnifiedTensors, label: string): void {
   for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
     if (!tensors[key].every(value => typeof value === "number" && Number.isFinite(value))) {
-      throw new BA1TrainDataError(`${label}.${key} must be finite`);
+      throw new BA1NonFiniteLossError(`${label}.${key} must be finite`);
     }
   }
 }
@@ -550,17 +609,23 @@ async function verifyBA1PackageReloadInNewProcess(
   readonly thresholdsPath: string;
   readonly missingModeTablePath: string;
   readonly slotMapPath: string | null;
+  readonly resourceContentValidated: boolean;
 }> {
   const resolvedPackagePath = resolve(packagePath);
   const loaderUrl = new URL("./unified-model-package.js", import.meta.url).href;
+  const validatorUrl = new URL("./b-a1-training-entry.js", import.meta.url).href;
   const script = `
 import { loadUnifiedModelPackageFromFile } from ${JSON.stringify(loaderUrl)};
+import { validateBA1ResourceContent } from ${JSON.stringify(validatorUrl)};
+import { dirname } from "node:path";
 const loaded = await loadUnifiedModelPackageFromFile(${JSON.stringify(resolvedPackagePath)});
+await validateBA1ResourceContent(loaded.package.resources, dirname(${JSON.stringify(resolvedPackagePath)}));
 process.stdout.write(JSON.stringify({
   tensors: loaded.package.tensors,
   thresholdsPath: loaded.resolvedResources.thresholdsPath,
   missingModeTablePath: loaded.resolvedResources.missingModeTablePath,
-  slotMapPath: loaded.resolvedResources.slotMapPath
+  slotMapPath: loaded.resolvedResources.slotMapPath,
+  resourceContentValidated: true
 }));
 `;
   const { stdout } = await execFileAsync(process.execPath, [
@@ -573,14 +638,19 @@ process.stdout.write(JSON.stringify({
     readonly thresholdsPath: string;
     readonly missingModeTablePath: string;
     readonly slotMapPath: string | null;
+    readonly resourceContentValidated: boolean;
   };
   const match = tensorsMatch(expected.tensors, loaded.tensors);
   if (!match) throw new BA1TrainDataError("new-process package reload tensors differ from the saved package");
+  if (!loaded.resourceContentValidated) {
+    throw new BA1TrainDataError("new-process package reload did not validate resource content");
+  }
   return {
     tensorsMatch: match,
     thresholdsPath: loaded.thresholdsPath,
     missingModeTablePath: loaded.missingModeTablePath,
     slotMapPath: loaded.slotMapPath,
+    resourceContentValidated: loaded.resourceContentValidated,
   };
 }
 
@@ -625,8 +695,97 @@ process.stdout.write(JSON.stringify({
   };
 }
 
-async function readResourceFile(path: string): Promise<void> {
-  JSON.parse(await readFile(path, "utf8"));
+async function readJsonResource(path: string, label: string): Promise<unknown> {
+  try {
+    return JSON.parse(await readFile(path, "utf8")) as unknown;
+  } catch (caught) {
+    const cause = (caught as NodeJS.ErrnoException).code ?? (caught instanceof Error ? caught.message : String(caught));
+    throw new BA1TrainDataError(`${label} resource is missing or unreadable (${cause})`);
+  }
+}
+
+function assertBA1FeatureThresholdsContent(raw: unknown): void {
+  if (!isRecord(raw)) throw new BA1TrainDataError("thresholds resource must be an object");
+  if (raw.schema !== "nnanything.feature-thresholds.v1") {
+    throw new BA1TrainDataError("thresholds resource schema mismatch");
+  }
+  if (raw.route !== `${BA1_ROUTE_DOMAIN}/${BA1_ROUTE_DECISION_KIND}`) {
+    throw new BA1TrainDataError(`thresholds resource route must be ${BA1_ROUTE_DOMAIN}/${BA1_ROUTE_DECISION_KIND}`);
+  }
+  if (raw.encoderVersion !== BA1_ENCODER_VERSION) {
+    throw new BA1TrainDataError(`thresholds resource encoderVersion must be ${BA1_ENCODER_VERSION}`);
+  }
+  if (!isRecord(raw.buckets)) throw new BA1TrainDataError("thresholds resource buckets must be an object");
+  for (const bucketName of [
+    "constraints", "knownFacts", "missingFacts", "objectRefs", "requiredArgsRatio", "requiredMissing",
+  ] as const) {
+    const bucket = raw.buckets[bucketName];
+    if (
+      !Array.isArray(bucket)
+      || bucket.length !== 4
+      || !bucket.every(value => typeof value === "number" && Number.isFinite(value))
+    ) {
+      throw new BA1TrainDataError(`thresholds bucket ${bucketName} must have four finite entries`);
+    }
+    if (!(bucket[1] > bucket[0] && bucket[2] > bucket[1] && bucket[3] > bucket[2])) {
+      throw new BA1TrainDataError(`thresholds bucket ${bucketName} must be strictly increasing`);
+    }
+  }
+}
+
+function assertBA1SlotMapContent(raw: unknown): void {
+  if (!isRecord(raw)) throw new BA1TrainDataError("slot map resource must be an object");
+  if (raw.schema !== "nnanything.b-a1.slot-map.v1") {
+    throw new BA1TrainDataError("slot map resource schema mismatch");
+  }
+  if (raw.encoderVersion !== BA1_ENCODER_VERSION) {
+    throw new BA1TrainDataError(`slot map resource encoderVersion must be ${BA1_ENCODER_VERSION}`);
+  }
+  if (!Array.isArray(raw.slots) || raw.slots.length !== 64) {
+    throw new BA1TrainDataError("slot map resource must define exactly 64 slots");
+  }
+  for (let slot = 0; slot < 64; slot += 1) {
+    const entry = raw.slots[slot];
+    if (!isRecord(entry) || entry.slot !== slot || typeof entry.field !== "string" || entry.field === "") {
+      throw new BA1TrainDataError(`slot map entry ${slot} must have slot=${slot} and a non-empty field`);
+    }
+    const reserved = BA1_RESERVED_SLOTS.includes(slot);
+    if (entry.kind !== (reserved ? "reserved-constant" : "feature-or-constant")) {
+      throw new BA1TrainDataError(`slot map entry ${slot} has wrong kind=${String(entry.kind)}`);
+    }
+    if (entry.value !== (reserved ? 0 : 1)) {
+      throw new BA1TrainDataError(`slot map entry ${slot} has wrong value=${String(entry.value)}`);
+    }
+  }
+}
+
+export async function validateBA1ResourceContent(
+  resources: UnifiedModelPackageResources,
+  baseDir: string,
+): Promise<void> {
+  if (resources.thresholdsSchema !== "nnanything.feature-thresholds.v1") {
+    throw new BA1TrainDataError("thresholds resource schema mismatch");
+  }
+  if (resources.missingModeSchema !== "nnanything.unified.missing-mode.v1") {
+    throw new BA1TrainDataError("missing mode resource schema mismatch");
+  }
+  if (typeof resources.slotMapRef !== "string" || resources.slotMapRef.length === 0) {
+    throw new BA1TrainDataError("slot map resource ref must be a non-empty string");
+  }
+  const thresholdsPath = resolve(baseDir, resources.thresholdsRef);
+  const missingModeTablePath = resolve(baseDir, resources.missingModeTableRef);
+  const slotMapPath = resolve(baseDir, resources.slotMapRef);
+  const thresholdsRaw = await readJsonResource(thresholdsPath, "thresholds");
+  const missingModeRaw = await readJsonResource(missingModeTablePath, "missing mode");
+  const slotMapRaw = await readJsonResource(slotMapPath, "slot map");
+  assertBA1FeatureThresholdsContent(thresholdsRaw);
+  try {
+    validateMissingModeTable(missingModeRaw);
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new BA1TrainDataError(`missing mode resource is invalid: ${message}`);
+  }
+  assertBA1SlotMapContent(slotMapRaw);
 }
 
 async function verifyBA1TrainPackageReload(
@@ -645,12 +804,8 @@ async function verifyBA1TrainPackageReload(
   ) {
     throw new BA1TrainDataError("reloaded package route/encoder differs from the saved package");
   }
-  await readResourceFile(loaded.resolvedResources.thresholdsPath);
-  await readResourceFile(loaded.resolvedResources.missingModeTablePath);
-  if (loaded.resolvedResources.slotMapPath !== null) {
-    await readResourceFile(loaded.resolvedResources.slotMapPath);
-  }
-  await verifyBA1PackageReloadInNewProcess(packagePath, expected);
+  await validateBA1ResourceContent(loaded.package.resources, dirname(loaded.packagePath));
+  const newProcess = await verifyBA1PackageReloadInNewProcess(packagePath, expected);
   const unifiedReceipt = await verifyUnifiedTrainPackageReload(packagePath, expected);
   return {
     ...unifiedReceipt,
@@ -659,6 +814,7 @@ async function verifyBA1TrainPackageReload(
     encoderVersion: loaded.package.encoderVersion,
     resourcesMatch,
     resourceFilesRead: true,
+    resourceContentValidated: newProcess.resourceContentValidated,
     newProcessVerified: true,
   };
 }
@@ -672,6 +828,12 @@ export async function trainBA1UnifiedRelationDecision(options: {
 }): Promise<BA1TrainResult> {
   const commandStartedNs = process.hrtime.bigint();
   validateBA1TrainConfig(options.config);
+
+  // Resource content is a fixed route-owned gate. It must be verified before
+  // any optimizer step or artifact write, using the same validation that the
+  // package reload re-applies.
+  const packageDir = dirname(resolve(options.packageOutPath));
+  await validateBA1ResourceContent(options.config.resources, packageDir);
 
   const loadStartedNs = process.hrtime.bigint();
   const studentGroups = await loadBA1StudentRowsFile(options.studentRowsPath);
@@ -702,7 +864,7 @@ export async function trainBA1UnifiedRelationDecision(options: {
       assertTensorsFinite(tensors, `epoch ${epoch} tensors`);
       const grad = maxAbsGrad(before, tensors, options.config.learningRate);
       if (!Number.isFinite(result.loss) || !Number.isFinite(grad)) {
-        throw new BA1GroupLossError(`epoch ${epoch} produced a non-finite loss or gradient`);
+        throw new BA1NonFiniteLossError(`epoch ${epoch} produced a non-finite loss or gradient`);
       }
       epochs.push({ epoch, epochLoss: result.loss, finite: true, maxAbsGrad: grad });
       completedOptimizerSteps += 1;
@@ -711,14 +873,23 @@ export async function trainBA1UnifiedRelationDecision(options: {
         (tensors as MutableUnifiedTensors)[key] = [...before[key]];
       }
       const message = caught instanceof Error ? caught.message : String(caught);
-      violations.push(`epoch ${epoch} failed: ${message}`);
-      stopReason = "non_finite";
+      if (caught instanceof BA1NonFiniteLossError) {
+        violations.push(`epoch ${epoch} produced a non-finite loss or gradient: ${message}`);
+        stopReason = "non_finite";
+      } else {
+        violations.push(`epoch ${epoch} failed with original cause: ${caught instanceof Error ? caught.name : typeof caught}: ${message}`);
+        stopReason = "data_invalid";
+      }
       break;
     }
   }
   const optimizationSeconds = monotonicSeconds(optimizationStartedNs);
   const finalLoss = bA1ParameterLoss(groups, tensors);
-  const status: BA1TrainReport["status"] = stopReason === "non_finite" ? "failed" : "completed";
+  const status: BA1TrainReport["status"] = stopReason === "non_finite"
+    ? "failed"
+    : stopReason === "data_invalid"
+      ? "DATA_INVALID"
+      : "completed";
   const report = buildReport(status, stopReason, epochs, groups, tensors, initialLoss, finalLoss, violations);
 
   const rowsPerEpoch = groups.reduce((sum, group) => sum + group.candidates.length, 0);

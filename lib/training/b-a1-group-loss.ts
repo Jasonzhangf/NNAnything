@@ -34,6 +34,13 @@ export class BA1GroupLossError extends Error {
   }
 }
 
+export class BA1NonFiniteLossError extends BA1GroupLossError {
+  constructor(message: string) {
+    super(message);
+    this.name = "BA1NonFiniteLossError";
+  }
+}
+
 export interface BA1ScoredCandidate {
   readonly candidateRef: string;
   readonly score: number;
@@ -58,13 +65,13 @@ export interface BA1EpochLossResult {
 
 /** log(1 + exp(v)) computed without overflow. */
 export function bA1Softplus(v: number): number {
-  if (!Number.isFinite(v)) throw new BA1GroupLossError("softplus input must be finite");
+  if (!Number.isFinite(v)) throw new BA1NonFiniteLossError("softplus input must be finite");
   return v > 0 ? v + Math.log1p(Math.exp(-v)) : Math.log1p(Math.exp(v));
 }
 
 /** sigmoid(v) computed without overflow. */
 export function bA1Sigmoid(v: number): number {
-  if (!Number.isFinite(v)) throw new BA1GroupLossError("sigmoid input must be finite");
+  if (!Number.isFinite(v)) throw new BA1NonFiniteLossError("sigmoid input must be finite");
   return v >= 0 ? 1 / (1 + Math.exp(-v)) : Math.exp(v) / (1 + Math.exp(v));
 }
 
@@ -78,7 +85,7 @@ function assertScoredGroup(group: BA1ScoredGroup): void {
       throw new BA1GroupLossError(`group ${group.groupRef} has duplicate candidate ${candidate.candidateRef}`);
     }
     if (!Number.isFinite(candidate.score)) {
-      throw new BA1GroupLossError(`group ${group.groupRef} candidate ${candidate.candidateRef} score must be finite`);
+      throw new BA1NonFiniteLossError(`group ${group.groupRef} candidate ${candidate.candidateRef} score must be finite`);
     }
     refs.add(candidate.candidateRef);
   }
