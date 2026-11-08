@@ -19,6 +19,82 @@ export const BA1_ARCHITECTURE = Object.freeze({
   activation: "relu" as const,
 });
 
+export type BA1SlotKind = "gate-constant" | "control-constant" | "feature" | "reserved-constant";
+
+export interface BA1SlotContractEntry {
+  readonly slot: number;
+  readonly field: string;
+  readonly kind: BA1SlotKind;
+  readonly constant?: number;
+}
+
+export const BA1_SLOT_CONTRACT: readonly BA1SlotContractEntry[] = Object.freeze([
+  { slot: 0, field: "goal.requestedRoleIsSearchInputHost", kind: "gate-constant", constant: 1 },
+  { slot: 1, field: "goal.allowedScopeKnown", kind: "gate-constant", constant: 1 },
+  { slot: 2, field: "coverage.statusComplete", kind: "gate-constant", constant: 1 },
+  { slot: 3, field: "coverage.countMatch", kind: "gate-constant", constant: 1 },
+  { slot: 4, field: "coverage.unassessedIframePresent", kind: "gate-constant", constant: 0 },
+  { slot: 5, field: "coverage.unassessedObjectPresent", kind: "gate-constant", constant: 0 },
+  { slot: 6, field: "coverage.unassessedShadowRootPresent", kind: "gate-constant", constant: 0 },
+  { slot: 7, field: "candidate.insideAllowedScope", kind: "gate-constant", constant: 1 },
+  { slot: 8, field: "access", kind: "feature" },
+  { slot: 9, field: "host.input", kind: "feature" },
+  { slot: 10, field: "host.textarea", kind: "feature" },
+  { slot: 11, field: "host.contentEditable", kind: "feature" },
+  { slot: 12, field: "editable", kind: "feature" },
+  { slot: 13, field: "disabled", kind: "feature" },
+  { slot: 14, field: "readOnly", kind: "feature" },
+  { slot: 15, field: "cssHidden", kind: "feature" },
+  { slot: 16, field: "intersectsViewport", kind: "feature" },
+  { slot: 17, field: "type.text", kind: "feature" },
+  { slot: 18, field: "type.search", kind: "feature" },
+  { slot: 19, field: "type.tel", kind: "feature" },
+  { slot: 20, field: "type.email", kind: "feature" },
+  { slot: 21, field: "type.url", kind: "feature" },
+  { slot: 22, field: "type.number", kind: "feature" },
+  { slot: 23, field: "type.other", kind: "feature" },
+  { slot: 24, field: "inForm", kind: "feature" },
+  { slot: 25, field: "formRoleSearch", kind: "feature" },
+  { slot: 26, field: "nearbySubmit", kind: "feature" },
+  { slot: 27, field: "explicitTabIndex.negative", kind: "feature" },
+  { slot: 28, field: "explicitTabIndex.nonnegative", kind: "feature" },
+  { slot: 29, field: "explicitTabIndex.absent", kind: "feature" },
+  { slot: 30, field: "explicitTabIndex.invalid", kind: "feature" },
+  { slot: 31, field: "tabIndexFocus", kind: "feature" },
+  { slot: 32, field: "depth.shallow", kind: "feature" },
+  { slot: 33, field: "depth.middle", kind: "feature" },
+  { slot: 34, field: "depth.deep", kind: "feature" },
+  { slot: 35, field: "hasLabel", kind: "feature" },
+  { slot: 36, field: "hasPlaceholder", kind: "feature" },
+  { slot: 37, field: "hasAria", kind: "feature" },
+  { slot: 38, field: "nameChannelCoverage.complete", kind: "reserved-constant", constant: 0 },
+  { slot: 39, field: "nameChannelCoverage.partial", kind: "reserved-constant", constant: 0 },
+  { slot: 40, field: "markerHit", kind: "feature" },
+  { slot: 41, field: "nonSearchMarker", kind: "feature" },
+  { slot: 42, field: "textLenBand.empty", kind: "feature" },
+  { slot: 43, field: "textLenBand.short", kind: "feature" },
+  { slot: 44, field: "textLenBand.long", kind: "feature" },
+  { slot: 45, field: "usage.query_support", kind: "reserved-constant", constant: 0 },
+  { slot: 46, field: "usage.field_support", kind: "reserved-constant", constant: 0 },
+  { slot: 47, field: "relativePositionBand", kind: "reserved-constant", constant: 0 },
+  { slot: 48, field: "nearbySubmit.relativeSide", kind: "reserved-constant", constant: 0 },
+  { slot: 49, field: "nearbySubmit.distanceBand", kind: "reserved-constant", constant: 0 },
+  { slot: 50, field: "nearbySubmit.enabled", kind: "reserved-constant", constant: 0 },
+  { slot: 51, field: "ancestorContainmentDepthBand", kind: "reserved-constant", constant: 0 },
+  { slot: 52, field: "siblingOrderBand", kind: "reserved-constant", constant: 0 },
+  { slot: 53, field: "precedingTextClass", kind: "reserved-constant", constant: 0 },
+  { slot: 54, field: "reserved", kind: "reserved-constant", constant: 0 },
+  { slot: 55, field: "reserved", kind: "reserved-constant", constant: 0 },
+  { slot: 56, field: "candidateKindIsRelation", kind: "control-constant", constant: 1 },
+  { slot: 57, field: "optionSemanticsIsSelect", kind: "control-constant", constant: 1 },
+  { slot: 58, field: "candidateGroupEnumerationComplete", kind: "gate-constant", constant: 1 },
+  { slot: 59, field: "scorableCountGreaterThanOne", kind: "gate-constant" },
+  { slot: 60, field: "scorableCountEqualsOne", kind: "gate-constant" },
+  { slot: 61, field: "reserved", kind: "reserved-constant", constant: 0 },
+  { slot: 62, field: "reserved", kind: "reserved-constant", constant: 0 },
+  { slot: 63, field: "reserved", kind: "reserved-constant", constant: 0 },
+]);
+
 export type BA1EncoderErrorCode =
   | "ILLEGAL_CANDIDATE"
   | "MISSING_GATE"
@@ -123,20 +199,11 @@ const ACCESS_VALUE: Readonly<Record<Exclude<BA1Access, "unknown">, number>> = Ob
 });
 
 /** Slots that must always hold the reserved route constant 0 in the first slice. */
-export const BA1_RESERVED_SLOTS: readonly number[] = Object.freeze([
-  38, 39, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63,
-]);
-
-const BA1_REQUIRED_GATE_SLOTS = Object.freeze({
-  0: 1,
-  1: 1,
-  2: 1,
-  3: 1,
-  4: 0,
-  5: 0,
-  6: 0,
-  7: 1,
-});
+export const BA1_RESERVED_SLOTS: readonly number[] = Object.freeze(
+  BA1_SLOT_CONTRACT
+    .filter(entry => entry.kind === "reserved-constant")
+    .map(entry => entry.slot),
+);
 
 function bit(value: boolean): number {
   return value ? 1 : 0;
@@ -246,34 +313,14 @@ export function assertBA1EncodedRouteVector(
   assertBooleanSlots(input, [35, 36, 37], candidateRef);
   assertBooleanSlots(input, [40, 41], candidateRef);
   assertOneHotSlots(input, [42, 43, 44], candidateRef);
-  for (const [rawSlot, expected] of Object.entries(BA1_REQUIRED_GATE_SLOTS)) {
-    const slot = Number(rawSlot);
-    if (input[slot] !== expected) {
+  for (const entry of BA1_SLOT_CONTRACT) {
+    if (entry.constant === undefined) continue;
+    if (input[entry.slot] !== entry.constant) {
       throw new BA1RouteEncoderError(
-        "MISSING_GATE",
-        `candidate ${candidateRef} x[${slot}] must be ${expected} after R1-R5/B1-B3 gates`,
+        entry.kind === "feature" ? "ILLEGAL_CANDIDATE" : "MISSING_GATE",
+        `candidate ${candidateRef} x[${entry.slot}] must be ${entry.constant} after R1-R5/B1-B3 gates`,
       );
     }
-  }
-  for (const slot of BA1_RESERVED_SLOTS) {
-    if (input[slot] !== 0) {
-      throw new BA1RouteEncoderError(
-        "ILLEGAL_CANDIDATE",
-        `candidate ${candidateRef} reserved slot x[${slot}] must be 0`,
-      );
-    }
-  }
-  if (input[56] !== 1 || input[57] !== 1) {
-    throw new BA1RouteEncoderError(
-      "ILLEGAL_CANDIDATE",
-      `candidate ${candidateRef} must stay candidateKind=relation/optionSemantics=select`,
-    );
-  }
-  if (input[58] !== 1) {
-    throw new BA1RouteEncoderError(
-      "MISSING_GATE",
-      `candidate ${candidateRef} candidateGroupEnumerationComplete must be true`,
-    );
   }
 }
 

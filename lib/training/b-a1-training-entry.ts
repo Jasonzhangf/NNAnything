@@ -38,6 +38,7 @@ import {
   BA1_ROUTE_DECISION_KIND,
   BA1_ROUTE_DOMAIN,
   BA1_RESERVED_SLOTS,
+  BA1_SLOT_CONTRACT,
   assertBA1EncodedRouteGroup,
 } from "./b-a1-route-encoder.js";
 import { validateMissingModeConsistency } from "./unified-missing-mode.js";
@@ -704,57 +705,47 @@ async function readJsonResource(path: string, label: string): Promise<unknown> {
   }
 }
 
-function assertBA1FeatureThresholdsContent(raw: unknown): void {
-  if (!isRecord(raw)) throw new BA1TrainDataError("thresholds resource must be an object");
-  if (raw.schema !== "nnanything.feature-thresholds.v1") {
-    throw new BA1TrainDataError("thresholds resource schema mismatch");
-  }
-  if (raw.route !== `${BA1_ROUTE_DOMAIN}/${BA1_ROUTE_DECISION_KIND}`) {
-    throw new BA1TrainDataError(`thresholds resource route must be ${BA1_ROUTE_DOMAIN}/${BA1_ROUTE_DECISION_KIND}`);
-  }
-  if (raw.encoderVersion !== BA1_ENCODER_VERSION) {
-    throw new BA1TrainDataError(`thresholds resource encoderVersion must be ${BA1_ENCODER_VERSION}`);
-  }
-  if (!isRecord(raw.buckets)) throw new BA1TrainDataError("thresholds resource buckets must be an object");
-  for (const bucketName of [
-    "constraints", "knownFacts", "missingFacts", "objectRefs", "requiredArgsRatio", "requiredMissing",
-  ] as const) {
-    const bucket = raw.buckets[bucketName];
-    if (
-      !Array.isArray(bucket)
-      || bucket.length !== 4
-      || !bucket.every(value => typeof value === "number" && Number.isFinite(value))
-    ) {
-      throw new BA1TrainDataError(`thresholds bucket ${bucketName} must have four finite entries`);
-    }
-    if (!(bucket[1] > bucket[0] && bucket[2] > bucket[1] && bucket[3] > bucket[2])) {
-      throw new BA1TrainDataError(`thresholds bucket ${bucketName} must be strictly increasing`);
-    }
-  }
-}
-
 function assertBA1SlotMapContent(raw: unknown): void {
   if (!isRecord(raw)) throw new BA1TrainDataError("slot map resource must be an object");
   if (raw.schema !== "nnanything.b-a1.slot-map.v1") {
     throw new BA1TrainDataError("slot map resource schema mismatch");
   }
+  if (raw.route !== `${BA1_ROUTE_DOMAIN}/${BA1_ROUTE_DECISION_KIND}`) {
+    throw new BA1TrainDataError(`slot map resource route must be ${BA1_ROUTE_DOMAIN}/${BA1_ROUTE_DECISION_KIND}`);
+  }
   if (raw.encoderVersion !== BA1_ENCODER_VERSION) {
     throw new BA1TrainDataError(`slot map resource encoderVersion must be ${BA1_ENCODER_VERSION}`);
   }
-  if (!Array.isArray(raw.slots) || raw.slots.length !== 64) {
-    throw new BA1TrainDataError("slot map resource must define exactly 64 slots");
+  if (!Array.isArray(raw.slots) || raw.slots.length !== BA1_SLOT_CONTRACT.length) {
+    throw new BA1TrainDataError(`slot map resource must define exactly ${BA1_SLOT_CONTRACT.length} slots`);
   }
-  for (let slot = 0; slot < 64; slot += 1) {
+  for (let slot = 0; slot < BA1_SLOT_CONTRACT.length; slot += 1) {
+    const expected = BA1_SLOT_CONTRACT[slot];
+    if (expected === undefined || expected.slot !== slot) {
+      throw new BA1TrainDataError(`B-A1 slot contract is missing slot ${slot}`);
+    }
     const entry = raw.slots[slot];
-    if (!isRecord(entry) || entry.slot !== slot || typeof entry.field !== "string" || entry.field === "") {
-      throw new BA1TrainDataError(`slot map entry ${slot} must have slot=${slot} and a non-empty field`);
+    if (!isRecord(entry) || entry.slot !== slot) {
+      throw new BA1TrainDataError(`slot map entry ${slot} must have slot=${slot}`);
     }
-    const reserved = BA1_RESERVED_SLOTS.includes(slot);
-    if (entry.kind !== (reserved ? "reserved-constant" : "feature-or-constant")) {
-      throw new BA1TrainDataError(`slot map entry ${slot} has wrong kind=${String(entry.kind)}`);
+    if (entry.field !== expected.field) {
+      throw new BA1TrainDataError(
+        `slot map entry ${slot} field must be ${expected.field}; got ${String(entry.field)}`,
+      );
     }
-    if (entry.value !== (reserved ? 0 : 1)) {
-      throw new BA1TrainDataError(`slot map entry ${slot} has wrong value=${String(entry.value)}`);
+    if (entry.kind !== expected.kind) {
+      throw new BA1TrainDataError(
+        `slot map entry ${slot} kind must be ${expected.kind}; got ${String(entry.kind)}`,
+      );
+    }
+    if (expected.constant !== undefined) {
+      if (entry.constant !== expected.constant) {
+        throw new BA1TrainDataError(
+          `slot map entry ${slot} constant must be ${expected.constant}; got ${String(entry.constant)}`,
+        );
+      }
+    } else if (Object.prototype.hasOwnProperty.call(entry, "constant")) {
+      throw new BA1TrainDataError(`slot map entry ${slot} must not declare a constant`);
     }
   }
 }
@@ -775,10 +766,9 @@ export async function validateBA1ResourceContent(
   const thresholdsPath = resolve(baseDir, resources.thresholdsRef);
   const missingModeTablePath = resolve(baseDir, resources.missingModeTableRef);
   const slotMapPath = resolve(baseDir, resources.slotMapRef);
-  const thresholdsRaw = await readJsonResource(thresholdsPath, "thresholds");
+  await readJsonResource(thresholdsPath, "thresholds");
   const missingModeRaw = await readJsonResource(missingModeTablePath, "missing mode");
   const slotMapRaw = await readJsonResource(slotMapPath, "slot map");
-  assertBA1FeatureThresholdsContent(thresholdsRaw);
   try {
     validateMissingModeTable(missingModeRaw);
   } catch (caught) {

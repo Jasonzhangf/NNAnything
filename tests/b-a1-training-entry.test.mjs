@@ -125,6 +125,78 @@ function config(overrides = {}) {
   };
 }
 
+const B_A1_SLOT_MAP = [
+  [0, "goal.requestedRoleIsSearchInputHost", "gate-constant", 1],
+  [1, "goal.allowedScopeKnown", "gate-constant", 1],
+  [2, "coverage.statusComplete", "gate-constant", 1],
+  [3, "coverage.countMatch", "gate-constant", 1],
+  [4, "coverage.unassessedIframePresent", "gate-constant", 0],
+  [5, "coverage.unassessedObjectPresent", "gate-constant", 0],
+  [6, "coverage.unassessedShadowRootPresent", "gate-constant", 0],
+  [7, "candidate.insideAllowedScope", "gate-constant", 1],
+  [8, "access", "feature"],
+  [9, "host.input", "feature"],
+  [10, "host.textarea", "feature"],
+  [11, "host.contentEditable", "feature"],
+  [12, "editable", "feature"],
+  [13, "disabled", "feature"],
+  [14, "readOnly", "feature"],
+  [15, "cssHidden", "feature"],
+  [16, "intersectsViewport", "feature"],
+  [17, "type.text", "feature"],
+  [18, "type.search", "feature"],
+  [19, "type.tel", "feature"],
+  [20, "type.email", "feature"],
+  [21, "type.url", "feature"],
+  [22, "type.number", "feature"],
+  [23, "type.other", "feature"],
+  [24, "inForm", "feature"],
+  [25, "formRoleSearch", "feature"],
+  [26, "nearbySubmit", "feature"],
+  [27, "explicitTabIndex.negative", "feature"],
+  [28, "explicitTabIndex.nonnegative", "feature"],
+  [29, "explicitTabIndex.absent", "feature"],
+  [30, "explicitTabIndex.invalid", "feature"],
+  [31, "tabIndexFocus", "feature"],
+  [32, "depth.shallow", "feature"],
+  [33, "depth.middle", "feature"],
+  [34, "depth.deep", "feature"],
+  [35, "hasLabel", "feature"],
+  [36, "hasPlaceholder", "feature"],
+  [37, "hasAria", "feature"],
+  [38, "nameChannelCoverage.complete", "reserved-constant", 0],
+  [39, "nameChannelCoverage.partial", "reserved-constant", 0],
+  [40, "markerHit", "feature"],
+  [41, "nonSearchMarker", "feature"],
+  [42, "textLenBand.empty", "feature"],
+  [43, "textLenBand.short", "feature"],
+  [44, "textLenBand.long", "feature"],
+  [45, "usage.query_support", "reserved-constant", 0],
+  [46, "usage.field_support", "reserved-constant", 0],
+  [47, "relativePositionBand", "reserved-constant", 0],
+  [48, "nearbySubmit.relativeSide", "reserved-constant", 0],
+  [49, "nearbySubmit.distanceBand", "reserved-constant", 0],
+  [50, "nearbySubmit.enabled", "reserved-constant", 0],
+  [51, "ancestorContainmentDepthBand", "reserved-constant", 0],
+  [52, "siblingOrderBand", "reserved-constant", 0],
+  [53, "precedingTextClass", "reserved-constant", 0],
+  [54, "reserved", "reserved-constant", 0],
+  [55, "reserved", "reserved-constant", 0],
+  [56, "candidateKindIsRelation", "control-constant", 1],
+  [57, "optionSemanticsIsSelect", "control-constant", 1],
+  [58, "candidateGroupEnumerationComplete", "gate-constant", 1],
+  [59, "scorableCountGreaterThanOne", "gate-constant"],
+  [60, "scorableCountEqualsOne", "gate-constant"],
+  [61, "reserved", "reserved-constant", 0],
+  [62, "reserved", "reserved-constant", 0],
+  [63, "reserved", "reserved-constant", 0],
+].map(([slot, field, kind, constant]) => ({
+  slot,
+  field,
+  kind,
+  ...(constant === undefined ? {} : { constant }),
+}));
+
 async function writeResourceFiles(dir) {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "thresholds.json"), JSON.stringify({
@@ -146,15 +218,9 @@ async function writeResourceFiles(dir) {
   }) + "\n");
   await writeFile(join(dir, "slots.json"), JSON.stringify({
     schema: "nnanything.b-a1.slot-map.v1",
+    route: "browser/R",
     encoderVersion: BA1_ENCODER_VERSION,
-    slots: Array.from({ length: 64 }, (_, slot) => ({
-      slot,
-      field: `x${slot}`,
-      kind: [38, 39, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63].includes(slot)
-        ? "reserved-constant"
-        : "feature-or-constant",
-      value: [38, 39, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63].includes(slot) ? 0 : 1,
-    })),
+    slots: B_A1_SLOT_MAP,
   }) + "\n");
 }
 
@@ -686,9 +752,8 @@ test("invalid resource content fails before any optimizer step or package output
   );
 
   for (const [name, patch] of [
-    ["wrong threshold encoder", { thresholds: { encoderVersion: "nnanything.unified-step.encoder.v2" } }],
-    ["missing threshold bucket", { thresholds: { buckets: { constraints: [0, 1, 2, 4] } } }],
     ["wrong slot map schema", { slots: { schema: "not-b-a1" } }],
+    ["wrong slot map route", { slots: { route: "browser/D" } }],
     ["wrong slot map encoder", { slots: { encoderVersion: "wrong" } }],
     ["wrong slot map cardinality", { slots: { slots: [{ slot: 0 }] } }],
   ]) {
@@ -716,6 +781,73 @@ test("invalid resource content fails before any optimizer step or package output
     );
     await assert.rejects(readFile(join(dir, "package.json")));
   }
+});
+
+test("slot map uses the accepted B-A1 field semantics and rejects drift before output", async () => {
+  const g1 = encodedGroup("g1", ["c1"]);
+  const baseDir = await mkdtemp(join(tmpdir(), "b-a1-resource-semantics-"));
+  const { studentRowsPath, supervisionRowsPath } = await writeRows(
+    baseDir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+  );
+
+  const cases = [
+    ["swapped fields", slots => {
+      [slots[9].field, slots[10].field] = [slots[10].field, slots[9].field];
+    }],
+    ["wrong gate constant", slots => {
+      slots[4].constant = 1;
+    }],
+    ["feature carrying a constant", slots => {
+      slots[8].constant = 1;
+    }],
+  ];
+
+  for (const [name, mutate] of cases) {
+    const dir = await mkdtemp(join(tmpdir(), `b-a1-resource-${name.replace(/\W+/g, "-")}-`));
+    await writeResourceFiles(dir);
+    const raw = JSON.parse(await readFile(join(dir, "slots.json"), "utf8"));
+    mutate(raw.slots);
+    await writeFile(join(dir, "slots.json"), JSON.stringify(raw) + "\n");
+    await assert.rejects(
+      trainBA1UnifiedRelationDecision({
+        config: config({ maxEpochs: 3, fixedRecipe: false }),
+        studentRowsPath,
+        supervisionRowsPath,
+        packageOutPath: join(dir, "package.json"),
+      }),
+      error => {
+        assert.equal(error?.code, "DATA_INVALID");
+        return true;
+      },
+    );
+    await assert.rejects(readFile(join(dir, "package.json")));
+  }
+});
+
+test("generic TS/JS threshold buckets are not a B-A1 training precondition", async () => {
+  const g1 = encodedGroup("g1", ["c1"]);
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-threshold-unused-"));
+  const { studentRowsPath, supervisionRowsPath } = await writeRows(
+    dir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+  );
+  await writeFile(join(dir, "thresholds.json"), JSON.stringify({
+    schema: "nnanything.feature-thresholds.v1",
+    route: "browser/R",
+    encoderVersion: BA1_ENCODER_VERSION,
+    buckets: {},
+  }) + "\n");
+
+  const result = await trainBA1UnifiedRelationDecision({
+    config: config({ maxEpochs: 1, fixedRecipe: false }),
+    studentRowsPath,
+    supervisionRowsPath,
+    packageOutPath: join(dir, "package.json"),
+  });
+  assert.equal(result.report.completedEpochs, 1);
 });
 
 test("missing resource files fail before any optimizer step or package output", async () => {
