@@ -3516,3 +3516,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 调度结论：没有新的 ready 授权任务或可集成候选，因此不唤醒、不派单、不制造任务。`sub-m1794127022442-986` 尚未到期，project patrol `sub-m1793963843713-143` 已 armed；无需续订或取消。
 - 资源：`git worktree list` 仅主工作树与 Henry 任务工作树；主工作树唯一未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
 - 边界：本轮仅消费通知、只读核对与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+
+## 2026-11-08 Iris：goal deadline 续订与 P0 board rev91（08:46Z）
+
+- 目的：消费本轮本人 goal deadline 唤醒，显式续订目标订阅，并同步 P0 board 的当前事实。
+- 证据：`collab recv` 已消费 `m1794127517462-1023`；旧订阅 `sub-m1794126909212-972` 已 consumed（trigger_ms 1794127509162，fired_count=1）；同一 roadmap 已显式重订为 `sub-m1794127546728-1024`（one-shot、10m、armed、trigger_ms 1794128146674、error=null）。`collab board update` 已把 P0 从 rev90 更新为 rev91 working，next_step 写入当前订阅ID和最新 `origin/main=beae34d`。
+- 进展差异：P0 board rev90→91；无新增 ready 授权实现或审计切片，无可集成候选，不制造新任务。Carol 的 `nn-code-redesign-learning-loop-r1` 仍 working（rev8，reviewer Alice），Henry 的 `b-a1-first-fit-henry-20261108` 仍 working（rev2，reviewer Kate），search-read/rust/swift 继续维持 parked（Emma missing）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
+- 资源：`origin/main=beae34d`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Carol 推进 learning-loop 设计交付、Henry 完成 B-A1 first-fit 并交 Kate/Alice 审查，或 Jenny 新调度；下一次 deadline trigger（1794128146674）后再显式重订。
