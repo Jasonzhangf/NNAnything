@@ -11,6 +11,16 @@
 - 07:48Z 再次核对当前绑定与 board 后，消费 goal deadline `m1794123936875-717`。P0 仍 working rev81，`origin/main=6435859`，`ready_authorized_work=false`，无 pending merge、无 blocked/timed-out；Emma 四项 `nn-code-redesign-*` 仍 parked（owner offline、无可执行设计合同），Grace 巡检 working。因 P0 继续调度仍有效，显式续订本人 goal 为 `sub-m1794124094099-732`（10m one-shot armed，active/subscribed，error=null）；project board patrol 继续武装。已通过 board revision 81 记录当前事实，并准备向 Jenny 报告。本轮未训练、未改权重/gold/threshold/采用，未产品接线或安装，未 merge/push，未动 daemon/tmux。
 - 07:57Z 已完成向 Jenny 的报告（`m1794124136154-737`），并将本轮恢复日志提交推送为 `bdd3329`（docs-only，note.md 一行，非产品代码）；`origin/main` 刷新为 `bdd3329`，board 已同步为 revision 82，goal 订阅 `sub-m1794124094099-732` 保持 armed/active。P0 仍 working，无 ready 派发；四个 Emma-owned `nn-code-redesign-*` 继续 parked，恢复条件不变。
 
+## 2026-11-08 Jenny：master 巡检，Iris 补充回执对账，goal 续订（07:48Z-07:57Z）
+
+- 目的：消费 worker-idle 批次与 goal deadline，核对 P0/P1、peer 容量、待集成候选与自有资源是否产生新的可执行动作。
+- 证据：`collab recv` 已消费 goal deadline `m1794124089627-731`、Iris 恢复回执 `m1794124136154-737`、Iris 补充回执 `m1794124395278-755` 与 worker-idle `m1794124462660-758`、`m1794124521437-762`；inbox 随后为 0。goal deadline 因 P0 继续调度，07:48Z 用同一 roadmap 显式重订为 `sub-m1794124117324-734`（10m、最多 100 次），`appsdk goal status` 回读 active/subscribed、error=null、remote_state=armed、trigger≈07:58Z；project patrol 订阅 `sub-m1793963843713-143` 仍 armed。
+- 对账 Iris docs-only 提交：Iris `m1794124395278-755` 报告 origin/main 已推到 `e62b15d`；本地 `git fetch` 后 fast-forward 无变化，`git rev-parse HEAD origin/main` 均为 `e62b15d`（Iris 的 `bdd3329` 恢复日志与 `e62b15d` board 同步日志）。本地与远端一致，Iris 本轮仅改 note.md，无产品代码。
+- 调度核对：`dispatch-sweep.sh` 返回 idle_peers=[Henry, Carol, Iris, Leo, Jack]、idle_with_work 仅 Iris 的 P0 `nnanything-overall-redesign-orchestration-r1`（working）、unassigned_ready/awaiting_acceptance/queued_for_peer 均空。`appsdk longhorizon show` 显示 pending_merges=[]、goal active/patrol armed。Grace 巡检 working（4h 周期，不派开发）；Emma 仍 presence=missing、TMUX_ENDPOINT_MISSING，四个 `nn-code-redesign-*` 维持 parked-pending-design-peer；Leo/Henry/Carol/Jack 空 idle，无 ready 授权任务，未制造任务。
+- 资源：main `e62b15d=origin/main`，`git worktree list` 单条（主工作树）；唯一未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 是 B-A1 CUA fixture 脚手架，`rg` 全仓（tests/playground/docs/lib）无引用，按既有 PROTECTED_HOLD 保留，不提交、不删除、不据此冒称 B-A1 已有黑盒消费。
+- 下一步：无 owner 级可执行缺口；等待 Emma 恢复或改派 live research owner 并经 Alice 接受可执行研究合同后重跑 DAG gate；Grace 按既有 4h 周期继续；next goal deadline≈07:58Z 到期后按生命周期显式续订。
+- 边界：本轮仅 inbox 消费、goal 续订、board/longhorizon/dispatch 只读核对、main fast-forward 与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
+
 ## 2026-11-08 Jenny：B-A1 样本生成集成关闭，B-R 归因关闭，Leo evaluator 改派 Kate（06:35Z）
 
 - Kate 对 Henry B-A1 与 Carol B-R 两项已交付任务完成独立证据审查，均结论 ACCEPT（有 review-findings-kate.md；converter 9/9、B-A1 59/59、verify-rework 31 行/1054 interval/0 差异）。
