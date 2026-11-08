@@ -8,6 +8,7 @@
 - 07:20Z 消费 goal deadline `m1794122365360-591`（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`，LAST_REMINDER）；因 P0 任务仍 working 且授权目标继续，07:24Z 显式续订同一条 goal，新订阅 `sub-m1794122643578-614` armed（10m），goal active/subscribed、error=null。board patrol 仍 armed，P0 任务在 `eligible_task_ids` 中。
 - 07:34Z 消费 goal deadline `sub-m1794122643578-614`（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`）；因 P0 任务仍 working 且授权目标继续，07:35Z 显式续订同一条 goal，回执 one-shot armed（10m），goal active/subscribed、error=null。board patrol armed；本轮再次核对 board：P0 working，`ready_authorized_work=false`，Emma 仍 offline，四个 `nn-code-redesign-*` 子任务保持 parked，无 pending merge，无 blocked/timed-out。无可派工作；等待 Emma 恢复或改派+Alice 接受设计合同后重跑 DAG gate。
 - 07:40Z board-idle patrol `m1794123579995-688` 已消费；P0 `nnanything-overall-redesign-orchestration-r1` 仍 working rev80，`ready_authorized_work=false`，四项 Emma subtask 保持 parked（owner offline），无 pending merge、无 blocked/timed-out，未解除 patrol（P0 未关闭，仍需兜底唤醒）。未训练、未改权重/gold/threshold/采用，未产品接线或安装，未 merge/push，未动 daemon/tmux。
+- 07:48Z 再次核对当前绑定与 board 后，消费 goal deadline `m1794123936875-717`。P0 仍 working rev81，`origin/main=6435859`，`ready_authorized_work=false`，无 pending merge、无 blocked/timed-out；Emma 四项 `nn-code-redesign-*` 仍 parked（owner offline、无可执行设计合同），Grace 巡检 working。因 P0 继续调度仍有效，显式续订本人 goal 为 `sub-m1794124094099-732`（10m one-shot armed，active/subscribed，error=null）；project board patrol 继续武装。已通过 board revision 81 记录当前事实，并准备向 Jenny 报告。本轮未训练、未改权重/gold/threshold/采用，未产品接线或安装，未 merge/push，未动 daemon/tmux。
 
 ## 2026-11-08 Jenny：B-A1 样本生成集成关闭，B-R 归因关闭，Leo evaluator 改派 Kate（06:35Z）
 
