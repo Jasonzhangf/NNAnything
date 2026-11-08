@@ -1,5 +1,16 @@
 # 当前任务
 
+## 2026-11-08 Jenny：evaluate REWORK 与证据返工路由，goal 重臂（18:47Z）
+
+- 已消费 Alice TS/JS evaluate REWORK `m1794163104553-4237` 与 Grace round-26 `m1794163180227-4246`，以及本时段 worker-idle 批次；inbox 随后为 0。
+- 现状：`tsjs-evaluate-engineering-henry-20261108` 仍为 working，reviewer Alice，真实现场候选为 `b201f45`（独占树 `/Volumes/Intel/playground/nnanything/tsjs-evaluate-engineering-henry-20261108`，base `4bce702`）；Alice 审计报告落盘 `/Volumes/Intel/playground/nnanything-runs/tsjs-evaluate-engineering-henry-20261108/alice-review.md`，正式结论 REWORK，F1-F4 见该报告。
+- Alice 已尝试 `collab task review --rework` 但服务拒绝，原因是任务尚为 working、未 deliver；已要求 Henry 先正式 deliver 再让 Alice 写正式 rework。
+- Grace round-26 新缺陷：`efa49dc` 为 build.log 早于最终提交并误报 Java 缺失，但 host 有 `/usr/bin/javac 17.0.20.1` 与 `/opt/homebrew/opt/openjdk@17/bin/javac`；`4f40e5f` 为 `unified-runner-evaluate.ts` 中 `rootStateOf` 是 no-op 包装，须移除或内联。board task next_step 仍为 null。
+- 处置：已向 Henry 发送 `m1794163697721-4318`（reply-required），要求其正式 deliver，并按 Alice F1-F4 定点修复，重建评审状态 build 并更正/消融陈旧 JVM 证据，移除/内联 no-op 包装，更新 task next_step；完成前不启动真实 holdout、不宣称训练准入闭合。
+- goal 已 consumed/recovery_required，因 P0/P1 继续调度，已用同一 `docs/autonomous-capability-roadmap.md` 显式重臂；`appsdk goal status` 回读 active=true、desired=observed=subscribed。未改产品代码/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 18:57Z 消费 deadline `m1794164245589-4368`（LAST_REMINDER）；P0/P1 仍在执行，已用同一目标文档按 600000ms 显式续订，回读 active=true、desired=observed=subscribed。本轮仍未改产品代码、权重、gold、threshold 或采用状态，未训练、接线、安装或操作 daemon/tmux。
+- 19:07Z 核对 Henry evaluate 交付头与 board/Iris 记录冲突：`c1c14b7` 只是红测前提交（唯一差异是测试名改为 not ready），`b201f45` 才是含实现的最终候选，`b201f45^ == c1c14b7^ == 4bce702`，且 `branch --contains c1c14b7` 为空。Alice review 审的是 `b201f45`，其“Jenny 消息引 c1c14b7、未推断新候选”与证据一致。已发送 `m1794164966390-4419`（reply-required）要求 Henry：交付头以 `b201f45` 或其修复后新提交为准；按 Alice F1-F4 修复；用 JAVA_HOME=/opt/homebrew/opt/openjdk@17 重建与最终提交一致的 build 证据并更正/消融陈旧 `build.log`；移除/内联 no-op `rootStateOf`；随后正式 `collab task deliver` 并更新 board next_step。边界仍未改产品代码、权重、gold、threshold 或采用状态，未训练、接线、安装或操作 daemon/tmux。
+
 ## 2026-11-08 Jenny：Rust 收口完成，Swift 启动（15:58Z）
 
 - 已消费重复 worker-idle 批次 `m1794153265002-3124`、`m1794153281295-3128`、`m1794153324630-3131`、`m1794153335644-3132`、`m1794153397209-3138`、`m1794153641095-3164`，inbox 随后为 0。
