@@ -307,6 +307,18 @@ function recordingExecutor({ fail = null } = {}) {
       });
     } else if (input.edgeRef === E2) {
       moduleFacts.push({
+        kind: "re_export",
+        moduleRef: "sources/src/util.ts",
+        name: "helper",
+        sourceName: "helper",
+        localName: "helper",
+        exportedAlias: "helper",
+        moduleSpecifierRaw: "./impl",
+        resolvedModuleRef: "sources/src/impl.ts",
+        sourceTargetRef: "mod:sources/src/impl.ts#top:helper",
+        legacyFacts: ["export:helper", "reexport:helper<-./impl"],
+      });
+      moduleFacts.push({
         kind: "declaration",
         moduleRef: "sources/src/impl.ts",
         name: "helper",
@@ -340,7 +352,15 @@ function recordingExecutor({ fail = null } = {}) {
       ],
       moduleFacts,
       evidenceRefs: [`ev:executor:${input.stepId}:${input.edgeRef ?? "none"}`],
-      coverage: { modules: [input.moduleRef ?? ""], targetModuleReached: true, note: null },
+      coverage: {
+        modules: input.edgeRef === E1
+          ? ["sources/src/util.ts", "sources/src/entry.ts"]
+          : input.edgeRef === E2
+            ? ["sources/src/impl.ts", "sources/src/util.ts"]
+            : [input.moduleRef ?? ""],
+        targetModuleReached: true,
+        note: null,
+      },
       failure: null,
     };
   };

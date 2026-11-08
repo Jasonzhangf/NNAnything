@@ -108,6 +108,27 @@ async function runWithReplacedUtil(requestId, utilSource) {
   return result;
 }
 
+async function runWithReplacedSources(requestId, replacements) {
+  const work = await mkdtemp(join(tmpdir(), `p1-1-real-corpus-${requestId}-`));
+  const sourceRoot = join(work, "source-root");
+  await cp(join(CORPUS_ROOT, FAMILY, "sources"), join(sourceRoot, "sources"), {
+    recursive: true,
+  });
+  for (const [relativePath, source] of Object.entries(replacements)) {
+    await writeFile(join(sourceRoot, relativePath), source, "utf8");
+  }
+  const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+  const result = await runTsJsUnifiedMultiStepDecision({
+    requestId,
+    packagePath: modelPath,
+    episodes: await positiveEpisodes(),
+    grantedEffects: ["read_only"],
+    executor: createTsJsFileBackedStepExecutor({ sourceRoot }),
+  });
+  await rm(work, { recursive: true, force: true });
+  return result;
+}
+
 test("real corpus advance reads the actual module files and feeds previous execution", async () => {
   const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-"));
   try {
@@ -147,6 +168,7 @@ test("real corpus advance reads the actual module files and feeds previous execu
     assert.equal(result.steps[1]?.previousActionRef, result.steps[0]?.executionReceipt?.actionRef);
     const firstReadFacts = result.steps[0]?.observedPostState.observedFacts ?? [];
     const secondReadFacts = result.steps[1]?.observedPostState.observedFacts ?? [];
+    assert.equal(firstReadFacts.includes("file:sources/src/entry-pos.ts"), true);
     assert.equal(firstReadFacts.includes("file:sources/src/util.ts"), true);
     assert.equal(firstReadFacts.some(fact => fact.startsWith("reexport:forwarded<-")), true);
     assert.equal(secondReadFacts.includes("file:sources/src/impl.ts"), true);
@@ -171,6 +193,17 @@ test("real corpus advance reads the actual module files and feeds previous execu
       moduleSpecifierRaw: "./util",
       sourceTargetRef: "mod:sources/src/util.ts#top:forwarded",
     });
+    assert.equal(importVerification.observedModuleRef, "sources/src/entry-pos.ts");
+    assert.equal(
+      importVerification.matchedModuleFacts.some(fact =>
+        fact.kind === "import"
+        && fact.moduleRef === "sources/src/entry-pos.ts"
+        && fact.sourceName === "forwarded"
+        && fact.localName === "helper"
+        && fact.moduleSpecifierRaw === "./util"),
+      true,
+      "the import edge must be backed by the current containing-module tuple",
+    );
     assert.equal(
       importVerification.matchedModuleFacts.some(fact =>
         fact.kind === "re_export"
@@ -266,6 +299,8 @@ test("a legal unrelated read followed by RETURN does not satisfy the relation ro
     assert.ok(terminal);
     const unrelatedBinding = {
       ...step0.observedBindings[0],
+      edgeRef: "edge:sources/src/other-different.ts:local:0",
+      edgeKind: "local",
       sourceName: "helper",
       sourceModule: {
         state: "known",
@@ -278,6 +313,15 @@ test("a legal unrelated read followed by RETURN does not satisfy the relation ro
     const unrelatedStep = {
       ...step0,
       observedBindings: [unrelatedBinding],
+      remainingObligations: [{
+        ...step0.remainingObligations[0],
+        ref: unrelatedBinding.edgeRef,
+        arguments: [{
+          name: "target",
+          type: "binding_edge",
+          valueRef: unrelatedBinding.edgeRef,
+        }],
+      }],
     };
     const returnStep = {
       ...terminal,
@@ -352,7 +396,19 @@ test("deleted reexport facts replace preset state and leave the relation unsatis
     assert.equal(failedImport.expectedBinding.sourceName, "forwarded");
     assert.equal(failedImport.expectedBinding.localName, "helper");
     assert.equal(failedImport.expectedBinding.moduleSpecifierRaw, "./util");
-    assert.deepEqual(failedImport.matchedModuleFacts, []);
+    assert.equal(
+      failedImport.matchedModuleFacts.some(fact =>
+        fact.kind === "import" && fact.moduleRef === "sources/src/entry-pos.ts"),
+      true,
+      "the current containing-module import observation must remain visible",
+    );
+    assert.equal(
+      failedImport.matchedModuleFacts.some(fact =>
+        fact.moduleRef === "sources/src/util.ts"
+        && (fact.kind === "export" || fact.kind === "re_export")),
+      false,
+      "a failed source export must not be represented as a matched source fact",
+    );
     assert.notEqual(result.rootEvaluation.result, "satisfied");
   } finally {
     await rm(work, { recursive: true, force: true });
@@ -577,6 +633,141 @@ test("root coverage rejects an unexecuted relation edge after the executed subse
       false,
       "the unexecuted required relation edge must remain without verified coverage",
     );
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test("import removed from the containing entry module does not satisfy the relation", async () => {
+  const result = await runWithReplacedSources(
+    "real-corpus-entry-import-removed",
+    {
+      "sources/src/entry-pos.ts": "export const result = helper(1);\n",
+    },
+  );
+  assert.notEqual(result.rootEvaluation.result, "satisfied");
+  const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+  assert.ok(terminalState);
+  const failedImport = terminalState.bindingVerifications.find(verification =>
+    verification.edgeRef === "edge:sources/src/entry-pos.ts:import:0"
+    && verification.phase === "executed");
+  assert.ok(failedImport);
+  assert.equal(failedImport.verified, false);
+  assert.equal(failedImport.failureReason, "import_tuple_mismatch");
+  assert.equal(failedImport.expectedBinding.containingModuleRef, "mod:sources/src/entry-pos.ts");
+  assert.equal(failedImport.observedModuleRef, "sources/src/entry-pos.ts");
+});
+
+test("same-name local binding replacing the entry import does not satisfy the relation", async () => {
+  const result = await runWithReplacedSources(
+    "real-corpus-entry-local-binding",
+    {
+      "sources/src/entry-pos.ts": [
+        "const helper = (n: number): number => n;",
+        "export const result = helper(1);",
+        "",
+      ].join("\n"),
+    },
+  );
+  assert.notEqual(result.rootEvaluation.result, "satisfied");
+  const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+  assert.ok(terminalState);
+  const failedImport = terminalState.bindingVerifications.find(verification =>
+    verification.edgeRef === "edge:sources/src/entry-pos.ts:import:0"
+    && verification.phase === "executed");
+  assert.ok(failedImport);
+  assert.equal(failedImport.verified, false);
+  assert.equal(failedImport.failureReason, "import_tuple_mismatch");
+  assert.equal(failedImport.expectedBinding.containingModuleRef, "mod:sources/src/entry-pos.ts");
+  assert.equal(failedImport.observedModuleRef, "sources/src/entry-pos.ts");
+});
+
+test("private source declaration does not prove a re-export edge", async () => {
+  const result = await runWithReplacedSources(
+    "real-corpus-private-source-declaration",
+    {
+      "sources/src/impl.ts": "function helper(n: number): number {\n  return n;\n}\n",
+    },
+  );
+  assert.notEqual(result.rootEvaluation.result, "satisfied");
+  const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+  assert.ok(terminalState);
+  const failedReexport = terminalState.bindingVerifications.find(verification =>
+    verification.edgeRef === "edge:sources/src/util.ts:reexport:0"
+    && verification.phase === "executed");
+  assert.ok(failedReexport);
+  assert.equal(failedReexport.verified, false);
+  assert.equal(failedReexport.failureReason, "source_module_declaration_missing");
+  assert.equal(failedReexport.expectedBinding.sourceModuleRef, "mod:sources/src/impl.ts");
+  assert.equal(failedReexport.expectedBinding.sourceName, "helper");
+  assert.equal(failedReexport.expectedBinding.sourceTargetRef, "mod:sources/src/impl.ts#top:helper");
+  assert.equal(failedReexport.observedModuleRef, "sources/src/impl.ts");
+  assert.equal(
+    terminalState.realModuleFacts.some(fact =>
+      fact.kind === "declaration" && fact.moduleRef === "sources/src/impl.ts"),
+    true,
+    "the actual private source declaration must remain in real module facts",
+  );
+});
+
+test("root coverage rejects a same-edgeRef verification with a different tuple", async () => {
+  const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-tuple-coverage-"));
+  try {
+    const positive = await positiveEpisodes();
+    const step0 = positive.find(episode => episode.stepId === "step-0");
+    const step1 = positive.find(episode => episode.stepId === "step-1");
+    const terminal = positive.find(episode => episode.stepId === "step-2");
+    assert.ok(step0);
+    assert.ok(step1);
+    assert.ok(terminal);
+    const conflictingEdge = {
+      ...step0.observedBindings[0],
+      sourceName: "not-forwarded",
+    };
+    const conflictingRequiredEpisode = {
+      ...step0,
+      stepId: "step-required-conflict",
+      observedBindings: [conflictingEdge],
+      remainingObligations: [],
+      localCandidateCursor: {
+        ...step0.localCandidateCursor,
+        state: "closed",
+      },
+      previousExecution: {
+        state: "known",
+        value: {
+          ...step0.previousExecution.value,
+          fromStepId: "step-0",
+          targetRef: "mod:sources/src/entry-pos.ts",
+        },
+        evidenceRefs: step0.previousExecution.evidenceRefs,
+      },
+    };
+    const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "real-corpus-tuple-coverage",
+      packagePath: modelPath,
+      episodes: [conflictingRequiredEpisode, step0, step1, terminal],
+      grantedEffects: ["read_only"],
+      executor: createTsJsFileBackedStepExecutor({
+        sourceRoot: join(CORPUS_ROOT, FAMILY),
+      }),
+    });
+    const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+    assert.ok(terminalState);
+    const executedImport = terminalState.bindingVerifications.find(verification =>
+      verification.edgeRef === conflictingEdge.edgeRef
+      && verification.phase === "executed");
+    assert.ok(executedImport);
+    assert.equal(executedImport.verified, true);
+    assert.equal(executedImport.expectedBinding.sourceName, "forwarded");
+    assert.equal(conflictingEdge.sourceName, "not-forwarded");
+    assert.notEqual(
+      executedImport.expectedBinding.sourceName,
+      conflictingEdge.sourceName,
+      "the requirement and the executed verification must share an edgeRef but differ in tuple",
+    );
+    assert.notEqual(result.rootEvaluation.result, "satisfied");
   } finally {
     await rm(work, { recursive: true, force: true });
   }
