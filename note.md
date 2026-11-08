@@ -1,11 +1,12 @@
 # 当前任务
 
-## 2026-11-08 Jenny：P1-1 收口与 B-R 归因交审（05:15Z）
+## 2026-11-08 Jenny：P1-1 收口、B-R 归因返工与 worker 巡检（05:15Z-05:22Z）
 
 - P1-1 子任务已 master force-close（cleanup receipt `cleanup-manual-p1-1-typed-dynamic-recursive-engineering-iris-20261107-1794114698509`）；理由记录 Alice subject6 ACCEPT、main 集成 `d125abc`、受影响回归全绿与资源收口。父任务 next_step 由 owner Iris 维护，master 非 owner 不代写。
-- Carol `b-r-per-degradation-attribution-carol-20261107` 已 deliver（rev5），证据 `/Volumes/Intel/playground/nnanything-runs/b-r-per-degradation-attribution-carol-20261107/attribution-report.md`（9810 bytes；loss 分项、31 行变化、逐样本 margin、权重贡献、§6 待复核事实）。已向 Alice 发审查请求 `m1794114927046-945`。未重训、未改 gold/threshold/loss/配方/分区、未解封 verification。
-- Henry `b-a1-real-sample-generation-henry-20261107`、Leo `b-a1-independent-evaluator-leo-20261107` 仍 working rev3，无新 deliver。dispatch gap 清、无 pending merge。
-- goal deadline 已消费并重订（10m one-shot armed，project patrol armed）。Emma 四项 `nn-code-redesign-*` 保持 parked-pending-design-peer（owner missing，无可用研究 owner，不冒用身份、不 force-close）。
+- Carol `b-r-per-degradation-attribution-carol-20261107` 已 deliver（rev5），Alice 对证据 `/Volumes/Intel/playground/nnanything-runs/b-r-per-degradation-attribution-carol-20261107/alice-review.md` 正式 REWORK `m1794114970435-948`；board 已为 rev7 `rework`。可接受事实为当前 `experimentRows`/公开 `oldRows` 口径 control 155/155、treatment 149/155；历史 137/149 无法从当前落盘重现，来源保持 unknown，不覆写旧回执。需补逐 sampleId 的完整 wire、head 权重、value×weight 区间贡献与 decision 分支；修正反例112解释（ignore 下界 0.6449516357970424 已过 0.6，container 下界 0.59878 未过 0.6，0.043397157976869494 margin 低于 0.15 而进入 unknown）；撤回未经证明的“wire 不可解/缺少可调杠杆”结论。仅诊断返工，不批准新 wire/冻结头实验，不重训、不重评价，候选仍不采用。
+- 已向 Carol 投递续作消息 `m1794115301722-980`。随后 Collab daemon 在 `/Users/fanzhang/.collab/server.sock` 不可达（PID 23762 已退出，socket 缺失）；Henry、Leo、Iris 的续作消息未送达，原错保留，master 不自行启动或重启用户管理的 daemon。
+- Henry `b-a1-real-sample-generation-henry-20261107`、Leo `b-a1-independent-evaluator-leo-20261107` 仍 working rev3，无新 deliver。Henry 此前已记录 converter/scripts 未提交；dispatch gap 清、无 pending merge。
+- goal deadline `m1794114896672-939` 已消费并重订（10m one-shot `sub-m1794114909055-942` armed，project patrol `sub-m1793963843713-143` armed）。Emma 四项 `nn-code-redesign-*` 保持 parked-pending-design-peer（owner missing，无可用研究 owner，不冒用身份、不 force-close）。
 
 ## 2026-11-08 Jenny：P1-1 subject6 集成主线并收口（05:04Z）
 
