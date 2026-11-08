@@ -3757,6 +3757,15 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 边界：只改 roadmap 文本，未改产品代码/权重/gold/threshold/采用/board/goal，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Grace review、symbols 恢复条件、用户明确 CLI 范围、B-A1 接线决定或下一次 goal deadline；后续 roadmap 修订继续保持与 board/事实一致。
 
+## 2026-11-08 Jenny：goal deadline 触发后重臂并复核无新增 ready 工作（13:06Z）
+
+- 目的：消费 goal deadline `m1794143001180-2268`（LAST_REMINDER）与 worker-idle 批次 `m1794142911104-2262`、`m1794143022856-2270`、`m1794143150748-2280`，完成本轮必要续订与派发核对。
+- 证据：`collab recv` 一次性消费上述四条，`collab inbox` 归零。`appsdk goal status` 显示旧一次性订阅已 consumed（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED`）；`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式重臂后 Active=true/subscribed，project patrol `sub-m1793963843713-143` armed。
+- 派发核对：`collab board show` 仍 `ready_authorized_work=false`、pending_merges=[]、blocked=[]；4 个未关闭任务为 Grace 巡检（missing=[review]）、Emma symbols rust/swift（owner-only parked）、Iris P0 编排（missing=[review]），本轮无新增 ready 授权工作可派，不为占资源制造任务。
+- 资源：`main == origin/main == 4a93918`，含本轮 roadmap 事实同步提交；工作区干净，仅保留受保护 untracked fixture（PROTECTED_HOLD）；`git worktree list` 仅主工作树。
+- 边界：本轮仅消费通知、只读核对 board/goal/worktree、重臂 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Grace review、Emma 材料交接或 live research owner、Iris P0 推进、用户明确 CLI 范围（`7db2c6a`）或 B-A1 runner/export 接线（`8d11940`）决定，或下一次 goal deadline。
+
 ## 2026-11-08 Jenny：worker-idle 复核与 goal 续订（12:42Z）
 
 - 目的：消费 worker-idle `m1794141362918-2172` 与 goal deadline `m1794141515528-2183`（receive-36681）。
