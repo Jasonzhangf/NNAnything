@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-08 Iris：身份/任务恢复、search-read 纠正与 goal 续订（09:12Z）
+
+- `collab context` 恢复 Iris peer 身份：`kind=peer`、`role=worker`、`work_roles=[engineering]`，绑定 NNAnything pane `%12` / tmux `$12`，daemon live，master Jenny endpoint live，inbox 为空；本人未接管 master 权限。P0 `nnanything-overall-redesign-orchestration-r1` 保持 working。
+- 09:16Z 按 Jenny `m1794129351114-1202` 纠正 `nn-code-redesign-search-read-r1` 的过期状态：live board rev9 显示 owner/executor=Carol、reviewer=Kate、status=working；learning-loop-r1 已由 Kate ACCEPT subject_revision 3 后由 Carol close，恢复条件满足。已将父任务 board `next_step` 更新为 rev99。
+- 09:16Z 向 Jenny 发送纠正消息 `m1794129405920-1208`，明确引用原报告 `m1794129239202-1191`，记录 search-read 已转 Carol 生效，当前 main/origin/main=`dc9b1ec`。
+- 09:18Z 消费 goal deadline `m1794129450322-1211`；因 P0 任务仍 working，使用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m` 显式续订，`appsdk goal status` 回读 `Active=true`、`Observed=subscribed`、error=null。board 已同步 rev100，记录无新的 unassigned ready 工作。
+- 当前开放事实：b-a1-first-fit Henry working/Kate review，Grace patrol working，search-read Carol working/Kate review，symbols-rust/swift Emma offline parked。本轮未训练、未改权重/gold/threshold/采用，未产品接线或安装 runtime，未改动 daemon/tmux；已有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
+
 ## 2026-11-08 Iris：身份、P0 任务与 goal/patrol 恢复（07:09Z）
 
 - `collab context` 恢复 Iris peer 身份：`kind=peer`、`role=worker`、`work_roles=[engineering]`，绑定 NNAnything pane `%12` / tmux `$12`，daemon live，inbox 为空；Jenny master endpoint live。本人未接管 master 权限。
