@@ -180,16 +180,16 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 
 B-A1 固定环境（route encoder、绝对阈值 group loss、固定训练入口、样本/evaluator skeleton）已由 `b-a1-fixed-env-sample-prep-20261107` 交付、Alice subject_revision 4 ACCEPT、master `c624b94` 集成 main：`lib/training/b-a1-route-encoder.ts`、`lib/training/b-a1-group-loss.ts`、`lib/training/b-a1-training-entry.ts`（公开入口 `trainBA1UnifiedRelationDecision`）、`lib/training/b-a1-sample-evaluator-skeleton.ts`。因此 route encoder/loss/fixed entry 均已实现，不再作为新 board 切片重复派发。
 
-真正剩缺的 B-A1 后继切片：1) 真实样本生成（按已接受的槽位/监督合同产出 student-rows 与 supervision-rows 物理分离输入）；2) 完整独立 evaluator（在 skeleton 的类型与分母上实现模型执行、逐组阈值决策与独立语义评价）。两者均只需已落盘设计，不再需要授权裁定；reviewer=Alice，单一 owner、独占 worktree/branch。runner/export 接线仍由 `8d11940` 解阻条件约束（见下），不在样本/evaluator 切片内擅接线。B-R 逐退化样本只读归因 `b-r-per-degradation-attribution-carol-20261107` 独立进行，不受本节影响。
+B-A1 后继切片已收口：1) 真实样本生成（按已接受的槽位/监督合同产出 student-rows 与 supervision-rows 物理分离输入）；2) 完整独立 evaluator（在 skeleton 的类型与分母上实现模型执行、逐组阈值决策与独立语义评价）。两者均由 Kate 正式 ACCEPT subject_revision 3、master 集成并 push，owner 已完成清理和关闭。runner/export 接线仍由 `8d11940` 解阻条件约束（见下），不在样本/evaluator 切片内擅接线。B-R 逐退化样本只读归因 `b-r-per-degradation-attribution-carol-20261107` 已关闭，不受本节影响。
 
 | 切片 | board 任务 ID | owner | reviewer | status | revision | 依赖 |
  | --- | --- | --- | --- | --- | --- | --- |
-| 真实样本生成 | b-a1-real-sample-generation-henry-20261107 | Henry | Alice | delivered（rev5，subject_revision 1 待 Alice 审查；Jenny 已复跑） | 3 | 无（并发启动） |
-| 完整独立 evaluator | b-a1-independent-evaluator-leo-20261107 | Leo | Alice | working | 3 | 无（并发启动） |
+| 真实样本生成 | b-a1-real-sample-generation-henry-20261107 | Henry | Kate | integrated(eb2802d) closed | 3 | 无（并发启动） |
+| 完整独立 evaluator | b-a1-independent-evaluator-leo-20261107 | Leo | Kate | integrated(b416566) closed | 3 | 无（并发启动） |
 
-说明：evaluator 可使用 skeleton 已有合成 fixture 进行红绿自验，不需等待真实样本；固定训练入口 runner/export 接线仍由 `8d11940` 解阻条件约束，不在上述两切片内擅接线。
+说明：两条后继切片均已交付、正式审查 ACCEPT、合并到 main 并 push，owner 清理 worktree/branch 后关闭，`completion_missing=[]`。固定训练入口 runner/export 接线仍由 `8d11940` 解阻条件约束，不在上述两切片内擅接线。
 
-Henry 真实样本生成候选 `d49dae2` 已在独占 worktree 落盘并正式 `delivered`（delivery evidence report.md）；Jenny 独立复跑 converter 9/9 与全部 B-A1 测试 59/59；`samples-v4` 可被固定训练入口消费，TRAIN/DEV/VERIFICATION 与 student/supervision 分离成立。family C 仍是第三个 renderer，真实站点 held-out 分母未填，不宣称训练或语义准确率。Alice 审查请求已投递 durable（`m1794116677617-24`，desktop wake 未提交，等待 Alice `collab recv`）；候选未 merge/push。
+Henry 真实样本生成候选 `d49dae2` 已由 Kate 正式 ACCEPT subject_revision 3，master no-ff merge `eb2802d` 集成 main 并 push；converter 测试 9/9、B-A1 测试 59/59，`samples-v4` 可被固定训练入口消费，TRAIN/DEV/VERIFICATION 与 student/supervision 分离成立。family C 仍是第三个 renderer，真实站点 held-out 分母未填，不宣称训练或语义准确率。Leo 完整独立 evaluator 候选 `abb1a95` 已由 Kate 正式 ACCEPT subject_revision 3，master no-ff merge `b416566` 集成 main 并 push；post-merge build、typecheck 与目标测试均通过。两条任务均 `closed`、disposition=integrated、`completion_missing=[]`，worktree/branch 已清理。
 
 Emma 旧树与未交付内容保留；其中 converter/fixed-env 的未完成工程依赖由对应 Iris/David 承接任务核销，未因改派而消失。Rust/Swift 等非当前首训前置可后置；四个 Emma-owned `nn-code-redesign-*` 子任务（learning-loop/search-read/symbols-rust/symbols-swift）仍 board `working`/`next_step=null`、owner presence missing，按 Alice 裁定记为 parked-pending-design-peer：恢复条件为 Jenny 按主目标优先级确认独立设计切片、指定可用研究 owner、完成原资料交接，不冒用 Emma 身份改写其记录。承接未接受或尚未交付时由 master 继续调度，不等待 Emma 返回。
 

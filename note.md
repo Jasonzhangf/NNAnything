@@ -3408,3 +3408,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - board/master_wake：`ready_authorized_work=false`、`pending_merges` 空、无 blocked/timed-out、无完成/freed；idle 为 Henry/Jack/Grace/Kate。四个 Emma-owned `nn-code-redesign-*` 任务维持 parked-pending-design-peer（owner missing、owner-only 边界，恢复条件见 roadmap 末尾）；P0 orchestration working。
 - 资源：main `fe54231`=origin/main；worktree 4 个（main、b-a1、p1-1、unified-encoder，未超 10）；主树 `docs/autonomous-capability-roadmap.md`、`note.md` 为本次协调/巡检记录（本轮提交），仅既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
 - 边界：本轮只做 inbox 消费、board 改派/状态核对、roadmap 同步与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
+
+## 2026-11-08 master：B-A1 后继切片集成收口与 roadmap 同步（07:06Z）
+
+- 消费 Henry 身份恢复、goal deadline、worker-idle 与 Iris P0 编排刷新回执。Henry 已恢复为 peer/worker，work_roles=[独立验证]，当前无新增 ready 任务；Iris 已将 `nnanything-overall-redesign-orchestration-r1` 刷新至 revision 80，确认无新的可派工作，Emma 四个 `nn-code-redesign-*` 的 rearm condition 已写入 board。
+- 核实 B-A1 两条后继切片终态：Henry 真实样本生成 `b-a1-real-sample-generation-henry-20261107` 由 Kate ACCEPT subject_revision 3，master no-ff merge `eb2802d` 集成 main 并 push；Leo 完整独立 evaluator `b-a1-independent-evaluator-leo-20261107` 由 Kate ACCEPT subject_revision 3，master no-ff merge `b416566` 集成 main 并 push。两条任务均 `closed`、disposition=integrated、`completion_missing=[]`，owner worktree/branch 已清理。
+- roadmap 的 B-A1 后继切片表与说明已同步为 integrated/closed，不再保留 Henry delivered 待审或 Leo working 的旧状态；runner/export 接线仍由 open bug `8d11940` 的解阻条件约束，family C 与真实站点 held-out 缺口继续如实披露。
+- 调度核对：dispatch sweep 无 unassigned_ready、awaiting_acceptance 或 queued_for_peer；Iris 的 P0 编排记录已刷新，其他 idle peer 无 ready 授权任务。goal 已按同一 roadmap 显式重新武装为每 10 分钟、最多 100 次唤醒；project patrol `sub-m1793963843713-143` 仍 armed。
+- 资源：main `b416566=origin/main`，仅主工作树；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。本轮未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
