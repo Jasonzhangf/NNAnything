@@ -3659,3 +3659,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal 处置：因 open P0/P1 仍在，使用同一 `docs/autonomous-capability-roadmap.md` 和 `--interval 600000` 显式重订为 `sub-m1794134398388-1643`；`appsdk goal status` 已确认 active/subscribed、armed、trigger_ms 1794134998328、error=null。project patrol `sub-m1793963843713-143` 保持 armed。
 - 边界：本轮仅消费通知、只读核对 board/goal、续订本人 goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review、Emma 材料交接/live research owner、新的 ready 授权工作，或下一次 goal deadline trigger（1794134998328）后复核。
+
+## 2026-11-08 Jenny：worker-idle 复核（10:44Z）
+
+- 目的：消费新 worker-idle `m1794134489907-1651`，复核 Leo 新 idle 是否有可承接的 ready 授权任务。
+- 证据：`collab recv` 已消费 `receive-8595-1794134647549503000-0`；串行复查 `collab inbox` 为 0。board 仍 `ready_authorized_work=false`，无 pending merge、blocked 或 timed-out；任务集合与 10:39Z 相同，Leo 等 idle peer 无匹配工作。
+- goal：`sub-m1794134398388-1643` 保持 armed，trigger_ms 1794134998328，error=null；本轮 `goal_due=false`，不重复续订。
+- 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review、symbols 恢复条件、新的 ready 工作或下一次 goal deadline。
