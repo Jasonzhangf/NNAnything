@@ -3996,3 +3996,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置：Henry 仍在实际实现与执行路径准备，暂不中断；Grace 保持巡检，不接普通任务。
 - 边界：本轮只消费通知、只读核对 board/worktree、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Henry 提交实现、测试/build 日志与公开路由回执，再交 Alice review。
+
+## 2026-11-08 Jenny：evaluate 候选交回，核验并请求 Alice review（18:36Z）
+
+- 目的：处理 Henry 的 evaluate 候选交回 `m1794162656525-4162`、master-idle `m1794162647799-4159` 及多批 worker-idle，确认交付是否达到 review 门。
+- 证据：`collab recv` 已消费对应批次。Henry 分支 head 为 `b201f45`，report 位于 `/Volumes/Intel/playground/nnanything-runs/tsjs-evaluate-engineering-henry-20261108/report.md`；red test exit 1（4 pass/7 fail），green evaluate route exit 0（12 pass/0 fail），affected regression exit 0（45 pass/0 fail），typecheck exit 0，public-route fixture 三条样本 `overall=incomplete` 且无候选生成。`lib/adapters/tsjs-unified-recursive.ts` 与 `lib/workflow/recursive-goal/` 未被修改。
+- build 核验：Henry 环境 build exit 1 原因为 `JAVA_HOME` 未设置导致 `javac` 无法定位；本机 JDK17 存在于 `/opt/homebrew/opt/openjdk@17`。master 在候选 worktree 以 `JAVA_HOME=/opt/homebrew/opt/openjdk@17 PATH=/opt/homebrew/opt/openjdk@17/bin:$PATH npm run build` 复核，exit 0；因此 build 阻塞属环境入口，不是候选代码失败。
+- 处置：已向 Alice 发送 review 请求 `m1794162863131-4207`，附候选/证据与重点审计项；向 Henry 发送 board deliver 指令 `m1794162881158-4210`；向 Iris 发送 P0 同步 `m1794162862493-4206`。Henry 尚未执行 `collab task deliver`，任务仍 working rev5。
+- goal：`appsdk goal status` 显示 Active=true/subscribed，project patrol armed；本轮无 deadline，不重复重臂。
+- 边界：本轮只消费通知、只读核验候选与 build、发送 review/deliver 指令、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 完成 board deliver，Alice 独立 review 后 ACCEPT 或 REWORK；真实 fit 仍后置。
