@@ -3524,3 +3524,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 进展差异：P0 board rev90→91；无新增 ready 授权实现或审计切片，无可集成候选，不制造新任务。Carol 的 `nn-code-redesign-learning-loop-r1` 仍 working（rev8，reviewer Alice），Henry 的 `b-a1-first-fit-henry-20261108` 仍 working（rev2，reviewer Kate），search-read/rust/swift 继续维持 parked（Emma missing）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
 - 资源：`origin/main=beae34d`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Carol 推进 learning-loop 设计交付、Henry 完成 B-A1 first-fit 并交 Kate/Alice 审查，或 Jenny 新调度；下一次 deadline trigger（1794128146674）后再显式重订。
+
+## 2026-11-08 Iris：learning-loop 交付发现与 P0 board rev92（08:49Z）
+
+- 目的：消费本轮 goal deadline 唤醒后核对 board 与任务事实，纠正 P0 `next_step` 的滞后描述。
+- 证据：deadline 消息 `m1794127517462-1023` 已 consumed/read；当前 owned-subscription `sub-m1794127546728-1024` armed（trigger_ms 1794128146674，fired_count=0，error=null），LAST_REMINDER 语义已生效，下一次 trigger 后仍需显式重订。本轮唤醒后 P0 已在 08:48 被更新至 rev92，但其正文仍写 learning-loop 旧事实。本轮 `collab task update` 把 P0 更新为 rev93，正文改为 learning-loop rev10 delivered。
+- 进展差异：`nn-code-redesign-learning-loop-r1` rev8 working（08:46）→ rev10 delivered（08:48:32Z），completion_missing=[review,close]，设计 agent 是 Carol（`codex-session-3031...c66ad...`）。交付回执 kind=read_only，正文给出的证据路径 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-learning-loop-20261108/contract.md` 与 `task-log.md` 已在盘上核对存在（contract.md 为设计正文）。P0 board rev92→rev93。`b-a1-first-fit-henry-20261108` 仍 rev2 working（Henry，reviewer Kate，completion_missing=[review]）；search-read/rust/swift 维持 parked（Emma missing）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
+- 资源：`origin/main=a173f44` 与本地 main 一致；仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未查验证人路径即不自行审查 Carol 交付，仅登记其待审状态与落盘证据。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Alice 对 learning-loop 做正式 `collab task review --accept/--rework`，或收到新可派发/可推进授权；下���次 goal deadline trigger（1794128146674）后续订或按事实收口。
