@@ -3579,3 +3579,5 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 资源：`origin/main=e388565`；worktree 仅主工作树与 Henry 的 `b-a1-first-fit-henry-20261108`；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
 - 边界：未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Carol accept search-read 并交付设计、Henry 完成 B-A1 first-fit 交 Kate、或下一次 goal deadline trigger（1794129738244）后再重订；若 search-read 邀请超时未接受，再评估改用其他 live 设计 owner。
+
+  - 09:13Z 补充：Carol 已接受 `board-invite-nn-code-redesign-search-read-r1-8`，`nn-code-redesign-search-read-r1` owner 由 Emma 转为 Carol（invited 已解析、status working、executor=Carol、reviewer=Kate）。board 无 ready_authorized_work、无 pending merge、无 blocked；idle=Henry/Carol/Leo/Kate。本轮无新增可派任务，本轮巡检收口。
