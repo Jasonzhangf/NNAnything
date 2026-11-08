@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-08 Jenny：B-A1 样本生成集成关闭，B-R 归因关闭，Leo evaluator 改派 Kate（06:35Z）
+
+- Kate 对 Henry B-A1 与 Carol B-R 两项已交付任务完成独立证据审查，均结论 ACCEPT（有 review-findings-kate.md；converter 9/9、B-A1 59/59、verify-rework 31 行/1054 interval/0 差异）。
+- 项目 Alice 仅 desktop_bridge、wake 两次 DESKTOP_BRIDGE_NOT_SUBMITTED，无法自行唤醒；按 CEO Alice 明确授权“改派独立 reviewer”，我把两项任务的必需 reviewer 从 Alice 改为 Kate。board policy 按设计创建新 review subject 并要求 owner 重新 deliver；Henry/Carol 均已按此重交，Kate 正式 review 通过。
+- Henry `b-a1-real-sample-generation-henry-20261107`：Kate 正式 ACCEPT（subject_revision 3）；master no-ff merge 候选 d49dae2 到 main，提交 `eb2802d` 并 push origin/main；集成树 `npm run build` exit 0、converter 9/9、B-A1 59/59；已登记 integrated；Henry 清理自有 worktree/branch 并 close，completion_missing=[]、cleanup verified。
+- Carol `b-r-per-degradation-attribution-carol-20261107`：Kate 正式 ACCEPT（subject_revision 4）；read_only 无 Git 集成，owner 正常 close，completion_missing=[]、delivery_complete=true、cleanup not_required；run 目录保留为审计输入。B-R 能力事实保持 INCOMPLETE，候选保持 uncalibrated/not_applied。
+- Leo `b-a1-independent-evaluator-leo-20261107` 已交付候选 abb1a95（origin 分支、独占 worktree，typecheck/build PASS、目标测试 16/16）；已把其 reviewer 改派 Kate、board 进入 rework，待 Leo 重新 deliver 后由 Kate 正式审查。其主树误用已修正：主根回到 main，仅剩用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html`。
+- 历史残留三条已关闭任务（b-a1-unified-research-prep-20261107、carol-peer-binding-final-audit-20261106、tsjs-timing-evaluate-design-rework-carol-20261107）completion_missing=[manual_termination]，经核对均为 closed、review.valid=true、无 worktree/branch、cleanup not_required 的历史投影残留；按合同不 force-close、不伪造清理，保留为已记录事实。
+- 边界：本轮只做 review 改派、证据核验、集成/关闭与 note 记录；未训练、未改权重/gold/threshold/采用，未产品接线，未安装 runtime，未动 tmux/daemon。
+
 ## 2026-11-08 Jenny：round-41/42 巡检处置，Carol rev2 交付，主树恢复，Kate 独立审查（06:10Z）
 
 - 已消费 goal deadline `m1794117324732-97`（one-shot consumed）并按 Kate round-41 要求重新登记 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，回执 registered_at=2026-11-08T05:59:46Z，active=true/subscribed，project patrol armed。
