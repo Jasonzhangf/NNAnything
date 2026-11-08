@@ -1,5 +1,16 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal 续订、Grace round-18 裁定与 8d11940 处置（11:01Z-11:08Z）
+
+- 目的：消费 owned goal deadline `m1794135710588-1736`（one-shot `sub-m1794135106139-1698` consumed）、master-idle patrol `m1794136081984-1767`/`m1794136178108-1779` 与 Grace round-18 报告 `m1794136106855-1771`，按 master 职责核对 board、资源与 goal，并裁定巡逻审查口径与 open bug。
+- Goal/巡检：goal 文档 `docs/autonomous-capability-roadmap.md` 保持 active，按持续调度需要显式重订为 `sub-m1794136079331-1765`（armed，trigger_ms 1794136679265，约 10 分钟）；`appsdk goal reconcile` 记录回读 active/desired=observed=subscribed、remote_state=armed、error=null。常驻 project patrol `sub-m1793963843713-143` 保持 armed。
+- Board/容量：HEAD=origin/main `a0e7942`；`git worktree list` 仅主工作树。开放任务为 Iris P0 `nnanything-overall-redesign-orchestration-r1`（working，无新 ready 授权工作）、Grace 巡检（working，round-18）、Emma owner-only parked symbols-rust/swift（owner session missing）。`ready_authorized_work=false`、pending_merges 空、无 blocked/timed-out；Henry/Carol/Jack/Kate/Leo 空闲均无匹配 ready 任务，不为占满容量制造任务。
+- Grace round-18：接受为巡检事实，无新 P0/P1。裁定 1：`grace-nncode-browser-architecture-patrol-20261106` 属常驻职责，不是可交付 milestone，保持 working/open 且不按轮触发 review、不每轮指派 reviewer；`completion_missing=[review]` 是最终关闭前置，待职责终止、范围/owner 实质变化或决定收口时再由 master 指派独立 reviewer 做一次整体审查。已 durable 回复 Grace `m1794136411202-1800`。
+- Bug `8d11940`：维持既有 disposition。直接消费者仍在 `lib/training/b-a1-training-entry.ts:954`，但训练入口未接真实 runner/export，产品运行路径不可达；保持 open/P2，不按可运行能力 close，不在 B-A1 在途阶段 ablate。解阻条件不变：B-A1 fixed 入口接真实 runner/export，或路线裁定终止，届时由 training-owner 再裁定接线或消融；结论已在 bug comment #1。无需再派裁定任务。
+- 资源：主树未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD；无 Jenny 自有临时 worktree 需回收。
+- 边界：本轮仅通知消费、只读核对、goal 续订、裁定回复与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+- 下一步：Grace 按常驻周期继续巡检；symbols 待 Emma 交接资料与 live research owner 才恢复派发；无新 ready 授权工作时保持精简，下一次 goal deadline trigger 后再复核续订。
+
 ## 2026-11-08 Jenny：worker-idle 复核（10:53Z）
 
 - 目的：消费 `m1794135095058-1697`、`m1794135197487-1706` 与 `m1794135216959-1707` 的 Leo/Grace/Jack idle 批次，复核是否出现新的可派或待处置工作。
