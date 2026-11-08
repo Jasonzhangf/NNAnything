@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { runTsJsUnifiedDecision } from "../adapters/tsjs-unified-recursive.js";
+import {
+  createTsJsFileBackedStepExecutor,
+  runTsJsUnifiedMultiStepDecision,
+  type TsJsUnifiedMultiStepStepResult,
+} from "../adapters/tsjs-unified-recursive.js";
 import {
   evaluateRelationOracle,
   type GoldDenominator,
@@ -10,7 +14,9 @@ import {
   type PerStepEvaluation,
   type RelationOracleGoldSource,
   type RelationOracleReport,
+  type RootOutcome,
   type RootEvaluation,
+  type StepOutcome,
   type StudentPredictionDenominator,
   type StudentRelationRun,
 } from "./relation-oracle-evaluator.js";
@@ -85,6 +91,26 @@ export interface UnifiedEvaluateExecutionEntry {
   readonly actionRef: string;
 }
 
+export interface UnifiedEvaluateSampleStepDetail {
+  readonly stepId: string;
+  readonly optionSemantics: string;
+  readonly predicted: OracleJudgement | null;
+  readonly gold: OracleJudgement | null;
+  readonly outcome: StepOutcome | null;
+  readonly evidenceRefs: readonly string[];
+}
+
+export interface UnifiedEvaluateSampleDetail {
+  readonly sampleId: string;
+  readonly partition: string;
+  readonly gold: OracleJudgement | null;
+  readonly labelMissing: boolean;
+  readonly predicted: OracleJudgement | null;
+  readonly root: RootOutcome | null;
+  readonly rootEvidenceRefs: readonly string[];
+  readonly steps: readonly UnifiedEvaluateSampleStepDetail[];
+}
+
 export interface UnifiedEvaluateReport {
   readonly schema: typeof UNIFIED_EVALUATE_REPORT_SCHEMA;
   readonly runId: string;
@@ -115,6 +141,7 @@ export interface UnifiedEvaluateReport {
   readonly studentPrediction: StudentPredictionDenominator;
   readonly perStepEvaluation: PerStepEvaluation;
   readonly rootEvaluation: RootEvaluation;
+  readonly sampleDetails: readonly UnifiedEvaluateSampleDetail[];
   readonly executionEntries: readonly UnifiedEvaluateExecutionEntry[];
   readonly overall: RelationOracleReport["overall"];
   readonly unknownRecall: number;
@@ -176,7 +203,7 @@ function requireEvaluateConfig(config: UnifiedRunnerEvaluateConfig | undefined):
   requireString(config.independentFamilyPath, "config.evaluate.independentFamilyPath");
   requireString(config.admissionsPath, "config.evaluate.admissionsPath");
   requireString(config.runId, "config.evaluate.runId");
-  if (config.consumerEntry !== "tsjs-unified-recursive:runTsJsUnifiedDecision") {
+  if (config.consumerEntry !== "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision") {
     throw new UnifiedRunnerEvaluateError("CONSUMER_ENTRY_UNSUPPORTED", `unsupported evaluate consumer entry: ${String(config.consumerEntry)}`);
   }
   return config;
@@ -311,76 +338,175 @@ function mapGoldSamples(
   });
 }
 
-function rootStateOf(result: "satisfied" | "unsatisfied" | "unknown"): "satisfied" | "unsatisfied" | "unknown" {
-  return result;
+function assertGoldStudentCorrespondence(
+  admission: { readonly sourceGroup: string; readonly partition: string },
+  goldRows: readonly GoldRecord[],
+  episodes: readonly RelationStepEpisode[],
+): void {
+  const episodeSamples = new Set(episodes.map(episode => episode.sampleId));
+  const goldSamples = new Set<string>();
+  for (const gold of goldRows) {
+    if (goldSamples.has(gold.sampleId)) {
+      throw new UnifiedRunnerEvaluateError("GOLD_INVALID", `duplicate gold sample ${gold.sampleId}`);
+    }
+    goldSamples.add(gold.sampleId);
+    if (gold.sourceGroup !== admission.sourceGroup) {
+      throw new UnifiedRunnerEvaluateError(
+        "GOLD_INVALID",
+        `gold sample ${gold.sampleId} source group ${gold.sourceGroup} does not match admitted family ${admission.sourceGroup}`,
+      );
+    }
+    if (gold.partition.toLowerCase() !== admission.partition.toLowerCase()) {
+      throw new UnifiedRunnerEvaluateError(
+        "GOLD_INVALID",
+        `gold sample ${gold.sampleId} partition ${gold.partition} does not match admitted family ${admission.partition}`,
+      );
+    }
+    if (!episodeSamples.has(gold.sampleId)) {
+      throw new UnifiedRunnerEvaluateError("GOLD_MISSING", `gold sample ${gold.sampleId} has no student episode`);
+    }
+  }
+  for (const episodeSample of episodeSamples) {
+    if (!goldSamples.has(episodeSample)) {
+      throw new UnifiedRunnerEvaluateError("GOLD_MISSING", `student sample ${episodeSample} has no independent gold supervision`);
+    }
+  }
 }
 
-function studentRunOf(
-  episode: RelationStepEpisode,
-  result: Awaited<ReturnType<typeof runTsJsUnifiedDecision>>,
+function judgeOf(optionSemantics: string): OracleJudgement | null {
+  if (!optionSemantics.startsWith("judge=")) return null;
+  const value = optionSemantics.slice("judge=".length);
+  return value === "true" || value === "false" || value === "unknown" ? value : null;
+}
+
+function studentRunOfMultiStep(
+  episodes: readonly RelationStepEpisode[],
+  result: Awaited<ReturnType<typeof runTsJsUnifiedMultiStepDecision>>,
 ): {
   readonly run: StudentRelationRun;
-  readonly executionEntry: UnifiedEvaluateExecutionEntry;
+  readonly executionEntries: readonly UnifiedEvaluateExecutionEntry[];
 } {
-  const choice = result.candidateChoice;
-  const receipt = result.executionReceipt;
-  const postState = result.observedPostState;
-  if (choice === null) {
-    throw new UnifiedRunnerEvaluateError("EXECUTION_RECEIPT_MISSING", `sample ${episode.sampleId} produced no candidate choice`);
+  const sampleId = episodes[0]!.sampleId;
+  if (episodes.some(episode => episode.sampleId !== sampleId)) {
+    throw new UnifiedRunnerEvaluateError("EVALUATION_INVALID", `multi-step episodes must belong to one sample: ${sampleId}`);
   }
-  if (receipt === null) {
-    throw new UnifiedRunnerEvaluateError("EXECUTION_RECEIPT_MISSING", `sample ${episode.sampleId} produced no execution receipt`);
+  if (result.recursiveGoal.kind !== "run_result") {
+    throw new UnifiedRunnerEvaluateError("EXECUTION_RECEIPT_MISSING", `sample ${sampleId} did not produce a completed recursive-goal run`);
   }
-  if (receipt.outcome !== "success") {
-    throw new UnifiedRunnerEvaluateError("EXECUTION_RECEIPT_MISSING", `sample ${episode.sampleId} execution did not succeed`);
-  }
-  if (postState === null) {
-    throw new UnifiedRunnerEvaluateError("POST_STATE_MISSING", `sample ${episode.sampleId} produced no observed post-state`);
-  }
-  if (result.rootEvaluation.state !== "evaluated" || result.rootEvaluation.evidenceRefs.length === 0) {
-    throw new UnifiedRunnerEvaluateError("ROOT_EVIDENCE_MISSING", `sample ${episode.sampleId} has no root evaluation evidence`);
+  if (result.steps.length === 0) {
+    throw new UnifiedRunnerEvaluateError("EXECUTION_RECEIPT_MISSING", `sample ${sampleId} produced no executed steps`);
   }
 
   const root = result.rootEvaluation;
+  if (root.state !== "evaluated") {
+    throw new UnifiedRunnerEvaluateError("ROOT_EVIDENCE_MISSING", `sample ${sampleId} has no root evaluation evidence`);
+  }
+  const conditionRef = `root:${root.evaluatorId}:${sampleId}`;
   const rootResult = root.result;
-  const isJudgeChoice = choice.optionSemantics.startsWith("judge=");
-  if (isJudgeChoice && rootResult !== "satisfied") {
-    throw new UnifiedRunnerEvaluateError("ROOT_MODEL_DISAGREEMENT", `sample ${episode.sampleId} selected a terminal judgement but the independent root was ${rootResult}`);
+  const executionEntries: UnifiedEvaluateExecutionEntry[] = [];
+  const steps: StudentRelationRun["steps"] = result.steps.map(step => {
+    const choice = step.candidateChoice;
+    const receipt = step.executionReceipt;
+    const postState = step.observedPostState;
+    if (receipt.outcome !== "success") {
+      throw new UnifiedRunnerEvaluateError(
+        "EXECUTION_RECEIPT_MISSING",
+        `sample ${sampleId} step ${step.stepId} execution did not succeed`,
+      );
+    }
+    const executionEntry: UnifiedEvaluateExecutionEntry = {
+      sampleId,
+      stepId: step.stepId,
+      candidateRef: choice.candidateRef,
+      optionSemantics: choice.optionSemantics,
+      score: choice.score,
+      executionReceiptRef: `receipt:${receipt.receiptId}`,
+      postStateRef: postState.postStateRef,
+      newStateRef: postState.stateRef,
+      actionRef: receipt.actionRef,
+    };
+    executionEntries.push(executionEntry);
+    return {
+      stepId: step.stepId,
+      optionSemantics: choice.optionSemantics,
+      executionReceiptRef: executionEntry.executionReceiptRef,
+      postStateRef: executionEntry.postStateRef,
+      evidenceRefs: [...receipt.evidenceRefs, ...postState.observedFacts],
+    };
+  });
+  if (!steps.some(step => judgeOf(step.optionSemantics) !== null)) {
+    throw new UnifiedRunnerEvaluateError(
+      "EXECUTION_RECEIPT_MISSING",
+      `sample ${sampleId} produced no terminal judge step`,
+    );
   }
-  if (!isJudgeChoice && rootResult === "satisfied") {
-    throw new UnifiedRunnerEvaluateError("ROOT_MODEL_DISAGREEMENT", `sample ${episode.sampleId} selected ${choice.optionSemantics} while the independent root was satisfied`);
-  }
-  const conditionRef = `root:${root.evaluatorId}:${episode.sampleId}`;
-  const executionEntry: UnifiedEvaluateExecutionEntry = {
-    sampleId: episode.sampleId,
-    stepId: episode.stepId,
-    candidateRef: choice.candidateRef,
-    optionSemantics: choice.optionSemantics,
-    score: choice.score,
-    executionReceiptRef: `receipt:${receipt.receiptId}`,
-    postStateRef: postState.postStateRef,
-    newStateRef: postState.stateRef,
-    actionRef: receipt.actionRef,
-  };
   return {
     run: {
-      sampleId: episode.sampleId,
-      steps: [{
-        stepId: episode.stepId,
-        optionSemantics: choice.optionSemantics,
-        executionReceiptRef: executionEntry.executionReceiptRef,
-        postStateRef: executionEntry.postStateRef,
-        evidenceRefs: [...receipt.evidenceRefs, ...postState.observedFacts],
-      }],
+      sampleId,
+      steps,
       rootConditionStates: [{
         conditionRef,
-        state: rootStateOf(rootResult),
+        state: rootResult,
       }],
       rootGaps: rootResult === "unsatisfied" ? [conditionRef] : [],
+      rootEvidenceRefs: [...root.evidenceRefs],
       rootSatisfied: rootResult === "satisfied" ? true : rootResult === "unsatisfied" ? false : null,
     },
-    executionEntry,
+    executionEntries,
   };
+}
+
+function rootOutcomeOf(run: StudentRelationRun | undefined): RootOutcome | null {
+  if (run === undefined || run.rootSatisfied === null) return null;
+  return run.rootSatisfied ? "satisfied" : "unsatisfied";
+}
+
+function buildSampleDetails(
+  samples: readonly IndependentOracleSample[],
+  episodes: readonly RelationStepEpisode[],
+  runs: readonly StudentRelationRun[],
+): readonly UnifiedEvaluateSampleDetail[] {
+  const runsBySample = new Map(runs.map(run => [run.sampleId, run]));
+  const partitions = new Map(episodes.map(episode => [episode.sampleId, episode.partition]));
+  return samples.map(sample => {
+    const run = runsBySample.get(sample.sampleId);
+    const gold = sample.labelMissing ? null : sample.gold;
+    const steps = (run?.steps ?? []).map(step => {
+      const predicted = judgeOf(step.optionSemantics);
+      const outcome = gold === null || predicted === null
+        ? null
+        : (predicted === gold ? "correct" : predicted === "unknown" ? "unknown" : "incorrect") as StepOutcome;
+      return {
+        stepId: step.stepId,
+        optionSemantics: step.optionSemantics,
+        predicted,
+        gold,
+        outcome,
+        evidenceRefs: [...step.evidenceRefs],
+      };
+    });
+    const predicted = [...steps].reverse().find(step => step.predicted !== null)?.predicted ?? null;
+    return {
+      sampleId: sample.sampleId,
+      partition: partitions.get(sample.sampleId) ?? "unknown",
+      gold,
+      labelMissing: sample.labelMissing,
+      predicted,
+      root: rootOutcomeOf(run),
+      rootEvidenceRefs: [...(run?.rootEvidenceRefs ?? [])],
+      steps,
+    };
+  });
+}
+
+function missingRunOf(
+  samples: readonly IndependentOracleSample[],
+  runs: readonly StudentRelationRun[],
+): readonly string[] {
+  const runSamples = new Set(runs.map(run => run.sampleId));
+  return samples
+    .filter(sample => !sample.labelMissing && !runSamples.has(sample.sampleId))
+    .map(sample => sample.sampleId);
 }
 
 function emptyEvidenceRefs(report: RelationOracleReport): readonly string[] {
@@ -416,6 +542,28 @@ function formatMarkdown(report: UnifiedEvaluateReport): string {
   if (report.error !== null) {
     lines.push("## Error", "", "```json", JSON.stringify(report.error, null, 2), "```", "");
   }
+  if (report.violations.length > 0) {
+    lines.push("## Violations", "");
+    for (const violation of report.violations) lines.push(`- ${violation}`);
+    lines.push("");
+  }
+  if (report.missingRun.length > 0) {
+    lines.push("## Missing Runs", "");
+    for (const sampleId of report.missingRun) lines.push(`- ${sampleId}`);
+    lines.push("");
+  }
+  lines.push("## Sample Details", "");
+  for (const sample of report.sampleDetails) {
+    lines.push(
+      `- ${sample.sampleId}: gold=${String(sample.gold)} predicted=${String(sample.predicted)} root=${String(sample.root)} labelMissing=${String(sample.labelMissing)}`,
+    );
+    for (const step of sample.steps) {
+      lines.push(
+        `  - ${step.stepId}: ${step.optionSemantics} outcome=${String(step.outcome)} evidence=${step.evidenceRefs.join(",")}`,
+      );
+    }
+  }
+  lines.push("");
   return lines.join("\n");
 }
 
@@ -457,8 +605,10 @@ export async function runUnifiedRunnerEvaluate(
       readonly admission?: UnifiedEvaluateReport["admission"];
       readonly consumerEntry?: string | null;
       readonly oracle?: RelationOracleReport;
+      readonly sampleDetails?: readonly UnifiedEvaluateSampleDetail[];
       readonly executionEntries?: readonly UnifiedEvaluateExecutionEntry[];
       readonly evidenceRefs?: readonly string[];
+      readonly missingRun?: readonly string[];
       readonly error?: UnifiedEvaluateReport["error"];
     },
   ): {
@@ -487,13 +637,14 @@ export async function runUnifiedRunnerEvaluate(
       studentPrediction: oracle.studentPrediction,
       perStepEvaluation: oracle.perStepEvaluation,
       rootEvaluation: oracle.rootEvaluation,
+      sampleDetails: input.sampleDetails ?? [],
       executionEntries: input.executionEntries ?? [],
       overall: oracle.overall,
       unknownRecall: oracle.unknownRecall,
       validUnknown: oracle.validUnknown,
       violations: oracle.violations,
       unassessed: oracle.perStepEvaluation.entries.filter(entry => entry.outcome === "unknown").map(entry => `${entry.sampleId}:${entry.stepId}`),
-      missingRun: Array.from({ length: oracle.studentPrediction.missing }, (_, index) => `missing:${index}`),
+      missingRun: input.missingRun ?? [],
       evidenceRefs,
       candidateOutput: { emitted: false, packagePath: null },
       error: input.error ?? null,
@@ -507,6 +658,30 @@ export async function runUnifiedRunnerEvaluate(
   };
 
   const evaluationStartNs = process.hrtime.bigint();
+  let samples: readonly IndependentOracleSample[] = [];
+  let episodes: readonly RelationStepEpisode[] = [];
+  const runs: StudentRelationRun[] = [];
+  const executionEntries: UnifiedEvaluateExecutionEntry[] = [];
+  const evidenceRefs = new Set<string>();
+  let affectedSampleId: string | undefined;
+  let affectedStepId: string | undefined;
+
+  const partialFailureState = () => {
+    let oracle: RelationOracleReport = EMPTY_ORACLE;
+    let sampleDetails: readonly UnifiedEvaluateSampleDetail[] = [];
+    let missingRun: readonly string[] = [];
+    if (samples.length > 0) {
+      try {
+        oracle = evaluateRelationOracle(samples, runs);
+        sampleDetails = buildSampleDetails(samples, episodes, runs);
+        missingRun = missingRunOf(samples, runs);
+      } catch {
+        // Keep the original execution error; partial accounting is best effort.
+      }
+    }
+    return { oracle, sampleDetails, missingRun };
+  };
+
   try {
     const config = requireEvaluateConfig(evaluate);
     const packagePath = resolve(config.candidatePackagePath);
@@ -524,39 +699,49 @@ export async function runUnifiedRunnerEvaluate(
     const manifest = await readJson(join(familyDir, "manifest.json"));
     const admission = await loadAdmission(manifest, config.admissionsPath);
     await assertStudentInputIsolated(familyDir);
-    const episodes = await loadStepwiseEpisodeFamily(familyDir);
+    episodes = await loadStepwiseEpisodeFamily(familyDir);
     const goldRows = await loadGoldFamily(familyDir);
+    assertGoldStudentCorrespondence(admission, goldRows, episodes);
     const manifestOracleRefs = manifest.oracleRefs;
     const oracleRefs = Array.isArray(manifestOracleRefs)
       ? manifestOracleRefs.filter((ref): ref is string => typeof ref === "string")
       : [];
-    const samples = mapGoldSamples(goldRows, episodes, oracleRefs);
+    samples = mapGoldSamples(goldRows, episodes, oracleRefs);
 
-    const runs: StudentRelationRun[] = [];
-    const executionEntries: UnifiedEvaluateExecutionEntry[] = [];
-    const evidenceRefs = new Set<string>();
+    const episodesBySample = new Map<string, RelationStepEpisode[]>();
     for (const episode of episodes) {
-      const result = await runTsJsUnifiedDecision({
-        requestId: `evaluate:${runId}:${episode.sampleId}:${episode.stepId}`,
+      const group = episodesBySample.get(episode.sampleId) ?? [];
+      group.push(episode);
+      episodesBySample.set(episode.sampleId, group);
+    }
+    const executor = createTsJsFileBackedStepExecutor({ sourceRoot: familyDir });
+    for (const sampleEpisodes of episodesBySample.values()) {
+      const sampleId = sampleEpisodes[0]!.sampleId;
+      affectedSampleId = sampleId;
+      affectedStepId = undefined;
+      const result = await runTsJsUnifiedMultiStepDecision({
+        requestId: `evaluate:${runId}:${sampleId}`,
         packagePath,
-        episode,
+        episodes: sampleEpisodes,
         grantedEffects: ["read_only"],
+        executor,
       });
       if (
         result.modelBinding.packageRef !== packagePath
         || result.modelBinding.modelId !== loadedPackage.modelId
         || result.modelBinding.version !== loadedPackage.version
       ) {
-        throw new UnifiedRunnerEvaluateError("CANDIDATE_INVALID", `sample ${episode.sampleId} did not use the selected candidate package`);
+        throw new UnifiedRunnerEvaluateError("CANDIDATE_INVALID", `sample ${sampleId} did not use the selected candidate package`);
       }
-      const mapped = studentRunOf(episode, result);
+      const mapped = studentRunOfMultiStep(sampleEpisodes, result);
       runs.push(mapped.run);
-      executionEntries.push(mapped.executionEntry);
-      result.rootEvaluation.state === "evaluated"
-        ? result.rootEvaluation.evidenceRefs.forEach(ref => evidenceRefs.add(ref))
-        : undefined;
+      executionEntries.push(...mapped.executionEntries);
+      if (result.rootEvaluation.state === "evaluated") {
+        result.rootEvaluation.evidenceRefs.forEach(ref => evidenceRefs.add(ref));
+      }
     }
     const oracle = evaluateRelationOracle(samples, runs);
+    const sampleDetails = buildSampleDetails(samples, episodes, runs);
     const evaluationSeconds = monotonicSeconds(evaluationStartNs);
     return finalize({
       status: "completed",
@@ -576,16 +761,29 @@ export async function runUnifiedRunnerEvaluate(
       },
       consumerEntry: config.consumerEntry,
       oracle,
+      sampleDetails,
       executionEntries,
       evidenceRefs: [...evidenceRefs],
+      missingRun: missingRunOf(samples, runs),
     });
   } catch (caught) {
     const evaluationSeconds = monotonicSeconds(evaluationStartNs);
+    const partial = partialFailureState();
     if (caught instanceof UnifiedRunnerEvaluateError) {
+      const detail: Readonly<Record<string, unknown>> = {
+        ...caught.detail,
+        ...(affectedSampleId === undefined ? {} : { affectedSampleId }),
+        ...(affectedStepId === undefined ? {} : { affectedStepId }),
+      };
       return finalize({
         status: "failed",
         evaluationSeconds,
-        error: { code: caught.code, message: caught.message, detail: caught.detail },
+        oracle: partial.oracle,
+        sampleDetails: partial.sampleDetails,
+        executionEntries,
+        evidenceRefs: [...evidenceRefs],
+        missingRun: partial.missingRun,
+        error: { code: caught.code, message: caught.message, detail },
       });
     }
     if (caught instanceof UnifiedModelPackageError) {
@@ -594,6 +792,11 @@ export async function runUnifiedRunnerEvaluate(
       return finalize({
         status: "failed",
         evaluationSeconds,
+        oracle: partial.oracle,
+        sampleDetails: partial.sampleDetails,
+        executionEntries,
+        evidenceRefs: [...evidenceRefs],
+        missingRun: partial.missingRun,
         error: { code, message: caught.message, detail: caught.detail },
       });
     }
@@ -601,6 +804,11 @@ export async function runUnifiedRunnerEvaluate(
     return finalize({
       status: "failed",
       evaluationSeconds,
+      oracle: partial.oracle,
+      sampleDetails: partial.sampleDetails,
+      executionEntries,
+      evidenceRefs: [...evidenceRefs],
+      missingRun: partial.missingRun,
       error: { code: "EVALUATION_INVALID", message },
     });
   }

@@ -47,13 +47,16 @@ async function writeJsonl(path, rows) {
   await writeFile(path, `${rows.map(row => JSON.stringify(row)).join("\n")}\n`, "utf8");
 }
 
-function packageFor(route = { domain: "tsjs", decisionKind: "R" }) {
+function packageFor(route = { domain: "tsjs", decisionKind: "R" }, extraW1 = {}) {
   const tensors = zeroTensors();
   // x[36] is the judge=true feature slot in the unified R encoder. Prefer it
   // so a synthetic fixture produces a deterministic terminal judgement.
   tensors.W1[36] = 1;
   tensors.W2[0] = 1;
   tensors.W3[0] = 1;
+  for (const [slot, value] of Object.entries(extraW1)) {
+    tensors.W1[Number(slot)] = value;
+  }
   return createUnifiedModelPackage({
     modelId: "unified-evaluate-synthetic",
     version: "1",
@@ -91,7 +94,7 @@ function goldRow(sampleId, label) {
   };
 }
 
-function studentRecord(sampleId, { evidenceRefs = [`ev:${sampleId}:read`] } = {}) {
+function studentRecord(sampleId, { evidenceRefs = [`ev:${sampleId}:read`], steps } = {}) {
   return {
     schemaVersion: "emma-tsjs-student-observation-v2",
     sampleId,
@@ -115,7 +118,7 @@ function studentRecord(sampleId, { evidenceRefs = [`ev:${sampleId}:read`] } = {}
         calleeName: "helper",
       },
     },
-    steps: [
+    steps: steps ?? [
       {
         stepId: "step:0",
         observedAt: "current-step",
@@ -140,11 +143,37 @@ function studentRecord(sampleId, { evidenceRefs = [`ev:${sampleId}:read`] } = {}
   };
 }
 
+function terminalStep(stepId, evidenceRefs) {
+  return {
+    stepId,
+    observedAt: "current-step",
+    localSyntax: {
+      observedBindings: [],
+      observedDeclarations: [],
+      sourceContent: {
+        state: "observed",
+        resultRefs: [],
+        reason: null,
+        evidenceRefs,
+      },
+      shadowFacts: [],
+    },
+    remainingObligations: [],
+    S_g: ["c:judge:true", "c:judge:false", "c:judge:unknown", "c:return"],
+    receipts: [],
+    coverage: null,
+    notReady: false,
+  };
+}
+
 async function makeFixture({
   samples = [],
+  goldRows,
+  studentRows,
   admissionsOverride,
   packageOverride,
   packageDir = false,
+  extraW1,
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "unified-runner-evaluate-"));
   const familyDir = join(root, "verification-family");
@@ -168,11 +197,11 @@ async function makeFixture({
   });
   await writeJsonl(
     join(familyDir, "labels", "gold.jsonl"),
-    samples.map(({ sampleId, label }) => goldRow(sampleId, label)),
+    goldRows ?? samples.map(({ sampleId, label }) => goldRow(sampleId, label)),
   );
   await writeJsonl(
     join(familyDir, "student-observations.jsonl"),
-    samples.map(({ sampleId, evidenceRefs }) => studentRecord(sampleId, { evidenceRefs })),
+    studentRows ?? samples.map(({ sampleId, evidenceRefs }) => studentRecord(sampleId, { evidenceRefs })),
   );
 
   const admissionsPath = join(root, "corpus-admissions-v1.json");
@@ -197,7 +226,7 @@ async function makeFixture({
     await mkdir(dir, { recursive: true });
     packagePath = dir;
   } else {
-    packagePath = await writePackage(root);
+    packagePath = await writePackage(root, packageFor(undefined, extraW1));
   }
 
   const outputDir = join(root, "out");
@@ -221,7 +250,7 @@ async function makeFixture({
       candidatePackagePath: packagePath,
       independentFamilyPath: familyDir,
       admissionsPath,
-      consumerEntry: "tsjs-unified-recursive:runTsJsUnifiedDecision",
+      consumerEntry: "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision",
       runId: "evaluate-fixture",
     },
   });
@@ -363,7 +392,7 @@ test("evaluate machine and human receipts expose the same fixed-engine evidence 
     );
     const report = await readReport(fixture.outputDir);
     const markdown = await readFile(join(fixture.outputDir, "run-report.md"), "utf8");
-    assert.equal(report.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedDecision");
+    assert.equal(report.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision");
     assert.equal(report.executionEntries.length, 3);
     assert.ok(report.executionEntries.every(entry =>
       entry.candidateRef !== undefined
@@ -403,6 +432,174 @@ test("evaluate failure never emits a candidate package and has no fallback", asy
       readFile(join(fixture.outputDir, "package.json"), "utf8"),
       error => error.code === "ENOENT",
     );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate drives one multi-step trajectory per sample instead of replaying episodes independently", async () => {
+  const multiStep = studentRecord("known-true", {
+    steps: [
+      terminalStep("step:0", ["ev:known-true:read"]),
+      terminalStep("step:1", ["ev:known-true:read"]),
+    ],
+  });
+  const fixture = await makeFixture({
+    samples: [{ sampleId: "known-true", label: "true" }],
+    studentRows: [multiStep],
+  });
+  try {
+    assert.equal(
+      await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]),
+      0,
+    );
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision");
+    assert.equal(report.sampleDetails.length, 1);
+    assert.equal(report.sampleDetails[0].sampleId, "known-true");
+    assert.equal(report.executionEntries.length, 1);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate retains completed measurements when a later sample has no evaluable run", async () => {
+  const good = studentRecord("known-true", { evidenceRefs: ["ev:known-true:read"] });
+  const missingRead = studentRecord("missing-run", {
+    steps: [{
+      ...terminalStep("step:0", ["ev:missing-run:read"]),
+      localSyntax: {
+        observedBindings: [{
+          edgeRef: "edge:missing-run:absent-module",
+          callSiteRef: "call:missing-run",
+          fromNodeRef: "node:missing-run",
+          edgeKind: "import",
+          sourceName: "helper",
+          sourceModule: { state: "known", value: "sources/src/absent.ts", evidenceRefs: ["ev:missing-run:read"] },
+          targetName: "helper",
+          targetModule: { state: "known", value: "sources/src/entry.ts", evidenceRefs: ["ev:missing-run:read"] },
+          moduleSpecifierRaw: "./absent.ts",
+          sourceContent: {
+            state: "not_requested",
+            resultRefs: [],
+            reason: "not_requested",
+            evidenceRefs: ["ev:missing-run:read"],
+          },
+          visibility: { state: "known", value: "reachable", evidenceRefs: ["ev:missing-run:read"] },
+          hopDepth: 1,
+          evidenceRefs: ["ev:missing-run:read"],
+        }],
+        observedDeclarations: [],
+        sourceContent: {
+          state: "observed",
+          resultRefs: [],
+          reason: null,
+          evidenceRefs: ["ev:missing-run:read"],
+        },
+        shadowFacts: [],
+      },
+      remainingObligations: [{
+        kind: "advance",
+        ref: "edge:missing-run:absent-module",
+        pendingRelationRef: "pending:missing-run",
+        targetRef: "sources/src/absent.ts",
+        informationGain: "advances_chain",
+        evidenceRefs: ["ev:missing-run:read"],
+      }],
+    }],
+  });
+  const fixture = await makeFixture({
+    samples: [
+      { sampleId: "known-true", label: "true" },
+      { sampleId: "missing-run", label: "false" },
+    ],
+    studentRows: [good, missingRead],
+    extraW1: { 53: 2 },
+  });
+  try {
+    assert.equal(
+      await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]),
+      1,
+    );
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.status, "failed");
+    assert.equal(report.gold.total, 2);
+    assert.equal(report.studentPrediction.total, 1);
+    assert.equal(report.executionEntries.length, 1);
+    assert.deepEqual(report.missingRun, ["missing-run"]);
+    assert.equal(report.error.detail.affectedSampleId, "missing-run");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate rejects omitted, duplicate, and family-mismatched gold explicitly", async () => {
+  const student = studentRecord("known-true");
+  const omitted = await makeFixture({
+    samples: [],
+    goldRows: [],
+    studentRows: [student],
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", omitted.configPath]), 1);
+    const report = await readReport(omitted.outputDir);
+    assert.equal(report.error.code, "GOLD_MISSING");
+  } finally {
+    await rm(omitted.root, { recursive: true, force: true });
+  }
+
+  const duplicate = await makeFixture({
+    samples: [],
+    goldRows: [goldRow("known-true", "true"), goldRow("known-true", "false")],
+    studentRows: [student],
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", duplicate.configPath]), 1);
+    const report = await readReport(duplicate.outputDir);
+    assert.equal(report.error.code, "GOLD_INVALID");
+  } finally {
+    await rm(duplicate.root, { recursive: true, force: true });
+  }
+
+  const mismatched = await makeFixture({
+    samples: [],
+    goldRows: [{
+      ...goldRow("known-true", "true"),
+      sourceGroup: "another-family",
+    }],
+    studentRows: [student],
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", mismatched.configPath]), 1);
+    const report = await readReport(mismatched.outputDir);
+    assert.equal(report.error.code, "GOLD_INVALID");
+  } finally {
+    await rm(mismatched.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate exposes per-sample gold/prediction/root and step evidence in both reports", async () => {
+  const fixture = await makeFixture({
+    samples: [
+      { sampleId: "known-true", label: "true" },
+      { sampleId: "known-false", label: "false" },
+      { sampleId: "valid-unknown", label: "unknown" },
+    ],
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 0);
+    const report = await readReport(fixture.outputDir);
+    const markdown = await readFile(join(fixture.outputDir, "run-report.md"), "utf8");
+    assert.equal(report.sampleDetails.length, 3);
+    for (const sample of report.sampleDetails) {
+      assert.ok(sample.sampleId);
+      assert.ok(sample.gold);
+      assert.ok(sample.predicted);
+      assert.ok(sample.steps.length >= 1);
+      assert.ok(sample.steps.every(step => Array.isArray(step.evidenceRefs)));
+    }
+    assert.ok(markdown.includes("## Sample Details"));
+    assert.ok(markdown.includes("known-true: gold=true"));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

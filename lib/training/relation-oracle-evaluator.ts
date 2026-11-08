@@ -54,6 +54,8 @@ export interface StudentRelationRun {
   readonly steps: readonly StudentRelationStep[];
   readonly rootConditionStates: readonly StudentRootConditionState[];
   readonly rootGaps: readonly string[];
+  /** Root evidence emitted by the independent engine, when available. */
+  readonly rootEvidenceRefs?: readonly string[];
   /** Independent root evaluation; never inferred from per-step correctness. */
   readonly rootSatisfied: boolean | null;
 }
