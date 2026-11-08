@@ -3923,3 +3923,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal：旧 one-shot 已 consumed，已再次用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式 rearm；project patrol `sub-m1793963843713-143` armed。
 - 边界：本轮只消费通知、只读核对 board/goal、发送调度消息、写只读观察 worker 合同与启动观察 worker、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等首训观察 worker 回执，据此决定是否开 TS/JS fit 准备或补前置；等 Iris 更新 P0 next_step；继续跟踪 `8d11940` 与 `7db2c6a`。
+
+## 2026-11-08 Jenny：TS/JS v2 语料转换与独立准入切片派发（17:05Z）
+
+- 目的：落实用户已授权 nn-code 模型设计与训练后的最小首训前置：当前 TS/JS encoder v2 语料未生成物理 student/supervision rows，不能直接 fit；先把当前 TRAIN 语料经公开 convert-samples + validate-data 做转换与独立准入。
+- 证据：runner 路由 `lib/training/l2-standard-runner.ts:2140-2235` 显示 `convert-samples`/`validate-data`/`train`/`resume` 为真实命令，仅 `evaluate` NOT_READY exit 2；先前 readiness 复制的“convert-samples NOT_READY”来自旧源码，非当前 main。当前 main `cea86e8`，只有一个受保护未跟踪 fixture，无其他 worker worktree。
+- 派发：已发布 board 子任务 `tsjs-v2-corpus-admission-henry-20261108`（P0 implementation，executor Henry，reviewer Alice，parent `nnanything-overall-redesign-orchestration-r1`），并已向 Henry 发送 durable 指令 `m1794157397140-3530`：转换只读语料到 run 根，需要代码改动时用独立 worktree，不改 main；保留原始 pending/dynamic/missing 样本；不训练/不拟合/不改权重/gold/threshold/采用；DATA_INVALID 或映射缺口保留原错并停止。
+- P0 更新：已向 Iris 发送 durable `m1794157463147-3537`，要求 P0 next_step 改为“当前子任务是语料转换与独立准入，evaluate 接线与累计计时仍是独立门禁，真实 fit/save/reload/holdout/旧能力回归在此之后”，不把 fit 标记为已开始。
+- goal：deadline 已 consumed 并显式重臂，`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 返回 one-shot armed；project patrol `sub-m1793963843713-143` 保持 armed。
+- 边界：本轮仅消费通知、只读核对 runner 路由、派发子任务与发送 durable 调度消息、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 交付转换准入回执、Alice 独立审查；等 Iris 更新 P0 next_step；随后再评估 `evaluate` 独立评价接线与真实 fit 切片。
