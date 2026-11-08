@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：P1-1/B-A1 双候选提交，B-A1 rev3 资源合同返工（01:48Z）
+
+- 消费 goal deadline `m1794101268504-8926`、`m1794102038561-8994` 与 worker-idle 批次；Alice 发来 B-A1 正式审查回执 `m1794102287789-9035`。已按继续调度需要两次显式重挂 `docs/autonomous-capability-roadmap.md` 的 one-shot deadline；project patrol `sub-m1793963843713-143` 保持 armed。
+- P1-1：Iris 分支 `p1-1-typed-dynamic-recursive-20261107` 已提交 `d1f26d1 fix(tsjs): drive multi-step request from one recursive goal with a real executor`，worktree clean。`rework/result.md` 记录四项 Alice P1 已修：单次 `runRecursiveGoal` 驱动多步、真实文件执行器与回执、真实 `previousExecution` 链、typed state/request identity 保留；`rework/green/` 有 build、bridge 7/7、multistep 14/14、real-corpus 2/2、convert-samples/validate-data READY 回执。board `p1-1-typed-dynamic-recursive-engineering-iris-20261107` 仍显示 `working` 且无 `delivery_evidence`；Iris worker 已结束并处于 idle/present，已发送 `m1794102176767-9015` 要求正式 `collab task deliver` 交 Alice，未 merge/push，未改权重/gold/threshold/采用。
+- B-A1：Carol 已提交 `05c5477 fix(training): close B-A1 fixed-env second rework`，worktree clean；Alice subject revision 3 复核仍为 REWORK，唯一剩余 P1 是 `lib/training/b-a1-training-entry.ts` 的资源内容语义合同，要求按已批准槽位合同区分固定常量与可变特征，拒绝交换字段/错误 gate 常量/错 route 资源并在零更新/零产物处失败，删除无消费者的通用分桶前置，不以假资源追通过。board `b-a1-fixed-env-sample-prep-20261107` rev16、`review_subject_revision=3`；已提醒 Carol `m1794102176819-9016` 续修并重交，未 merge/push、未训练。
+- 当前无 pending merge；Emma 四个 `nn-code-redesign-*` 仍为 parked-pending-design-peer。本轮只做 inbox 消费、goal 重挂、两个候选交付/返工路由和 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/接线/安装，未做 daemon/tmux 生命周期动作。
+
 ## 2026-11-08 Jenny：worker-idle 巡检、Carol B-A1 续作、goal 重挂（01:18Z）
 
 - 消费 goal deadline `m1794100528602-8860`（LAST_REMINDER=true）与 worker-idle 批次 `m1794100532492-8861`、`m1794100592499-8865`、`m1794100602518-8869`；`collab recv` 清空 inbox。`dispatch-sweep.sh` 返回无 unassigned ready、无 awaiting acceptance、无 queued；`collab board show` 无 pending merge、无 ready_authorized_work。
