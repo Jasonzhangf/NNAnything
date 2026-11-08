@@ -3488,7 +3488,7 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
 ## 2026-11-08 Jenny：四个 parked nn-code-redesign 任务裁定（08:31Z）
 
-- 裁定：`nn-code-redesign-learning-loop-r1` 已用 `collab board invite` 投递给 Carol，board revision 7，任务当前 owner 仍为 Emma，所有权只在 Carol 接受后转移；Carol 已收到直接任务边界：仅设计/研究，reviewer Alice，产出契约与证据，不实现、不训练、不采用。
+  - 裁定：`nn-code-redesign-learning-loop-r1` 已用 `collab board invite` 投递给 Carol；Carol 已接受，board revision 8，owner 变更为 Carol。Carol 收到直接任务边界：仅设计/研究，reviewer Alice，产出契约与证据，不实现、不训练、不采用。
 - `nn-code-redesign-search-read-r1` / `rust-r1` / `swift-r1` 维持 parked-pending-design-peer；Rust/Swift 继续后置，search-read 等学习闭环契约通过或出现可用 live 设计 owner 后再排。
 - 不越 owner-only 边界改写 Emma 的 next_step，不 force-close，不自行实现或冒用 Emma 身份。
 - 其他状态不变：ready_authorized_work=false，pending_merges=[]，无 blocked/timed-out，Iris P0 working，目标订阅 armed。
