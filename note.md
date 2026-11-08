@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：Grace follow-up 与 goal deadline 重臂（15:53Z-15:55Z）
+
+- 已消费 Grace round-23 follow-up `m1794153179942-3116`、worker-idle `m1794153029664-3105`/`m1794153062419-3106`/`m1794153075727-3108`/`m1794153181903-3117` 与 goal deadline `m1794153212319-3118`（LAST_REMINDER）。
+- Grace 确认 Carol 现状已由我的派发解决，round-23 的 peer-capacity finding 收口，无额外动作。
+- 新增框架缺口 `ac71674` open：`appsdk goal subscribe` 未兑现 `--repeat 100`，实际 `schedule=one-shot`、`repeat_count=1`，100 次巡检批次未成为 armed periodic subscription；与 `b3aaac6`（缺 notify unsubscribe）分开，owner 均为 tools/daemon，master 不现场实现，继续跟踪。旧 `sub-m1793976263949-904`（4h）不在本人订阅列表，本轮未处理该 daemon 侧状态。
+- goal 已 consumed，按同一 `docs/autonomous-capability-roadmap.md` 显式重臂为 `sub-m1794153260083-3122`，回读 armed；project patrol `sub-m1793963843713-143` armed。未改产品代码/权重/gold/threshold/采用，未训练/采样/接线/安装，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：Grace round-23 处置回执（15:45Z-15:50Z）
 
 - 已消费 Grace round-23 `m1794152715890-3073`（reply-required）及 worker-idle/master-wake `m1794152707920-3072`、`m1794152726600-3076`、`m1794152793088-3082`、`m1794152815223-3087`、`m1794152916716-3096`。
