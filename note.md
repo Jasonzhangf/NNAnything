@@ -3727,3 +3727,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal：`sub-m1794134398388-1643` 保持 armed，trigger_ms 1794134998328，error=null；本轮 `goal_due=false`，不重复续订。
 - 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review、symbols 恢复条件、新的 ready 工作或下一次 goal deadline。
+
+## 2026-11-08 Jenny：worker-idle 巡检与 goal 续订（12:07Z）
+
+- 目的：消费 worker-idle `m1794139417239-2053` 与 goal deadline `m1794139511603-2056`，核对是否有新增可派工作、阻塞或需续订的调度。
+- 证据：`collab recv` 已消费 `receive-26918-1794139524232014000-0`；处理后 `collab inbox` 为 0。`collab board show` 显示 4 个未关闭任务：P1 `grace-nncode-browser-architecture-patrol-20261106` working rev24（Grace，missing=[review]）；P1 `nn-code-redesign-symbols-rust-r1`/`nn-code-redesign-symbols-swift-r1` working rev6（Emma owner-only，missing=[review,delivery,integration,close]，Emma identity 无效/presence missing）；P0 `nnanything-overall-redesign-orchestration-r1` working rev109（Iris）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
+- goal：旧 one-shot 已 consumed（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED`），因仍有 open P0/P1 需继续调度，已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式重臂；`appsdk goal status` 确认 Active=true、subscribed。project patrol `sub-m1793963843713-143` armed。
+- 资源：`HEAD=origin/main=6786418`，仅主工作树；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。live idle peer（Henry/Carol/Leo/Jack/Kate/David/Frank）无匹配 ready 授权任务，不制造任务；Emma/Alice/Bob 不实时可达，symbols 维持 owner-only parked。
+- 边界：本轮仅消费通知、只读核对 board/goal、续订本人 goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Grace review 返回、Emma 材料交接或 live research owner 出现、新的 ready 授权工作，或下一次 goal deadline trigger 后再复核并续订。
