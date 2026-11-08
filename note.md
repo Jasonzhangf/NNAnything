@@ -5,6 +5,7 @@
 - `collab context` 恢复 Iris peer 身份：`kind=peer`、`role=worker`、`work_roles=[engineering]`，绑定 NNAnything pane `%12` / tmux `$12`，daemon live，inbox 为空；Jenny master endpoint live。本人未接管 master 权限。
 - P0 `nnanything-overall-redesign-orchestration-r1` 保持 working，board revision 80。Iris 核对时 origin/main=`b416566`；master 文档提交后当前 origin/main=`f0c0409`。B-A1 independent evaluator 已在 `b416566` 集成并关闭；Leo cleanup complete；Grace 巡检 working。四个 `nn-code-redesign-*` 子任务仍因 Emma offline 停放，恢复条件为 Emma 恢复、任务改派给 live research owner，且 Alice 接受对应设计合同。
 - 已按长程目标规则恢复本人调度：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，goal active/subscribed，one-shot deadline armed；`collab notify subscribe --event board-idle --task-id nnanything-overall-redesign-orchestration-r1`，回执 `status=armed`。本轮未训练、未改权重/gold/threshold/采用，未产品接线或安装 runtime，未 merge/push，未动 daemon/tmux。
+- 07:20Z 消费 goal deadline `m1794122365360-591`（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`，LAST_REMINDER）；因 P0 任务仍 working 且授权目标继续，07:24Z 显式续订同一条 goal，新订阅 `sub-m1794122643578-614` armed（10m），goal active/subscribed、error=null。board patrol 仍 armed，P0 任务在 `eligible_task_ids` 中。
 
 ## 2026-11-08 Jenny：B-A1 样本生成集成关闭，B-R 归因关闭，Leo evaluator 改派 Kate（06:35Z）
 
@@ -3422,3 +3423,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - roadmap 的 B-A1 后继切片表与说明已同步为 integrated/closed，不再保留 Henry delivered 待审或 Leo working 的旧状态；runner/export 接线仍由 open bug `8d11940` 的解阻条件约束，family C 与真实站点 held-out 缺口继续如实披露。
 - 调度核对：dispatch sweep 无 unassigned_ready、awaiting_acceptance 或 queued_for_peer；Iris 的 P0 编排记录已刷新，其他 idle peer 无 ready 授权任务。goal 已按同一 roadmap 显式重新武装为每 10 分钟、最多 100 次唤醒；project patrol `sub-m1793963843713-143` 仍 armed。
 - 资源：main `b416566=origin/main`，仅主工作树；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。本轮未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
+
+## 2026-11-08 master 巡检：无新增 ready 工作，目标订阅续订（07:26Z）
+
+- 目的：消费 worker-idle 与 10 分钟 goal deadline，核对 P0/P1、peer 容量、待集成候选和自有资源是否产生新的可执行动作。
+- 证据：`collab recv` 已消费 `m1794122300374-582`、`m1794122746991-621`、`m1794122758897-622`；`collab inbox` 为 0。dispatch sweep 无 unassigned_ready、awaiting_acceptance 或 queued_for_peer；board 无 pending_merges。Iris 的 P0 编排 rev80 明确当前无新的可派工作。Henry 与 Leo 的 B-A1 后继任务均为 closed、integrated、completion_missing=[]。
+- 进展差异：无新增已验收能力或可集成候选；本轮只确认上一轮收口仍成立，并续订目标唤醒。Iris 在 07:20Z 进入 idle，尚未达到可信连续 idle 超过 30 分钟的门槛，未发送重复唤醒。Emma 仍 presence=missing、TMUX_ENDPOINT_MISSING，四个 nn-code-redesign 子任务保持 parked-pending-design-peer。
+- 资源：main `563f0e9=origin/main`，仅主工作树；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。project patrol `sub-m1793963843713-143` armed、cadence_runtime_gap=null；goal 已显式续订 10 分钟、最多 100 次唤醒。
+- 下一步：等待 Emma 恢复或任务改派给 live research owner，并由 Alice 接受可执行研究合同后重跑 DAG gate；Grace 按既有巡检周期继续。本轮未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
