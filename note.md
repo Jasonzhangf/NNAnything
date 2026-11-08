@@ -3551,3 +3551,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 进展差异：P0 board rev93→rev94；无新增 ready 授权实现或审计切片，无可集成候选，不制造新任务。Carol 的 `nn-code-redesign-learning-loop-r1` rev10 delivered（reviewer Alice，completion_missing=[review,close]）；Henry 的 `b-a1-first-fit-henry-20261108` 仍 working（rev2，reviewer Kate）；search-read/rust/swift 继续维持 parked（Emma missing）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
 - 资源：`origin/main=f5a7905`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Alice 对 learning-loop 做正式 `collab task review --accept/--rework`、Henry 完成 B-A1 first-fit，或 Jenny 新调度；下一次 deadline trigger（1794128820881）后再显式重订。
+
+## 2026-11-08 Iris：learning-loop reviewer 变更为 Kate，P0 board rev95（08:59Z）
+
+- 目的：消费 Jenny 事实更新 `m1794128305974-1110`，把 P0 next_step 从 Alice review 更改为 Kate review。
+- 证据：`collab recv` 已消费该消息；`collab board show` 显示 `nn-code-redesign-learning-loop-r1` rev13 delivered（owner Carol，reviewer=Kate，review_subject_revision=3，completion_missing=[review,close]，next_step=await review by Kate）。原因是 Alice desktop wake 连续失败（DESKTOP_BRIDGE_NOT_SUBMITTED，无 tmux pane），Alice 按 task-scoped board policy 把 reviewer 改为可定位的 Kate；Carol 已按 master 指令用同一份只读证据重新交付，约束未写已完成。证据路径仍为 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-learning-loop-20261108/{contract.md,task-log.md}`。
+- 进展差异：P0 board rev94→rev95，next_step 同步 learning-loop reviewer=Kate（Kate 尚未返回结论）；`b-a1-first-fit-henry-20261108` 仍 rev2 working（Henry，reviewer Kate）；search-read/rust/swift 维持 parked（Emma missing）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
+- 资源：`origin/main=72bcf60`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Kate 对 learning-loop 做正式 `collab task review --accept/--rework`，或 Henry 完成 B-A1 first-fit，或 Jenny 新调度；下一次 goal deadline trigger（1794128820881）后再显式重订。
