@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-11-08 Iris：身份、P0 任务与 goal/patrol 恢复（07:09Z）
+
+- `collab context` 恢复 Iris peer 身份：`kind=peer`、`role=worker`、`work_roles=[engineering]`，绑定 NNAnything pane `%12` / tmux `$12`，daemon live，inbox 为空；Jenny master endpoint live。本人未接管 master 权限。
+- P0 `nnanything-overall-redesign-orchestration-r1` 保持 working，board revision 80。Iris 核对时 origin/main=`b416566`；master 文档提交后当前 origin/main=`f0c0409`。B-A1 independent evaluator 已在 `b416566` 集成并关闭；Leo cleanup complete；Grace 巡检 working。四个 `nn-code-redesign-*` 子任务仍因 Emma offline 停放，恢复条件为 Emma 恢复、任务改派给 live research owner，且 Alice 接受对应设计合同。
+- 已按长程目标规则恢复本人调度：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，goal active/subscribed，one-shot deadline armed；`collab notify subscribe --event board-idle --task-id nnanything-overall-redesign-orchestration-r1`，回执 `status=armed`。本轮未训练、未改权重/gold/threshold/采用，未产品接线或安装 runtime，未 merge/push，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：B-A1 样本生成集成关闭，B-R 归因关闭，Leo evaluator 改派 Kate（06:35Z）
 
 - Kate 对 Henry B-A1 与 Carol B-R 两项已交付任务完成独立证据审查，均结论 ACCEPT（有 review-findings-kate.md；converter 9/9、B-A1 59/59、verify-rework 31 行/1054 interval/0 差异）。
