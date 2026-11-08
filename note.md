@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-11-08 Jenny：Rust 收口完成，Swift 启动（15:58Z）
+
+- 已消费重复 worker-idle 批次 `m1794153265002-3124`、`m1794153281295-3128`、`m1794153324630-3131`、`m1794153335644-3132`、`m1794153397209-3138`、`m1794153641095-3164`，inbox 随后为 0。
+- 实质变化：`collab board show` 已不再包含 `nn-code-redesign-symbols-rust-r1`，Carol 已完成该 read-only 设计的 owner 收口；`git worktree list` 中 Rust 独占树已移除，仅剩主树与新的 Swift 独占树 `/Volumes/Intel/playground/nnanything/nn-code-redesign-symbols-swift-r1-20261108`（HEAD `88b47cb`，干净）。Rust run 证据 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-symbols-rust-20261108/` 保留为审计输入。
+- 当前开放：Grace 巡检 rev31 working、Swift rev10 working（Carol）、Iris P0 rev111 working。`ready_authorized_work=false`，无 pending merge，无 blocked/timed-out。goal `sub-m1794153260083-3122` armed。未改产品代码/权重/gold/threshold/采用，未训练/采样/接线/安装，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：Grace follow-up 与 goal deadline 重臂（15:53Z-15:55Z）
 
 - 已消费 Grace round-23 follow-up `m1794153179942-3116`、worker-idle `m1794153029664-3105`/`m1794153062419-3106`/`m1794153075727-3108`/`m1794153181903-3117` 与 goal deadline `m1794153212319-3118`（LAST_REMINDER）。
