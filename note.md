@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：master 巡检（05:00Z）
+
+- 消费 worker-idle / master-wake-batch 批次（`m1794112918673-759`、`m1794112992649-763` 等）。板面：无 pending merge、dispatch gap clean；goal 回读 active/desired=observed=subscribed、error=null，collab `sub-m1794111557520-656` 与 patrol `sub-m1793963843713-143` armed。
+- 两 B-A1 切片已由 owner 接受并 working rev3：`b-a1-real-sample-generation-henry-20261107`（Henry，worktree `/Volumes/Intel/playground/nnanything/b-a1-real-sample-generation-henry-20261107` 已建于 main 1631512）、`b-a1-independent-evaluator-leo-20261107`（Leo）。roadmap 表相应由 invited rev2 更新为 working rev3。
+- P1-1 由 Iris 推进：worktree HEAD `09a52eb`→`b5f6726`（新提交 `require current-module observation and exact binding identity`），worktree clean，branch ahead origin/main 5；属 rev4 REWORK 进行中，未 deliver/ACCEPT，未 merge/push。B-R 逐退化归因 Carol 仍 working。
+- 本轮仅消费通知、只读巡检、board/goal 与 roadmap/note 维护；未改产品代码/权重/gold/threshold/采用，未 merge/push 候选，未安装 runtime，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：round-38 授权纠偏、B-A1 后继切片纠正与派发（04:35Z）
 
 - 消费 Kate round-38 后续纠偏 `m1794112040238-685`：Kate 判定 B-A1 的 `HOLD_AUTHORIZATION` 与当前授权状态冲突，成立。依据 AGENTS.md 顶部「授权冲突待用户直接裁定」节已被用户直接授权取代：用户在线程 `01a1ae9f-debd-7852-947b-d0b68b913fb0`（userMessage `01a1b48e-28bb-7e91-90c6-d49ebb38c21d`）直接指示长程目标为 NNAnything 的 nn-code 与浏览器训练和交付，并按目标拉满 peer 工作。

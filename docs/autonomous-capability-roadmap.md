@@ -184,8 +184,8 @@ B-A1 固定环境（route encoder、绝对阈值 group loss、固定训练入口
 
 | 切片 | board 任务 ID | owner | reviewer | status | revision | 依赖 |
  | --- | --- | --- | --- | --- | --- | --- |
- | 真实样本生成 | b-a1-real-sample-generation-henry-20261107 | Henry | Alice | invited | 2 | 无（并发启动） |
- | 完整独立 evaluator | b-a1-independent-evaluator-leo-20261107 | Leo | Alice | invited | 2 | 无（并发启动） |
+| 真实样本生成 | b-a1-real-sample-generation-henry-20261107 | Henry | Alice | working | 3 | 无（并发启动） |
+| 完整独立 evaluator | b-a1-independent-evaluator-leo-20261107 | Leo | Alice | working | 3 | 无（并发启动） |
 
 说明：evaluator 可使用 skeleton 已有合成 fixture 进行红绿自验，不需等待真实样本；固定训练入口 runner/export 接线仍由 `8d11940` 解阻条件约束，不在上述两切片内擅接线。
 
