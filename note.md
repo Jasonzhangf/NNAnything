@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal deadline / Grace round-17 / worker-idle 处置（10:50Z-10:51Z）
+
+- 目的：消费 goal deadline `m1794135006499-1684`（one-shot `sub-m1794134398388-1643` consumed）、Grace round-17 回执 `m1794135026757-1689` 与 worker-idle `m1794135030713-1691`；核对 board、容量、goal 与资源后按生命周期处置。
+- Goal/巡检：开放 P0/P1 仍在调度，已显式重订 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 为 `sub-m1794135106139-1698`；`appsdk goal status` 回读 active=subscribed、remote_state=armed、trigger_ms=1794135706079、error=null。project patrol `sub-m1793963843713-143` 保持 armed，cadence_runtime_gap=null。
+- Board/容量：`collab board show` 显示 `ready_authorized_work=false`、pending_merges 空、无 blocked/timed-out。Iris P0 `nnanything-overall-redesign-orchestration-r1` working；Grace 巡检 working（round-17：B-A1 first-fit 已 closed/integrated df66d9c，候选 uncalibrated/not_applied，无新 P0/P1）；symbols-rust/swift 维持 Emma owner-only parked。Henry/Carol/Jack/Leo/Kate 空闲，均无匹配 ready 授权任务，不制造任务。
+- Bug：`8d11940`（checkpoint reload subgraph）按既有 triage disposition 保持 open。B-A1 first-fit 已提供 `trainBA1UnifiedRelationDecision` 的直接消费者证据，但该训练入口仍未接真实 runner/export；close/ablate 由 training-owner 在接线或路线裁定后决定，本轮不关闭。
+- 资源：main=HEAD=origin/main `53430cb`，`git worktree list` 仅主工作树；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
+- 边界：本轮仅通知消费、只读核对、goal 续订与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+- 下一步：等 Grace 巡检返回、symbols 恢复条件满足、B-A1 runner/export 接线后由 training-owner 裁定，或新的 ready 授权工作；下一次 goal deadline trigger（1794135706079）后再复核续订。
+
 ## 2026-11-08 Jenny：worker-idle/round-47 巡检，B-A1 first-fit 关闭与 goal 续订（09:46Z-09:52Z）
 
 - 目的：消费 worker-idle 与巡检回执通知，核对 P0/P1、board 容量与 idle 原因、自有工作树与资源，确认 B-A1 first-fit 关闭后是否出现新的可派或待集成工作；长程目标继续调度则显式重订 goal。
