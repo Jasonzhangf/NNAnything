@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-08 Jenny：P1-1 Alice 再次 REWORK、B-A1 第 4 轮继续、roadmap 行 166/172 回写（01:59Z）
+
+- P1-1：Alice 对 d1f26d1 正式 REWORK（m1794103047063-31，board rev11）。已向 NNAnything.Iris 投递 durable 返工指令 m1794103169898-52：由原 owner Iris 修复真实后态驱动下一次候选与根达成反向满足，补黑盒反例后 deliver Alice；不训练、不改权重/gold/threshold/采用、不 merge/push，INCOMPLETE 清单保留。
+- B-A1：board rev16，Carol 原 owner 持有 b-a1-route-encoder.ts、b-a1-training-entry.ts、tests/b-a1-training-entry.test.mjs 三个未提交修改。已向 NNAnything.Carol 投递 m1794103169964-53，按 Alice 剩余 P1 窄修资源语义合同并重交 Alice。
+- 文档：docs/autonomous-capability-roadmap.md 行 166/172 已回写为 P1-1 Alice 再次 REWORK（rev11）与 B-A1 第 4 轮窄修（rev16）当前事实。
+- Leo 已注册为 NNAnything peer；按注册通知刷新 collab context、board 与 dispatch-sweep，当前 idle_peers=Alice/Henry/Leo/Jack，但 unassigned_ready、awaiting_acceptance、queued_for_peer 均为空，不制造新派单。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未 merge/push，未 daemon/tmux 生命周期动作。
+
 ## 2026-11-08 Jenny：P1-1/B-A1 双候选提交，B-A1 rev3 资源合同返工（01:48Z）
 
 - 消费 goal deadline `m1794101268504-8926`、`m1794102038561-8994` 与 worker-idle 批次；Alice 发来 B-A1 正式审查回执 `m1794102287789-9035`。已按继续调度需要两次显式重挂 `docs/autonomous-capability-roadmap.md` 的 one-shot deadline；project patrol `sub-m1793963843713-143` 保持 armed。
