@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-08 Jenny：本轮结尾与板子结构（15:03Z）
+
+- 文件系统当前：main=origin/main=1cf128c，工作区干净；唯一 untracked `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD；`git worktree list` 只有主工作树，未超任务树上限。
+- Board 开放项：Grace 巡检 rev29 working；Rust 符号表 rev17 rework，owner Carol，reviewer Alice，next_step 指向 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-symbols-rust-20261108/alice-review.md`；Swift 符号表 rev10 working，next_step 已明确等 Rust 交付后再执行，未独立开树；P0 Iris rev111 working；`ready_authorized_work=false`，pending_merges 空，无 blocked/timed-out。
+- 新收件两条耐用消息：Rust rev2 复审路由（发给 Alice，不构成审查）；Alice 对 Rust rev2 正式 REWORK。F1 接受并保留；F2/F3 需 Carol 定点修正，边界是 design-only，不改权重/gold/threshold/采用、不训练/采样/接线/安装、不恢复 nn-code。
+- 未获授权的直接产品/训练/安装/接线主题未触碰；未收口提醒记入本段，不单独派发或关闭。
+- 工作树安全：Rust 独占树 `/Volumes/Intel/playground/nnanything/nn-code-redesign-symbols-rust-r1-20261108`，HEAD 3077018，干净，不手工冲突；Swift 无独立树，仍按一对一队列排队。
+- 未处理提醒：Rust F2/F3 字段映射、可辨反例、宏/调用关联与 label_missing 监督分离；Swift 始于 Rust 交付后；8d11940 runner/export 接线或路线裁定；7db2c6a CLI 范围待用户裁定。以上进入 note，不作为未获授权主题直接操作。
+
 ## 2026-11-08 Jenny：master-wake 批次复核（14:49Z）
 
 - 已消费 `m1794149229519-2728`；该批次只重复 Carol/Grace 的 idle 事实，board 无新增 ready 工作。
