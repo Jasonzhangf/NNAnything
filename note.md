@@ -3500,3 +3500,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 不越 owner-only 边界改写 Emma 的 next_step，不 force-close，不自行实现或冒用 Emma 身份。
 - 其他状态不变：ready_authorized_work=false，pending_merges=[]，无 blocked/timed-out，Iris P0 working，目标订阅 armed。
 - 08:36Z 消费本人 goal deadline `m1794126962047-981`；因长程目标继续，已显式续订为 `sub-m1794127022442-986`（10m、armed、error=null）。
+
+## 2026-11-08 Jenny：worker-idle 巡检回执（08:39Z）
+
+- 消费 worker-idle `m1794127008375-985`；inbox 随后为空。
+- board：P0 `nnanything-overall-redesign-orchestration-r1` working（Iris）；`nn-code-redesign-learning-loop-r1` rev8 working（Carol，已接受主设切片）；search-read/rust/swift 维持 parked（Emma missing）；`b-a1-first-fit-henry-20261108` working（Henry，reviewer Kate）；Grace 巡检 working。ready_authorized_work=false，pending_merges=[]，无 blocked/timed-out。
+- goal `sub-m1794127022442-986` armed，trigger≈08:47Z；project patrol `sub-m1793963843713-143` armed。
+- 资源：main=origin/main，唯一未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 按既有 PROTECTED_HOLD 保留。
+- 边界：未训练、未改权重/gold/threshold/采用、未产品接线、未安装 runtime、未动 tmux/daemon。
