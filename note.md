@@ -3508,3 +3508,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal `sub-m1794127022442-986` armed，trigger≈08:47Z；project patrol `sub-m1793963843713-143` armed。
 - 资源：main=origin/main，唯一未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 按既有 PROTECTED_HOLD 保留。
 - 边界：未训练、未改权重/gold/threshold/采用、未产品接线、未安装 runtime、未动 tmux/daemon。
+
+## 2026-11-08 Jenny：master-wake 巡检回执（08:45Z）
+
+- 本轮消费 `m1794127439835-1018`（worker-idle/master-wake 批次）；通知要求按当前 board 与 goal 处理 P0/P1，先核实 idle peer、待派工作和资源，不把订阅存在当作可派工作。
+- 事实：`collab board show` 与 `appsdk goal status --json` 一致；`ready_authorized_work=false`，pending_merges=[]，无 blocked/timed-out；Henry 的 `b-a1-first-fit-henry-20261108` 仍 working，Carol 的 `nn-code-redesign-learning-loop-r1` 仍 working，Iris P0 working；search-read/rust/swift 仍 parked，Emma offline。`collab recv` 未有新的待处理动作。
+- 调度结论：没有新的 ready 授权任务或可集成候选，因此不唤醒、不派单、不制造任务。`sub-m1794127022442-986` 尚未到期，project patrol `sub-m1793963843713-143` 已 armed；无需续订或取消。
+- 资源：`git worktree list` 仅主工作树与 Henry 任务工作树；主工作树唯一未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
+- 边界：本轮仅消费通知、只读核对与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
