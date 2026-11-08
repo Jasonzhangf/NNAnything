@@ -3650,3 +3650,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置：通信入口恢复后本轮无新增可派任务、无可集成候选、无需重复唤醒 Iris 或 Grace；Emma 通道仍不可实时确认，继续等待其材料交接或 live research owner 接受独立设计切片后再改派。不向 CEO 发例行回执。
 - 边界：本轮仅消费通知、只读核对 board/goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review 返回、Emma 材料/交接或 live research owner 出现、下一次 goal deadline trigger（1794134317069）或新的可派工作；到达后再按 board 事实复核。
+
+## 2026-11-08 Jenny：worker-idle 与 goal deadline 处置（10:39Z）
+
+- 目的：消费 worker-idle `m1794134201407-1627` 与 goal deadline `m1794134322643-1636`，核对 Leo 新 idle、board 可派工作及长期目标是否仍需继续调度。
+- 证据：`collab recv` 已消费 `receive-32879-1794134365900585000-0`；处理后 `collab inbox` 为 0。旧 one-shot `sub-m1794133717138-1583` 已 consumed，`appsdk goal status` 一度显示 `active=false`、`desired=recovery_required`、`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED`。
+- board 与容量：`collab board show` 仍 `ready_authorized_work=false`，无 pending merge、blocked 或 timed-out；Iris P0、Grace 巡检 working；两个 symbols 任务维持 Emma owner-only parked，Emma worker offline；Leo 新 idle，Henry/Carol/Jack/Kate 也 idle，但没有匹配的 ready 授权任务，不制造任务。
+- goal 处置：因 open P0/P1 仍在，使用同一 `docs/autonomous-capability-roadmap.md` 和 `--interval 600000` 显式重订为 `sub-m1794134398388-1643`；`appsdk goal status` 已确认 active/subscribed、armed、trigger_ms 1794134998328、error=null。project patrol `sub-m1793963843713-143` 保持 armed。
+- 边界：本轮仅消费通知、只读核对 board/goal、续订本人 goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review、Emma 材料交接/live research owner、新的 ready 授权工作，或下一次 goal deadline trigger（1794134998328）后复核。
