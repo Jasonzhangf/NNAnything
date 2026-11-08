@@ -1,5 +1,24 @@
 # 当前任务
 
+## 2026-11-08 Jenny：round-38 授权纠偏、B-A1 后继切片纠正与派发（04:35Z）
+
+- 消费 Kate round-38 后续纠偏 `m1794112040238-685`：Kate 判定 B-A1 的 `HOLD_AUTHORIZATION` 与当前授权状态冲突，成立。依据 AGENTS.md 顶部「授权冲突待用户直接裁定」节已被用户直接授权取代：用户在线程 `01a1ae9f-debd-7852-947b-d0b68b913fb0`（userMessage `01a1b48e-28bb-7e91-90c6-d49ebb38c21d`）直接指示长程目标为 NNAnything 的 nn-code 与浏览器训练和交付，并按目标拉满 peer 工作。
+- roadmap 纠正：删除 `### B-A1 后继切片授权依赖` 的 `HOLD_AUTHORIZATION`/「待用户裁定」表述，改为 `### B-A1 后继切片状态`，记录当前授权、已交付固定环境与真正剩缺切片。note 顶部对应错误 hold 记录就地标记作废。
+- 事实核对：B-A1 固定环境已由 `b-a1-fixed-env-sample-prep-20261107` 交付、Alice subject_revision 4 ACCEPT、master `c624b94` 集成 main；`lib/training/b-a1-route-encoder.ts`、`b-a1-group-loss.ts`、`b-a1-training-entry.ts`（`trainBA1UnifiedRelationDecision`）、`b-a1-sample-evaluator-skeleton.ts` 均已在 main。故 route encoder/loss/fixed entry 不再作为新切片重复派发；原先拟派的三个文件任务取消，避免重复交付。
+- 真正剩缺的 B-A1 后继切片：1) 真实样本生成（按已接受槽位/监督合同产出 student-rows 与 supervision-rows 物理分离输入）；2) 完整独立 evaluator（在 skeleton 类型与分母上实现模型执行、逐组阈值决策与独立语义评价）。两者只需已落盘设计，不需再裁定；单一 owner、独占 worktree/branch、reviewer=Alice。runner/export 接线仍由 `8d11940` 解阻条件约束，不在本切片内擅接线。
+- 已上板两切片：`b-a1-real-sample-generation-henry-20261107`（owner Henry，reviewer Alice，board rev2 invited，p1 implementation）与 `b-a1-independent-evaluator-leo-20261107`（owner Leo，reviewer Alice，board rev2 invited，p1 implementation）；均无硬依赖、并发启动，evaluator 用 skeleton 已有合成 fixture 自验，不需等真实样本。已向 `NNAnything.Kate` 发送实际派单回执 `m1794112883320-758`（非仅 ACK）。
+- 本轮仅消费通知、纠正 roadmap/note 授权口径、核对已交付事实与派发；未改产品代码/语料/权重/gold/threshold/采用，未训练/采样/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+
+## 2026-11-08 Jenny：round-38 处置、B-R 归因上板、P1-1 rev4 返工、goal 续订（04:20Z）
+
+- 消费 Kate round-38 `m1794110913964-612` 与后续 `m1794111589312-657`，goal deadline `m1794111391779-644`，Alice P1-1 REWORK `m1794111438928-649`，dispatch-gap `m1794111205585-628` 与 worker-idle 批次。`collab recv` 清空 inbox。
+- roadmap 同步：browser B-A1 行更新为 `b-a1-unified-research-prep-20261107` subject_revision 3 已 ACCEPT/close；fixed-env 行更新为 Alice subject_revision 4 ACCEPT、候选 `43d83c7`、merge `c624b94` 集成并 push、board closed/cleanup receipt 已收；unified-encoder 行更新为 merge `a030bbb` 集成并 push、任务 closed，`1c8ccdd` 经本次迁移与 fixed-env 集成闭环；B-R 行加入新独立归因任务。roadmap 当前行号见 `docs/autonomous-capability-roadmap.md:170-179`。
+- B-R 归因已上板：`b-r-per-degradation-attribution-carol-20261107`（design，p1，executor Carol，reviewer Alice，parent `nnanything-overall-redesign-orchestration-r1`，board rev2 invited）。只读分析 `/Volumes/Intel/playground/nnanything-runs/b-r-browser-fit-evaluation-henry-20261107/` 的逐例证据、控制/处理权重与 decision rule，输出 `/Volumes/Intel/playground/nnanything-runs/b-r-per-degradation-attribution-carol-20261107/attribution-report.md`；不重训、不重评、不改产品源码/gold/threshold/采用。Carol 已收到 board invite `board-invite-b-r-per-degradation-attribution-carol-20261107-2`。
+- [已作废，见本节顶部 2026-11-08 round-38 授权纠偏] 原文误记 B-A1 后继切片处于 `HOLD_AUTHORIZATION`、owner=待用户裁定。该记录与当前授权冲突：用户在线程 `01a1ae9f-debd-7852-947b-d0b68b913fb0` 直接指示 NNAnything nn-code 与浏览器训练交付、按目标拉满 peer 工作，取代 2026-11-05 停工范围。B-A1 固定环境（route encoder/loss/fixed entry/evaluator skeleton）已由 `b-a1-fixed-env-sample-prep-20261107` 交付并集成 main `c624b94`；真正剩缺为独立样本生成与完整独立 evaluator。
+- P1-1：worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` clean，HEAD `09a52eb`，branch ahead origin/main 4、behind 33；Alice subject revision 4 正式 REWORK。已闭合保留真实 import/re_export 元组、同名/错别名/错 specifier/必要边与 `goal.relation.edges` 覆盖；剩余两条：缺失 import 实际语句仍凭 source export 通过，re_export 把源模块未导出私有声明当可导出。Alice 已交 Iris 精确反例（删除 entry import；仅删 impl export 关键字并保留声明，其余 episode 不变），要求同入口红绿证据、复用有效证据、不重训；未 ACCEPT 前不 merge/push。
+- goal deadline 已消费并按 LAST_REMINDER 显式续订同一 `docs/autonomous-capability-roadmap.md`（10m / repeat 100 / TTL 604800）；`appsdk goal status --json` 回读 active=true、desired=observed=subscribed、error=null，one-shot `sub-m1794111557520-656` armed，project patrol `sub-m1793963843713-143` armed。已向 Kate 回执 `m1794111791613-666`，说明 B-A1 后继的授权 hold 与恢复条件。
+- 本轮仅消费通知、board/goal 维护、roadmap/note 编辑、只读证据核对与派发；未改产品代码/语料/权重/gold/threshold/采用，未训练/采样/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：master 巡检、goal 续订与 Kate round-37 复核（03:31Z）
 
 - 消费 master-wake-batch `m1794108334629-410`、worker-idle `m1794108434638-416`、goal deadline `m1794108587723-427`（LAST_REMINDER）与 Kate round-37 复核 `m1794108654626-432`。板面巡检：无 pending merge、无新 ready 工作；P1-1 仍由 Iris 在 round-28 执行（red-3 预期失败已出现，green-3/result-3 未产出）；Grace 巡检 round-14 记录在案；四个 Emma 任务仍 parked。Kate 复核确认 main 已推进 `9fba0f3`，note/roadmap 陈旧授权口径已修正，round-37 剩余缺口 2 关闭。
