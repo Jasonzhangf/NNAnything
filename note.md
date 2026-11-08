@@ -3478,3 +3478,10 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 资源：main `ffb3470`=origin/main，仅主工作树；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 按 PROTECTED_HOLD 保留，不提交、不删除。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 交付：已向 Jenny 报告身份、P0 rev87、goal 续订与 board 事实；durable 回执 `m1794126481571-923`，`consumed=false`，通知 `tmux-input-submitted`。
 - 下一步：继续保留 true 等待状态；等 Emma 恢复或任务改派给 live research owner，并经 Alice 接受可执行研究合同后重跑 DAG gate；下一次 deadline 触发后再显式重订。
+
+## 2026-11-08 Jenny：四个 parked nn-code-redesign 任务裁定（08:31Z）
+
+- 裁定：`nn-code-redesign-learning-loop-r1` 已用 `collab board invite` 投递给 Carol，board revision 7，任务当前 owner 仍为 Emma，所有权只在 Carol 接受后转移；Carol 已收到直接任务边界：仅设计/研究，reviewer Alice，产出契约与证据，不实现、不训练、不采用。
+- `nn-code-redesign-search-read-r1` / `rust-r1` / `swift-r1` 维持 parked-pending-design-peer；Rust/Swift 继续后置，search-read 等学习闭环契约通过或出现可用 live 设计 owner 后再排。
+- 不越 owner-only 边界改写 Emma 的 next_step，不 force-close，不自行实现或冒用 Emma 身份。
+- 其他状态不变：ready_authorized_work=false，pending_merges=[]，无 blocked/timed-out，Iris P0 working，目标订阅 armed。
