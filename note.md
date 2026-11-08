@@ -3613,6 +3613,24 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 
   - 09:13Z 补充：Carol 已接受 `board-invite-nn-code-redesign-search-read-r1-8`，`nn-code-redesign-search-read-r1` owner 由 Emma 转为 Carol（invited 已解析、status working、executor=Carol、reviewer=Kate）。board 无 ready_authorized_work、无 pending merge、无 blocked；idle=Henry/Carol/Leo/Kate。本轮无新增可派任务，本轮巡检收口。
 
+## 2026-11-08 Jenny：worker-idle 巡检回执（10:21Z）
+
+- 目的：消费 worker-idle `m1794133096077-1530`/`m1794133168390-1535`，核对是否有新增可派工作或需要处置的资源/阻塞。
+- 证据：`collab recv` 已消费 `receive-90201-1794133269283584000-0`；`dispatch-sweep.sh` 返回 `unassigned_ready=[]`、`awaiting_acceptance=[]`、`queued_for_peer=[]`；`collab board show` 仍 `ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
+- board：Iris P0 `nnanything-overall-redesign-orchestration-r1` working（rev108，10:15Z 已自行消费其 goal deadline；board 无新增 ready 授权工作）；Grace 巡检 working（missing=[review]）；两个 symbols 任务保持 Emma owner-only parked；其余 idle peer（Henry/Carol/Leo/Jack）无未关闭任务。
+- 处置：daemon board dispatcher 负责 eligible peer 唤醒；本轮无新增可派任务、无可集成候选，不唤醒不派单、不制造任务。Iris 持 P0 但 idle，按其 10:15Z closeout 已无新 ready 工作，不重复唤醒。
+- 边界：仅消费通知与只读核对；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux；未跟踪 fixture 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review 返回、symbols 恢复条件满足或 Jenny 新调度；下一次 goal deadline trigger（1794133608556）后再复核并续订。
+
+## 2026-11-08 Jenny：Iris symbols 状态同步裁定（10:24Z）
+
+- 目的：消费 Iris 的 P0 状态同步 `m1794133348449-1550`，并对其请求的“确认 symbols 独立设计切片、指派 live research owner、完成 Emma 材料 handoff 或明确关闭条件”作出 master 裁决。
+- 证据：`collab recv` 已消费 `receive-9171-1794133354426633000-0`。board `collab board show` 与上一轮一致：P0 `nnanything-overall-redesign-orchestration-r1` working rev108；`nn-code-redesign-symbols-rust-r1`/`symbols-swift-r1` 维持 Emma owner-only working、presence=missing、identity_valid=false；`ready_authorized_work=false`、`pending_merges=[]`、无 blocked/timed-out。
+- 裁定：两个 symbols 子任务继续 `parked-pending-design-peer`。改派前提未满足：Emma 原始材料/交接未落盘，且没有可承接的 live research owner；按 owner-only 边界不强制改写 lifecycle、不冒用 Emma 身份、不派无切片研究。
+- 处置：已用 `collab send` 按引用回复 Iris，durable `m1794133439855-1561`（notification=tmux-input-submitted），要求其在 P0 父任务维持当前 disposition；恢复条件仍是 Emma 恢复或材料交接完成、master 确认独立设计切片并指派可用研究 owner，随后重跑受影响 DAG gate。
+- 边界：本轮只消费通知、发送裁决回复并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等待 Emma 材料交接或 live research owner 出现；goal `sub-m1794133008622-1524` 与 project patrol 保持 armed。
+
 ## 2026-11-08 Jenny：master patrol 四项核对与 goal 续订（10:17Z）
 
 - 目的：消费 goal deadline `m1794132651104-1501`、master-wake `m1794132735116-1506`、worker-idle 批次及 Iris 的两次更正 `m1794132869550-1514`/`m1794132959953-1522`/`m1794133023560-1525`，按四项巡检核对事实并在需要继续调度时显式续订goal。
@@ -3623,3 +3641,12 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置：daemon board dispatcher 负责 eligible peer 唤醒，本轮不手工重复唤醒；Emma 缺失与其两个 parked 任务记录为未解除缺口，恢复条件仍是 live research owner + 独立设计切片 + Emma 材料交接。Iris 更正确认只有两个 symbols children 未关闭，父任务 closeout 与 cancel 回执不变。
 - 边界：本轮仅消费通知、只读核对、续订本人 goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Emma 材料交接或 live research owner 出现、Grace 巡检返回、或下一次 goal deadline trigger（1794133608556）后再复核并续订。
+
+## 2026-11-08 Jenny：Collab 恢复后的派发复核（10:32Z）
+
+- 目的：消费 goal deadline `m1794133617041-1573` 与 Alice 的通信恢复通知 `m1794133867852-1596`，按当前 board 恢复正常派发检查，不重复建任务、不自行维修 Collab。
+- 证据：`collab msg` 显示 deadline 已 `state=read`、`consumed_by_recv=true`；`collab recv` 已消费 `receive-30142-1794133921188864000-0`，处理后 `collab inbox` 为 0。`appsdk goal status` 显示同一 roadmap goal 已于 10:28Z 重臂为 `sub-m1794133717138-1583`，active/subscribed、trigger_ms 1794134317069、error=null；project patrol 继续为 `sub-m1793963843713-143` armed。
+- board 与容量：`collab board show` 显示 `ready_authorized_work=false`，无 pending merge、blocked 或 timed-out；Iris P0、Grace 巡检 working；两个 symbols 任务仍为 Emma owner-only parked，`next_step=null`，且当前 worker 状态 offline、`endpoint_live=null`。Henry/Carol/Leo/Kate 等 idle peer 无新增任务；本轮无 ready 授权工作可派，不因容量闲置制造任务，也不改变 symbols 的 owner-only 恢复条件。
+- 处置：通信入口恢复后本轮无新增可派任务、无可集成候选、无需重复唤醒 Iris 或 Grace；Emma 通道仍不可实时确认，继续等待其材料交接或 live research owner 接受独立设计切片后再改派。不向 CEO 发例行回执。
+- 边界：本轮仅消费通知、只读核对 board/goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review 返回、Emma 材料/交接或 live research owner 出现、下一次 goal deadline trigger（1794134317069）或新的可派工作；到达后再按 board 事实复核。
