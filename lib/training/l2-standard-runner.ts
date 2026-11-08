@@ -101,6 +101,10 @@ import {
   type UnifiedPersistedTiming,
   type UnifiedThisRunTiming,
 } from "./unified-timing.js";
+import {
+  runUnifiedRunnerEvaluate,
+  type UnifiedRunnerEvaluateConfig,
+} from "./unified-runner-evaluate.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -189,6 +193,7 @@ export interface UnifiedRunnerConfig {
   readonly outputDir: string;
   readonly corpus?: UnifiedRunnerCorpusConfig;
   readonly training?: UnifiedRunnerTrainingConfig;
+  readonly evaluate?: UnifiedRunnerEvaluateConfig;
 }
 
 export interface EvaluationBreakdown {
@@ -2202,10 +2207,24 @@ export async function executeUnifiedRunnerRoute(
   },
 ): Promise<number> {
   if (command === "evaluate") {
-    process.stderr.write(
-      `Unified runner route is NOT_READY for ${command}; convert-samples, train, resume, and validate-data are available. No fitter or legacy fallback was used.\n`,
+    const outputDir = resolve(config.outputDir);
+    await mkdir(outputDir, { recursive: true });
+    const result = await runUnifiedRunnerEvaluate({
+      commandStartNs: timingStart?.commandStartNs ?? process.hrtime.bigint(),
+      startedAt: new Date().toISOString(),
+      route: config.route,
+      phase: config.phase,
+      encoderVersion: config.encoderVersion,
+      outputDir,
+      evaluate: config.evaluate,
+    });
+    await writeUnifiedRunnerReceiptFiles(
+      outputDir,
+      result.report.runId,
+      `${JSON.stringify(result.report, null, 2)}\n`,
+      result.markdown,
     );
-    return 2;
+    return result.exitCode;
   }
   if (
     command !== "validate-data"
