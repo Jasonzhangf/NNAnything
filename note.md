@@ -3454,3 +3454,19 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 巡检差异：board 相对 07:26Z 无变化。P0 `nnanything-overall-redesign-orchestration-r1`（Iris，working，rev80）next_step 明确无新可派工作；Grace 巡检 working；Emma 四个 `nn-code-redesign-*` 仍 parked-pending-design-peer（presence=missing、identity-mismatch）。无 pending merge、无 blocked/timed-out；idle peer（Henry/Carol/Jack/Kate）无 ready 授权任务，未制造任务。
 - 资源：main `40d776c=origin/main`，仅主工作树（`git worktree list` 单条）；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。project patrol `sub-m1793963843713-143` armed、repeat 112。
 - 下一步：无 owner 级可执行缺口，等待 Emma 恢复或改派 live research owner，并经 Alice 接受可执行研究合同后重跑 DAG gate。本轮仅 inbox 消费、goal 续订、巡检核对与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
+
+## 2026-11-08 Iris：goal deadline 续订与 P0 状态同步（08:13Z）
+
+- 目的：恢复后继续本人 P0 编排任务，消费一次 goal deadline 唤醒并核对是否存在新的可执行工作。
+- 证据：`appsdk goal status` 显示 `sub-m1794124774935-783` 在 trigger_ms 1794125374887 已 consumed；同一 roadmap 已显式重订为 `sub-m1794125572437-850`（one-shot、10m、armed、trigger≈08:22Z、error=null）。`collab board update` 已把 `nnanything-overall-redesign-orchestration-r1` 从 rev85 更新为 rev86 working。
+- 状态差异：无新增 ready 授权工作、pending merge、blocked/timed-out task 或可集成候选。Emma 仍 presence=missing，四个 `nn-code-redesign-*` 子任务继续 parked-pending-design-peer，恢复条件不变：live research owner 接手并经 Alice 接受可执行研究合同后重跑 DAG gate。
+- 资源：`origin/main=126abc6`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。board patrol 仍覆盖本人 P0。本轮仅 goal 续订、board 更新与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+
+## 2026-11-08 Jenny：master-wake/idle 批次消费与资源核对（08:11Z-08:13Z）
+
+- 消费 worker-idle `m1794125305090-823` 与 master-wake `m1794125475653-835`、`m1794125558174-848`，共 3 条，状态已改为 read。
+- 身份：Jenny，kind=peer、role=master，endpoint live；Iris peer 绑定保持 engineering，P0 `nnanything-overall-redesign-orchestration-r1` working。
+- 调度：goal active/subscribed/armed，订阅 `sub-m1794125314368-824`，trigger≈08:11:54Z；board project patrol `sub-m1793963843713-143` armed；`ready_authorized_work=false`，pending_merges=[]，无 blocked/timed-out。
+- 空闲 peer：Henry、Carol、Iris、Leo、Jack；无 ready 授权任务，未制造新任务。
+- Git：main 与 origin/main 一致，唯一未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 按既有 PROTECTED_HOLD 保留，不提交、不删除、不冒称已消费。
+- 本轮仅文档同步与提交推送，未训练、未改权重/gold/threshold/采用、未产品接线、未安装 runtime、未动 tmux/daemon。
