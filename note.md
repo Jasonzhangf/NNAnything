@@ -3988,3 +3988,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置：Henry 已从红测进入实现文件，暂不打断；Grace 是常驻巡检，不接收普通派单。当前没有可派 ready 工作，不制造新任务。
 - 边界：本轮只消费通知、只读核对 board/worktree、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Henry 提交 evaluate 实现、测试/build 回执和公开路由证据，再交 Alice review；fit 仍后置。
+
+## 2026-11-08 Jenny：worker-idle 复核，evaluate 脚本已落盘（18:28Z）
+
+- 目的：处理 Henry 与 Grace 的 worker-idle `m1794162313877-4128`/`m1794162332929-4129`，核对 evaluate 是否继续推进。
+- 证据：`collab recv` 已消费 `receive-82042-1794162476918290000-0`。Henry 的 evaluate worktree 新增 `evidence/run-public-evaluate.mjs`，`unified-runner-evaluate.ts` 于 18:26Z 更新；实现仍为未提交状态。board 无 ready 授权工作，无 pending merge/blocked/timed-out。
+- 处置：Henry 仍在实际实现与执行路径准备，暂不中断；Grace 保持巡检，不接普通任务。
+- 边界：本轮只消费通知、只读核对 board/worktree、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 提交实现、测试/build 日志与公开路由回执，再交 Alice review。
