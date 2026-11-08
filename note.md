@@ -6,6 +6,7 @@
 - P0 `nnanything-overall-redesign-orchestration-r1` 保持 working，board revision 80。Iris 核对时 origin/main=`b416566`；master 文档提交后当前 origin/main=`f0c0409`。B-A1 independent evaluator 已在 `b416566` 集成并关闭；Leo cleanup complete；Grace 巡检 working。四个 `nn-code-redesign-*` 子任务仍因 Emma offline 停放，恢复条件为 Emma 恢复、任务改派给 live research owner，且 Alice 接受对应设计合同。
 - 已按长程目标规则恢复本人调度：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，goal active/subscribed，one-shot deadline armed；`collab notify subscribe --event board-idle --task-id nnanything-overall-redesign-orchestration-r1`，回执 `status=armed`。本轮未训练、未改权重/gold/threshold/采用，未产品接线或安装 runtime，未 merge/push，未动 daemon/tmux。
 - 07:20Z 消费 goal deadline `m1794122365360-591`（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`，LAST_REMINDER）；因 P0 任务仍 working 且授权目标继续，07:24Z 显式续订同一条 goal，新订阅 `sub-m1794122643578-614` armed（10m），goal active/subscribed、error=null。board patrol 仍 armed，P0 任务在 `eligible_task_ids` 中。
+- 07:34Z 消费 goal deadline `sub-m1794122643578-614`（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`）；因 P0 任务仍 working 且授权目标继续，07:35Z 显式续订同一条 goal，回执 one-shot armed（10m），goal active/subscribed、error=null。board patrol armed；本轮再次核对 board：P0 working，`ready_authorized_work=false`，Emma 仍 offline，四个 `nn-code-redesign-*` 子任务保持 parked，无 pending merge，无 blocked/timed-out。无可派工作；等待 Emma 恢复或改派+Alice 接受设计合同后重跑 DAG gate。
 
 ## 2026-11-08 Jenny：B-A1 样本生成集成关闭，B-R 归因关闭，Leo evaluator 改派 Kate（06:35Z）
 
