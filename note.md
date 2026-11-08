@@ -3746,6 +3746,17 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review、symbols 恢复条件、用户明确 CLI 范围、B-A1 接线决定或下一次 goal deadline。
 
+## 2026-11-08 Jenny：采纳 Kate round-51 并修正 roadmap 三处陈旧事实（13:05Z）
+
+- 目的：处理 Kate round-51（`m1794142842293-2257`）指出的 roadmap 文本漂移，保证文档与 board/事实一致。
+- 证据：`collab task status` 核对 `p1-1-typed-dynamic-recursive-engineering-iris-20261107`（closed/integrated，commit `d125abc`）、`b-r-per-degradation-attribution-carol-20261107`（closed/no_merge_required，reviewed_subject_revision=4，reviewer Kate）与 `nn-code-redesign-search-read-r1`（closed/no_merge_required，reviewed_subject_revision=2，reviewer Kate）；三条与 Kate 报告一致。
+- 处置：更新 `docs/autonomous-capability-roadmap.md`「当前并行派发」表 P1-1 行与 browser B-R 行，及 B-A1 后继切片后的 search-read 段落：
+  1. P1-1 改为「subject6 `b5f6726` 已 Alice ACCEPT、master 集成 main `d125abc` 并 push、任务 closed/integrated、worktree+branch 已清」；
+  2. B-R 归因改为「Carol rev2 交付、Kate subject_revision 4 ACCEPT（06:33Z）、任务 closed、completion_missing=[]」；
+  3. search-read 改为「Carol subject_revision 2 交付、Kate 09:39Z ACCEPT、任务 closed/completion_missing=[]」。
+- 边界：只改 roadmap 文本，未改产品代码/权重/gold/threshold/采用/board/goal，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Grace review、symbols 恢复条件、用户明确 CLI 范围、B-A1 接线决定或下一次 goal deadline；后续 roadmap 修订继续保持与 board/事实一致。
+
 ## 2026-11-08 Jenny：worker-idle 复核与 goal 续订（12:42Z）
 
 - 目的：消费 worker-idle `m1794141362918-2172` 与 goal deadline `m1794141515528-2183`（receive-36681）。
