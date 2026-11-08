@@ -7,6 +7,7 @@
 - 已按长程目标规则恢复本人调度：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，goal active/subscribed，one-shot deadline armed；`collab notify subscribe --event board-idle --task-id nnanything-overall-redesign-orchestration-r1`，回执 `status=armed`。本轮未训练、未改权重/gold/threshold/采用，未产品接线或安装 runtime，未 merge/push，未动 daemon/tmux。
 - 07:20Z 消费 goal deadline `m1794122365360-591`（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`，LAST_REMINDER）；因 P0 任务仍 working 且授权目标继续，07:24Z 显式续订同一条 goal，新订阅 `sub-m1794122643578-614` armed（10m），goal active/subscribed、error=null。board patrol 仍 armed，P0 任务在 `eligible_task_ids` 中。
 - 07:34Z 消费 goal deadline `sub-m1794122643578-614`（`GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED:consumed`）；因 P0 任务仍 working 且授权目标继续，07:35Z 显式续订同一条 goal，回执 one-shot armed（10m），goal active/subscribed、error=null。board patrol armed；本轮再次核对 board：P0 working，`ready_authorized_work=false`，Emma 仍 offline，四个 `nn-code-redesign-*` 子任务保持 parked，无 pending merge，无 blocked/timed-out。无可派工作；等待 Emma 恢复或改派+Alice 接受设计合同后重跑 DAG gate。
+- 07:40Z board-idle patrol `m1794123579995-688` 已消费；P0 `nnanything-overall-redesign-orchestration-r1` 仍 working rev80，`ready_authorized_work=false`，四项 Emma subtask 保持 parked（owner offline），无 pending merge、无 blocked/timed-out，未解除 patrol（P0 未关闭，仍需兜底唤醒）。未训练、未改权重/gold/threshold/采用，未产品接线或安装，未 merge/push，未动 daemon/tmux。
 
 ## 2026-11-08 Jenny：B-A1 样本生成集成关闭，B-R 归因关闭，Leo evaluator 改派 Kate（06:35Z）
 
@@ -3432,3 +3433,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 进展差异：无新增已验收能力或可集成候选；本轮只确认上一轮收口仍成立，并续订目标唤醒。Iris 在 07:20Z 进入 idle，尚未达到可信连续 idle 超过 30 分钟的门槛，未发送重复唤醒。Emma 仍 presence=missing、TMUX_ENDPOINT_MISSING，四个 nn-code-redesign 子任务保持 parked-pending-design-peer。
 - 资源：main `563f0e9=origin/main`，仅主工作树；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。project patrol `sub-m1793963843713-143` armed、cadence_runtime_gap=null；goal 已显式续订 10 分钟、最多 100 次唤醒。
 - 下一步：等待 Emma 恢复或任务改派给 live research owner，并由 Alice 接受可执行研究合同后重跑 DAG gate；Grace 按既有巡检周期继续。本轮未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
+
+## 2026-11-08 master 巡检：消费两次 goal deadline 并续订（07:38Z）
+
+- 目的：消费两批 goal deadline 唤醒（`m1794122746991-621` 07:25Z、`m1794123399400-667` 07:36Z），核对 P0/P1、peer 容量与待集成候选是否产生新的可执行动作。
+- 证据：`collab recv` 已消费 `m1794123215906-651`（Iris 恢复报告）与 `m1794123399400-667`；前一条 07:25Z deadline 已被消费（`collab msg` state=read）。`appsdk goal status` 显示 07:25Z 续订的 `sub-m1794122791395-625` 已 consumed（GOAL_ONE_SHOT_SUBSCRIPTION_NOT_ARMED），07:38Z 用同一 roadmap 显式重订为 `sub-m1794123485243-678`（10m、最多 100 次），armed、trigger≈07:48Z。`collab inbox` 为 0。
+- 巡检差异：board 相对 07:26Z 无变化。P0 `nnanything-overall-redesign-orchestration-r1`（Iris，working，rev80）next_step 明确无新可派工作；Grace 巡检 working；Emma 四个 `nn-code-redesign-*` 仍 parked-pending-design-peer（presence=missing、identity-mismatch）。无 pending merge、无 blocked/timed-out；idle peer（Henry/Carol/Jack/Kate）无 ready 授权任务，未制造任务。
+- 资源：main `40d776c=origin/main`，仅主工作树（`git worktree list` 单条）；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。project patrol `sub-m1793963843713-143` armed、repeat 112。
+- 下一步：无 owner 级可执行缺口，等待 Emma 恢复或改派 live research owner，并经 Alice 接受可执行研究合同后重跑 DAG gate。本轮仅 inbox 消费、goal 续订、巡检核对与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
