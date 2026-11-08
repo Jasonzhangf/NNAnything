@@ -8,6 +8,8 @@
 - 资源收口：Iris 独占 worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` 已 `git worktree remove`，分支 `p1-1-typed-dynamic-recursive-20261107` 已 `git branch -D`。
 - 长程 goal 订阅重武装：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，one-shot armed，project patrol armed。
 - 在途（等 owner 交付 → Alice 审查 → 集成）：Henry `b-a1-real-sample-generation-henry-20261107`（worktree 尚有未提交 converter/scripts，未 deliver）；Leo `b-a1-independent-evaluator-leo-20261107`（暂未见新产出）；Carol `b-r-per-degradation-attribution-carol-20261107`（只读归因，未 deliver）。均 not blocked，dispatch gap 清；master 持续监控，不替代 owner 实现。
+- P1-1 子任务已 master force-close（cleanup receipt `cleanup-manual-p1-1-typed-dynamic-recursive-engineering-iris-20261107-1794114698509`），理由记录 ACCEPT/集成/main/回归/资源收口；父任务 `nnanything-overall-redesign-orchestration-r1` next_step 由 owner Iris 维护（master 非 owner，不能代写）。
+- close 回执提示 Emma stale session 仍挂四个已释放的 `nn-code-redesign-*`；按 Alice 裁定维持 parked-pending-design-peer（owner missing、无可用研究 owner），需 Jenny 确认独立设计切片并指定研究 owner 后重派，未 force-close、未冒用 Emma 身份。
 
 ## 2026-11-08 Jenny：master 巡检（05:00Z）
 
