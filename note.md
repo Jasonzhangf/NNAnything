@@ -3728,6 +3728,16 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review、symbols 恢复条件、新的 ready 工作或下一次 goal deadline。
 
+## 2026-11-08 Jenny：未完成项独立核实（12:20Z）
+
+- 目的：按用户"继续执行尚未完成的任务"指示，独立核实 4 个未关闭任务与 bug intake，确认是否真无可派工作，而非沿用上一轮结论。
+- 证据：`collab task status` 全量 109 任务中仅 4 个非 closed，与 `collab board show` 一致（Grace patrol rev24 working；symbols rust/swift rev6 working，Emma owner-only；Iris P0 rev109 working）；无 delivered/rework 隐藏项，`ready_authorized_work=false`，pending_merges=[]，无 blocked/timed-out。
+- Emma/材料核实：`collab who` 显示 Emma `identity_valid=false`、`presence=missing`、`endpoint_live=null`；`/Volumes/Intel/playground/nnanything-runs` 无 `*symbol*` 目录，仅无关 `rust-calls-*` 评审目录，原符号设计材料/交接确未落盘。roadmap 2026-11-07 MVP 明确 "Rust/Swift 等非当前首训前置可后置"，故维持 parked 不改派，符合当前 MVP。
+- bug intake 核实：open 项多为已撤回 `nn-code` 产品缺陷（不在 MVP 范围）；P2 `8d11940` 受 B-A1 runner/export 接线解阻条件约束、当前不可推进；P1 `7db2c6a` CLI Phase A 不在当前 nn-code/浏览器 MVP，待用户明确 CLI 范围。三者均无本轮可派动作。
+- goal：12:17Z 重臂的 subscription 保持 `Active=true`/subscribed，project patrol armed；本轮不重复续订。
+- 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；`HEAD=origin/main` 与主工作树一致，未跟踪 fixture 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review 返回（约 14:57Z 触发）、Emma 材料交接或 live research owner、用户明确 CLI 范围、B-A1 runner/export 接线决定，或下一次 goal deadline。
+
 ## 2026-11-08 Jenny：worker-idle 复核与 goal 续订（12:17Z）
 
 - 目的：消费 worker-idle `m1794140216313-2097` 与 goal deadline `m1794140244385-2100`，复核 board 可派工作并续订需要继续调度的一次性 goal。
