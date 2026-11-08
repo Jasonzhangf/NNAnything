@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-08 Jenny：项目巡检，goal 续订与 search-read 设计交付对账（09:21Z-09:25Z）
+
+- 目的：消费 master/worker/goal 提醒并核对 P0/P1、board 容量、peer idle 原因与自有资源，确认是否出现新的可派或待集成工作。
+- 证据：`collab context` 恢复 Jenny/master；`collab recv` 已消费 `m1794129353534-1203`、`m1794129392547-1205`、`m1794129405920-1208`、`m1794129431318-1209`、`m1794129449590-1210`、`m1794129470797-1214`、`m1794129579021-1223`、`m1794129698351-1233`、`m1794129755874-1241` 与 `m1794129865719-1252`。Carol `m1794129865719-1252` 报告 search-read 设计已登记 delivered，board rev11，reviewer=Kate，subject_revision=1，路径 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-search-read-20261108/{contract.md,task-log.md}`。
+- 调度：`dispatch-sweep.sh` 仅报 Iris 持有 P0 父任务时处于 idle；unassigned_ready、awaiting_acceptance、queued_for_peer 均为空，无 pending merge、无 blocked/timed-out。Henry 的 B-A1 first fit 为 working/Kate review，Carol 的 search-read 已转为 delivered/Kate review，Grace 巡检 working，Rust/Swift 因 Emma missing 维持 parked。Kate 已收到 Carol 的正式 review 请求，本轮不重复投递。
+- Goal/巡检：已消费 goal deadline `sub-m1794129138304-1180` 并经 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m` 显式续订，新订阅 `sub-m1794129815692-1242` armed，trigger≈1794130415634；`appsdk goal status` 回读 active/desired=observed=subscribed、error=null。project patrol `sub-m1793963843713-143` 保持 armed，interval=1500000ms，`cadence_runtime_gap=null`。
+- 资源：`git worktree list` 只有主工作树与 Henry 的 `b-a1-first-fit-henry-20261108` 独占工作树；主树仅保留既有无跟踪 `playground/browser/search/b-a1/cua-fixture.html` 的 PROTECTED_HOLD。无 Jenny 自有临时 worktree 需要回收。
+- 下一步：等 Kate 对 search-read design subject_revision 1 的正式审查；通过后按 owner/board 生命周期推进后续实现与训练准备，不代替 reviewer 或 owner 执行。当前无可派 ready 工作，不为占满资源制造任务。
+- 边界：本轮仅消费通知、只读巡检、goal 续订与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+
 ## 2026-11-08 Iris：身份/任务恢复、search-read 纠正与 goal 续订（09:12Z）
 
 - `collab context` 恢复 Iris peer 身份：`kind=peer`、`role=worker`、`work_roles=[engineering]`，绑定 NNAnything pane `%12` / tmux `$12`，daemon live，master Jenny endpoint live，inbox 为空；本人未接管 master 权限。P0 `nnanything-overall-redesign-orchestration-r1` 保持 working。
