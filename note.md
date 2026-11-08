@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：P1-1 收口与 B-R 归因交审（05:15Z）
+
+- P1-1 子任务已 master force-close（cleanup receipt `cleanup-manual-p1-1-typed-dynamic-recursive-engineering-iris-20261107-1794114698509`）；理由记录 Alice subject6 ACCEPT、main 集成 `d125abc`、受影响回归全绿与资源收口。父任务 next_step 由 owner Iris 维护，master 非 owner 不代写。
+- Carol `b-r-per-degradation-attribution-carol-20261107` 已 deliver（rev5），证据 `/Volumes/Intel/playground/nnanything-runs/b-r-per-degradation-attribution-carol-20261107/attribution-report.md`（9810 bytes；loss 分项、31 行变化、逐样本 margin、权重贡献、§6 待复核事实）。已向 Alice 发审查请求 `m1794114927046-945`。未重训、未改 gold/threshold/loss/配方/分区、未解封 verification。
+- Henry `b-a1-real-sample-generation-henry-20261107`、Leo `b-a1-independent-evaluator-leo-20261107` 仍 working rev3，无新 deliver。dispatch gap 清、无 pending merge。
+- goal deadline 已消费并重订（10m one-shot armed，project patrol armed）。Emma 四项 `nn-code-redesign-*` 保持 parked-pending-design-peer（owner missing，无可用研究 owner，不冒用身份、不 force-close）。
+
 ## 2026-11-08 Jenny：P1-1 subject6 集成主线并收口（05:04Z）
 
 - Alice 正式 ACCEPT P1-1 subject6（candidate `b5f6726`，证据 `/Volumes/Intel/playground/nnanything-runs/p1-1-typed-dynamic-recursive-20261107/alice-review.md` 顶部）。三 P1 缺口全部闭合：缺失 import 观测、私有声明 re-export 误放行、同 edgeRef 不同元组 root 覆盖；真实入口红绿与正例有效。
