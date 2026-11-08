@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：worker-idle 复核（10:53Z）
+
+- 目的：消费 `m1794135095058-1697`、`m1794135197487-1706` 与 `m1794135216959-1707` 的 Leo/Grace/Jack idle 批次，复核是否出现新的可派或待处置工作。
+- 事实：`collab board show` 仍为 `ready_authorized_work=false`，pending_merges 空，无 blocked/timed-out；开放任务仍是 Iris P0、Grace 巡检、Emma 两个 owner-only parked symbols 任务。空闲 peer 无匹配 ready 授权任务，不制造任务。
+- Goal/资源：`sub-m1794135106139-1698` 保持 active/subscribed、remote_state=armed、trigger_ms=1794135706079；project patrol armed。main=`b78c2f5`=origin/main，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
+- 边界：本轮仅通知消费与只读核对；未改产品代码/权重/gold/threshold/采用，未训练/安装/接线，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：goal deadline / Grace round-17 / worker-idle 处置（10:50Z-10:51Z）
 
 - 目的：消费 goal deadline `m1794135006499-1684`（one-shot `sub-m1794134398388-1643` consumed）、Grace round-17 回执 `m1794135026757-1689` 与 worker-idle `m1794135030713-1691`；核对 board、容量、goal 与资源后按生命周期处置。
