@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal one-shot 续订、B-A1 收口回执核对、Carol 恢复空闲（02:29Z）
+
+- 消费 B-A1 收口回执组（m1794104861699-127 至 m1794104861861-130）：均为 43d83c7/c624b94 交付-接受-集成事实，与 board 一致（task closed、disposition=integrated、review valid rev4、completion_missing=[]）。
+- goal deadline `m1794104875748-131`（LAST_REMINDER）触发后 one-shot `sub-m1794104274029-86` 已 consumed（fired_count=1），`appsdk goal status` 报 recovery_required。已显式续订 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m --repeat 100 --ttl-seconds 604800`，新 one-shot `sub-m1794105314004-192` armed，active/desired=observed=subscribed、error=null，project patrol `sub-m1793963843713-143` armed。
+- Carol 身份恢复（registered=true、tmux $14 / pane %14），board 名下无开放任务，自述可接新 P0/P1（m1794105344037-194、m1794104930645-135）。当前无 ready_authorized_work、无 pending merge；P1-1 仍 Iris rework 进行中，不重复派单。
+- 本轮未改产品代码/语料/权重/gold/threshold/采用，未训练/接线、未安装 runtime、未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：B-A1 c624b94 已集成并关闭，worktree/分支已收口（02:22Z）
 
 - collab task status：b-a1-fixed-env-sample-prep-20261107 status=closed、disposition=integrated、delivery_complete=true、completion_missing=[]，cleanup receipt cleanup-b-a1-fixed-env-sample-prep-20261107-1794104462983。
