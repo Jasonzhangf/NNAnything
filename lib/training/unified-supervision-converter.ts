@@ -21,6 +21,9 @@ import {
 export const UNIFIED_SUPERVISION_ROW_SCHEMA = "nnanything.unified.supervision-row.v1" as const;
 export const STEPWISE_SUPERVISION_FILE = "independent-supervision.jsonl" as const;
 export const STEPWISE_SUPERVISION_SCHEMA = "emma-tsjs-independent-action-supervision-v1" as const;
+// Accepted fixed-generator schema kind. Its per-step S_g/A_g and join fields are
+// already the v2 shape; the loader only needs to admit the schema kind.
+export const FIXED_STEPWISE_SUPERVISION_SCHEMA = "carol-tsjs-fixed-stepwise-supervision-v1" as const;
 
 export interface SupervisionRow {
   readonly schema: typeof UNIFIED_SUPERVISION_ROW_SCHEMA;
@@ -208,7 +211,10 @@ export async function loadStepwiseSupervisionFamily(
     if (!isRecord(rawRecord)) {
       throw new TypeError(`supervision record ${recordIndex + 1} must be an object`);
     }
-    if (rawRecord.schemaVersion !== STEPWISE_SUPERVISION_SCHEMA) {
+    if (
+      rawRecord.schemaVersion !== STEPWISE_SUPERVISION_SCHEMA
+      && rawRecord.schemaVersion !== FIXED_STEPWISE_SUPERVISION_SCHEMA
+    ) {
       throw new TypeError(`supervision record ${recordIndex + 1} has an unsupported schemaVersion`);
     }
     const sampleId = requireString(rawRecord.sampleId, "supervision.sampleId");

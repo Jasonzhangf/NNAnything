@@ -35,6 +35,10 @@ export const UNIFIED_STUDENT_ROW_SCHEMA = "nnanything.unified.student-row.v1" as
 export const UNIFIED_STUDENT_GROUP_SCHEMA = "nnanything.unified.student-group.v1" as const;
 export const STEPWISE_STUDENT_OBSERVATIONS_FILE = "student-observations.jsonl" as const;
 export const STEPWISE_STUDENT_OBSERVATION_SCHEMA = "emma-tsjs-student-observation-v2" as const;
+// Accepted fixed-generator schema kind. The loader normalizes it into the v2
+// shape in one place so the original corpus stays read-only and no second
+// schema file is introduced.
+export const FIXED_STEPWISE_STUDENT_SCHEMA = "carol-tsjs-fixed-stepwise-student-v1" as const;
 
 export class StepwiseStudentDataError extends Error {
   readonly code = "DATA_INVALID" as const;
@@ -449,7 +453,12 @@ function validateReceiptsAndPreviousExecution(
         `sample ${sampleId} ${stepId} previousExecution receipt ${previousValue.receiptRef} is missing from this step`,
       );
     }
-    if (receipt.action !== previousValue.actionRef) {
+    // v2 receipts carry an optional opaque `actionRef`; the fixed generator's
+    // receipts always carry it. Fall back to the semantic `action` verb only
+    // when no opaque ref is present, so the previous-execution identity check
+    // stays meaningful for both shapes.
+    const receiptActionIdentity = receipt.actionRef ?? receipt.action;
+    if (receiptActionIdentity !== previousValue.actionRef) {
       throw new StepwiseStudentDataError(
         `sample ${sampleId} ${stepId} receipt ${previousValue.receiptRef} action mismatch`,
       );
@@ -506,6 +515,147 @@ export async function loadStepwiseFamilyManifest(familyDir: string): Promise<{
   };
 }
 
+// Typed state must be respected: only a known string value is usable. An
+// unknown/missing/not_requested/conflicting field with a residual string is not
+// known, so it must never leak as one. A plain `{ value: string }` object with
+// no `state` field is accepted as a legacy compatibility input (treated as a
+// known value), so this helper is not a strict known-only guard; only a field
+// whose `state` is an explicit non-known value is rejected.
+const TYPED_FIELD_KNOWN_STATE = "known" as const;
+const TYPED_FIELD_NON_KNOWN_STATE = "not known (unknown/missing/conflicting/not_requested/unsupported)" as const;
+
+function isTypedFieldNotKnown(field: Readonly<{ readonly state?: unknown }>): boolean {
+  return typeof field.state === "string" && field.state !== TYPED_FIELD_KNOWN_STATE;
+}
+
+function typedFieldToString(field: unknown): string | null {
+  if (typeof field === "string") return field;
+  if (isRecord(field)) {
+    if (isTypedFieldNotKnown(field)) return null;
+    if (
+      field.state === TYPED_FIELD_KNOWN_STATE
+      || field.state === undefined
+    ) {
+      if (typeof field.value === "string" && field.value.length > 0) return field.value;
+      return null;
+    }
+    return null;
+  }
+  return null;
+}
+
+function normalizeFixedStudentReceipt(entry: unknown): unknown {
+  if (!isRecord(entry)) return entry;
+  const receiptId = entry.receiptId ?? entry.receiptRef;
+  const target = entry.target ?? entry.targetRef;
+  const result = entry.result ?? entry.resultRefs;
+  return {
+    ...entry,
+    ...(typeof receiptId === "string" ? { receiptId } : {}),
+    ...(typeof target === "string" ? { target } : {}),
+    ...(result === undefined ? {} : { result }),
+  };
+}
+
+function normalizeFixedStudentSteps(
+  steps: unknown,
+  pendingRelationRef: string,
+): unknown {
+  if (!Array.isArray(steps)) return steps;
+  return steps.map(step => {
+    if (!isRecord(step)) return step;
+    const receipts = Array.isArray(step.receipts)
+      ? step.receipts.map(normalizeFixedStudentReceipt)
+      : step.receipts;
+    const cursor = isRecord(step.localCandidateCursor)
+      && step.localCandidateCursor.pendingRelationRef === undefined
+      ? { ...step.localCandidateCursor, pendingRelationRef }
+      : step.localCandidateCursor;
+    return { ...step, receipts, localCandidateCursor: cursor };
+  });
+}
+
+function normalizeFixedStudentRequest(
+  rawRecord: Record<string, unknown>,
+  sampleId: string,
+  recordIndex: number,
+): Record<string, unknown> {
+  const request = isRecord(rawRecord.request) ? rawRecord.request : null;
+  if (request === null) {
+    throw new TypeError(`student record ${recordIndex + 1} is missing request`);
+  }
+  const requestedDeclaration = isRecord(request.requestedDeclaration)
+    ? request.requestedDeclaration
+    : null;
+  if (requestedDeclaration === null) {
+    throw new TypeError(`sample ${sampleId} is missing request.requestedDeclaration`);
+  }
+  const relationObligation = isRecord(request.relationObligation)
+    ? request.relationObligation
+    : null;
+  if (relationObligation === null) {
+    throw new TypeError(`sample ${sampleId} is missing request.relationObligation`);
+  }
+  const requestRef = requireString(request.requestRef, `sample ${sampleId} request.requestRef`);
+  // Preserve the inner relationObligation.requestRef. It must match the outer
+  // requestRef when explicitly present; a silent overwrite would hide an
+  // inner/outer identity conflict from downstream validation.
+  const innerRequestRef = relationObligation.requestRef;
+  if (typeof innerRequestRef === "string" && innerRequestRef !== requestRef) {
+    throw new StepwiseStudentDataError(
+      `sample ${sampleId} relationObligation.requestRef ${innerRequestRef} conflicts with request.requestRef ${requestRef}`,
+    );
+  }
+  const declarationRef = typedFieldToString(requestedDeclaration.declarationRef);
+  if (declarationRef === null) {
+    throw new TypeError(
+      `sample ${sampleId} requestedDeclaration.declarationRef must be a known string`,
+    );
+  }
+  const pendingRelationRef = requireString(
+    relationObligation.pendingRelationRef,
+    `sample ${sampleId} relationObligation.pendingRelationRef`,
+  );
+  const moduleRef = typedFieldToString(requestedDeclaration.moduleRef);
+  const name = typedFieldToString(requestedDeclaration.name);
+  const kind = typedFieldToString(requestedDeclaration.kind);
+  const sourceTargetRef = typeof requestedDeclaration.sourceTargetRef === "string"
+    ? requestedDeclaration.sourceTargetRef
+    : null;
+  return {
+    schemaVersion: STEPWISE_STUDENT_OBSERVATION_SCHEMA,
+    sampleId,
+    family: rawRecord.family,
+    sourceGroup: rawRecord.sourceGroup,
+    partition: rawRecord.partition,
+    language: rawRecord.language,
+    semanticStratum: rawRecord.semanticStratum,
+    entryFile: rawRecord.entryFile,
+    request: {
+      requestRef,
+      requestedDeclaration: {
+        declarationRef,
+        moduleRef,
+        name,
+        kind,
+        sourceTargetRef,
+      },
+      relationObligation: {
+        requestRef,
+        callSiteRef: requireString(
+          relationObligation.callSiteRef,
+          `sample ${sampleId} relationObligation.callSiteRef`,
+        ),
+        calleeName: typeof relationObligation.calleeName === "string"
+          ? relationObligation.calleeName
+          : null,
+        pendingRelationRef,
+      },
+    },
+    steps: normalizeFixedStudentSteps(rawRecord.steps, pendingRelationRef),
+  };
+}
+
 export async function loadStepwiseEpisodeFamily(
   familyDir: string,
 ): Promise<readonly RelationStepEpisode[]> {
@@ -518,23 +668,30 @@ export async function loadStepwiseEpisodeFamily(
   for (const [sampleIndex, rawRecord] of records.entries()) {
     if (!isRecord(rawRecord)) throw new TypeError(`student record ${sampleIndex + 1} must be an object`);
     rejectStudentLeakage(rawRecord, `student[${sampleIndex}]`);
-    if (rawRecord.schemaVersion !== STEPWISE_STUDENT_OBSERVATION_SCHEMA) {
+    const isFixedSchema = rawRecord.schemaVersion === FIXED_STEPWISE_STUDENT_SCHEMA;
+    if (
+      rawRecord.schemaVersion !== STEPWISE_STUDENT_OBSERVATION_SCHEMA
+      && !isFixedSchema
+    ) {
       throw new TypeError(`student record ${sampleIndex + 1} has an unsupported schemaVersion`);
     }
     const sampleId = requireString(rawRecord.sampleId, "student.sampleId");
     if (seenSamples.has(sampleId)) throw new TypeError(`duplicate stepwise sample ${sampleId}`);
     seenSamples.add(sampleId);
-    if (rawRecord.partition !== manifest.partition) {
+    const normalizedRecord = isFixedSchema
+      ? normalizeFixedStudentRequest(rawRecord, sampleId, sampleIndex)
+      : rawRecord;
+    if (normalizedRecord.partition !== manifest.partition) {
       throw new TypeError(
-        `sample ${sampleId} partition ${String(rawRecord.partition)} does not match manifest partition ${manifest.partition}`,
+        `sample ${sampleId} partition ${String(normalizedRecord.partition)} does not match manifest partition ${manifest.partition}`,
       );
     }
-    if (rawRecord.language !== manifest.language) {
+    if (normalizedRecord.language !== manifest.language) {
       throw new TypeError(
-        `sample ${sampleId} language ${String(rawRecord.language)} does not match manifest language ${manifest.language}`,
+        `sample ${sampleId} language ${String(normalizedRecord.language)} does not match manifest language ${manifest.language}`,
       );
     }
-    const request = isRecord(rawRecord.request) ? rawRecord.request : null;
+    const request = isRecord(normalizedRecord.request) ? normalizedRecord.request : null;
     if (request === null) throw new TypeError(`sample ${sampleId} is missing request`);
     const requestRef = requireString(request.requestRef, `sample ${sampleId} request.requestRef`);
     const relationObligation = isRecord(request.relationObligation) ? request.relationObligation : null;
@@ -559,8 +716,14 @@ export async function loadStepwiseEpisodeFamily(
       relationObligation.pendingRelationRef,
       `sample ${sampleId} relationObligation.pendingRelationRef`,
     );
-    const steps = requireArray(rawRecord.steps, `sample ${sampleId} steps`);
-    const entryFile = resolveStepwiseEntryFile(rawRecord, sampleId);
+    const innerRequestRef = relationObligation.requestRef;
+    if (typeof innerRequestRef === "string" && innerRequestRef !== requestRef) {
+      throw new StepwiseStudentDataError(
+        `sample ${sampleId} relationObligation.requestRef ${innerRequestRef} conflicts with request.requestRef ${requestRef}`,
+      );
+    }
+    const steps = requireArray(normalizedRecord.steps, `sample ${sampleId} steps`);
+    const entryFile = resolveStepwiseEntryFile(normalizedRecord, sampleId);
     for (const [stepIndex, rawStep] of steps.entries()) {
       if (!isRecord(rawStep)) throw new TypeError(`sample ${sampleId} step ${stepIndex + 1} must be an object`);
       const stepId = requireString(rawStep.stepId, `sample ${sampleId} stepId`);
@@ -576,6 +739,7 @@ export async function loadStepwiseEpisodeFamily(
           }
           return {
             receiptId: requireString(entry.receiptId, `sample ${sampleId} ${stepId} receiptId`),
+            ...(typeof entry.actionRef === "string" ? { actionRef: entry.actionRef } : {}),
             action: requireString(entry.action, `sample ${sampleId} ${stepId} receipt action`),
             ...(typeof entry.target === "string" ? { target: entry.target } : {}),
             ...(typeof entry.fromEdgeRef === "string" ? { fromEdgeRef: entry.fromEdgeRef } : {}),
