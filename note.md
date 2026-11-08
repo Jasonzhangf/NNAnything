@@ -3746,6 +3746,14 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review、symbols 恢复条件、用户明确 CLI 范围、B-A1 接线决定或下一次 goal deadline。
 
+## 2026-11-08 Jenny：worker-idle 复核与 goal 续订（12:42Z）
+
+- 目的：消费 worker-idle `m1794141362918-2172` 与 goal deadline `m1794141515528-2183`（receive-36681）。
+- 证据：`collab inbox` 为 0；board 与 12:20Z 一致，4 个未关闭任务无变化，`ready_authorized_work=false`，无 pending merge/blocked/timed-out。
+- goal：deadline 触发后已显式重臂，`appsdk goal status` Active=true/subscribed，project patrol `sub-m1793963843713-143` armed。
+- 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review、symbols 恢复条件、用户明确 CLI 范围、B-A1 接线决定或下一次 goal deadline。
+
 ## 2026-11-08 Jenny：worker-idle 复核与 goal 续订（12:17Z）
 
 - 目的：消费 worker-idle `m1794140216313-2097` 与 goal deadline `m1794140244385-2100`，复核 board 可派工作并续订需要继续调度的一次性 goal。
