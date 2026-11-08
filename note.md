@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal deadline rearm、B-A1 43d83c7 派交 Alice、Leo registration 不新增派单（02:06Z）
+
+- 消费 master-wake `m1794103445557-2` 与 goal deadline `m1794103488592-5`（`LAST_REMINDER=true`）。因 P0/P1 未收口、继续调度 required，按显式续订执行：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m --repeat 100 --ttl-seconds 604800`；`appsdk goal status --json` 为 active=true、desired=observed=subscribed、error=null、remote_state=armed，新 one-shot `sub-m1794103543640-17`，project patrol `sub-m1793963843713-143` 仍 armed。
+- B-A1：worktree `/Volumes/Intel/playground/nnanything/b-a1-fixed-env-sample-prep-20261107` clean，HEAD `43d83c7`（02:00:28Z）已落盘剩余资源语义窄修；branch ahead origin/main 5 / behind 3。board `b-a1-fixed-env-sample-prep-20261107` 仍 rev16 `rework`、`review_subject_revision=3`、无 delivered review，故不写 accept、不集成。
+- 已向 `NNAnything.Carol` 投递 durable 派单 `m1794103618980-28`：按 Alice review 剩余 P1 只补受影响验收，正式 `collab task deliver` 交 Alice，并回传回执；不重做已闭合项，不训练、不改权重/gold/threshold/采用，不 merge/push。
+- P1-1：board `p1-1-typed-dynamic-recursive-engineering-iris-20261107` 与 Iris owned orchestration 仍 rework/working，Iris round-27 执行中；branch HEAD `d1f26d1`，ahead origin/main 2 / behind 21，无新 ready integration receipt。
+- Leo 注册通知已在上一轮核实并按事实记录；当前 `dispatch-sweep` 无 unassigned_ready、awaiting_acceptance、queued_for_peer，故不制造新派单。
+- 追加消费 worker-idle `m1794103580621-22`（Jack/Kate idle）：两人均无开放 task，且无 ready/unassigned 工作；不重复派单。
+- 本轮仅消息消费、goal 续订、worktree/board 事实核对、Carol deliver 派单与 note 记录；未训练、未改产品代码/语料/权重/gold/threshold/采用、未 merge/push、未产品接线、未安装 runtime、未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：P1-1 Alice 再次 REWORK、B-A1 第 4 轮继续、roadmap 行 166/172 回写（01:59Z）
 
 - P1-1：Alice 对 d1f26d1 正式 REWORK（m1794103047063-31，board rev11）。已向 NNAnything.Iris 投递 durable 返工指令 m1794103169898-52：由原 owner Iris 修复真实后态驱动下一次候选与根达成反向满足，补黑盒反例后 deliver Alice；不训练、不改权重/gold/threshold/采用、不 merge/push，INCOMPLETE 清单保留。
