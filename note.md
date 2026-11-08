@@ -3728,6 +3728,14 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
 - 下一步：等 Grace review、symbols 恢复条件、新的 ready 工作或下一次 goal deadline。
 
+## 2026-11-08 Jenny：worker-idle 复核与 goal 续订（12:17Z）
+
+- 目的：消费 worker-idle `m1794140216313-2097` 与 goal deadline `m1794140244385-2100`，复核 board 可派工作并续订需要继续调度的一次性 goal。
+- 证据：`collab recv` 已消费 `receive-71672-1794140254291846000-0`；`collab inbox` 为 0。board 与 12:13Z 一致：Grace 巡检 rev24 working（missing=[review]）、symbols rust/swift rev6 working（Emma owner-only）、Iris P0 rev109 working；`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out，live idle peer 无匹配 ready 任务。
+- goal：deadline 触发后 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式重臂；`appsdk goal status` 确认 Active=true、subscribed，project patrol `sub-m1793963843713-143` armed。
+- 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；`HEAD=origin/main=65bba87`，仅主工作树，未跟踪 fixture 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review、symbols 恢复条件、新的 ready 工作或下一次 goal deadline。
+
 ## 2026-11-08 Jenny：worker-idle 巡检与 goal 续订（12:07Z）
 
 - 目的：消费 worker-idle `m1794139417239-2053` 与 goal deadline `m1794139511603-2056`，核对是否有新增可派工作、阻塞或需续订的调度。
