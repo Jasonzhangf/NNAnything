@@ -3612,3 +3612,14 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 下一步：等 Carol accept search-read 并交付设计、Henry 完成 B-A1 first-fit 交 Kate、或下一次 goal deadline trigger（1794129738244）后再重订；若 search-read 邀请超时未接受，再评估改用其他 live 设计 owner。
 
   - 09:13Z 补充：Carol 已接受 `board-invite-nn-code-redesign-search-read-r1-8`，`nn-code-redesign-search-read-r1` owner 由 Emma 转为 Carol（invited 已解析、status working、executor=Carol、reviewer=Kate）。board 无 ready_authorized_work、无 pending merge、无 blocked；idle=Henry/Carol/Leo/Kate。本轮无新增可派任务，本轮巡检收口。
+
+## 2026-11-08 Jenny：master patrol 四项核对与 goal 续订（10:17Z）
+
+- 目的：消费 goal deadline `m1794132651104-1501`、master-wake `m1794132735116-1506`、worker-idle 批次及 Iris 的两次更正 `m1794132869550-1514`/`m1794132959953-1522`/`m1794133023560-1525`，按四项巡检核对事实并在需要继续调度时显式续订goal。
+- 证据：`collab recv` 已消费 `receive-85711-1794132757709674000-0`、`receive-30854-1794132976016700000-0`、`receive-43706-1794133031951477000-0`。
+- goal：旧 one-shot `sub-m1794132041074-1466` 已 consumed；`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已续订为 `sub-m1794133008622-1524`（armed、trigger_ms 1794133608556、error=null），`appsdk goal status` active/subscribed。project patrol `sub-m1793963843713-143` armed，`cadence_runtime_gap=null`。
+- board：`collab board show` 当前 4 个未关闭任务：P1 `grace-nncode-browser-architecture-patrol-20261106` working（missing=[review]）；P1 `nn-code-redesign-symbols-rust-r1`、`nn-code-redesign-symbols-swift-r1` working，维持 Emma owner-only parked-pending-design-peer；P0 `nnanything-overall-redesign-orchestration-r1` working（Iris）。`ready_authorized_work=false`，`pending_merges=[]`，无 blocked/timed-out。
+- worker 与资源：Henry/Carol/Leo/Jack/Kate 无未关闭任务、idle 原因合理；Iris 与 Grace working；Emma `identity_valid=false`、presence=missing、`SESSION_THREAD_BINDING_MISMATCH`，其 Rust/Swift 任务不可由 master 代改 lifecycle，保持 parked。main 与 `origin/main` 均为 `c9b2e2d`，仅主工作树；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
+- 处置：daemon board dispatcher 负责 eligible peer 唤醒，本轮不手工重复唤醒；Emma 缺失与其两个 parked 任务记录为未解除缺口，恢复条件仍是 live research owner + 独立设计切片 + Emma 材料交接。Iris 更正确认只有两个 symbols children 未关闭，父任务 closeout 与 cancel 回执不变。
+- 边界：本轮仅消费通知、只读核对、续订本人 goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Emma 材料交接或 live research owner 出现、Grace 巡检返回、或下一次 goal deadline trigger（1794133608556）后再复核并续订。
