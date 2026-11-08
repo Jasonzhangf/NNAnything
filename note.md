@@ -3980,3 +3980,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 处置：Henry 刚于 18:13Z 更新测试文件，暂不重复催办，保留已有 durable 指令作为交付边界；本轮不派新 ready 工作。
 - 边界：本轮只消费通知、只读核对 board/goal/worktree、重臂 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Henry 交付 evaluate 红/绿日志、build 日志与公开 `evaluate` 路由回执，再由 Alice 独立 review；若继续空转，再按编排合同评估改派。
+
+## 2026-11-08 Jenny：evaluate 实现文件出现，继续等待交付（18:24Z）
+
+- 目的：处理 Henry 与 Grace 的 worker-idle 批次 `m1794162146273-4103`/`m1794162249325-4121`/`m1794162255280-4122`，核对 evaluate 是否仍在推进以及是否有新的派发机会。
+- 证据：`collab recv` 已消费 `receive-4635-1794162293817876000-0`。evaluate worktree 已出现 `lib/training/l2-standard-runner.ts` 修改、未跟踪 `lib/training/unified-runner-evaluate.ts` 与 evaluate 测试文件；尚无实现提交。worktree 仅因主分支文档提交 `069db42` 落后 1 个提交，不阻塞实现。board 仍 `ready_authorized_work=false`，无 pending merge/blocked/timed-out；Henry 的 `tsjs-evaluate-engineering-henry-20261108` 和 Iris 的总编排任务仍 working，Grace 巡检任务保持 working。
+- 处置：Henry 已从红测进入实现文件，暂不打断；Grace 是常驻巡检，不接收普通派单。当前没有可派 ready 工作，不制造新任务。
+- 边界：本轮只消费通知、只读核对 board/worktree、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 提交 evaluate 实现、测试/build 回执和公开路由证据，再交 Alice review；fit 仍后置。
