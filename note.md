@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-08 Jenny：Grace 容量巡检处置，symbols P1 改派 Carol（13:51Z-14:06Z）
+
+- 目的：消费 Grace peer-capacity patrol `m1794146120045-2452` 与后续 goal deadline/worker-idle，回答两个 Emma-owned P1 为何长期 `working` 且 owner missing，以及 live idle peer 是否可承接。
+- 证据与事实：`collab board show` 显示 `nn-code-redesign-symbols-rust-r1` 与 `nn-code-redesign-symbols-swift-r1` 各自 `revision=8`、`status=working`、`owner=Carol`、`reviewer=Alice`、`next_step=None`、无 delivery/review/integration；此前 owner 为 Emma，`presence=missing`、`next_step=null`，两个任务自 2026-11-06 无进展。Grace 报告 Henry/Carol/Jack/Kate present idle；Kate round-52 `m1794146489739-2483` 确认 symbols 两任务已由 master 于 13:57-14:00Z 改派 Carol，owner 转移与 rev8 生效。
+- 处置：按主目标优先级，master 用 `collab board invite --to Carol --expected-revision 6` 分别邀请 Carol 承接两个 design 切片；Carol 已接受，`invited_peer=None`、owner=Carol。已向 Carol 发送任务边界 `m1794146533101-2484`，明确 design-only、reviewer Alice、不得改权重/gold/threshold/采用、不产品接线、不安装、不恢复 nn-code，实际训练须共享 fixed training launch 经 Alice 审计后执行；另发 `m1794146844058-2522`，要求其立即开始并更新两个任务的 `next_step`，缺 Emma 原始资料时报告具体缺口并继续可独立推进部分。
+- P0 协调：由于 P0 `nnanything-overall-redesign-orchestration-r1` 由 Iris 持有，master 不能越权改其 lifecycle；已向 Iris 发送 `m1794146639107-2499`，要求把 P0 next_step 从 10:24Z 的 parked 描述刷新为 Carol 承接 symbols design 切片、reviewer Alice、8d11940/7db2c6a 维持既有解阻条件。roadmap 已同步 symbols 改派事实。
+- 剩余缺口：B-A1 固定入口 `trainBA1UnifiedRelationDecision` 仍仅测试可达、未接真实 runner/export，open bug `8d11940` 保持原 disposition；CLI Phase A `7db2c6a` 仍不在当前 nn-code/浏览器 MVP，待用户明确 CLI 范围。Carol 的设计交付尚未产生，不能把 owner 改派当作设计完成。
+- 边界：本轮只消费通知、更新 board 邀请/owner、发送协调消息、更新 roadmap/note、重臂 goal；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux；fixture 继续 PROTECTED_HOLD。
+- 下一步：等 Carol 启动并交付两个 symbols design 合同，交 Alice review；Iris 刷新 P0 next_step；Grace/Kate 继续巡检；无其他新 ready 授权工作。
+
 ## 2026-11-08 Jenny：goal deadline 续订与 idle 复核（11:54Z）
 
 - 目的：消费 owned goal deadline `m1794138777295-1998`（one-shot consumed）与 worker-idle `m1794138674045-1990`（Henry newly idle）；open P0/P1 未变且仍在调度，按持续调度需要显式续订，并核对 board 可派工作。
