@@ -1,5 +1,15 @@
 # 当前任务
 
+## 2026-11-08 Jenny：B-A1 c624b94 已集成并关闭，worktree/分支已收口（02:22Z）
+
+- collab task status：b-a1-fixed-env-sample-prep-20261107 status=closed、disposition=integrated、delivery_complete=true、completion_missing=[]，cleanup receipt cleanup-b-a1-fixed-env-sample-prep-20261107-1794104462983。
+- 审收：Alice revision 4 valid=true、reviewed_subject_revision=4，证据 alice-review.md；candidate 43d83c7 为 merge 父二，已从 origin/main 可达。
+- 集成：main=origin/main=c624b94（merge parents 2c20cb6 + 43d83c7），已推送；build exit 0、node tests 28/28 pass、git diff --check pass。完整 test:full 未跑（NN_HANDWIRED_ROOT/NN_CLI_COMMAND_PROFILE/NN_CWD_RELATION_PROFILE 资产缺失）。
+- 资源：独占 worktree /Volumes/Intel/playground/nnanything/b-a1-fixed-env-sample-prep-20261107 已移除，分支 b-a1-fixed-env-sample-prep-20261107 已删除，board task-log 已补记。
+- 未训练、未改权重/gold/threshold/采用、未安装 runtime、未动 daemon/tmux；无新 ready_authorized_work、无 pending merge。
+- P1-1 仍 Iris rework/round-27，branch d1f26d1 ahead 2/behind 28，工作区有未提交改动（lib/adapters/tsjs-unified-recursive.ts、tests/p1-1-multistep-engine.test.mjs、tests/p1-1-real-corpus-multistep.test.mjs）；未集成。
+- goal deadlines armed（one-shot sub-m1794104274029-86、periodic patrol sub-m1793963843713-143），error=null，无需续订。
+
 ## 2026-11-08 Jenny：goal deadline rearm、B-A1 43d83c7 派交 Alice、Leo registration 不新增派单（02:06Z）
 
 - 消费 master-wake `m1794103445557-2` 与 goal deadline `m1794103488592-5`（`LAST_REMINDER=true`）。因 P0/P1 未收口、继续调度 required，按显式续订执行：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m --repeat 100 --ttl-seconds 604800`；`appsdk goal status --json` 为 active=true、desired=observed=subscribed、error=null、remote_state=armed，新 one-shot `sub-m1794103543640-17`，project patrol `sub-m1793963843713-143` 仍 armed。
