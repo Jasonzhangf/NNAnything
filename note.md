@@ -1,5 +1,43 @@
 # 当前任务
 
+## 2026-11-08 Jenny：worker-idle 巡检、Carol B-A1 续作、goal 重挂（01:18Z）
+
+- 消费 goal deadline `m1794100528602-8860`（LAST_REMINDER=true）与 worker-idle 批次 `m1794100532492-8861`、`m1794100592499-8865`、`m1794100602518-8869`；`collab recv` 清空 inbox。`dispatch-sweep.sh` 返回无 unassigned ready、无 awaiting acceptance、无 queued；`collab board show` 无 pending merge、无 ready_authorized_work。
+- 开放任务核对：P0 `nnanything-overall-redesign-orchestration-r1` + `p1-1-typed-dynamic-recursive-engineering-iris-20261107` 均在 Iris Roskov 返工（GCM worker 在原 worktree 写入，未提交完成）；P1 `b-a1-fixed-env-sample-prep-20261107` 为 Carol rework。Carol worktree `/Volumes/Intel/playground/nnanything/b-a1-fixed-env-sample-prep-20261107` 新增未提交修改 `lib/training/b-a1-training-entry.ts` 与 `tests/b-a1-training-entry.test.mjs`，branch ahead origin/main 3（HEAD 46e3c99，含 762beb8 fix）。Alice rev2 REWORK 未闭合：资源须在 optimizer step/写入前加载并校验实际内容、回载复用同一验证、零更新/零输出反例禁改阈值；样本用途（contract-gate/aggregator-test）须入口分派或拒绝、A_g 去重基数按语义校验、one-hot/boolean 沿真实 encoder 输出；保留原错误类别仅数值非有限标 non_finite；implementation-result.md 需按实际执行修订（合成工程数值测试 vs 正式语义训练未开始）。
+- 已向 `NNAnything.Carol` 发送 durable 续作通知 `m1794100734495-8878`：按 Alice 最新审查继续修四项并补原始证据后 deliver/review；未修完不进入正式训练、不 merge/push。Jack/Kate/Henry 无开放任务不派新单；Emma 四个 `nn-code-redesign-*` 维持 parked（owner missing），不代持。
+- 已显式重挂 goal：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m --repeat 100 --ttl-seconds 604800`，新 one-shot `sub-m1794100668075-8874` armed；`appsdk goal status --json` active=true、desired/observed=subscribed、error=null；project patrol `sub-m1793963843713-143` armed。CEO 为 Alice 但当前非本人会话，`collab ceo progress` 返回 `CEO_AUTHORITY_REQUIRED`，本轮不伪造汇报。
+- 本轮仅消息消费、巡检、Carol 续作通知、goal 重挂与 note 记录；未训练、未改产品代码/语料/权重/gold/threshold/采用、未产品接线、未安装 runtime、未做 daemon/tmux 生命周期动作。
+
+## 2026-11-08 Jenny：B-A1 fixed-env rev8 deliver 与 Alice rev2 REWORK 路由（01:12Z）
+
+- 消费 Carol deliver 回执 `m1794100134401-8818`（reply m1794099913897-8796）与 Alice 复核 `m1794100197348-8829`：Carol 已完成 rev8 返修并正式 deliver（candidate 762beb8，HEAD 46e3c99，ahead origin/main 3，build exit 0，B-A1 四文件 + unified-model-package/train-config/l2-standard-runner 58/58 pass；`collab task deliver` status=delivered、required_reviewer=Alice）。Alice subject revision 2 正式 REWORK，board rev12、status=rework、review valid=false，未进入 pending merge。
+- 已向 Carol 投递 `m1794100319717-8837`：按 Alice 最新节只修剩余四项，不重做已闭合部分（统一包/checkpoint、新进程张量回载、finalLoss 重算、阈值边界、更新/尝试计数、unresolved 分母、混合组大小参数梯度有限差分）。四项为：资源须在 optimizer step/产物写入前加载并按合同校验实际内容、回载复用同一验证、补零更新/零输出反例且禁改阈值；样本用途（contract-gate/aggregator-test）接入入口拒绝或分派、A_g 去重基数按语义校验、one-hot/boolean 沿真实 encoder 输出校验；保留原错误类别，仅数值非有限标 non_finite；implementation-result.md 修正为合成工程数值测试、列真实配方与临时产物去向，不把测试优化算语义能力。不改研究设计、不改权重/gold/threshold/采用、不训练正式语义、不 merge/push。
+- 本轮只做 inbox 消费、Carol 派单/返工路由、board 核对与 note 记录；未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime，未做 daemon/tmux 生命周期动作。
+
+## 2026-11-08 Jenny：daemon 恢复、Carol 重投递、Kate round-34 核对与 goal 续订（01:06Z）
+
+- 此前 collab daemon 短暂 `DAEMON_UNKNOWN`（`collab context`、`collab recv`、`appsdk goal status` 均失败）；本轮用户环境 daemon 恢复 live 后 `collab context` 正常返回 Jenny master 身份、career board 事实与订阅未丢失，保留原错不动 daemon/tmux。
+- 消费 worker-idle 批次 `m1794099300519-8749`、`m1794099743624-8762`、`m1794099759392-8764`、`m1794099775448-8770`、`m1794099793455-8773`、`m1794099815480-8778`：核对 board 后仅 Carol 持有未关闭 P1 rework 且刚 transition 到 idle，向 Carol 投递 `m1794099913897-8796`（`sendmessage` 地址修正后的重投递；此前误投 Jenny 自己 worker-id 的 `m1794099880309-8788` 仅为自通知，已在 inbox 记录并作废）。Jack/Kate/Henry 无 ready 任务，Grace 巡检 board-idle 已取消并靠 4h deadline，Iris unknown/执行中，均不重复唤醒。
+- 消费 goal deadline `m1794099891574-8791`（LAST_REMINDER）：因 Carol B-A1 与 Iris P1-1 仍未收口，已显式续订同一 goal，新订阅 `sub-m1794099928134-8798` armed，`appsdk goal status --json` desired/observed=subscribed、error=null，project patrol `sub-m1793963843713-143` armed。
+- 消费 Kate round-34 `m1794099848759-8780`：unified-encoder 已集成 `a030bbb` 并 closed，与 board/commit 一致；B-A1 fixed-env rev8 树已含 `762beb8` 等（branch ahead origin/main 3、工作区 clean）但仍 board rework、未 deliver，已通过上面 Carol 重投递要求按合同完成验收并向 Alice deliver；P1-1 rev6 仍在 GCM 返工、未 commit 完成；Emma 四任务维持 park，`8d11940`/`7db2c6a` 保持 open 且无 ready 承接，按 roadmap 后置记录，不臆造新实现/训练/triage 任务。
+- 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用，未产品接线、未安装 runtime，未做 daemon/tmux 生命周期动作；仅 inbox 消费、Carol 派单/重投递、goal 续订与 note 记录。
+
+## 2026-11-08 Jenny：Carol worker-idle 巡检，B-A1 返工续作（16:48 local / 00:48Z）
+
+- 消费 durable worker-idle 批次 `m1794098403455-8667`、`m1794098463404-8676`、`m1794098757439-8710`、`m1794098809406-8712`、`m1794098975558-8726`、`m1794098977528-8728`、`m1794099021531-8731`；后几批分别 newly idle=`Carol`、`Jack`，Jack 仅重复 live_idle，不能据此认定有新的可派工作。
+- 核对 board：`b-a1-fixed-env-sample-prep-20261107` 仍为 Carol 的 P1 `rework`，next_step 指向 `/Volumes/Intel/playground/nnanything-runs/b-a1-fixed-env-sample-prep-20261107/alice-review.md`；B-A1 worktree 有 11 个未提交修改文件，单 branch/worktree owner 仍为 Carol。P1-1 的 Iris/GCM 返工仍在进行，未到可审交付点。
+- 已发 Carol durable 续作通知 `m1794098956961-8724`（`--reply-on-completion`）：按 Alice 审查逐项修复并补证据后 deliver；共享统一 package/checkpoint 改动保持 Carol 唯一 writer；未修复前不进入正式训练、不 merge/push。未改产品代码、权重/gold/threshold/采用，未安装 runtime，未动 tmux/daemon。
+- Jack 当前无可合法承接的 ready 任务：四个 `nn-code-redesign-*` 仍因 Emma 不可达且无设计角色承接者保持 parked；不把 Carol 的单 writer 工作重复派给 Jack，也不制造新任务。project patrol 与 goal one-shot 保持 armed。
+- 后续目标 deadline `m1794099254549-8744` 为 `LAST_REMINDER=true`；因 Carol B-A1 与 Iris P1-1 仍未收口，已重新登记同一 goal 的一次性 deadline。`appsdk longhorizon show` 报 `GOAL_OWNER_CONTEXT_UNAVAILABLE:GOAL_COLLAB_COMMAND_TIMEOUT`，后续 `collab msg`/`appsdk goal status` 报 `DAEMON_UNKNOWN`/`GOAL_OWNER_CONTEXT_FAILED`；保留原错，不重启 daemon，不为未验证回执伪造完成。
+
+## 2026-11-07 Jenny：worker-idle 巡检、P1 fixture 缺陷关闭（16:39 local / 00:39Z）
+
+- 消费 worker-idle 批次 `m1794098261454-8644`、`m1794098348389-8661`；`collab inbox` 归零。board 无 ready_authorized_work、无 pending merge、无 blocked；`b-a1-fixed-env-sample-prep-20261107` 仍为 Carol 的 P1 rework，`p1-1-typed-dynamic-recursive-engineering-iris-20261107` 的 GCM 返工 worker 仍在原 worktree 写入。
+- B-A1 已向 Carol 发送恢复/续作通知 `m1794098190684-8638`，内容包含 Alice 审查路径与逐项返工边界；只读回执确认 `consumed_by_recv=true`、`wake_attempts=1`，不重复补发。未改共享包、正式训练入口或产品代码。
+- canonical bug `1c8ccdd`（unified encoder v1→v2 fixture migration 导致 test:full 15 项失败）在 main `a030bbb` 已集成。复验 `node --test tests/unified-decision-recursive.test.mjs tests/unified-transfer-evaluator.test.mjs tests/unified-data-gate.test.mjs` 为 37 pass / 0 fail，v1 reject 负例保留；已用 `appsdk bug close 1c8ccdd` 关闭，solution 记录集成提交与复验命令。完整 `test:full` 的其它失败仍为独立旧资产/环境缺口，未冒称全绿。
+- P2 `8d11940` 仍 open，owner=`NNAnything::training-owner`，等待真实 reload consumer 连接或按最小必要性消融；当前无 ready 实现任务，不把巡检 finding 当作新派工。
+- 资源：main 与 `origin/main` 同步于 `a030bbb`，仅保留用户未跟踪 `playground/browser/search/b-a1/cua-fixture.html`；worktree 三个（main、B-A1、P1-1），均有未交付内容；未训练、未改权重/gold/threshold/采用、未安装 runtime、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：CLI fixture 窄修转 Frank 正式交接，B-A1 REWORK 路由 Carol（15:46 local / 23:46Z）
 
 - 消费 Grace P1 `m1794094239789-8164` 与 Alice 窄审回执 `m1794095150505-8233`：Jack 候选 `20db0f6` 仅改 `tests/unified-decision-recursive.test.mjs` 与 `tests/unified-transfer-evaluator.test.mjs` 四处 encoder v1→v2；`npm run build` exit 0，两个目标测试 18/18 与 7/7 通过，`tests/unified-data-gate.test.mjs` 12/12 且 v1 负例保留，Alice 对窄修源码无 finding。完整 `npm run test:full` 仍 exit 1：2533/2558，fail 24，证据 `/Volumes/Intel/playground/nnanything-runs/unified-encoder-v1-v2-fixture-migration-20261107/current-assets-test-full.log`，失败为独立旧资产/环境缺口，不由本任务修复或冒称全绿。
