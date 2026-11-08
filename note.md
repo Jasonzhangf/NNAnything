@@ -1,5 +1,23 @@
 # 当前任务
 
+## 2026-11-08 Jenny：Rust rev5 ACCEPT 收口与 Swift 启动（15:41Z-15:44Z）
+
+- 已消费 worker-idle `m1794152483553-3054`、master-wake-batch `m1794152563118-3060` 及此前 master-wake `m1794152416617-3049`。
+- Board 实测：Rust `nn-code-redesign-symbols-rust-r1` rev29、`status=accepted`、`review_subject_revision=5`、`reviewer=Alice`、`completion_missing=["close"]`，next_step 为 read-only 无需 merge、清理自有资源并收口；Swift `nn-code-redesign-symbols-swift-r1` rev10 working，排在 Rust 后；Grace 巡检 rev30 working；Iris P0 rev111 working。`ready_authorized_work=false`，pending_merges 空，无 blocked/timed-out。
+- Alice rev5 ACCEPT 证据为 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-symbols-rust-20261108/alice-review.md`；Rust 独占 worktree 已切到 `fb2a012`（branch `nn-code-redesign-symbols-rust-r1-20261108`，干净）。Swift run 目录 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-symbols-swift-20261108/` 目前为空，尚无执行。
+- 已向 Carol 发送 `m1794152606801-3062`：Rust rev5 已 ACCEPT，read-only 无需 merge，要求按合同收口并清理自有 Rust worktree/branch，保留 run 证据，随后启动 Swift 设计（同一 design-only 边界），完成后 deliver 给 Alice。
+- Goal 已因 consumed/recovery_required 显式重臂，回读 armed；project patrol `sub-m1793963843713-143` 保持 armed。main=origin/main=`2cbb487`，主树干净，未改产品代码/权重/gold/threshold/采用，未训练/采样/接线/安装，未动 daemon/tmux。
+
+## 2026-11-08 Jenny：Rust rev4 REWORK 收敛与 rev4 定点路由（15:24Z-15:30Z）
+
+- 已消费 Kate round-53 `m1794151450517-2947`、Alice rev4 REWORK `m1794151526809-2960`、goal deadline `m1794151099088`（旧 sub `sub-m1794150499153-2847` consumed）与 worker-idle/master-wake 批次 `m1794151352439-2937`、`m1794151806867-2995`、`m1794151822060-2999`。
+- Board 实测：Rust `nn-code-redesign-symbols-rust-r1` rev25 `rework`，subject_revision 4（commit `dc58147`），Alice 复审 `valid=false`；Grace 巡检 rev29 working；Swift rev10 working，等 Rust 收口后排队；Iris P0 rev111 working。`ready_authorized_work=false`，pending_merges 空，无 blocked/timed-out。
+- Alice rev4 结论：F2 编码映射修订已接受（G7 实际 `[0,-1,-1,0.5]` 已更正、删除 `missingProjections`→x7/x9 虚构通路、对象缺失不产生向量、三个 judge 候选保留、按 decisive slot 收窄可辨性）；仍 REWORK 只剩 §5.1 两条：不得按 gold 判输入缺测、必须保留原 gold 并报表示/监督冲突；可辨性结论只保留 resolved/unresolved 对照，shadow/local、全部 cfg 与不同 unknown 的区分列为具体准入证据。
+- 已向 Carol 发送 `m1794151757039-2988`，要求定点修订上述两条后正式重交 Alice，Swift 继续在 Rust 收口后排队；保持 design-only、不改权重/gold/threshold/采用、不接线/安装。
+- Goal 已按同一 `docs/autonomous-capability-roadmap.md` 显式重臂为 `sub-m1794151452264-2948`，回读 active/subscribed、armed、trigger_ms=1794152052191、error=null；project patrol 保持 armed。
+- main=origin/main=`2cbb487`，工作区干净；唯一 untracked `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD；`git worktree list` 仅主工作树与 Carol 的 Rust 独占树（HEAD `dc58147`，干净）。
+- 用户已明确 nn-code 模型设计与训练授权；本轮先收敛阻塞的 Rust 设计返工，再评估 TS/JS 首训入口与 converter 准入的就绪动作。未改产品代码/权重/gold/threshold/采用，未训练/采样/接线/安装，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：本轮结尾与板子结构（15:03Z）
 
 - 文件系统当前：main=origin/main=1cf128c，工作区干净；唯一 untracked `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD；`git worktree list` 只有主工作树，未超任务树上限。
