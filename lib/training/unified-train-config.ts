@@ -351,6 +351,7 @@ export async function saveUnifiedTrainPackage(
     modelId: config.modelId,
     version: config.version,
     route: config.route,
+    encoderVersion: config.encoderVersion,
     tensors,
     resources: config.resources,
   });
@@ -406,6 +407,7 @@ export interface UnifiedPackageReloadReceipt {
   readonly tensorsMatch: boolean;
   readonly thresholdsPath: string;
   readonly missingModeTablePath: string;
+  readonly slotMapPath: string | null;
 }
 
 export async function verifyUnifiedTrainPackageReload(
@@ -437,6 +439,7 @@ export async function verifyUnifiedTrainPackageReload(
     tensorsMatch,
     thresholdsPath: loaded.resolvedResources.thresholdsPath,
     missingModeTablePath: loaded.resolvedResources.missingModeTablePath,
+    slotMapPath: loaded.resolvedResources.slotMapPath,
   };
 }
 

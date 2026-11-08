@@ -5,6 +5,7 @@ import {
   type UnifiedTensors,
 } from "./unified-forward.js";
 import { UNIFIED_INPUT_SCHEMA, UNIFIED_ENCODER_VERSION } from "./unified-encoder.js";
+import { BA1_ENCODER_VERSION } from "./b-a1-route-encoder.js";
 
 export const UNIFIED_MODEL_PACKAGE_SCHEMA = "nnanything.unified.model-package.v1";
 export const MODEL_NOT_FOUND = "MODEL_NOT_FOUND" as const;
@@ -22,6 +23,7 @@ export interface UnifiedModelPackageResources {
   readonly thresholdsSchema: string;
   readonly missingModeTableRef: string;
   readonly missingModeSchema: string;
+  readonly slotMapRef?: string;
 }
 
 export interface UnifiedModelPackage {
@@ -30,7 +32,7 @@ export interface UnifiedModelPackage {
   readonly version: string;
   readonly route: ModelRoute;
   readonly inputSchema: typeof UNIFIED_INPUT_SCHEMA;
-  readonly encoderVersion: typeof UNIFIED_ENCODER_VERSION;
+  readonly encoderVersion: string;
   readonly architecture: {
     readonly input: 64;
     readonly hidden: readonly [64, 64];
@@ -49,6 +51,7 @@ export interface UnifiedModelPackage {
 export interface ResolvedPackageResources {
   readonly thresholdsPath: string;
   readonly missingModeTablePath: string;
+  readonly slotMapPath: string | null;
 }
 
 export interface UnifiedModelPackageBinding {
@@ -164,6 +167,21 @@ function validateRoute(raw: unknown): ModelRoute {
   return { domain, decisionKind };
 }
 
+function validateRouteEncoderPair(route: ModelRoute, encoderVersion: string): void {
+  if (encoderVersion === UNIFIED_ENCODER_VERSION) return;
+  if (
+    encoderVersion === BA1_ENCODER_VERSION
+    && route.domain === "browser"
+    && route.decisionKind === "R"
+  ) {
+    return;
+  }
+  throw incompatible("model package route/encoder pair is not supported", {
+    route,
+    encoderVersion,
+  });
+}
+
 function validateOutputContract(raw: unknown): UnifiedModelPackage["outputContract"] {
   const contract = assertObject(raw, "outputContract");
   if (contract.kind !== "scalar-score") {
@@ -179,11 +197,16 @@ function validateOutputContract(raw: unknown): UnifiedModelPackage["outputContra
 
 function validateResources(raw: unknown): UnifiedModelPackageResources {
   const resources = assertObject(raw, "resources");
-  return {
+  const validated = {
     thresholdsRef: assertString(resources.thresholdsRef, "resources.thresholdsRef"),
     thresholdsSchema: assertString(resources.thresholdsSchema, "resources.thresholdsSchema"),
     missingModeTableRef: assertString(resources.missingModeTableRef, "resources.missingModeTableRef"),
     missingModeSchema: assertString(resources.missingModeSchema, "resources.missingModeSchema"),
+  };
+  if (resources.slotMapRef === undefined) return validated;
+  return {
+    ...validated,
+    slotMapRef: assertString(resources.slotMapRef, "resources.slotMapRef"),
   };
 }
 
@@ -213,19 +236,16 @@ export function validateUnifiedModelPackage(raw: unknown): UnifiedModelPackage {
       actual: pkg.inputSchema,
     });
   }
-  if (pkg.encoderVersion !== UNIFIED_ENCODER_VERSION) {
-    throw incompatible("model package encoderVersion mismatch", {
-      expected: UNIFIED_ENCODER_VERSION,
-      actual: pkg.encoderVersion,
-    });
-  }
+  const route = validateRoute(pkg.route);
+  const encoderVersion = assertString(pkg.encoderVersion, "encoderVersion");
+  validateRouteEncoderPair(route, encoderVersion);
   return {
     schema: UNIFIED_MODEL_PACKAGE_SCHEMA,
     modelId: assertString(pkg.modelId, "modelId"),
     version: assertString(pkg.version, "version"),
-    route: validateRoute(pkg.route),
+    route,
     inputSchema: UNIFIED_INPUT_SCHEMA,
-    encoderVersion: UNIFIED_ENCODER_VERSION,
+    encoderVersion,
     architecture: validateArchitecture(pkg.architecture),
     tensors: validateTensors(pkg.tensors),
     outputContract: validateOutputContract(pkg.outputContract),
@@ -238,17 +258,19 @@ export function createUnifiedModelPackage(input: {
   readonly modelId: string;
   readonly version: string;
   readonly route: ModelRoute;
+  readonly encoderVersion?: string;
   readonly tensors: UnifiedTensors;
   readonly resources: UnifiedModelPackageResources;
   readonly fixedStages?: readonly string[];
 }): UnifiedModelPackage {
+  const encoderVersion = input.encoderVersion ?? UNIFIED_ENCODER_VERSION;
   return validateUnifiedModelPackage({
     schema: UNIFIED_MODEL_PACKAGE_SCHEMA,
     modelId: input.modelId,
     version: input.version,
     route: input.route,
     inputSchema: UNIFIED_INPUT_SCHEMA,
-    encoderVersion: UNIFIED_ENCODER_VERSION,
+    encoderVersion,
     architecture: { input: 64, hidden: [64, 64], output: 1, activation: "relu" },
     tensors: input.tensors,
     outputContract: { kind: "scalar-score", groupNormalization: "outside-model" },
@@ -280,7 +302,10 @@ function resolveResourcePath(packagePath: string, ref: string): string {
   return isAbsolute(ref) ? ref : resolve(dirname(packagePath), ref);
 }
 
-async function assertResourceExists(path: string, kind: "thresholds" | "missingModeTable"): Promise<void> {
+async function assertResourceExists(
+  path: string,
+  kind: "thresholds" | "missingModeTable" | "slotMap",
+): Promise<void> {
   try {
     await stat(path);
   } catch (error) {
@@ -308,10 +333,16 @@ export async function loadUnifiedModelPackageFromFile(
   const resolvedResources: ResolvedPackageResources = {
     thresholdsPath: resolveResourcePath(resolvedPath, pkg.resources.thresholdsRef),
     missingModeTablePath: resolveResourcePath(resolvedPath, pkg.resources.missingModeTableRef),
+    slotMapPath: pkg.resources.slotMapRef === undefined
+      ? null
+      : resolveResourcePath(resolvedPath, pkg.resources.slotMapRef),
   };
   if (options.verifyResources !== false) {
     await assertResourceExists(resolvedResources.thresholdsPath, "thresholds");
     await assertResourceExists(resolvedResources.missingModeTablePath, "missingModeTable");
+    if (resolvedResources.slotMapPath !== null) {
+      await assertResourceExists(resolvedResources.slotMapPath, "slotMap");
+    }
   }
   const bind = (): UnifiedModelPackageBinding => Object.freeze({
     packageRef: resolvedPath,
