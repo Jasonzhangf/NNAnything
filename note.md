@@ -1,5 +1,30 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal 续订、8d11940 triage、巡检口径对齐（02:57Z）
+
+- 消费 Kate round-36 `m1794106662833-296` 与 Grace round-14 `m1794106418924-283`。longhorizon goal one-shot `sub-m1794105946217-258` 已 consumed（trigger 1794106546183）；已按 LAST_REMINDER 显式重订同一 goal `docs/autonomous-capability-roadmap.md`（10m / repeat 100 / TTL 604800），回读 active/desired=observed=subscribed、error=null、next trigger 1794107171204。project patrol `sub-m1793963843713-143` armed。
+- P2 `8d11940`（checkpoint reload subgraph 无消费者）triage：派只读 GCM 观察 worker，回执 `/Volumes/Intel/playground/nnanything-runs/bug-8d11940-triage/report.md`。事实：`verifyUnifiedTrainingCheckpointReload`（定义 lib/training/unified-training-checkpoint.ts:600）现由 `trainBA1UnifiedRelationDecision`（lib/training/b-a1-training-entry.ts:954）调用并在 955-966 与新进程 reload 比对；`tensorsEqual` 由 verifier :605 调用；receipt 用于 :203/:661；测试 tests/b-a1-training-entry.test.mjs:251-281 真实触发校验并断言 tensorsMatch/completedEpochs，目标用例 1 passed/0 failed/0 skipped。缺口：该训练入口仅被该测试调用，未进 package exports/playground/scripts/真实 runner。原"无消费者"事实已过期（模块图有直接消费者），但产品运行入口仍不可达。disposition：保持 open、不按可运行能力 close、不在 B-A1 进行中阶段 ablate 在途固定入口代码；解阻条件为 B-A1 fixed 入口接到真实 runner/export 或路线裁定终止时由 training-owner 再裁定。已写入 bug comment。
+- P1 `7db2c6a`（CLI P1/P2 Phase A 工程，owner Jenny）仍 open、无 board 任务。按项目"授权冲突待用户裁定"条款，裁定前不派实现，保持 open 并在 roadmap/note 记录为待用户范围裁定，不自实现。
+- 四个 Emma-owned `nn-code-redesign-*`（learning-loop/search-read/symbols-rust/symbols-swift）维持 roadmap 已记的 `parked-pending-design-peer`（owner presence missing、next_step=null）。因 nn-code 已确定停止使用/推广且整体重设计授权待裁定，本轮不重派实现、不改 Emma 记录。
+- P1-1：Iris owner、present/idle；返工合同 `m1794106101406-267` 已 consumed（answered=false）；worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` 仍 clean 在 `875b4bb`，第 3 轮返工尚未开始。由 Iris 承接，master 只监控、不代实现/代 deliver。
+- 本轮仅消费通知、只读 triage、写 bug comment 与维护性 note/roadmap；未改产品代码/语料/权重/gold/threshold/采用、未 merge/push 候选、未安装 runtime、未动 daemon/tmux。
+
+## 2026-11-08 Jenny：P1-1 875b4bb 正式 REWORK、精确绑定元组返工路由（02:48Z）
+
+- 消费 Alice 通知 `m1794106067300-265`：对 P1-1 `875b4bb` 正式 REWORK（subject revision 2），证据 `/Volumes/Intel/playground/nnanything-runs/p1-1-typed-dynamic-recursive-20261107/alice-review.md` 末节。已闭合保留：真实 facts 进入下一 state、无有效证据 fallback 移除、rootGoal 显式目标声明、typed 兼容说明与 fixedStages v2；不重开。
+- 剩余核心 P1：关系证明被同名存在性替代。非 re_export 接受 sourceName/targetName 任一 decl/export；re_export 允许普通 export:sourceName 且实际读取 sourceModule；collectTsJsModuleFacts 把原名与别名拆成互不关联字符串。可达反例：保持 episode 与 impl.ts 不变，把 util.ts 替换为 `export function forwarded(){return 0;}`，旧链仍可判成功。
+- 已向 `NNAnything.Iris` 投递 durable 返工合同 `m1794106101406-267`：观测层保留实际文件位置与完整 import/re_export 绑定元组；验证与下一 state 使用同一真实绑定身份；去掉同名 fallback；预置后续边与实际源码冲突须失效或按真实观测重建；root 覆盖须使用 goal.relation.edges 并核对必要路径关系，不能只看已执行子集。补同名本地定义、错别名、错 specifier 三类红测，先红后绿。
+- 边界：worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107`、branch `p1-1-typed-dynamic-recursive-20261107`、base `875b4bb`；不训练、不改权重/gold/threshold/adoption、不 merge/push、不产品接线、不安装、不动 daemon/tmux。Iris 以 owner 身份重跑 build/bridge/multistep/real-corpus/convert/validate 后 deliver Alice。
+- goal one-shot `sub-m1794105946217-258` armed（10m，active/desired=observed=subscribed、error=null）；project patrol `sub-m1793963843713-143` armed；inbox unread=0。本轮未改产品代码/语料/权重/gold/threshold/采用、未 merge/push、未安装 runtime。
+
+## 2026-11-08 Jenny：P1-1 round-27 返工完成、交回 Iris 正式 deliver（02:44Z）
+
+- 消费 master-wake/worker-idle 批次（m1794105525568-211、m1794105587615-214、m1794105772738-234）；project patrol `sub-m1793963843713-143` armed，goal one-shot `sub-m1794105314004-192` armed，本轮无需重订。
+- P1-1 round-27 GCM worker 已退出 0；worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` 分支 `p1-1-typed-dynamic-recursive-20261107` 新增提交 `875b4bb fix(tsjs): derive recursive state and root from real facts`，ahead origin/main 3 / behind 30，未 merge/push。
+- 返工证据：`rework/result-2.md` 记录两项 Alice P1 修复与剩余 INCOMPLETE；`red-2/p1-1-real-facts-root-red.exit=1` 为真实红测；`green-2/build.exit=0`、bridge 7/7、multistep 14/14、real-corpus 6/6、convert-samples/validate-data READY。
+- board `p1-1-typed-dynamic-recursive-engineering-iris-20261107` 仍为 `rework`，旧 next_step 未反映 worker 完成事实。已向 `NNAnything.Iris` 发送 `m1794105776868-237`，要求 owner 核对 `result-2.md` 后向 Alice 正式 deliver `875b4bb` 并更新 next_step；不代 Iris 交付、不代 Alice 审查、不 close。
+- 本轮仅消费通知、读取证据并记录 note；未训练、未改产品代码/语料/权重/gold/threshold/采用、未 merge/push、未安装 runtime、未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：goal one-shot 续订、B-A1 收口回执核对、Carol 恢复空闲（02:29Z）
 
 - 消费 B-A1 收口回执组（m1794104861699-127 至 m1794104861861-130）：均为 43d83c7/c624b94 交付-接受-集成事实，与 board 一致（task closed、disposition=integrated、review valid rev4、completion_missing=[]）。
