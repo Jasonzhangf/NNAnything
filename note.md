@@ -1,14 +1,16 @@
 # 当前任务
 
-## 2026-11-08 Jenny：Collab 不可达期间的本地交付核验与 goal 续订（05:34Z-05:50Z）
+## 2026-11-08 Jenny：Collab 恢复前后的本地交付核验与 goal 续订（05:34Z-05:50Z）
 
 - 目标：静待用户管理的 Collab 恢复，不修复其基础设施；继续核对本项目既有任务的实际产出，避免把 owner 自报当作交付或验收。
-- 用户指示 `m1794116033094-40` 已从通知正文读取：静待 Collab 恢复，不自行修复 Collab 或处理其基础设施问题，继续聚焦本项目既有目标与可执行业务。`collab context` 仍报 `DAEMON_UNAVAILABLE`，`server.sock` 缺失；未重启 daemon 或 tmux，未改 `.agent-collab`。
-- goal deadline `m1794115910263-2` 已触发，旧 one-shot `sub-m1794114909055-942` 已消费。已显式续订 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`；回执为新 one-shot armed，project patrol `sub-m1793963843713-143` armed，`appsdk goal status` 回读 active/subscribed。
-- Carol 归因返工已有本地新产物：`attribution-report.md` 与 `attribution-evidence.md`。报告已补完整源路径、逐组 value×weight 区间贡献、raw/clamp 区间、stage/decision 分支，修正反例 112 为 ignore 下界过 0.6、container 下界未过 0.6、margin 0.0434 低于 0.15，并撤回“wire 不可解”为未验证假设；124 项区间复核自报 0 差异。附件特征组映射的 `数量` 列误写为组内样本数，实际该表每行映射一个 sampleId；这是展示列错误，不改变逐组分解。因 daemon 不可达，尚无新 board deliver/review 回执。
-- Henry 真实样本生成已有本地候选 `d49dae2`（基于 `6e6b7be`），worktree clean，`report.md`、`task-log.md` 与 `samples-v4` 已落盘。Jenny 独立复跑 converter 测试 9/9、全部 B-A1 测试 59/59；`train-entry-readiness.json` 为 `consumable: true`、3 student groups / 3 supervision rows；TRAIN 3、DEV 11、VERIFICATION 2，student/supervision 物理分离。已知边界：family C 是第三个 renderer，不是真实外部站点；真实站点 held-out 分母未填；不宣称训练或语义准确率。尚无 board deliver/Alice review 回执，未 merge/push。
-- Leo 独立 evaluator 仍无本地 worktree、报告或实现产物；当前只有 board 先前记录的 working rev3。不能据此宣称已交付，也不以 master 自写实现替代 owner。
-- 本轮只做只读核验、goal 续订与文档记录；未修改 Henry/Carol 的源码或证据，未训练、改权重/gold/threshold/采用，未 merge/push，未安装 runtime，未动 daemon/tmux。主树仅保留用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html`。
+- 恢复前：`collab context` 报 `DAEMON_UNAVAILABLE`、`server.sock` 缺失，`collab recv` 无法消费；未重启 daemon 或 tmux，未改 `.agent-collab`。用户指示 `m1794116033094-40` 已从通知正文读取：静待 Collab 恢复，继续聚焦本项目既有目标与可执行业务。
+- goal deadline 已两次触发（`m1794115910263-2`、`m1794116693037-26`），旧 one-shot 均已消费；已两次显式续订 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`。最新 `registered_at=2026-11-08T05:45:19Z`、trigger≈05:55Z，project patrol `sub-m1793963843713-143` armed，`appsdk goal status` 回读 active/subscribed。
+- 05:42Z daemon 恢复（`server.sock` 存在）。已消费 `collab recv` 多批 worker-idle/master-wake 与 deadline 消息。board 实测：Henry `b-a1-real-sample-generation-henry-20261107` 已 `delivered`（rev5，subject_revision 1，delivery evidence report.md），待 Alice 审查；Carol `b-r-per-degradation-attribution-carol-20261107` 仍 `rework`（rev7，review_subject_revision 1，next_step=alice-review.md）；Leo `b-a1-independent-evaluator-leo-20261107` 仍 `working`（rev3）；overall orchestration `working` P0（owner Iris）。无 pending merge、无 blocked/timed-out。
+- Carol 归因返工本地已有新产物：`attribution-report.md` 与 `attribution-evidence.md`。报告已补完整源路径、逐组 value×weight 区间贡献、raw/clamp 区间、stage/decision 分支，修正反例 112 为 ignore 下界过 0.6、container 下界未过 0.6、margin 0.0434 低于 0.15，并撤回“wire 不可解”为未验证假设；124 项区间复核自报 0 差异。附件特征组映射的 `数量` 列误写为组内样本数，实际该表每行映射一个 sampleId；这是展示列错误，不改变逐组分解。已向 Carol 投递 `m1794116716062-29`，要求核对展示并正式 deliver 重交。
+- Henry 真实样本生成已有本地候选 `d49dae2`（基于 `6e6b7be`），worktree clean，`report.md`、`task-log.md` 与 `samples-v4` 已落盘。Jenny 独立复跑 converter 测试 9/9、全部 B-A1 测试 59/59；`train-entry-readiness.json` 为 `consumable: true`、3 student groups / 3 supervision rows；TRAIN 3、DEV 11、VERIFICATION 2，student/supervision 物理分离。已知边界：family C 是第三个 renderer，不是真实外部站点；真实站点 held-out 分母未填；不宣称训练或语义准确率。
+- Alice 审查请求 `m1794116677617-24` 与唤醒 `m1794116734412-34` 均持久化，但 desktop bridge 返回 `NOT_SUBMITTED`，通知未送达；按回执不重复重试，等 Alice 侧 `collab recv` 读取。
+- Leo 独立 evaluator 仍无本地 worktree、报告或实现产物；已向 Leo 投递 `m1794116716313-30`，要求继续交付或给出具体缺口。不以 master 自写实现替代 owner。
+- 本轮只做只读核验、goal 续订、消息派发与文档记录；未修改 Henry/Carol 的源码或证据，未训练、改权重/gold/threshold/采用，未 merge/push，未安装 runtime，未动 daemon/tmux。主树仅保留用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html`。
 
 ## 2026-11-08 Iris：恢复核对 P1-1 与 B-A1/B-R 未完成项（05:35Z）
 
