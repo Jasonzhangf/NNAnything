@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-08 Jenny：P1-1 subject6 集成主线并收口（05:04Z）
+
+- Alice 正式 ACCEPT P1-1 subject6（candidate `b5f6726`，证据 `/Volumes/Intel/playground/nnanything-runs/p1-1-typed-dynamic-recursive-20261107/alice-review.md` 顶部）。三 P1 缺口全部闭合：缺失 import 观测、私有声明 re-export 误放行、同 edgeRef 不同元组 root 覆盖；真实入口红绿与正例有效。
+- 集成 main：merge commit `d125abc` 已 push `origin/main`；受影响回归全绿：build exit 0；p1-1 bridge 7/7、multistep 14/14、real-corpus 15/15；model-package + student-converter + supervision-converter + decision-recursive 23/23。未训练、未改权重/gold/threshold/采用，未产品接线/安装。
+- `collab task integrated --commit d125abc --evidence "merged accepted P1-1 subject6 b5f6726 into main; build exit0; p1-1 bridge 7/7, multistep 14/14, real-corpus 15/15; model-package+student+supervision+decision 23/23; pushed origin/main"` 登记为 merged。
+- 资源收口：Iris 独占 worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` 已 `git worktree remove`，分支 `p1-1-typed-dynamic-recursive-20261107` 已 `git branch -D`。
+- 长程 goal 订阅重武装：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，one-shot armed，project patrol armed。
+- 在途（等 owner 交付 → Alice 审查 → 集成）：Henry `b-a1-real-sample-generation-henry-20261107`（worktree 尚有未提交 converter/scripts，未 deliver）；Leo `b-a1-independent-evaluator-leo-20261107`（暂未见新产出）；Carol `b-r-per-degradation-attribution-carol-20261107`（只读归因，未 deliver）。均 not blocked，dispatch gap 清；master 持续监控，不替代 owner 实现。
+
 ## 2026-11-08 Jenny：master 巡检（05:00Z）
 
 - 消费 worker-idle / master-wake-batch 批次（`m1794112918673-759`、`m1794112992649-763` 等）。板面：无 pending merge、dispatch gap clean；goal 回读 active/desired=observed=subscribed、error=null，collab `sub-m1794111557520-656` 与 patrol `sub-m1793963843713-143` armed。
