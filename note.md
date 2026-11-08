@@ -1,5 +1,35 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal deadline 再次显式重臂（14:34Z）
+
+- 已消费 goal deadline `m1794148437769-2677`（`LAST_REMINDER=true`）。
+- 因 P0/P1 仍处于 working，已用同一 `docs/autonomous-capability-roadmap.md` 显式重臂为 `sub-m1794148481765-2683`；回读 `active=true`、`desired=observed=subscribed`、`remote_state=armed`、`trigger_ms=1794149081693`、error=null。
+- 巡检时出现未跟踪 `docs/nn-code-redesign-symbols-rust-design.md`，与 Carol 的 Rust 设计任务路径一致；本轮不读取、不修改、不提交，等待 Carol 正式交付并由 Alice review。
+- Project patrol `sub-m1793963843713-143` 保持 armed；本轮未改产品代码/语料/权重/gold/threshold/采用，未安装或重启 daemon/tmux。
+
+## 2026-11-08 Jenny：Alice 核对与 worker-idle 收口（14:29Z-14:32Z）
+
+- 已消费 Alice 核对回执 `m1794148112316-2642`：原四项及后续四项任务均 closed、review.valid=true、completion_missing=[]；B-A1/B-R/learning-loop 不重复 review，Henry 保留 5 PASS / 0 FAIL / 2 INCOMPLETE；当前 Rust/Swift 为 Carol working，无待审材料。
+- 已向 P0 owner Iris 发送 `m1794148231502-2654`，要求在 nnanything-overall-redesign-orchestration-r1 明确 8d11940 的真实 runner/export 缺口、7db2c6a 的 CLI 用户范围裁决及可独立推进部分；未代写 Iris 的 lifecycles 或 board 字段。
+- 已向 Alice 发送 `m1794148230922-2653`，并更正错误引用的消息 ID 为 `m1794148257884-2659`。
+- 已消费 worker-idle 批次 `m1794148154024-2647`、`m1794148241184-2657`；两项通知均指向 Carol，但 board 无新增 ready 工作，两个 symbols 设计已明确由 Carol 承接，不重复发送提醒。
+- `appsdk goal status` 保持 `active=true`、`remote_state=armed`，下一次 deadline trigger 为 `1794148436974`；未改产品代码/语料/权重/gold/threshold/采用，未安装或重启 daemon/tmux。
+
+## 2026-11-08 Jenny：master patrol 与 goal 重臂（14:21Z-14:26Z）
+
+- 已消费 master-idle patrol `m1794147618270-2588` 与 goal deadline `m1794147688581-2593`（旧号 `sub-m1794147073545-2548` 已 consumed）。
+- 四项巡检回执：开放任务为 Grace 巡检（P1）、Carol 两个 symbols 设计（P1，reviewer Alice）、Iris P0；`ready_authorized_work` 无新未派工作，pending_merges 空；workers 中 Henry/Leo/Jack/Kate 空 idle 且无匹配 ready 授权任务，Emma presence=missing 不参与承接，Grace/Carol/Iris 都有 active_task。
+- 已显式重臂 owned goal 为 `sub-m1794147837039-2603`，`appsdk goal status` 回读 `active=true`、`remote_state=armed`、`trigger_ms=1794148436974`、error=null；project patrol `sub-m1793963843713-143` 保持 armed，`cadence_runtime_gap=null`。
+- 已消费重复 worker-idle `m1794147815167-2601`；Carol 短暂回到 idle，但她两个设计任务仍 working、next_step 已明确，且无新 ready 授权工作，不重复发送提醒；inbox 随后为 0。
+- 资源：main=origin/main=`10b1411`，仅主工作树；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD；本轮未新增 worktree。
+
+## 2026-11-08 Jenny：deadline 与 Carol 空闲处置（14:16Z）
+
+- 已消费 goal deadline `m1794147044122-2545`；当前 owned goal 已在 14:11Z 显式续订为 `sub-m1794147073545-2548`，回读 `active=true`、`remote_state=armed`、`trigger_ms=1794147673476`，下次到期约 14:21Z。
+- 已消费 worker-idle `m1794147163292-2559`，核对 Carol 两个 symbols 设计任务后，发送 `m1794147378777-2574` 要求 Carol 先推进 `nn-code-redesign-symbols-rust-r1`，再接 `nn-code-redesign-symbols-swift-r1`，保持 design-only、reviewer Alice，不改权重/gold/threshold/采用、不产品接线、不安装、不恢复 nn-code。
+- 随后消费重复 worker-idle `m1794147452066-2578`；`collab worker status` 回读 Carol 已转为 `agent_state=working`、`active_status=working`，说明上次提醒已生效，不再重复发送。
+- Carol 空闲且两个任务仍 `working`，不视为新派发缺口；等待其按合同交付设计并更新 board。其他未跟踪资源保持现状，未新增 worktree。
+
 ## 2026-11-08 Jenny：Grace 容量巡检处置，symbols P1 改派 Carol（13:51Z-14:06Z）
 
 - 目的：消费 Grace peer-capacity patrol `m1794146120045-2452` 与后续 goal deadline/worker-idle，回答两个 Emma-owned P1 为何长期 `working` 且 owner missing，以及 live idle peer 是否可承接。
