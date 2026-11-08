@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal deadline 续订（11:18Z）
+
+- 目的：消费 owned goal deadline `m1794136683583-1820`（one-shot `sub-m1794136079331-1765` consumed）；开放 P0/P1 未变且仍在调度，按持续调度需要显式续订。
+- Goal：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m` 重订为 `sub-m1794136743754-1822`；回读 active=True、desired=observed=subscribed、remote_state=armed、trigger_ms=1794137343679、error=null；project patrol `sub-m1793963843713-143` 保持 armed。
+- Board/资源：开放任务仍为 Iris P0、Grace 巡检、Emma owner-only parked symbols-rust/swift；`ready_authorized_work=false`、pending_merges 空、无 blocked/timed-out。main=origin/main=`ae9f85d`，仅主工作树；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。
+- 边界：本轮仅通知消费、goal 续订与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：goal 续订、Grace round-18 裁定与 8d11940 处置（11:01Z-11:08Z）
 
 - 目的：消费 owned goal deadline `m1794135710588-1736`（one-shot `sub-m1794135106139-1698` consumed）、master-idle patrol `m1794136081984-1767`/`m1794136178108-1779` 与 Grace round-18 报告 `m1794136106855-1771`，按 master 职责核对 board、资源与 goal，并裁定巡逻审查口径与 open bug。
