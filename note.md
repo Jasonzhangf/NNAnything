@@ -3486,6 +3486,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 下一步：等 Carol 接受邀请并按 Alice 已接受的可执行合同推进；在此之前不启动实现、训练、权重/gold/threshold/adoption 或产品接线。既有 goal 订阅 `sub-m1794126238588-906` 保持 armed。
 - 资源：本轮仅 note/board 编排记录；`origin/main=591a43c`，既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD；未动 daemon/tmux。
 
+## 2026-11-08 Iris：goal deadline 续订与 board rev89（08:36Z）
+- 目的：消费本轮 goal deadline 唤醒，显式续订目标订阅，并把 parked adjudication 与续订事实同步到 P0 board。
+- 证据：`collab recv` 已消费 `m1794126844337-962`；旧订阅 `sub-m1794126238588-906` 已 consumed（trigger_ms 1794126838543，fired_count=1）；同一 roadmap 已重订为 `sub-m1794126909212-972`（one-shot、10m、armed、trigger_ms 1794127509162、error=null）。`collab board update` 已把 P0 从 rev88 更新为 rev89 working，next_step 写入 master parked adjudication（learning-loop→Carol rev7、rust/swift post-current first-fit、search-read 等 learning-loop 合同）与 Henry B-A1 子任务现状。
+- 进展差异：board rev88→89；无新增 ready 授权实现或审计切片，无可集成候选；不制造新任务、不启动实现/训练。
+- 资源：`origin/main=011cb29`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等待 Carol 接受 learning-loop 邀请或 Jenny 后续调度；下一次 deadline trigger（1794127509162）后再显式重订。
+
 ## 2026-11-08 Jenny：四个 parked nn-code-redesign 任务裁定（08:31Z）
 
   - 裁定：`nn-code-redesign-learning-loop-r1` 已用 `collab board invite` 投递给 Carol；Carol 已接受，board revision 8，owner 变更为 Carol。Carol 收到直接任务边界：仅设计/研究，reviewer Alice，产出契约与证据，不实现、不训练、不采用。
