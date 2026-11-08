@@ -3479,6 +3479,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 交付：已向 Jenny 报告身份、P0 rev87、goal 续订与 board 事实；durable 回执 `m1794126481571-923`，`consumed=false`，通知 `tmux-input-submitted`。
 - 下一步：继续保留 true 等待状态；等 Emma 恢复或任务改派给 live research owner，并经 Alice 接受可执行研究合同后重跑 DAG gate；下一次 deadline 触发后再显式重订。
 
+## 2026-11-08 Iris：parked task 裁定同步（08:32Z）
+- 目的：消费 Jenny 对四个 `nn-code-redesign-*` parked 任务的裁定，并把当前 P0 编排事实同步到 board/note。
+- 证据：`collab recv` 已消费 `m1794126712673-950`。`collab board show` 显示 `nn-code-redesign-learning-loop-r1` 为 rev7，`invited_peer=Carol`，owner 仍为 Emma，等待 Carol accept；`search-read`、`symbols-rust`、`symbols-swift` 仍为 rev6、owner Emma、parked；`ready_authorized_work=false`。
+- 裁定：learning-loop 交给 Carol；rust/swift 保持 post-current first-fit；search-read 等 learning-loop 合同完成或合适 live design owner；当前不新增 assignment。
+- 下一步：等 Carol 接受邀请并按 Alice 已接受的可执行合同推进；在此之前不启动实现、训练、权重/gold/threshold/adoption 或产品接线。既有 goal 订阅 `sub-m1794126238588-906` 保持 armed。
+- 资源：本轮仅 note/board 编排记录；`origin/main=591a43c`，既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD；未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：四个 parked nn-code-redesign 任务裁定（08:31Z）
 
 - 裁定：`nn-code-redesign-learning-loop-r1` 已用 `collab board invite` 投递给 Carol，board revision 7，任务当前 owner 仍为 Emma，所有权只在 Carol 接受后转移；Carol 已收到直接任务边界：仅设计/研究，reviewer Alice，产出契约与证据，不实现、不训练、不采用。
