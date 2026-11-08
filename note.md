@@ -1,5 +1,12 @@
 # 当前任务
 
+## 2026-11-08 Jenny：Grace round-23 处置回执（15:45Z-15:50Z）
+
+- 已消费 Grace round-23 `m1794152715890-3073`（reply-required）及 worker-idle/master-wake `m1794152707920-3072`、`m1794152726600-3076`、`m1794152793088-3082`、`m1794152815223-3087`、`m1794152916716-3096`。
+- 核实 1（Carol）：worker status 已显示 Carol `agent_state=working`、`active_task=nn-code-redesign-symbols-swift-r1`、`active_status=working`，不再 idle；Rust rev29 ACCEPT 只差 owner close。已在 `m1794152606801-3062` 要求 Carol 收口 Rust 后启动 Swift；Swift run 目录空，尚未产出。board 现状 Rust accepted/close、Swift working。
+- 核实 2（旧 4h deadline）：`b3aaac6` open，owner 为 collab/AppSDK tools/daemon，解阻条件是公开按 subscription_id 取消入口或合法重臂语义；master 不现场实现该工具，继续跟踪。本人 `appsdk goal status` 已 active/subscribed，deadline `sub-m1794152608155-3063` armed；project patrol `sub-m1793963843713-143` armed。
+- 已回 Grace `m1794153025546-3104`。未改产品代码/权重/gold/threshold/采用，未训练/采样/接线/安装，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：Rust rev5 ACCEPT 收口与 Swift 启动（15:41Z-15:44Z）
 
 - 已消费 worker-idle `m1794152483553-3054`、master-wake-batch `m1794152563118-3060` 及此前 master-wake `m1794152416617-3049`。
