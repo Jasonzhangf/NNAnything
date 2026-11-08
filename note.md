@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-08 Jenny：round-41/42 巡检处置，Carol rev2 交付，主树恢复，Kate 独立审查（06:10Z）
+
+- 已消费 goal deadline `m1794117324732-97`（one-shot consumed）并按 Kate round-41 要求重新登记 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 10m`，回执 registered_at=2026-11-08T05:59:46Z，active=true/subscribed，project patrol armed。
+- Carol B-R 归因 `b-r-per-degradation-attribution-carol-20261107` rev2 已正式 deliver（subject_revision 2），status=delivered，等待 Alice review。Jenny 已核对 verify-rework.json 31 rows / 1054 interval checks / 0 diffs，组内 sampleId 数表头已修正，margin 分支已补 22 行 conflict 证据，wire 不可解已降为未验证假设。这些是只读证据，不构成训练或评价结论。
+- Henry B-A1 真实样本生成 `b-a1-real-sample-generation-henry-20261107` rev5 delivered，candidate d49dae2，Jenny 已独立复跑 converter 9/9 与 b-a1 tests 59/59，train-entry consumable=true，student/supervision 物理分离（3 groups / 3 rows）。
+- Alice desktop-bridge wake 两次失败（DESKTOP_BRIDGE_NOT_SUBMITTED），全局 CEO Alice 回复说她不是 NNAnything 项目内 reviewer，不应依赖其自行唤醒；CEO 指示使用可定位项目成员或按现有 review 合同改派独立 reviewer，不借 CEO 身份代审。Jenny 已派 Kate（独立可定位项目成员）对 Henry 和 Carol 两条 delivered 任务做独立证据审查并产出 review findings。
+- Leo 误用主根 /Volumes/extension/code/NNAnything 在 b-a1-independent-evaluator-leo-20261107 分支上留下未提交 skeleton 修改。Jenny 已要求 Leo 建立独占 worktree /Volumes/Intel/playground/nnanything/b-a1-independent-evaluator-leo-20261107，迁移 diff 后恢复主根 main。主根现在回到 main，仅剩既有未跟踪 playground/browser/search/b-a1/cua-fixture.html。
+- 边界：本轮只做 inbox 消费、board 通信、worktree 归位、goal 续订与 note 记录；未训练、未改权重/gold/threshold/采用，未产品接线，未安装 runtime，未动 tmux/daemon。
+
 ## 2026-11-08 Jenny：Collab 恢复前后的本地交付核验与 goal 续订（05:34Z-05:50Z）
 
 - 目标：静待用户管理的 Collab 恢复，不修复其基础设施；继续核对本项目既有任务的实际产出，避免把 owner 自报当作交付或验收。
