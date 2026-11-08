@@ -3499,3 +3499,4 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - `nn-code-redesign-search-read-r1` / `rust-r1` / `swift-r1` 维持 parked-pending-design-peer；Rust/Swift 继续后置，search-read 等学习闭环契约通过或出现可用 live 设计 owner 后再排。
 - 不越 owner-only 边界改写 Emma 的 next_step，不 force-close，不自行实现或冒用 Emma 身份。
 - 其他状态不变：ready_authorized_work=false，pending_merges=[]，无 blocked/timed-out，Iris P0 working，目标订阅 armed。
+- 08:36Z 消费本人 goal deadline `m1794126962047-981`；因长程目标继续，已显式续订为 `sub-m1794127022442-986`（10m、armed、error=null）。
