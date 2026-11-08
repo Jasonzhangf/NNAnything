@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-11-08 Jenny：master 巡检、goal 续订与 Kate round-37 复核（03:31Z）
+
+- 消费 master-wake-batch `m1794108334629-410`、worker-idle `m1794108434638-416`、goal deadline `m1794108587723-427`（LAST_REMINDER）与 Kate round-37 复核 `m1794108654626-432`。板面巡检：无 pending merge、无新 ready 工作；P1-1 仍由 Iris 在 round-28 执行（red-3 预期失败已出现，green-3/result-3 未产出）；Grace 巡检 round-14 记录在案；四个 Emma 任务仍 parked。Kate 复核确认 main 已推进 `9fba0f3`，note/roadmap 陈旧授权口径已修正，round-37 剩余缺口 2 关闭。
+- goal one-shot `sub-m1794107985978-385` 已被本次 deadline 消费（status 曾为 observed=consumed）；按 LAST_REMINDER 显式重订同一 goal `docs/autonomous-capability-roadmap.md`（10m / repeat 100 / TTL 604800），回读 Active=true、Desired=Observed=subscribed。project patrol `sub-m1793963843713-143` armed。
+- 本轮仅消费通知、只读板面巡检、goal 续订与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未 merge/push 候选，未安装 runtime，未动 daemon/tmux。
+
 ## 2026-11-08 Jenny：goal 续订、8d11940 triage、巡检口径对齐（02:57Z）
 
 - 消费 Kate round-36 `m1794106662833-296` 与 Grace round-14 `m1794106418924-283`。longhorizon goal one-shot `sub-m1794105946217-258` 已 consumed（trigger 1794106546183）；已按 LAST_REMINDER 显式重订同一 goal `docs/autonomous-capability-roadmap.md`（10m / repeat 100 / TTL 604800），回读 active/desired=observed=subscribed、error=null、next trigger 1794107171204。project patrol `sub-m1793963843713-143` armed。
