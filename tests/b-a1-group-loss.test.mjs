@@ -9,6 +9,9 @@ import {
   bA1EpochLoss,
   bA1GroupLoss,
   bA1GroupScoreGradient,
+  bA1EpochParameterGradient,
+  bA1ParameterLoss,
+  bA1ThresholdDiagnosisScored,
 } from "../dist/training/b-a1-group-loss.js";
 
 const phi = v => Math.log1p(Math.exp(v));
@@ -19,6 +22,27 @@ function group(groupRef, candidates, allowedCandidateRefs) {
 
 function cand(candidateRef, score) {
   return { candidateRef, score };
+}
+
+function encodedGroup(groupRef, size, allowedRefs, seed) {
+  const candidates = Array.from({ length: size }, (_, index) => ({
+    candidateRef: `${groupRef}-c${index + 1}`,
+    input: Array.from({ length: 64 }, (__, slot) => Math.sin(seed + index * 7 + slot) * 0.2),
+    optionSemantics: "select",
+    candidateKind: "relation",
+  }));
+  return { groupRef, candidates, allowedCandidateRefs: allowedRefs(candidates) };
+}
+
+function cloneTensors(tensors) {
+  return {
+    W1: [...tensors.W1],
+    b1: [...tensors.b1],
+    W2: [...tensors.W2],
+    b2: [...tensors.b2],
+    W3: [...tensors.W3],
+    b3: [...tensors.b3],
+  };
 }
 
 test("the accepted B-A1 loss constants are frozen", () => {
@@ -111,4 +135,48 @@ test("the model score drives the loss through forwardUnified", () => {
   const score = forwardUnifiedScore(x, tensors);
   const result = bA1GroupLoss(group("g", [cand("only", score)], ["only"]));
   assert.ok(Math.abs(result.loss - phi(0.1 + 0.5 - score)) < 1e-9);
+});
+
+test("threshold decision rejects a disallowed candidate exactly at theta", () => {
+  const scored = group("g", [cand("p", 0.8), cand("n", BA1_THETA)], ["p"]);
+  const atBoundary = bA1ThresholdDiagnosisScored(scored);
+  assert.equal(atBoundary.decisionSatisfied, false);
+  const belowBoundary = bA1ThresholdDiagnosisScored(
+    group("g", [cand("p", 0.8), cand("n", BA1_THETA - 1e-9)], ["p"]),
+  );
+  assert.equal(belowBoundary.decisionSatisfied, true);
+  const allowedAtBoundary = bA1ThresholdDiagnosisScored(group("g", [cand("p", BA1_THETA)], ["p"]));
+  assert.equal(allowedAtBoundary.decisionSatisfied, true);
+  assert.equal(allowedAtBoundary.marginSatisfied, false);
+});
+
+test("epoch parameter gradient matches central finite differences for mixed group sizes", () => {
+  const groups = [
+    encodedGroup("g1", 1, candidates => [candidates[0].candidateRef], 1),
+    encodedGroup("g2", 2, candidates => [candidates[0].candidateRef], 5),
+    encodedGroup("g3", 3, candidates => [candidates[0].candidateRef, candidates[2].candidateRef], 9),
+  ];
+  const tensors = createXavierTensors(23);
+  const analytic = bA1EpochParameterGradient(groups, tensors);
+  const eps = 1e-6;
+  const probes = [
+    ["W1", 0],
+    ["b1", 0],
+    ["W2", 0],
+    ["b2", 0],
+    ["W3", 0],
+    ["b3", 0],
+  ];
+  for (const [key, index] of probes) {
+    const up = cloneTensors(tensors);
+    up[key][index] += eps;
+    const down = cloneTensors(tensors);
+    down[key][index] -= eps;
+    const fd = (bA1ParameterLoss(groups, up) - bA1ParameterLoss(groups, down)) / (2 * eps);
+    const analyticValue = analytic.gradient[key][index];
+    assert.ok(
+      Math.abs(fd - analyticValue) < 1e-6,
+      `parameter finite difference mismatch on ${key}[${index}]: fd=${fd} analytic=${analyticValue}`,
+    );
+  }
 });

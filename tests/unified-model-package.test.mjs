@@ -70,6 +70,10 @@ test("incompatible schemas and tensor shapes are rejected", () => {
     (error) => error.code === MODEL_INCOMPATIBLE);
   assert.throws(() => validateUnifiedModelPackage({
     ...pkg,
+    architecture: { ...pkg.architecture, hidden: [32, 64] },
+  }), (error) => error.code === MODEL_INCOMPATIBLE);
+  assert.throws(() => validateUnifiedModelPackage({
+    ...pkg,
     tensors: { ...pkg.tensors, W1: pkg.tensors.W1.slice(1) },
   }), (error) => error.code === MODEL_INCOMPATIBLE);
 });

@@ -759,7 +759,8 @@ process.stdout.write(JSON.stringify({
   version: loaded.package.version,
   tensors: loaded.package.tensors,
   thresholdsPath: loaded.resolvedResources.thresholdsPath,
-  missingModeTablePath: loaded.resolvedResources.missingModeTablePath
+  missingModeTablePath: loaded.resolvedResources.missingModeTablePath,
+  slotMapPath: loaded.resolvedResources.slotMapPath
 }));
 `;
   const { stdout } = await execFileAsync(process.execPath, [
@@ -773,6 +774,7 @@ process.stdout.write(JSON.stringify({
     readonly tensors: UnifiedModelPackage["tensors"];
     readonly thresholdsPath: string;
     readonly missingModeTablePath: string;
+    readonly slotMapPath: string | null;
   };
   const tensorsMatch = compareUnifiedTensors(expected.tensors, loaded.tensors);
   if (!tensorsMatch) {
@@ -785,6 +787,7 @@ process.stdout.write(JSON.stringify({
     tensorsMatch,
     thresholdsPath: loaded.thresholdsPath,
     missingModeTablePath: loaded.missingModeTablePath,
+    slotMapPath: loaded.slotMapPath,
   };
 }
 

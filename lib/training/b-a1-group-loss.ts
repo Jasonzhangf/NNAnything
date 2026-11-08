@@ -122,6 +122,28 @@ export function bA1GroupScoreGradient(group: BA1ScoredGroup): Map<string, number
   return gradient;
 }
 
+function scoreEncodedGroup(
+  group: EncodedGroup,
+  tensors: UnifiedTensors,
+): BA1ScoredGroup {
+  return scoreGroup(group, tensors);
+}
+
+/** Average group loss on the current parameter tensors. */
+export function bA1ParameterLoss(
+  groups: readonly EncodedGroup[],
+  tensors: UnifiedTensors,
+): number {
+  if (groups.length === 0) throw new BA1GroupLossError("epoch must contain at least one group");
+  assertUnifiedTensors(tensors);
+  let lossSum = 0;
+  for (const group of groups) {
+    assertEncodedGroup(group);
+    lossSum += bA1GroupLoss(scoreEncodedGroup(group, tensors)).loss;
+  }
+  return lossSum / groups.length;
+}
+
 export function bA1EpochLoss(groups: readonly BA1ScoredGroup[]): BA1EpochLossResult {
   if (groups.length === 0) throw new BA1GroupLossError("epoch must contain at least one group");
   const groupLosses = groups.map(g => {
@@ -187,6 +209,25 @@ export function bA1GroupParameterGradient(
   return { loss: lossResult.loss, gradient: gradTotal as UnifiedTensors, scores: scored.candidates };
 }
 
+export function bA1EpochParameterGradient(
+  groups: readonly EncodedGroup[],
+  tensors: UnifiedTensors,
+): BA1GroupParameterGradient {
+  if (groups.length === 0) throw new BA1GroupLossError("epoch must contain at least one group");
+  assertUnifiedTensors(tensors);
+  const gradTotal = zeroTensors() as MutableUnifiedTensors;
+  let lossSum = 0;
+  const scores: BA1ScoredCandidate[] = [];
+  const scale = 1 / groups.length;
+  for (const group of groups) {
+    const result = bA1GroupParameterGradient(group, tensors);
+    lossSum += result.loss;
+    scores.push(...result.scores);
+    addTensorsInto(gradTotal, result.gradient, scale);
+  }
+  return { loss: lossSum / groups.length, gradient: gradTotal as UnifiedTensors, scores };
+}
+
 export interface BA1FullBatchEpochResult {
   readonly loss: number;
   readonly groupLosses: readonly { readonly groupRef: string; readonly loss: number }[];
@@ -214,7 +255,17 @@ export function bA1FullBatchEpochStep(
     addTensorsInto(gradTotal, gradient, scale);
   }
   applyFullBatchSgd(tensors, gradTotal as UnifiedTensors, learningRate);
-  return { loss: lossSum / groups.length, groupLosses };
+  // The report's epoch loss must describe the parameters that were actually
+  // committed by this step. `lossSum` above is the pre-update diagnostic only.
+  const committedGroupLosses = groups.map(group => ({
+    groupRef: group.groupRef,
+    loss: bA1GroupLoss(scoreGroup(group, tensors)).loss,
+  }));
+  return {
+    loss: committedGroupLosses.reduce((sum, entry) => sum + entry.loss, 0)
+      / committedGroupLosses.length,
+    groupLosses: committedGroupLosses,
+  };
 }
 
 export interface BA1ThresholdDiagnosis {
@@ -224,12 +275,8 @@ export interface BA1ThresholdDiagnosis {
   readonly scores: readonly BA1ScoredCandidate[];
 }
 
-export function bA1ThresholdDiagnosis(
-  group: EncodedGroup,
-  tensors: UnifiedTensors,
-): BA1ThresholdDiagnosis {
-  const scored = scoreGroup(group, tensors);
-  const allowed = new Set(group.allowedCandidateRefs);
+export function bA1ThresholdDiagnosisScored(scored: BA1ScoredGroup): BA1ThresholdDiagnosis {
+  const allowed = new Set(scored.allowedCandidateRefs);
   let marginSatisfied = true;
   let decisionSatisfied = true;
   for (const candidate of scored.candidates) {
@@ -238,8 +285,15 @@ export function bA1ThresholdDiagnosis(
       if (candidate.score < BA1_THETA) decisionSatisfied = false;
     } else {
       if (candidate.score > BA1_THETA - BA1_MARGIN) marginSatisfied = false;
-      if (candidate.score > BA1_THETA) decisionSatisfied = false;
+      if (candidate.score >= BA1_THETA) decisionSatisfied = false;
     }
   }
-  return { groupRef: group.groupRef, marginSatisfied, decisionSatisfied, scores: scored.candidates };
+  return { groupRef: scored.groupRef, marginSatisfied, decisionSatisfied, scores: scored.candidates };
+}
+
+export function bA1ThresholdDiagnosis(
+  group: EncodedGroup,
+  tensors: UnifiedTensors,
+): BA1ThresholdDiagnosis {
+  return bA1ThresholdDiagnosisScored(scoreGroup(group, tensors));
 }

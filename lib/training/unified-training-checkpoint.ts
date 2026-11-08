@@ -166,7 +166,7 @@ function validateResources(raw: unknown): UnifiedModelPackageResources {
   if (missingModeSchema !== "nnanything.unified.missing-mode.v1") {
     throw invalid("resources.missingModeSchema must be nnanything.unified.missing-mode.v1");
   }
-  return {
+  const validated = {
     thresholdsRef: assertNonEmptyString(resources.thresholdsRef, "resources.thresholdsRef"),
     thresholdsSchema,
     missingModeTableRef: assertNonEmptyString(
@@ -174,6 +174,11 @@ function validateResources(raw: unknown): UnifiedModelPackageResources {
       "resources.missingModeTableRef",
     ),
     missingModeSchema,
+  };
+  if (resources.slotMapRef === undefined) return validated;
+  return {
+    ...validated,
+    slotMapRef: assertNonEmptyString(resources.slotMapRef, "resources.slotMapRef"),
   };
 }
 
@@ -559,6 +564,7 @@ export function assertResumeRecipeCompatible(
     || ckptResources.thresholdsSchema !== configResources.thresholdsSchema
     || ckptResources.missingModeTableRef !== configResources.missingModeTableRef
     || ckptResources.missingModeSchema !== configResources.missingModeSchema
+    || ckptResources.slotMapRef !== configResources.slotMapRef
   ) {
     mismatch("resources", configResources, ckptResources);
   }

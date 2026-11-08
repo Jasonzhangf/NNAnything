@@ -1,24 +1,22 @@
 // B-A1 fixed training entry: `trainBA1UnifiedRelationDecision`
 // (design: b-a1-fixed-training-entry-design.md, subject revision 3).
 //
-// This entry prepares and implements the fixed B-A1 route:
+// This entry implements the fixed B-A1 route:
 //   - route/encoder = browser / R / nnanything.browser.b-a1-search-input-host.encoder.v1
 //   - loss           = absolute-threshold soft-margin group loss (b-a1-group-loss)
 //   - optimizer      = full_batch_sgd, lr 0.01, maxEpochs 200, seed 20261104, xavier_uniform
 //
-// It reuses the unified tensor shape and forward/backward numerics, but it owns
-// its own route package type: the shared unified model package pins
-// `encoderVersion` to the generic TS/JS step encoder and rejects any other, so a
-// B-A1 package must declare the B-A1 encoder version. Nothing here adopts a
-// package, trains against gold, or wires into a product entry.
+// Package and checkpoint artifacts use the shared unified route-aware schemas.
+// Nothing here adopts a package, trains against gold, or wires into a product entry.
 
-import { mkdir, open, readFile, rename } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { promisify } from "node:util";
 import {
   assertUnifiedTensors,
   cloneTensors,
   createXavierTensors,
-  UNIFIED_PARAMETER_COUNTS,
   type MutableUnifiedTensors,
   type UnifiedTensors,
 } from "./unified-forward.js";
@@ -27,7 +25,9 @@ import {
   BA1_LOSS_KIND,
   BA1_MARGIN,
   BA1_THETA,
+  BA1GroupLossError,
   bA1FullBatchEpochStep,
+  bA1ParameterLoss,
   bA1ThresholdDiagnosis,
 } from "./b-a1-group-loss.js";
 import {
@@ -36,13 +36,47 @@ import {
   BA1_INPUT_SCHEMA,
   BA1_ROUTE_DECISION_KIND,
   BA1_ROUTE_DOMAIN,
+  assertBA1EncodedRouteGroup,
 } from "./b-a1-route-encoder.js";
+import { validateMissingModeConsistency } from "./unified-missing-mode.js";
+import {
+  createUnifiedModelPackage,
+  loadUnifiedModelPackageFromFile,
+  saveUnifiedModelPackageAtomic,
+  type UnifiedModelPackage,
+} from "./unified-model-package.js";
+import {
+  createUnifiedTrainingCheckpoint,
+  saveUnifiedTrainingCheckpointAtomicWithTiming,
+  verifyUnifiedTrainingCheckpointReload,
+  type UnifiedTrainingCheckpoint,
+  type UnifiedTrainingCheckpointReloadReceipt,
+} from "./unified-training-checkpoint.js";
+import {
+  UNIFIED_TRAIN_CONFIG_SCHEMA,
+  verifyUnifiedTrainPackageReload,
+  type UnifiedPackageReloadReceipt,
+  type UnifiedTrainConfig,
+} from "./unified-train-config.js";
+import {
+  addCheckpointIoTiming,
+  addPackageReloadSeconds,
+  emptyCheckpointIoTiming,
+  monotonicSeconds,
+  type UnifiedPersistedTiming,
+  type UnifiedThisRunTiming,
+} from "./unified-timing.js";
+import {
+  BA1_SEMANTIC_SUPERVISION_STATUSES,
+  classifyBA1TrainingEligibility,
+  type BA1SemanticSupervisionStatus,
+} from "./b-a1-sample-evaluator-skeleton.js";
+
+const execFileAsync = promisify(execFile);
 
 export const BA1_TRAIN_CONFIG_SCHEMA = "nnanything.b-a1-unified.train-config.v1" as const;
 export const BA1_STUDENT_ROW_SCHEMA = "nnanything.b-a1-unified.student-row.v1" as const;
 export const BA1_SUPERVISION_ROW_SCHEMA = "nnanything.b-a1-unified.supervision-row.v1" as const;
-export const BA1_MODEL_PACKAGE_SCHEMA = "nnanything.b-a1-unified.model-package.v1" as const;
-export const BA1_CHECKPOINT_SCHEMA = "nnanything.b-a1-unified.training-checkpoint.v1" as const;
 
 export const BA1_LEARNING_RATE = 0.01;
 export const BA1_MAX_EPOCHS = 200;
@@ -52,7 +86,9 @@ export type BA1StopReason = "epoch_limit_exhausted" | "non_finite" | "data_inval
 
 export interface BA1TrainResources {
   readonly thresholdsRef: string;
+  readonly thresholdsSchema: "nnanything.feature-thresholds.v1";
   readonly missingModeTableRef: string;
+  readonly missingModeSchema: "nnanything.unified.missing-mode.v1";
   readonly slotMapRef: string;
 }
 
@@ -71,6 +107,8 @@ export interface BA1TrainConfig {
   readonly resources: BA1TrainResources;
   readonly modelId: string;
   readonly version: string;
+  /** Synthetic numeric tests may opt out of the fixed recipe; production runs use the default strict recipe. */
+  readonly fixedRecipe?: boolean;
 }
 
 export interface BA1StudentCandidateRow {
@@ -94,7 +132,7 @@ export interface BA1SupervisionRow {
   readonly sampleId: string;
   readonly sourceGroup: string;
   readonly partition: string;
-  readonly supervisionStatus: string;
+  readonly supervisionStatus: BA1SemanticSupervisionStatus;
   readonly goldAllowedCandidateRefs: readonly string[];
   readonly trainingEligible: boolean;
   readonly evaluationClass: string;
@@ -112,6 +150,7 @@ export interface BA1TrainEpochRecord {
   readonly epoch: number;
   readonly epochLoss: number;
   readonly finite: boolean;
+  readonly maxAbsGrad: number;
 }
 
 export interface BA1TrainReport {
@@ -133,40 +172,15 @@ export interface BA1TrainReport {
   readonly violations: readonly string[];
 }
 
-export interface BA1ModelPackage {
-  readonly schema: typeof BA1_MODEL_PACKAGE_SCHEMA;
-  readonly modelId: string;
-  readonly version: string;
-  readonly route: { readonly domain: typeof BA1_ROUTE_DOMAIN; readonly decisionKind: typeof BA1_ROUTE_DECISION_KIND };
-  readonly inputSchema: typeof BA1_INPUT_SCHEMA;
-  readonly encoderVersion: typeof BA1_ENCODER_VERSION;
-  readonly architecture: typeof BA1_ARCHITECTURE;
-  readonly tensors: UnifiedTensors;
-  readonly outputContract: { readonly kind: "scalar-score"; readonly groupNormalization: "outside-model" };
-  readonly resources: BA1TrainResources;
-  readonly fixedStages: readonly string[];
-}
+export type BA1ModelPackage = UnifiedModelPackage;
+export type BA1TrainingCheckpoint = UnifiedTrainingCheckpoint;
 
-export interface BA1TrainingCheckpoint {
-  readonly schema: typeof BA1_CHECKPOINT_SCHEMA;
-  readonly modelId: string;
-  readonly version: string;
-  readonly route: { readonly domain: typeof BA1_ROUTE_DOMAIN; readonly decisionKind: typeof BA1_ROUTE_DECISION_KIND };
-  readonly encoderVersion: typeof BA1_ENCODER_VERSION;
-  readonly architecture: typeof BA1_ARCHITECTURE;
-  readonly resources: BA1TrainResources;
-  readonly recipe: {
-    readonly optimizer: "full_batch_sgd";
-    readonly learningRate: number;
-    readonly maxEpochs: number;
-    readonly seed: number;
-    readonly init: "xavier_uniform";
-    readonly loss: { readonly kind: typeof BA1_LOSS_KIND; readonly theta: number; readonly margin: number };
-  };
-  readonly completedEpochs: number;
-  readonly epochRecords: readonly BA1TrainEpochRecord[];
-  readonly violations: readonly string[];
-  readonly tensors: UnifiedTensors;
+export interface BA1PackageReloadReceipt extends UnifiedPackageReloadReceipt {
+  readonly route: { readonly domain: string; readonly decisionKind: string };
+  readonly encoderVersion: string;
+  readonly resourcesMatch: boolean;
+  readonly resourceFilesRead: boolean;
+  readonly newProcessVerified: boolean;
 }
 
 export interface BA1TrainReceipt {
@@ -174,18 +188,36 @@ export interface BA1TrainReceipt {
   readonly supervisionRowsPath: string;
   readonly packageOutPath: string;
   readonly checkpointOutPath: string | null;
-  readonly packageReload: {
-    readonly tensorsMatch: boolean;
-    readonly route: { readonly domain: string; readonly decisionKind: string };
-    readonly encoderVersion: string;
-    readonly resourcesMatch: boolean;
-  };
+  readonly packageReload: BA1PackageReloadReceipt;
+  readonly checkpointReload: UnifiedTrainingCheckpointReloadReceipt | null;
+  readonly timing: UnifiedThisRunTiming;
 }
 
 export interface BA1TrainResult {
   readonly report: BA1TrainReport;
   readonly package: BA1ModelPackage;
   readonly receipt: BA1TrainReceipt;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function requireNonEmptyString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new BA1TrainDataError(`${label} must be a non-empty string`);
+  }
+  return value;
+}
+
+function requireKnownSupervisionStatus(value: unknown, groupId: string): BA1SemanticSupervisionStatus {
+  if (
+    typeof value !== "string"
+    || !(BA1_SEMANTIC_SUPERVISION_STATUSES as readonly string[]).includes(value)
+  ) {
+    throw new BA1TrainDataError(`supervision row ${groupId} has unknown supervisionStatus=${String(value)}`);
+  }
+  return value as BA1SemanticSupervisionStatus;
 }
 
 export function validateBA1TrainConfig(config: BA1TrainConfig): void {
@@ -215,25 +247,39 @@ export function validateBA1TrainConfig(config: BA1TrainConfig): void {
   }
   if (config.optimizer !== "full_batch_sgd") throw new TypeError("optimizer must be full_batch_sgd");
   if (config.init !== "xavier_uniform") throw new TypeError("init must be xavier_uniform");
-  if (!Number.isFinite(config.learningRate) || config.learningRate <= 0) {
-    throw new TypeError("learningRate must be positive and finite");
+  if (config.fixedRecipe !== false) {
+    if (config.learningRate !== BA1_LEARNING_RATE) {
+      throw new TypeError(`learningRate must be the fixed value ${BA1_LEARNING_RATE}`);
+    }
+    if (config.maxEpochs !== BA1_MAX_EPOCHS) {
+      throw new TypeError(`maxEpochs must be the fixed value ${BA1_MAX_EPOCHS}`);
+    }
+    if (config.seed !== BA1_SEED) throw new TypeError(`seed must be the fixed value ${BA1_SEED}`);
+  } else {
+    if (!Number.isFinite(config.learningRate) || config.learningRate <= 0) {
+      throw new TypeError("synthetic learningRate must be positive and finite");
+    }
+    if (!Number.isInteger(config.maxEpochs) || config.maxEpochs <= 0) {
+      throw new TypeError("synthetic maxEpochs must be a positive integer");
+    }
+    if (!Number.isInteger(config.seed)) throw new TypeError("synthetic seed must be an integer");
   }
-  if (!Number.isInteger(config.maxEpochs) || config.maxEpochs <= 0) throw new TypeError("maxEpochs must be a positive integer");
-  if (!Number.isInteger(config.seed)) throw new TypeError("seed must be an integer");
   if (typeof config.modelId !== "string" || config.modelId.length === 0) throw new TypeError("modelId must be a non-empty string");
   if (typeof config.version !== "string" || config.version.length === 0) throw new TypeError("version must be a non-empty string");
   for (const key of ["thresholdsRef", "missingModeTableRef", "slotMapRef"] as const) {
     const ref = config.resources[key];
     if (typeof ref !== "string" || ref.length === 0) throw new TypeError(`resources.${key} must be a non-empty string`);
   }
+  if (config.resources.thresholdsSchema !== "nnanything.feature-thresholds.v1") {
+    throw new TypeError("resources.thresholdsSchema must be nnanything.feature-thresholds.v1");
+  }
+  if (config.resources.missingModeSchema !== "nnanything.unified.missing-mode.v1") {
+    throw new TypeError("resources.missingModeSchema must be nnanything.unified.missing-mode.v1");
+  }
 }
 
 function parseJsonl(text: string): unknown[] {
   return text.split("\n").filter(line => line.trim().length > 0).map(line => JSON.parse(line) as unknown);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 const FORBIDDEN_STUDENT_FIELD_PATTERN = /^(?:gold|allowed|teacher|label|oracle|unknownReason)/i;
@@ -248,12 +294,20 @@ function forbiddenSupervisionFields(record: Readonly<Record<string, unknown>>): 
 
 export async function loadBA1StudentRowsFile(rowsPath: string): Promise<readonly BA1StudentGroup[]> {
   const records = parseJsonl(await readFile(rowsPath, "utf8"));
-  const groups = new Map<string, { group_id: string; sampleId: string; sourceGroup: string; partition: string; candidates: BA1StudentCandidateRow[] }>();
+  const groups = new Map<string, {
+    group_id: string;
+    sampleId: string;
+    sourceGroup: string;
+    partition: string;
+    candidates: BA1StudentCandidateRow[];
+  }>();
   for (const raw of records) {
     if (!isRecord(raw)) throw new BA1TrainDataError("student row is not an object");
     if (raw.schema !== BA1_STUDENT_ROW_SCHEMA) throw new BA1TrainDataError(`student row ${String(raw.group_id)} has a wrong schema`);
-    const groupId = raw.group_id;
-    if (typeof groupId !== "string" || groupId.length === 0) throw new BA1TrainDataError("student row is missing group_id");
+    const groupId = requireNonEmptyString(raw.group_id, "student row group_id");
+    const sampleId = requireNonEmptyString(raw.sampleId, `student row ${groupId} sampleId`);
+    const sourceGroup = requireNonEmptyString(raw.sourceGroup, `student row ${groupId} sourceGroup`);
+    const partition = requireNonEmptyString(raw.partition, `student row ${groupId} partition`);
     const forbidden = forbiddenStudentFields(raw);
     if (forbidden.length > 0) throw new BA1TrainDataError(`student row ${groupId} carries forbidden field(s): ${forbidden.join(", ")}`);
     if (raw.candidateKind !== "relation") throw new BA1TrainDataError(`student row ${groupId} candidateKind must be relation`);
@@ -263,20 +317,25 @@ export async function loadBA1StudentRowsFile(rowsPath: string): Promise<readonly
       throw new BA1TrainDataError(`student row ${groupId} x[64] must be strictly finite`);
     }
     const missingMode = Array.isArray(raw.missingMode) ? raw.missingMode : [];
-    const candidateRef = raw.candidateRef;
-    if (typeof candidateRef !== "string" || candidateRef.length === 0) {
-      throw new BA1TrainDataError(`student row ${groupId} is missing candidateRef`);
+    const missingModeCheck = validateMissingModeConsistency(raw.x as readonly number[], missingMode);
+    if (!missingModeCheck.ok) {
+      throw new BA1TrainDataError(
+        `student row ${groupId} candidate ${String(raw.candidateRef)} invalid missingMode: ${missingModeCheck.message}`,
+      );
     }
+    const candidateRef = requireNonEmptyString(raw.candidateRef, `student row ${groupId} candidateRef`);
     let group = groups.get(groupId);
     if (!group) {
-      group = {
-        group_id: groupId,
-        sampleId: String(raw.sampleId ?? ""),
-        sourceGroup: String(raw.sourceGroup ?? ""),
-        partition: String(raw.partition ?? ""),
-        candidates: [],
-      };
+      group = { group_id: groupId, sampleId, sourceGroup, partition, candidates: [] };
       groups.set(groupId, group);
+    } else if (
+      group.sampleId !== sampleId
+      || group.sourceGroup !== sourceGroup
+      || group.partition !== partition
+    ) {
+      throw new BA1TrainDataError(
+        `student group ${groupId} has inconsistent sampleId/sourceGroup/partition across rows`,
+      );
     }
     group.candidates.push({
       candidateRef,
@@ -292,25 +351,39 @@ export async function loadBA1StudentRowsFile(rowsPath: string): Promise<readonly
 export async function loadBA1SupervisionRowsFile(rowsPath: string): Promise<readonly BA1SupervisionRow[]> {
   const records = parseJsonl(await readFile(rowsPath, "utf8"));
   const rows: BA1SupervisionRow[] = [];
+  const seen = new Set<string>();
   for (const raw of records) {
     if (!isRecord(raw)) throw new BA1TrainDataError("supervision row is not an object");
     if (raw.schema !== BA1_SUPERVISION_ROW_SCHEMA) throw new BA1TrainDataError(`supervision row ${String(raw.group_id)} has a wrong schema`);
-    const groupId = raw.group_id;
-    if (typeof groupId !== "string" || groupId.length === 0) throw new BA1TrainDataError("supervision row is missing group_id");
+    const groupId = requireNonEmptyString(raw.group_id, "supervision row group_id");
+    if (seen.has(groupId)) throw new BA1TrainDataError(`duplicate supervision row for group ${groupId}`);
+    seen.add(groupId);
     const forbidden = forbiddenSupervisionFields(raw);
     if (forbidden.length > 0) throw new BA1TrainDataError(`supervision row ${groupId} carries forbidden field(s): ${forbidden.join(", ")}`);
+    const supervisionStatus = requireKnownSupervisionStatus(raw.supervisionStatus, groupId);
+    const eligibility = classifyBA1TrainingEligibility(supervisionStatus);
+    if (raw.trainingEligible !== eligibility.trainingEligible) {
+      throw new BA1TrainDataError(
+        `supervision row ${groupId} trainingEligible=${String(raw.trainingEligible)} conflicts with status=${supervisionStatus}`,
+      );
+    }
+    if (raw.evaluationClass !== eligibility.evaluationClass) {
+      throw new BA1TrainDataError(
+        `supervision row ${groupId} evaluationClass=${String(raw.evaluationClass)} conflicts with status=${supervisionStatus}`,
+      );
+    }
     if (!Array.isArray(raw.goldAllowedCandidateRefs) || !raw.goldAllowedCandidateRefs.every(ref => typeof ref === "string")) {
       throw new BA1TrainDataError(`supervision row ${groupId} goldAllowedCandidateRefs must be an array of strings`);
     }
     rows.push({
       group_id: groupId,
-      sampleId: String(raw.sampleId ?? ""),
-      sourceGroup: String(raw.sourceGroup ?? ""),
-      partition: String(raw.partition ?? ""),
-      supervisionStatus: String(raw.supervisionStatus ?? ""),
+      sampleId: requireNonEmptyString(raw.sampleId, `supervision row ${groupId} sampleId`),
+      sourceGroup: requireNonEmptyString(raw.sourceGroup, `supervision row ${groupId} sourceGroup`),
+      partition: requireNonEmptyString(raw.partition, `supervision row ${groupId} partition`),
+      supervisionStatus,
       goldAllowedCandidateRefs: raw.goldAllowedCandidateRefs as readonly string[],
-      trainingEligible: raw.trainingEligible === true,
-      evaluationClass: String(raw.evaluationClass ?? ""),
+      trainingEligible: eligibility.trainingEligible,
+      evaluationClass: eligibility.evaluationClass,
     });
   }
   return rows;
@@ -328,11 +401,21 @@ export function buildBA1EncodedGroups(
     seen.add(group.group_id);
     const supervision = supervisionByGroup.get(group.group_id);
     if (!supervision) throw new BA1TrainDataError(`missing supervision for ${group.group_id}`);
+    if (
+      supervision.sampleId !== group.sampleId
+      || supervision.sourceGroup !== group.sourceGroup
+    ) {
+      throw new BA1TrainDataError(
+        `student/supervision source mismatch for ${group.group_id}`,
+      );
+    }
     if (group.partition !== "TRAIN" || supervision.partition !== "TRAIN") {
       throw new BA1TrainDataError(`group ${group.group_id} must be partition=TRAIN on both student and supervision rows`);
     }
-    if (supervision.trainingEligible !== true) {
-      throw new BA1TrainDataError(`group ${group.group_id} is not training-eligible`);
+    if (!supervision.trainingEligible) {
+      throw new BA1TrainDataError(
+        `group ${group.group_id} is not training-eligible: status=${supervision.supervisionStatus}, evaluationClass=${supervision.evaluationClass}`,
+      );
     }
     const candidates: EncodedCandidate[] = group.candidates.map(candidate => ({
       candidateRef: candidate.candidateRef,
@@ -346,27 +429,44 @@ export function buildBA1EncodedGroups(
     for (const ref of supervision.goldAllowedCandidateRefs) {
       if (!refs.has(ref)) throw new BA1TrainDataError(`A_g ref ${ref} outside S_g for ${group.group_id}`);
     }
+    try {
+      assertBA1EncodedRouteGroup({
+        groupRef: group.group_id,
+        candidates,
+        allowedCandidateRefs: supervision.goldAllowedCandidateRefs,
+      });
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      throw new BA1TrainDataError(`route encoder rejected group ${group.group_id}: ${message}`);
+    }
     groups.push({ groupRef: group.group_id, candidates, allowedCandidateRefs: supervision.goldAllowedCandidateRefs });
+  }
+  for (const supervision of supervisionRows) {
+    if (!seen.has(supervision.group_id)) {
+      throw new BA1TrainDataError(`orphan supervision row for group ${supervision.group_id}`);
+    }
   }
   if (groups.length === 0) throw new BA1TrainDataError("no trainable groups");
   return groups;
 }
 
-function cloneMutable(tensors: UnifiedTensors): MutableUnifiedTensors {
-  return {
-    W1: [...tensors.W1], b1: [...tensors.b1], W2: [...tensors.W2],
-    b2: [...tensors.b2], W3: [...tensors.W3], b3: [...tensors.b3],
-  };
+function maxAbsGrad(previous: UnifiedTensors, next: UnifiedTensors, learningRate: number): number {
+  let max = 0;
+  for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
+    const a = previous[key];
+    const b = next[key];
+    for (let index = 0; index < a.length; index += 1) {
+      const delta = Math.abs((b[index] ?? 0) - (a[index] ?? 0)) / learningRate;
+      if (delta > max) max = delta;
+    }
+  }
+  return max;
 }
 
-function assertTensorsShape(tensors: UnifiedTensors, label: string): void {
+function assertTensorsFinite(tensors: UnifiedTensors, label: string): void {
   for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
-    const values = tensors[key];
-    if (!Array.isArray(values) || values.length !== UNIFIED_PARAMETER_COUNTS[key]) {
-      throw new BA1TrainDataError(`${label}.tensors.${key} has the wrong length`);
-    }
-    if (!values.every(value => typeof value === "number" && Number.isFinite(value))) {
-      throw new BA1TrainDataError(`${label}.tensors.${key} must be finite`);
+    if (!tensors[key].every(value => typeof value === "number" && Number.isFinite(value))) {
+      throw new BA1TrainDataError(`${label}.${key} must be finite`);
     }
   }
 }
@@ -377,9 +477,10 @@ function buildReport(
   epochs: readonly BA1TrainEpochRecord[],
   groups: readonly EncodedGroup[],
   tensors: UnifiedTensors,
+  initialLoss: number | null,
+  finalLoss: number | null,
   violations: readonly string[],
 ): BA1TrainReport {
-  const losses = epochs.filter(record => record.finite).map(record => record.epochLoss);
   let marginSatisfied = 0;
   let decisionSatisfied = 0;
   for (const group of groups) {
@@ -400,10 +501,165 @@ function buildReport(
     groupMarginSatisfiedCount: marginSatisfied,
     groupDecisionSatisfiedCount: decisionSatisfied,
     not_converged: marginSatisfied < groups.length,
-    initialLoss: losses.length > 0 ? (losses[0] as number) : null,
-    finalLoss: losses.length > 0 ? (losses[losses.length - 1] as number) : null,
+    initialLoss,
+    finalLoss,
     epochs,
     violations,
+  };
+}
+
+function buildUnifiedTrainConfig(config: BA1TrainConfig): UnifiedTrainConfig {
+  return {
+    schema: UNIFIED_TRAIN_CONFIG_SCHEMA,
+    route: config.route,
+    inputSchema: config.inputSchema,
+    encoderVersion: config.encoderVersion,
+    architecture: {
+      input: 64,
+      hidden: [64, 64],
+      output: 1,
+    },
+    optimizer: config.optimizer,
+    learningRate: config.learningRate,
+    maxEpochs: config.maxEpochs,
+    seed: config.seed,
+    init: config.init,
+    resources: config.resources,
+    modelId: config.modelId,
+    version: config.version,
+  };
+}
+
+function tensorsMatch(left: UnifiedTensors, right: UnifiedTensors): boolean {
+  for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
+    const a = left[key];
+    const b = right[key];
+    if (a.length !== b.length) return false;
+    for (let index = 0; index < a.length; index += 1) {
+      if (a[index] !== b[index]) return false;
+    }
+  }
+  return true;
+}
+
+async function verifyBA1PackageReloadInNewProcess(
+  packagePath: string,
+  expected: UnifiedModelPackage,
+): Promise<{
+  readonly tensorsMatch: boolean;
+  readonly thresholdsPath: string;
+  readonly missingModeTablePath: string;
+  readonly slotMapPath: string | null;
+}> {
+  const resolvedPackagePath = resolve(packagePath);
+  const loaderUrl = new URL("./unified-model-package.js", import.meta.url).href;
+  const script = `
+import { loadUnifiedModelPackageFromFile } from ${JSON.stringify(loaderUrl)};
+const loaded = await loadUnifiedModelPackageFromFile(${JSON.stringify(resolvedPackagePath)});
+process.stdout.write(JSON.stringify({
+  tensors: loaded.package.tensors,
+  thresholdsPath: loaded.resolvedResources.thresholdsPath,
+  missingModeTablePath: loaded.resolvedResources.missingModeTablePath,
+  slotMapPath: loaded.resolvedResources.slotMapPath
+}));
+`;
+  const { stdout } = await execFileAsync(process.execPath, [
+    "--input-type=module",
+    "-e",
+    script,
+  ], { maxBuffer: 16 * 1024 * 1024 });
+  const loaded = JSON.parse(String(stdout)) as {
+    readonly tensors: UnifiedTensors;
+    readonly thresholdsPath: string;
+    readonly missingModeTablePath: string;
+    readonly slotMapPath: string | null;
+  };
+  const match = tensorsMatch(expected.tensors, loaded.tensors);
+  if (!match) throw new BA1TrainDataError("new-process package reload tensors differ from the saved package");
+  return {
+    tensorsMatch: match,
+    thresholdsPath: loaded.thresholdsPath,
+    missingModeTablePath: loaded.missingModeTablePath,
+    slotMapPath: loaded.slotMapPath,
+  };
+}
+
+async function verifyBA1CheckpointReloadInNewProcess(
+  checkpointPath: string,
+  expected: UnifiedTrainingCheckpoint,
+): Promise<UnifiedTrainingCheckpointReloadReceipt> {
+  const resolvedCheckpointPath = resolve(checkpointPath);
+  const loaderUrl = new URL("./unified-training-checkpoint.js", import.meta.url).href;
+  const script = `
+import { loadUnifiedTrainingCheckpointFromFile } from ${JSON.stringify(loaderUrl)};
+const loaded = await loadUnifiedTrainingCheckpointFromFile(${JSON.stringify(resolvedCheckpointPath)});
+process.stdout.write(JSON.stringify({
+  completedEpochs: loaded.completedEpochs,
+  epochRecordCount: loaded.epochRecords.length,
+  tensors: loaded.tensors
+}));
+`;
+  const { stdout } = await execFileAsync(process.execPath, [
+    "--input-type=module",
+    "-e",
+    script,
+  ], { maxBuffer: 16 * 1024 * 1024 });
+  const loaded = JSON.parse(String(stdout)) as {
+    readonly completedEpochs: number;
+    readonly epochRecordCount: number;
+    readonly tensors: UnifiedTensors;
+  };
+  const match = tensorsMatch(expected.tensors, loaded.tensors);
+  if (
+    !match
+    || loaded.completedEpochs !== expected.completedEpochs
+    || loaded.epochRecordCount !== expected.epochRecords.length
+  ) {
+    throw new BA1TrainDataError("new-process training checkpoint reload differs from the saved checkpoint");
+  }
+  return {
+    checkpointPath: resolvedCheckpointPath,
+    completedEpochs: loaded.completedEpochs,
+    epochRecordCount: loaded.epochRecordCount,
+    tensorsMatch: match,
+  };
+}
+
+async function readResourceFile(path: string): Promise<void> {
+  JSON.parse(await readFile(path, "utf8"));
+}
+
+async function verifyBA1TrainPackageReload(
+  packagePath: string,
+  expected: UnifiedModelPackage,
+): Promise<BA1PackageReloadReceipt> {
+  const loaded = await loadUnifiedModelPackageFromFile(packagePath);
+  const match = tensorsMatch(expected.tensors, loaded.package.tensors);
+  if (!match) throw new BA1TrainDataError("reloaded package tensors differ from the saved package");
+  const resourcesMatch = JSON.stringify(loaded.package.resources) === JSON.stringify(expected.resources);
+  if (!resourcesMatch) throw new BA1TrainDataError("reloaded package resources differ from the saved package");
+  if (
+    loaded.package.route.domain !== expected.route.domain
+    || loaded.package.route.decisionKind !== expected.route.decisionKind
+    || loaded.package.encoderVersion !== expected.encoderVersion
+  ) {
+    throw new BA1TrainDataError("reloaded package route/encoder differs from the saved package");
+  }
+  await readResourceFile(loaded.resolvedResources.thresholdsPath);
+  await readResourceFile(loaded.resolvedResources.missingModeTablePath);
+  if (loaded.resolvedResources.slotMapPath !== null) {
+    await readResourceFile(loaded.resolvedResources.slotMapPath);
+  }
+  await verifyBA1PackageReloadInNewProcess(packagePath, expected);
+  const unifiedReceipt = await verifyUnifiedTrainPackageReload(packagePath, expected);
+  return {
+    ...unifiedReceipt,
+    tensorsMatch: match,
+    route: { ...loaded.package.route },
+    encoderVersion: loaded.package.encoderVersion,
+    resourcesMatch,
+    resourceFilesRead: true,
+    newProcessVerified: true,
   };
 }
 
@@ -414,75 +670,157 @@ export async function trainBA1UnifiedRelationDecision(options: {
   readonly packageOutPath: string;
   readonly checkpointOutPath?: string;
 }): Promise<BA1TrainResult> {
+  const commandStartedNs = process.hrtime.bigint();
   validateBA1TrainConfig(options.config);
+
+  const loadStartedNs = process.hrtime.bigint();
   const studentGroups = await loadBA1StudentRowsFile(options.studentRowsPath);
   const supervisionRows = await loadBA1SupervisionRowsFile(options.supervisionRowsPath);
-  const groups = buildBA1EncodedGroups(studentGroups, supervisionRows);
+  const loadSeconds = monotonicSeconds(loadStartedNs);
 
-  const tensors = createXavierTensors(options.config.seed);
+  const validationStartedNs = process.hrtime.bigint();
+  const groups = buildBA1EncodedGroups(studentGroups, supervisionRows);
+  const dataValidationSeconds = monotonicSeconds(validationStartedNs);
+
+  const trainConfig = buildUnifiedTrainConfig(options.config);
+  const tensors = createXavierTensors(options.config.seed) as MutableUnifiedTensors;
+  assertTensorsFinite(tensors, "initial tensors");
+  const initialLoss = bA1ParameterLoss(groups, tensors);
+
   const epochs: BA1TrainEpochRecord[] = [];
   const violations: string[] = [];
   let stopReason: BA1StopReason = "epoch_limit_exhausted";
+  let attemptOptimizerSteps = 0;
+  let completedOptimizerSteps = 0;
+  const optimizationStartedNs = process.hrtime.bigint();
 
   for (let epoch = 0; epoch < options.config.maxEpochs; epoch += 1) {
-    let epochLoss: number;
+    attemptOptimizerSteps += 1;
+    const before = cloneTensors(tensors) as UnifiedTensors;
     try {
       const result = bA1FullBatchEpochStep(tensors, groups, options.config.learningRate);
-      epochLoss = result.loss;
+      assertTensorsFinite(tensors, `epoch ${epoch} tensors`);
+      const grad = maxAbsGrad(before, tensors, options.config.learningRate);
+      if (!Number.isFinite(result.loss) || !Number.isFinite(grad)) {
+        throw new BA1GroupLossError(`epoch ${epoch} produced a non-finite loss or gradient`);
+      }
+      epochs.push({ epoch, epochLoss: result.loss, finite: true, maxAbsGrad: grad });
+      completedOptimizerSteps += 1;
     } catch (caught) {
+      for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
+        (tensors as MutableUnifiedTensors)[key] = [...before[key]];
+      }
       const message = caught instanceof Error ? caught.message : String(caught);
-      epochs.push({ epoch, epochLoss: Number.NaN, finite: false });
-      violations.push(`epoch ${epoch} produced a non-finite loss: ${message}`);
-      stopReason = "non_finite";
-      break;
-    }
-    const finite = Number.isFinite(epochLoss);
-    epochs.push({ epoch, epochLoss, finite });
-    if (!finite) {
-      violations.push(`epoch ${epoch} produced a non-finite loss`);
+      violations.push(`epoch ${epoch} failed: ${message}`);
       stopReason = "non_finite";
       break;
     }
   }
+  const optimizationSeconds = monotonicSeconds(optimizationStartedNs);
+  const finalLoss = bA1ParameterLoss(groups, tensors);
+  const status: BA1TrainReport["status"] = stopReason === "non_finite" ? "failed" : "completed";
+  const report = buildReport(status, stopReason, epochs, groups, tensors, initialLoss, finalLoss, violations);
 
-  const stopReasonFinal: BA1StopReason = stopReason;
-  const status: BA1TrainReport["status"] = stopReasonFinal === "non_finite" ? "failed" : "completed";
-  const report = buildReport(status, stopReasonFinal, epochs, groups, tensors, violations);
+  const rowsPerEpoch = groups.reduce((sum, group) => sum + group.candidates.length, 0);
+  const attemptProcessedRows = attemptOptimizerSteps * rowsPerEpoch;
+  const completedProcessedRows = completedOptimizerSteps * rowsPerEpoch;
+  const rowsPerSecond = completedProcessedRows > 0 && optimizationSeconds > 0
+    ? completedProcessedRows / optimizationSeconds
+    : null;
 
-  const pkg = createBA1ModelPackage({
+  let checkpointIo = emptyCheckpointIoTiming();
+  const packageSaveStartedNs = process.hrtime.bigint();
+  const pkg = createUnifiedModelPackage({
     modelId: options.config.modelId,
     version: options.config.version,
+    route: options.config.route,
+    encoderVersion: options.config.encoderVersion,
     tensors,
     resources: options.config.resources,
   });
-  const packageOutPath = await saveBA1ModelPackageAtomic(options.packageOutPath, pkg);
+  const packageOutPath = await saveUnifiedModelPackageAtomic(options.packageOutPath, pkg);
+  const packageSaveSeconds = monotonicSeconds(packageSaveStartedNs);
+  checkpointIo = addCheckpointIoTiming(checkpointIo, {
+    serializeSeconds: packageSaveSeconds,
+    atomicReplaceSeconds: 0,
+    packageReloadSeconds: 0,
+    totalSeconds: packageSaveSeconds,
+  });
+
   let checkpointOutPath: string | null = null;
+  let savedCheckpoint: UnifiedTrainingCheckpoint | null = null;
   if (options.checkpointOutPath !== undefined) {
-    const checkpoint: BA1TrainingCheckpoint = {
-      schema: BA1_CHECKPOINT_SCHEMA,
-      modelId: options.config.modelId,
-      version: options.config.version,
-      route: { domain: BA1_ROUTE_DOMAIN, decisionKind: BA1_ROUTE_DECISION_KIND },
-      encoderVersion: BA1_ENCODER_VERSION,
-      architecture: BA1_ARCHITECTURE,
-      resources: options.config.resources,
-      recipe: {
-        optimizer: "full_batch_sgd",
-        learningRate: options.config.learningRate,
-        maxEpochs: options.config.maxEpochs,
-        seed: options.config.seed,
-        init: "xavier_uniform",
-        loss: { kind: BA1_LOSS_KIND, theta: BA1_THETA, margin: BA1_MARGIN },
-      },
-      completedEpochs: report.completedEpochs,
-      epochRecords: report.epochs,
-      violations: report.violations,
-      tensors,
+    const totalWallSecondsBeforeCheckpoint = monotonicSeconds(commandStartedNs);
+    const cumulativeTiming = {
+      loadSeconds,
+      dataValidationSeconds,
+      optimizationSeconds,
+      checkpointIoSecs: checkpointIo,
+      totalWallSeconds: totalWallSecondsBeforeCheckpoint,
+      optimizerSteps: completedOptimizerSteps,
+      processedRows: completedProcessedRows,
     };
-    checkpointOutPath = await saveBA1CheckpointAtomic(options.checkpointOutPath, checkpoint);
+    const persistedTiming: UnifiedPersistedTiming = {
+      cumulative: cumulativeTiming,
+      timingCutPoint: {
+        committedOptimizerSteps: completedOptimizerSteps,
+        committedProcessedRows: completedProcessedRows,
+        reason: status === "completed" ? "epoch_commit" : "paused",
+      },
+    };
+    savedCheckpoint = createUnifiedTrainingCheckpoint({
+      config: trainConfig,
+      completedEpochs: epochs.length,
+      epochRecords: epochs,
+      violations,
+      tensors,
+      timing: persistedTiming,
+    });
+    const saved = await saveUnifiedTrainingCheckpointAtomicWithTiming(
+      options.checkpointOutPath,
+      savedCheckpoint,
+    );
+    checkpointOutPath = saved.checkpointPath;
+    checkpointIo = addCheckpointIoTiming(checkpointIo, saved.io);
   }
 
-  const reload = await verifyBA1TrainPackageReload(packageOutPath, pkg);
+  const packageReloadStartedNs = process.hrtime.bigint();
+  const packageReload = await verifyBA1TrainPackageReload(packageOutPath, pkg);
+  checkpointIo = addPackageReloadSeconds(checkpointIo, monotonicSeconds(packageReloadStartedNs));
+
+  const checkpointReload = savedCheckpoint === null
+    ? null
+    : await verifyUnifiedTrainingCheckpointReload(checkpointOutPath as string, savedCheckpoint);
+  if (savedCheckpoint !== null && checkpointOutPath !== null) {
+    const newProcessCheckpointReload = await verifyBA1CheckpointReloadInNewProcess(
+      checkpointOutPath,
+      savedCheckpoint,
+    );
+    if (
+      newProcessCheckpointReload.tensorsMatch !== checkpointReload?.tensorsMatch
+      || newProcessCheckpointReload.completedEpochs !== checkpointReload?.completedEpochs
+      || newProcessCheckpointReload.epochRecordCount !== checkpointReload?.epochRecordCount
+    ) {
+      throw new BA1TrainDataError("checkpoint reload differs between same-process and new-process checks");
+    }
+  }
+
+  const totalWallSeconds = monotonicSeconds(commandStartedNs);
+  const timing: UnifiedThisRunTiming = {
+    loadSeconds,
+    dataValidationSeconds,
+    optimizationSeconds,
+    checkpointIoSecs: checkpointIo,
+    evaluationSeconds: null,
+    totalWallSeconds,
+    attemptOptimizerSteps,
+    attemptProcessedRows,
+    completedOptimizerSteps,
+    completedProcessedRows,
+    rowsPerSecond,
+    throughputDenominator: optimizationSeconds > 0 ? "optimizationSeconds" : null,
+  };
+
   return {
     report,
     package: pkg,
@@ -491,7 +829,9 @@ export async function trainBA1UnifiedRelationDecision(options: {
       supervisionRowsPath: resolve(options.supervisionRowsPath),
       packageOutPath,
       checkpointOutPath,
-      packageReload: reload,
+      packageReload,
+      checkpointReload,
+      timing,
     },
   };
 }
@@ -504,97 +844,15 @@ export function createBA1ModelPackage(input: {
   readonly fixedStages?: readonly string[];
 }): BA1ModelPackage {
   assertUnifiedTensors(input.tensors);
-  return {
-    schema: BA1_MODEL_PACKAGE_SCHEMA,
+  return createUnifiedModelPackage({
     modelId: input.modelId,
     version: input.version,
     route: { domain: BA1_ROUTE_DOMAIN, decisionKind: BA1_ROUTE_DECISION_KIND },
-    inputSchema: BA1_INPUT_SCHEMA,
     encoderVersion: BA1_ENCODER_VERSION,
-    architecture: BA1_ARCHITECTURE,
     tensors: input.tensors,
-    outputContract: { kind: "scalar-score", groupNormalization: "outside-model" },
     resources: input.resources,
     fixedStages: input.fixedStages ?? [],
-  };
-}
-
-export function validateBA1ModelPackage(raw: unknown): BA1ModelPackage {
-  if (!isRecord(raw)) throw new BA1TrainDataError("model package must be an object");
-  if (raw.schema !== BA1_MODEL_PACKAGE_SCHEMA) throw new BA1TrainDataError("model package schema mismatch");
-  if (!isRecord(raw.route) || raw.route.domain !== BA1_ROUTE_DOMAIN || raw.route.decisionKind !== BA1_ROUTE_DECISION_KIND) {
-    throw new BA1TrainDataError(`model package route must be ${BA1_ROUTE_DOMAIN}/${BA1_ROUTE_DECISION_KIND}`);
-  }
-  if (raw.inputSchema !== BA1_INPUT_SCHEMA) throw new BA1TrainDataError(`model package inputSchema must be ${BA1_INPUT_SCHEMA}`);
-  if (raw.encoderVersion !== BA1_ENCODER_VERSION) {
-    throw new BA1TrainDataError(`model package encoderVersion must be ${BA1_ENCODER_VERSION}; got ${String(raw.encoderVersion)}`);
-  }
-  if (!isRecord(raw.architecture)) throw new BA1TrainDataError("model package architecture must be an object");
-  if (raw.architecture.input !== 64 || raw.architecture.output !== 1 || raw.architecture.activation !== "relu") {
-    throw new BA1TrainDataError("model package architecture must be 64/…/1 relu");
-  }
-  if (!isRecord(raw.tensors)) throw new BA1TrainDataError("model package tensors must be an object");
-  assertTensorsShape(raw.tensors as unknown as UnifiedTensors, "modelPackage");
-  if (!isRecord(raw.resources)) throw new BA1TrainDataError("model package resources must be an object");
-  return raw as unknown as BA1ModelPackage;
-}
-
-async function writeJsonAtomic(path: string, value: unknown): Promise<string> {
-  const resolved = resolve(path);
-  await mkdir(dirname(resolved), { recursive: true });
-  const tempPath = `${resolved}.${process.pid}.${Date.now()}.tmp`;
-  const handle = await open(tempPath, "w");
-  try {
-    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(tempPath, resolved);
-  return resolved;
-}
-
-export async function saveBA1ModelPackageAtomic(packagePath: string, pkg: BA1ModelPackage): Promise<string> {
-  return writeJsonAtomic(packagePath, validateBA1ModelPackage(pkg));
-}
-
-export async function saveBA1CheckpointAtomic(checkpointPath: string, checkpoint: BA1TrainingCheckpoint): Promise<string> {
-  return writeJsonAtomic(checkpointPath, checkpoint);
-}
-
-export async function loadBA1ModelPackageFromFile(packagePath: string): Promise<BA1ModelPackage> {
-  const resolved = resolve(packagePath);
-  const raw = JSON.parse(await readFile(resolved, "utf8")) as unknown;
-  return validateBA1ModelPackage(raw);
-}
-
-function tensorsMatch(left: UnifiedTensors, right: UnifiedTensors): boolean {
-  for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
-    const a = left[key];
-    const b = right[key];
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-export async function verifyBA1TrainPackageReload(
-  packagePath: string,
-  expected: BA1ModelPackage,
-): Promise<BA1TrainReceipt["packageReload"]> {
-  const loaded = await loadBA1ModelPackageFromFile(packagePath);
-  const tensorsMatchResult = tensorsMatch(expected.tensors, loaded.tensors);
-  if (!tensorsMatchResult) throw new BA1TrainDataError("reloaded package tensors differ from the saved package");
-  const resourcesMatch = loaded.resources.thresholdsRef === expected.resources.thresholdsRef
-    && loaded.resources.missingModeTableRef === expected.resources.missingModeTableRef
-    && loaded.resources.slotMapRef === expected.resources.slotMapRef;
-  if (!resourcesMatch) throw new BA1TrainDataError("reloaded package resources differ from the saved package");
-  return {
-    tensorsMatch: tensorsMatchResult,
-    route: { domain: loaded.route.domain, decisionKind: loaded.route.decisionKind },
-    encoderVersion: loaded.encoderVersion,
-    resourcesMatch,
-  };
+  });
 }
 
 export function cloneBA1Tensors(tensors: UnifiedTensors): UnifiedTensors {

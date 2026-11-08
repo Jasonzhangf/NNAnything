@@ -20,7 +20,30 @@ test("the semantic, contract-gate and aggregator-test families stay on separate 
     contractGate: [{ family: "contract-gate" }],
     aggregatorTest: [{ family: "aggregator-test" }, { family: "aggregator-test" }, { family: "aggregator-test" }],
   };
-  assert.deepEqual(independentEvaluationDenominators(skeleton), { semantic: 2, contract: 1, aggregator: 3 });
+  assert.deepEqual(independentEvaluationDenominators(skeleton), {
+    semantic: 2,
+    unresolved: 0,
+    contract: 1,
+    aggregator: 3,
+  });
+});
+
+test("unresolved supervision is counted separately and excluded from the semantic denominator", () => {
+  const skeleton = {
+    semantic: [
+      { family: "model-semantic", supervisionStatus: "labeled_selected" },
+      { family: "model-semantic", supervisionStatus: "unresolved_supervision" },
+      { family: "model-semantic", supervisionStatus: "labeled_none" },
+    ],
+    contractGate: [],
+    aggregatorTest: [],
+  };
+  assert.deepEqual(independentEvaluationDenominators(skeleton), {
+    semantic: 2,
+    unresolved: 1,
+    contract: 0,
+    aggregator: 0,
+  });
 });
 
 test("reject gold is a separate channel and is never a bound none", () => {

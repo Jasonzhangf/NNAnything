@@ -127,6 +127,17 @@ export const BA1_RESERVED_SLOTS: readonly number[] = Object.freeze([
   38, 39, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 61, 62, 63,
 ]);
 
+const BA1_REQUIRED_GATE_SLOTS = Object.freeze({
+  0: 1,
+  1: 1,
+  2: 1,
+  3: 1,
+  4: 0,
+  5: 0,
+  6: 0,
+  7: 1,
+});
+
 function bit(value: boolean): number {
   return value ? 1 : 0;
 }
@@ -159,6 +170,108 @@ function assertLegalCandidate(candidate: BA1RouteCandidateInput): void {
       `candidate ${candidate.candidateRef} must be candidateKind=relation/optionSemantics=select, `
       + `got candidateKind=${candidate.candidateKind}/optionSemantics=${candidate.optionSemantics}`,
     );
+  }
+}
+
+/**
+ * Validate an already encoded B-A1 student vector. Student rows carry x[64]
+ * from the route converter; the fixed training entry still owns the route
+ * boundary and must reject reserved-slot drift, missing sentinels, and
+ * candidates that did not pass the accepted R1-R5/B1-B3 gates.
+ */
+export function assertBA1EncodedRouteVector(
+  input: readonly number[],
+  candidateRef: string,
+): void {
+  if (!Array.isArray(input) || input.length !== 64) {
+    throw new BA1RouteEncoderError("ILLEGAL_CANDIDATE", `candidate ${candidateRef} must carry x[64]`);
+  }
+  for (let slot = 0; slot < input.length; slot += 1) {
+    const value = input[slot];
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      throw new BA1RouteEncoderError(
+        "ILLEGAL_CANDIDATE",
+        `candidate ${candidateRef} x[${slot}] must be finite`,
+      );
+    }
+    if (value === -1) {
+      throw new BA1RouteEncoderError(
+        "MISSING_FEATURE",
+        `candidate ${candidateRef} x[${slot}] contains an undeclared missing sentinel`,
+      );
+    }
+  }
+  for (const [rawSlot, expected] of Object.entries(BA1_REQUIRED_GATE_SLOTS)) {
+    const slot = Number(rawSlot);
+    if (input[slot] !== expected) {
+      throw new BA1RouteEncoderError(
+        "MISSING_GATE",
+        `candidate ${candidateRef} x[${slot}] must be ${expected} after R1-R5/B1-B3 gates`,
+      );
+    }
+  }
+  for (const slot of BA1_RESERVED_SLOTS) {
+    if (input[slot] !== 0) {
+      throw new BA1RouteEncoderError(
+        "ILLEGAL_CANDIDATE",
+        `candidate ${candidateRef} reserved slot x[${slot}] must be 0`,
+      );
+    }
+  }
+  if (input[56] !== 1 || input[57] !== 1) {
+    throw new BA1RouteEncoderError(
+      "ILLEGAL_CANDIDATE",
+      `candidate ${candidateRef} must stay candidateKind=relation/optionSemantics=select`,
+    );
+  }
+  if (input[58] !== 1) {
+    throw new BA1RouteEncoderError(
+      "MISSING_GATE",
+      `candidate ${candidateRef} candidateGroupEnumerationComplete must be true`,
+    );
+  }
+}
+
+export function assertBA1EncodedRouteGroup(input: {
+  readonly groupRef: string;
+  readonly candidates: readonly {
+    readonly candidateRef: string;
+    readonly input: readonly number[];
+  }[];
+  readonly allowedCandidateRefs: readonly string[];
+}): void {
+  if (input.candidates.length === 0) {
+    throw new BA1RouteEncoderError("MISSING_FEATURE", `group ${input.groupRef} has no candidates`);
+  }
+  const refs = new Set<string>();
+  for (const candidate of input.candidates) {
+    assertBA1EncodedRouteVector(candidate.input, candidate.candidateRef);
+    if (refs.has(candidate.candidateRef)) {
+      throw new BA1RouteEncoderError(
+        "ILLEGAL_CANDIDATE",
+        `group ${input.groupRef} has duplicate candidate ${candidate.candidateRef}`,
+      );
+    }
+    refs.add(candidate.candidateRef);
+    const expected59 = input.candidates.length > 1 ? 1 : 0;
+    const expected60 = input.candidates.length === 1 ? 1 : 0;
+    if (candidate.input[59] !== expected59 || candidate.input[60] !== expected60) {
+      throw new BA1RouteEncoderError(
+        "ILLEGAL_CANDIDATE",
+        `candidate ${candidate.candidateRef} has inconsistent group cardinality slots`,
+      );
+    }
+  }
+  if (input.allowedCandidateRefs.length === 0) {
+    throw new BA1RouteEncoderError("ILLEGAL_CANDIDATE", `group ${input.groupRef} has empty A_g`);
+  }
+  for (const ref of input.allowedCandidateRefs) {
+    if (!refs.has(ref)) {
+      throw new BA1RouteEncoderError(
+        "ILLEGAL_CANDIDATE",
+        `A_g ref ${ref} is outside S_g for ${input.groupRef}`,
+      );
+    }
   }
 }
 

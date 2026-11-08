@@ -124,6 +124,7 @@ export type BA1EvaluatorGold = BA1EvaluatorBoundGold | BA1EvaluatorRejectGold;
 
 export interface BA1EvaluationCounts {
   readonly semantic: number;
+  readonly unresolved: number;
   readonly contract: number;
   readonly aggregator: number;
 }
@@ -159,7 +160,12 @@ export function validateBA1EvaluatorGold(gold: BA1EvaluatorGold): void {
  */
 export function independentEvaluationDenominators(skeleton: BA1SampleSkeleton): BA1EvaluationCounts {
   return {
-    semantic: skeleton.semantic.filter(row => row.family === "model-semantic").length,
+    semantic: skeleton.semantic.filter(
+      row => row.family === "model-semantic" && row.supervisionStatus !== "unresolved_supervision",
+    ).length,
+    unresolved: skeleton.semantic.filter(
+      row => row.family === "model-semantic" && row.supervisionStatus === "unresolved_supervision",
+    ).length,
     contract: skeleton.contractGate.filter(row => row.family === "contract-gate").length,
     aggregator: skeleton.aggregatorTest.filter(row => row.family === "aggregator-test").length,
   };
