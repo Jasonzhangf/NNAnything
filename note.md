@@ -3559,3 +3559,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 进展差异：P0 board rev94→rev95，next_step 同步 learning-loop reviewer=Kate（Kate 尚未返回结论）；`b-a1-first-fit-henry-20261108` 仍 rev2 working（Henry，reviewer Kate）；search-read/rust/swift 维持 parked（Emma missing）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
 - 资源：`origin/main=72bcf60`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Kate 对 learning-loop 做正式 `collab task review --accept/--rework`，或 Henry 完成 B-A1 first-fit，或 Jenny 新调度；下一次 goal deadline trigger（1794128820881）后再显式重订。
+
+## 2026-11-08 Iris：learning-loop 已由 Kate 审并关闭，P0 board rev97（09:08Z）
+
+- 目的：消费本轮 goal deadline 唤醒 `m1794128822092-1153`，显式重订本人 one-shot goal 订阅，并把 learning-loop 收口事实同步到 P0 board。
+- 证据：`collab recv` 已消费该 deadline 消息；旧订阅 `sub-m1794128220934-1099` 已 fired/consumed（fired_count=1）；同一 roadmap 已显式重订为 `sub-m1794128838614-1155`（one-shot、10m、armed、trigger_ms 1794129438560、error=null）。`collab task status` 显示 `nn-code-redesign-learning-loop-r1` 已 closed：Kate 正式审查 valid（reviewed_subject_revision=3），审查证据 `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-learning-loop-20261108/review-findings-kate.md` 已在盘上核对（含 P3 入口存在性、采集失败语义、S_g/A_g 分路等 check），`completion_missing=[]`，disposition=no_merge_required。`collab task update` 已把 P0 从 rev96 更新为 rev97 working。
+- 进展差异：P0 board rev96→rev97；learning-loop 由 awaiting Kate review（09:00）推进到 Kate review valid + closed（09:03:47），是本轮唯一实质状态变化。`b-a1-first-fit-henry-20261108` 仍 rev2 working（Henry，reviewer Kate）；search-read/rust/swift 维持 parked（Emma missing）。`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out，不制造新任务。
+- 资源：`origin/main=b2dfe99`，仅主工作树；既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 完成 B-A1 first-fit 并交 Kate 审查、三个 parked 任务出现 live 研究 owner、或 Jenny 新调度；下一次 goal deadline trigger（1794129438560）后再显式重订。
