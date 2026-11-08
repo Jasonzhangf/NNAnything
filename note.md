@@ -1,5 +1,13 @@
 # 当前任务
 
+## 2026-11-07 Jenny：CLI fixture 窄修转 Frank 正式交接，B-A1 REWORK 路由 Carol（15:46 local / 23:46Z）
+
+- 消费 Grace P1 `m1794094239789-8164` 与 Alice 窄审回执 `m1794095150505-8233`：Jack 候选 `20db0f6` 仅改 `tests/unified-decision-recursive.test.mjs` 与 `tests/unified-transfer-evaluator.test.mjs` 四处 encoder v1→v2；`npm run build` exit 0，两个目标测试 18/18 与 7/7 通过，`tests/unified-data-gate.test.mjs` 12/12 且 v1 负例保留，Alice 对窄修源码无 finding。完整 `npm run test:full` 仍 exit 1：2533/2558，fail 24，证据 `/Volumes/Intel/playground/nnanything-runs/unified-encoder-v1-v2-fixture-migration-20261107/current-assets-test-full.log`，失败为独立旧资产/环境缺口，不由本任务修复或冒称全绿。
+- 任务 `unified-encoder-v1-v2-fixture-migration-20261107` 原 delivery/test condition 要求全门禁绿，与当前 24 个独立失败冲突；已按 Alice 建议将任务修订为只接受窄修并保留全门禁失败为独立缺口，board rev3。Jack session 仍被 peer lifecycle fence（`ctxop-fa1054b947a3ab8ba271adeea9a9ec3b`，cleanup-open，runtime_archive refused），无法正式 accept/deliver；已清除 Jack executor，改派 Frank 复用既有候选与证据，board rev5 invited，邀请 durable `board-invite-unified-encoder-v1-v2-fixture-migration-20261107-5`，等待 Frank accept。
+- 已向 Alice 发送 `m1794095204103-8236`：任务边界已修订，Frank 只做正式交接，不重做实现；交付后复用同一 `20db0f6` 窄审结论，不扩审产品缺口。已向 Frank 发 board invite；正式 review 仍由 Alice 完成，Jenny 只在 review accept 后集成、推送和资源收口。
+- 消费 B-A1 REWORK `m1794095105038-8226`：`b-a1-fixed-env-sample-prep-20261107` rev8 rework，Alice 证据 `/Volumes/Intel/playground/nnanything-runs/b-a1-fixed-env-sample-prep-20261107/alice-review.md`。已发 Carol `m1794095204153-8237`，要求修训练入口编码/监督/来源一致性、共享包单 writer、独立包/checkpoint 统一复用与回载、资源读取与 timing、最终 loss 与保存张量对齐、阈值相等边界与 unresolved 分母、epoch 参数梯度证据；数据/evaluator 可并行，正式训练不得使用未验收入口；数值测试的合成 optimizer 更新须准确标注。边界不变：不训练、不改权重/gold/threshold/采用、不安装、不产品接线。
+- 本轮只做消息消费、board 边界修订、正式交接和 REWORK 路由；未改产品代码、权重、gold、threshold 或采用，未训练、未安装 runtime、未动 tmux/daemon。
+
 ## 2026-11-07 Jenny：round-26 Kate 巡检处置、主线派单与 goal 续订（22:18Z）
 
 - 消费 goal deadline `m1794089911471-7814` 与 Kate round-26 `m1794089919337-7815`，并清空后续 worker-idle 批次。已显式续订 goal：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 30m`，新订阅 `sub-m1794089939624-7818` armed，`appsdk goal status` active/desired=subscribed/observed=subscribed；project patrol `sub-m1793963843713-143` 保持 armed。
@@ -3189,3 +3197,13 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - roadmap 已同步：新增 P1-1 typed/dynamic §2.5 行（候选 2d1217e branch-only、Alice REWORK、Iris 返工中）；B-A1 行改为 rev1 交付后 Alice 正式 REWORK 六项、Carol 续修中；Emma 四子任务按 Alice 裁定记为 parked-pending-design-peer（owner missing、恢复条件、不冒用身份）。
 - 订阅复核：goal active/desired=subscribed/observed=subscribed（本 roadmap 30m）；project patrol `sub-m1793963843713-143` armed。B-R 逐例归因独立继续。
 - 本轮未训练、未改产品代码/语料/权重/gold/threshold/采用、未产品接线、未安装 runtime、未动 tmux/daemon；main 仅 roadmap/note 写入，P1-1 2d1217e 未 push/merge。
+
+## 2026-11-08 Jenny：round-32/33 巡检处置，fixture 改派 Henry，goal/board 核对（00:10Z）
+
+- 消费 worker-idle 批次与 Kate round-32（`m1794095867893-8293`，23:56Z）、round-33（`m1794096084067-8316`，00:00Z）及 P1-1 状态回执（`m1794096570394-8386`）。`appsdk goal status` active/subscribed/error=null；one-shot `sub-m1794095625292-8278` armed（trigger≈00:23Z，本轮未 consumed），project patrol `sub-m1793963843713-143` armed；无需续订。
+- unified-encoder fixture：Kate round-32/33 指出 Frank present 但 agent unknown、未 accept。Jack session 仍被 peer lifecycle fence（`cleanup-open`/`runtime_archive refused`）无法正式 accept/deliver；已 withdraw rev5 Frank 邀请（`last_response` 记录原因），task policy 将 executor 改为 Henry 后 `board dispatch` 生成 rev8 invited（Henry session），并分别向 Frank 发撤回（`m1794096555482-8382`）、向 Henry 发完整交接指令（`m1794096555385-8381`）。Henry 接受后复用 Jack 候选 `20db0f6` 与既有 Alice 窄审证据 deliver，Jenny 仅 review accept 后集成/push/收口；不改产品代码/权重/gold/threshold/采用，不 merge/push。
+- B-A1 fixed-env：Carol 已恢复，board active_task=`b-a1-fixed-env-sample-prep-20261107`、agent_state=working，按 Alice rev8 REWORK（`alice-review.md`）返工中；master 不再重复催派，待 Carol deliver 后交 Alice。
+- P1-1：Iris 回执确认 GCM 返工 worker 正在原 worktree 改写 `lib/adapters/tsjs-unified-recursive.ts`（约 +306/-17 未提交，避免与 worker 并发写同一文件；worker 达稳定点即 commit 并产出 receipts/build/bridge/terminal/multistep/public converter acceptance 再 deliver）。board next_step 已由 Iris 同步。未完成前不 merge/push、不训练、不改权重/gold/threshold/采用。
+- board/master_wake：`ready_authorized_work=false`、`pending_merges` 空、无 blocked/timed-out、无完成/freed；idle 为 Henry/Jack/Grace/Kate。四个 Emma-owned `nn-code-redesign-*` 任务维持 parked-pending-design-peer（owner missing、owner-only 边界，恢复条件见 roadmap 末尾）；P0 orchestration working。
+- 资源：main `fe54231`=origin/main；worktree 4 个（main、b-a1、p1-1、unified-encoder，未超 10）；主树 `docs/autonomous-capability-roadmap.md`、`note.md` 为本次协调/巡检记录（本轮提交），仅既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 保持 PROTECTED_HOLD。
+- 边界：本轮只做 inbox 消费、board 改派/状态核对、roadmap 同步与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 tmux/daemon。
