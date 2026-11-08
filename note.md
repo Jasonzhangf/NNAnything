@@ -5,6 +5,10 @@
 - 已消费 deadline `m1794178977673-5800`（`LAST_REMINDER=true`），并显式重臂 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，回读 one-shot armed；project patrol `sub-m1793963843713-143` 保持 armed。
 - Board 重读：Grace rev42、Iris P0 rev119、Henry evaluate rev9 PARK；`ready_authorized_work=false`、blocked/timed-out=[]、pending_merges=[]；无新增 ready 授权训练切片，nn-code 后续切片（jvm/call-graph/repo-generalization）仍按既有 owner/依赖停车，不制造任务。
 - 本轮仅消费通知、重臂 goal、只读核对 board 与记录；未训练、未改产品代码/权重/gold/threshold/采用、未安装 runtime、未动 daemon/tmux。
+- 23:14Z 再次消费 deadline `m1794179622888-5840`（`LAST_REMINDER=true`）并用同一目标文档显式重臂；`collab --version` 与 live daemon 仍为 `collab 0.2.0000`，PID 62992，用户尚未批准安装与重启，恢复链不变。
+- 23:24Z 消费 deadline `m1794180252590-5881`（`LAST_REMINDER=true`），重臂回执 one-shot armed；daemon 仍 `collab 0.2.0000`，board 无变化（Grace rev42、Iris rev119、Henry rev9 PARK），ready_authorized_work=false。
+- 23:31Z 消费 master-idle project-patrol `m1794180687198-5910`，完成四项巡检：P0/P1 开放且各有任务/等待外部依赖；无 ready 授权工作（ready=false、wake_hold=null）；worktree 仅主树与 Henry evaluate 独占树且均在界内；present idle 的 Carol/Leo/Jack/Kate 无匹配 ready 任务，Henry/Iris/Grace 有任务，idle 原因合理；project_board_patrol eligible_task_ids=[]，Grace 已取消自身巡检、Iris 与 Henry 已按 park 理由取消并保留恢复条件。CEO Alice 已配置；`collab ceo progress` 从 master 返回 `CEO_AUTHORITY_REQUIRED`，无法查询是否已有 CEO 报告批次，本轮不重复 `ceo reply`，仅记录该事实。
+- 23:34Z 消费 deadline `m1794180865892-5931` 与同批 worker-idle `m1794180865359-5930`，显式重臂回执 one-shot armed；newly_idle 为 Grace（持巡检任务），其余 live idle 与上轮一致，board 无新增 ready 授权工作，不派单。
 
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
