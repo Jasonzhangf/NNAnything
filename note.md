@@ -1,5 +1,14 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal 续订与 worker-idle 复核（11:32Z-11:34Z）
+
+- 目的：消费 owned goal deadline `m1794137354253-1879`（one-shot `sub-m1794136743754-1822` consumed）与 worker-idle `m1794137497800-1889`（Henry `collab-97dc5dcb888d9c1d777f11d91ef632a2` newly idle），按 open P0/P1 仍在调度显式续订 goal，并核对是否有可派工作。
+- Goal：`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已重订新的 one-shot；`appsdk goal status` 回读 active=True、desired=observed=subscribed、error=null；project patrol `sub-m1793963843713-143` 保持 armed。
+- 证据：`collab recv` 已消费 `receive-86479-1794137364144944000-0` 与 `receive-45899-1794137647601073000-0`；`collab inbox` 为 0。`collab board show` 仍 `ready_authorized_work=false`、`pending_merges` 空、无 blocked/timed-out；开放任务保持 Iris P0、Grace 巡检、Emma owner-only parked symbols-rust/swift，全部 peer idle 但无匹配 ready 授权任务，不制造任务。
+- 资源：`main=origin/main=55de2ee`，仅主工作树；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD；无 Jenny 自有临时 worktree 回收。
+- 边界：本轮仅通知消费、只读核对、goal 续订与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+- 下一步：等 Grace 巡检返回、symbols 恢复条件（Emma 材料交接或 live research owner 接受设计切片）、新 ready 授权工作，或下一次 goal deadline trigger 后再复核续订。
+
 ## 2026-11-08 Jenny：goal deadline 续订（11:18Z）
 
 - 目的：消费 owned goal deadline `m1794136683583-1820`（one-shot `sub-m1794136079331-1765` consumed）；开放 P0/P1 未变且仍在调度，按持续调度需要显式续订。
