@@ -3945,3 +3945,38 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal：deadline `m1794159919915-3827` 已消费并显式重臂，project patrol `sub-m1793963843713-143` armed。
 - 边界：本轮只消费通知、写只读合同、发布/邀请任务、发送 durable 调度消息、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Henry 接受并交付 evaluate 工程回执，再由 Alice 独立 review；真实 fit/save/reload/holdout/旧能力回归继续后置；继续跟踪 `8d11940` 与 `7db2c6a`。
+
+## 2026-11-08 Jenny：消费 round-57 与 worker-idle 批次，核验 evaluate 接续（18:00Z）
+
+- 目的：处理 Kate round-57 巡检回执 `m1794160826426-3939` 与 worker-idle 批次 `m1794160715148-3923`/`m1794160723300-3925`/`m1794160783857-3932`/`m1794160803883-3937`/`m1794160837066-3943`，确认 evaluate 工程接续状态。
+- 证据：`collab recv` 已消费对应 receive。board `tsjs-evaluate-engineering-henry-20261108` 仍 working rev5，executor Henry、reviewer Alice，`ready_authorized_work=false`，无 pending merge/blocked/timed-out；Henry 当前 busy。evaluate 专属 worktree 已建且干净，HEAD=`4bce702`，base=`origin/main`；worktree 内无新文件，说明约定实现尚未提交。
+- 派发提醒：master-idle 巡检发现 Henry idle 一轮后其状态已转 busy；本批 worker-idle 不再重复打扰，仅确认 Henry 已接续。已向 Henry 发送 durable 提醒 `m1794160741475-3928`，要求继续推进或报告真实阻塞。
+- goal：deadline `m1794160653370-3918` 已消费并显式重臂，`appsdk goal status` Active=true/subscribed，interval=600000；project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只消费通知、只读核对 board/goal/worktree、发送 Henry 提醒、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 交付 red/green 日志、build 日志、公开 `evaluate` 路由回执与输出路径，再由 Alice 独立 review；真实 fit/save/reload/holdout/旧能力回归继续后置。
+
+## 2026-11-08 Jenny：Henry 空 idle 催办，补发 red-test 边界（18:04Z）
+
+- 目的：消费 worker-idle 批次 `m1794160887170-3947`/`m1794160916431-3952`/`m1794160936411-3954`/`m1794160958146-3960`/`m1794160994929-3963`/`m1794161004179-3966`，处理 Henry 在接受 evaluate 任务后回到 idle 且工作树无交付的问题。
+- 证据：`collab context` 显示 Henry present/idle，其名下 `tsjs-evaluate-engineering-henry-20261108` 仍 working，last_response 为 accepted；专属 worktree 仍 clean，HEAD=`4bce702`，没有新文件或提交。
+- 处置：已向 Henry 发送 durable 指令 `m1794161082868-3973`，要求先落失败用例再实现，并明确现有 `tests/unified-runner-route.test.mjs` 断言 `evaluate` exit 2 可作为 red 起点；指出统一 runner 路由的 `NOT_READY` 位于 `lib/training/l2-standard-runner.ts` 约 2204 行，旧 `StandardRunnerConfig`/`executeStandardRunner` hybrid evaluate 路径不能冒称统一 evaluate 已完成；要求按合同覆盖 TRAIN/DEV 拒绝、candidate/admission 缺失、泄漏、四分母、unknown recall、缺证拒绝、无 fallback、receipt 一致，并实际复用 `lib/adapters/tsjs-unified-recursive.ts` 与 `runRecursiveGoal`。
+- goal：上一轮 deadline 已消费并重臂；当前 `appsdk goal status` 仍 Active=true/subscribed，interval=600000；project patrol armed。
+- 边界：本轮只消费通知、只读核对 board/context/worktree、发送 Henry 指令、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 的红测原始日志、实现与 build，或其上报 fixed-env 公共入口不兼容；Alice review 与真实 fit 继续按 gate 后置。
+
+## 2026-11-08 Jenny：goal deadline 触发后重臂，Henry 仍无实现交付（18:09Z）
+
+- 目的：消费 goal deadline `m1794161295494-4001` 与 worker-idle 批次 `m1794161179439-3988`/`m1794161304195-4002`，确认 Henry 空闲且未落盘实现时继续推进调度。
+- 证据：`collab recv` 已消费对应 receive。`appsdk goal status` 先显示旧 one-shot consumed；已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式重臂，复核 Active=true/subscribed。`collab status --all` 显示 Henry present 但有 1 条未消费通知；专属 worktree 仍 clean，HEAD=`4bce702`，无新文件或提交。
+- 处置：不重复催办，保留已发送的两条 durable 指令作为交付边界；继续以 Henry 交付或明确上报不兼容作为下一步判据。
+- 边界：本轮只消费通知、只读核对 board/context/worktree、显式重臂 goal、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 红测/实现或 fixed-env 入口不兼容回执；若继续空转，再按编排合同评估改派。
+
+## 2026-11-08 Jenny：消费 evaluate 推进批次并重臂 goal（18:19Z）
+
+- 目的：处理 Henry newly_idle `m1794161833203-4073` 与 goal deadline `m1794161958144-4084`，确认 evaluate 工程是否有新增交付并保持长程调度。
+- 证据：`collab recv` 已消费 `receive-74201-1794161974226922000-0`。board `tsjs-evaluate-engineering-henry-20261108` 仍 working rev5，executor Henry、reviewer Alice；`ready_authorized_work=false`，无 pending merge/blocked/timed-out。evaluate 专属 worktree HEAD 仍为 `4bce702`，新增未跟踪 `tests/unified-runner-evaluate.test.mjs`，并修改 `tests/unified-runner-route.test.mjs`；没有 runner/evaluator 实现提交。
+- goal：旧 one-shot 已 consumed；已执行 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式重臂，回执为 one-shot armed；project patrol `sub-m1793963843713-143` 保持 armed。
+- 处置：Henry 刚于 18:13Z 更新测试文件，暂不重复催办，保留已有 durable 指令作为交付边界；本轮不派新 ready 工作。
+- 边界：本轮只消费通知、只读核对 board/goal/worktree、重臂 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 交付 evaluate 红/绿日志、build 日志与公开 `evaluate` 路由回执，再由 Alice 独立 review；若继续空转，再按编排合同评估改派。
