@@ -22,7 +22,7 @@ const RESOURCE_NAMES = {
 const THRESHOLDS = {
   schema: "nnanything.feature-thresholds.v1",
   route: "r",
-  encoderVersion: "nnanything.unified-step.encoder.v1",
+  encoderVersion: "nnanything.unified-step.encoder.v2",
   buckets: {
     constraints: [0, 1, 2, 4],
     knownFacts: [1, 2, 4, 8],
@@ -56,7 +56,7 @@ function packageFor(route = { domain: "tsjs", decisionKind: "R" }) {
       missingModeTableRef: RESOURCE_NAMES.missingMode,
       missingModeSchema: MISSING_MODE.schema,
     },
-    fixedStages: ["nnanything.unified-step.encoder.v1"],
+    fixedStages: ["nnanything.unified-step.encoder.v2"],
   });
 }
 
