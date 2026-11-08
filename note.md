@@ -3736,3 +3736,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 资源：`HEAD=origin/main=6786418`，仅主工作树；未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 继续 PROTECTED_HOLD。live idle peer（Henry/Carol/Leo/Jack/Kate/David/Frank）无匹配 ready 授权任务，不制造任务；Emma/Alice/Bob 不实时可达，symbols 维持 owner-only parked。
 - 边界：本轮仅消费通知、只读核对 board/goal、续订本人 goal 与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Grace review 返回、Emma 材料交接或 live research owner 出现、新的 ready 授权工作，或下一次 goal deadline trigger 后再复核并续订。
+
+## 2026-11-08 Jenny：worker-idle 复核（12:13Z）
+
+- 目的：消费 worker-idle `m1794139828027-2079`，复核 Leo 新 idle 是否有可承接的 ready 授权任务。
+- 证据：`collab recv` 已消费 `receive-23267-1794139979943882000-0`；`collab inbox` 为 0。board 与 12:07Z 一致：Grace 巡检 rev24 working（missing=[review]）、symbols rust/swift rev6 working（Emma owner-only）、Iris P0 rev109 working；`ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
+- goal：`appsdk goal status` 显示 12:07Z 重臂的订阅 `Active=true`、subscribed，project patrol `sub-m1793963843713-143` armed；本轮 `goal_due=false`，不重复续订。
+- 处置与边界：本轮不派单、不制造任务，未改产品代码/语料/权重/gold/threshold/采用，未训练/安装或动 daemon/tmux；`HEAD=origin/main=e1076c9`，仅主工作树，未跟踪 fixture 继续 PROTECTED_HOLD。
+- 下一步：等 Grace review、symbols 恢复条件、新的 ready 工作或下一次 goal deadline。
