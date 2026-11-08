@@ -53,7 +53,7 @@ function advancePackage() {
       missingModeTableRef: RESOURCE_NAMES.missingMode,
       missingModeSchema: MISSING_MODE.schema,
     },
-    fixedStages: ["nnanything.unified-step.encoder.v1"],
+    fixedStages: ["nnanything.unified-step.encoder.v2"],
   });
 }
 
@@ -80,7 +80,7 @@ function controlPackage() {
       missingModeTableRef: RESOURCE_NAMES.missingMode,
       missingModeSchema: MISSING_MODE.schema,
     },
-    fixedStages: ["nnanything.unified-step.encoder.v1"],
+    fixedStages: ["nnanything.unified-step.encoder.v2"],
   });
 }
 
@@ -101,7 +101,7 @@ function judgePackage() {
       missingModeTableRef: RESOURCE_NAMES.missingMode,
       missingModeSchema: MISSING_MODE.schema,
     },
-    fixedStages: ["nnanything.unified-step.encoder.v1"],
+    fixedStages: ["nnanything.unified-step.encoder.v2"],
   });
 }
 
@@ -130,7 +130,7 @@ function previousAwarePackage() {
       missingModeTableRef: RESOURCE_NAMES.missingMode,
       missingModeSchema: MISSING_MODE.schema,
     },
-    fixedStages: ["nnanything.unified-step.encoder.v1"],
+    fixedStages: ["nnanything.unified-step.encoder.v2"],
   });
 }
 
@@ -281,7 +281,11 @@ function recordingExecutor({ fail = null } = {}) {
     }
     return {
       outcome: "success",
-      observedFacts: [`real-read:${input.moduleRef ?? input.stepId}`],
+      observedFacts: [
+        `real-read:${input.moduleRef ?? input.stepId}`,
+        "decl:helper",
+        "export:helper",
+      ],
       evidenceRefs: [`ev:executor:${input.stepId}:${input.edgeRef ?? "none"}`],
       coverage: { modules: [input.moduleRef ?? ""], targetModuleReached: true, note: null },
       failure: null,

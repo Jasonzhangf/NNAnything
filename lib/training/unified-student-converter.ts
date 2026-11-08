@@ -517,7 +517,10 @@ export async function loadStepwiseFamilyManifest(familyDir: string): Promise<{
 
 // Typed state must be respected: only a known string value is usable. An
 // unknown/missing/not_requested/conflicting field with a residual string is not
-// known, so it must never leak as one.
+// known, so it must never leak as one. A plain `{ value: string }` object with
+// no `state` field is accepted as a legacy compatibility input (treated as a
+// known value), so this helper is not a strict known-only guard; only a field
+// whose `state` is an explicit non-known value is rejected.
 const TYPED_FIELD_KNOWN_STATE = "known" as const;
 const TYPED_FIELD_NON_KNOWN_STATE = "not known (unknown/missing/conflicting/not_requested/unsupported)" as const;
 

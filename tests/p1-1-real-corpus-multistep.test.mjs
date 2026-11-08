@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, rm, mkdtemp, writeFile } from "node:fs/promises";
+import { cp, readFile, rm, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -46,11 +46,17 @@ const THRESHOLDS = {
 
 const MISSING_MODE = { schema: "nnanything.unified.missing-mode.v1", entries: [] };
 
-async function writeModel(root) {
+async function writeModel(root, { preferControlAtTerminal = false } = {}) {
   const tensors = zeroTensors();
   // x[53] is the candidateKind === "action" slot; the deterministic synthetic
   // package advances until the chain is exhausted.
   tensors.W1[53] = 1;
+  if (preferControlAtTerminal) {
+    // At a terminal step there is no action candidate, so this selects RETURN.
+    // At an earlier step the lexicographically earlier advance candidate wins
+    // the equal-score tie.
+    tensors.W1[52] = 1;
+  }
   tensors.W2[0] = 1;
   tensors.W3[0] = 1;
   await writeFile(join(root, RESOURCE_NAMES.thresholds), `${JSON.stringify(THRESHOLDS, null, 2)}\n`, "utf8");
@@ -66,7 +72,7 @@ async function writeModel(root) {
       missingModeTableRef: RESOURCE_NAMES.missingMode,
       missingModeSchema: MISSING_MODE.schema,
     },
-    fixedStages: ["nnanything.unified-step.encoder.v1"],
+    fixedStages: ["nnanything.unified-step.encoder.v2"],
   }));
 }
 
@@ -93,7 +99,7 @@ test("real corpus advance reads the actual module files and feeds previous execu
     assert.ok(stagedEpisode);
     assert.ok(terminalEpisode);
     assert.equal(stagedEpisode.previousExecution?.value?.fromStepId, "step-0");
-    const modelPath = await writeModel(work);
+    const modelPath = await writeModel(work, { preferControlAtTerminal: true });
     const executor = createTsJsFileBackedStepExecutor({
       sourceRoot: join(CORPUS_ROOT, FAMILY),
     });
@@ -120,6 +126,176 @@ test("real corpus advance reads the actual module files and feeds previous execu
     assert.equal(report.rootEvaluation.evaluatorId, "tsjs.unified.multistep.root.evaluator");
     assert.equal(report.rootEvaluation.result, "satisfied");
     assert.equal(report.rootEvaluation.evidenceRefs.length >= 2, true);
+    assert.equal(result.sampleReceipt?.steps.at(-1)?.optionSemantics, "RETURN");
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test("a legal unrelated read followed by RETURN does not satisfy the relation root", async () => {
+  const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-unrelated-"));
+  try {
+    const episodes = await loadStudentFamily(join(STAGED_ROOT, FAMILY));
+    const positive = episodes.filter(episode => episode.sampleId === "a-module-positive-alias");
+    const step0 = positive.find(episode => episode.stepId === "step-0");
+    const terminal = positive.find(episode => episode.stepId === "step-2");
+    assert.ok(step0);
+    assert.ok(terminal);
+    const unrelatedBinding = {
+      ...step0.observedBindings[0],
+      sourceName: "helper",
+      sourceModule: {
+        state: "known",
+        value: "mod:sources/src/other-different.ts",
+        reason: null,
+        evidenceRefs: ["ev:sources/src/other-different.ts:import:0"],
+      },
+      moduleSpecifierRaw: "./other-different",
+    };
+    const unrelatedStep = {
+      ...step0,
+      observedBindings: [unrelatedBinding],
+    };
+    const returnStep = {
+      ...terminal,
+      observedBindings: [unrelatedBinding],
+      remainingObligations: [],
+      previousExecution: {
+        state: "known",
+        value: {
+          actionRef: "action:unrelated-step-0",
+          receiptRef: "receipt:unrelated-step-0",
+          origin: "model_execution",
+          fromStepId: "step-0",
+          pendingRelationRef: "pending:a-module-positive-alias",
+          optionSemantics: "advance",
+          targetRef: "mod:sources/src/other-different.ts",
+          outcome: "success",
+        },
+        evidenceRefs: ["ev:sources/src/other-different.ts:read"],
+      },
+    };
+    const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "real-corpus-unrelated-return",
+      packagePath: modelPath,
+      episodes: [unrelatedStep, returnStep],
+      grantedEffects: ["read_only"],
+      executor: createTsJsFileBackedStepExecutor({
+        sourceRoot: join(CORPUS_ROOT, FAMILY),
+      }),
+    });
+    assert.equal(result.sampleReceipt?.steps.at(-1)?.optionSemantics, "RETURN");
+    assert.equal(result.steps[0]?.observedPostState.observedFacts.includes("decl:helper"), true);
+    assert.notEqual(result.rootEvaluation.result, "satisfied");
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test("deleted reexport facts replace preset state and leave the relation unsatisfied", async () => {
+  const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-deleted-reexport-"));
+  try {
+    const sourceRoot = join(work, "source-root");
+    await cp(join(CORPUS_ROOT, FAMILY, "sources"), join(sourceRoot, "sources"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(sourceRoot, "sources/src/util.ts"),
+      "export const unrelated = 1;\n",
+      "utf8",
+    );
+    const episodes = await loadStudentFamily(join(STAGED_ROOT, FAMILY));
+    const positive = episodes.filter(episode => episode.sampleId === "a-module-positive-alias");
+    const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "real-corpus-deleted-reexport",
+      packagePath: modelPath,
+      episodes: positive,
+      grantedEffects: ["read_only"],
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot }),
+    });
+    const nextState = result.recursiveGoal.report.states.find(state =>
+      state.value?.context?.stepId === "step-1");
+    assert.ok(nextState, "the real util read must produce the next step input");
+    const nextContext = nextState.value.context;
+    assert.equal(
+      nextContext.state.facts.some(fact => fact.value?.value === "file:sources/src/util.ts"),
+      true,
+    );
+    assert.equal(
+      nextContext.state.facts.some(fact => fact.value?.value === "observed util module"),
+      false,
+    );
+    const executedEdge = nextContext.bindingEdges.find(edge =>
+      edge.edgeRef === "edge:sources/src/entry-pos.ts:import:0");
+    assert.ok(executedEdge);
+    assert.equal(executedEdge.sourceContent.state, "failed");
+    assert.notEqual(result.rootEvaluation.result, "satisfied");
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test("deleted target declaration leaves the relation unsatisfied", async () => {
+  const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-deleted-declaration-"));
+  try {
+    const sourceRoot = join(work, "source-root");
+    await cp(join(CORPUS_ROOT, FAMILY, "sources"), join(sourceRoot, "sources"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(sourceRoot, "sources/src/impl.ts"),
+      "export const otherHelper = (n: number): number => n + 100;\n",
+      "utf8",
+    );
+    const episodes = await loadStudentFamily(join(STAGED_ROOT, FAMILY));
+    const positive = episodes.filter(episode => episode.sampleId === "a-module-positive-alias");
+    const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "real-corpus-deleted-declaration",
+      packagePath: modelPath,
+      episodes: positive,
+      grantedEffects: ["read_only"],
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot }),
+    });
+    const terminalState = result.recursiveGoal.report.states.find(state =>
+      state.value?.context?.stepId === "step-2");
+    assert.ok(terminalState, "the real impl read must produce the terminal step input");
+    const terminalContext = terminalState.value.context;
+    const reexportEdge = terminalContext.bindingEdges.find(edge =>
+      edge.edgeRef === "edge:sources/src/util.ts:reexport:0");
+    assert.ok(reexportEdge);
+    assert.equal(reexportEdge.sourceContent.state, "failed");
+    assert.equal(
+      result.steps.some(step => step.observedPostState.observedFacts.includes("decl:helper")),
+      false,
+    );
+    assert.notEqual(result.rootEvaluation.result, "satisfied");
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test("RETURN without any valid read evidence does not satisfy the relation root", async () => {
+  const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-no-evidence-"));
+  try {
+    const episodes = await loadStudentFamily(join(STAGED_ROOT, FAMILY));
+    const terminal = episodes.find(episode =>
+      episode.sampleId === "a-module-positive-alias" && episode.stepId === "step-2");
+    assert.ok(terminal);
+    const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "real-corpus-no-evidence",
+      packagePath: modelPath,
+      episodes: [{ ...terminal, remainingObligations: [] }],
+      grantedEffects: ["read_only"],
+      executor: createTsJsFileBackedStepExecutor({
+        sourceRoot: join(CORPUS_ROOT, FAMILY),
+      }),
+    });
+    assert.equal(result.sampleReceipt?.steps[0]?.optionSemantics, "RETURN");
+    assert.notEqual(result.rootEvaluation.result, "satisfied");
   } finally {
     await rm(work, { recursive: true, force: true });
   }
