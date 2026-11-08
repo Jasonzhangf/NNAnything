@@ -4,10 +4,14 @@
 
 - 消费 Kate round-36 `m1794106662833-296` 与 Grace round-14 `m1794106418924-283`。longhorizon goal one-shot `sub-m1794105946217-258` 已 consumed（trigger 1794106546183）；已按 LAST_REMINDER 显式重订同一 goal `docs/autonomous-capability-roadmap.md`（10m / repeat 100 / TTL 604800），回读 active/desired=observed=subscribed、error=null、next trigger 1794107171204。project patrol `sub-m1793963843713-143` armed。
 - P2 `8d11940`（checkpoint reload subgraph 无消费者）triage：派只读 GCM 观察 worker，回执 `/Volumes/Intel/playground/nnanything-runs/bug-8d11940-triage/report.md`。事实：`verifyUnifiedTrainingCheckpointReload`（定义 lib/training/unified-training-checkpoint.ts:600）现由 `trainBA1UnifiedRelationDecision`（lib/training/b-a1-training-entry.ts:954）调用并在 955-966 与新进程 reload 比对；`tensorsEqual` 由 verifier :605 调用；receipt 用于 :203/:661；测试 tests/b-a1-training-entry.test.mjs:251-281 真实触发校验并断言 tensorsMatch/completedEpochs，目标用例 1 passed/0 failed/0 skipped。缺口：该训练入口仅被该测试调用，未进 package exports/playground/scripts/真实 runner。原"无消费者"事实已过期（模块图有直接消费者），但产品运行入口仍不可达。disposition：保持 open、不按可运行能力 close、不在 B-A1 进行中阶段 ablate 在途固定入口代码；解阻条件为 B-A1 fixed 入口接到真实 runner/export 或路线裁定终止时由 training-owner 再裁定。已写入 bug comment。
-- P1 `7db2c6a`（CLI P1/P2 Phase A 工程，owner Jenny）仍 open、无 board 任务。按项目"授权冲突待用户裁定"条款，裁定前不派实现，保持 open 并在 roadmap/note 记录为待用户范围裁定，不自实现。
-- 四个 Emma-owned `nn-code-redesign-*`（learning-loop/search-read/symbols-rust/symbols-swift）维持 roadmap 已记的 `parked-pending-design-peer`（owner presence missing、next_step=null）。因 nn-code 已确定停止使用/推广且整体重设计授权待裁定，本轮不重派实现、不改 Emma 记录。
-- P1-1：Iris owner、present/idle；返工合同 `m1794106101406-267` 已 consumed（answered=false）；worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` 仍 clean 在 `875b4bb`，第 3 轮返工尚未开始。由 Iris 承接，master 只监控、不代实现/代 deliver。
+- P1 `7db2c6a`（CLI P1/P2 Phase A 工程，owner Jenny）仍 open、无 board 任务。当前 MVP（nn-code 与浏览器训练交付）不含 CLI Phase A，不受旧停工条款阻塞，本轮不派实现；待用户明确 CLI 范围后再评估派单或关闭，不自实现。
+- 四个 Emma-owned `nn-code-redesign-*`（learning-loop/search-read/symbols-rust/symbols-swift）维持 `parked-pending-design-peer`（owner presence missing、next_step=null）。四项停放原因是 owner 缺失/非首训对齐，而非重新设计未授权；按 Alice 裁定恢复条件为 Jenny 确认独立设计切片、指定可用研究 owner、完成原资料交接，不冒用 Emma 身份改写其记录。不自实现。
+- P1-1：Iris owner；返工合同 `m1794106101406-267` 已 consumed（answered=false）。后注 03:14Z：worktree `/Volumes/Intel/playground/nnanything/p1-1-typed-dynamic-recursive-20261107` 已进入 round-28，`lib/adapters/tsjs-unified-recursive.ts` 与 `tests/p1-1-real-corpus-multistep.test.mjs` 有未提交改动，`rework/red-3` 已有预期反例失败，`green-3`/`result-3.md` 尚未产出。由 Iris 承接，master 只监控、不代实现/代 deliver，不 merge/push。
 - 本轮仅消费通知、只读 triage、写 bug comment 与维护性 note/roadmap；未改产品代码/语料/权重/gold/threshold/采用、未 merge/push 候选、未安装 runtime、未动 daemon/tmux。
+
+## 2026-11-08 Jenny：Kate round-37 巡检回执与浏览器切片依赖（03:14Z）
+
+- 消费 Kate round-37 `m1794108115858-400`：B-A1 fixed-env closed at c624b94；当前 board 无 open browser training/delivery slice。空闲合格 peer 有 Carol、Henry、Jack、Leo，Alice 空闲审查；无 bounded B-A1/B-R 增量可立即发布或邀请，故记录依赖而不制造切片：下一浏览器切片待独立设计、Alice 审查后按主目标优先级派发；P1-1 继续由 Iris 执行，不 merge/push。
 
 ## 2026-11-08 Jenny：P1-1 875b4bb 正式 REWORK、精确绑定元组返工路由（02:48Z）
 
