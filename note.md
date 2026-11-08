@@ -1,5 +1,11 @@
 # 当前任务
 
+## 2026-11-08 Jenny：master-wake 批次复核（14:49Z）
+
+- 已消费 `m1794149229519-2728`；该批次只重复 Carol/Grace 的 idle 事实，board 无新增 ready 工作。
+- 当前状态：Rust 设计 rev13 `rework`，等待 Carol 按 Alice review 修订；Swift rev10 排队在 Rust 后；Grace 巡检 P1 working。
+- `collab inbox` unread=0；owned goal `sub-m1794149234869-2730` 保持 active/subscribed、armed、trigger_ms=1794149834800、error=null。本轮未改产品代码/权重/gold/threshold/采用，未安装或重启 daemon/tmux。
+
 ## 2026-11-08 Jenny：Rust 设计正式 REWORK 路由与 goal 重臂（14:44Z-14:46Z）
 
 - 已消费 Alice 的 Rust review `m1794149057633-2717` 与 worker-idle `m1794148596897-2688`、`m1794148850359-2707`、`m1794149088708-2721`；board 显示 `nn-code-redesign-symbols-rust-r1` rev13、`status=rework`、review evidence `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-symbols-rust-20261108/alice-review.md`，Swift 仍 working。
