@@ -1,5 +1,31 @@
 # 当前任务
 
+## 2026-11-08 Jenny：goal deadline 消费与重臂（23:03Z）
+
+- 已消费 deadline `m1794178977673-5800`（`LAST_REMINDER=true`），并显式重臂 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，回读 one-shot armed；project patrol `sub-m1793963843713-143` 保持 armed。
+- Board 重读：Grace rev42、Iris P0 rev119、Henry evaluate rev9 PARK；`ready_authorized_work=false`、blocked/timed-out=[]、pending_merges=[]；无新增 ready 授权训练切片，nn-code 后续切片（jvm/call-graph/repo-generalization）仍按既有 owner/依赖停车，不制造任务。
+- 本轮仅消费通知、重臂 goal、只读核对 board 与记录；未训练、未改产品代码/权重/gold/threshold/采用、未安装 runtime、未动 daemon/tmux。
+
+## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
+
+- 用户再次确认 nn-code 模型设计与训练已授权，当前要求先汇报现状。已消费 Kate round-62 `m1794178648697-5773`；`collab msg` 回读 `consumed_by_recv=true`，inbox unread=0。
+- 设计现状：Alice route r1 已接受并保留 64 维输入、两层隐藏层、统一格式和固定推理引擎。TS/JS 符号表设计已 merged；Rust/Swift 符号表只读设计已 ACCEPT/closed；这些只证明设计合同，不是模型已训练。
+- 训练准备现状：TS/JS v2 语料转换/准入已 Alice ACCEPT，TRAIN 15 data rows / 67 student rows / 15 supervision rows READY；converter、fixed-env evaluator、runRecursiveGoal 接线和 B-A1 固定环境/独立样本/evaluator 均已集成交付。真实 fit/保存/新进程回载/独立留出评价/旧能力回归尚未启动。
+- 唯一直接阻塞：`tsjs-evaluate-engineering-henry-20261108` 候选 `f32c084` 的实现、受影响测试、typecheck 和最终 build 已完成，worktree clean；最终 build 日志为 `2026-11-08 13:25:46 -0800`（约 21:25Z），晚于 `f32c084`（19:58Z），四项 build 步骤 exit=0。正式 deliver/review 仍被 live daemon `collab 0.2.0000` 的 `waiting_assignment` 缺陷 `a718710` 阻塞。
+- 恢复条件：用户批准安装 `collab 0.2.0438` 并自行重启 daemon；随后 Henry 正式 deliver，Alice 独立 review，ACCEPT 后才能派首个真实 fit。未批准前不重试、不安装、不重启 daemon，不宣称训练或采用完成。
+- 当前 board：Grace rev42、Iris P0 rev119、Henry evaluate rev9 PARK；`ready_authorized_work=false`、blocked/timed-out=[]、pending_merges=[]。main=origin/main=`a4c8daf`；主树仅 `note.md` dirty 与 protected `cua-fixture.html`。
+- 本轮只读核对、记录和汇报；未改产品代码、权重、gold、threshold、采用状态、语料或训练输入，未训练、未安装 runtime、未动 daemon/tmux。
+
+## 2026-11-08 Jenny：Kate round-61 纠偏，释放过宽 wake_hold（21:56Z）
+
+- 已消费 Kate round-61 `m1794175145271-5469` 及同批 worker-idle `m1794174996260-5446`、`m1794175010948-5449`、`m1794175122208-5465`。事实是：21:45Z 设置的 24 小时 `master_wake.wake_hold` 把真实阻塞扩大成“NNAnything 模型训练全面停工”，延迟了对用户批准、新 ready 工作和独立解阻的响应，和当前 nn-code/浏览器训练交付授权冲突。
+- 已执行 `collab master wake release`，回读 `released=true`、`wake_hold=null`；`master-idle`、project patrol 和直接消息响应恢复。未安装 runtime、未重启 daemon/tmux、未改产品代码/权重/gold/threshold/采用。
+- 当前唯一恢复条件收窄为 evaluate 的 formal deliver/review：live daemon 仍为 `collab 0.2.0000`，上游缺陷 `a718710` 使已接受 ticket 停在 `waiting_assignment`。Henry 的 evaluate 任务保持 PARK，不重试；用户批准安装 `collab 0.2.0438` 并由用户重启 daemon 后，按最新 revision/attempt 执行 respond/start/deliver，Alice 独立 review。
+- 正式 deliver 仍须补 `f32c084` 之后的最终 build 证据（`efa49dc`）；`4f40e5f` 需 Alice 复核后关闭。当前 board：Grace rev40 Round-29、Iris P0 rev119、Henry evaluate rev9 PARK；`ready_authorized_work=false`、blocked/timed-out=[]、pending_merge=[]。
+- 下一步：longhorizon deadline 按当前目标重新武装；等待用户批准安装并重启 daemon，不把该门禁表述为模型训练全面停工。
+- 22:11Z 已消费 deadline `m1794175836907-5535` 并显式重臂，`longhorizon show` 回读 goal active、patrol armed；pending_merge=0、blocked=0。Board 仍无 ready 授权训练工作。
+- 22:42Z 完成 master-idle 项目巡检四项：无 ready 授权工作；pending_merge=0、blocked/timed-out=0；开放任务为 Grace P1、Iris P0、Henry P0，均 working/PARK；主树仅 `note.md` dirty 与 protected `cua-fixture.html`，Henry worktree 为任务 owner 保留；Henry/Iris/Grace 的 idle 有任务或外部门禁原因，其余 live idle peer 无匹配 ready 工作；project_board_patrol eligible_task_ids 为空，不重复唤醒。CEO Alice 已配置，无实质变化不重复回报。
+
 ## 2026-11-08 Jenny：evaluate REWORK 与证据返工路由，goal 重臂（18:47Z）
 
 - 已消费 Alice TS/JS evaluate REWORK `m1794163104553-4237` 与 Grace round-26 `m1794163180227-4246`，以及本时段 worker-idle 批次；inbox 随后为 0。
@@ -4019,3 +4045,59 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal：`appsdk goal status` 显示 Active=true/subscribed，project patrol armed；本轮无 deadline，不重复重臂。
 - 边界：本轮只消费通知、只读核验候选与 build、发送 review/deliver 指令、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Henry 完成 board deliver，Alice 独立 review 后 ACCEPT 或 REWORK；真实 fit 仍后置。
+
+## 2026-11-08 Jenny：evaluate REWORK 后巡检，goal deadline 续订（19:52Z）
+
+- 目的：消费 worker-idle 批次 `m1794167290678-4685`、`m1794167356145-4692` 与 goal deadline `m1794167487617-4703`，核对 Henry 的 Alice REWORK 修正是否已交付，并按需续订本人 goal。
+- 证据：`collab recv` 已消费对应批次；`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 已显式重臂，project patrol `sub-m1793963843713-143` armed。board 仍 `ready_authorized_work=false`，无 pending merge、blocked 或 timed-out。
+- 事实：Alice 对 `b201f45` 的正式 REWORK 落在 `alice-review.md`，F1 多步轨迹、F2 失败证据保留、F3 gold/学生分母、F4 报告可读性四项。Henry 的 evaluate worktree HEAD 仍 `b201f45`，但已有三处未提交修改：`lib/training/relation-oracle-evaluator.ts`、`lib/training/unified-runner-evaluate.ts`、`tests/unified-runner-evaluate.test.mjs`；board 仍 working rev5，尚无正式 re-deliver。`collab status` 显示 Henry 当前 idle，已发送定点唤醒 `m1794167688918-4727`，要求继续完成 F1-F4 并正式交付或报告精确阻塞；同一 idle 阶段 30 分钟内不重复催办。
+- 边界：本轮仅消费通知、显式续订 goal、只读核对 board/worktree/run 证据并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 提交并正式交付 F1-F4 修正，交 Alice 复核；ACCEPT 后再进入真实 fit/save/reload/holdout/旧能力回归。
+
+## 2026-11-08 Jenny：Henry 修复仍在 worktree，未正式交付（20:07Z）
+
+- 目的：消费 worker-idle/master-wake 批次 `m1794168319387-4794`/`m1794168371119-4802`，核对 Henry 是否完成 F1-F4 交付。
+- 证据：`collab recv` 已消费对应批次。board `tsjs-evaluate-engineering-henry-20261108` 仍 working rev5、`completion_missing=review`、`delivery_evidence=null`；Henry 已提交 `f32c084`（3 文件：relation-oracle-evaluator.ts、unified-runner-evaluate.ts、unified-runner-evaluate.test.mjs），worktree 仅落后 `origin/main` 6 提交，无未提交文件。build.log/report.md 已含修复后证据声明，但 board 未体现正式 deliver。
+- 处置：已发送定向交付提醒 `m1794168320211-4795`（reply-required），要求先保留受影响测试/build/公开 evaluate 路由回执，再 `collab task deliver`；同一 idle 阶段 30 分钟内不重复催办。
+- goal：`appsdk goal status` Active=true/subscribed，最近 one-shot `sub-m1794168139962-4776` armed；project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只消费通知、只读核对 board/worktree/goal、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 正式 deliver，交 Alice 独立复核；ACCEPT 后再进入真实 fit/save/reload/holdout/旧能力回归。
+
+## 2026-11-08 Jenny：project-patrol 四项巡检与 CEO 回报（20:12Z）
+
+- 目的：消费 master-idle project-patrol `m1794168657394-4836`，核对未结 P0/P1、未完成任务/ready 工作、自有 worktree 资源、peer idle 事实与取消状态。
+- 证据：`collab board show` 显示开放任务为 Grace 巡检、Iris P0 总编排、Henry evaluate P0/P1；Henry 任务仍 working rev5，`completion_missing=review`，`delivery_evidence=null`。`collab notify status` 显示 `project_patrol` armed，Henry 是 `project_board_patrol.eligible_task_ids` 唯一 eligible；Grace 与 Iris 的任务巡检已由 owner 取消，不能覆盖。当前无 pending merge、无 blocked/timed-out、无其他 ready authorized work。主 worktree 仅 `note.md` dirty 与既有 protected `cua-fixture.html`；Henry worktree 属任务 owner，保留。
+- 处置：`collab ceo status` 显示 CEO=Alice，已用 `collab ceo reply` 记录实质进度 revision 9（deduplicated=false, recorded=true, reported=false）；未重复给 Henry 发唤醒，保留已发送提醒 `m1794168320211-4795`。
+- 资源与订阅：goal `docs/autonomous-capability-roadmap.md` Active=true/subscribed，deadline `sub-m1794168139962-4776` armed；project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只消费通知、只读核对、CEO 回报与更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 正式交付，交 Alice 独立复核；ACCEPT 后再进入真实 fit/save/reload/holdout/旧能力回归。
+
+## 2026-11-08 Jenny：恢复 evaluate ticket dispatch，等待 Henry 正式交付（20:14Z）
+
+- 目的：消费 Henry 的 evaluate F1-F4 返工回执 `m1794168743257-4852` 及重复回执 `m1794168802768-4861`/`m1794168803440-4862`，处理 ticket phase `waiting_assignment` 导致 `task deliver` 被拒的 gate。
+- 证据：Henry worktree HEAD=`f32c084` 且干净；报告 `/Volumes/Intel/playground/nnanything-runs/tsjs-evaluate-engineering-henry-20261108/report.md`；其声明 typecheck exit 0、JDK17 build exit 0、受影响单测 62/62 pass、公开 `node dist/training/l2-standard-runner.js evaluate --config <fixture>` 走 `tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision` 且 exit 0，红/绿/build/公开入口日志在 `evidence/logs/`。board 仍 working rev5，`delivery_evidence=null`；ticket execute phase=`waiting_assignment`，slot_name=null，wait_reason=`specified executor NNAnything.Henry is unavailable`。
+- 处置：执行 `collab board dispatch tsjs-evaluate-engineering-henry-20261108 --expected-revision 5`，回执 `board-invite-tsjs-evaluate-engineering-henry-20261108-6`，board revision 6，invited_peer=Henry；向 Henry 发送 `m1794168878223-4868`，要求 `board respond --accept --expected-revision 6` 后按实际 attempt 执行 `board start` 与 `task deliver`，失败则回传原命令/原错/attempt/revision。
+- goal：消费 deadline `m1794168748032-4853` 后已执行 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，status Active=true/subscribed；project patrol armed。
+- 边界：本轮只做 board dispatch、通知 Henry、续订 goal、只读核对和更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry accept/start/deliver；成功后立即交 Alice 独立复核，不能以 Henry 自报测试替代 review。
+
+## 2026-11-08 Jenny：evaluate 交付被 live daemon ticket gate 正式阻塞（20:35Z）
+
+- 目的：消费 Henry 的三条原错回执 `m1794168989388-4884`/`m1794169327938-4923`、Grace round-28 `m1794169783768-4976` 与多批 worker-idle，确认 evaluate 形式交付的阻塞根因与恢复路径。
+- 事实：board `tsjs-evaluate-engineering-henry-20261108` rev9、status=working、owner=Henry，`completion_missing=[review]`，ticket Execute phase 仍 `waiting_assignment`（slot_name=null、binding_generation=0、attempt_generation=0）。Henry 实际执行并回执：accept rev6->rev7 成功但 phase 未转 Claimed；`board start --expected-revision 7 --attempt 1`= `TICKET_PHASE_NOT_CLAIMED`；`task deliver --attempt 1`= `TICKET_PHASE_NOT_RUNNING` status=waiting_assignment；`board claim --expected-revision 7`= `BOARD_TASK_NOT_PENDING` status=working。live daemon `collab 0.2.0000`，PID 62992，`/Users/fanzhang/.local/bin/collab` 2026-11-07 21:40 启动于 21:41；AppSDK `origin/main` 已含 513100e4/8bb127be accept-claim 修复，但 live daemon 未升级，CLI 无兼容 claim/release 入口。
+- 处置：上游 AppSDK 缺陷已由 RCC 侧登记为 `a718710`（accepted board task has no executable ticket phase），HumanAgent 同源阻塞；已在 a718710 追加 NNAnything 实例证据（含本任务、三条原错、live daemon 版本、上游修复 reachable 但未激活、恢复条件）。Grace round-28 另建本地 `ec6f457`，已在其 comment 标注同源上游 `a718710`、保留为 NNAnything 交付阻塞本地记录，不复制第二套修复。已通知 `appsdk.Jenny`（`m1794169705033-4968`）请求 release candidate 构建与用户逐次安装批准；已回 Henry（`m1794169705362-4969`）明确不再重试，保留 f32c084 与全部证据直至升级后按新 revision/attempt respond/start/deliver；已回 Grace（`m1794169935894-4990`）记录同一 owner 决定。Henry 已把 board next_step 更新为 PARKED 并写入恢复条件。
+- goal：deadline `m1794169404000-4935` 已消费，重新执行 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，回执 Active=true/subscribed；project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只消费通知、核对源码/版本/上游 bug、追加证据、通知 owner、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 AppSDK release candidate 与用户安装批准后升级 daemon；Henry 按新 revision/attempt 重新执行 respond/start/deliver，Alice 独立 review ACCEPT 后再进入真实 fit/save/reload/holdout/旧能力回归。当前无 ready fit 可派，不强行绕过 ticket gate。
+
+## 2026-11-08 Jenny：AppSDK 候选已就位，等待用户安装批准（20:38Z）
+
+- 目的：消费 AppSDK release candidate 状态 `m1794170172635-5016`、goal deadline `m1794170152461-5012` 与 worker-idle 批次，确认 daemon 升级候选已就位及恢复条件。
+- 证据：候选二进制 `/Volumes/Intel/playground/appsdk/collab-runtime-candidate-20261108/collab/target/release/collab` 已存在，`--version` 返回 `collab 0.2.0438`；AppSDK 侧声明由干净 `origin/main 25126cf7` 构建，ticket 生命周期 23/23 通过。当前 live daemon 仍为 `collab 0.2.0000`，PID 62992，启动路径 `/Users/fanzhang/.cargo/bin/collab serve --service`，2026-11-07 21:41:17 启动。全局安装与 daemon 重启属于用户动作，本轮不执行。
+- goal：deadline `sub-m1794169550034-4955` 已 consumed，已用 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 显式重臂为新 one-shot `sub-m1794170285437-5029`，回读 Active=true、Desired=Observed=subscribed；project patrol `sub-m1793963843713-143` armed。board 仍 `ready_authorized_work=false`，无新增可派 ready fit。
+- 边界：本轮只消费通知、只读核验候选/daemon、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：用户逐次批准全局安装并自行重启 daemon 后，向 Henry 发送当时最新 revision/attempt 的 respond/start/deliver 指令，成功交 Alice 独立 review；ACCEPT 后再启动真实 fit/save/reload/holdout/旧能力回归。未获用户安装批准前不绕 ticket gate。
+- 已向 Iris 发送 `m1794170409146-5039`，要求同步 P0 父任务 next_step/task-log，记录 evaluate 仍 PARKED、AppSDK 0.2.0438 候选已就位但等用户逐次安装批准、真实 fit/训练仍未启动。
+- 已通过 `collab ceo reply` 记录本轮实质进度 revision 10（recorded=true，reported=false）：evaluate 仍阻塞于 live daemon ticket phase，AppSDK 0.2.0438 候选已验证，安装与重启等待用户批准，fit/训练未启动。
+- Iris 已回执 `m1794170669410-5066`；`collab board show` 核验 P0 父任务 `nnanything-overall-redesign-orchestration-r1` 已更新至 revision 119，next_step 明确 evaluate 未 ACCEPT、AppSDK 候选等待用户安装批准、fit/训练未启动。
+- 20:48Z 消费再次到期的 goal `m1794170889977-5085` 后，已显式重臂为 `sub-m1794170913851-5088`；`appsdk goal status` 回读 active=true、desired=observed=subscribed、remote_state=armed，project patrol 仍 armed。
