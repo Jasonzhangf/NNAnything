@@ -3470,3 +3470,11 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 空闲 peer：Henry、Carol、Iris、Leo、Jack；无 ready 授权任务，未制造新任务。
 - Git：main 与 origin/main 一致，唯一未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 按既有 PROTECTED_HOLD 保留，不提交、不删除、不冒称已消费。
 - 本轮仅文档同步与提交推送，未训练、未改权重/gold/threshold/采用、未产品接线、未安装 runtime、未动 tmux/daemon。
+
+## 2026-11-08 Iris：恢复 P0 编排，消费 goal deadline 并续订（08:26Z）
+- 目的：本人 P0 `nnanything-overall-redesign-orchestration-r1` 工作中，本轮回收身份/任务不新增实现；处理本轮 deadline 唤醒、续订目标订阅并同步 board 事实。
+- 证据：`collab recv` 已消费 `m1794126184874-903`；`collab inbox` 为 0（Jenny 对之前裁定请求无新回复）。`appsdk goal status` 显示旧订阅 `sub-m1794125572437-850` 已 consumed；同一 `docs/autonomous-capability-roadmap.md` 已显式重订为 `sub-m1794126238588-906`（one-shot、10m、armed、trigger_ms 1794126838543）。`collab board update` 已把 P0 从 rev86 更新为 rev87 working，next_step 写入 origin/main ffb3470、子任务 `b-a1-first-fit-henry-20261108` working/reviewer Kate/completion_missing=[review]、Emma 四个 `nn-code-redesign-*` parked-pending-design-peer、ready_authorized_work=false、无 pending merge/blocked/timed-out。
+- 进展差异：P0 board rev86→87；唯一实质性新事实是 Henry 子任务已上板并处 working；无可立即执行的授权实现或审计切片，不制造新任务。
+- 资源：main `ffb3470`=origin/main，仅主工作树；用户既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 按 PROTECTED_HOLD 保留，不提交、不删除。未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 交付：已向 Jenny 报告身份、P0 rev87、goal 续订与 board 事实；durable 回执 `m1794126481571-923`，`consumed=false`，通知 `tmux-input-submitted`。
+- 下一步：继续保留 true 等待状态；等 Emma 恢复或任务改派给 live research owner，并经 Alice 接受可执行研究合同后重跑 DAG gate；下一次 deadline 触发后再显式重订。
