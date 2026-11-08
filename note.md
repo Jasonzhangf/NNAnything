@@ -1,5 +1,17 @@
 # 当前任务
 
+## 2026-11-08 Jenny：worker-idle/round-47 巡检，B-A1 first-fit 关闭与 goal 续订（09:46Z-09:52Z）
+
+- 目的：消费 worker-idle 与巡检回执通知，核对 P0/P1、board 容量与 idle 原因、自有工作树与资源，确认 B-A1 first-fit 关闭后是否出现新的可派或待集成工作；长程目标继续调度则显式重订 goal。
+- 证据：`collab context` 恢复 Jenny/master；`collab recv` 已消费 `m1794131096385-1384`、`m1794131175846-1394`（Kate round-47）、`m1794131194951-1395`、`m1794131422028-1412`、`m1794131453768-1414`（Henry B-A1 closeout）、`m1794131462913-1417`、`m1794131524052-1421` 与 `m1794131540548-1422`（Iris 回执）。
+- Board/调度事实：`ready_authorized_work=false`，pending_merges 空，无 blocked/timed-out。`b-a1-first-fit-henry-20261108` 已 closed（reviewer Kate，subject_revision 1 ACCEPT，integration df66d9c，delivery evidence `/Volumes/Intel/playground/nnanything-runs/b-a1-first-fit-henry-20261108/report.md`，worktree/branch 已清理）；Henry 名下无未关闭任务并转为 idle。Iris P0 `nnanything-overall-redesign-orchestration-r1` working（board rev106）；Grace 巡检 working；search-read `nn-code-redesign-search-read-r1` 已由 Kate 对 subject_revision 2 ACCEPT（09:39:56Z）并由 owner normal close（09:40:39Z，`read_only`/`no_merge_required`，completion_missing=[]）。symbols-rust/symbols-swift 仍 owner Emma missing、按 Alice 裁定 parked-pending-design-peer（owner-only 不越权改写）。idle peers：Henry/Carol/Jack/Kate 等均无 ready 授权任务，不为占满资源制造任务；巡检员/protected peer 不派普通开发。open bug `8d11940` 已有 triage disposition（等 B-A1 fixed 入口接真实 runner/export 或路线裁定终止后由 training-owner 裁定），`7db2c6a` CLI Phase A 不在当前 MVP 范围待用户明确，本轮不派。
+- Goal/巡检：goal one-shot `sub-m1794131391385-1411` 到期后，已按持续调度需要再次显式重订为 `sub-m1794132041074-1466`，`appsdk goal status` 回读 active/subscribed/error=null；project patrol `sub-m1793963843713-143` armed、`cadence_runtime_gap=null`。
+- 资源：main=HEAD df66d9c，`git worktree list` 仅主工作树；主树既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html` 按 PROTECTED_HOLD 保留，不提交、不删除、不据此冒称黑盒消费。
+- 边界：本轮仅通知消费、只读核对、goal 续订与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未 merge/push 候选，未动 daemon/tmux。
+- 下一步：Iris 继续 P0 编排，Grace 按常驻周期巡检；search-read 已 closed，不重复审查。无新 ready 授权工作时不重复唤醒 idle peer；下一次 goal deadline 到期后按生命周期显式续订。
+
+- 09:55Z 追加：Iris 提请修正 `nn-code-redesign-symbols-rust-r1`/`symbols-swift-r1` 的 stale board 状态（`m1794131686288-1436`）。master 已用 `collab board update --status parked` 尝试，daemon 返回 `only the task owner may update its lifecycle`，owner-only 生效；按 lifecycle 手册，未做 force-close（非授权取消、roadmap 引用保留、无已接受 symbols 设计或 live research-owner 交接），也未重派。已回 Iris (durable `m1794131822692-1450`)：两条任务保持 Emma owner-only 状态，canonical parked-pending-design-peer 与恢复条件继续由 roadmap/note 承载；重派仅当 master 按主目标优先级确认独立设计切片、指定可用研究 owner 并完成原资料交接后执行。Iris 将按 master 裁定在 P0 父任务 next_step 记录该 disposition。
+
 ## 2026-11-08 Jenny：项目巡检，goal 续订与 search-read 设计交付对账（09:21Z-09:25Z）
 
 - 目的：消费 master/worker/goal 提醒并核对 P0/P1、board 容量、peer idle 原因与自有资源，确认是否出现新的可派或待集成工作。
