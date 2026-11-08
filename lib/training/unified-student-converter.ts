@@ -515,10 +515,27 @@ export async function loadStepwiseFamilyManifest(familyDir: string): Promise<{
   };
 }
 
+// Typed state must be respected: only a known string value is usable. An
+// unknown/missing/not_requested/conflicting field with a residual string is not
+// known, so it must never leak as one.
+const TYPED_FIELD_KNOWN_STATE = "known" as const;
+const TYPED_FIELD_NON_KNOWN_STATE = "not known (unknown/missing/conflicting/not_requested/unsupported)" as const;
+
+function isTypedFieldNotKnown(field: Readonly<{ readonly state?: unknown }>): boolean {
+  return typeof field.state === "string" && field.state !== TYPED_FIELD_KNOWN_STATE;
+}
+
 function typedFieldToString(field: unknown): string | null {
   if (typeof field === "string") return field;
-  if (isRecord(field) && field.value !== undefined && field.value !== null) {
-    if (typeof field.value === "string" && field.value.length > 0) return field.value;
+  if (isRecord(field)) {
+    if (isTypedFieldNotKnown(field)) return null;
+    if (
+      field.state === TYPED_FIELD_KNOWN_STATE
+      || field.state === undefined
+    ) {
+      if (typeof field.value === "string" && field.value.length > 0) return field.value;
+      return null;
+    }
     return null;
   }
   return null;
@@ -577,6 +594,15 @@ function normalizeFixedStudentRequest(
     throw new TypeError(`sample ${sampleId} is missing request.relationObligation`);
   }
   const requestRef = requireString(request.requestRef, `sample ${sampleId} request.requestRef`);
+  // Preserve the inner relationObligation.requestRef. It must match the outer
+  // requestRef when explicitly present; a silent overwrite would hide an
+  // inner/outer identity conflict from downstream validation.
+  const innerRequestRef = relationObligation.requestRef;
+  if (typeof innerRequestRef === "string" && innerRequestRef !== requestRef) {
+    throw new StepwiseStudentDataError(
+      `sample ${sampleId} relationObligation.requestRef ${innerRequestRef} conflicts with request.requestRef ${requestRef}`,
+    );
+  }
   const declarationRef = typedFieldToString(requestedDeclaration.declarationRef);
   if (declarationRef === null) {
     throw new TypeError(
@@ -687,6 +713,12 @@ export async function loadStepwiseEpisodeFamily(
       relationObligation.pendingRelationRef,
       `sample ${sampleId} relationObligation.pendingRelationRef`,
     );
+    const innerRequestRef = relationObligation.requestRef;
+    if (typeof innerRequestRef === "string" && innerRequestRef !== requestRef) {
+      throw new StepwiseStudentDataError(
+        `sample ${sampleId} relationObligation.requestRef ${innerRequestRef} conflicts with request.requestRef ${requestRef}`,
+      );
+    }
     const steps = requireArray(normalizedRecord.steps, `sample ${sampleId} steps`);
     const entryFile = resolveStepwiseEntryFile(normalizedRecord, sampleId);
     for (const [stepIndex, rawStep] of steps.entries()) {

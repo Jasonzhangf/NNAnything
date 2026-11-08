@@ -15,6 +15,10 @@ import {
 } from "../dist/training/unified-supervision-converter.js";
 import { convertEpisodeToStudentGroup } from "../dist/training/unified-student-converter.js";
 import { relationStepContext } from "../dist/training/unified-step-context-builder.js";
+import {
+  StepwiseStudentDataError,
+  loadStepwiseEpisodeFamily as loadFamilyUnderTest,
+} from "../dist/training/unified-student-converter.js";
 
 const here = new URL(".", import.meta.url);
 const worktreeRoot = resolve(here.pathname, "..");
@@ -264,5 +268,55 @@ test("independent supervision changes do not move staged students or converter v
   } finally {
     await rm(baseRoot, { recursive: true, force: true });
     await rm(overrideRoot, { recursive: true, force: true });
+  }
+});
+
+test("typed field with state=unknown does not leak a residual string as known", async () => {
+  const root = await mkdtemp(join(tmpdir(), "p1-1-typed-unknown-residual-"));
+  try {
+    const { staged } = await generateAndStage(root);
+    const observationsPath = join(staged, "train-module-export-alias-a", "student-observations.jsonl");
+    const records = await readJsonl(observationsPath);
+    const alias = records.find(row => row.sampleId === "a-module-positive-alias");
+    assert.ok(alias);
+    alias.request.requestedDeclaration.name = {
+      state: "unknown",
+      value: "helper",
+      reason: "not requested",
+      evidenceRefs: [],
+    };
+    await writeFile(observationsPath, `${records.map(row => JSON.stringify(row)).join("\n")}\n`, "utf8");
+    const episodes = await loadFamilyUnderTest(join(staged, "train-module-export-alias-a"));
+    const loadedAlias = episodes.find(episode => episode.sampleId === "a-module-positive-alias");
+    assert.ok(loadedAlias);
+    assert.equal(loadedAlias.requestedDeclaration?.name, null);
+    assert.notEqual(loadedAlias.requestedDeclaration?.name, "helper");
+    assert.equal(relationStepContext(loadedAlias).goal.requestedDeclaration?.name, null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("inner/outer relationObligation.requestRef conflict is rejected, not silently overwritten", async () => {
+  const root = await mkdtemp(join(tmpdir(), "p1-1-inner-outer-conflict-"));
+  try {
+    const { staged } = await generateAndStage(root);
+    const observationsPath = join(staged, "train-module-export-alias-a", "student-observations.jsonl");
+    const records = await readJsonl(observationsPath);
+    const alias = records.find(row => row.sampleId === "a-module-positive-alias");
+    assert.ok(alias);
+    alias.request.requestRef = "request:a-module-positive-alias";
+    alias.request.relationObligation.requestRef = "request:conflicting-outer-value";
+    await writeFile(observationsPath, `${records.map(row => JSON.stringify(row)).join("\n")}\n`, "utf8");
+    await assert.rejects(
+      () => loadFamilyUnderTest(join(staged, "train-module-export-alias-a")),
+      (error) => {
+        assert.equal(error instanceof StepwiseStudentDataError, true);
+        assert.equal(String(error.message).includes("requestRef"), true);
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
