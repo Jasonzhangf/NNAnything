@@ -10,6 +10,8 @@
 - goal 已 consumed/recovery_required，因 P0/P1 继续调度，已用同一 `docs/autonomous-capability-roadmap.md` 显式重臂；`appsdk goal status` 回读 active=true、desired=observed=subscribed。未改产品代码/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 18:57Z 消费 deadline `m1794164245589-4368`（LAST_REMINDER）；P0/P1 仍在执行，已用同一目标文档按 600000ms 显式续订，回读 active=true、desired=observed=subscribed。本轮仍未改产品代码、权重、gold、threshold 或采用状态，未训练、接线、安装或操作 daemon/tmux。
 - 19:07Z 核对 Henry evaluate 交付头与 board/Iris 记录冲突：`c1c14b7` 只是红测前提交（唯一差异是测试名改为 not ready），`b201f45` 才是含实现的最终候选，`b201f45^ == c1c14b7^ == 4bce702`，且 `branch --contains c1c14b7` 为空。Alice review 审的是 `b201f45`，其“Jenny 消息引 c1c14b7、未推断新候选”与证据一致。已发送 `m1794164966390-4419`（reply-required）要求 Henry：交付头以 `b201f45` 或其修复后新提交为准；按 Alice F1-F4 修复；用 JAVA_HOME=/opt/homebrew/opt/openjdk@17 重建与最终提交一致的 build 证据并更正/消融陈旧 `build.log`；移除/内联 no-op `rootStateOf`；随后正式 `collab task deliver` 并更新 board next_step。边界仍未改产品代码、权重、gold、threshold 或采用状态，未训练、接线、安装或操作 daemon/tmux。
+- 19:19Z 同时发送 `m1794165559309-4485`（reply-required）给 Iris，要求把 P0 父任务 next_step 中过期的 `c1c14b7` 改为 `b201f45`，并明确 evaluate 仍 REWORK、尚未 Accept、fit/训练未启动。主树已提交 `af24b2f` 并 push（仅 note.md 与 roadmap 两文件）。边界仍未改产品代码、权重、gold、threshold 或采用状态。
+- 19:30Z 消费 goal deadline `m1794166136602-4561`、Grace round-27 `m1794166162724-4564` 及 worker-idle 批次；已再次以 `docs/autonomous-capability-roadmap.md` 按 600000ms 显式重臂，`appsdk goal status` Active=true、Desired=Observed=subscribed。Grace 已把 Alice F1-F4 登记为 canonical bug `abe21ae`（owner Henry，parent `tsjs-evaluate-engineering-henry-20261108`），验收与既有 Alice review 一致；当前 evaluate 仍 working/REWORK，未 Accept，fit/训练未启动。本轮仍未改产品代码、权重、gold、threshold、采用，未训练/接线/安装，未动 daemon/tmux。
 
 ## 2026-11-08 Jenny：Rust 收口完成，Swift 启动（15:58Z）
 
