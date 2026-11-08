@@ -92,6 +92,41 @@ interface RelationEdgeCondition {
   readonly sourceModuleRef: string | null;
   readonly moduleSpecifierRaw: string | null;
   readonly expectedFacts: readonly string[];
+  readonly expectedBinding: RelationBindingIdentity;
+}
+
+interface RelationBindingIdentity {
+  readonly edgeKind: BindingEdge["edgeKind"];
+  readonly containingModuleRef: string | null;
+  readonly sourceModuleRef: string | null;
+  readonly sourceName: string;
+  readonly localName: string | null;
+  readonly exportedAlias: string | null;
+  readonly moduleSpecifierRaw: string | null;
+  readonly sourceTargetRef: string | null;
+}
+
+export type TsJsModuleFactKind =
+  | "declaration"
+  | "export"
+  | "import"
+  | "re_export";
+
+/**
+ * A typed fact parsed from one module. It preserves the statement's module
+ * location and the complete binding tuple instead of an unpaired name string.
+ */
+export interface TsJsModuleFact {
+  readonly kind: TsJsModuleFactKind;
+  readonly moduleRef: string;
+  readonly name: string | null;
+  readonly sourceName: string | null;
+  readonly localName: string | null;
+  readonly exportedAlias: string | null;
+  readonly moduleSpecifierRaw: string | null;
+  readonly resolvedModuleRef: string | null;
+  readonly sourceTargetRef: string | null;
+  readonly legacyFacts: readonly string[];
 }
 
 interface DecisionBindings {
@@ -785,6 +820,11 @@ export interface TsJsUnifiedStepReadInput {
 export interface TsJsUnifiedStepExecution {
   readonly outcome: "success" | "failed";
   readonly observedFacts: readonly string[];
+  /**
+   * Optional typed module facts. The file-backed executor always supplies
+   * them; compatibility executors may continue to return only legacy strings.
+   */
+  readonly moduleFacts?: readonly TsJsModuleFact[];
   readonly evidenceRefs: readonly string[];
   readonly coverage: Readonly<{
     readonly modules: readonly string[];
@@ -847,10 +887,21 @@ export function createTsJsFileBackedStepExecutor(
       scriptKindForPath(modulePath),
     );
     const engineRelative = relative(options.sourceRoot, modulePath).split("\\").join("/");
-    const observedFacts = collectTsJsModuleFacts(sourceFile, engineRelative, text);
+    const moduleFacts = collectTsJsModuleFactRecords(
+      sourceFile,
+      engineRelative,
+      modulePath,
+      options.sourceRoot,
+    );
+    const observedFacts = uniqueStrings([
+      `file:${engineRelative}`,
+      `lines:${text.split("\n").length}`,
+      ...moduleFacts.flatMap(fact => fact.legacyFacts),
+    ]);
     return {
       outcome: "success",
       observedFacts,
+      moduleFacts,
       evidenceRefs: [`ev:${input.stepId}:${engineRelative}:read`],
       coverage: {
         modules: [engineRelative],
@@ -922,62 +973,267 @@ function modulePathVariants(path: string): readonly string[] {
   ];
 }
 
-function collectTsJsModuleFacts(
+function resolveModuleSpecifierRef(
+  sourceRoot: string,
+  containingModulePath: string,
+  specifier: string,
+): string | null {
+  if (!specifier.startsWith(".")) return null;
+  const candidate = resolve(dirname(containingModulePath), specifier);
+  for (const variant of modulePathVariants(candidate)) {
+    if (ts.sys.fileExists(variant) && !ts.sys.directoryExists(variant)) {
+      return relative(sourceRoot, variant).split("\\").join("/");
+    }
+  }
+  return null;
+}
+
+function collectTsJsModuleFactRecords(
   sourceFile: ts.SourceFile,
   engineRelativePath: string,
-  text: string,
-): readonly string[] {
-  const declarations: string[] = [];
-  const exportsFound: string[] = [];
+  absoluteModulePath: string,
+  sourceRoot: string,
+): readonly TsJsModuleFact[] {
+  const facts: TsJsModuleFact[] = [];
   const hasExportModifier = (node: ts.Node): boolean =>
     ts.canHaveModifiers(node)
       && (ts.getModifiers(node) ?? []).some(
         modifier => modifier.kind === ts.SyntaxKind.ExportKeyword,
       );
+  const pushDeclaration = (name: string, exported: boolean): void => {
+    facts.push({
+      kind: "declaration",
+      moduleRef: engineRelativePath,
+      name,
+      sourceName: null,
+      localName: null,
+      exportedAlias: null,
+      moduleSpecifierRaw: null,
+      resolvedModuleRef: null,
+      sourceTargetRef: `mod:${engineRelativePath}#top:${name}`,
+      legacyFacts: [`decl:${name}`],
+    });
+    if (exported) {
+      facts.push({
+        kind: "export",
+        moduleRef: engineRelativePath,
+        name,
+        sourceName: name,
+        localName: name,
+        exportedAlias: name,
+        moduleSpecifierRaw: null,
+        resolvedModuleRef: null,
+        sourceTargetRef: `mod:${engineRelativePath}#top:${name}`,
+        legacyFacts: [`export:${name}`],
+      });
+    }
+  };
   for (const statement of sourceFile.statements) {
     if (
       (ts.isFunctionDeclaration(statement)
         || ts.isClassDeclaration(statement)
         || ts.isInterfaceDeclaration(statement)
-        || ts.isTypeAliasDeclaration(statement))
+        || ts.isTypeAliasDeclaration(statement)
+        || ts.isEnumDeclaration(statement))
       && statement.name !== undefined
     ) {
-      declarations.push(`decl:${statement.name.text}`);
-      if (hasExportModifier(statement)) exportsFound.push(`export:${statement.name.text}`);
+      pushDeclaration(statement.name.text, hasExportModifier(statement));
     } else if (ts.isVariableStatement(statement)) {
       const exported = hasExportModifier(statement);
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name)) {
-          declarations.push(`decl:${declaration.name.text}`);
-          if (exported) exportsFound.push(`export:${declaration.name.text}`);
+          pushDeclaration(declaration.name.text, exported);
         }
       }
-    } else if (ts.isExportDeclaration(statement) && statement.exportClause !== undefined) {
-      if (ts.isNamedExports(statement.exportClause)) {
-        const specifier = statement.moduleSpecifier !== undefined && ts.isStringLiteral(statement.moduleSpecifier)
-          ? statement.moduleSpecifier.text
-          : null;
+    } else if (ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const specifier = statement.moduleSpecifier.text;
+      const resolvedModuleRef = resolveModuleSpecifierRef(
+        sourceRoot,
+        absoluteModulePath,
+        specifier,
+      );
+      const importClause = statement.importClause;
+      if (importClause === undefined) {
+        facts.push({
+          kind: "import",
+          moduleRef: engineRelativePath,
+          name: null,
+          sourceName: "*",
+          localName: null,
+          exportedAlias: null,
+          moduleSpecifierRaw: specifier,
+          resolvedModuleRef,
+          sourceTargetRef: resolvedModuleRef === null ? null : `mod:${resolvedModuleRef}#top:*`,
+          legacyFacts: [`import:*<-${specifier}`],
+        });
+      } else {
+        if (importClause.name !== undefined) {
+          facts.push({
+            kind: "import",
+            moduleRef: engineRelativePath,
+            name: importClause.name.text,
+            sourceName: "default",
+            localName: importClause.name.text,
+            exportedAlias: null,
+            moduleSpecifierRaw: specifier,
+            resolvedModuleRef,
+            sourceTargetRef: resolvedModuleRef === null ? null : `mod:${resolvedModuleRef}#top:default`,
+            legacyFacts: [`import:${importClause.name.text}<-${specifier}`],
+          });
+        }
+        const namedBindings = importClause.namedBindings;
+        if (namedBindings !== undefined && ts.isNamespaceImport(namedBindings)) {
+          facts.push({
+            kind: "import",
+            moduleRef: engineRelativePath,
+            name: namedBindings.name.text,
+            sourceName: "*",
+            localName: namedBindings.name.text,
+            exportedAlias: null,
+            moduleSpecifierRaw: specifier,
+            resolvedModuleRef,
+            sourceTargetRef: resolvedModuleRef === null ? null : `mod:${resolvedModuleRef}#top:*`,
+            legacyFacts: [`import:${namedBindings.name.text}<-${specifier}`],
+          });
+        } else if (namedBindings !== undefined && ts.isNamedImports(namedBindings)) {
+          for (const element of namedBindings.elements) {
+            const sourceName = element.propertyName?.text ?? element.name.text;
+            const localName = element.name.text;
+            facts.push({
+              kind: "import",
+              moduleRef: engineRelativePath,
+              name: localName,
+              sourceName,
+              localName,
+              exportedAlias: null,
+              moduleSpecifierRaw: specifier,
+              resolvedModuleRef,
+              sourceTargetRef: resolvedModuleRef === null
+                ? null
+                : `mod:${resolvedModuleRef}#top:${sourceName}`,
+              legacyFacts: [`import:${sourceName} as ${localName}<-${specifier}`],
+            });
+          }
+        }
+      }
+    } else if (ts.isExportDeclaration(statement)) {
+      const specifier = statement.moduleSpecifier !== undefined
+        && ts.isStringLiteral(statement.moduleSpecifier)
+        ? statement.moduleSpecifier.text
+        : null;
+      const resolvedModuleRef = specifier === null
+        ? null
+        : resolveModuleSpecifierRef(sourceRoot, absoluteModulePath, specifier);
+      if (specifier !== null && statement.exportClause !== undefined
+        && ts.isNamedExports(statement.exportClause)) {
         for (const element of statement.exportClause.elements) {
           const sourceName = element.propertyName?.text ?? element.name.text;
           const exportedName = element.name.text;
-          exportsFound.push(`export:${exportedName}`);
-          if (specifier !== null) {
-            exportsFound.push(`reexport:${sourceName}<-${specifier}`);
-            if (exportedName !== sourceName) {
-              exportsFound.push(`reexport:${exportedName}<-${specifier}`);
-            }
-          }
+          facts.push({
+            kind: "re_export",
+            moduleRef: engineRelativePath,
+            name: exportedName,
+            sourceName,
+            localName: exportedName,
+            exportedAlias: exportedName,
+            moduleSpecifierRaw: specifier,
+            resolvedModuleRef,
+            sourceTargetRef: resolvedModuleRef === null
+              ? null
+              : `mod:${resolvedModuleRef}#top:${sourceName}`,
+            legacyFacts: uniqueStrings([
+              `export:${exportedName}`,
+              `reexport:${sourceName}<-${specifier}`,
+              ...(exportedName === sourceName
+                ? []
+                : [`reexport:${exportedName}<-${specifier}`]),
+            ]),
+          });
+        }
+      } else if (specifier !== null && statement.exportClause === undefined) {
+        facts.push({
+          kind: "re_export",
+          moduleRef: engineRelativePath,
+          name: "*",
+          sourceName: "*",
+          localName: "*",
+          exportedAlias: "*",
+          moduleSpecifierRaw: specifier,
+          resolvedModuleRef,
+          sourceTargetRef: resolvedModuleRef === null ? null : `mod:${resolvedModuleRef}#top:*`,
+          legacyFacts: [`export:*`, `reexport:*<-${specifier}`],
+        });
+      } else if (specifier === null && statement.exportClause !== undefined
+        && ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          const sourceName = element.propertyName?.text ?? element.name.text;
+          const exportedName = element.name.text;
+          facts.push({
+            kind: "export",
+            moduleRef: engineRelativePath,
+            name: exportedName,
+            sourceName,
+            localName: exportedName,
+            exportedAlias: exportedName,
+            moduleSpecifierRaw: null,
+            resolvedModuleRef: null,
+            sourceTargetRef: `mod:${engineRelativePath}#top:${sourceName}`,
+            legacyFacts: [`export:${exportedName}`],
+          });
         }
       }
     }
   }
-  const lineCount = text.split("\n").length;
-  return [
-    `file:${engineRelativePath}`,
-    `lines:${lineCount}`,
-    ...declarations,
-    ...exportsFound,
-  ];
+  return facts;
+}
+
+/**
+ * Compatibility executors may return only legacy string facts. Derive weak
+ * declaration/export facts from them, never import/re-export pairings: a
+ * relation edge still requires its full tuple from the executor.
+ */
+function moduleFactsFromLegacyObservations(
+  observedFacts: readonly string[],
+  moduleRef: string | null,
+): readonly TsJsModuleFact[] {
+  const normalizedModuleRef = moduleRef ?? "observed-module";
+  const facts: TsJsModuleFact[] = [];
+  for (const observedFact of observedFacts) {
+    const declaration = /^decl:(.+)$/.exec(observedFact);
+    if (declaration !== null) {
+      const name = declaration[1]!;
+      facts.push({
+        kind: "declaration",
+        moduleRef: normalizedModuleRef,
+        name,
+        sourceName: null,
+        localName: null,
+        exportedAlias: null,
+        moduleSpecifierRaw: null,
+        resolvedModuleRef: null,
+        sourceTargetRef: `mod:${normalizedModuleRef}#top:${name}`,
+        legacyFacts: [observedFact],
+      });
+    }
+    const exportFact = /^export:(.+)$/.exec(observedFact);
+    if (exportFact !== null) {
+      const name = exportFact[1]!;
+      facts.push({
+        kind: "export",
+        moduleRef: normalizedModuleRef,
+        name,
+        sourceName: name,
+        localName: name,
+        exportedAlias: name,
+        moduleSpecifierRaw: null,
+        resolvedModuleRef: null,
+        sourceTargetRef: `mod:${normalizedModuleRef}#top:${name}`,
+        legacyFacts: [observedFact],
+      });
+    }
+  }
+  return facts;
 }
 
 function uniqueStrings(values: readonly string[]): readonly string[] {
@@ -990,19 +1246,28 @@ function relationTargetCondition(
 ): RelationTargetCondition {
   const declaration = episode.requestedDeclaration ?? null;
   const edgesByRef = new Map<string, RelationEdgeCondition>();
+  const requiredEdgeRefs = new Set<string>();
+  for (const candidateEpisode of episodes) {
+    for (const obligation of candidateEpisode.remainingObligations ?? []) {
+      requiredEdgeRefs.add(obligation.ref);
+    }
+  }
   for (const candidateEpisode of episodes) {
     for (const edge of candidateEpisode.observedBindings ?? []) {
+      if (!requiredEdgeRefs.has(edge.edgeRef)) continue;
       if (edgesByRef.has(edge.edgeRef)) continue;
+      const sourceModuleRef = edge.sourceModule.state === "known"
+        ? edge.sourceModule.value ?? null
+        : null;
       edgesByRef.set(edge.edgeRef, {
         edgeRef: edge.edgeRef,
         edgeKind: edge.edgeKind,
         sourceName: edge.sourceName,
         targetName: edge.targetName,
-        sourceModuleRef: edge.sourceModule.state === "known"
-          ? edge.sourceModule.value ?? null
-          : null,
+        sourceModuleRef,
         moduleSpecifierRaw: edge.moduleSpecifierRaw,
         expectedFacts: expectedBindingFacts(edge),
+        expectedBinding: relationBindingIdentity(edge),
       });
     }
   }
@@ -1052,24 +1317,182 @@ function sameModulePath(left: string | null, right: string | null): boolean {
   return normalizedLeft !== null && normalizedLeft === normalizedRight;
 }
 
+function relationBindingIdentity(edge: BindingEdge): RelationBindingIdentity {
+  const containingModuleRef = edge.targetModule.state === "known"
+    ? edge.targetModule.value ?? null
+    : null;
+  const sourceModuleRef = edge.sourceModule.state === "known"
+    ? edge.sourceModule.value ?? null
+    : null;
+  return {
+    edgeKind: edge.edgeKind,
+    containingModuleRef,
+    sourceModuleRef,
+    sourceName: edge.sourceName,
+    localName: edge.targetName,
+    exportedAlias: edge.edgeKind === "re_export" ? edge.targetName : null,
+    moduleSpecifierRaw: edge.moduleSpecifierRaw,
+    sourceTargetRef: sourceModuleRef === null
+      ? null
+      : `mod:${normalizeModulePath(sourceModuleRef)}#top:${edge.sourceName}`,
+  };
+}
+
 function expectedBindingFacts(edge: BindingEdge): readonly string[] {
-  const sourceName = edge.sourceName;
-  const targetName = edge.targetName;
+  const binding = relationBindingIdentity(edge);
+  const containing = normalizeModulePath(binding.containingModuleRef) ?? "?";
+  const source = normalizeModulePath(binding.sourceModuleRef) ?? "?";
   if (edge.edgeKind === "re_export") {
-    return uniqueStrings([
-      ...(edge.moduleSpecifierRaw === null
-        ? []
-        : [`reexport:${sourceName}<-${edge.moduleSpecifierRaw}`]),
-      `export:${sourceName}`,
-    ]);
+    return [
+      `binding:re_export:${containing}<-${binding.moduleSpecifierRaw ?? "?"}`
+      + `<-${source}#${binding.sourceName}`
+      + ` as ${binding.localName ?? "?"}`
+      + ` -> ${binding.exportedAlias ?? "?"}`,
+    ];
   }
-  return uniqueStrings([
-    `decl:${targetName}`,
-    `export:${targetName}`,
-    ...(sourceName === targetName
-      ? []
-      : [`decl:${sourceName}`, `export:${sourceName}`]),
-  ]);
+  if (edge.edgeKind === "import") {
+    return [
+      `binding:import:${containing}<-${binding.moduleSpecifierRaw ?? "?"}`
+      + `<-${source}#${binding.sourceName}`
+      + ` as ${binding.localName ?? "?"}`,
+    ];
+  }
+  return [`binding:${edge.edgeKind}:${containing}#${edge.targetName}`];
+}
+
+function moduleFactsForModule(
+  moduleFacts: readonly TsJsModuleFact[],
+  moduleRef: string | null,
+): readonly TsJsModuleFact[] {
+  const normalized = normalizeModulePath(moduleRef);
+  if (normalized === null) return [];
+  return moduleFacts.filter(fact => normalizeModulePath(fact.moduleRef) === normalized);
+}
+
+function moduleFactExportsName(fact: TsJsModuleFact, name: string): boolean {
+  return (fact.kind === "export" && fact.name === name)
+    || (fact.kind === "re_export"
+      && (fact.exportedAlias === name || fact.localName === name));
+}
+
+function moduleFactDeclaresOrExportsName(fact: TsJsModuleFact, name: string): boolean {
+  return (fact.kind === "declaration" && fact.name === name)
+    || moduleFactExportsName(fact, name);
+}
+
+function sameImportBinding(fact: TsJsModuleFact, edge: BindingEdge): boolean {
+  return fact.kind === "import"
+    && sameModulePath(fact.moduleRef, edge.targetModule.value ?? null)
+    && fact.sourceName === edge.sourceName
+    && fact.localName === edge.targetName
+    && fact.moduleSpecifierRaw === edge.moduleSpecifierRaw
+    && sameModulePath(fact.resolvedModuleRef, edge.sourceModule.value ?? null);
+}
+
+function sameReexportBinding(fact: TsJsModuleFact, edge: BindingEdge): boolean {
+  return fact.kind === "re_export"
+    && sameModulePath(fact.moduleRef, edge.targetModule.value ?? null)
+    && fact.sourceName === edge.sourceName
+    && fact.localName === edge.targetName
+    && fact.exportedAlias === edge.targetName
+    && fact.moduleSpecifierRaw === edge.moduleSpecifierRaw
+    && sameModulePath(fact.resolvedModuleRef, edge.sourceModule.value ?? null);
+}
+
+function uniqueModuleFacts(
+  facts: readonly TsJsModuleFact[],
+): readonly TsJsModuleFact[] {
+  const seen = new Set<string>();
+  return facts.filter(fact => {
+    const key = JSON.stringify(fact);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function verifyBindingAgainstModuleFacts(
+  stepId: string,
+  edge: BindingEdge,
+  moduleFacts: readonly TsJsModuleFact[],
+  observedModuleRef: string | null,
+  evidenceRefs: readonly string[],
+  phase: MultiStepBindingVerification["phase"],
+): MultiStepBindingVerification {
+  const expectedBinding = relationBindingIdentity(edge);
+  const matchedModuleFacts: TsJsModuleFact[] = [];
+  let failureReason: string | null = null;
+
+  if (edge.edgeKind === "import") {
+    const containingFacts = moduleFactsForModule(moduleFacts, expectedBinding.containingModuleRef);
+    const importFacts = containingFacts.filter(fact => fact.kind === "import");
+    const exactImport = importFacts.find(fact => sameImportBinding(fact, edge));
+    if (exactImport !== undefined) {
+      matchedModuleFacts.push(exactImport);
+    } else if (importFacts.length > 0) {
+      failureReason = "import_tuple_mismatch";
+    }
+    // An import edge's read proves the exact source-module export named by
+    // the observed binding. The local binding tuple stays in expectedBinding;
+    // a declaration or export of the target name alone is never accepted.
+    const sourceExports = moduleFactsForModule(moduleFacts, expectedBinding.sourceModuleRef)
+      .filter(fact => moduleFactExportsName(fact, edge.sourceName));
+    if (sourceExports.length > 0) {
+      matchedModuleFacts.push(sourceExports[0]!);
+    } else if (failureReason === null) {
+      failureReason = "source_module_does_not_export_source_name";
+    }
+  } else if (edge.edgeKind === "re_export") {
+    const containingFacts = moduleFactsForModule(moduleFacts, expectedBinding.containingModuleRef);
+    const exactReexport = containingFacts
+      .filter(fact => fact.kind === "re_export")
+      .find(fact => sameReexportBinding(fact, edge));
+    if (exactReexport !== undefined) {
+      matchedModuleFacts.push(exactReexport);
+    } else {
+      failureReason = "reexport_tuple_mismatch";
+    }
+    const sourceFacts = moduleFactsForModule(moduleFacts, expectedBinding.sourceModuleRef);
+    const sourceNameFact = sourceFacts.find(fact =>
+      moduleFactDeclaresOrExportsName(fact, edge.sourceName));
+    if (sourceFacts.length > 0) {
+      if (sourceNameFact !== undefined) {
+        matchedModuleFacts.push(sourceNameFact);
+      } else if (failureReason === null) {
+        failureReason = "source_module_declaration_missing";
+      }
+    }
+  } else {
+    const moduleRef = expectedBinding.sourceModuleRef ?? expectedBinding.containingModuleRef;
+    const declarationFacts = moduleFactsForModule(moduleFacts, moduleRef)
+      .filter(fact => moduleFactDeclaresOrExportsName(fact, edge.targetName));
+    if (declarationFacts.length > 0) {
+      matchedModuleFacts.push(declarationFacts[0]!);
+    } else {
+      failureReason = "declaration_missing";
+    }
+  }
+
+  const uniqueMatched = uniqueModuleFacts(matchedModuleFacts);
+  return {
+    stepId,
+    edgeRef: edge.edgeRef,
+    edgeKind: edge.edgeKind,
+    sourceName: edge.sourceName,
+    targetName: edge.targetName,
+    sourceModuleRef: expectedBinding.sourceModuleRef,
+    moduleSpecifierRaw: edge.moduleSpecifierRaw,
+    observedModuleRef,
+    expectedBinding,
+    expectedFacts: expectedBindingFacts(edge),
+    matchedModuleFacts: uniqueMatched,
+    matchedFacts: uniqueStrings(uniqueMatched.flatMap(fact => fact.legacyFacts)),
+    verified: failureReason === null && uniqueMatched.length > 0,
+    failureReason: failureReason
+      ?? (uniqueMatched.length > 0 ? null : "binding_not_observed"),
+    phase,
+    evidenceRefs,
+  };
 }
 
 function bindingVerificationForExecution(
@@ -1077,31 +1500,22 @@ function bindingVerificationForExecution(
   edge: BindingEdge,
   execution: TsJsUnifiedStepExecution,
   observedModuleRef: string | null,
+  moduleFacts: readonly TsJsModuleFact[],
 ): MultiStepBindingVerification {
-  const expectedFacts = expectedBindingFacts(edge);
-  const matchedFacts = expectedFacts.filter(fact => execution.observedFacts.includes(fact));
-  return {
+  return verifyBindingAgainstModuleFacts(
     stepId,
-    edgeRef: edge.edgeRef,
-    edgeKind: edge.edgeKind,
-    sourceName: edge.sourceName,
-    targetName: edge.targetName,
-    sourceModuleRef: edge.sourceModule.state === "known"
-      ? edge.sourceModule.value ?? null
-      : null,
-    moduleSpecifierRaw: edge.moduleSpecifierRaw,
+    edge,
+    moduleFacts,
     observedModuleRef,
-    expectedFacts,
-    matchedFacts,
-    verified: matchedFacts.length > 0,
-    evidenceRefs: execution.evidenceRefs,
-  };
+    execution.evidenceRefs,
+    "executed",
+  );
 }
 
 function targetDeclarationReached(
   condition: RelationTargetCondition,
-  facts: readonly string[],
   observations: readonly MultiStepReadObservation[],
+  moduleFacts: readonly TsJsModuleFact[],
   verifications: readonly MultiStepBindingVerification[],
 ): boolean {
   const name = targetDeclarationName(condition);
@@ -1109,12 +1523,17 @@ function targetDeclarationReached(
   if (name === null || modulePath === null) return false;
   const targetRead = observations.find(observation =>
     sameModulePath(observation.moduleRef, modulePath)
-    && observation.facts.some(fact => fact === `decl:${name}` || fact === `export:${name}`),
+    && moduleFactsForModule(observation.moduleFacts ?? [], modulePath)
+      .some(fact => moduleFactDeclaresOrExportsName(fact, name)),
   );
   if (targetRead === undefined) return false;
-  if (!facts.includes(`decl:${name}`) && !facts.includes(`export:${name}`)) return false;
+  if (!moduleFactsForModule(moduleFacts, modulePath)
+    .some(fact => moduleFactDeclaresOrExportsName(fact, name))) {
+    return false;
+  }
   return verifications.some(verification =>
-    verification.verified
+    verification.phase === "executed"
+    && verification.verified
     && verification.sourceName === name
     && sameModulePath(verification.sourceModuleRef, modulePath),
   );
@@ -1125,10 +1544,11 @@ function currentRelationFromRealFacts(
   condition: RelationTargetCondition,
   facts: readonly string[],
   observations: readonly MultiStepReadObservation[],
+  moduleFacts: readonly TsJsModuleFact[],
   verifications: readonly MultiStepBindingVerification[],
   evidenceRefs: readonly string[],
 ): CurrentRelationProjection {
-  const reached = targetDeclarationReached(condition, facts, observations, verifications);
+  const reached = targetDeclarationReached(condition, observations, moduleFacts, verifications);
   const failed = verifications.find(verification => !verification.verified) ?? null;
   const callSiteRef = episode.callSiteRef ?? episode.currentRelation?.callSiteRef ?? "";
   if (reached && condition.declarationRef !== null) {
@@ -1177,91 +1597,143 @@ function currentRelationFromRealFacts(
   };
 }
 
+function updatedBindingEdge(
+  edge: BindingEdge,
+  verification: MultiStepBindingVerification,
+): BindingEdge {
+  return {
+    ...edge,
+    sourceContent: verification.verified
+      ? {
+          state: "observed" as const,
+          resultRefs: verification.matchedFacts,
+          reason: null,
+          evidenceRefs: verification.evidenceRefs,
+        }
+      : {
+          state: "failed" as const,
+          resultRefs: [],
+          reason: "observation_failed" as const,
+          evidenceRefs: verification.evidenceRefs,
+        },
+    visibility: verification.verified
+      ? {
+          state: "known" as const,
+          value: "reachable" as const,
+          evidenceRefs: verification.evidenceRefs,
+        }
+      : {
+          state: "unsupported" as const,
+          reason: "observation_failed" as const,
+          evidenceRefs: verification.evidenceRefs,
+        },
+    evidenceRefs: uniqueStrings([...edge.evidenceRefs, ...verification.evidenceRefs]),
+  };
+}
+
 function deriveEpisodeFromRealFacts(
   nextEpisode: RelationStepEpisode,
   condition: RelationTargetCondition,
-  chosen: Candidate,
-  execution: TsJsUnifiedStepExecution,
   verification: MultiStepBindingVerification | null,
   facts: readonly string[],
+  moduleFacts: readonly TsJsModuleFact[],
   observations: readonly MultiStepReadObservation[],
   verifications: readonly MultiStepBindingVerification[],
   readEvidenceRefs: readonly string[],
-): RelationStepEpisode {
-  const observedBindings = (nextEpisode.observedBindings ?? []).map(edge => {
-    if (verification === null || edge.edgeRef !== chosen.edgeRef) return edge;
-    return {
-      ...edge,
-      sourceContent: verification.verified
+): {
+  readonly episode: RelationStepEpisode;
+  readonly followUpFailure: MultiStepBindingVerification | null;
+} {
+  const observedBindings: BindingEdge[] = [];
+  let followUpFailure: MultiStepBindingVerification | null = null;
+  for (const edge of nextEpisode.observedBindings ?? []) {
+    if (verification !== null && edge.edgeRef === verification.edgeRef) {
+      observedBindings.push(updatedBindingEdge(edge, verification));
+      continue;
+    }
+    const targetModuleRef = edge.targetModule.state === "known"
+      ? edge.targetModule.value ?? null
+      : null;
+    const readObservation = targetModuleRef === null
+      ? undefined
+      : observations.find(observation =>
+          sameModulePath(observation.moduleRef, targetModuleRef));
+    if (readObservation === undefined) {
+      observedBindings.push(edge);
+      continue;
+    }
+    const followUpVerification = verifyBindingAgainstModuleFacts(
+      nextEpisode.stepId,
+      edge,
+      moduleFacts,
+      readObservation.moduleRef,
+      readObservation.evidenceRefs,
+      "follow_up",
+    );
+    if (!followUpVerification.verified && followUpFailure === null) {
+      followUpFailure = followUpVerification;
+    }
+    observedBindings.push(
+      followUpVerification.verified
         ? {
-            state: "observed" as const,
-            resultRefs: verification.matchedFacts,
-            reason: null,
-            evidenceRefs: verification.evidenceRefs,
+            ...edge,
+            evidenceRefs: uniqueStrings([
+              ...edge.evidenceRefs,
+              ...followUpVerification.evidenceRefs,
+            ]),
           }
-        : {
-            state: "failed" as const,
-            resultRefs: [],
-            reason: "observation_failed" as const,
-            evidenceRefs: verification.evidenceRefs,
-          },
-      visibility: verification.verified
-        ? {
-            state: "known" as const,
-            value: "reachable" as const,
-            evidenceRefs: verification.evidenceRefs,
-          }
-        : {
-            state: "unsupported" as const,
-            reason: "observation_failed" as const,
-            evidenceRefs: verification.evidenceRefs,
-          },
-      evidenceRefs: uniqueStrings([...edge.evidenceRefs, ...verification.evidenceRefs]),
-    };
-  });
-  const verificationFailed = verification !== null && !verification.verified;
+        : updatedBindingEdge(edge, followUpVerification),
+    );
+  }
+  const verificationFailed = (verification !== null && !verification.verified)
+    || followUpFailure !== null;
   const targetReached = targetDeclarationReached(
     condition,
-    facts,
     observations,
+    moduleFacts,
     verifications,
   );
   return {
-    ...nextEpisode,
-    observedFacts: facts,
-    observedBindings,
-    ...(verificationFailed
-      ? { remainingObligations: [] }
-      : nextEpisode.remainingObligations === undefined
-        ? {}
-        : { remainingObligations: nextEpisode.remainingObligations }),
-    ...(verificationFailed
-      ? {
-          localCandidateCursor: {
+    episode: {
+      ...nextEpisode,
+      observedFacts: facts,
+      observedBindings,
+      // A real read replaces preset source-content truth, but still-unexecuted
+      // obligations remain the legal advance candidates for later steps. A
+      // failed follow-up stops the old chain by closing that obligation set.
+      remainingObligations: verificationFailed
+        ? []
+        : nextEpisode.remainingObligations ?? [],
+      localCandidateCursor: verificationFailed
+        ? {
+            pendingRelationRef: condition.relationRef,
+            state: "closed" as const,
+            evidenceRefs: readEvidenceRefs,
+          }
+        : nextEpisode.localCandidateCursor ?? {
             pendingRelationRef: condition.relationRef,
             state: "closed" as const,
             evidenceRefs: readEvidenceRefs,
           },
-        }
-      : nextEpisode.localCandidateCursor === undefined
-        ? {}
-        : { localCandidateCursor: nextEpisode.localCandidateCursor }),
-    currentRelation: currentRelationFromRealFacts(
-      nextEpisode,
-      condition,
-      facts,
-      observations,
-      verifications,
-      readEvidenceRefs,
-    ),
-    coverage: {
-      coveredModules: uniqueStrings(observations.flatMap(observation =>
-        observation.moduleRef === null ? [] : [observation.moduleRef]
-      )),
-      targetModuleReached: targetReached,
-      ...(verificationFailed ? { note: "binding_verification_failed" } : {}),
+      currentRelation: currentRelationFromRealFacts(
+        nextEpisode,
+        condition,
+        facts,
+        observations,
+        moduleFacts,
+        verifications,
+        readEvidenceRefs,
+      ),
+      coverage: {
+        coveredModules: uniqueStrings(observations.flatMap(observation =>
+          observation.moduleRef === null ? [] : [observation.moduleRef]
+        )),
+        targetModuleReached: targetReached,
+        ...(verificationFailed ? { note: "binding_verification_failed" } : {}),
+      },
+      evidenceRefs: readEvidenceRefs,
     },
-    evidenceRefs: readEvidenceRefs,
+    followUpFailure,
   };
 }
 
@@ -1304,6 +1776,7 @@ interface MultiStepReadObservation {
   readonly stepId: string;
   readonly moduleRef: string | null;
   readonly facts: readonly string[];
+  readonly moduleFacts: readonly TsJsModuleFact[];
   readonly evidenceRefs: readonly string[];
 }
 
@@ -1316,9 +1789,13 @@ interface MultiStepBindingVerification {
   readonly sourceModuleRef: string | null;
   readonly moduleSpecifierRaw: string | null;
   readonly observedModuleRef: string | null;
+  readonly expectedBinding: RelationBindingIdentity;
   readonly expectedFacts: readonly string[];
+  readonly matchedModuleFacts: readonly TsJsModuleFact[];
   readonly matchedFacts: readonly string[];
   readonly verified: boolean;
+  readonly failureReason: string | null;
+  readonly phase: "executed" | "follow_up";
   readonly evidenceRefs: readonly string[];
 }
 
@@ -1338,10 +1815,19 @@ interface MultiStepState {
   readonly readEvidenceRefs: readonly string[];
   /** Facts parsed from modules actually read by the executor. */
   readonly realFacts: readonly string[];
+  /** Typed module facts parsed from modules actually read by the executor. */
+  readonly realModuleFacts: readonly TsJsModuleFact[];
   readonly readObservations: readonly MultiStepReadObservation[];
   readonly bindingVerifications: readonly MultiStepBindingVerification[];
+  readonly followUpFailures: readonly MultiStepBindingVerification[];
   readonly terminal: boolean;
-  readonly terminalKind: "judge" | "control_return" | "control_defer" | "exhausted" | null;
+  readonly terminalKind:
+    | "judge"
+    | "control_return"
+    | "control_defer"
+    | "exhausted"
+    | "binding_failed"
+    | null;
   readonly terminalJudgement: TsJsUnifiedTerminalJudgement;
   readonly candidateGroupRef: string;
   readonly lastCandidateRef: string | null;
@@ -1684,10 +2170,16 @@ function evaluateMultiStepRoot(
     );
   const everyBindingVerified = state.bindingVerifications.length > 0
     && state.bindingVerifications.every(verification => verification.verified);
+  const everyRequiredEdgeVerified = goal.relation.edges.length > 0
+    && goal.relation.edges.every(edgeCondition =>
+      state.bindingVerifications.some(verification =>
+        verification.phase === "executed"
+        && verification.edgeRef === edgeCondition.edgeRef
+        && verification.verified));
   const targetReached = targetDeclarationReached(
     goal.relation,
-    state.realFacts,
     state.readObservations,
+    state.realModuleFacts,
     state.bindingVerifications,
   );
   const expansionComplete =
@@ -1698,6 +2190,7 @@ function evaluateMultiStepRoot(
     && evidenceRefs.length > 0
     && everyReadHasValidEvidence
     && everyBindingVerified
+    && everyRequiredEdgeVerified
     && targetReached
     && expansionComplete;
   if (verified) {
@@ -1773,8 +2266,10 @@ export async function runTsJsUnifiedMultiStepDecision(
     ledger: [],
     readEvidenceRefs: [],
     realFacts: [],
+    realModuleFacts: [],
     readObservations: [],
     bindingVerifications: [],
+    followUpFailures: [],
     terminal: false,
     terminalKind: null,
     terminalJudgement: "none",
@@ -1964,8 +2459,10 @@ export async function runTsJsUnifiedMultiStepDecision(
       let bindingVerification: MultiStepBindingVerification | null = null;
       let readObservation: MultiStepReadObservation | null = null;
       let nextRealFacts = state.realFacts;
+      let nextRealModuleFacts = state.realModuleFacts;
       let nextReadObservations = state.readObservations;
       let nextBindingVerifications = state.bindingVerifications;
+      let nextFollowUpFailures = state.followUpFailures;
       let terminalKind: MultiStepState["terminalKind"] = null;
       let terminalJudgement: TsJsUnifiedTerminalJudgement = "none";
 
@@ -2030,15 +2527,22 @@ export async function runTsJsUnifiedMultiStepDecision(
         const binding = chosen.candidate.edgeRef !== null
           ? state.context.bindingEdges.find(edge => edge.edgeRef === chosen.candidate.edgeRef) ?? null
           : null;
+        const executionModuleFacts = execution.moduleFacts
+          ?? moduleFactsFromLegacyObservations(execution.observedFacts, readInput.moduleRef);
         const executedSourceModule = binding !== null && binding.sourceModule.state === "known"
           ? binding.sourceModule.value ?? null
           : null;
         executedSourceModuleForNext = executedSourceModule;
         nextRealFacts = uniqueStrings([...state.realFacts, ...execution.observedFacts]);
+        nextRealModuleFacts = uniqueModuleFacts([
+          ...state.realModuleFacts,
+          ...executionModuleFacts,
+        ]);
         readObservation = {
           stepId,
           moduleRef: readInput.moduleRef,
           facts: execution.observedFacts,
+          moduleFacts: executionModuleFacts,
           evidenceRefs: execution.evidenceRefs,
         };
         nextReadObservations = [...state.readObservations, readObservation];
@@ -2048,18 +2552,24 @@ export async function runTsJsUnifiedMultiStepDecision(
             binding,
             execution,
             readInput.moduleRef,
+            nextRealModuleFacts,
           );
           nextBindingVerifications = [...state.bindingVerifications, bindingVerification];
+          if (!bindingVerification.verified) {
+            terminalKind = "binding_failed";
+          }
         }
-        nextEpisode = multiStepResolveNextEpisode(
-          stepId,
-          actionKind === "submit_read" ? "advance" : "observe",
-          chosen.candidate.edgeRef,
-          executedSourceModule,
-          new Set(state.stepSequence),
-          episodes,
-        );
-        if (nextEpisode === null) terminalKind = "exhausted";
+        if (terminalKind === null) {
+          nextEpisode = multiStepResolveNextEpisode(
+            stepId,
+            actionKind === "submit_read" ? "advance" : "observe",
+            chosen.candidate.edgeRef,
+            executedSourceModule,
+            new Set(state.stepSequence),
+            episodes,
+          );
+          if (nextEpisode === null) terminalKind = "exhausted";
+        }
         if (nextEpisode !== null) {
           const incompatibility = multiStepPreviousExecutionIncompatibility(nextEpisode, {
             requestId: sampleRequestId,
@@ -2079,17 +2589,27 @@ export async function runTsJsUnifiedMultiStepDecision(
               ),
             );
           }
-          nextEpisode = deriveEpisodeFromRealFacts(
+          const derived = deriveEpisodeFromRealFacts(
             nextEpisode,
             relationCondition,
-            chosen.candidate,
-            execution,
             bindingVerification,
             nextRealFacts,
+            nextRealModuleFacts,
             nextReadObservations,
             nextBindingVerifications,
             uniqueStrings([...state.readEvidenceRefs, ...execution.evidenceRefs]),
           );
+          nextEpisode = derived.episode;
+          if (derived.followUpFailure !== null) {
+            nextFollowUpFailures = [...state.followUpFailures, derived.followUpFailure];
+            nextBindingVerifications = [
+              ...nextBindingVerifications,
+              derived.followUpFailure,
+            ];
+          }
+          if (nextFollowUpFailures.length > 0) {
+            terminalKind = "binding_failed";
+          }
         }
       } else if (actionKind === "submit_control") {
         execution = {
@@ -2142,12 +2662,18 @@ export async function runTsJsUnifiedMultiStepDecision(
       const realFacts = actionKind === "submit_read" || actionKind === "submit_observe"
         ? nextRealFacts
         : state.realFacts;
+      const realModuleFacts = actionKind === "submit_read" || actionKind === "submit_observe"
+        ? nextRealModuleFacts
+        : state.realModuleFacts;
       const readObservations = actionKind === "submit_read" || actionKind === "submit_observe"
         ? nextReadObservations
         : state.readObservations;
       const bindingVerifications = actionKind === "submit_read" || actionKind === "submit_observe"
         ? nextBindingVerifications
         : state.bindingVerifications;
+      const followUpFailures = actionKind === "submit_read" || actionKind === "submit_observe"
+        ? nextFollowUpFailures
+        : state.followUpFailures;
 
       let nextStepId: string | null = null;
       let nextStateValue: MultiStepState;
@@ -2161,8 +2687,10 @@ export async function runTsJsUnifiedMultiStepDecision(
           ledger: state.ledger,
           readEvidenceRefs,
           realFacts,
+          realModuleFacts,
           readObservations,
           bindingVerifications,
+          followUpFailures,
           terminal: true,
           terminalKind: terminalKind ?? "exhausted",
           terminalJudgement,
@@ -2198,8 +2726,10 @@ export async function runTsJsUnifiedMultiStepDecision(
           ledger: state.ledger,
           readEvidenceRefs,
           realFacts,
+          realModuleFacts,
           readObservations,
           bindingVerifications,
+          followUpFailures,
           terminal: false,
           terminalKind: null,
           terminalJudgement: "none",

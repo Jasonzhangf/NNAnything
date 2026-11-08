@@ -84,6 +84,30 @@ async function readJsonl(file) {
     .map(line => JSON.parse(line));
 }
 
+async function positiveEpisodes() {
+  const episodes = await loadStudentFamily(join(STAGED_ROOT, FAMILY));
+  return episodes.filter(episode => episode.sampleId === "a-module-positive-alias");
+}
+
+async function runWithReplacedUtil(requestId, utilSource) {
+  const work = await mkdtemp(join(tmpdir(), `p1-1-real-corpus-${requestId}-`));
+  const sourceRoot = join(work, "source-root");
+  await cp(join(CORPUS_ROOT, FAMILY, "sources"), join(sourceRoot, "sources"), {
+    recursive: true,
+  });
+  await writeFile(join(sourceRoot, "sources/src/util.ts"), utilSource, "utf8");
+  const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+  const result = await runTsJsUnifiedMultiStepDecision({
+    requestId,
+    packagePath: modelPath,
+    episodes: await positiveEpisodes(),
+    grantedEffects: ["read_only"],
+    executor: createTsJsFileBackedStepExecutor({ sourceRoot }),
+  });
+  await rm(work, { recursive: true, force: true });
+  return result;
+}
+
 test("real corpus advance reads the actual module files and feeds previous execution", async () => {
   const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-"));
   try {
@@ -112,7 +136,11 @@ test("real corpus advance reads the actual module files and feeds previous execu
     });
     assert.equal(result.recursiveGoal.kind, "run_result");
     const report = result.recursiveGoal.report;
-    assert.equal(report.control.outcome, "completed");
+    assert.equal(
+      report.control.outcome,
+      "completed",
+      JSON.stringify(report.errors),
+    );
     const executedSteps = result.sampleReceipt?.steps ?? [];
     assert.equal(executedSteps.length >= 3, true, "the real chain must execute the full positive sample");
     assert.equal(executedSteps[0]?.receipt?.receiptId, executedSteps[1]?.previousExecutionReceiptId);
@@ -127,9 +155,104 @@ test("real corpus advance reads the actual module files and feeds previous execu
     assert.equal(report.rootEvaluation.result, "satisfied");
     assert.equal(report.rootEvaluation.evidenceRefs.length >= 2, true);
     assert.equal(result.sampleReceipt?.steps.at(-1)?.optionSemantics, "RETURN");
+    const terminalState = report.states.at(-1)?.value;
+    assert.ok(terminalState);
+    const importVerification = terminalState.bindingVerifications.find(verification =>
+      verification.edgeRef === "edge:sources/src/entry-pos.ts:import:0"
+      && verification.phase === "executed");
+    assert.ok(importVerification);
+    assert.deepEqual(importVerification.expectedBinding, {
+      edgeKind: "import",
+      containingModuleRef: "mod:sources/src/entry-pos.ts",
+      sourceModuleRef: "mod:sources/src/util.ts",
+      sourceName: "forwarded",
+      localName: "helper",
+      exportedAlias: null,
+      moduleSpecifierRaw: "./util",
+      sourceTargetRef: "mod:sources/src/util.ts#top:forwarded",
+    });
+    assert.equal(
+      importVerification.matchedModuleFacts.some(fact =>
+        fact.kind === "re_export"
+        && fact.moduleRef === "sources/src/util.ts"
+        && fact.sourceName === "helper"
+        && fact.localName === "forwarded"
+        && fact.exportedAlias === "forwarded"
+        && fact.moduleSpecifierRaw === "./impl"
+        && fact.resolvedModuleRef === "sources/src/impl.ts"),
+      true,
+      "the import edge must be backed by the exact source-module re-export tuple",
+    );
+    const reexportVerification = terminalState.bindingVerifications.find(verification =>
+      verification.edgeRef === "edge:sources/src/util.ts:reexport:0"
+      && verification.phase === "executed");
+    assert.ok(reexportVerification);
+    assert.deepEqual(reexportVerification.expectedBinding, {
+      edgeKind: "re_export",
+      containingModuleRef: "mod:sources/src/util.ts",
+      sourceModuleRef: "mod:sources/src/impl.ts",
+      sourceName: "helper",
+      localName: "forwarded",
+      exportedAlias: "forwarded",
+      moduleSpecifierRaw: "./impl",
+      sourceTargetRef: "mod:sources/src/impl.ts#top:helper",
+    });
+    assert.equal(
+      reexportVerification.matchedModuleFacts.some(fact =>
+        fact.kind === "re_export"
+        && fact.moduleRef === "sources/src/util.ts"
+        && fact.sourceName === "helper"
+        && fact.localName === "forwarded"
+        && fact.exportedAlias === "forwarded"
+        && fact.moduleSpecifierRaw === "./impl"
+        && fact.resolvedModuleRef === "sources/src/impl.ts"),
+      true,
+      "the re-export edge must carry the exact containing/source tuple",
+    );
+    assert.equal(
+      reexportVerification.matchedModuleFacts.some(fact =>
+        fact.moduleRef === "sources/src/impl.ts" && fact.name === "helper"),
+      true,
+      "the verified re-export edge must reach the exact target declaration module",
+    );
   } finally {
     await rm(work, { recursive: true, force: true });
   }
+});
+
+test("file-backed executor preserves the exact import statement tuple", async () => {
+  const executor = createTsJsFileBackedStepExecutor({
+    sourceRoot: join(CORPUS_ROOT, FAMILY),
+  });
+  const result = await executor.read({
+    requestId: "real-corpus-import-tuple",
+    stepId: "entry-observation",
+    action: "observe",
+    candidateRef: "c:observe:entry-pos",
+    targetRef: null,
+    edgeRef: null,
+    pendingRelationRef: "pending:a-module-positive-alias",
+    moduleRef: "mod:sources/src/entry-pos.ts",
+    specifier: null,
+    fromFile: null,
+    fromStepId: null,
+  });
+  assert.equal(result.outcome, "success");
+  const importFact = result.moduleFacts?.find(fact =>
+    fact.kind === "import" && fact.localName === "helper");
+  assert.ok(importFact);
+  assert.deepEqual(importFact, {
+    kind: "import",
+    moduleRef: "sources/src/entry-pos.ts",
+    name: "helper",
+    sourceName: "forwarded",
+    localName: "helper",
+    exportedAlias: null,
+    moduleSpecifierRaw: "./util",
+    resolvedModuleRef: "sources/src/util.ts",
+    sourceTargetRef: "mod:sources/src/util.ts#top:forwarded",
+    legacyFacts: ["import:forwarded as helper<-./util"],
+  });
 });
 
 test("a legal unrelated read followed by RETURN does not satisfy the relation root", async () => {
@@ -215,22 +338,21 @@ test("deleted reexport facts replace preset state and leave the relation unsatis
       grantedEffects: ["read_only"],
       executor: createTsJsFileBackedStepExecutor({ sourceRoot }),
     });
-    const nextState = result.recursiveGoal.report.states.find(state =>
-      state.value?.context?.stepId === "step-1");
-    assert.ok(nextState, "the real util read must produce the next step input");
-    const nextContext = nextState.value.context;
-    assert.equal(
-      nextContext.state.facts.some(fact => fact.value?.value === "file:sources/src/util.ts"),
-      true,
-    );
-    assert.equal(
-      nextContext.state.facts.some(fact => fact.value?.value === "observed util module"),
-      false,
-    );
-    const executedEdge = nextContext.bindingEdges.find(edge =>
-      edge.edgeRef === "edge:sources/src/entry-pos.ts:import:0");
-    assert.ok(executedEdge);
-    assert.equal(executedEdge.sourceContent.state, "failed");
+    const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+    assert.ok(terminalState);
+    assert.equal(terminalState.terminal, true);
+    assert.equal(terminalState.terminalKind, "binding_failed");
+    const failedImport = terminalState.bindingVerifications.find(verification =>
+      verification.edgeRef === "edge:sources/src/entry-pos.ts:import:0"
+      && verification.phase === "executed");
+    assert.ok(failedImport);
+    assert.equal(failedImport.verified, false);
+    assert.equal(failedImport.failureReason, "source_module_does_not_export_source_name");
+    assert.equal(failedImport.expectedBinding.sourceModuleRef, "mod:sources/src/util.ts");
+    assert.equal(failedImport.expectedBinding.sourceName, "forwarded");
+    assert.equal(failedImport.expectedBinding.localName, "helper");
+    assert.equal(failedImport.expectedBinding.moduleSpecifierRaw, "./util");
+    assert.deepEqual(failedImport.matchedModuleFacts, []);
     assert.notEqual(result.rootEvaluation.result, "satisfied");
   } finally {
     await rm(work, { recursive: true, force: true });
@@ -259,14 +381,22 @@ test("deleted target declaration leaves the relation unsatisfied", async () => {
       grantedEffects: ["read_only"],
       executor: createTsJsFileBackedStepExecutor({ sourceRoot }),
     });
-    const terminalState = result.recursiveGoal.report.states.find(state =>
-      state.value?.context?.stepId === "step-2");
-    assert.ok(terminalState, "the real impl read must produce the terminal step input");
-    const terminalContext = terminalState.value.context;
-    const reexportEdge = terminalContext.bindingEdges.find(edge =>
-      edge.edgeRef === "edge:sources/src/util.ts:reexport:0");
-    assert.ok(reexportEdge);
-    assert.equal(reexportEdge.sourceContent.state, "failed");
+    const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+    assert.ok(terminalState);
+    assert.equal(terminalState.terminal, true);
+    assert.equal(terminalState.terminalKind, "binding_failed");
+    const failedReexport = terminalState.bindingVerifications.find(verification =>
+      verification.edgeRef === "edge:sources/src/util.ts:reexport:0"
+      && verification.phase === "executed");
+    assert.ok(failedReexport);
+    assert.equal(failedReexport.verified, false);
+    assert.equal(failedReexport.failureReason, "source_module_declaration_missing");
+    assert.equal(failedReexport.expectedBinding.containingModuleRef, "mod:sources/src/util.ts");
+    assert.equal(failedReexport.expectedBinding.sourceModuleRef, "mod:sources/src/impl.ts");
+    assert.equal(failedReexport.expectedBinding.sourceName, "helper");
+    assert.equal(failedReexport.expectedBinding.localName, "forwarded");
+    assert.equal(failedReexport.expectedBinding.exportedAlias, "forwarded");
+    assert.equal(failedReexport.expectedBinding.moduleSpecifierRaw, "./impl");
     assert.equal(
       result.steps.some(step => step.observedPostState.observedFacts.includes("decl:helper")),
       false,
@@ -330,6 +460,122 @@ test("a missing module read fails with a real error receipt", async () => {
         ),
       ),
       true,
+    );
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+});
+
+test("same-name local definition does not replace the re-export binding", async () => {
+  const result = await runWithReplacedUtil(
+    "real-corpus-same-name-local-replaces-reexport",
+    "export function forwarded() { return 0; }\n",
+  );
+  assert.notEqual(result.rootEvaluation.result, "satisfied");
+  const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+  assert.ok(terminalState);
+  assert.equal(
+    terminalState.bindingVerifications.some(verification =>
+      verification.edgeRef === "edge:sources/src/util.ts:reexport:0"
+      && !verification.verified),
+    true,
+    "the failed re-export edge identity must be recorded",
+  );
+});
+
+test("wrong exported alias does not satisfy the re-export binding", async () => {
+  const result = await runWithReplacedUtil(
+    "real-corpus-wrong-reexport-alias",
+    [
+      "export function forwarded() { return 0; }",
+      'export { helper as renamed } from "./impl";',
+      "",
+    ].join("\n"),
+  );
+  assert.notEqual(result.rootEvaluation.result, "satisfied");
+  const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+  assert.ok(terminalState);
+  assert.equal(
+    terminalState.bindingVerifications.some(verification =>
+      verification.edgeRef === "edge:sources/src/util.ts:reexport:0"
+      && !verification.verified),
+    true,
+    "the wrong-alias re-export edge must remain identifiable",
+  );
+});
+
+test("wrong module specifier does not satisfy the re-export binding", async () => {
+  const result = await runWithReplacedUtil(
+    "real-corpus-wrong-reexport-module",
+    'export { helper as forwarded } from "./other-different";\n',
+  );
+  assert.notEqual(result.rootEvaluation.result, "satisfied");
+  const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+  assert.ok(terminalState);
+  assert.equal(
+    terminalState.bindingVerifications.some(verification =>
+      verification.edgeRef === "edge:sources/src/util.ts:reexport:0"
+      && !verification.verified),
+    true,
+    "the wrong-module re-export edge must remain identifiable",
+  );
+});
+
+test("root coverage rejects an unexecuted relation edge after the executed subset passes", async () => {
+  const work = await mkdtemp(join(tmpdir(), "p1-1-real-corpus-unexecuted-edge-"));
+  try {
+    const positive = await positiveEpisodes();
+    const step0 = positive.find(episode => episode.stepId === "step-0");
+    const step1 = positive.find(episode => episode.stepId === "step-1");
+    const terminal = positive.find(episode => episode.stepId === "step-2");
+    assert.ok(step0);
+    assert.ok(step1);
+    assert.ok(terminal);
+    const extraEdge = {
+      ...step1.observedBindings[1],
+      edgeRef: "edge:sources/src/util.ts:reexport:unexecuted",
+      fromNodeRef: "syntax:sources/src/util.ts:reexport:unexecuted",
+    };
+    const unexecuted = {
+      ...step1,
+      stepId: "step-unexecuted",
+      observedBindings: [extraEdge],
+      remainingObligations: [{
+        ...step1.remainingObligations[0],
+        ref: extraEdge.edgeRef,
+      }],
+      previousExecution: {
+        ...step1.previousExecution,
+        value: {
+          ...step1.previousExecution.value,
+          fromStepId: "step-not-selected",
+        },
+      },
+    };
+    const modelPath = await writeModel(work, { preferControlAtTerminal: true });
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "real-corpus-unexecuted-relation-edge",
+      packagePath: modelPath,
+      episodes: [step0, step1, terminal, unexecuted],
+      grantedEffects: ["read_only"],
+      executor: createTsJsFileBackedStepExecutor({
+        sourceRoot: join(CORPUS_ROOT, FAMILY),
+      }),
+    });
+    const executedEdges = result.steps
+      .map(step => step.executionReceipt?.actionRef)
+      .filter(Boolean);
+    assert.equal(executedEdges.length >= 3, true, "the legal executed subset must pass");
+    assert.equal(result.rootEvaluation.result, "unsatisfied");
+    const terminalState = result.recursiveGoal.report.states.at(-1)?.value;
+    assert.ok(terminalState);
+    assert.equal(
+      terminalState.bindingVerifications.some(verification =>
+        verification.edgeRef === extraEdge.edgeRef
+        && verification.phase === "executed"
+        && verification.verified),
+      false,
+      "the unexecuted required relation edge must remain without verified coverage",
     );
   } finally {
     await rm(work, { recursive: true, force: true });

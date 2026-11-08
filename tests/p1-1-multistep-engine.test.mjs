@@ -224,7 +224,7 @@ function step1() {
       edgeRef: E2,
       callSiteRef: null,
       fromNodeRef: `syntax:${E2}`,
-      edgeKind: "reexport",
+      edgeKind: "re_export",
       sourceName: "helper",
       sourceModule: { state: "known", value: "mod:sources/src/impl.ts", reason: null, evidenceRefs: [`ev:${E2}`] },
       targetName: "helper",
@@ -279,6 +279,58 @@ function recordingExecutor({ fail = null } = {}) {
         failure: { code: "ENOENT", message: `missing ${input.moduleRef}`, nativeCode: "ENOENT" },
       };
     }
+    const moduleFacts = [];
+    if (input.edgeRef === E1) {
+      moduleFacts.push({
+        kind: "import",
+        moduleRef: "sources/src/entry.ts",
+        name: "helper",
+        sourceName: "helper",
+        localName: "helper",
+        exportedAlias: null,
+        moduleSpecifierRaw: "./util",
+        resolvedModuleRef: "sources/src/util.ts",
+        sourceTargetRef: "mod:sources/src/util.ts#top:helper",
+        legacyFacts: ["import:helper as helper<-./util"],
+      });
+      moduleFacts.push({
+        kind: "re_export",
+        moduleRef: "sources/src/util.ts",
+        name: "helper",
+        sourceName: "helper",
+        localName: "helper",
+        exportedAlias: "helper",
+        moduleSpecifierRaw: "./impl",
+        resolvedModuleRef: "sources/src/impl.ts",
+        sourceTargetRef: "mod:sources/src/impl.ts#top:helper",
+        legacyFacts: ["export:helper", "reexport:helper<-./impl"],
+      });
+    } else if (input.edgeRef === E2) {
+      moduleFacts.push({
+        kind: "declaration",
+        moduleRef: "sources/src/impl.ts",
+        name: "helper",
+        sourceName: null,
+        localName: null,
+        exportedAlias: null,
+        moduleSpecifierRaw: null,
+        resolvedModuleRef: null,
+        sourceTargetRef: "mod:sources/src/impl.ts#top:helper",
+        legacyFacts: ["decl:helper"],
+      });
+      moduleFacts.push({
+        kind: "export",
+        moduleRef: "sources/src/impl.ts",
+        name: "helper",
+        sourceName: "helper",
+        localName: "helper",
+        exportedAlias: "helper",
+        moduleSpecifierRaw: null,
+        resolvedModuleRef: null,
+        sourceTargetRef: "mod:sources/src/impl.ts#top:helper",
+        legacyFacts: ["export:helper"],
+      });
+    }
     return {
       outcome: "success",
       observedFacts: [
@@ -286,6 +338,7 @@ function recordingExecutor({ fail = null } = {}) {
         "decl:helper",
         "export:helper",
       ],
+      moduleFacts,
       evidenceRefs: [`ev:executor:${input.stepId}:${input.edgeRef ?? "none"}`],
       coverage: { modules: [input.moduleRef ?? ""], targetModuleReached: true, note: null },
       failure: null,
