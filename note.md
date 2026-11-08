@@ -3933,3 +3933,15 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal：deadline 已 consumed 并显式重臂，`appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000` 返回 one-shot armed；project patrol `sub-m1793963843713-143` 保持 armed。
 - 边界：本轮仅消费通知、只读核对 runner 路由、派发子任务与发送 durable 调度消息、更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Henry 交付转换准入回执、Alice 独立审查；等 Iris 更新 P0 next_step；随后再评估 `evaluate` 独立评价接线与真实 fit 切片。
+
+## 2026-11-08 Jenny：准入 ACCEPT 收口，evaluate 工程派发（17:47Z）
+
+- 目的：处理 Henry 准入交付/Alice ACCEPT/任务关闭，把已接受 timing/evaluate 设计中的 `evaluate` 独立评价工程接成下一个 P0 子任务。
+- 证据：`collab recv` 已消费 Henry 结果、Alice ACCEPT、Henry 关闭及多批 worker-idle/master-wake；`validation-out/run-report.json` 为 `READY`、TRAIN 15 data rows、67 student rows、15 supervision rows。Alice review 路径 `/Volumes/Intel/playground/nnanything-runs/tsjs-v2-corpus-admission-henry-20261108/alice-review.md`，明确此验收只覆盖 v2 TRAIN 转换/数据准入，不等于 fit 或语义通过。
+- 处置：
+  - 落盘 evaluate 工程合同 `/Volumes/Intel/playground/nnanything-runs/tsjs-evaluate-engineering-henry-20261108/contract.md`。
+  - 发布 P0 board 子任务 `tsjs-evaluate-engineering-henry-20261108`，executor Henry、reviewer Alice、parent `nnanything-overall-redesign-orchestration-r1`，状态 `invited`。
+  - 向 Henry 发送 durable 指令 `m1794160035666-3844`，要求接单后按合同执行；向 Iris 发送 `m1794160035044-3843`，要求同步 P0 next_step/roadmap，并明确真实 fit/save/reload/holdout/旧能力回归仍在 evaluate 工程验收之后。
+- goal：deadline `m1794159919915-3827` 已消费并显式重臂，project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只消费通知、写只读合同、发布/邀请任务、发送 durable 调度消息、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 接受并交付 evaluate 工程回执，再由 Alice 独立 review；真实 fit/save/reload/holdout/旧能力回归继续后置；继续跟踪 `8d11940` 与 `7db2c6a`。
