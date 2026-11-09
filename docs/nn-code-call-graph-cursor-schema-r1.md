@@ -91,8 +91,9 @@ callee declaration 均已观测后产生。模型与评价器不拆 opaque ref�
    该组。
 3. `(DeclarationRef, reachedDepth)` 是 expansion identity。不同深度不能因声明
    相同而合并。
-4. `(ConfirmedCallEdgeRef, reachedDepth)` 是输出深度 identity。同深度只保留
-   一个有效 witness。
+4. `(ConfirmedCallEdgeRef, reachedDepth)` 是输出深度 identity。每条已确认出边
+   在每个到达深度各有独立 witness；不同 call-site 即使到达同一 callee 同一深度
+   也是不同 `ConfirmedCallEdgeRef`，不能合并成一个 visited witness。
 5. `remainingDepth=0` 是正常深度终点。它不产生未知，也不产生 scope 缺口。
 6. 读取失败、权限失败、预算停止、候选截断与语义 unknown 分开。
 7. 父义务、frontier、visited、gap、witness 和 stop 只来自 typed cursor 与
@@ -192,6 +193,7 @@ type CallGraphLedgers = {
   callSites: readonly CallSiteLedgerRecord[];
   relations: readonly RelationLedgerRecord[];
   expansions: readonly ExpansionLedgerRecord[];
+  edgeOccurrences: readonly EdgeOccurrenceRecord[];
   depthBoundaries: readonly DepthBoundaryRecord[];
 };
 
@@ -239,6 +241,18 @@ type ExpansionLedgerRecord = {
   receiptRefs: readonly Ref[];
 };
 
+type EdgeOccurrenceRecord = {
+  edgeOccurrenceRef: Ref;
+  confirmedEdgeRef: Ref;
+  parentDeclarationRef: Ref;
+  calleeDeclarationRef: Ref;
+  reachedDepth: number;
+  witnessPathRef: Ref;
+  stateRef: Ref;
+  evidenceRefs: readonly Ref[];
+  receiptRef: Ref | null;
+};
+
 type DepthBoundaryRecord = {
   boundaryRef: Ref;
   declarationRef: Ref;
@@ -257,6 +271,13 @@ type DepthBoundaryRecord = {
 显式 coverage/execution gap 时成立。`RelationLedgerRecord.status` 与
 `ConfirmedCallEdgeRef` 不能互相替代：unknown/false 没有 confirmed edge；
 true 必须有已观测终端声明与有效 witness。
+
+`EdgeOccurrenceRecord` 是 `(ConfirmedCallEdgeRef, reachedDepth, witness)` 的唯一
+typed owner，键为 `(confirmedEdgeRef, reachedDepth)`。它的 `witnessPathRef`、
+`stateRef`、`evidenceRefs` 解析到现有 `evidence`、`states` 表，不复制这些真源。
+每次新到达深度都追加一条 occurrence；复用局部 relation 判断时也必须为该深度写
+自己的 witness。同一 callee 同深度的不同入边是不同 `confirmedEdgeRef`，各有独立
+occurrence，不能用 visited witness 代替。
 
 ### 4.4 Gap schema
 
@@ -403,31 +424,40 @@ judge/control 为 `control`，对 inspect/advance 为 `read_only`。来源：
 5. 模型只选一个候选。observe/advance 派发一次 read-only 动作并等待真实
    receipt；judge 写当前 relation 的唯一语义终态。
 6. 新观测只进入动作之后的 New State。旧 StepContext 不回填未来证据。
-7. 关闭当前 pending 子关系；同一 call-site 仍有 pending 子关系时保持父义务
-   open，下一次只处理下一组。
-8. 全部子关系终态或有显式 gap 后关闭父义务；继续同一 expansion 的下一
-   call-site，或关闭 expansion。
+7. 按所选动作的真实结果更新当前 `pendingRelationRef` 的局部状态。observe/advance
+   只追加已观测事实并保持该关系 `pending`；只有 `judge` 写唯一语义终态
+   `true|false|unknown`，只有带 typed gap 的 coverage/execution 结果才关闭处理。
+   单个 observation receipt 不构成父义务关闭。
+8. 全部子关系有语义终态或有显式 gap 后关闭父义务；同一 call-site 仍有 pending
+   子关系时保持父义务 open，下一次只处理下一组。父义务关闭后继续同一 expansion
+   的下一 call-site，或关闭 expansion。
 
 ### 5.3 确认边与深度传播
 
 `judge(true)` 只有在终端 `DeclarationRef` 已观测时才能产生
-`ConfirmedCallEdgeRef`。引擎把 `parentDepth+1` 加入该边 depths，并保存
-有效 witness。若 `parentDepth+1 <= maxDepth`，创建或复用
+`ConfirmedCallEdgeRef`。引擎把 `parentDepth+1` 加入该边 depths，并为
+`(confirmedEdgeRef, parentDepth+1)` 追加一条 `EdgeOccurrenceRecord`，保存该深度
+自己的 `witnessPathRef`。若 `parentDepth+1 <= maxDepth`，创建或复用
 `(calleeDeclarationRef, parentDepth+1)` frontier entry。等于边界时仍创建
 到达记录，但下一次弹出只写深度终点，不解析出边。
 
 同一 `(DeclarationRef, reachedDepth)` 只处理一次。局部 relation 判断可复用，
-但每个新到达深度仍传播同一已确认出边并记录该深度的 witness。循环不剪简单
-路径，也不枚举全部路径。来源：`emma-call-graph-redesign-r1.md`:337-365。
+但每个新到达深度仍传播同一已确认出边并记录该深度的 witness。不同 call-site
+到达同一 `(calleeDeclarationRef, reachedDepth)` 时，`visited` 只有一条，但每条
+入边有自己的 `ConfirmedCallEdgeRef` 和 `EdgeOccurrenceRecord`，不能用同一
+visited witness 代替。循环不剪简单路径，也不枚举全部路径。
+来源：`emma-call-graph-redesign-r1.md`:337-365。
 
 ### 5.4 收敛
 
 - `all`：frontier 空、scope closed、无 active group、无 open coverage/
-  execution gap，才可提交完整覆盖。语义 unknown 可作为关系终态；open
-  unknown 不是终态。
-- `one`：一条真实确认边满足根 verify 后可停止语义搜索，但未处理 frontier、
-  scope 与 gap 必须保留为 partial。
-- 任一执行失败、截断或未闭 cursor 阻止 satisfied。
+  execution gap，才可提交完整覆盖。语义 unknown 可作为关系终态，但终态
+  unknown 不能满足要求已知关系成立的 all 根；open unknown 不是终态。
+- `one`：一条真实确认边带请求要求的 witness，且相关 CandidateGroup 已终结，
+  就可满足根 verify。此时其他未处理 frontier、scope 与 gap 保持
+  `coverage.status=partial`，不阻止该 one 结果 satisfied。
+- 只有同一目标链上的执行失败、截断或相关组未闭阻止 satisfied。与 one 请求无关的
+  未闭 frontier/scope 记为 partial coverage，不全局否决。
 - 遍历停止、模型 RETURN、根 satisfied 分别记录。
 
 依据：`emma-call-graph-redesign-r1.md`:367-379、:473-474、:478-523；
@@ -511,6 +541,11 @@ X->Y depths [2,3]
 `(X,1)` 与 `(X,2)` 是两个 visited identity。先走较深路径不能删除较浅路径，
 反之亦然。两个 `X->Y` 深度各有 witness，不能拿深度 2 路径证明深度 3。
 
+同深度多入边反例：A 有 `A->B`、`A->C`，B 与 C 各有一条 `->D`。此时 `(D,2)`
+只有一条 visited entry，但 `B->D@2` 与 `C->D@2` 是两条不同
+`ConfirmedCallEdgeRef`，各有自己的 `EdgeOccurrenceRecord` 与 witness。不能用
+`(D,2)` 的单个 visited witness 代替其中一条入边。
+
 ### 7.3 循环 A->B->A，另有 A->C，maxDepth=3，all
 
 visited 包含 `(A,0)`、`(B,1)`、`(A,2)`、`(B,3)`，以及 `A->C` 的
@@ -579,9 +614,10 @@ alias 调用先只观测到 import 边。StepContext 的 `state.facts` 含已知
 call-site 与未读 source module，`BindingEdge.sourceContent.state` 为
 `not_requested`。`A_g={advance(edge)}`，`S_g` 不按终端 gold 过滤。
 
-advance 的真实 receipt 读取 source 后，下一 State 才加入 re-export 边；
-继续 advance 读取终端声明后，下一组才可 `judge(true)`。读取 util 后不能
-提前宣布最终 callee。来源：
+同一 `pendingRelationRef=R` 跨以下步骤保持 `pending`。advance 的真实 receipt
+读取 source 后，下一 State 才加入 re-export 边，R 的局部状态只追加观察；
+继续 advance 读取终端声明后，R 仍 `pending`，只有下一个 `judge(true)` 才把 R
+写成语义终态并关闭该子关系。读取 util 后不能提前宣布最终 callee。来源：
 `emma-unified-decision-contract.md`:1617-1635。
 
 ## 8. 评价分母
@@ -657,6 +693,8 @@ expectedCount =
 - frontier、visited、ledger、gap、coverage 引用闭合；
 - active group 至多一个，且其 CandidateGroup 属于当前 pending relation；
 - 所有 State/evidence/receipt/witness/error ref 解析到现有 runtime 表；
+- 每条 `EdgeOccurrenceRecord` 的 `confirmedEdgeRef`、`reachedDepth`、
+  `witnessPathRef` 与 `RelationLedgerRecord` 一致；
 - 深度不超过 maxDepth，边界记录与 maxDepth 一致；
 - stop 与现有 `control.stopReason` 一致；
 - 未完成义务与现有 `remainingRequirements` 一致；
