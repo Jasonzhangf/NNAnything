@@ -3,7 +3,7 @@ import { convertAllExistingUnitsToCoverageReport } from "../dist/training/genera
 function parseArgs(argv) {
   let mode = "audit_diagnostic";
   let cliCommandSamplesPath;
-  let repositoryRoot = "/Volumes/extension/code/NNAnything";
+  let repositoryRoot;
   let includeUpstreamCandidateInference = true;
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -22,6 +22,9 @@ function parseArgs(argv) {
     } else {
       throw new TypeError(`Unknown CLI flag: ${arg}`);
     }
+  }
+  if (repositoryRoot === undefined) {
+    throw new TypeError("--repo-root is required");
   }
   return {
     mode,
