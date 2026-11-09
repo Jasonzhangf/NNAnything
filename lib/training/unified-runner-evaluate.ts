@@ -104,6 +104,8 @@ export interface UnifiedEvaluateSampleStepDetail {
   readonly predicted: OracleJudgement | null;
   readonly gold: OracleJudgement | null;
   readonly outcome: StepOutcome | null;
+  readonly executionReceiptRef: string | null;
+  readonly postStateRef: string | null;
   readonly evidenceRefs: readonly string[];
 }
 
@@ -119,7 +121,7 @@ export interface UnifiedEvaluateSampleDetail {
   readonly steps: readonly UnifiedEvaluateSampleStepDetail[];
 }
 
-export type UnifiedRootState = "satisfied" | "unsatisfied" | "unknown" | "missing";
+export type UnifiedRootState = "satisfied" | "unsatisfied" | "unknown" | "not_evaluated" | "missing";
 
 export interface UnifiedEvaluateReport {
   readonly schema: typeof UNIFIED_EVALUATE_REPORT_SCHEMA;
@@ -383,12 +385,13 @@ function mapGoldSamplesForAccounting(
   return rows;
 }
 
-function assertGoldStudentCorrespondence(
+// Independent supervision validation: identity, source group and partition.
+// Runs before any student-dependent loading so the admitted denominator
+// survives a missing or malformed student file.
+function assertGoldRowsValid(
   admission: { readonly sourceGroup: string; readonly partition: string },
   goldRows: readonly GoldRecord[],
-  episodes: readonly RelationStepEpisode[],
 ): void {
-  const episodeSamples = new Set(episodes.map(episode => episode.sampleId));
   const goldSamples = new Set<string>();
   for (const gold of goldRows) {
     if (goldSamples.has(gold.sampleId)) {
@@ -407,6 +410,16 @@ function assertGoldStudentCorrespondence(
         `gold sample ${gold.sampleId} partition ${gold.partition} does not match admitted family ${admission.partition}`,
       );
     }
+  }
+}
+
+function assertGoldStudentMembership(
+  goldRows: readonly GoldRecord[],
+  episodes: readonly RelationStepEpisode[],
+): void {
+  const episodeSamples = new Set(episodes.map(episode => episode.sampleId));
+  const goldSamples = new Set(goldRows.map(gold => gold.sampleId));
+  for (const gold of goldRows) {
     if (!episodeSamples.has(gold.sampleId)) {
       throw new UnifiedRunnerEvaluateError("GOLD_MISSING", `gold sample ${gold.sampleId} has no student episode`);
     }
@@ -525,17 +538,14 @@ function studentRunOfMultiStep(
       failure: receipt.failure ?? null,
     };
     executionEntries.push(executionEntry);
-    const failure = receipt.failure ?? null;
     return {
       stepId: step.stepId,
       optionSemantics: choice.optionSemantics,
       executionReceiptRef: executionEntry.executionReceiptRef,
       postStateRef: executionEntry.postStateRef,
-        evidenceRefs: [
-          ...receipt.evidenceRefs,
-          ...postState.observedFacts,
-          ...(failure === null ? [] : [`failure:${failure.code}`, `failureMessage:${failure.message}`]),
-        ],
+      // Failure diagnostics stay in the typed failure and error.detail;
+      // evidenceRefs carry only real receipt and observation evidence.
+      evidenceRefs: [...receipt.evidenceRefs, ...postState.observedFacts],
     };
   });
   const run: StudentRelationRun = {
@@ -544,6 +554,7 @@ function studentRunOfMultiStep(
     rootConditionStates,
     rootGaps,
     rootEvidenceRefs,
+    rootEvaluationState: root.state === "evaluated" ? "evaluated" : "not_evaluated",
     rootSatisfied,
   };
   const stepFailure = failedStepFailureOf(sampleId, result);
@@ -571,6 +582,10 @@ function studentRunOfMultiStep(
 
 function rootStateOf(run: StudentRelationRun | undefined): UnifiedRootState {
   if (run === undefined) return "missing";
+  // Availability comes from the engine's explicit root evaluation state, never
+  // from a null result. The completed-run path currently reports "evaluated";
+  // "not_evaluated" is retained for an engine-reported unevaluated root.
+  if (run.rootEvaluationState === "not_evaluated") return "not_evaluated";
   if (run.rootSatisfied === null) return "unknown";
   return run.rootSatisfied ? "satisfied" : "unsatisfied";
 }
@@ -596,6 +611,8 @@ function buildSampleDetails(
         predicted,
         gold,
         outcome,
+        executionReceiptRef: step.executionReceiptRef,
+        postStateRef: step.postStateRef,
         evidenceRefs: [...step.evidenceRefs],
       };
     });
@@ -678,7 +695,7 @@ function formatMarkdown(report: UnifiedEvaluateReport): string {
     }
     for (const step of sample.steps) {
       lines.push(
-        `  - ${step.stepId}: ${step.optionSemantics} outcome=${String(step.outcome)} evidence=${step.evidenceRefs.join(",")}`,
+        `  - ${step.stepId}: ${step.optionSemantics} outcome=${String(step.outcome)} receipt=${step.executionReceiptRef} postState=${step.postStateRef} evidence=${step.evidenceRefs.join(",")}`,
       );
     }
   }
@@ -822,16 +839,20 @@ export async function runUnifiedRunnerEvaluate(
     const familyDir = resolve(config.independentFamilyPath);
     const manifest = await readJson(join(familyDir, "manifest.json"));
     const admission = await loadAdmission(manifest, config.admissionsPath);
-    await assertStudentInputIsolated(familyDir);
-    episodes = await loadStepwiseEpisodeFamily(familyDir);
+    // Load and validate independent supervision first. If the student file is
+    // absent or malformed, partial accounting keeps the admitted gold
+    // denominator and sample identities instead of reporting an empty set.
     const goldRows = await loadGoldFamily(familyDir);
+    assertGoldRowsValid(admission, goldRows);
     goldRowsForAccounting = goldRows;
     const manifestOracleRefs = manifest.oracleRefs;
     const oracleRefs = Array.isArray(manifestOracleRefs)
       ? manifestOracleRefs.filter((ref): ref is string => typeof ref === "string")
       : [];
     oracleRefsForAccounting = oracleRefs;
-    assertGoldStudentCorrespondence(admission, goldRows, episodes);
+    await assertStudentInputIsolated(familyDir);
+    episodes = await loadStepwiseEpisodeFamily(familyDir);
+    assertGoldStudentMembership(goldRows, episodes);
     samples = mapGoldSamples(goldRows, episodes, oracleRefs);
 
     const episodesBySample = new Map<string, RelationStepEpisode[]>();

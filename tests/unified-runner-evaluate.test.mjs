@@ -271,6 +271,8 @@ async function makeFixture({
   samples = [],
   goldRows,
   studentRows,
+  studentFileContent,
+  omitStudentFile = false,
   admissionsOverride,
   packageOverride,
   packageDir = false,
@@ -314,10 +316,16 @@ async function makeFixture({
     join(familyDir, "labels", "gold.jsonl"),
     goldRows ?? samples.map(({ sampleId, label }) => goldRow(sampleId, label)),
   );
-  await writeJsonl(
-    join(familyDir, "student-observations.jsonl"),
-    studentRows ?? samples.map(({ sampleId, evidenceRefs }) => studentRecord(sampleId, { evidenceRefs })),
-  );
+  if (!omitStudentFile) {
+    if (studentFileContent !== undefined) {
+      await writeFile(join(familyDir, "student-observations.jsonl"), studentFileContent, "utf8");
+    } else {
+      await writeJsonl(
+        join(familyDir, "student-observations.jsonl"),
+        studentRows ?? samples.map(({ sampleId, evidenceRefs }) => studentRecord(sampleId, { evidenceRefs })),
+      );
+    }
+  }
 
   const admissionsPath = join(root, "corpus-admissions-v1.json");
   await writeJson(admissionsPath, admissionsOverride ?? {
@@ -640,14 +648,22 @@ test("evaluate retains a failed sample's completed and failed steps with the ori
     assert.equal(report.error.detail.affectedSampleId, "failed-second");
     assert.equal(report.error.detail.affectedStepId, "step:1");
     assert.equal(report.error.detail.executionFailure.code, "MODULE_UNRESOLVED");
+    assert.equal(report.sampleDetails[0].root, "unknown");
     assert.equal(report.sampleDetails[0].steps.length, 2);
-    assert.ok(report.sampleDetails[0].steps[1].evidenceRefs.includes("failure:MODULE_UNRESOLVED"));
+    const failedStep = report.sampleDetails[0].steps[1];
+    assert.ok(!failedStep.evidenceRefs.some(ref => ref.startsWith("failure:") || ref.startsWith("failureMessage:")));
+    assert.equal(failedStep.executionReceiptRef, report.executionEntries[1].executionReceiptRef);
+    assert.equal(failedStep.postStateRef, report.executionEntries[1].postStateRef);
+    const markdown = await readFile(join(fixture.outputDir, "run-report.md"), "utf8");
+    assert.ok(markdown.includes(report.executionEntries[1].executionReceiptRef));
+    assert.ok(markdown.includes(report.executionEntries[1].postStateRef));
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
 
 test("evaluate rejects an evaluated root with no root evidence", async () => {
+  // Terminal judge reached, so the root is evaluated; empty evidence is rejected.
   const terminalOnly = studentRecord("known-true", {
     steps: [terminalStep("step:0", ["ev:known-true:read"])],
   });
@@ -687,6 +703,75 @@ test("evaluate keeps independent gold obligations when a student episode is miss
       report.sampleDetails.map(sample => sample.sampleId),
       ["known-true", "orphan-gold"],
     );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate keeps independent gold obligations when the student file is absent", async () => {
+  const fixture = await makeFixture({
+    samples: [],
+    goldRows: [
+      goldRow("known-true", "true"),
+      goldRow("orphan-gold", "false"),
+    ],
+    omitStudentFile: true,
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 1);
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.status, "failed");
+    assert.equal(report.gold.total, 2);
+    assert.deepEqual(
+      report.sampleDetails.map(sample => sample.sampleId),
+      ["known-true", "orphan-gold"],
+    );
+    assert.deepEqual([...report.missingRun].sort(), ["known-true", "orphan-gold"]);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate keeps independent gold obligations when a student record is invalid", async () => {
+  const fixture = await makeFixture({
+    samples: [],
+    goldRows: [goldRow("known-true", "true")],
+    studentFileContent: "{ this is not valid json\n",
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 1);
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.status, "failed");
+    assert.equal(report.gold.total, 1);
+    assert.deepEqual(report.sampleDetails.map(sample => sample.sampleId), ["known-true"]);
+    assert.deepEqual(report.missingRun, ["known-true"]);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate carries the engine root evaluation state instead of inferring from null", async () => {
+  // A single successful read with no terminal judge is still an evaluated
+  // root (unsatisfied); the report must not turn a null result into unknown.
+  // The explicit not_evaluated state is carried through and only used when the
+  // engine reports an unevaluated root.
+  const nonTerminal = studentRecord("nonterminal", {
+    steps: [advanceStep("nonterminal", {})],
+  });
+  const fixture = await makeFixture({
+    samples: [{ sampleId: "nonterminal", label: "true" }],
+    studentRows: [nonTerminal],
+    extraW1: { 53: 2 },
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 1);
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.status, "failed");
+    assert.equal(report.error.code, "EXECUTION_RECEIPT_MISSING");
+    assert.equal(report.sampleDetails[0].sampleId, "nonterminal");
+    assert.equal(report.sampleDetails[0].root, "unsatisfied");
+    assert.ok(report.sampleDetails[0].rootConditionStates.length > 0);
+    assert.ok(report.sampleDetails[0].rootEvidenceRefs.length > 0);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
