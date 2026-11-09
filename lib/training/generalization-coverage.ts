@@ -690,7 +690,7 @@ function dot(weights: readonly number[], features: readonly number[]): number {
 }
 
 export interface ConvertAllExistingUnitsOptions {
-  readonly repositoryRoot?: string;
+  readonly repositoryRoot: string;
   readonly mode?: CoverageReportMode;
   readonly cliCommandSamplesPath?: string;
   readonly cliCommandProfilePath?: string | null;
@@ -709,17 +709,6 @@ export interface AllUnitsCoverageBundle {
   readonly units: Readonly<Record<string, UnitCoverageReport>>;
   readonly extraDiagnostics: Readonly<Record<string, UnitCoverageReport>>;
 }
-
-const DEFAULT_SAVED_BROWSER_ATOMIC_PATH =
-  "/Volumes/Intel/playground/nnanything-runs/browser-semantic-single-action-20261020/fitted/candidate.json";
-const DEFAULT_SAVED_BROWSER_FEEDBACK_PATH =
-  "/Volumes/Intel/playground/nnanything-runs/browser-semantic-single-action-20261020/feedback-strategy/fitted-feedback-coverage-r1/candidate.json";
-const DEFAULT_SAVED_BROWSER_STRATEGY_PATH =
-  "/Volumes/Intel/playground/nnanything-runs/browser-semantic-single-action-20261020/progressive-strategy/fitted-r1/candidate.json";
-const DEFAULT_CLI_STAGE2_SAMPLES_PATH =
-  "/Volumes/Intel/playground/nnanything-runs/cli-p3-stage2/training-output/samples/filesystem/command/4e7e39ca-bd72-4785-a719-c621112159b8/samples.json";
-const DEFAULT_CLI_STAGE2_PROFILE_PATH =
-  "/Volumes/Intel/playground/nnanything-runs/cli-p3-stage2/training-output/weights/filesystem/command/4e7e39ca-bd72-4785-a719-c621112159b8/candidate.json";
 
 function convertCliCommandDatasetToReport(input: {
   readonly samplesPath: string;
@@ -803,9 +792,9 @@ function convertCliCommandDatasetToReport(input: {
 }
 
 export function convertAllExistingUnitsToCoverageReport(
-  options: ConvertAllExistingUnitsOptions = {},
+  options: ConvertAllExistingUnitsOptions,
 ): AllUnitsCoverageBundle {
-  const repoRoot = options.repositoryRoot ?? "/Volumes/extension/code/NNAnything";
+  const repoRoot = options.repositoryRoot;
   const mode = options.mode ?? "audit_diagnostic";
   const includeUpstream = options.includeUpstreamCandidateInference !== false;
 
@@ -832,14 +821,6 @@ export function convertAllExistingUnitsToCoverageReport(
   });
 
   const extraDiagnostics: Record<string, UnitCoverageReport> = {};
-  if (existsSync(DEFAULT_CLI_STAGE2_SAMPLES_PATH)) {
-    extraDiagnostics["cli.command-policy.v1.stage2_4e7e39ca"] =
-      convertCliCommandDatasetToReport({
-        samplesPath: DEFAULT_CLI_STAGE2_SAMPLES_PATH,
-        profilePath: includeUpstream ? DEFAULT_CLI_STAGE2_PROFILE_PATH : null,
-        mode,
-      });
-  }
 
   // 2. CLI Path Controller
   const pathSamplesPath = resolve(
@@ -1146,9 +1127,7 @@ export function convertAllExistingUnitsToCoverageReport(
   const resolvedAtomicPath =
     options.browserAtomicProfilePath !== undefined
       ? options.browserAtomicProfilePath
-      : includeUpstream && existsSync(DEFAULT_SAVED_BROWSER_ATOMIC_PATH)
-        ? DEFAULT_SAVED_BROWSER_ATOMIC_PATH
-        : null;
+      : null;
   let savedAtomicProfile: BrowserSingleActionProfile | null = null;
   if (resolvedAtomicPath !== null && existsSync(resolvedAtomicPath)) {
     const raw = JSON.parse(readFileSync(resolvedAtomicPath, "utf8"));
@@ -1301,9 +1280,7 @@ export function convertAllExistingUnitsToCoverageReport(
   const resolvedFbPath =
     options.browserFeedbackProfilePath !== undefined
       ? options.browserFeedbackProfilePath
-      : includeUpstream && existsSync(DEFAULT_SAVED_BROWSER_FEEDBACK_PATH)
-        ? DEFAULT_SAVED_BROWSER_FEEDBACK_PATH
-        : null;
+      : null;
   let savedFbProfile: FeedbackProfile | null = null;
   if (resolvedFbPath !== null && existsSync(resolvedFbPath)) {
     const raw = JSON.parse(readFileSync(resolvedFbPath, "utf8"));
@@ -1395,9 +1372,7 @@ export function convertAllExistingUnitsToCoverageReport(
   const resolvedStratPath =
     options.browserStrategyProfilePath !== undefined
       ? options.browserStrategyProfilePath
-      : includeUpstream && existsSync(DEFAULT_SAVED_BROWSER_STRATEGY_PATH)
-        ? DEFAULT_SAVED_BROWSER_STRATEGY_PATH
-        : null;
+      : null;
   let savedStratProfile: BrowserStrategyProfile | null = null;
   if (resolvedStratPath !== null && existsSync(resolvedStratPath)) {
     const raw = JSON.parse(readFileSync(resolvedStratPath, "utf8"));

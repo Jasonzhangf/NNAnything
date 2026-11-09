@@ -63,6 +63,7 @@ test("nn-code calls --help emits same-source help and writes no run log", async 
   assert.match(run.stdout, /~\/\.local\/state\/nn-code\/runs/);
   assert.match(run.stdout, /~\/\.agents\/skills\/nn-code\/SKILL\.md/);
   assert.match(run.stdout, /Examples:/);
+  assert.doesNotMatch(run.stdout, /\/Volumes\/|\/Users\//);
   assert.ok(run.stdout.includes(`nn-code v${cliVersion}`), `help must include nn-code v${cliVersion}`);
   const entries = await readdir(logDir);
   assert.equal(entries.length, 0, "help must not write a run log");

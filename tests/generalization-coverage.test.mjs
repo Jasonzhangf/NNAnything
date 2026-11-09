@@ -786,8 +786,9 @@ test("A1-8: CLI entry scripts/report-generalization-coverage.mjs supports --repo
           `training/samples/filesystem/command/${CLI_COMMAND_RUN_ID}/samples.json`,
         ),
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", cwd: tmpdir() },
     );
+    assert.doesNotMatch(stdoutWithCandidates, /\/Volumes\/|\/Users\//);
     const parsedWith = JSON.parse(stdoutWithCandidates);
     assert.equal(parsedWith.schemaVersion, 1);
     assert.equal(parsedWith.mode, "audit_diagnostic");
@@ -816,8 +817,9 @@ test("A1-8: CLI entry scripts/report-generalization-coverage.mjs supports --repo
           `training/samples/filesystem/command/${CLI_COMMAND_RUN_ID}/samples.json`,
         ),
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", cwd: tmpdir() },
     );
+    assert.doesNotMatch(stdoutWithoutCandidates, /\/Volumes\/|\/Users\//);
     const parsedWithout = JSON.parse(stdoutWithoutCandidates);
     assert.equal(parsedWithout.schemaVersion, 1);
     assert.equal(parsedWithout.mode, "audit_diagnostic");
@@ -846,6 +848,14 @@ test("A1-8: CLI entry scripts/report-generalization-coverage.mjs supports --repo
         encoding: "utf8",
         stdio: "pipe",
       }),
+    );
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [cliScriptPath], {
+          encoding: "utf8",
+          stdio: "pipe",
+        }),
+      /--repo-root is required/,
     );
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
