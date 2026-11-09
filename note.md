@@ -28,6 +28,15 @@
 - 00:48Z-00:50Z 消费 worker-idle `m1794185382953-6215`（Carol newly_idle）与 `m1794185412455-6218`（Leo newly_idle）；三个新任务均已在 board 显示 working/rev2 并绑定对应 owner，尚无 worktree/交付头。
 - daemon 仍 `collab 0.2.0000`，PID 62992；本轮未安装 runtime、未动 daemon/tmux，未改产品代码/权重/gold/threshold/采用，不宣称训练或验收完成。
 
+## 2026-11-09 Jenny：设计收口、派单纠偏与并发补齐（01:11Z）
+
+- JVM 语料准备设计由 Alice ACCEPT subject 1（DESIGN_PREP_ONLY），master 集成 `f7b818d` 并 push；`collab task integrated` 后 Leo 正常关闭，`completion_missing=[]`、disposition=integrated；物理 JVM 语料/converter/evaluate/training 仍 INCOMPLETE/UNVERIFIED。
+- repo-generalization 设计由 Alice ACCEPT subject 2；Carol 已正常关闭。Alice 明确要求保留已接受文档，不能只按 no_merge_required 放行。期间 Leo 越界自行 merge/push `d464869`，随后用合规 revert `953f221`、`fcb3705` 复原；master 已核对历史，从 `32b975a` 恢复文档并 push `e941aeb`，未改写历史、未覆盖其他任务。peer 不再写 main。
+- 用户/巡检纠正派单边界：Kate 与 Grace 是常驻巡检员，不接普通 board 任务。call-graph `nn-code-call-graph-cursor-schema-r1-20261109` 原派 Kate 属错误；已改 policy executor 为 Leo 并发 durable invite（board rev6），但旧 daemon 返回 `TMUX_NOTIFICATION_REJECTED: no notification batch is ready`，owner 转移待 Leo accept/Kate decline。Jack 的同类派发仍被 `BOARD_DURABILITY_FAILED ... fenced by operation` 拒绝。
+- Swift 语料准备需要研究员负责语料分区、监督真值与评价设计；Alice 保留独立审计并拒绝自写自审邀请。唯一登记研究员 Emma 当前 missing，Carol 已持 Rust 准备，不能叠派；Swift 任务保持 pending 并记录恢复条件，不虚派。
+- 新增并发：Rust 语料准备 `nn-code-symbols-rust-corpus-prep-r1-20261109` 已派 Carol，board rev3 working，worktree `rust-corpus-prep-20261109`；design-only，不训练/不采用。Alice 的 review 可用，当前无独立 reviewer 缺口。
+- goal deadline `m1794186616496-6387` 已消费并重臂 `sub-m1794186669006-6393`，trigger 01:21Z；project patrol `sub-m1793963843713-143` 仍 armed。CEO 报告已记录（recorded=true，notification 未送达）。daemon 仍 `collab 0.2.0000`，Henry evaluate 继续 PARK 于 `a718710`；未安装/重启 daemon，未改产品/权重/gold/threshold/采用。
+
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
 - 用户再次确认 nn-code 模型设计与训练已授权，当前要求先汇报现状。已消费 Kate round-62 `m1794178648697-5773`；`collab msg` 回读 `consumed_by_recv=true`，inbox unread=0。
