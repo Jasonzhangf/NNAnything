@@ -4,7 +4,6 @@ import { join, resolve } from "node:path";
 import {
   createTsJsFileBackedStepExecutor,
   runTsJsUnifiedMultiStepDecision,
-  type TsJsUnifiedMultiStepStepResult,
 } from "../adapters/tsjs-unified-recursive.js";
 import {
   evaluateRelationOracle,
@@ -14,9 +13,9 @@ import {
   type PerStepEvaluation,
   type RelationOracleGoldSource,
   type RelationOracleReport,
-  type RootOutcome,
   type RootEvaluation,
   type StepOutcome,
+  type StudentRootConditionState,
   type StudentPredictionDenominator,
   type StudentRelationRun,
 } from "./relation-oracle-evaluator.js";
@@ -89,6 +88,14 @@ export interface UnifiedEvaluateExecutionEntry {
   readonly postStateRef: string;
   readonly newStateRef: string;
   readonly actionRef: string;
+  readonly outcome: "success" | "failed";
+  readonly nextStepId: string | null;
+  readonly previousActionRef: string | null;
+  readonly failure: Readonly<{
+    readonly code: string;
+    readonly message: string;
+    readonly nativeCode: string | null;
+  }> | null;
 }
 
 export interface UnifiedEvaluateSampleStepDetail {
@@ -106,10 +113,13 @@ export interface UnifiedEvaluateSampleDetail {
   readonly gold: OracleJudgement | null;
   readonly labelMissing: boolean;
   readonly predicted: OracleJudgement | null;
-  readonly root: RootOutcome | null;
+  readonly root: UnifiedRootState;
   readonly rootEvidenceRefs: readonly string[];
+  readonly rootConditionStates: readonly StudentRootConditionState[];
   readonly steps: readonly UnifiedEvaluateSampleStepDetail[];
 }
+
+export type UnifiedRootState = "satisfied" | "unsatisfied" | "unknown" | "missing";
 
 export interface UnifiedEvaluateReport {
   readonly schema: typeof UNIFIED_EVALUATE_REPORT_SCHEMA;
@@ -338,6 +348,41 @@ function mapGoldSamples(
   });
 }
 
+function mapGoldSamplesForAccounting(
+  goldRows: readonly GoldRecord[],
+  episodes: readonly RelationStepEpisode[],
+  oracleRefs: readonly string[],
+): readonly IndependentOracleSample[] {
+  const targets = new Map(episodes.map(episode => [episode.sampleId, episode.targetRef]));
+  const seen = new Set<string>();
+  const rows: IndependentOracleSample[] = [];
+  for (const gold of goldRows) {
+    if (seen.has(gold.sampleId)) continue;
+    seen.add(gold.sampleId);
+    const targetRef = targets.get(gold.sampleId) ?? gold.sampleId;
+    if (gold.labelMissing || oracleRefs.length === 0) {
+      rows.push({
+        sampleId: gold.sampleId,
+        targetRef,
+        gold: "unknown",
+        goldSource: "tsc",
+        goldEvidence: [],
+        labelMissing: true,
+      });
+      continue;
+    }
+    rows.push({
+      sampleId: gold.sampleId,
+      targetRef,
+      gold: oracleJudgementOf(gold),
+      goldSource: goldSourceOf(gold.oracleKind),
+      goldEvidence: oracleRefs.map(ref => ({ evidenceRef: ref, typeStep: "receipt" as const })),
+      labelMissing: false,
+    });
+  }
+  return rows;
+}
+
 function assertGoldStudentCorrespondence(
   admission: { readonly sourceGroup: string; readonly partition: string },
   goldRows: readonly GoldRecord[],
@@ -379,12 +424,62 @@ function judgeOf(optionSemantics: string): OracleJudgement | null {
   return value === "true" || value === "false" || value === "unknown" ? value : null;
 }
 
+interface MultiStepMappingFailure {
+  readonly code: UnifiedRunnerEvaluateErrorCode;
+  readonly message: string;
+  readonly affectedStepId: string | undefined;
+  readonly detail: Readonly<Record<string, unknown>>;
+}
+
+// A failed step execution is the most specific error. Report it before the
+// coarser "no terminal judge" and root-evidence checks so the original
+// execution failure (code/message/nativeCode) and failed step id survive.
+function failedStepFailureOf(sampleId: string, result: Awaited<ReturnType<typeof runTsJsUnifiedMultiStepDecision>>): MultiStepMappingFailure | null {
+  const failedStep = result.steps.find(step => step.executionReceipt.outcome !== "success");
+  if (failedStep === undefined) return null;
+  const receiptFailure = failedStep.executionReceipt.failure;
+  return {
+    code: "EXECUTION_RECEIPT_MISSING",
+    message: receiptFailure === null || receiptFailure === undefined
+      ? `sample ${sampleId} step ${failedStep.stepId} execution failed`
+      : `sample ${sampleId} step ${failedStep.stepId} execution failed: ${receiptFailure.code}: ${receiptFailure.message}`,
+    affectedStepId: failedStep.stepId,
+    detail: {
+      affectedStepId: failedStep.stepId,
+      executionFailure: receiptFailure ?? null,
+      executionReceiptRef: `receipt:${failedStep.executionReceipt.receiptId}`,
+      observedPostStateRef: failedStep.observedPostState.postStateRef,
+    },
+  };
+}
+
+function rootEvidenceFailureOf(sampleId: string, result: Awaited<ReturnType<typeof runTsJsUnifiedMultiStepDecision>>): MultiStepMappingFailure | null {
+  if (result.rootEvaluation.state !== "evaluated") {
+    return {
+      code: "ROOT_EVIDENCE_MISSING",
+      message: `sample ${sampleId} has no evaluated root`,
+      affectedStepId: undefined,
+      detail: { rootState: result.rootEvaluation.state },
+    };
+  }
+  if (result.rootEvaluation.evidenceRefs.length === 0) {
+    return {
+      code: "ROOT_EVIDENCE_MISSING",
+      message: `sample ${sampleId} has an evaluated root with no evidence`,
+      affectedStepId: undefined,
+      detail: { rootState: result.rootEvaluation.state, rootEvidenceRefs: [...result.rootEvaluation.evidenceRefs] },
+    };
+  }
+  return null;
+}
+
 function studentRunOfMultiStep(
   episodes: readonly RelationStepEpisode[],
   result: Awaited<ReturnType<typeof runTsJsUnifiedMultiStepDecision>>,
 ): {
   readonly run: StudentRelationRun;
   readonly executionEntries: readonly UnifiedEvaluateExecutionEntry[];
+  readonly failure: MultiStepMappingFailure | null;
 } {
   const sampleId = episodes[0]!.sampleId;
   if (episodes.some(episode => episode.sampleId !== sampleId)) {
@@ -398,22 +493,22 @@ function studentRunOfMultiStep(
   }
 
   const root = result.rootEvaluation;
-  if (root.state !== "evaluated") {
-    throw new UnifiedRunnerEvaluateError("ROOT_EVIDENCE_MISSING", `sample ${sampleId} has no root evaluation evidence`);
-  }
-  const conditionRef = `root:${root.evaluatorId}:${sampleId}`;
-  const rootResult = root.result;
+  const evaluatedRoot = root.state === "evaluated" ? root : null;
+  const conditionRef = evaluatedRoot === null ? `root:${sampleId}` : `root:${evaluatedRoot.evaluatorId}:${sampleId}`;
+  const rootResult = evaluatedRoot?.result ?? null;
+  const rootSatisfied = evaluatedRoot === null
+    ? null
+    : evaluatedRoot.result === "satisfied" ? true : evaluatedRoot.result === "unsatisfied" ? false : null;
+  const rootGaps = evaluatedRoot?.result === "unsatisfied" ? [conditionRef] : [];
+  const rootConditionStates: StudentRootConditionState[] = evaluatedRoot === null
+    ? []
+    : [{ conditionRef, state: evaluatedRoot.result }];
+  const rootEvidenceRefs = evaluatedRoot === null ? [] : [...evaluatedRoot.evidenceRefs];
   const executionEntries: UnifiedEvaluateExecutionEntry[] = [];
   const steps: StudentRelationRun["steps"] = result.steps.map(step => {
     const choice = step.candidateChoice;
     const receipt = step.executionReceipt;
     const postState = step.observedPostState;
-    if (receipt.outcome !== "success") {
-      throw new UnifiedRunnerEvaluateError(
-        "EXECUTION_RECEIPT_MISSING",
-        `sample ${sampleId} step ${step.stepId} execution did not succeed`,
-      );
-    }
     const executionEntry: UnifiedEvaluateExecutionEntry = {
       sampleId,
       stepId: step.stepId,
@@ -424,40 +519,59 @@ function studentRunOfMultiStep(
       postStateRef: postState.postStateRef,
       newStateRef: postState.stateRef,
       actionRef: receipt.actionRef,
+      outcome: receipt.outcome,
+      nextStepId: step.nextStepId,
+      previousActionRef: step.previousActionRef,
+      failure: receipt.failure ?? null,
     };
     executionEntries.push(executionEntry);
+    const failure = receipt.failure ?? null;
     return {
       stepId: step.stepId,
       optionSemantics: choice.optionSemantics,
       executionReceiptRef: executionEntry.executionReceiptRef,
       postStateRef: executionEntry.postStateRef,
-      evidenceRefs: [...receipt.evidenceRefs, ...postState.observedFacts],
+        evidenceRefs: [
+          ...receipt.evidenceRefs,
+          ...postState.observedFacts,
+          ...(failure === null ? [] : [`failure:${failure.code}`, `failureMessage:${failure.message}`]),
+        ],
     };
   });
+  const run: StudentRelationRun = {
+    sampleId,
+    steps,
+    rootConditionStates,
+    rootGaps,
+    rootEvidenceRefs,
+    rootSatisfied,
+  };
+  const stepFailure = failedStepFailureOf(sampleId, result);
+  if (stepFailure !== null) {
+    return { run, executionEntries, failure: stepFailure };
+  }
   if (!steps.some(step => judgeOf(step.optionSemantics) !== null)) {
-    throw new UnifiedRunnerEvaluateError(
-      "EXECUTION_RECEIPT_MISSING",
-      `sample ${sampleId} produced no terminal judge step`,
-    );
+    return {
+      run,
+      executionEntries,
+      failure: {
+        code: "EXECUTION_RECEIPT_MISSING",
+        message: `sample ${sampleId} produced no terminal judge step`,
+        affectedStepId: undefined,
+        detail: { stepIds: result.steps.map(step => step.stepId) },
+      },
+    };
   }
   return {
-    run: {
-      sampleId,
-      steps,
-      rootConditionStates: [{
-        conditionRef,
-        state: rootResult,
-      }],
-      rootGaps: rootResult === "unsatisfied" ? [conditionRef] : [],
-      rootEvidenceRefs: [...root.evidenceRefs],
-      rootSatisfied: rootResult === "satisfied" ? true : rootResult === "unsatisfied" ? false : null,
-    },
+    run,
     executionEntries,
+    failure: rootEvidenceFailureOf(sampleId, result),
   };
 }
 
-function rootOutcomeOf(run: StudentRelationRun | undefined): RootOutcome | null {
-  if (run === undefined || run.rootSatisfied === null) return null;
+function rootStateOf(run: StudentRelationRun | undefined): UnifiedRootState {
+  if (run === undefined) return "missing";
+  if (run.rootSatisfied === null) return "unknown";
   return run.rootSatisfied ? "satisfied" : "unsatisfied";
 }
 
@@ -492,8 +606,9 @@ function buildSampleDetails(
       gold,
       labelMissing: sample.labelMissing,
       predicted,
-      root: rootOutcomeOf(run),
+      root: rootStateOf(run),
       rootEvidenceRefs: [...(run?.rootEvidenceRefs ?? [])],
+      rootConditionStates: [...(run?.rootConditionStates ?? [])],
       steps,
     };
   });
@@ -537,6 +652,7 @@ function formatMarkdown(report: UnifiedEvaluateReport): string {
     `- Violations: \`${report.violations.length}\``,
     `- Evaluation Seconds: \`${report.evaluationSeconds.toFixed(6)}\``,
     `- Total Wall Seconds: \`${report.totalWallSeconds.toFixed(6)}\``,
+    `- Machine Detail: \`${report.paths.reportJsonPath}\``,
     "",
   ];
   if (report.error !== null) {
@@ -555,8 +671,11 @@ function formatMarkdown(report: UnifiedEvaluateReport): string {
   lines.push("## Sample Details", "");
   for (const sample of report.sampleDetails) {
     lines.push(
-      `- ${sample.sampleId}: gold=${String(sample.gold)} predicted=${String(sample.predicted)} root=${String(sample.root)} labelMissing=${String(sample.labelMissing)}`,
+      `- ${sample.sampleId}: gold=${String(sample.gold)} predicted=${String(sample.predicted)} root=${String(sample.root)} rootEvidence=${sample.rootEvidenceRefs.join(",")} labelMissing=${String(sample.labelMissing)}`,
     );
+    for (const condition of sample.rootConditionStates) {
+      lines.push(`  - rootCondition: ${condition.conditionRef} ${condition.state}`);
+    }
     for (const step of sample.steps) {
       lines.push(
         `  - ${step.stepId}: ${step.optionSemantics} outcome=${String(step.outcome)} evidence=${step.evidenceRefs.join(",")}`,
@@ -660,6 +779,8 @@ export async function runUnifiedRunnerEvaluate(
   const evaluationStartNs = process.hrtime.bigint();
   let samples: readonly IndependentOracleSample[] = [];
   let episodes: readonly RelationStepEpisode[] = [];
+  let goldRowsForAccounting: readonly GoldRecord[] = [];
+  let oracleRefsForAccounting: readonly string[] = [];
   const runs: StudentRelationRun[] = [];
   const executionEntries: UnifiedEvaluateExecutionEntry[] = [];
   const evidenceRefs = new Set<string>();
@@ -670,11 +791,14 @@ export async function runUnifiedRunnerEvaluate(
     let oracle: RelationOracleReport = EMPTY_ORACLE;
     let sampleDetails: readonly UnifiedEvaluateSampleDetail[] = [];
     let missingRun: readonly string[] = [];
-    if (samples.length > 0) {
+    const accountingSamples = samples.length > 0
+      ? samples
+      : mapGoldSamplesForAccounting(goldRowsForAccounting, episodes, oracleRefsForAccounting);
+    if (accountingSamples.length > 0) {
       try {
-        oracle = evaluateRelationOracle(samples, runs);
-        sampleDetails = buildSampleDetails(samples, episodes, runs);
-        missingRun = missingRunOf(samples, runs);
+        oracle = evaluateRelationOracle(accountingSamples, runs);
+        sampleDetails = buildSampleDetails(accountingSamples, episodes, runs);
+        missingRun = missingRunOf(accountingSamples, runs);
       } catch {
         // Keep the original execution error; partial accounting is best effort.
       }
@@ -701,11 +825,13 @@ export async function runUnifiedRunnerEvaluate(
     await assertStudentInputIsolated(familyDir);
     episodes = await loadStepwiseEpisodeFamily(familyDir);
     const goldRows = await loadGoldFamily(familyDir);
-    assertGoldStudentCorrespondence(admission, goldRows, episodes);
+    goldRowsForAccounting = goldRows;
     const manifestOracleRefs = manifest.oracleRefs;
     const oracleRefs = Array.isArray(manifestOracleRefs)
       ? manifestOracleRefs.filter((ref): ref is string => typeof ref === "string")
       : [];
+    oracleRefsForAccounting = oracleRefs;
+    assertGoldStudentCorrespondence(admission, goldRows, episodes);
     samples = mapGoldSamples(goldRows, episodes, oracleRefs);
 
     const episodesBySample = new Map<string, RelationStepEpisode[]>();
@@ -738,6 +864,14 @@ export async function runUnifiedRunnerEvaluate(
       executionEntries.push(...mapped.executionEntries);
       if (result.rootEvaluation.state === "evaluated") {
         result.rootEvaluation.evidenceRefs.forEach(ref => evidenceRefs.add(ref));
+      }
+      if (mapped.failure !== null) {
+        affectedStepId = mapped.failure.affectedStepId;
+        throw new UnifiedRunnerEvaluateError(
+          mapped.failure.code,
+          mapped.failure.message,
+          mapped.failure.detail,
+        );
       }
     }
     const oracle = evaluateRelationOracle(samples, runs);

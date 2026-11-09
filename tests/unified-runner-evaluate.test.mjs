@@ -94,7 +94,13 @@ function goldRow(sampleId, label) {
   };
 }
 
-function studentRecord(sampleId, { evidenceRefs = [`ev:${sampleId}:read`], steps } = {}) {
+function studentRecord(sampleId, {
+  evidenceRefs = [`ev:${sampleId}:read`],
+  steps,
+  entryFile = "sources/src/helper.ts",
+  declarationModuleRef = "mod:sources/src/helper.ts",
+  declarationRef = "decl:sources/src/helper.ts#top:helper",
+} = {}) {
   return {
     schemaVersion: "emma-tsjs-student-observation-v2",
     sampleId,
@@ -102,15 +108,15 @@ function studentRecord(sampleId, { evidenceRefs = [`ev:${sampleId}:read`], steps
     partition: "verification",
     language: "ts",
     semanticStratum: "module_export",
-    entryFile: "sources/src/entry.ts",
+    entryFile,
     request: {
       requestRef: `request:${sampleId}`,
       requestedDeclaration: {
-        declarationRef: `decl:sources/src/entry.ts#top:helper`,
-        moduleRef: "mod:sources/src/entry.ts",
+        declarationRef,
+        moduleRef: declarationModuleRef,
         name: "helper",
         kind: "function",
-        sourceTargetRef: "sources/src/entry.ts#top:helper",
+        sourceTargetRef: declarationRef,
       },
       relationObligation: {
         pendingRelationRef: `pending:${sampleId}`,
@@ -119,31 +125,19 @@ function studentRecord(sampleId, { evidenceRefs = [`ev:${sampleId}:read`], steps
       },
     },
     steps: steps ?? [
-      {
-        stepId: "step:0",
-        observedAt: "current-step",
-        localSyntax: {
-          observedBindings: [],
-          observedDeclarations: [],
-          sourceContent: {
-            state: "observed",
-            resultRefs: [],
-            reason: null,
-            evidenceRefs,
-          },
-          shadowFacts: [],
-        },
-        remainingObligations: [],
-        S_g: ["c:judge:true", "c:judge:false", "c:judge:unknown", "c:return"],
-        receipts: [],
-        coverage: null,
-        notReady: false,
-      },
+      advanceStep(sampleId, { evidenceRefs }),
+      terminalStep("step:1", evidenceRefs, {
+        previousExecution: previousExecutionLink(sampleId, {
+          fromStepId: "step:0",
+          targetRef: "sources/src/helper.ts",
+          evidenceRefs,
+        }),
+      }),
     ],
   };
 }
 
-function terminalStep(stepId, evidenceRefs) {
+function terminalStep(stepId, evidenceRefs, { previousExecution } = {}) {
   return {
     stepId,
     observedAt: "current-step",
@@ -163,6 +157,113 @@ function terminalStep(stepId, evidenceRefs) {
     receipts: [],
     coverage: null,
     notReady: false,
+    ...(previousExecution === undefined ? {} : { previousExecution }),
+  };
+}
+
+function importBinding(sampleId, {
+  edgeRef = `edge:${sampleId}:helper`,
+  sourceModule = "sources/src/helper.ts",
+  targetModule = "sources/src/entry.ts",
+  specifier = "./helper",
+  evidenceRefs = [`ev:${sampleId}:read`],
+} = {}) {
+  return {
+    edgeRef,
+    callSiteRef: `call:${sampleId}`,
+    fromNodeRef: `node:${sampleId}`,
+    edgeKind: "import",
+    sourceName: "helper",
+    sourceModule: {
+      state: "known",
+      value: sourceModule,
+      evidenceRefs,
+    },
+    targetName: "helper",
+    targetModule: {
+      state: "known",
+      value: targetModule,
+      evidenceRefs,
+    },
+    moduleSpecifierRaw: specifier,
+    sourceContent: {
+      state: "not_requested",
+      resultRefs: [],
+      reason: "not_requested",
+      evidenceRefs,
+    },
+    visibility: {
+      state: "known",
+      value: "reachable",
+      evidenceRefs,
+    },
+    hopDepth: 1,
+    evidenceRefs,
+  };
+}
+
+function advanceStep(sampleId, {
+  stepId = "step:0",
+  evidenceRefs = [`ev:${sampleId}:read`],
+  binding = importBinding(sampleId, { evidenceRefs }),
+  previousExecution,
+} = {}) {
+  return {
+    stepId,
+    observedAt: "current-step",
+    localSyntax: {
+      observedBindings: [binding],
+      observedDeclarations: [],
+      sourceContent: {
+        state: "not_requested",
+        resultRefs: [],
+        reason: "not_requested",
+        evidenceRefs,
+      },
+      shadowFacts: [],
+    },
+    remainingObligations: [{
+      kind: "advance",
+      ref: binding.edgeRef,
+      pendingRelationRef: `pending:${sampleId}`,
+      targetRef: binding.sourceModule.value,
+      arguments: [{
+        name: "target",
+        type: "binding_edge",
+        valueRef: binding.edgeRef,
+      }],
+      informationGain: { state: "known", value: "advances_chain", evidenceRefs: [`ev:${sampleId}:read`] },
+      evidenceRefs,
+    }],
+    S_g: ["c:judge:true", "c:judge:false", "c:judge:unknown", "c:return"],
+    receipts: [],
+    coverage: null,
+    notReady: false,
+    ...(previousExecution === undefined ? {} : { previousExecution }),
+  };
+}
+
+// Raw chain link the loader parses into `previousExecution`. The engine
+// overwrites it with the real receipt; it only anchors which step follows.
+function previousExecutionLink(sampleId, {
+  fromStepId,
+  targetRef,
+  optionSemantics = "advance",
+  evidenceRefs = [`ev:${sampleId}:read`],
+} = {}) {
+  return {
+    state: "known",
+    value: {
+      actionRef: `action:${sampleId}:${fromStepId}`,
+      receiptRef: null,
+      origin: "source_observation",
+      fromStepId,
+      pendingRelationRef: `pending:${sampleId}`,
+      optionSemantics,
+      targetRef,
+      outcome: "success",
+    },
+    evidenceRefs,
   };
 }
 
@@ -174,6 +275,7 @@ async function makeFixture({
   packageOverride,
   packageDir = false,
   extraW1,
+  sourceFiles = true,
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "unified-runner-evaluate-"));
   const familyDir = join(root, "verification-family");
@@ -195,6 +297,19 @@ async function makeFixture({
       "evidence/oracle-receipt.json",
     ],
   });
+  if (sourceFiles) {
+    await mkdir(join(familyDir, "sources", "src"), { recursive: true });
+    await writeFile(
+      join(familyDir, "sources", "src", "helper.ts"),
+      "export function helper() {\n  return 1;\n}\n",
+      "utf8",
+    );
+    await writeFile(
+      join(familyDir, "sources", "src", "entry.ts"),
+      'import { helper } from "./helper";\nexport function caller() {\n  return helper();\n}\n',
+      "utf8",
+    );
+  }
   await writeJsonl(
     join(familyDir, "labels", "gold.jsonl"),
     goldRows ?? samples.map(({ sampleId, label }) => goldRow(sampleId, label)),
@@ -265,6 +380,7 @@ async function readReport(outputDir) {
 test("evaluate route runs a synthetic admitted fixture and writes an evaluate report", async () => {
   const fixture = await makeFixture({
     samples: [{ sampleId: "known-true", label: "true" }],
+    extraW1: { 53: 2 },
   });
   try {
     assert.equal(
@@ -362,6 +478,7 @@ test("evaluate counts gold and student denominators without synthesizing a packa
       { sampleId: "known-false", label: "false" },
       { sampleId: "valid-unknown", label: "unknown" },
     ],
+    extraW1: { 53: 2 },
   });
   try {
     assert.equal(
@@ -384,6 +501,7 @@ test("evaluate machine and human receipts expose the same fixed-engine evidence 
       { sampleId: "known-false", label: "false" },
       { sampleId: "valid-unknown", label: "unknown" },
     ],
+    extraW1: { 53: 2 },
   });
   try {
     assert.equal(
@@ -393,7 +511,7 @@ test("evaluate machine and human receipts expose the same fixed-engine evidence 
     const report = await readReport(fixture.outputDir);
     const markdown = await readFile(join(fixture.outputDir, "run-report.md"), "utf8");
     assert.equal(report.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision");
-    assert.equal(report.executionEntries.length, 3);
+    assert.equal(report.executionEntries.length, 6);
     assert.ok(report.executionEntries.every(entry =>
       entry.candidateRef !== undefined
       && entry.optionSemantics !== undefined
@@ -401,6 +519,10 @@ test("evaluate machine and human receipts expose the same fixed-engine evidence 
       && entry.executionReceiptRef !== undefined
       && entry.postStateRef !== undefined
       && entry.newStateRef !== undefined
+      && entry.outcome !== undefined
+      && entry.nextStepId !== undefined
+      && entry.previousActionRef !== undefined
+      && entry.failure !== undefined
     ));
     assert.ok(markdown.includes(`Unified Runner Evaluate Report (${report.runId})`));
     assert.ok(markdown.includes(`Consumer Entry: \`${report.consumerEntry}\``));
@@ -438,15 +560,11 @@ test("evaluate failure never emits a candidate package and has no fallback", asy
 });
 
 test("evaluate drives one multi-step trajectory per sample instead of replaying episodes independently", async () => {
-  const multiStep = studentRecord("known-true", {
-    steps: [
-      terminalStep("step:0", ["ev:known-true:read"]),
-      terminalStep("step:1", ["ev:known-true:read"]),
-    ],
-  });
+  const multiStep = studentRecord("known-true");
   const fixture = await makeFixture({
     samples: [{ sampleId: "known-true", label: "true" }],
     studentRows: [multiStep],
+    extraW1: { 53: 2 },
   });
   try {
     assert.equal(
@@ -457,63 +575,46 @@ test("evaluate drives one multi-step trajectory per sample instead of replaying 
     assert.equal(report.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision");
     assert.equal(report.sampleDetails.length, 1);
     assert.equal(report.sampleDetails[0].sampleId, "known-true");
-    assert.equal(report.executionEntries.length, 1);
+    assert.equal(report.executionEntries.length, 2);
+    assert.equal(report.executionEntries[0].optionSemantics, "advance");
+    assert.equal(report.executionEntries[0].nextStepId, "step:1");
+    assert.equal(report.executionEntries[0].failure, null);
+    assert.equal(report.executionEntries[1].optionSemantics, "judge=true");
+    assert.notEqual(report.executionEntries[1].previousActionRef, null);
+    assert.equal(report.sampleDetails[0].root, "satisfied");
+    assert.ok(report.sampleDetails[0].rootEvidenceRefs.length > 0);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("evaluate retains completed measurements when a later sample has no evaluable run", async () => {
-  const good = studentRecord("known-true", { evidenceRefs: ["ev:known-true:read"] });
-  const missingRead = studentRecord("missing-run", {
-    steps: [{
-      ...terminalStep("step:0", ["ev:missing-run:read"]),
-      localSyntax: {
-        observedBindings: [{
-          edgeRef: "edge:missing-run:absent-module",
-          callSiteRef: "call:missing-run",
-          fromNodeRef: "node:missing-run",
-          edgeKind: "import",
-          sourceName: "helper",
-          sourceModule: { state: "known", value: "sources/src/absent.ts", evidenceRefs: ["ev:missing-run:read"] },
-          targetName: "helper",
-          targetModule: { state: "known", value: "sources/src/entry.ts", evidenceRefs: ["ev:missing-run:read"] },
-          moduleSpecifierRaw: "./absent.ts",
-          sourceContent: {
-            state: "not_requested",
-            resultRefs: [],
-            reason: "not_requested",
-            evidenceRefs: ["ev:missing-run:read"],
-          },
-          visibility: { state: "known", value: "reachable", evidenceRefs: ["ev:missing-run:read"] },
-          hopDepth: 1,
-          evidenceRefs: ["ev:missing-run:read"],
-        }],
-        observedDeclarations: [],
-        sourceContent: {
-          state: "observed",
-          resultRefs: [],
-          reason: null,
-          evidenceRefs: ["ev:missing-run:read"],
-        },
-        shadowFacts: [],
-      },
-      remainingObligations: [{
-        kind: "advance",
-        ref: "edge:missing-run:absent-module",
-        pendingRelationRef: "pending:missing-run",
-        targetRef: "sources/src/absent.ts",
-        informationGain: "advances_chain",
-        evidenceRefs: ["ev:missing-run:read"],
-      }],
-    }],
+test("evaluate retains a failed sample's completed and failed steps with the original error", async () => {
+  const readEvidence = ["ev:failed-second:read"];
+  const readStep = advanceStep("failed-second", {
+    stepId: "step:0",
+    evidenceRefs: readEvidence,
+  });
+  const failedReadStep = advanceStep("failed-second", {
+    stepId: "step:1",
+    evidenceRefs: readEvidence,
+    binding: importBinding("failed-second", {
+      edgeRef: "edge:failed-second:absent-module",
+      sourceModule: "sources/src/absent.ts",
+      specifier: "./absent",
+      evidenceRefs: readEvidence,
+    }),
+    previousExecution: previousExecutionLink("failed-second", {
+      fromStepId: "step:0",
+      targetRef: "sources/src/helper.ts",
+      evidenceRefs: readEvidence,
+    }),
+  });
+  const failedSample = studentRecord("failed-second", {
+    steps: [readStep, failedReadStep],
   });
   const fixture = await makeFixture({
-    samples: [
-      { sampleId: "known-true", label: "true" },
-      { sampleId: "missing-run", label: "false" },
-    ],
-    studentRows: [good, missingRead],
+    samples: [{ sampleId: "failed-second", label: "false" }],
+    studentRows: [failedSample],
     extraW1: { 53: 2 },
   });
   try {
@@ -523,11 +624,69 @@ test("evaluate retains completed measurements when a later sample has no evaluab
     );
     const report = await readReport(fixture.outputDir);
     assert.equal(report.status, "failed");
+    assert.equal(report.gold.total, 1);
+    assert.equal(report.studentPrediction.total, 0);
+    assert.equal(report.executionEntries.length, 2);
+    assert.deepEqual(
+      report.executionEntries.map(entry => [entry.stepId, entry.optionSemantics, entry.outcome]),
+      [
+        ["step:0", "advance", "success"],
+        ["step:1", "advance", "failed"],
+      ],
+    );
+    assert.equal(report.executionEntries[0].nextStepId, "step:1");
+    assert.equal(report.executionEntries[1].failure.code, "MODULE_UNRESOLVED");
+    assert.equal(report.executionEntries[1].failure.nativeCode, null);
+    assert.equal(report.error.detail.affectedSampleId, "failed-second");
+    assert.equal(report.error.detail.affectedStepId, "step:1");
+    assert.equal(report.error.detail.executionFailure.code, "MODULE_UNRESOLVED");
+    assert.equal(report.sampleDetails[0].steps.length, 2);
+    assert.ok(report.sampleDetails[0].steps[1].evidenceRefs.includes("failure:MODULE_UNRESOLVED"));
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate rejects an evaluated root with no root evidence", async () => {
+  const terminalOnly = studentRecord("known-true", {
+    steps: [terminalStep("step:0", ["ev:known-true:read"])],
+  });
+  const fixture = await makeFixture({
+    samples: [{ sampleId: "known-true", label: "true" }],
+    studentRows: [terminalOnly],
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 1);
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.status, "failed");
+    assert.equal(report.error.code, "ROOT_EVIDENCE_MISSING");
+    assert.equal(report.error.detail.affectedSampleId, "known-true");
+    assert.deepEqual(report.error.detail.rootEvidenceRefs, []);
+    assert.equal(report.sampleDetails[0].root, "unsatisfied");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate keeps independent gold obligations when a student episode is missing", async () => {
+  const fixture = await makeFixture({
+    samples: [],
+    goldRows: [
+      goldRow("known-true", "true"),
+      goldRow("orphan-gold", "false"),
+    ],
+    studentRows: [studentRecord("known-true")],
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 1);
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.error.code, "GOLD_MISSING");
     assert.equal(report.gold.total, 2);
-    assert.equal(report.studentPrediction.total, 1);
-    assert.equal(report.executionEntries.length, 1);
-    assert.deepEqual(report.missingRun, ["missing-run"]);
-    assert.equal(report.error.detail.affectedSampleId, "missing-run");
+    assert.ok(report.missingRun.includes("orphan-gold"));
+    assert.deepEqual(
+      report.sampleDetails.map(sample => sample.sampleId),
+      ["known-true", "orphan-gold"],
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -585,6 +744,7 @@ test("evaluate exposes per-sample gold/prediction/root and step evidence in both
       { sampleId: "known-false", label: "false" },
       { sampleId: "valid-unknown", label: "unknown" },
     ],
+    extraW1: { 53: 2 },
   });
   try {
     assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 0);
