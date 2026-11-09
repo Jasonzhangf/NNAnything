@@ -40,7 +40,7 @@
   },
   "owner": "Emma",
   "sampleCount": 4,
-  "studentRowsDeferred": true,
+  "studentRowsDeferred": false,
   "failureModes": [
     "reexport_alias_misdirection",
     "closure_shadow_misbinding",
