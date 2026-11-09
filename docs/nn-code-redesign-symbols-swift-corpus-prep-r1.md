@@ -97,15 +97,18 @@ view graph 与真实调用表达式属于后继工程依赖，不能从声明表
   把 `route.domain` 硬编码为 `tsjs`。Swift 物理转换前必须有明确 typed route
   和 adapterRef 修正，不能靠 manifest 里写 `language=swift` 自动获得正确路由。
 - `declarationProjection` 当前无条件写 `bindingMode="bound"`、
-  `resolution.status="resolved"`、`scopeRef=null`。Swift 未解析的 module、
-  protocol witness、ObjC、SwiftUI 或宏依赖不得复用这一成功路径；须先引入
-  已接受设计中的 `SwiftDeclarationEligibility` typed 承载，并使未解析项进入
-  `resolution.status="unresolved"`。
+  `resolution.status="resolved"`、`scopeRef=null`。这条无条件路径只能作为
+  当前实现的既有事实，不能作为 Swift 资格合同。须先引入已接受设计中的
+  `SwiftDeclarationEligibility` typed 承载。只有当前关系真实依赖的
+  module/protocol witness/ObjC/SwiftUI/宏能力未解析时，才使该关系的声明资格
+  进入 `resolution.status="unresolved"` 或 missing。全局 policy 记录某个边界
+  unknown，不自动否定与该边界无关的普通局部声明。
 - `unified-student-converter` 对 `currentRelation.binding.resolution.status=
-  resolved` 的声明要求唯一匹配；Swift 预落在未就绪时应使用
-  `unresolved/missing`，不得伪造 resolved 身份。
+  resolved` 的声明要求唯一匹配。Swift 仅在当前关系真实缺少必要依赖时使用
+  `unresolved/missing`，不得伪造 resolved 身份；`moduleRef=null`、
+  `nameSpan=null` 或无关区域 partial parse 本身不构成否定已证实局部声明的理由。
 - `UnifiedRunnerConfig` 提供 `route.domain`、`route.decisionKind`、`phase`、
-  `encoderVersion`、`dataGate.admissionsPath`、`outputDir` 和可选
+  `encoderVersion`、`corpus.admissionsPath`、`outputDir` 和可选
   `corpus`。runner 的 route 由配置传入，但当前 StepContext builder 仍自行写
   死 `domain:"tsjs"`；这条差异必须由工程 owner 在 Swift 接入时闭合。
 
@@ -357,6 +360,17 @@ protocol/macro/module ready family 另需：
 宏家族只有在真实宏节点和真实调用边界同时存在且与请求关联时才能形成有效
 unknown。只有宏定义、没有调用边界时保持 `NOT_READY`，不得用判断结果补造。
 
+### 6.4.1 局部资格保留对照
+
+以下对照是已接受 Swift r2 §5.1/§6 的准备验收映射，不是新语义，也不授权实现：
+
+| 场景 | 必须保留的局部资格 | 覆盖/分母处理 |
+| --- | --- | --- |
+| 普通局部声明，当前关系不依赖 module path，`moduleRef=null` | `eligible=true`、`resolution.status=resolved`；不得因 moduleRef 为 null 否定声明 | 可进入已知关系或相应语义分母；`x[61]` 按双方 moduleRef 是否非 null 取值，不得从 requested 回填 decl moduleRef |
+| `declSpan`、`symbolId`、对象关联已确认，但 `nameSpan=null` | 保留该声明及已确认对象身份；只有需要精确名称跨度的目标标具体缺测 | 不把整条声明降成 input missing；名称跨度缺测单列 |
+| 声明本身已证实，但同一文件无关区域 partial parse 失败 | 该声明仍保留，不因无关区域失败自动否定局部资格 | 请求级 coverage 标 partial，失败区域单列；不得把整体 coverage 报 complete |
+| 全局 policy 记录 protocol/ObjC/SwiftUI/module 某边界 unknown，但当前关系不依赖该边界 | 普通局部声明仍可 `resolved`；不得把全局 unknown 扩散为所有声明 unresolved | 当前关系依赖时才进入有效 unknown 或缺测；无关边界只作覆盖说明 |
+
 ### 6.5 converter/config 必须陈述的映射
 
 Swift 物理落地前，工程 owner 必须逐项核对并记录：
@@ -365,7 +379,7 @@ Swift 物理落地前，工程 owner 必须逐项核对并记录：
    `derivationFamily.familyId`；
 2. runner config 的 `schema`、`command`（仅 `convert-samples` / `validate-data`）、
    `route.domain`（Swift typed domain）、`route.decisionKind="R"`、`phase`、
-   `encoderVersion`、`dataGate.admissionsPath`、`outputDir`；
+   `encoderVersion`、`corpus.admissionsPath`、`outputDir`；
 3. student/supervision 行 schema 的名称决定与 Swift 兼容证据；
 4. 复合键 `sourceGroup | sampleId | stepContextRef | candidateGroupRef` 的
    稳定对应；
