@@ -54,6 +54,15 @@
 - 边界：本轮只消费通知、追加 bug 证据、回复 owner、只读核对 board 并更新 note；无产品代码/语料/权重/gold/threshold/采用改动，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：用户批准 AppSDK 0.2.0438 安装并重启 daemon 后，Henry 与 Carol 按各自新 revision/attempt 重新走 respond/start/deliver，Alice 独立 review 通过后再进入集成或真实 fit；未获批准前保留两条任务现状。
 
+## 2026-11-09 Jenny：Leo call-graph 交付被同一 ticket-phase 缺陷阻塞（01:53Z）
+
+- 目的：处理 Leo 的 call-graph 交付阻塞 `m1794188956077-6644`，核对 execute phase 槽位与 board owner 不一致是否可解绑。
+- 证据：board `nn-code-call-graph-cursor-schema-r1-20261109` rev8、status=working、owner Leo，候选已推 PR #32（`docs/nn-code-call-graph-cursor-schema-r1.md` + task-log）。live daemon 0.2.0000 的 execute phase 仍绑 slot_name=Kate、binding_generation=1，而 board owner=Leo；`task deliver --attempt 1`→TICKET_PHASE_NOT_RUNNING、`board start`→TICKET_PHASE_NOT_CLAIMED。live CLI 无类型化 rebind/release 入口，与 Henry、Carol 同源。
+- 处置：把 Leo 实例证据追加到本地 canonical bug `ec6f457`（comment `e2cf64f`），不新建第二套修复、不 force-close/rework、不代改控制状态。已回复 Leo `m1794189239769-6679`：候选与 PR #32 原样保留，用 owner 入口更新 next_step=PARKED，恢复条件为用户批准 AppSDK 0.2.0438 安装并重启 daemon 后按新 revision/attempt deliver 交 Alice。`node scripts/check-layout.mjs` exit 0。
+- goal：deadline `m1794189151987-6665` 已消费并重臂为 `sub-m1794189180629-6671`；`appsdk goal status` Active=true、desired=observed=subscribed、error=null。project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只消费通知、追加 bug 证据、回复 Leo、只读核对 PR/worktree/board、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装/合并 PR，未动 daemon/tmux。
+- 下一步：三条 deliver 阻塞（Henry evaluate、Carol Rust、Leo call-graph）统一等用户批准 AppSDK 0.2.0438 安装并重启 daemon；批准后按各自新 revision/attempt 重新 deliver 交 Alice。
+
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
 - 用户再次确认 nn-code 模型设计与训练已授权，当前要求先汇报现状。已消费 Kate round-62 `m1794178648697-5773`；`collab msg` 回读 `consumed_by_recv=true`，inbox unread=0。
