@@ -213,13 +213,6 @@ function toRouteCandidate(measured: SearchInputHostCandidate): BA1RouteCandidate
   };
 }
 
-function hasIdentityMismatch(candidates: readonly SearchInputHostCandidate[], control: BA1Identity): boolean {
-  return candidates.some(candidate =>
-    candidate.documentRef !== control.documentRef
-    || candidate.observationId !== control.observationId
-    || candidate.revision !== control.revision);
-}
-
 /**
  * Actual DOM membership, not a ref stamped by projection. The scope root is
  * admitted; any element whose ancestor chain leaves it is outside scope.
@@ -414,9 +407,12 @@ export async function projectBA1RealSiteEvaluationInput(
     );
   }
 
-  // R4: candidate currentness. A candidate from another observation is never
-  // folded into this evaluation.
-  if (hasIdentityMismatch(corrected, control)) {
+  // R4: envelope currentness. A stale observation is rejected even when it
+  // carries no candidates, so an empty stale envelope cannot pass as a fresh
+  // insufficient observation.
+  if (observation.documentRef !== control.documentRef
+    || observation.observationId !== control.observationId
+    || observation.revision !== control.revision) {
     return rejectWith(
       "stale_candidate",
       `${observation.observationId}-stale-candidate`,
@@ -426,6 +422,8 @@ export async function projectBA1RealSiteEvaluationInput(
         currentRevision: control.revision,
         observationId: observation.observationId,
         currentObservationId: control.observationId,
+        observedDocumentRef: observation.documentRef,
+        currentDocumentRef: control.documentRef,
       },
     );
   }

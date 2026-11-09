@@ -321,6 +321,25 @@ test("an independently stale current control is rejected and keeps both revision
   assert.equal(stale?.payload.currentRevision, observed.revision + 1);
 });
 
+test("a stale envelope with no candidates is rejected, not reported as insufficient", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-stale-empty-"));
+  const packagePath = await packageScoringHasLabel(dir, 9);
+  const observed = observation([]);
+  const projection = await projectBA1RealSiteEvaluationInput(request(observed, packagePath, {
+    documentRef: observed.documentRef,
+    observationId: "obs-2",
+    revision: observed.revision + 1,
+  }));
+  assert.equal(projection.output.kind, "reject");
+  assert.equal(projection.output.reason, "stale_candidate");
+  assert.equal(projection.scoredCandidates.length, 0, "stale empty envelope never reaches forward");
+  const stale = projection.evidenceRecords.find(record => record.type === "stale_candidate");
+  assert.equal(stale?.payload.observedRevision, observed.revision);
+  assert.equal(stale?.payload.currentRevision, observed.revision + 1);
+  assert.equal(stale?.payload.observationId, "obs-1");
+  assert.equal(stale?.payload.currentObservationId, "obs-2");
+});
+
 test("the projection carries no gold field and refuses a different encoder package", async () => {
   const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-guard-"));
   const projection = await projectBA1RealSiteEvaluationInput({
