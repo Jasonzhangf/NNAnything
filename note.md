@@ -37,6 +37,14 @@
 - 新增并发：Rust 语料准备 `nn-code-symbols-rust-corpus-prep-r1-20261109` 已派 Carol，board rev3 working，worktree `rust-corpus-prep-20261109`；design-only，不训练/不采用。Alice 的 review 可用，当前无独立 reviewer 缺口。
 - goal deadline `m1794186616496-6387` 已消费并重臂 `sub-m1794186669006-6393`，trigger 01:21Z；project patrol `sub-m1793963843713-143` 仍 armed。CEO 报告已记录（recorded=true，notification 未送达）。daemon 仍 `collab 0.2.0000`，Henry evaluate 继续 PARK 于 `a718710`；未安装/重启 daemon，未改产品/权重/gold/threshold/采用。
 
+## 2026-11-09 Jenny：call-graph 归属落定与 round-64 回执（01:16Z）
+
+- 已消费 `receive-80044-1794186980769696000-0`，包含 project patrol `m1794186698210-6398`、worker-idle `m1794186784362-6411`/`m1794186842890-6417`/`m1794186852581-6419`/`m1794186896075-6421` 与 Kate round-64 `m1794186938723-6426`。
+- `collab board show` 核验 `nn-code-call-graph-cursor-schema-r1-20261109` 已 owner=Leo、last_response=accepted、working；Leo 的 task_ids 已含该任务，Kate 的 task_ids=[]。roadmap 并行派发表已改为 Leo working，不再写“改派中”。
+- Kate 的 typed decline 原错成立：live 0.2.0000 对 working legacy assignment 无 decline 入口。无需再让 Kate 改 board；归属已由 Leo 接受完成。
+- 本轮无新增 ready 授权工作：Rust 与 call-graph 均 working，Swift 保持研究员缺口，Henry 保持 daemon ticket gate PARK，Iris P0 与 Grace 巡检继续。未为占满 idle peer 制造任务。
+- goal `sub-m1794186669006-6393` 仍 armed，trigger 01:21Z；project patrol `sub-m1793963843713-143` armed。main 仅受保护 fixture 未跟踪；未改产品/权重/gold/threshold/采用，未训练/安装/动 daemon/tmux。
+
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
 - 用户再次确认 nn-code 模型设计与训练已授权，当前要求先汇报现状。已消费 Kate round-62 `m1794178648697-5773`；`collab msg` 回读 `consumed_by_recv=true`，inbox unread=0。
