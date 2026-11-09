@@ -270,4 +270,3 @@ runner `evaluate` route; this contract only names its acceptance inputs.
 - This contract: `/Volumes/Intel/playground/nnanything/nn-code-redesign-repo-generalization-real-eval-r2-20261109/docs/nn-code-redesign-repo-generalization-real-eval-r2.md`
 - Task log: `/Volumes/Intel/playground/nnanything-runs/nn-code-redesign-repo-generalization-real-eval-r2-20261109/task-log.md`
 - Accepted evidence paths are listed in task-log with per-item line refs.
-
