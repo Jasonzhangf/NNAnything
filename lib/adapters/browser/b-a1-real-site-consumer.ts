@@ -106,6 +106,9 @@ interface FailureReceipt {
   readonly identity: {
     readonly observed: BA1Identity;
     readonly currentControl: BA1Identity;
+    readonly sampleId: string;
+    readonly family: string;
+    readonly group: string;
   };
   readonly packagePath: string;
   readonly failure?:
@@ -328,19 +331,26 @@ function modelReference(pkg: UnifiedModelPackage) {
   };
 }
 
+function forwardExecutionStatus(projection: BA1RealSiteEvaluationProjection): {
+  readonly status: "completed" | "not_run";
+  readonly noForwardReason: string | null;
+} {
+  if (projection.scoredCandidates.length > 0) {
+    return { status: "completed", noForwardReason: null };
+  }
+  return { status: "not_run", noForwardReason: noForwardReason(projection) };
+}
+
 function firstProjectionFile(
   pkg: UnifiedModelPackage,
   packagePath: string,
   projection: BA1RealSiteEvaluationProjection,
 ): FirstProjectionFile {
-  const noForward = noForwardReason(projection);
+  const forward = forwardExecutionStatus(projection);
   return {
     schema: FIRST_PROJECTION_SCHEMA,
     package: { path: packagePath, ...modelReference(pkg) },
-    forward: {
-      status: noForward === null ? "completed" : "not_run",
-      noForwardReason: noForward,
-    },
+    forward,
     projection,
   };
 }
@@ -356,6 +366,9 @@ function typedFailureReceipt(
     identity: {
       observed: identityOf(request.observation),
       currentControl: request.currentControl,
+      sampleId: request.sampleId,
+      family: request.gold.family,
+      group: request.gold.group,
     },
     packagePath: resolve(request.packagePath),
     failure: typedFailure(projection)!,
@@ -376,6 +389,9 @@ function runtimeFailureReceipt(
     identity: {
       observed: identityOf(request.observation),
       currentControl: request.currentControl,
+      sampleId: request.sampleId,
+      family: request.gold.family,
+      group: request.gold.group,
     },
     packagePath: resolve(request.packagePath),
     error: errorFact(error),

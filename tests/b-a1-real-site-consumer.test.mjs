@@ -294,7 +294,7 @@ test("missing measurement is receipted without shrinking the expected denominato
   assert.equal(receipt.evaluatedCount, 0);
 });
 
-test("scored candidates below threshold stay not-run and keep the typed reason", async () => {
+test("scored candidates below threshold keep forward executed and preserve typed semantic failure", async () => {
   const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-all-below-"));
   const packagePath = await packageScoringHasLabel(dir, 7);
   const observed = observation([
@@ -333,12 +333,23 @@ test("scored candidates below threshold stay not-run and keep the typed reason",
 
   const projectionFile = JSON.parse(await readFile(result.artifacts.projection, "utf8"));
   assert.deepEqual(projectionFile.projection.currentControl, currentControl);
-  assert.equal(projectionFile.forward.status, "not_run");
-  assert.equal(projectionFile.forward.noForwardReason, "all_below_threshold");
+  assert.equal(projectionFile.projection.output.state, "insufficient_observation");
+  assert.equal(projectionFile.projection.scoredCandidates.length, result.projection.scoredCandidates.length);
+  assert.equal(
+    projectionFile.projection.evidenceRecords.find(
+      record => record.type === "insufficient_observation",
+    )?.payload.insufficientReason,
+    "all_below_threshold",
+  );
+  assert.equal(projectionFile.forward.status, "completed");
+  assert.equal(projectionFile.forward.noForwardReason, null);
 
   const receipt = JSON.parse(await readFile(result.artifacts.failureReceipt, "utf8"));
   assert.equal(receipt.failure.kind, "bound");
   assert.equal(receipt.failure.noForwardReason, "all_below_threshold");
+  assert.equal(receipt.identity.sampleId, "sample-all-below");
+  assert.equal(receipt.identity.family, BA1_REAL_SITE_FAMILY);
+  assert.equal(receipt.identity.group, "all-below");
 });
 
 test("a runtime failure keeps a receipt and no success artifacts", async () => {
@@ -364,6 +375,9 @@ test("a runtime failure keeps a receipt and no success artifacts", async () => {
   const receipt = JSON.parse(await readFile(join(outputDir, "failure-receipt.json"), "utf8"));
   assert.equal(receipt.ok, false);
   assert.equal(receipt.stage, "package");
+  assert.equal(receipt.identity.sampleId, "sample-5");
+  assert.equal(receipt.identity.family, BA1_REAL_SITE_FAMILY);
+  assert.equal(receipt.identity.group, "g1");
   await assert.rejects(readFile(join(outputDir, "first-projection.json"), "utf8"));
   await assert.rejects(readFile(join(outputDir, "real-site-evaluation.jsonl"), "utf8"));
 });
