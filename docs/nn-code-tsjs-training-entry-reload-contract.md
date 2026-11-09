@@ -172,7 +172,7 @@ early-stop state 属于独立的 `nnanything.unified.training-checkpoint.v1`。�
 | completed epoch 与 epoch 历史持久化 | PASS，checkpoint 新进程核对 |
 | early-stop state 持久化 | PASS，固定 `devEarlyStopEnabled=false` |
 | resume 从 checkpoint 恢复并继续固定预算 | PASS，bounded + resume 测试已验收 |
-| cumulative timing 持久化 | EXPLICIT_NULL，当前 fitter 不测量 timing |
+| cumulative timing 持久化 | 当前 checkpoint schema 保存 `timing.cumulative` 与 `timingCutPoint`；历史 checkpoint 的 `cumulativeTimingSeconds` 为 null（未记录），计时语义按既有证据同步 |
 
 这里不追加以 tensor hash 或 frozen snapshot 代替 checkpoint 状态。必要的恢复状态必须是
 typed、可核对的训练状态。
@@ -181,13 +181,16 @@ typed、可核对的训练状态。
 
 本 milestone 只完成 checkpoint 与 typed 恢复边界，不宣称“完整首训入口已就绪”。
 
-- `cumulativeTimingSeconds` 被类型与校验硬限定为 `null`：统一 fitter 当前不测量每轮或
-  每头耗时，也不累计续训时长。研究 owner 需在既有合同中确定每次/每头实际耗时、续训
-  累计方式与墙钟字段，工程接入后才允许以时间作为 fit 准入条件。不得伪造 0，也不以
-  轮次数代替 loss 目标。
+- 旧文案的 `cumulativeTimingSeconds=null` 硬限制已过时。当前 `unified-timing.ts`
+  已有 `UnifiedThisRunTiming`、`UnifiedCumulativeTiming` 和 committed
+  `timingCutPoint`；checkpoint 保存 `timing` 与兼容字段 `cumulativeTimingSeconds`，
+  runner 报告已分开记录本次 wall、失败尝试与完成步骤。计时实现复用现有证据，
+  不重造也不重新验证；残余合同措辞由唯一 owner 按既有证据同步。不得伪造 0，
+  也不以轮次数代替 loss 目标。
 - `evaluate` 仍为 `NOT_READY`：独立 holdout 语义评价与旧能力回归未接入运行入口。
-- 上述两部分的 owner 是研究设计 owner（Carol），准入依赖是 Alice 接受独立评价与计时
-  合同；完成并接入后再启动真实 fit。
+- evaluate 的 owner 是研究设计 owner（Carol），准入依赖是 Alice 接受独立评价合同；
+  计时按现有实现与既有证据同步，不再作为未实现的工程缺口。两部分均完成或同步后
+  再启动真实 fit。
 
 ## 6. 最小验证命令
 
