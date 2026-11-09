@@ -25,10 +25,12 @@ started by this document.
    `docs/nn-code-tsjs-training-entry-reload-contract.md` defines public
    `convert-samples` / `validate-data` / `train` / `resume` commands, typed
    model-package and checkpoint schemas, TRAIN-only admission, and new-process
-   reload. `evaluate` stays NOT_READY until the independent holdout route is
-   connected. Evidence lines: public entry at 22; evaluate NOT_READY at 42;
-   new-process reload at 65; TRAIN-only admission at 72; model-package schema
-   at 88; checkpoint boundary at 128; residual evaluate/timing at 188 and 223.
+   reload. At the accepted preparation baseline, `evaluate` stays NOT_READY
+   until the independent holdout route is connected; Henry's current candidate
+   and review status is separate from that baseline. Evidence lines: public
+   entry at 22; historical evaluate NOT_READY at 42; new-process reload at 65;
+   TRAIN-only admission at 72; model-package schema at 88; checkpoint boundary
+   at 128; residual evaluate/timing at 188 and 223.
 4. r1 evaluation mechanism:
    `/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/frank-repo-generalization-evaluation-contract.md`
    revision 5 defines the NEV response contract, manifest-driven denominators,
@@ -106,14 +108,18 @@ are not counted as correct.
 
 Named denominators required in this real evaluation:
 
-1. `seen_repo` (TRAIN/DEV): cases whose repository root appears in training or
-   development source families. This is the in-distribution control.
+1. `seen_repo` (TRAIN/DEV diagnostic): cases whose repository root appears in
+   training or development source families. This is the in-distribution
+   control, kept on a diagnostic path with a separately named report. It never
+   bypasses the public independent-only evaluate route's TRAIN/DEV refusal.
 2. `unseen_repo` (VERIFICATION): cases from a repository root that never appears
    in any TRAIN/DEV source family. The repository root is the unit, not
    "another file in the same repo".
-3. `unseen_impl` (VERIFICATION): cases from the same repo or language where the
-   implementation shape (alias, re-export, direct declaration) was not seen in
-   TRAIN/DEV. Each shape is a distinct sub-family.
+3. `unseen_impl` (VERIFICATION): cases from a separately sourced sub-family in
+   the same repo or language where the implementation shape (alias, re-export,
+   direct declaration) was not seen in TRAIN/DEV and derivation isolation is
+   established. Shape renaming or translating a TRAIN case does not establish
+   independence. Each accepted shape is a distinct unexposed sub-family.
 4. `unseen_tool_family` (VERIFICATION): cases for a tool/runtime family (for
    example a different target library or a new runtime family) that was not seen
    in TRAIN/DEV. Tool family names are registered in the partition manifest and
@@ -136,14 +142,22 @@ A candidate is admitted for real evaluation only when:
   used to construct student features or candidate enumeration;
 - the admission manifest marks `usableForTrainingSupervision=false` and
   `usableForIndependentVerification=true` for VERIFICATION families;
-- no TRAIN/DEV family is used as VERIFICATION unless explicitly declared in the
-  manifest with a derivation-family leakage check.
+- no previously TRAIN/DEV source family or related derivation-group member may
+  become independent VERIFICATION by manifest declaration, role rename, copy,
+  translation, or a leakage check. A repeated exposed sample remains known
+  regression/diagnostic even after its manifest role changes.
+- paper admission examples: a genuinely unrelated verification family is
+  admitted as independent; a renamed/copied/translated TRAIN family is rejected
+  as independent and retained as diagnostic.
 
 ## 3. Fixed black-box entry and acceptance
 
-### 3.1 Public command
+### 3.1 Public command vocabulary
 
-A future executor runs the accepted public corridor with a fixed command shape:
+The following are accepted route names in the public corridor, not one recipe.
+An independent real evaluation may run `convert-samples`/`validate-data` and
+then `evaluate` only; `train`/`resume` are separate fitting/resume routes and
+must never be used on VERIFICATION inputs.
 
 ```sh
 node dist/training/l2-standard-runner.js convert-samples --config <runner-config.json>
