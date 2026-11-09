@@ -9,6 +9,10 @@
 - 23:24Z 消费 deadline `m1794180252590-5881`（`LAST_REMINDER=true`），重臂回执 one-shot armed；daemon 仍 `collab 0.2.0000`，board 无变化（Grace rev42、Iris rev119、Henry rev9 PARK），ready_authorized_work=false。
 - 23:31Z 消费 master-idle project-patrol `m1794180687198-5910`，完成四项巡检：P0/P1 开放且各有任务/等待外部依赖；无 ready 授权工作（ready=false、wake_hold=null）；worktree 仅主树与 Henry evaluate 独占树且均在界内；present idle 的 Carol/Leo/Jack/Kate 无匹配 ready 任务，Henry/Iris/Grace 有任务，idle 原因合理；project_board_patrol eligible_task_ids=[]，Grace 已取消自身巡检、Iris 与 Henry 已按 park 理由取消并保留恢复条件。CEO Alice 已配置；`collab ceo progress` 从 master 返回 `CEO_AUTHORITY_REQUIRED`，无法查询是否已有 CEO 报告批次，本轮不重复 `ceo reply`，仅记录该事实。
 - 23:34Z 消费 deadline `m1794180865892-5931` 与同批 worker-idle `m1794180865359-5930`，显式重臂回执 one-shot armed；newly_idle 为 Grace（持巡检任务），其余 live idle 与上轮一致，board 无新增 ready 授权工作，不派单。
+- 23:44Z 消费 deadline `m1794181476998-5970`（`LAST_REMINDER=true`）并显式重臂；daemon 仍 `collab 0.2.0000`，用户安装批准/重启未发生，恢复链不变。
+- 23:55Z 消费 deadline `m1794182086023-5987`（`LAST_REMINDER=true`）并显式重臂；恢复链仍唯一等待用户批准安装 `collab 0.2.0438` 并自行重启 daemon。
+- 23:59Z 消费 worker-idle `m1794182211233-5998`；newly_idle 为 Kate（无 ready 授权任务），board 无变化且 `ready_authorized_work=false`，不派单。
+- 00:17Z 消费 deadline `m1794183343453-6045`（`LAST_REMINDER=true`）并显式重臂 `sub-m1794183429863-6049`；daemon 仍 `collab 0.2.0000`，board 保持 Grace rev43、Iris P0 rev119、Henry evaluate rev9 PARK，`ready_authorized_work=false`，不派单。
 
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
