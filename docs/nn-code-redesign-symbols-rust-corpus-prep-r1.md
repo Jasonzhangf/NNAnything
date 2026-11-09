@@ -68,7 +68,8 @@ seed；DEV 早停禁用。Rust 和 TS/JS 共享抽象与引擎，但语言来源
 `lib/training/l2-standard-runner.ts` 后确认：
 
 - `convert-samples`、`validate-data`、`train`、`resume` 是现有公开入口；
-  `evaluate` 当前明确返回 `NOT_READY`。Rust evaluate 尚未接入。
+  `evaluate` 对当前基础树明确返回 `NOT_READY`；Rust evaluate 尚未接入。
+  该结论仅描述基础树与 Rust 现状，不外推为其他语言候选的评价状态。
 - `loadStepwiseFamilyManifest` 读取 `manifest.json` 的 `sourceGroup`、
   `language`、`semanticStratum`、`partition` 和可选
   `derivationFamily.familyId`。`loadUnifiedFamilyManifestSource` 额外只要求
@@ -285,8 +286,10 @@ corpus/
 ### 6.3 independent-supervision.jsonl
 
 复用现有 stepwise 监督逻辑字段：`sampleId`、`family`、`requestRef`、
-`steps[]`、`trainingEligible`、`notReadyReason`。`steps[].S_g` 与
-`steps[].A_g` 必须逐字匹配学生候选集合。
+`steps[]`、`trainingEligible`、`notReadyReason`。`steps[].S_g` 必须逐字
+等于学生候选集合（即当前步可见的完整候选组）；`steps[].A_g` 的每个成员
+必须精确引用对应候选，且 `A_g` 是该候选组的非空子集；二者不应被读作
+`A_g=S_g`。
 
 监督字段至少包含：
 
@@ -402,7 +405,8 @@ expected relation unmatched      -> missing, retained in denominator
 - stepwise loader 接受既有 student/supervision 形状，但 adapterRef 和 route
   domain 仍硬编码为 tsjs；
 - `unified-step-context-builder.declarationProjection` 无条件 resolved；
-- public `evaluate` 当前 NOT_READY。
+- public `evaluate` 对当前基础树 NOT_READY；Rust evaluate 未接入。其他语言
+  候选的独立评价状态另行判定，不由本条覆盖。
 
 尚未实现或未验证：
 
