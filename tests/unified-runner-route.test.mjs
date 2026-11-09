@@ -130,10 +130,10 @@ test("schema mismatch on encoder version is explicit DATA_INVALID, not a silent 
   assert.ok(report.dataGate.violations.some(v => v.reasonCode === "ROW_SCHEMA_INVALID"));
 });
 
-test("unified route keeps the unimplemented evaluate command explicit and never falls back", async () => {
+test("unified evaluate route requires an evaluate config and fails typed, never falling back", async () => {
   const { configPath } = await makeCase({
     rowsText: "",
     thresholdsPath: thresholdsFixture,
   });
-  assert.equal(await runStandardRunnerCli(["evaluate", "--config", configPath]), 2);
+  assert.equal(await runStandardRunnerCli(["evaluate", "--config", configPath]), 1);
 });
