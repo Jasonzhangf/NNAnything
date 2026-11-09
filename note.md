@@ -1,5 +1,64 @@
 # 当前任务
 
+## 2026-11-09 Jenny：a718710 解除后 idle peer 复核与首训独立评价派单（12:15Z）
+
+- 目的：回应用户再次质问“codex TUI peer 好几个 idle 未派任务”，按 codex-orchestrator 先读 collab/codex-orchestrator Skill，再核对 board、`collab who`、`collab worker status` 与逐人容量。
+- 关键变化：此前多轮把“无法派单”归因于 live daemon ticket-phase a718710；本轮 board 显示 a718710 已解除、daemon=0.2.0441，evaluate/call-graph/Rust/Swift/plan-audit 均 closed/integrated（main 已快进到 `5955dca`），因此原阻塞不再成立，未派原因是真实任务归属与身份问题，不是门禁。
+- 误派纠正：`bug-4f40e5f-rootstateof-bob-20261109` 被派给巡检员 Bob；Bob 按 `codex-orchestrator`「谁负责什么」请求撤回。已 `collab board policy --executor David` 清 pin、`board dispatch` 发出邀请（rev7，invited_peer=David），并回 Bob `m1794226547092-646`。Jack 仍被自身 close 操作 `ctxop-fa1054b947a3ab8ba271adeea9a9ec3b`（`PEER_LIFECYCLE_CLEANUP_OPEN`/`target_closing`）fence，不可承接，改派 David。
+- 首训独立评价卡点与派单：Alice REWORK `m1794226054712-624` 定位真实缺口=verification-independent-callgraph-d/student-observations.jsonl 未生成、manifest studentRowsDeferred=true。已发布并 `board dispatch` 新 P0 任务 `tsjs-first-train-d2-observation-conversion-r1-20261109`（executor Iris、reviewer Alice、parent overall-orchestration，rev2 invited），要求 gold-free 转换、verification 与 TRAIN 物理分离、不让通用 worker 临场编 episode；Henry 保留独立评价 custody。Henry 已按 REWORK 重交 attempt2（delivered，`m1794226852416-658`），Alice 已 ACCEPT subject3（仅准备/交接）`m1794226893926-660`。
+- 其它派单/复核：Leo read-only triage（efa49dc FIXED / abe21ae FIXED / ec6f457 NEEDS_INFO）已交付 `m1794226551545-647`，reviewer 设为 Alice rev5；ec6f457 亲核 `f5ca5ec` 为 origin/main 祖先、`f32c084` 非祖先（已 rebase 成 `e3f8e63`），裁定以 rebased 后继满足原意并回 Leo `m1794226644687-651`。Carol failure-protocol read_only 已交付（`m1794226875985-659`），待 Alice 审。
+- 身份核实：Emma identity-mismatch/presence=missing，恢复请求 `m1794226399938-639` durable 但 `TMUX_ENDPOINT_MISSING` 无法投达，无 tmux endpoint，按不可用排除容量，恢复入口为本人在 NNAnything 重跑 `collab context`，不代改 identity map。Bob 按 bug-reporter 边界保留巡检职责。Grace/Kate 巡检保护角色不接普通任务。
+- 收口：本地 main 由 `f5ca5ec` 快进到 `origin/main 5955dca`（补回 call-graph 文档）；roadmap evaluate/call-graph/Rust/Swift 四行由 blocked/PARKED 更新为 closed/integrated。本轮未训练、未改产品/权重/gold/threshold/采用、未安装 runtime、未动 daemon/tmux、未 force。
+
+## 2026-11-09 Jenny：idle 复核后补齐 B-A1 评价设计（07:10Z）
+
+- 目的：回应用户再次质问“codex TUI peer 好几个 idle 未派任务”。按 codex-orchestrator 强制步骤先跑 `dispatch-sweep.sh`，再跑 `collab board show` + `collab who`，逐人核对 present/idle、active_task、board 任务与真实可派容量。
+- 容量事实（07:04Z–07:11Z）：Alice/Henry/Iris/Leo/Carol 五个 TUI 业务 peer 均渐 idle，但分别持有未关闭 P0/P1 board 任务，正式 deliver 同受 live daemon `a718710` ticket-phase 阻塞；未获用户安装/重启批准前不能 force-close，也不能叠派第二主任务。Grace/Kate 是巡检保护角色，不承接普通任务；Bob/David/Frank cold；Emma `SESSION_THREAD_BINDING_MISMATCH`/presence=missing，无 tmux endpoint，身份恢复请求 `m1794207842472-8312` durable 但未投达；Jack `collab worker status` 显示 present/idle/identity_valid=true，但本次 `collab board invite --to Jack` 与 `collab send --to Jack` 均返回 `BOARD_DURABILITY_FAILED/SEND_DURABILITY_FAILED: target_closing: responsibility ... fenced by operation ctxop-fa1054b947a3ab8ba271adeea9a9ec3b`，不可承接。结论：当前无 eligible idle 业务 peer 可派。
+- 实际补派：识别到总设计师审计 plan §4.3 与「恢复顺序」P1 并行项 `B-A1 真实站点／完整 Goal 路径评价设计` 仍无 owner，属真实 ready 授权缺口。已发布 board task `b-a1-real-site-eval-design-r1-20261109`（p1、parent `nnanything-overall-redesign-orchestration-r1`、reviewer Alice、design-only、rev2 pending）。因无 peer 可承接，按角色缺位后备启动独立只读 OAuth `gpt-6.1-sol` Planner（run `/Volumes/Intel/playground/nnanything-runs/b-a1-real-site-eval-design-planner-20261109/`，合同 `plan-task.md`），产出后交 Alice 独立审计，再由 Jenny 决定执行派单。
+- 身份/围栏处置：Jack 仅登记一次主动核实与有界等待，不重复催报；未清 fence 前从派发队列排除并记录 owner=Jack、恢复条件=本人在 NNAnything 重跑 `collab context`。Emma 按 `identity-mismatch` 恢复流程排除容量，恢复入口同为 `collab context`，不代改 identity map、不重启 daemon。
+- 根本解锁：四条 TUI 主任务的 formal deliver/review 与后续接单能力，唯一系统性解锁仍为用户两项分离批准（全局安装已验证 `collab 0.2.0438` + 用户自行重启 `com.appsdk.collab` PID 62992），决策包 `/Volumes/Intel/playground/nnanything-runs/nnanything-overall-redesign-orchestration-iris-20261108/a718710-decision-package.md`。
+- 设计闭环（07:26Z）：Planner rev1 交付后 Alice 独立只读审计判 REWORK（`m1794208811905-8391`，`alice-review.md`），仅 F1（历史 `09-evaluation.json` 中 DEV/留出 `scores=[]` 行即使 sampleKind=model-semantic 也不并入神经评分成绩，需补实际 forward/固定分支与完整模型评分分母）与 F2（§12 站点/来源族/逐层验收提案归研究设计 owner，Jenny 只分派、Alice 审，不新造聚合准确率阈值）与内容条件边界澄清。已用独立只读 Planner 承接窄修，产出 rev2（`plan.md`，v1 保留 `plan-v1.md`，回执 `result-rework-only.md`），并已发 Alice 复核请求 `m1794209242976-8429`。真实站点执行、站点/预算准备依赖仍 UNVERIFIED，未训练/未采样/未接线/未安装。
+- 文档同步：Kate round-71 两次标记的 roadmap 三行滞后已就地更正（evaluate f32c084/REWORK → 789d083 窄预审 PASS；Rust 0aa7fc9 → 8afa736；Swift 待研究员/Emma missing → Carol owner、2259c6e），改动未提交。Grace round-43 实测 1h×100 批次订阅已真实首触（07:24:46Z，fired_count=1），更正 round-42 的 `trigger_ms=null` 风险结论；剩余真实缺口仅 goal 前缀主体 one-shot 限制，归 tools/daemon owner。
+- 边界：本轮只读核对、board publish/update、独立 Planner 只读设计派发；未训练、未拟合、未采样、未改产品代码/权重/gold/threshold/采用、未安装 runtime、未重启 daemon、未动 tmux、未 merge/push。
+
+## 2026-11-09 Jenny：TUI idle 复核、Alice 定向复审与 a718710 用户决策（06:50Z）
+
+- 目的：处理用户再次指出的“codex TUI peer 空闲但 master 未管理”，按 `dispatch-sweep.sh`、`collab who`、`collab worker status` 和 board 真实状态逐人核对，不把 blocked、身份异常或跨项目占用当作可派容量。
+- 容量事实：Henry、Carol、Iris、Leo 四个 TUI 业务 peer 均为 present/idle，但分别持有 P0/P1 board 任务，正式 deliver 同受外部 `a718710` ticket-phase 阻塞；不可把安装/重启授权前的时间记为可执行实现容量。Alice present/idle，实际可承接只读复审。Grace/Kate 是巡检保护角色，不承接普通任务；Jack 的 fence 已清，但最近 worker status/pane snapshot 显示其在 AppSDK 项目 busy，且 `collab who` 的 idle 投影与 pane 不稳定；复用前须由 Jack 本人在 NNAnything 项目重跑 `collab context` 确认项目归属与容量，本轮不计入可派容量。Emma 仍 `SESSION_THREAD_BINDING_MISMATCH`/missing，9 条 pending 不由 master 代收；Bob/David/Frank cold 或 unknown，容量 0。
+- 实际派发：Alice 已接收定向复审 `m1794206681273-8216`，只读复核 Carol 对 stage-order audit F1-F3 的窄修；不绕过 formal ticket delivery。Alice 已回 PASS `m1794206741822-8221`，证据置顶 `/Volumes/Intel/playground/nnanything-runs/tsjs-first-train-stage-order-audit-r1-20261109/alice-review.md`。Carol 已按 owner 边界把 PASS 和 a718710 恢复条件写入 board revision 12，回执 `m1794206937401-8241`。
+- Grace Round-42：已回到 pending message `m1794206527489-8200`，回执 `m1794206845056-8233`。Emma 继续按身份恢复流程排除出容量；100 批 goal 主体 one-shot 风险交由 tools/daemon owner；Alice 复审已完成；a718710 候选 provenance 漂移和落后 merge 已进入决策包。
+- 真实剩余决策：`a718710` 的用户可审决策包已落盘 `/Volumes/Intel/playground/nnanything-runs/nnanything-overall-redesign-orchestration-iris-20261108/a718710-decision-package.md`。继续推进需要用户分别批准：1) 全局安装已验证的 `collab 0.2.0438` 到 `/Users/fanzhang/.local/bin/collab`；2) 用户自行重启 `com.appsdk.collab`（当前 PID 62992）。存量 `waiting_assignment` 恢复仍未实测验证，不能宣称安装即完成。未获批准前不重复 retry、不 force-close、不改 daemon 状态。
+- 边界：本轮只做只读复核、board/note 更新和已授权文档复审；未训练、未改产品/权重/gold/threshold/采用、未安装 runtime、未重启 daemon、未动 tmux、未 merge/push。
+
+## 2026-11-09 Jenny：响应 idle peer 质问，拉满可派容量（06:26Z）
+
+- 目的：回应用户质问“多个 codex TUI peer 空闲、master 未派单”。按 codex-orchestrator 强制步骤先跑 `dispatch-sweep.sh`，再按 collab 容量巡检核对每个 present peer 的 agent_state、active_task 与 board 任务，把可派 ready 工作真正派出去并留回执。
+- 容量事实（`collab who` + `collab worker status` + pane snapshot）：Grace/Kate 是巡检保护角色不派开发；Jack 仍被 `target_closing` fence 挡住（本轮 `collab send` 返回 `SEND_DURABILITY_FAILED: ... responsibility ... is fenced by operation ctxop-fa1054b947a3ab8ba271adeea9a9ec3b`，与 Round-40 一致，不碰 fence、不重试）；Emma missing、Bob/David/Frank cold，容量 0；Alice/Henry/Carol/Iris/Leo 为真实可核对 peer。
+- 派单回执（本轮新增）：1) Carol 承接 `tsjs-first-train-stage-order-audit-r1-20261109` 的 Alice REWORK 窄修，board invite rev9→10 已 accepted、owner=Carol、pane 正在读 plan B6/modelId；窄修指令 `m1794205309489-8086`，board next_step rev8 记录 F1/F2/F3（删虚构 timing 冲突、标 root finding 闭合、标 modelId/version 已接受），只改 audit.md/task-log.md。2) Iris 承接 a718710 用户可审决策包 `m1794205310271-8087`，产物 `.../nnanything-overall-redesign-orchestration-iris-20261108/a718710-decision-package.md`，pane 正在收集 daemon 证据。3) Alice 收口 plan audit `m1794205311422-8088`，已回执 `m1794205405486-8097`：board rev3→4，deliver 仍 `TICKET_PHASE_NOT_RUNNING(status=queued)`，产物无新增待办，可承接 stage-order 修订复审。4) Leo 两个 block request 已 supervisor 批准：call-graph `m1794205348692-8094`、config-authoring `m1794205441407-8100`；block_requests 现记 `SUPERVISOR_APPROVED receipt=...`，恢复条件均为 a718710 ticket-phase 恢复后重读 revision/attempt 正式 deliver，不 force。
+- 复核：`dispatch-sweep.sh` 剩余 idle_with_work=Alice/Henry/Iris，均有真实原因而非漏派：Alice 审计已交回、正等 Carol 窄修后复审（她在项目暂停下不能启动新实现）；Henry evaluate 等拟合后 candidate package（同一 a718710 门）；Iris 的 P0 board 投影未及时刷新，实际 pane 已在推进决策包。
+- 边界：本轮只派已授权只读/文档工作；在项目“裁定前仅只读审计、证据盘点、board/goal 维护与停工收口”边界内，不派实现/训练/采样/接线/采用/安装；未改产品、权重、gold、threshold、采用，未 merge/push，未动 daemon/tmux。
+- 下一步：Carol 交回 stage-order 窄修→Alice 复审；Iris 决策包交用户裁定；a718710 真正解阻仍需用户批准安装 AppSDK 0.2.0438 并自行重启 daemon（现为 PID 62992）。用户的两项范围裁定（是否恢复整体重设计、64 维/两层/统一格式是否仍约束）仍待直接裁定。
+
+## 2026-11-09 Jenny：首训关键路径纠偏与交接派发（05:37Z）
+
+- 已消费 master-wake-batch `m1794202213176-7800` 与 Alice 调度纠偏 `m1794202417159-7817`。按调度扫描核对后，把 P0 主路径从旧候选 `c6fc632 待审` 更新为实际状态：evaluate 789d083 已获 Alice 窄预审 PASS，formal deliver 仍 PARKED `a718710`；首训实际配置已由 Leo 交付并跑过主树 validate-data（exit 0 / READY / dataGate TRAIN），但该证据仅证明主树 dist 可解析配置，未证明首训候选环境接入。
+- 下一动作已派：Henry 负责 789d083 候选进入首训候选环境的真实公开 evaluate/validate-data 路由交接（指令 `m1794202705643-7841`）；Leo 负责把固定 train/validate/reload/evaluate 命令与入口清单交执行者（`m1794202701680-7840`）；Iris 作为 P0 owner 收到 board next_step 落板指令（`m1794202700895-7839`）。
+- 回执：Iris 已把 P0 `nnanything-overall-redesign-orchestration-r1` 更新到 revision 122，next_step 原文落板（`m1794202785541-7855`）。调度整改只记为已派发；Henry/Leo 的候选环境交接与固定入口清单仍未完成，待各自回传原样回执后再验收。
+- a718710 控制面归属：live daemon `collab 0.2.0000`（PID 62992）由用户管理；候选 `collab 0.2.0438` 独立核查 23/23 fresh ticket PASS，存量 waiting_assignment 恢复 UNVERIFIED。已向 appsdk.Jenny 发决策包请求（`m1794202699727-7837`），要求确认 release candidate 资格、升级影响与一次性安装批准说明。唯一剩余恢复动作仍是用户批准全局安装并自行重启 daemon。
+- 边界：本轮仅读取 board/note/run 证据、更新 note、派交接指令与跨项目决策请求；未训练、未采样、未改产品/权重/gold/threshold/采用，未安装 runtime，未重启 daemon，未 merge/push。
+
+## 2026-11-09 Jenny：完整训练审计验收、CEO 交回、唯一进度口径修正与并发补齐（04:22Z）
+
+- 已消费 Alice `m1794197598502-7357`：`nncode-training-full-audit-20261109` 正式 delivered。Jenny 亲读 `/Volumes/Intel/playground/nnanything-runs/nncode-training-full-audit-20261109/alice-audit.md`，按 `collab task review --accept --evidence` 验收；任务已 `closed`，`completion_missing=[]`、`delivery_complete=true`、`disposition=no_merge_required`。该 read-only 审计无需 merge。
+- 正确进度口径：TS/JS nn-code 符号表当前没有完成首训、候选回载或独立关系质量证据；evaluate 工程仍为 REWORK，f32c084 的公开路由、多动作轨迹、root evidence、missing-student expected 与失败轨迹证据尚未闭合。旧 CLI 共享命令策略、CLI 读取反馈和浏览器多项能力有真实拟合/保存/回载证据，但不能计为 TS/JS nn-code 符号训练；B-A1 统一关系模型已有真实首训、package/checkpoint 与新进程回载，但真实站点与完整搜索后验仍缺失；B-R 有真实 control/treatment 训练和归因，能力仍未解封。
+- 明确作废旧结论：不能再写“B-A1 fit 未开始”“三条已验收候选包含 evaluate”“恢复条件唯一是安装”“用户还需重裁定 64 维/两层/统一格式/固定引擎”。当前架构约束仍有效；安装候选只解决 ticket-phase 控制面，不自动恢复存量状态，也不自动闭合训练或验收。
+- 三路并行已落实：evaluate 工程窄修继续；TS/JS 首训实际 config/package/checkpoint/新进程回载入口准备已发布 `tsjs-first-train-config-reload-prep-r1-20261109`（p1、parent `nnanything-overall-redesign-orchestration-r1`、reviewer Alice、design-only）；Swift 语料准备任务 `nn-code-symbols-swift-corpus-prep-r1-20261109` 保持 p1、reviewer Alice。两条均无合格空闲研究员 executor，按角色缺位规则使用独立 OAuth `gpt-6.1-sol` Planner，不把 GCM 当研究员。
+- Planner 已真实启动：plan run `/Volumes/Intel/playground/nnanything-runs/nncode-swift-first-train-planner-20261109`，合同 `plan-task.md`、观察 `observation.md`、事件 `events.jsonl`、stderr `stderr.log`、结果目标 `plan.md`。Swift board rev8→9，TS/JS board rev1→2；Planner 只读，不训练、不采样、不接线、不安装。
+- 空闲 peer 逐项处置：Alice 已交回审计并释放，保留独立 review；Henry 收到 `m1794198195552-7413`，按已解冻 F1-F4 五项窄修继续；Carol 与 Leo 的设计交付仍持各自 open 任务并受 live daemon `0.2.0000` ticket-phase 阻塞，不能叠派；Iris 持 P0 总体重设计编排任务；Jack live idle 但 board dispatch 仍被 `target_closing` fence 拒绝；Kate/Grace 是巡检保护角色，不承接开发；Emma `identity-mismatch/missing`。无匹配 ready 工作时不制造任务。
+- CEO 交回：`collab ceo status` 显示当前 host-wide CEO 为 Alice；`collab ceo reply` 已记录 revision 14，`recorded=true`，但 `notified=false/reported=false`。只读审计正文和 progress 已进入 CEO 可读路径；不把 recorded 写成用户已收到。
+- 当前真实阻塞与恢复条件：evaluate 工程可继续但正式 deliver/review 仍受 live daemon ticket-phase 限制；用户批准 AppSDK 0.2.0438 安装并自行重启 daemon 后，Henry/Carol/Leo 按新 revision/attempt 重新 deliver；Swift/TS-JS 首训准备先由 Planner 产出可接受计划，再派合格设计/执行 owner。Jack 的 fence 未解除前不重试同一 board dispatch。
+- 边界：本轮只做证据验收、CEO 回报、board/note 更新与独立 Planner 派发；未训练、未拟合、未采样、未改产品代码/权重/gold/threshold/采用、未安装 runtime、未动 daemon/tmux、未 merge/push。
+
 ## 2026-11-08 Jenny：goal deadline 消费与重臂（23:03Z）
 
 - 已消费 deadline `m1794178977673-5800`（`LAST_REMINDER=true`），并显式重臂 `appsdk goal subscribe --goal docs/autonomous-capability-roadmap.md --interval 600000`，回读 one-shot armed；project patrol `sub-m1793963843713-143` 保持 armed。
