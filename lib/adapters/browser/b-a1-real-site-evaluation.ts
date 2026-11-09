@@ -81,6 +81,12 @@ export interface BA1RealSiteObservation {
 export interface BA1RealSiteEvaluationRequest {
   readonly observation: BA1RealSiteObservation;
   readonly packagePath: string;
+  /**
+   * The authoritative current-control fact from its existing owner. It is not
+   * derived from the observed envelope, so a stale envelope cannot relabel
+   * itself as current.
+   */
+  readonly currentControl: BA1Identity;
 }
 
 export interface BA1ScoredCandidate {
@@ -109,14 +115,6 @@ export interface BA1RealSiteEvaluationProjection {
   readonly evaluatedCount: number;
   /** Candidates with every measured field present. Diagnosis, not a denominator. */
   readonly measuredCandidateCount: number;
-}
-
-function identityOf(observation: BA1RealSiteObservation): BA1Identity {
-  return Object.freeze({
-    documentRef: observation.documentRef,
-    observationId: observation.observationId,
-    revision: observation.revision,
-  });
 }
 
 function evidenceRecord(
@@ -222,6 +220,19 @@ function hasIdentityMismatch(candidates: readonly SearchInputHostCandidate[], co
     || candidate.revision !== control.revision);
 }
 
+/**
+ * Actual DOM membership, not a ref stamped by projection. The scope root is
+ * admitted; any element whose ancestor chain leaves it is outside scope.
+ */
+function isWithinScope(element: Element, scopeRoot: Element): boolean {
+  let cursor: Element | null = element;
+  while (cursor !== null) {
+    if (cursor === scopeRoot) return true;
+    cursor = cursor.parentElement;
+  }
+  return false;
+}
+
 /** The accepted fixed non-search shape, kept as the accepted script defines it. */
 function matchesNonSearchShape(x: readonly number[]): boolean {
   return x[24] === 0 && x[40] === 0 && x[41] === 1 && x[25] === 0;
@@ -285,7 +296,7 @@ export async function projectBA1RealSiteEvaluationInput(
   request: BA1RealSiteEvaluationRequest,
 ): Promise<BA1RealSiteEvaluationProjection> {
   const { observation } = request;
-  const control = identityOf(observation);
+  const control = request.currentControl;
   const requestedRole = observation.requestedRole ?? SEARCH_INPUT_HOST_ROLE;
   const scopeRef = observation.scopeRef;
   const coverageRef = `${observation.observationId}-coverage`;
@@ -303,6 +314,13 @@ export async function projectBA1RealSiteEvaluationInput(
   const projected = projectSearchInputHostCandidates(projectionInput);
   const corrected = projected.map(candidate =>
     correctCandidate(candidate, observation.propertiesOf(candidate.ref)));
+  const elementByRef = new Map(observation.nodes.map(node => [node.nodeRef, node.element]));
+  const outsideScopeRefs = corrected
+    .filter(candidate => {
+      const element = elementByRef.get(candidate.ref);
+      return element === undefined || !isWithinScope(element, observation.scopeRoot);
+    })
+    .map(candidate => candidate.ref);
   const candidates = corrected.map(evaluationCandidate);
   const observedCandidateCount = observation.coverage.observedCandidateCount;
   const measuredCandidateCount = corrected.filter(isMeasuredSearchInputHostCandidate).length;
@@ -360,12 +378,16 @@ export async function projectBA1RealSiteEvaluationInput(
 
   // R2: the observed scope must be the allowed scope.
   if (observation.coverage.scopeRef !== scopeRef
-    || corrected.some(candidate => candidate.scopeRef !== scopeRef)) {
+    || outsideScopeRefs.length > 0) {
     return rejectWith(
       "outside_scope",
       `${observation.observationId}-outside-scope`,
       "outside_scope",
-      { allowedScopeRef: scopeRef, observedScopeRef: observation.coverage.scopeRef },
+      {
+        allowedScopeRef: scopeRef,
+        observedScopeRef: observation.coverage.scopeRef,
+        outsideRefs: outsideScopeRefs,
+      },
     );
   }
 
@@ -399,7 +421,12 @@ export async function projectBA1RealSiteEvaluationInput(
       "stale_candidate",
       `${observation.observationId}-stale-candidate`,
       "stale_candidate",
-      { observedRevision: control.revision, currentRevision: control.revision },
+      {
+        observedRevision: observation.revision,
+        currentRevision: control.revision,
+        observationId: observation.observationId,
+        currentObservationId: control.observationId,
+      },
     );
   }
 

@@ -42,11 +42,20 @@ function labelHost(text = "搜索", overrides = {}) {
   return element({
     getAttribute: name => (name === "type" ? "search" : null),
     labels: text === null ? [] : [element({ tagName: "LABEL", textContent: text })],
+    parentElement: scopeRoot,
     ...overrides,
   });
 }
 
 const scopeRoot = element({ tagName: "DIV" });
+
+function request(observation, packagePath, currentControl = {
+  documentRef: observation.documentRef,
+  observationId: observation.observationId,
+  revision: observation.revision,
+}) {
+  return { observation, packagePath, currentControl };
+}
 
 function observation(nodes, overrides = {}) {
   return {
@@ -119,11 +128,10 @@ test("admitted observation produces gold-free evaluator input that selects the u
   const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-selected-"));
   const packagePath = await packageScoringHasLabel(dir, 2);
   const projection = await projectBA1RealSiteEvaluationInput({
-    observation: observation([
+    ...request(observation([
       { nodeRef: "c1", element: labelHost("搜索") },
       { nodeRef: "c2", element: labelHost(null) },
-    ]),
-    packagePath,
+    ]), packagePath),
   });
   assert.equal(projection.output.kind, "bound");
   assert.equal(projection.output.state, "selected");
@@ -153,11 +161,10 @@ test("a tied maximum is ambiguous and both tied hosts carry ambiguity evidence",
   const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-tie-"));
   const packagePath = await packageScoringHasLabel(dir, 3);
   const projection = await projectBA1RealSiteEvaluationInput({
-    observation: observation([
+    ...request(observation([
       { nodeRef: "c1", element: labelHost("搜索") },
       { nodeRef: "c2", element: labelHost("查询") },
-    ]),
-    packagePath,
+    ]), packagePath),
   });
   assert.equal(projection.output.state, "ambiguous");
   assert.equal(projection.output.selectedRef, null);
@@ -182,11 +189,10 @@ test("every score below theta stays insufficient_observation, never none", async
   const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-all-below-"));
   const packagePath = await packageScoringHasLabel(dir, 4);
   const projection = await projectBA1RealSiteEvaluationInput({
-    observation: observation([
+    ...request(observation([
       { nodeRef: "c1", element: labelHost(null) },
       { nodeRef: "c2", element: labelHost(null) },
-    ]),
-    packagePath,
+    ]), packagePath),
   });
   assert.equal(projection.output.kind, "bound");
   assert.equal(projection.output.state, "insufficient_observation");
@@ -215,15 +221,14 @@ test("a folded false disabled stays unmeasured and the whole group stops before 
   const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-missing-"));
   const packagePath = await packageScoringHasLabel(dir, 5);
   const projection = await projectBA1RealSiteEvaluationInput({
-    observation: observation([
+    ...request(observation([
       { nodeRef: "c1", element: labelHost("搜索") },
       { nodeRef: "c2", element: labelHost("查询") },
     ], {
       // A non-production properties map without a boolean disabled key: the
       // projection folds disabled=false, the adapter must undo that fold.
       propertiesOf: () => ({ explicitTabIndexKind: "absent", tabIndexFocus: false }),
-    }),
-    packagePath,
+    }), packagePath),
   });
   assert.equal(projection.output.kind, "bound");
   assert.equal(projection.output.state, "insufficient_observation");
@@ -254,7 +259,7 @@ test("a coverage mismatch is a typed reject, not a low score", async () => {
   const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-coverage-"));
   const packagePath = await packageScoringHasLabel(dir, 6);
   const projection = await projectBA1RealSiteEvaluationInput({
-    observation: observation([{ nodeRef: "c1", element: labelHost("搜索") }], {
+    ...request(observation([{ nodeRef: "c1", element: labelHost("搜索") }], {
       coverage: {
         scopeRef: "scope-1",
         observedCandidateCount: 3,
@@ -263,8 +268,7 @@ test("a coverage mismatch is a typed reject, not a low score", async () => {
         unassessedOpenShadowRootCount: 0,
         excluded: [],
       },
-    }),
-    packagePath,
+    }), packagePath),
   });
   assert.equal(projection.output.kind, "reject");
   assert.equal(projection.output.reason, "unverified_coverage");
@@ -284,11 +288,43 @@ test("a coverage mismatch is a typed reject, not a low score", async () => {
   assert.deepEqual(evaluation.errors, []);
 });
 
+test("a projected host outside the scope root is rejected before forward", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-outside-scope-"));
+  const packagePath = await packageScoringHasLabel(dir, 7);
+  const projection = await projectBA1RealSiteEvaluationInput(request(
+    observation([{ nodeRef: "c1", element: labelHost("搜索", { parentElement: null }) }]),
+    packagePath,
+  ));
+  assert.equal(projection.output.kind, "reject");
+  assert.equal(projection.output.reason, "outside_scope");
+  assert.equal(projection.scoredCandidates.length, 0, "outside scope never reaches forward");
+  assert.deepEqual(
+    projection.evidenceRecords.find(record => record.type === "outside_scope")?.payload.outsideRefs,
+    ["c1"],
+  );
+});
+
+test("an independently stale current control is rejected and keeps both revisions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-stale-"));
+  const packagePath = await packageScoringHasLabel(dir, 8);
+  const observed = observation([{ nodeRef: "c1", element: labelHost("搜索") }]);
+  const projection = await projectBA1RealSiteEvaluationInput(request(observed, packagePath, {
+    documentRef: observed.documentRef,
+    observationId: observed.observationId,
+    revision: observed.revision + 1,
+  }));
+  assert.equal(projection.output.kind, "reject");
+  assert.equal(projection.output.reason, "stale_candidate");
+  assert.equal(projection.scoredCandidates.length, 0, "stale input never reaches forward");
+  const stale = projection.evidenceRecords.find(record => record.type === "stale_candidate");
+  assert.equal(stale?.payload.observedRevision, observed.revision);
+  assert.equal(stale?.payload.currentRevision, observed.revision + 1);
+});
+
 test("the projection carries no gold field and refuses a different encoder package", async () => {
   const dir = await mkdtemp(join(tmpdir(), "b-a1-e2-guard-"));
   const projection = await projectBA1RealSiteEvaluationInput({
-    observation: observation([]),
-    packagePath: join(dir, "missing.json"),
+    ...request(observation([]), join(dir, "missing.json")),
   });
   assert.equal(projection.output.state, "insufficient_observation");
   assert.equal(Object.hasOwn(projection, "gold"), false);
@@ -318,7 +354,7 @@ test("the projection carries no gold field and refuses a different encoder packa
   const wrongPackage = await saveUnifiedModelPackageAtomic(join(dir, "package.json"), otherEncoder);
   const populated = observation([{ nodeRef: "c1", element: labelHost("搜索") }]);
   await assert.rejects(
-    projectBA1RealSiteEvaluationInput({ observation: populated, packagePath: wrongPackage }),
+    projectBA1RealSiteEvaluationInput(request(populated, wrongPackage)),
     error => error instanceof TypeError && /not the B-A1 route encoder/.test(error.message),
   );
 });
