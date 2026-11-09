@@ -45,6 +45,15 @@
 - 本轮无新增 ready 授权工作：Rust 与 call-graph 均 working，Swift 保持研究员缺口，Henry 保持 daemon ticket gate PARK，Iris P0 与 Grace 巡检继续。未为占满 idle peer 制造任务。
 - goal `sub-m1794186669006-6393` 仍 armed，trigger 01:21Z；project patrol `sub-m1793963843713-143` armed。main 仅受保护 fixture 未跟踪；未改产品/权重/gold/threshold/采用，未训练/安装/动 daemon/tmux。
 
+## 2026-11-09 Jenny：Rust 语料准备交付被同一 ticket-phase 缺陷阻塞（01:35Z）
+
+- 目的：处理 Carol 的 Rust 语料准备交付阻塞 `m1794187833307-6518`（reply-required），核对是否需要 master 修复 ticket phase 入口。
+- 证据：board `nn-code-symbols-rust-corpus-prep-r1-20261109` rev5、status=working、owner Carol、worktree `rust-corpus-prep-20261109` clean，设计交付就绪 commit `0aa7fc9`（`docs/nn-code-redesign-symbols-rust-corpus-prep-r1.md` + task-log）。Carol 已实测：`task deliver`（无 attempt）→ TICKET_ATTEMPT_REQUIRED current_attempt=0；`task deliver --attempt 0` → TICKET_PHASE_NOT_RUNNING status=queued；`task/board start --attempt 0` → TICKET_PHASE_NOT_CLAIMED；`board claim` → BOARD_TASK_NOT_PENDING（status accepted）。与 Henry evaluate 同源 live daemon `collab 0.2.0000` ticket-phase 缺陷。
+- 处置：在本地 canonical bug `ec6f457` 追加 Carol 实例证据（comment `e9c669f`），不新建第二套修复、不绕过 gate、不 force-close/rework。已回复 Carol `m1794188087299-6548`：设计保持原样，等 daemon 0.2.0438 安装/重启获用户批准后按新 revision/attempt 重新 respond/start/deliver 交 Alice。
+- goal：deadline `m1794187897632-6526` 已消费，`appsdk goal subscribe` 重臂为 `sub-m1794187929644-6532`（armed，trigger 01:42Z）；project patrol `sub-m1793963843713-143` armed。`appsdk goal status` Active=true/subscribed，error=null。
+- 边界：本轮只消费通知、追加 bug 证据、回复 owner、只读核对 board 并更新 note；无产品代码/语料/权重/gold/threshold/采用改动，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：用户批准 AppSDK 0.2.0438 安装并重启 daemon 后，Henry 与 Carol 按各自新 revision/attempt 重新走 respond/start/deliver，Alice 独立 review 通过后再进入集成或真实 fit；未获批准前保留两条任务现状。
+
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
 - 用户再次确认 nn-code 模型设计与训练已授权，当前要求先汇报现状。已消费 Kate round-62 `m1794178648697-5773`；`collab msg` 回读 `consumed_by_recv=true`，inbox unread=0。
