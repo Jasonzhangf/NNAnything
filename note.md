@@ -14,6 +14,7 @@
 - 23:59Z 消费 worker-idle `m1794182211233-5998`；newly_idle 为 Kate（无 ready 授权任务），board 无变化且 `ready_authorized_work=false`，不派单。
 - 00:17Z 消费 deadline `m1794183343453-6045`（`LAST_REMINDER=true`）并显式重臂 `sub-m1794183429863-6049`；daemon 仍 `collab 0.2.0000`，board 保持 Grace rev43、Iris P0 rev119、Henry evaluate rev9 PARK，`ready_authorized_work=false`，不派单。
 - 00:21Z 消费 master-idle project-patrol `m1794183688580-6057`，已完成四项巡检：开放 P0/P1 为 Grace P1、Iris P0、Henry P0，Henry 仍 PARK 在 `a718710`，Iris 等 evaluate，无新增 ready 授权工作、pending merge、blocked 或 timed-out；资源仅主树与 Henry evaluate 独占树，主树仅有受保护 `cua-fixture.html` 未跟踪；peer 状态为 Henry/Iris present idle 且各持任务，Grace present unknown 持巡检，Carol/Leo/Jack/Kate present idle 无匹配 ready 工作，Alice/Bob/Emma/David/Frank cold 或 missing；`project_board_patrol.eligible_task_ids=[]`，Grace/Henry/Iris 的既有取消保留，不重复派单；project patrol `sub-m1793963843713-143` 仍 armed，节奏无 gap。
+- 00:27Z 消费 goal deadline `m1794184034239-6089`（`LAST_REMINDER=true`）并显式重臂；daemon 仍 `collab 0.2.0000`，board 无新增 ready 授权工作，`ready_authorized_work=false`，不派单。
 
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
