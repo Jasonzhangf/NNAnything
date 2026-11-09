@@ -580,16 +580,6 @@ function studentRunOfMultiStep(
   };
 }
 
-function rootStateOf(run: StudentRelationRun | undefined): UnifiedRootState {
-  if (run === undefined) return "missing";
-  // Availability comes from the engine's explicit root evaluation state, never
-  // from a null result. The completed-run path currently reports "evaluated";
-  // "not_evaluated" is retained for an engine-reported unevaluated root.
-  if (run.rootEvaluationState === "not_evaluated") return "not_evaluated";
-  if (run.rootSatisfied === null) return "unknown";
-  return run.rootSatisfied ? "satisfied" : "unsatisfied";
-}
-
 function buildSampleDetails(
   samples: readonly IndependentOracleSample[],
   episodes: readonly RelationStepEpisode[],
@@ -599,6 +589,16 @@ function buildSampleDetails(
   const partitions = new Map(episodes.map(episode => [episode.sampleId, episode.partition]));
   return samples.map(sample => {
     const run = runsBySample.get(sample.sampleId);
+    // Availability comes from the engine's explicit root evaluation state, never
+    // from a null result. The completed-run path currently reports "evaluated";
+    // "not_evaluated" is retained for an engine-reported unevaluated root.
+    const rootState: UnifiedRootState = run === undefined
+      ? "missing"
+      : run.rootEvaluationState === "not_evaluated"
+        ? "not_evaluated"
+        : run.rootSatisfied === null
+          ? "unknown"
+          : run.rootSatisfied ? "satisfied" : "unsatisfied";
     const gold = sample.labelMissing ? null : sample.gold;
     const steps = (run?.steps ?? []).map(step => {
       const predicted = judgeOf(step.optionSemantics);
@@ -623,7 +623,7 @@ function buildSampleDetails(
       gold,
       labelMissing: sample.labelMissing,
       predicted,
-      root: rootStateOf(run),
+      root: rootState,
       rootEvidenceRefs: [...(run?.rootEvidenceRefs ?? [])],
       rootConditionStates: [...(run?.rootConditionStates ?? [])],
       steps,
