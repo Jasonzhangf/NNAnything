@@ -63,6 +63,8 @@
 - 边界：本轮只消费通知、追加 bug 证据、回复 Leo、只读核对 PR/worktree/board、续订 goal 并更新 note；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装/合并 PR，未动 daemon/tmux。
 - 下一步：三条 deliver 阻塞（Henry evaluate、Carol Rust、Leo call-graph）统一等用户批准 AppSDK 0.2.0438 安装并重启 daemon；批准后按各自新 revision/attempt 重新 deliver 交 Alice。
 
+- 01:59Z 新增并行预审：master 已向 Alice 发送只读预审请求 `m1794189619683-6725`，按原 review 合同先审三个候选，缩短 daemon 升级后的交付链：优先 evaluate f32c084（重点核对 F1-F4 是否闭合，证据 report.md/evidence/logs），随后 Rust 设计 0aa7fc9 与 call-graph 设计 PR #32。只读审查、不改代码/不 merge/不 commit；formal accept 仍等各任务新 revision/attempt 正式 deliver 后补 review 回执，不绕过 ticket gate。
+
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
 - 用户再次确认 nn-code 模型设计与训练已授权，当前要求先汇报现状。已消费 Kate round-62 `m1794178648697-5773`；`collab msg` 回读 `consumed_by_recv=true`，inbox unread=0。
@@ -4158,3 +4160,54 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 已通过 `collab ceo reply` 记录本轮实质进度 revision 10（recorded=true，reported=false）：evaluate 仍阻塞于 live daemon ticket phase，AppSDK 0.2.0438 候选已验证，安装与重启等待用户批准，fit/训练未启动。
 - Iris 已回执 `m1794170669410-5066`；`collab board show` 核验 P0 父任务 `nnanything-overall-redesign-orchestration-r1` 已更新至 revision 119，next_step 明确 evaluate 未 ACCEPT、AppSDK 候选等待用户安装批准、fit/训练未启动。
 - 20:48Z 消费再次到期的 goal `m1794170889977-5085` 后，已显式重臂为 `sub-m1794170913851-5088`；`appsdk goal status` 回读 active=true、desired=observed=subscribed、remote_state=armed，project patrol 仍 armed。
+
+## 2026-11-08 Jenny：nn-code 训练结果清单审计（02:25Z）
+
+- 目的：承接 CEO Alice 的 `nncode-training-full-audit-20261109`（`m1794190690293-6853`）与用户询问 `m1794190470398-6828`，汇总 nn-code/浏览器各能力真实训练结果与最早阻断。总设计师/研究员唯一登记人 Emma 处于 missing；Carol 已持 Rust 语料任务不叠加，按现有授权由 master 依据项目 durable 证据直接交付审计，独立性缺口在结论注明。
+- 真实训练已有结果（均有真实拟合 + 保存 + 新进程回载证据，候选全部 `uncalibrated/not_applied`，无一通过独立留出或产品采用）：
+  1. CLI 共享命令策略 `cli.command-policy.v1`（10 heads × 31 wires = 310 参数）：候选 `35bd5ad9`、`39f1570f`、`fb73d4a0`；8N8E typed 训练图真实执行 train 174/174、dev 88/88、effectsOk 262/262，P3 candidate-preference 分支真实拟合并新进程回载；`fullyVerified=false`、5 项 UNVERIFIED 逐项保留，未采用。证据 note.md `cli.command-policy.v1` 段与 `docs/autonomous-capability-roadmap.md` 31/148 行。
+  2. 浏览器单步原子（50 参数）：真实拟合 30 train/10 dev，独立新进程回载 20/20，候选 `fitted/candidate.json` 未采用（note.md browser-semantic-single-action 段）。
+  3. 浏览器失败反馈 F1（36 参数）：`coverage-r1` 真实拟合 train 36/36、dev 12/12，新进程回载 48/48，首次 24 保留集 24/24 但仅 6 种已覆盖投影，未证明跨投影泛化；候选未采用（note.md F1 段）。
+  4. 浏览器策略优选 F2（20 参数）：真实拟合 36/36、dev 12/12，新进程回载 48/48；独立 22/24 及两项 rawFAIL 保留，未采用（note.md F2 段）。
+  5. B-A1 有限安全子 milestone：离线 profile 真实拟合+回载，merge `f6b2a1c` 已集成，范围仅为 search-input-host 数值绑定等有限切片，非完整自主对象绑定，候选未采用。
+- 真实完成拟合但未达标（Alice 已正式接受失败，能力保持 INCOMPLETE，候选不采用）：browser B-R ignore 能力 control/treatment 拟合由 Henry 完成，保存+新进程回载+逐例评价齐全，两组均低于解封门槛；反例 112 归因为 margin 失败（Carol rev2、Kate subject_revision 4 ACCEPT）；证据 `/Volumes/Intel/playground/nnanything-runs/b-r-browser-fit-evaluation-henry-20261107/` 与 `b-r-per-degradation-attribution-carol-20261107/review-findings-kate.md`。
+- 仅工程/设计/语料准备，未开始真实 fit：
+  - TS/JS nn-code 符号：v2 语料准入已 ACCEPT（15 data / 67 student / 15 supervision）；evaluate 工程 `tsjs-evaluate-engineering-henry-20261108` 候选 `f32c084` 仍 Alice REWORK（F1 多步轨迹、F2 失败保留、F3 gold 分母、F4 root 证据），fit/保存/回载/留出/旧回归均未启动。
+  - Rust/Swift/JVM 符号：仅设计或 corpus-prep，物理语料/converter/evaluate/training 均 INCOMPLETE；Swift 因唯一研究员 Emma missing 仍 pending。
+  - repo-generalization R2：设计准备 ACCEPT，真实 repo 评价/训练 INCOMPLETE。
+  - 浏览器 B-A1 完整自主绑定、B-A2 搜索域反馈、B-G1 跨页同类：合同/研究准备已接受，fit 未启动。
+- 最早阻断与恢复：TS/JS 首条 fit 的前置 evaluate 工程未 ACCEPT；且三条已验收候选（evaluate `f32c084`、call-graph schema、Rust corpus）的形式交付统一被 live daemon `collab 0.2.0000` ticket-phase 缺陷（上游 `a718710`）阻塞。恢复条件唯一是用户批准安装 AppSDK `collab 0.2.0438` 候选并重启 daemon；候选二进制 `/Volumes/Intel/playground/appsdk/collab-runtime-candidate-20261108/collab/target/release/collab` 已验证 ticket 生命周期 23/23，但全局安装与重启是用户动作，本轮未执行。
+- 边界：本轮只读核对 note.md/roadmap/board/run 目录并回报，未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。总设计师独立审计缺口：Emma missing、Carol 不叠加，本轮由 master 据 durable 证据直接交付，不冒称独立 designer 审计。
+
+## 2026-11-08 Jenny：独立总设计师审计已完成（02:39Z）
+
+- 目的：承接 CEO Alice `m1794191177193-6890` 的纠偏——master 自审不能替代独立总设计师结论；按 codex-orchestrator 启动独立只读 OAuth `gpt-6.1-sol` medium 新会话完成完整审计。
+- 派发与证据：任务书与 board 快照落 `/Volumes/Intel/playground/nnanything-runs/nncode-training-full-audit-20261109/{plan-task.md,board-snapshot.json,observation.md}`；Planner 亲自读取 cli-p3-stage2/cli-p4-stage3/cli-read-feedback online clean 链、browser 原子/F1/F2/B-R/B-A1 first-fit、tsjs v2 corpus admission、evaluate 候选 f32c084 源码与公开 evaluate 路由 JSON、Rust/Swift/JVM/call-graph/repo-generalization run 目录、AppSDK 候选二进制。启动命令、session、退出码与 events.jsonl 保留在同目录；Planner 退出 0，正文宿主保存为 `plan.md`（497 行）。Planner 只读，未写产品，未派 agent，未集成。
+- 独立审计结论摘要：
+  1. 真实拟合已成立但未采用：CLI 共享命令策略 Stage 2（report accepted=true TRAIN246/246 dev124/124，reload 370 次检查/310 次 executor，外部 95 项含历史 71+新 24，未验证项保留）；CLI read-feedback online clean 链（旧能力 base94/94 reasoning19/19 无退化，提效未证）；浏览器原子、F1（新交叉 23/24 保留 1 项真实缺口）、F2（原 FAIL22/24 保留）、B-R（control/treatment 均低于门，反例 112 margin 0.043<0.15，能力 INCOMPLETE，失败报告接受）、B-A1 首训（initial loss 0.765→final 0.101，stop=epoch_limit_exhausted，新进程回载 verified，DEV2/2+VERIFICATION2/2+contract5/5+aggregator4/4，real-site held-out 未填，不合并语义准确率）。
+  2. P4 Stage 3 fit 门失败（stage3 新样本 TRAIN128/144 dev64/72，24 错预测 DEFER 期望 link.create/file.link，后续 reload/评价 not_run，reason=upstream_train_stage_failed）；CLI feedback 独立来源泛化未建立；L2 T3 browser 本任务未 fit。
+  3. TS/JS nn-code 符号表尚无已完成首训证据：v2 语料准入 READY（15/67/15，unknownGoldRows=0 不证 unknown 能力）；evaluate f32c084 仍 REWORK（多动作轨迹、失败样本保留原错、root 空证据仍 completed、缺失学生输入丢独立义务、报告语义缺口）；JDK17 build 已重新生成，不再是首阻断。
+  4. evaluate REWORK 与 live daemon ticket-phase（a718710）是两条独立阻断，可并行解阻；Rust/call-graph 形式交付同源受阻；两者都不证明工程正确，也不能据此停工。
+  5. AppSDK 0.2.0438 候选二进制独立确认存在；23/23 原始测试回执本轮 UNVERIFIED，fresh/存量 ticket 恢复行为与安装均未完成；安装待用户批准，不发起。
+  6. 恢复顺序：P0 并行 = evaluate 窄修（Jenny 解除工程窄修冻结）+ ticket/安装候选证据补齐 + TS/JS 首训输入只读审计；P1 并行 = call-graph schema 窄修、Swift 作者重派、B-A1 真实站点评价设计、B-R 最小失败诊断；依赖就绪后 = TS/JS 固定首训、保存、回载、独立 holdout、旧能力回归、真实用户路径、一次整体 Review 后集成。
+- board：`nncode-training-full-audit-20261109` 仍 pending（publisher-owned，无 invitation，claim/respond/start 均被拒），形式生命周期受同一 daemon ticket 缺陷影响；审计实质交付已落 run 目录与 note，不等 board 状态。
+- 边界：本轮只做审计派发、正文接收、note 更新与 CEO 回报；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：按用户指示解除 evaluate 工程窄修冻结并通知 Henry（保留唯一 owner，只修 §5.2 五项缺口，不 fit）；同步 Alice 独立审计已完成且 plan.md 可审阅；AppSDK 安装候选原始回执与安装批准等待用户。
+
+## 2026-11-08 Jenny：拉满 idle 容量——TS/JS 输入审计完成、evaluate 窄修 re-wake、call-graph review、AppSDK 候选核查（03:07Z）
+
+- 目的：响应用户对 codex TUI peer 闲置的质问，核对并拉满可派容量；汇总本轮新增证据与派单回执。
+- 容量核对与派单事实：
+  - Henry（TUI，task `tsjs-evaluate-engineering`）：02:47Z 已派 §5.2 五项窄修 `m1794192446261-6988`，但 board next_step 仍 PARKED、session idle、worktree 无 02:47Z 后新改动；本轮 re-wake `m1794194034949-7091`，要求确认开工或回报状态。
+  - Leo（TUI，call-graph schema）：F1-F3 文档窄修完成 102ab27/PR#32；本轮请 Alice 独立 review `m1794194026270-7090`；Alice 已回预审 PASS：`/Volumes/Intel/playground/nnanything-runs/nn-code-call-graph-cursor-schema-r1-20261109/alice-review.md`（设计预审，非实现/训练验收）；正式 deliver 待 lifecycle。
+  - Jack（TUI）：`SEND_DURABILITY_FAILED: target_closing`（responsibility fenced by ctxop），不可派；不制造任务。
+  - Carol/Iris：Rust corpus / overall-redesign 形式交付均 PARKED 于 live daemon ticket-phase a718710。
+  - Emma：唯一登记研究员 missing，Swift corpus-prep pending。
+  - Kate/Grace：常驻巡检，不派开发任务。
+  - live daemon `master_wake.ready_authorized_work=false`；本轮未制造任务，仅派已授权工作。
+- TS/JS 首训输入只读审计（独立 GCM worker，worker.exit=0）：落 `/Volumes/Intel/playground/nnanything-runs/tsjs-first-fit-input-audit-20261109/result.md`（301 行）。结论：v2 TRAIN 语料 READY（15 data/67 student/15 supervision，64 维有限、物理分离）；固定 train 入口存在但 run 内无 train config/candidate package/checkpoint/回载；主线 evaluate NOT_READY exit2，f32c084 仍 REWORK；独立 holdout source 存在但未跑。
+- AppSDK 0.2.0438 候选 ticket-phase 只读核查已完成（独立 GCM worker，session 39522，run 目录 `appsdk-ticket-phase-candidate-verify-20261109`，result.md 178 行）：候选 `work_roles_cli` 恰好 23 个测试，`COLLAB_BUILD_VERSION=438` 编译后 `23 passed; 0 failed` exit 0，候选二进制 `collab 0.2.0438`；fresh ticket 的 publish→claim→start→deliver→completed 黑盒已覆盖；存量 `waiting_assignment` 恢复由源码 `board_claim`/`board_respond --accept` 支持但无直接黑盒测试，标 `UNVERIFIED`；live 0.2.0000（PID 62992，`/Users/fanzhang/.cargo/bin/collab serve --service`）有 `board claim/start/respond/dispatch`，无 `release`/`recover` 子命令。只读，未安装/未重启/未动 tmux/未改产品源码。
+- board：`nncode-training-full-audit-20261109` 更新到 revision 3，next_step 记录上述派单与证据。
+- goal：消费 deadline `m1794194271289-7104` 后已 rearm，status Active=true/subscribed；project patrol `sub-m1793963843713-143` armed。
+- 边界：本轮只做容量核对、派单、review 协调、只读审计派发、board/note 更新；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
+- 下一步：等 Henry 回报 §5.2 窄修；Alice 正式 review 待 Leo 完成 deliver（受 lifecycle）；AppSDK 候选核查完成后把独立证据交用户做安装决策；用户仍需裁定「是否恢复整体重设计/训练」与「64 维/两层/统一格式是否仍约束」。
