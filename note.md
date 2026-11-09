@@ -15,6 +15,18 @@
 - 00:17Z 消费 deadline `m1794183343453-6045`（`LAST_REMINDER=true`）并显式重臂 `sub-m1794183429863-6049`；daemon 仍 `collab 0.2.0000`，board 保持 Grace rev43、Iris P0 rev119、Henry evaluate rev9 PARK，`ready_authorized_work=false`，不派单。
 - 00:21Z 消费 master-idle project-patrol `m1794183688580-6057`，已完成四项巡检：开放 P0/P1 为 Grace P1、Iris P0、Henry P0，Henry 仍 PARK 在 `a718710`，Iris 等 evaluate，无新增 ready 授权工作、pending merge、blocked 或 timed-out；资源仅主树与 Henry evaluate 独占树，主树仅有受保护 `cua-fixture.html` 未跟踪；peer 状态为 Henry/Iris present idle 且各持任务，Grace present unknown 持巡检，Carol/Leo/Jack/Kate present idle 无匹配 ready 工作，Alice/Bob/Emma/David/Frank cold 或 missing；`project_board_patrol.eligible_task_ids=[]`，Grace/Henry/Iris 的既有取消保留，不重复派单；project patrol `sub-m1793963843713-143` 仍 armed，节奏无 gap。
 - 00:27Z 消费 goal deadline `m1794184034239-6089`（`LAST_REMINDER=true`）并显式重臂；daemon 仍 `collab 0.2.0000`，board 无新增 ready 授权工作，`ready_authorized_work=false`，不派单。
+- 00:37Z 消费 worker-idle `m1794184463640-6123` 与 goal deadline `m1794184650244-6140`；newly_idle 为 Grace（持巡检任务），Leo/Kate 无匹配 ready 工作；显式重臂为 `sub-m1794184688019-6143`，daemon 仍 `collab 0.2.0000`，不派单。
+
+## 2026-11-09 Jenny：纠正后向空闲 peer 派发三个设计后继，重臂 goal（00:48Z）
+
+- 用户纠正 master 不得让 Codex TUI peer 闲置后，已将三个已被 Alice 接受的 design-only 后继切片重新派发，均 parent `nnanything-overall-redesign-orchestration-r1`、reviewer Alice：
+  - `nn-code-redesign-repo-generalization-real-eval-r2-20261109`（executor Carol，rev 2，working，交付真实 repo/eval 准备）。
+  - `nn-code-symbols-jvm-corpus-prep-r1-20261109`（executor Leo，rev 2，working，Kotlin/Java 语料与 typed fixture/验证准备）。
+  - `nn-code-call-graph-cursor-schema-r1-20261109`（executor Kate，rev 2，working，调用图 cursor/gap schema）。
+  - 首次试图把 call-graph 派给 Jack 时被 `BOARD_DURABILITY_FAILED ... fenced by operation` 拒绝，改派 Kate；在无具体新原因前不向 Jack 重发该任务。
+- 00:48Z 消费 goal deadline `m1794185322552-6205`（`LAST_REMINDER=true`）并显式重臂为 `sub-m1794185367622-6212`，trigger 00:59Z；project patrol `sub-m1793963843713-143` 仍 armed。
+- 00:48Z-00:50Z 消费 worker-idle `m1794185382953-6215`（Carol newly_idle）与 `m1794185412455-6218`（Leo newly_idle）；三个新任务均已在 board 显示 working/rev2 并绑定对应 owner，尚无 worktree/交付头。
+- daemon 仍 `collab 0.2.0000`，PID 62992；本轮未安装 runtime、未动 daemon/tmux，未改产品代码/权重/gold/threshold/采用，不宣称训练或验收完成。
 
 ## 2026-11-08 Jenny：nn-code 模型设计与训练现状（23:00Z）
 
