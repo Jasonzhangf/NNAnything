@@ -456,8 +456,9 @@ visited witness 代替。循环不剪简单路径，也不枚举全部路径。
 - `one`：一条真实确认边带请求要求的 witness，且相关 CandidateGroup 已终结，
   就可满足根 verify。此时其他未处理 frontier、scope 与 gap 保持
   `coverage.status=partial`，不阻止该 one 结果 satisfied。
-- 只有同一目标链上的执行失败、截断或相关组未闭阻止 satisfied。与 one 请求无关的
-  未闭 frontier/scope 记为 partial coverage，不全局否决。
+- 对 `one`：只有同一目标链上的执行失败、截断或相关组未闭阻止 satisfied；与 one
+  请求无关的未闭 frontier/scope 记为 partial coverage，不全局否决。`all` 仍只按
+  上面的 complete-coverage 规则判定。
 - 遍历停止、模型 RETURN、根 satisfied 分别记录。
 
 依据：`emma-call-graph-redesign-r1.md`:367-379、:473-474、:478-523；
@@ -694,7 +695,8 @@ expectedCount =
 - active group 至多一个，且其 CandidateGroup 属于当前 pending relation；
 - 所有 State/evidence/receipt/witness/error ref 解析到现有 runtime 表；
 - 每条 `EdgeOccurrenceRecord` 的 `confirmedEdgeRef`、`reachedDepth`、
-  `witnessPathRef` 与 `RelationLedgerRecord` 一致；
+  `witnessPathRef` 经 `confirmedEdgeRef` 关联现有 `states`/`evidence` 并一致；
+  `RelationLedgerRecord` 不重复保存 depth/witness 字段；
 - 深度不超过 maxDepth，边界记录与 maxDepth 一致；
 - stop 与现有 `control.stopReason` 一致；
 - 未完成义务与现有 `remainingRequirements` 一致；
