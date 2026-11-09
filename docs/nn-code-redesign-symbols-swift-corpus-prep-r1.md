@@ -327,7 +327,7 @@ corpus/
 
 ```text
 labelAuthority = researcher_structural_proof+swiftc_dump_parse
-oracleKind = swiftc_ast_dump|swift_structural_audit
+oracleKind = swiftc_dump_parse|swift_structural_audit
 unknownReason = null|protocol_witness_unresolved|macro_expansion_not_evaluated|
                 objc_interop_unresolved|swiftui_view_graph_unresolved|
                 module_path_unknown|evidence_insufficient
