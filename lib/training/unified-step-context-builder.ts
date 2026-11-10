@@ -23,6 +23,13 @@ import type {
   RemainingObligationProjection,
   RelationshipProjection,
 } from "./unified-encoder.js";
+import type {
+  TsJsCoverageRecord,
+  TsJsParserRecord,
+  TsJsRuntimeSelectorObservation,
+  TsJsRuntimeSelectorRoleFact,
+  TsJsSymbolTableRequest,
+} from "../filters/tsjs-symbol-table-policy.js";
 import { UNIFIED_INPUT_SCHEMA } from "./unified-encoder.js";
 
 export const RELATION_SKILL_REF = "skill:relation.judge";
@@ -39,6 +46,30 @@ export interface RelationStepSourceContent {
   readonly evidenceRefs: readonly string[];
 }
 
+export interface RelationStepLocalFact {
+  readonly factRef: string;
+  readonly role?: "selector_candidate_table" | "runtime_selector_dependency";
+  readonly state: string;
+  readonly value: string | null;
+  readonly evidenceRefs: readonly string[];
+}
+
+export interface TsJsProducerSourceBinding {
+  readonly kind: "nnanything.tsjs.producer-source.v1";
+  readonly producerRequest: TsJsSymbolTableRequest;
+  readonly parser: TsJsParserRecord;
+  readonly coverage: TsJsCoverageRecord;
+  readonly rawObservation: TsJsRuntimeSelectorObservation;
+  readonly sampleId: string;
+  readonly requestRef: string;
+  readonly stepId: string;
+  readonly fromStepId: string | null;
+  readonly callSiteRef: string;
+  readonly pendingRelationRef: string;
+  readonly requestedDeclarationRef: string;
+  readonly requestedModuleRef: string;
+}
+
 export interface RelationStepReceipt {
   readonly receiptId: string;
   readonly actionRef?: string;
@@ -52,6 +83,7 @@ export interface RelationStepReceipt {
   readonly outcome?: "success" | "partial" | "failed" | "unknown";
   readonly result: unknown;
   readonly evidenceRefs: readonly string[];
+  readonly producerSource?: TsJsProducerSourceBinding;
 }
 
 export interface RelationStepCoverage {
@@ -79,6 +111,7 @@ export interface RelationStepEpisode {
   readonly entryFile: string;
   readonly targetRef: string;
   readonly observedFacts: readonly string[];
+  readonly observedLocalFacts?: readonly RelationStepLocalFact[];
   readonly pendingRelationRef?: string | null;
   readonly callSiteRef?: string | null;
   readonly calleeName?: string | null;

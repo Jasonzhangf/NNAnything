@@ -54,6 +54,7 @@ import {
 import {
   relationStepContext,
   type RelationStepEpisode,
+  type TsJsProducerSourceBinding,
 } from "../training/unified-step-context-builder.js";
 import {
   loadFeatureThresholdsFromFile,
@@ -210,6 +211,16 @@ export type TsJsInitialEvidencePayload =
       readonly evidenceRefs: readonly string[];
       readonly textLength?: number;
       readonly lineCount?: number;
+      readonly requestRef?: string;
+      readonly stepId?: string;
+      readonly callSiteRef?: string;
+      readonly requestedDeclarationRef?: string;
+      readonly requestedModuleRef?: string;
+      readonly modules?: readonly {
+        readonly file: string;
+        readonly textLength: number;
+        readonly lineCount: number;
+      }[];
     }
   | {
       readonly kind: "import_binding_observation";
@@ -2368,6 +2379,200 @@ function intersectRefs(...groups: readonly (readonly string[])[]): readonly stri
   );
 }
 
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function admittedProducerReadRecords(input: {
+  readonly requestId: string;
+  readonly episode: RelationStepEpisode;
+  readonly stateRef: string;
+  readonly receipt: NonNullable<RelationStepEpisode["receipts"]>[number];
+  readonly source: TsJsProducerSourceBinding;
+}): { readonly records: readonly TsJsInitialEvidenceRecord[]; readonly reasons: readonly string[] } {
+  const { requestId, episode, stateRef, receipt, source } = input;
+  const reasons: string[] = [];
+  const raw = source.rawObservation;
+  const rawReceipt = raw.sourceReadReceipt;
+  const currentRelation = episode.currentRelation;
+  const currentBinding = currentRelation?.binding.state === "known"
+    ? currentRelation.binding.value
+    : null;
+  const previous = episode.previousExecution?.state === "known"
+    ? episode.previousExecution.value ?? null
+    : null;
+  const sourceReadRef = raw.sourceReadRef;
+  const receiptResult = Array.isArray(receipt.result)
+    ? receipt.result.filter((ref): ref is string => typeof ref === "string")
+    : [];
+
+  if (source.kind !== "nnanything.tsjs.producer-source.v1") {
+    reasons.push("producer source kind mismatch");
+  }
+  if (source.requestRef !== requestId || episode.requestId !== requestId) {
+    reasons.push("producer source request mismatch");
+  }
+  if (source.sampleId !== episode.sampleId) reasons.push("producer source sample mismatch");
+  if (source.stepId !== episode.stepId) reasons.push("producer source step mismatch");
+  if (source.fromStepId !== (receipt.fromStepId ?? null)) {
+    reasons.push("producer source predecessor mismatch");
+  }
+  if (
+    source.requestedDeclarationRef !== episode.targetRef
+    || source.requestedModuleRef !== (episode.requestedDeclaration?.moduleRef ?? null)
+  ) {
+    reasons.push("producer source requested target mismatch");
+  }
+  if (
+    source.callSiteRef !== episode.callSiteRef
+    || source.callSiteRef !== currentRelation?.callSiteRef
+    || source.callSiteRef !== raw.callSiteRef
+    || raw.binding.callSiteRef !== source.callSiteRef
+  ) {
+    reasons.push("producer source call-site mismatch");
+  }
+  if (
+    source.pendingRelationRef !== episode.pendingRelationRef
+    || source.pendingRelationRef !== currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== receipt.pendingRelationRef
+    || source.pendingRelationRef !== previous?.pendingRelationRef
+  ) {
+    reasons.push("producer source pending relation mismatch");
+  }
+  if (
+    sourceReadRef.length === 0
+    || rawReceipt.receiptId !== sourceReadRef
+    || rawReceipt.actionRef !== receipt.actionRef
+    || rawReceipt.action !== receipt.action
+    || rawReceipt.origin !== receipt.origin
+    || rawReceipt.outcome !== receipt.outcome
+    || rawReceipt.targetRef !== receipt.target
+    || !sameStringArray(receiptResult, rawReceipt.result)
+    || !sameStringArray(receipt.evidenceRefs, rawReceipt.evidenceRefs)
+  ) {
+    reasons.push("producer source receipt mismatch");
+  }
+  if (
+    !rawReceipt.evidenceRefs.includes(sourceReadRef)
+    || !sameStringArray(
+      Array.isArray(episode.sourceContent?.resultRefs)
+        ? episode.sourceContent.resultRefs.filter((ref): ref is string => typeof ref === "string")
+        : [],
+      rawReceipt.result,
+    )
+    || episode.sourceContent?.state !== "observed"
+    || !episode.sourceContent.evidenceRefs.includes(sourceReadRef)
+  ) {
+    reasons.push("producer source sourceContent mismatch");
+  }
+  if (
+    raw.binding.bindingMode !== "dynamic"
+    || raw.binding.resolution.status !== "dynamic"
+    || raw.binding.resolution.reason !== "dynamic_undecidable"
+    || raw.binding.declarationRefs.length !== 0
+    || raw.binding.scopeRef !== null
+    || !raw.binding.evidenceRefs.includes(sourceReadRef)
+    || !raw.binding.resolution.evidenceRefs.includes(sourceReadRef)
+  ) {
+    reasons.push("producer source raw binding mismatch");
+  }
+  if (currentBinding === null || currentBinding === undefined) {
+    reasons.push("producer source binding missing");
+  } else if (
+    currentBinding.symbolRef !== raw.binding.symbolRef
+    || currentBinding.callSiteRef !== raw.binding.callSiteRef
+    || currentBinding.role !== raw.binding.role
+    || currentBinding.bindingMode !== raw.binding.bindingMode
+    || currentBinding.declarationRefs.length !== 0
+    || currentBinding.scopeRef !== null
+    || !sameStringArray(currentBinding.evidenceRefs, raw.binding.evidenceRefs)
+    || currentBinding.resolution.status !== "dynamic"
+    || currentBinding.resolution.reason !== "dynamic_undecidable"
+    || !sameStringArray(
+      currentBinding.resolution.evidenceRefs,
+      raw.binding.resolution.evidenceRefs,
+    )
+  ) {
+    reasons.push("producer source binding mismatch");
+  }
+  const rawFacts = raw.facts;
+  const projectedFacts = episode.observedLocalFacts ?? [];
+  if (
+    rawFacts.length !== 2
+    || rawFacts.filter(fact => fact.role === "selector_candidate_table").length !== 1
+    || rawFacts.filter(fact => fact.role === "runtime_selector_dependency").length !== 1
+    || rawFacts.some(fact =>
+      fact.state !== "known" || !fact.evidenceRefs.includes(sourceReadRef))
+    || projectedFacts.length !== rawFacts.length
+  ) {
+    reasons.push("producer source role facts mismatch");
+  } else {
+    for (const [index, fact] of rawFacts.entries()) {
+      const projected = projectedFacts[index];
+      if (
+        projected === undefined
+        || projected.factRef !== fact.factRef
+        || projected.role !== fact.role
+        || projected.state !== fact.state
+        || projected.value !== fact.value
+        || !sameStringArray(projected.evidenceRefs, fact.evidenceRefs)
+      ) {
+        reasons.push(`producer source role fact ${index} mismatch`);
+        break;
+      }
+    }
+  }
+  if (
+    previous === null
+    || previous.receiptRef !== rawReceipt.receiptId
+    || previous.actionRef !== rawReceipt.actionRef
+    || previous.origin !== rawReceipt.origin
+    || previous.targetRef !== rawReceipt.targetRef
+    || previous.fromStepId !== source.fromStepId
+    || previous.pendingRelationRef !== source.pendingRelationRef
+    || previous.outcome !== "success"
+  ) {
+    reasons.push("producer source previous execution mismatch");
+  }
+  const expectedModuleResultRefs = rawReceipt.modules.map(module =>
+    `${sourceReadRef}:module:${module.file}`);
+  if (
+    rawReceipt.modules.some(module => module.textLength < 0 || module.lineCount < 0)
+    || !sameStringArray(rawReceipt.result, expectedModuleResultRefs)
+  ) {
+    reasons.push("producer source modules mismatch");
+  }
+  if (reasons.length > 0) {
+    return { records: [], reasons: uniqueRefs(reasons) };
+  }
+  return {
+    records: [{
+      id: sourceReadRef,
+      stateRef,
+      validity: "valid",
+      payload: {
+        kind: "source_read_receipt",
+        receiptId: rawReceipt.receiptId,
+        actionRef: rawReceipt.actionRef,
+        origin: rawReceipt.origin,
+        outcome: rawReceipt.outcome,
+        targetRef: rawReceipt.targetRef,
+        fromStepId: source.fromStepId,
+        pendingRelationRef: source.pendingRelationRef,
+        resultRefs: rawReceipt.result,
+        evidenceRefs: rawReceipt.evidenceRefs,
+        requestRef: source.requestRef,
+        stepId: source.stepId,
+        callSiteRef: source.callSiteRef,
+        requestedDeclarationRef: source.requestedDeclarationRef,
+        requestedModuleRef: source.requestedModuleRef,
+        modules: rawReceipt.modules,
+      },
+    }],
+    reasons: [],
+  };
+}
+
 /**
  * Admits the B.6 read record for one admitted source read receipt. The read
  * ref must resolve through the typed read identities (receipt, previous
@@ -2378,6 +2583,7 @@ function admittedReadRecords(
   episode: RelationStepEpisode,
   stateRef: string,
   receipt: NonNullable<RelationStepEpisode["receipts"]>[number],
+  requestId: string,
 ): { readonly records: readonly TsJsInitialEvidenceRecord[]; readonly reasons: readonly string[] } {
   const reject = (reason: string) => ({ records: [] as const, reasons: [reason] });
   if (receipt.action !== "read_source") return reject("source read receipt action mismatch");
@@ -2391,6 +2597,15 @@ function admittedReadRecords(
   if (receiptId === null) return reject("source read receipt missing receiptId");
   if (actionRef === null) return reject("source read receipt missing actionRef");
   if (targetRef === null) return reject("source read receipt missing targetRef");
+  if (receipt.producerSource !== undefined) {
+    return admittedProducerReadRecords({
+      requestId,
+      episode,
+      stateRef,
+      receipt,
+      source: receipt.producerSource,
+    });
+  }
 
   const reasons: string[] = [];
   const receiptPendingRelationRef = nonEmptyString(receipt.pendingRelationRef);
@@ -2557,6 +2772,15 @@ export function admitInitialEvidence(
   if (episodes.length === 0) {
     return { initialObservation: null, invalidReasons: ["no admitted episode"], initialStateRef: "" };
   }
+  const hasProducerSource = episodes.some(episode =>
+    (episode.receipts ?? []).some(receipt => receipt.producerSource !== undefined));
+  if (hasProducerSource && episodes.some(episode => episode.requestId !== requestId)) {
+    return {
+      initialObservation: null,
+      invalidReasons: ["producer source episode request mismatch"],
+      initialStateRef: "",
+    };
+  }
   const startEpisode = episodes.find(episode => episode.stepId === multiStepStartStepId(episodes))
     ?? episodes[0]!;
   const stateRef = `ms:${requestId}:${startEpisode.stepId}`;
@@ -2588,7 +2812,7 @@ export function admitInitialEvidence(
   if (readReceipt === undefined) {
     reasons.push("missing source read receipt");
   } else {
-    const readAdmission = admittedReadRecords(startEpisode, stateRef, readReceipt);
+    const readAdmission = admittedReadRecords(startEpisode, stateRef, readReceipt, requestId);
     if (readAdmission.records.length === 0) {
       reasons.push(...readAdmission.reasons);
       if (readAdmission.reasons.length === 0) reasons.push("source read receipt not admitted");
