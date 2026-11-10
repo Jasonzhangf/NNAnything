@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runTsJsSymbolTable } from "../dist/adapters/cli/tsjs-symbol-table-adapter.js";
+import { loadStepwiseEpisodeFamily } from "../dist/training/unified-student-converter.js";
 import {
   loadTsJsRequestAwareAdmissionConfig,
   runTsJsRequestAwareAdmission,
@@ -49,7 +50,24 @@ test("loads the accepted clean DEV recipe and admits both cases through the publ
     assert.equal(entry.rejection, null);
     assert.equal(entry.coverageContract, TSJS_OBSERVED_SOURCE_CLOSURE_CONTRACT);
     assert.ok(entry.admittedEvidenceRefs.includes(entry.sourceReadRef));
+    assert.equal(entry.workState.remainingObligationCount, 0);
+    assert.equal(entry.workState.cursorState, "closed");
+    assert.ok(entry.workState.basis.length > 0);
   }
+  assert.ok(receipt.derivedOutput);
+  assert.equal(receipt.derivedOutput.recordCount, 2);
+  const derivedEpisodes = await loadStepwiseEpisodeFamily(receipt.derivedOutput.dir);
+  assert.deepEqual(derivedEpisodes.map(episode => episode.sampleId), ["dv-c01", "dv-c02"]);
+  const admissions = JSON.parse(await readFile(receipt.derivedOutput.admissionsPath, "utf8"));
+  assert.deepEqual(admissions.familyAdmissions, [{
+    sourceGroup: config.family.derivedSourceGroup,
+    partition: "DEV",
+    usableForTrainingSupervision: false,
+  }]);
+  const consumerInputs = JSON.parse(await readFile(receipt.derivedOutput.consumerInputsPath, "utf8"));
+  assert.equal(consumerInputs.consumerEntry, "loadStepwiseEpisodeFamily");
+  assert.equal(consumerInputs.devFamilyPath, receipt.derivedOutput.dir);
+  assert.equal(consumerInputs.partition, "DEV");
 });
 
 test("rejects a request that is not in the accepted family request set", async () => {
@@ -93,6 +111,42 @@ test("rejects a request whose completion contract does not match the admitted fa
   const receipt = await runTsJsRequestAwareAdmission(config);
   assert.equal(receipt.cases[0].admitted, false);
   assert.equal(receipt.cases[0].rejection.code, "coverage_mismatch");
+});
+
+test("rejects a case that omits work state instead of defaulting it to closed", async () => {
+  const config = structuredClone(await loadConfig());
+  delete config.cases[0].workState;
+  const receipt = await runTsJsRequestAwareAdmission(config);
+  assert.equal(receipt.cases[0].admitted, false);
+  assert.equal(receipt.cases[0].rejection.code, "work_state_missing");
+  assert.equal(receipt.cases[0].workState, null);
+});
+
+test("preserves explicit open work obligations instead of silently closing them", async () => {
+  const config = mutateCase(await loadConfig(), 0, {
+    workState: {
+      basis: "public open-work control",
+      remainingObligations: [
+        {
+          kind: "observe",
+          ref: "obligation:open",
+          pendingRelationRef: "relation:dv-c01",
+          targetRef: null,
+          informationGain: 0.5,
+        },
+      ],
+      localCandidateCursor: {
+        pendingRelationRef: "relation:dv-c01",
+        state: "open",
+        evidenceRefs: ["obligation:open"],
+      },
+    },
+  });
+  const receipt = await runTsJsRequestAwareAdmission(config);
+  assert.equal(receipt.cases[0].admitted, false);
+  assert.equal(receipt.cases[0].workState.remainingObligationCount, 1);
+  assert.equal(receipt.cases[0].workState.cursorState, "open");
+  assert.equal(receipt.cases[0].rejection.code, "work_state_open");
 });
 
 test("the config loader rejects malformed recipes", async () => {
@@ -148,7 +202,9 @@ export function run(k: "a" | "b", x: string) {
       schema: TSJS_REQUEST_AWARE_ADMISSION_CONFIG_SCHEMA,
       family: {
         familyRoot: repo,
+        derivedOutputDir: null,
         sourceGroup: "tsjs-other-source",
+        derivedSourceGroup: "tsjs-other-source-derived-dev",
         partition: "DEV",
         acceptedFamily: "other-source",
         acceptedRequestRefs: ["request:other"],
@@ -167,6 +223,15 @@ export function run(k: "a" | "b", x: string) {
           requestedRole: "member",
           stepId: "step:0",
           coverageContract: TSJS_OBSERVED_SOURCE_CLOSURE_CONTRACT,
+          workState: {
+            basis: "finite source-local observed-source completion",
+            remainingObligations: [],
+            localCandidateCursor: {
+              pendingRelationRef: "relation:other",
+              state: "closed",
+              evidenceRefs: [],
+            },
+          },
         },
       ],
     };

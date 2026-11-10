@@ -2,7 +2,9 @@
   "schema": "nnanything.tsjs.request-aware-admission-config.v1",
   "family": {
     "familyRoot": "../../../training/samples/neural-cli/tsjs/dev-runtime-helper-selector-clean-r1-20261110",
+    "derivedOutputDir": "/Volumes/Intel/playground/nnanything-runs/tsjs-request-aware-admission-config-r1-20261110/derived-dev",
     "sourceGroup": "tsjs-dev-runtime-helper-selector-clean-r1-20261110",
+    "derivedSourceGroup": "tsjs-dev-runtime-helper-selector-clean-r1-20261110-derived-dev",
     "partition": "DEV",
     "acceptedFamily": "a650492/94c1d81",
     "acceptedRequestRefs": [
@@ -26,7 +28,16 @@
       "requestedMemberName": "spell",
       "requestedRole": "member",
       "stepId": "step:0",
-      "coverageContract": "tsjs.observed-dynamic-source-closure.v1"
+      "coverageContract": "tsjs.observed-dynamic-source-closure.v1",
+      "workState": {
+        "basis": "finite source-local observed-source completion derived from the accepted producer observation; every completionWork item is satisfied on this unit, so the bounded work set is closed",
+        "remainingObligations": [],
+        "localCandidateCursor": {
+          "pendingRelationRef": "relation:dv-c01",
+          "state": "closed",
+          "evidenceRefs": []
+        }
+      }
     },
     {
       "caseId": "dv-c02",
@@ -43,7 +54,16 @@
       "requestedMemberName": "chant",
       "requestedRole": "member",
       "stepId": "step:0",
-      "coverageContract": "tsjs.observed-dynamic-source-closure.v1"
+      "coverageContract": "tsjs.observed-dynamic-source-closure.v1",
+      "workState": {
+        "basis": "finite source-local observed-source completion derived from the accepted producer observation; every completionWork item is satisfied on this unit, so the bounded work set is closed",
+        "remainingObligations": [],
+        "localCandidateCursor": {
+          "pendingRelationRef": "relation:dv-c02",
+          "state": "closed",
+          "evidenceRefs": []
+        }
+      }
     }
   ]
 }
