@@ -1,0 +1,85 @@
+{
+  "schema": "nnanything.tsjs.dev.runtime-contrast.v1",
+  "producedAt": "2026-11-10T20:46:52.416Z",
+  "nodeVersion": "v22.22.2",
+  "nodePath": "/opt/homebrew/Cellar/node@22/22.22.2_2/bin/node",
+  "tsc": {
+    "path": "/Volumes/extension/code/NNAnything/node_modules/.bin/tsc",
+    "args": [
+      "--strict",
+      "--target",
+      "ES2022",
+      "--module",
+      "NodeNext",
+      "--moduleResolution",
+      "NodeNext",
+      "--rootDir",
+      "/var/folders/jm/blkk8bbd6v78rv2pwxgxh3kr0000gn/T/tsjs-clean-dev-runtime-EC7Iol/src",
+      "--outDir",
+      "/var/folders/jm/blkk8bbd6v78rv2pwxgxh3kr0000gn/T/tsjs-clean-dev-runtime-EC7Iol/out",
+      "--skipLibCheck",
+      "/var/folders/jm/blkk8bbd6v78rv2pwxgxh3kr0000gn/T/tsjs-clean-dev-runtime-EC7Iol/src/dv-c01-direct.ts",
+      "/var/folders/jm/blkk8bbd6v78rv2pwxgxh3kr0000gn/T/tsjs-clean-dev-runtime-EC7Iol/src/dv-c02-alias.ts",
+      "/var/folders/jm/blkk8bbd6v78rv2pwxgxh3kr0000gn/T/tsjs-clean-dev-runtime-EC7Iol/src/dispatch.ts"
+    ],
+    "exit": 0,
+    "output": ""
+  },
+  "disposableDirectory": "/var/folders/jm/blkk8bbd6v78rv2pwxgxh3kr0000gn/T/tsjs-clean-dev-runtime-EC7Iol",
+  "committedSourcesUnchanged": true,
+  "instrumentedFiles": [
+    "src/dispatch.ts"
+  ],
+  "instrumentation": "dispatch.ts member bodies push the reached member key into an exported log; caller call sites are unchanged.",
+  "probes": {
+    "spellChantDistinct": true,
+    "dvC01": [
+      {
+        "selector": "spell",
+        "output": "spell:payload",
+        "reachedKeys": [
+          "spell"
+        ],
+        "calleeName": "spell",
+        "sameAsSpell": true,
+        "sameAsChant": false
+      },
+      {
+        "selector": "chant",
+        "output": 7,
+        "reachedKeys": [
+          "chant"
+        ],
+        "calleeName": "chant",
+        "sameAsSpell": false,
+        "sameAsChant": true
+      }
+    ],
+    "dvC02": [
+      {
+        "selector": "spell",
+        "output": "spell:payload",
+        "reachedKeys": [
+          "spell"
+        ],
+        "calleeName": "spell",
+        "sameAsSpell": true,
+        "sameAsChant": false
+      },
+      {
+        "selector": "chant",
+        "output": 7,
+        "reachedKeys": [
+          "chant"
+        ],
+        "calleeName": "chant",
+        "sameAsSpell": false,
+        "sameAsChant": true
+      }
+    ]
+  },
+  "runtime": {
+    "exit": 0,
+    "stdout": "{\n  \"spellChantDistinct\": true,\n  \"dvC01\": [\n    {\n      \"selector\": \"spell\",\n      \"output\": \"spell:payload\",\n      \"reachedKeys\": [\n        \"spell\"\n      ],\n      \"calleeName\": \"spell\",\n      \"sameAsSpell\": true,\n      \"sameAsChant\": false\n    },\n    {\n      \"selector\": \"chant\",\n      \"output\": 7,\n      \"reachedKeys\": [\n        \"chant\"\n      ],\n      \"calleeName\": \"chant\",\n      \"sameAsSpell\": false,\n      \"sameAsChant\": true\n    }\n  ],\n  \"dvC02\": [\n    {\n      \"selector\": \"spell\",\n      \"output\": \"spell:payload\",\n      \"reachedKeys\": [\n        \"spell\"\n      ],\n      \"calleeName\": \"spell\",\n      \"sameAsSpell\": true,\n      \"sameAsChant\": false\n    },\n    {\n      \"selector\": \"chant\",\n      \"output\": 7,\n      \"reachedKeys\": [\n        \"chant\"\n      ],\n      \"calleeName\": \"chant\",\n      \"sameAsSpell\": false,\n      \"sameAsChant\": true\n    }\n  ]\n}"
+  }
+}

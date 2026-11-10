@@ -1,0 +1,240 @@
+{
+  "schema": "nnanything.tsjs.dev.producer-receipt.v1",
+  "producedAt": "2026-11-10T20:48:18.003Z",
+  "producer": "runTsJsSymbolTable",
+  "producerModule": "dist/adapters/cli/tsjs-symbol-table-adapter.js",
+  "repo": "/Volumes/Intel/playground/nnanything/tsjs-clean-dev-20261110/training/samples/neural-cli/tsjs/dev-runtime-helper-selector-clean-r1-20261110",
+  "cases": [
+    {
+      "id": "dv-c01",
+      "files": [
+        "src/dv-c01-direct.ts",
+        "src/dispatch.ts"
+      ],
+      "status": "ok",
+      "observationCount": 1,
+      "gapCount": 0,
+      "gapReasons": [],
+      "observations": [
+        {
+          "callSiteRef": "call:src/dv-c01-direct.ts@7:10-7:41",
+          "sourceReadRef": "source-read:call:src/dv-c01-direct.ts@7:10-7:41",
+          "binding": {
+            "symbolRef": "function:src/dispatch.ts@13:1-15:2",
+            "callSiteRef": "call:src/dv-c01-direct.ts@7:10-7:41",
+            "role": "member",
+            "bindingMode": "dynamic",
+            "resolution": {
+              "status": "dynamic",
+              "reason": "dynamic_undecidable",
+              "evidenceRefs": [
+                "source-read:call:src/dv-c01-direct.ts@7:10-7:41"
+              ]
+            },
+            "declarationRefs": [],
+            "scopeRef": null,
+            "evidenceRefs": [
+              "source-read:call:src/dv-c01-direct.ts@7:10-7:41"
+            ]
+          },
+          "facts": [
+            {
+              "factRef": "fact:source-read:call:src/dv-c01-direct.ts@7:10-7:41:1",
+              "role": "selector_candidate_table",
+              "state": "known",
+              "value": "[{\"name\":\"spell\",\"initializerRef\":\"member:src/dispatch.ts@9:10-9:57\"},{\"name\":\"chant\",\"initializerRef\":\"member:src/dispatch.ts@10:10-10:53\"}]",
+              "evidenceRefs": [
+                "source-read:call:src/dv-c01-direct.ts@7:10-7:41"
+              ]
+            },
+            {
+              "factRef": "fact:source-read:call:src/dv-c01-direct.ts@7:10-7:41:2",
+              "role": "runtime_selector_dependency",
+              "state": "known",
+              "value": "{\"tableRef\":\"table:src/dispatch.ts@8:14-11:2\",\"indexParameter\":\"selector\",\"useRef\":\"selector-use:src/dispatch.ts@14:10-14:33\"}",
+              "evidenceRefs": [
+                "source-read:call:src/dv-c01-direct.ts@7:10-7:41"
+              ]
+            }
+          ],
+          "sourceReadReceipt": {
+            "receiptId": "source-read:call:src/dv-c01-direct.ts@7:10-7:41",
+            "actionRef": "source-read:call:src/dv-c01-direct.ts@7:10-7:41:action",
+            "action": "read_source",
+            "origin": "source_observation",
+            "outcome": "success",
+            "targetRef": "source:src/dispatch.ts",
+            "result": [
+              "source-read:call:src/dv-c01-direct.ts@7:10-7:41:module:src/dv-c01-direct.ts",
+              "source-read:call:src/dv-c01-direct.ts@7:10-7:41:module:src/dispatch.ts"
+            ],
+            "evidenceRefs": [
+              "source-read:call:src/dv-c01-direct.ts@7:10-7:41"
+            ],
+            "modules": [
+              {
+                "file": "src/dv-c01-direct.ts",
+                "textLength": 346,
+                "lineCount": 9
+              },
+              {
+                "file": "src/dispatch.ts",
+                "textLength": 554,
+                "lineCount": 16
+              }
+            ]
+          }
+        }
+      ],
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 2,
+        "scopeFilesParsed": 2
+      },
+      "parserSemanticBinding": false
+    },
+    {
+      "id": "dv-c02",
+      "files": [
+        "src/dv-c02-alias.ts",
+        "src/dispatch.ts"
+      ],
+      "status": "ok",
+      "observationCount": 1,
+      "gapCount": 0,
+      "gapReasons": [],
+      "observations": [
+        {
+          "callSiteRef": "call:src/dv-c02-alias.ts@9:10-9:39",
+          "sourceReadRef": "source-read:call:src/dv-c02-alias.ts@9:10-9:39",
+          "binding": {
+            "symbolRef": "function:src/dispatch.ts@13:1-15:2",
+            "callSiteRef": "call:src/dv-c02-alias.ts@9:10-9:39",
+            "role": "member",
+            "bindingMode": "dynamic",
+            "resolution": {
+              "status": "dynamic",
+              "reason": "dynamic_undecidable",
+              "evidenceRefs": [
+                "source-read:call:src/dv-c02-alias.ts@9:10-9:39"
+              ]
+            },
+            "declarationRefs": [],
+            "scopeRef": null,
+            "evidenceRefs": [
+              "source-read:call:src/dv-c02-alias.ts@9:10-9:39"
+            ]
+          },
+          "facts": [
+            {
+              "factRef": "fact:source-read:call:src/dv-c02-alias.ts@9:10-9:39:1",
+              "role": "selector_candidate_table",
+              "state": "known",
+              "value": "[{\"name\":\"spell\",\"initializerRef\":\"member:src/dispatch.ts@9:10-9:57\"},{\"name\":\"chant\",\"initializerRef\":\"member:src/dispatch.ts@10:10-10:53\"}]",
+              "evidenceRefs": [
+                "source-read:call:src/dv-c02-alias.ts@9:10-9:39"
+              ]
+            },
+            {
+              "factRef": "fact:source-read:call:src/dv-c02-alias.ts@9:10-9:39:2",
+              "role": "runtime_selector_dependency",
+              "state": "known",
+              "value": "{\"tableRef\":\"table:src/dispatch.ts@8:14-11:2\",\"indexParameter\":\"selector\",\"useRef\":\"selector-use:src/dispatch.ts@14:10-14:33\"}",
+              "evidenceRefs": [
+                "source-read:call:src/dv-c02-alias.ts@9:10-9:39"
+              ]
+            }
+          ],
+          "sourceReadReceipt": {
+            "receiptId": "source-read:call:src/dv-c02-alias.ts@9:10-9:39",
+            "actionRef": "source-read:call:src/dv-c02-alias.ts@9:10-9:39:action",
+            "action": "read_source",
+            "origin": "source_observation",
+            "outcome": "success",
+            "targetRef": "source:src/dispatch.ts",
+            "result": [
+              "source-read:call:src/dv-c02-alias.ts@9:10-9:39:module:src/dv-c02-alias.ts",
+              "source-read:call:src/dv-c02-alias.ts@9:10-9:39:module:src/dispatch.ts"
+            ],
+            "evidenceRefs": [
+              "source-read:call:src/dv-c02-alias.ts@9:10-9:39"
+            ],
+            "modules": [
+              {
+                "file": "src/dv-c02-alias.ts",
+                "textLength": 445,
+                "lineCount": 11
+              },
+              {
+                "file": "src/dispatch.ts",
+                "textLength": 554,
+                "lineCount": 16
+              }
+            ]
+          }
+        }
+      ],
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 2,
+        "scopeFilesParsed": 2
+      },
+      "parserSemanticBinding": false
+    },
+    {
+      "id": "control-static-selector",
+      "files": [
+        "src/control-static-selector.ts",
+        "src/dispatch.ts"
+      ],
+      "status": "ok",
+      "observationCount": 0,
+      "gapCount": 0,
+      "gapReasons": [],
+      "observations": [],
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 2,
+        "scopeFilesParsed": 2
+      },
+      "parserSemanticBinding": false
+    },
+    {
+      "id": "control-direct-table-index",
+      "files": [
+        "src/control-direct-table-index.ts",
+        "src/dispatch.ts"
+      ],
+      "status": "ok",
+      "observationCount": 0,
+      "gapCount": 0,
+      "gapReasons": [],
+      "observations": [],
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 2,
+        "scopeFilesParsed": 2
+      },
+      "parserSemanticBinding": false
+    },
+    {
+      "id": "control-branch-helper",
+      "files": [
+        "src/control-branch-helper.ts"
+      ],
+      "status": "ok",
+      "observationCount": 0,
+      "gapCount": 1,
+      "gapReasons": [
+        "unsupported_selector_shape"
+      ],
+      "observations": [],
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 1,
+        "scopeFilesParsed": 1
+      },
+      "parserSemanticBinding": false
+    }
+  ]
+}
