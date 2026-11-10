@@ -97,6 +97,7 @@ type RuntimeFunctionDraft = Readonly<{
   writes: readonly RuntimeWriteDraft[];
   hasControlPath: boolean;
   hasNestedFunction: boolean;
+  hasUnsupportedWrite: boolean;
   helperShape: RuntimeHelperShape | null;
   callSites: readonly RuntimeCallSiteDraft[];
 }>;
@@ -518,12 +519,69 @@ function runtimeBindingsFrom(node: ts.Node, out: Set<string>): void {
   }
 }
 
-function runtimeWriteNameOf(node: ts.Node): string | null {
-  if (ts.isIdentifier(node)) return node.text;
-  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-    return leftmostIdentifier(node);
+/**
+ * Collect the observed write targets of an assignment/update/delete target.
+ * Returns false when a target shape cannot be reduced to observed bindings, so
+ * the bounded caller rejects the whole shape instead of dropping a write.
+ */
+function collectRuntimeWriteNames(node: ts.Node, out: string[]): boolean {
+  if (ts.isIdentifier(node)) {
+    out.push(node.text);
+    return true;
   }
-  return null;
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const name = leftmostIdentifier(node);
+    if (name === null) return false;
+    out.push(name);
+    return true;
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return collectRuntimeWriteNames(node.expression, out);
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    let resolved = true;
+    for (const element of node.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      const target: ts.Node = ts.isSpreadElement(element) ? element.expression : element;
+      if (!collectRuntimeWriteNames(target, out)) resolved = false;
+    }
+    return resolved;
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    let resolved = true;
+    for (const property of node.properties) {
+      if (ts.isShorthandPropertyAssignment(property)) {
+        out.push(property.name.text);
+      } else if (ts.isPropertyAssignment(property)) {
+        if (!collectRuntimeWriteNames(property.initializer, out)) resolved = false;
+      } else if (ts.isSpreadAssignment(property)) {
+        if (!collectRuntimeWriteNames(property.expression, out)) resolved = false;
+      } else {
+        resolved = false;
+      }
+    }
+    return resolved;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return collectRuntimeWriteNames(node.left, out);
+  }
+  return false;
+}
+
+function pushRuntimeWrites(
+  writes: RuntimeWriteDraft[],
+  target: ts.Node,
+  owner: ts.Node,
+  file: string,
+  sf: ts.SourceFile,
+  spanOf: (start: number, end: number) => TsJsSpan,
+): boolean {
+  const names: string[] = [];
+  const resolved = collectRuntimeWriteNames(target, names);
+  const start = owner.getStart(sf);
+  const ref = runtimeRef("write", file, spanOf(start, owner.getEnd()));
+  for (const name of names) writes.push({ name, start, ref });
+  return resolved;
 }
 
 function isRuntimeAssignmentExpression(node: ts.BinaryExpression): boolean {
@@ -568,6 +626,7 @@ function collectRuntimeFunction(
       writes: Object.freeze([]),
       hasControlPath: false,
       hasNestedFunction: false,
+      hasUnsupportedWrite: false,
       helperShape: null,
       callSites: Object.freeze([]),
     });
@@ -580,6 +639,7 @@ function collectRuntimeFunction(
 
   const aliases: RuntimeAliasDraft[] = [];
   const writes: RuntimeWriteDraft[] = [];
+  let hasUnsupportedWrite = false;
   for (const statement of body.statements) {
     if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
     for (const declaration of statement.declarationList.declarations) {
@@ -600,24 +660,18 @@ function collectRuntimeFunction(
   }
   for (const descendant of descendants) {
     if (ts.isBinaryExpression(descendant) && isRuntimeAssignmentExpression(descendant)) {
-      const name = runtimeWriteNameOf(descendant.left);
-      if (name !== null) {
-        const span = spanOf(descendant.getStart(sf), descendant.getEnd());
-        writes.push({ name, start: descendant.getStart(sf), ref: runtimeRef("write", sf.fileName, span) });
+      if (!pushRuntimeWrites(writes, descendant.left, descendant, sf.fileName, sf, spanOf)) {
+        hasUnsupportedWrite = true;
       }
     }
     if (ts.isPrefixUnaryExpression(descendant) || ts.isPostfixUnaryExpression(descendant)) {
-      const name = runtimeWriteNameOf(descendant.operand);
-      if (name !== null) {
-        const span = spanOf(descendant.getStart(sf), descendant.getEnd());
-        writes.push({ name, start: descendant.getStart(sf), ref: runtimeRef("write", sf.fileName, span) });
+      if (!pushRuntimeWrites(writes, descendant.operand, descendant, sf.fileName, sf, spanOf)) {
+        hasUnsupportedWrite = true;
       }
     }
     if (ts.isDeleteExpression(descendant)) {
-      const name = runtimeWriteNameOf(descendant.expression);
-      if (name !== null) {
-        const span = spanOf(descendant.getStart(sf), descendant.getEnd());
-        writes.push({ name, start: descendant.getStart(sf), ref: runtimeRef("write", sf.fileName, span) });
+      if (!pushRuntimeWrites(writes, descendant.expression, descendant, sf.fileName, sf, spanOf)) {
+        hasUnsupportedWrite = true;
       }
     }
   }
@@ -688,6 +742,7 @@ function collectRuntimeFunction(
     writes: Object.freeze(writes),
     hasControlPath: descendants.some(isRuntimeControlPathNode),
     hasNestedFunction: descendants.some(isRuntimeFunctionLikeNode),
+    hasUnsupportedWrite,
     helperShape,
     callSites: Object.freeze(callSites),
   });
@@ -783,21 +838,12 @@ function buildRuntimeSelectorFileIndex(
 
   const mutations: RuntimeWriteDraft[] = [];
   for (const descendant of descendantsOf(sf)) {
-    let writeName: string | null = null;
     if (ts.isBinaryExpression(descendant) && isRuntimeAssignmentExpression(descendant)) {
-      writeName = runtimeWriteNameOf(descendant.left);
+      pushRuntimeWrites(mutations, descendant.left, descendant, file, sf, spanOf);
     } else if (ts.isDeleteExpression(descendant)) {
-      writeName = runtimeWriteNameOf(descendant.expression);
+      pushRuntimeWrites(mutations, descendant.expression, descendant, file, sf, spanOf);
     } else if (ts.isPrefixUnaryExpression(descendant) || ts.isPostfixUnaryExpression(descendant)) {
-      writeName = runtimeWriteNameOf(descendant.operand);
-    }
-    if (writeName !== null) {
-      const span = spanOf(descendant.getStart(sf), descendant.getEnd());
-      mutations.push({
-        name: writeName,
-        start: descendant.getStart(sf),
-        ref: runtimeRef("write", file, span),
-      });
+      pushRuntimeWrites(mutations, descendant.operand, descendant, file, sf, spanOf);
     }
   }
 
@@ -2121,7 +2167,11 @@ function linkRuntimeSelectorFacts(
           gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
           continue;
         }
-        if (callerFunction.hasControlPath || callerFunction.hasNestedFunction) {
+        if (
+          callerFunction.hasControlPath ||
+          callerFunction.hasNestedFunction ||
+          callerFunction.hasUnsupportedWrite
+        ) {
           gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
           continue;
         }
@@ -2197,8 +2247,19 @@ function linkRuntimeSelectorFacts(
           gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [table?.ref ?? helperFunction.ref, ...callEvidence]));
           continue;
         }
-        if (helperFile.mutations.some(mutation => mutation.name === table.name)) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [table.ref, ...callEvidence]));
+        const tableMutation = helperFile.mutations.find(mutation => mutation.name === table.name);
+        const helperMutation =
+          helperFile.mutations.find(mutation => mutation.name === helperFunction.name) ??
+          (helperFile === caller
+            ? undefined
+            : caller.mutations.find(mutation => mutation.name === callSite.calleeName));
+        if (tableMutation !== undefined || helperMutation !== undefined) {
+          gaps.push(
+            runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [
+              (tableMutation ?? helperMutation)?.ref ?? table.ref,
+              ...callEvidence,
+            ]),
+          );
           continue;
         }
 

@@ -243,6 +243,42 @@ export function runSecond(key: string, value: number) {
 }
 `);
 
+  writeFileSync(join(ROOT, "src", "runtime-destructured-entry.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function destructuredSelector(key: string, value: number) {
+  [key] = ["left"];
+  return chooseAction(key)(value);
+}
+export function unrelatedDestructuredWrite(key: string, value: number, other: string) {
+  [other] = ["right"];
+  return chooseAction(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-helper-replacement.ts"),
+`const replacedMap = {
+  left: (value: number) => value + 1,
+  right: (value: number) => value * 2,
+};
+export function chooseReplaced(key: string) {
+  return replacedMap[key];
+}
+chooseReplaced = replacement;
+declare const replacement: typeof chooseReplaced;
+export function runReplaced(key: string, value: number) {
+  return chooseReplaced(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-import-replacement.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+chooseAction = replacement;
+declare const replacement: typeof chooseAction;
+export function runImportedReplacement(key: string, value: number) {
+  return chooseAction(key)(value);
+}
+`);
+
   try {
     symlinkSync(join(ROOT, "src", "kinds.ts"), join(ROOT, "src", "link.ts"));
   } catch {
@@ -800,4 +836,47 @@ test("runtime-selector T8: separate call sites never join", async () => {
     assert.ok(observation.facts.every(fact => fact.evidenceRefs.includes(observation.sourceReadRef)));
   }
   assert.notEqual(first.sourceReadRef, second.sourceReadRef);
+});
+
+test("runtime-selector T9: destructuring selector writes are rejected", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-destructured-entry.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  // The unrelated destructuring write keeps the unchanged direct-parameter
+  // dependency, while the selector write must not emit a role fact.
+  assert.equal(out.result.runtimeSelectorObservations.length, 1);
+  assert.ok(
+    out.result.runtimeSelectorGaps.some(
+      gap => gap.reason === "unsupported_selector_shape",
+    ),
+  );
+});
+
+test("runtime-selector T10: module-level helper replacement is rejected", async () => {
+  const localOut = await runTsJsSymbolTable(
+    request(["src/runtime-helper-replacement.ts"]),
+  );
+  assert.equal(localOut.status, "ok", JSON.stringify(localOut));
+  if (localOut.status !== "ok") return;
+  assert.equal(localOut.result.runtimeSelectorObservations.length, 0);
+  assert.ok(
+    localOut.result.runtimeSelectorGaps.some(
+      gap => gap.reason === "unsupported_selector_shape",
+    ),
+  );
+
+  const importedOut = await runTsJsSymbolTable(
+    request(["src/runtime-import-replacement.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(importedOut.status, "ok", JSON.stringify(importedOut));
+  if (importedOut.status !== "ok") return;
+  assert.equal(importedOut.result.runtimeSelectorObservations.length, 0);
+  assert.ok(
+    importedOut.result.runtimeSelectorGaps.some(
+      gap => gap.reason === "unsupported_selector_shape",
+    ),
+  );
 });
