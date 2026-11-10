@@ -9,6 +9,11 @@ diagnostics and the named call expression was found at the recorded line.
 These proofs are independent supervision evidence. They are not student input,
 not an admitted episode, and not a candidate.
 
+The current accepted runtime-selector producer shape is the bounded
+object-literal `helper(selector)(...)` form. The direct table and array
+indexing forms below are not covered by that shape. They remain future
+material and do not authorize a parser expansion.
+
 ## Runtime-selected unknown
 
 ### `dv-u01-palette`
@@ -23,7 +28,9 @@ declaration for the element-access expression. Runtime probes for `warm` and
 
 Semantic action: `c:judge:unknown`, reason `runtime_dynamic_selector`.
 Status: `NOT_READY` because the public source path does not emit source-read
-backed selector roles and a `callSiteRef`.
+backed selector roles and a `callSiteRef`. The direct object-property index
+shape is also outside the currently accepted `helper(selector)(...)` producer
+shape.
 
 ### `dv-u02-lanes`
 
@@ -35,7 +42,9 @@ tuple access and the compiler returns no selected declaration. Runtime probes
 returned `"north:x"` and `"south:x"` for lanes `0` and `1`.
 
 Semantic action: `c:judge:unknown`, reason `runtime_dynamic_selector`.
-Status: `NOT_READY` for the missing source-to-episode observation path.
+Status: `NOT_READY` for the missing source-to-episode observation path. The
+array/tuple index shape is outside the currently accepted
+`helper(selector)(...)` producer shape.
 
 ## Resolved negative
 

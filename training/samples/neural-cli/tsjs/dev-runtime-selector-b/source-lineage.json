@@ -11,6 +11,11 @@
     "verificationDerivation": false,
     "verificationAccess": false
   },
+  "lineageEvidence": {
+    "kind": "author-declared source-family split recorded before generation",
+    "independentNonDerivationVerified": false,
+    "generalizationScope": "Finite TRAIN/DEV syntax overlap, including direct table and array indexing, is not evidence of unseen structural generalization."
+  },
   "instances": [
     {
       "id": "dv-u01-palette",
@@ -20,7 +25,7 @@
       "callSiteExpression": "paletteOperations[swatch](value)",
       "expectedSemanticAction": "c:judge:unknown",
       "status": "NOT_READY",
-      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles. The direct object-property index shape is outside the accepted helper(selector)(...) producer shape."
     },
     {
       "id": "dv-u02-lanes",
@@ -30,7 +35,7 @@
       "callSiteExpression": "laneActions[lane](input)",
       "expectedSemanticAction": "c:judge:unknown",
       "status": "NOT_READY",
-      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles. The array/tuple index shape is outside the accepted helper(selector)(...) producer shape."
     },
     {
       "id": "dv-n01-pair",
@@ -95,6 +100,7 @@
   ],
   "evidence": {
     "compilerAndRuntimeReceipts": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/raw-checks.json",
+    "producerCompatibility": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/producer-compatibility.md",
     "semanticProofs": "proofs/semantic-proofs.md",
     "sourceToEpisodeTrace": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/source-to-episode-trace.md"
   }

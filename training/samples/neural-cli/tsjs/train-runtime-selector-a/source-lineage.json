@@ -11,6 +11,11 @@
     "verificationDerivation": false,
     "verificationAccess": false
   },
+  "lineageEvidence": {
+    "kind": "author-declared source-family split recorded before generation",
+    "independentNonDerivationVerified": false,
+    "generalizationScope": "Finite TRAIN/DEV syntax overlap, including direct table and tuple indexing, is not evidence of unseen structural generalization."
+  },
   "instances": [
     {
       "id": "tr-u01-routes",
@@ -20,7 +25,7 @@
       "callSiteExpression": "deliveryRoutes[channel](payload)",
       "expectedSemanticAction": "c:judge:unknown",
       "status": "NOT_READY",
-      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles. The direct object-property index shape is outside the accepted helper(selector)(...) producer shape."
     },
     {
       "id": "tr-u02-slots",
@@ -30,7 +35,7 @@
       "callSiteExpression": "workerSlots[slot](value)",
       "expectedSemanticAction": "c:judge:unknown",
       "status": "NOT_READY",
-      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles. The tuple-index shape is outside the accepted helper(selector)(...) producer shape."
     },
     {
       "id": "tr-u03-modes",
@@ -40,7 +45,7 @@
       "callSiteExpression": "arithmeticModes[mode](left, right)",
       "expectedSemanticAction": "c:judge:unknown",
       "status": "NOT_READY",
-      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles. The direct object-property index shape is outside the accepted helper(selector)(...) producer shape."
     },
     {
       "id": "tr-n01-direct",
@@ -118,9 +123,9 @@
       "sourceRoot": "sources/tr-a02-reexport",
       "requestedDeclaration": "resize",
       "callSiteExpression": "resize(width)",
-      "expectedSemanticAction": "c:advance:tsjs:re_export:./facade:resize",
+      "expectedSemanticAction": "advance on observed import edge ./facade:resize; candidateRef is builder-generated",
       "status": "NOT_READY",
-      "reason": "The re-export edge exists, but no typed pending obligation or read receipt is produced for a legal advance candidate."
+      "reason": "The entry-only read supports an import edge to ./facade. The re-export edge to ./engine becomes observable only after a facade-read step; no typed pending obligation, read receipt, or builder-generated candidate exists yet."
     },
     {
       "id": "tr-a03-namespace",
@@ -135,6 +140,7 @@
   ],
   "evidence": {
     "compilerAndRuntimeReceipts": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/raw-checks.json",
+    "producerCompatibility": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/producer-compatibility.md",
     "semanticProofs": "proofs/semantic-proofs.md",
     "sourceToEpisodeTrace": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/source-to-episode-trace.md"
   }
