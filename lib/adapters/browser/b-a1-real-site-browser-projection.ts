@@ -178,6 +178,7 @@ interface ScopeObserverRecord {
   readonly mode: "appearance" | "rerender";
   readonly observer: MutationObserver;
   readonly timer: ReturnType<typeof setTimeout>;
+  claimed: boolean;
   readonly promise: Promise<{
     readonly appeared: boolean;
     readonly scopeCount: number;
@@ -910,6 +911,7 @@ function armScopeObserver(
     mode,
     observer,
     timer,
+    claimed: false,
     promise,
     resolve: (value) => resolvePromise(value),
   };
@@ -1069,7 +1071,12 @@ export function handleBA1RealSiteBrowserActionRequest(
           actionCode: "invalid_request" as const,
         });
       }
-      scopeObservers.delete(observerId);
+      if (record.claimed) {
+        throw Object.assign(new Error("scope observer is already claimed"), {
+          actionCode: "invalid_request" as const,
+        });
+      }
+      record.claimed = true;
       return record.promise.then(value => ({
         schema: BA1_REAL_SITE_BROWSER_ACTION_RESPONSE_SCHEMA,
         requestId,
@@ -1082,7 +1089,9 @@ export function handleBA1RealSiteBrowserActionRequest(
           eligibleInputCount: value.eligibleInputCount,
           url: value.url,
         },
-      }));
+      })).finally(() => {
+        scopeObservers.delete(observerId);
+      });
     }
     if (op === "release-scope-observer") {
       requireExactKeys(

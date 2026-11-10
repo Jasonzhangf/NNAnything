@@ -169,6 +169,109 @@ function assertNoActionFields(candidate) {
   }
 }
 
+function observerLifecycleProbeScript(kind) {
+  if (kind === undefined) return "";
+  if (kind === "release") {
+    return `
+void (async () => {
+  const action = globalThis.__nnanythingBA1RealSiteAction;
+  const request = (requestId, op, fields = {}) => action({
+    schema: "nnanything.b-a1.real-site-browser-action-request.v1",
+    requestId,
+    op,
+    ...fields,
+  });
+  const arm = await request("probe-release-arm", "arm-scope-observer", {
+    scopeSelector: "#dialog",
+    timeoutMs: 5000,
+    mode: "appearance",
+  });
+  const observerId = arm.result.observerId;
+  const firstPending = request("probe-release-first", "await-scope-observer", {
+    observerId,
+    timeoutMs: 5000,
+  });
+  await new Promise(resolve => setTimeout(resolve, 25));
+  const second = await request("probe-release-second", "await-scope-observer", {
+    observerId,
+    timeoutMs: 5000,
+  });
+  const releaseStartedAt = performance.now();
+  const release = await request("probe-release-release", "release-scope-observer", {
+    observerId,
+  });
+  const first = await firstPending;
+  const firstElapsedMs = performance.now() - releaseStartedAt;
+  const releaseAgain = await request("probe-release-again", "release-scope-observer", {
+    observerId,
+  });
+  const afterRelease = await request("probe-release-after", "await-scope-observer", {
+    observerId,
+    timeoutMs: 5000,
+  });
+  await fetch("/observer-lifecycle-result", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      arm,
+      second,
+      release,
+      first,
+      firstElapsedMs,
+      releaseAgain,
+      afterRelease,
+    }),
+  });
+})().catch(async error => {
+  await fetch("/observer-lifecycle-result", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ error: String(error) }),
+  });
+});`;
+  }
+  if (kind === "settled") {
+    return `
+void (async () => {
+  const action = globalThis.__nnanythingBA1RealSiteAction;
+  const request = (requestId, op, fields = {}) => action({
+    schema: "nnanything.b-a1.real-site-browser-action-request.v1",
+    requestId,
+    op,
+    ...fields,
+  });
+  const arm = await request("probe-settled-arm", "arm-scope-observer", {
+    scopeSelector: "#scope",
+    timeoutMs: 5000,
+    mode: "rerender",
+  });
+  const observerId = arm.result.observerId;
+  document.getElementById("rerender").click();
+  await new Promise(resolve => setTimeout(resolve, 25));
+  const first = await request("probe-settled-first", "await-scope-observer", {
+    observerId,
+    timeoutMs: 5000,
+  });
+  const second = await request("probe-settled-second", "await-scope-observer", {
+    observerId,
+    timeoutMs: 5000,
+  });
+  await fetch("/observer-lifecycle-result", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ arm, first, second }),
+  });
+})().catch(async error => {
+  await fetch("/observer-lifecycle-result", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ error: String(error) }),
+  });
+});`;
+  }
+  throw new Error(`unsupported observer lifecycle probe: ${kind}`);
+}
+
 async function buildProjectionScript(options = {}) {
   const bundle = await build({
     entryPoints: [new URL("../lib/adapters/browser/b-a1-real-site-browser-projection.ts", import.meta.url).pathname],
@@ -182,6 +285,7 @@ async function buildProjectionScript(options = {}) {
   return `${bundle.outputFiles[0].text}
 globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBrowserProjectionRequest;
 globalThis.__nnanythingBA1RealSiteAction = BA1Projection.handleBA1RealSiteBrowserActionRequest;
+${observerLifecycleProbeScript(options.observerLifecycleProbe)}
 ${options.invalidObserverResult === true ? `
 const validActionHandler = globalThis.__nnanythingBA1RealSiteAction;
 globalThis.__nnanythingBA1RealSiteAction = request => {
@@ -206,11 +310,27 @@ globalThis.__nnanythingBA1RealSiteAction = request => {
 async function startFixtureServer() {
   let origin = "";
   const actionEvents = [];
+  let observerLifecycleResult = null;
   let replaceDone = false;
   let slowTargetRequestCount = 0;
   const deferredReplace = [];
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", origin === "" ? "http://127.0.0.1" : origin);
+    if (url.pathname === "/observer-lifecycle-result" && request.method === "POST") {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", chunk => { body += chunk; });
+      request.on("end", () => {
+        try {
+          observerLifecycleResult = JSON.parse(body);
+          response.writeHead(204);
+        } catch {
+          response.writeHead(400);
+        }
+        response.end();
+      });
+      return;
+    }
     if (url.pathname === "/action-event") {
       actionEvents.push(url.searchParams.get("name") ?? "unknown");
       response.writeHead(204);
@@ -291,6 +411,8 @@ async function startFixtureServer() {
     },
     replaceDone: () => replaceDone,
     slowTargetRequestCount: () => slowTargetRequestCount,
+    observerLifecycleResult: () => observerLifecycleResult,
+    clearObserverLifecycleResult: () => { observerLifecycleResult = null; },
     close: () => new Promise(resolve => server.close(resolve)),
   };
 }
@@ -298,7 +420,8 @@ async function startFixtureServer() {
 async function waitUntil(predicate, message, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    const value = predicate();
+    if (value) return value;
     await new Promise(resolve => setTimeout(resolve, 25));
   }
   throw new Error(message);
@@ -1132,6 +1255,57 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     assert.equal(click.dispatch, "complete");
   });
 
+  await t.test("page observer keeps release ownership while its first waiter is pending", async () => {
+    await runtime.navigate(`${fixture.origin}/blank`, "doc-page-observer-release");
+    fixture.clearObserverLifecycleResult();
+    await runtime.installProjectionBundle(
+      await buildProjectionScript({ observerLifecycleProbe: "release" }),
+    );
+    const outcome = await waitUntil(
+      () => fixture.observerLifecycleResult(),
+      "page observer release probe did not report a result",
+      2_000,
+    );
+
+    assert.equal(outcome.error, undefined);
+    assert.equal(outcome.arm.ok, true);
+    assert.equal(outcome.second.ok, false);
+    assert.equal(outcome.second.error?.code, "invalid_request");
+    assert.equal(outcome.release.ok, true);
+    assert.equal(outcome.release.result.released, true);
+    assert.equal(outcome.first.ok, true);
+    assert.equal(outcome.first.result.kind, "scope_observer_result");
+    assert.equal(outcome.first.result.appeared, false);
+    assert.ok(outcome.firstElapsedMs < 1_000, "release must settle the pending page wait immediately");
+    assert.equal(outcome.releaseAgain.ok, true);
+    assert.equal(outcome.releaseAgain.result.released, false);
+    assert.equal(outcome.afterRelease.ok, false);
+    assert.equal(outcome.afterRelease.error?.code, "invalid_request");
+  });
+
+  await t.test("page observer retains an event result until its first consumer awaits", async () => {
+    await runtime.navigate(`${fixture.origin}/in-place`, "doc-page-observer-settled");
+    fixture.clearObserverLifecycleResult();
+    await runtime.installProjectionBundle(
+      await buildProjectionScript({ observerLifecycleProbe: "settled" }),
+    );
+    const outcome = await waitUntil(
+      () => fixture.observerLifecycleResult(),
+      "page observer settled probe did not report a result",
+      2_000,
+    );
+
+    assert.equal(outcome.error, undefined);
+    assert.equal(outcome.arm.ok, true);
+    assert.equal(outcome.first.ok, true);
+    assert.equal(outcome.first.result.kind, "scope_observer_result");
+    assert.equal(outcome.first.result.appeared, true);
+    assert.equal(outcome.second.ok, false);
+    assert.equal(outcome.second.error?.code, "invalid_request");
+  });
+
+  await runtime.installProjectionBundle(projectionScript);
+
   await t.test("close rejects a live settle waiter and clears bounded lifecycle state", async () => {
     await runtime.navigate(`${fixture.origin}/in-place`, "doc-action-close-settle");
     const projection = await runtime.beginProjection({
@@ -1161,4 +1335,5 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     );
     assert.equal(closeOutcome.status, "rejected");
   });
+
 });
