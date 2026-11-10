@@ -192,9 +192,57 @@ Owners:
 | gold-only evaluator consumption | evaluator owner | `evaluateBA1Sample({gold,...})` in `lib/training/b-a1-evaluator.ts` |
 
 The gold record maps to `BA1EvaluatorGold` only at the `evaluateBA1Sample` call,
-never into student `x` or candidate input. `labelSource` is expected `human`;
-LLM/teacher/rule use requires `oraclePreconditions` and evidence refs and may not
-depend on candidate scores. Conflicts stay `labelConflict`.
+never into student `x` or candidate input. Conflicts stay `labelConflict`.
+
+### 3.1 Actual consumer truth and the non-human labelSource gap
+
+Read-only inspection of the current consumers on `origin/main` (`4ca9357`):
+
+- `lib/training/b-a1-sample-converter.ts` `BA1_SUPERVISION_ROW_KEYS` carries
+  `supervisionStatus`, `goldAllowedCandidateRefs`, `labelAuthority` and
+  `oracleKind`. It does not carry `labelSource`, `goldStatus`, `goldValue`,
+  `reviewStatus`, `evidenceRefs` or `oraclePreconditions`.
+- `BA1ObservationSupervision` in the same file represents a model-semantic row
+  with `supervisionStatus`, `goldAllowedCandidateRefs`, `labelAuthority` and
+  `oracleKind`. The last two are non-empty free-form strings, not enums.
+- `BA1EvaluatorGold` in `lib/training/b-a1-sample-evaluator-skeleton.ts`,
+  consumed by `lib/training/b-a1-evaluator.ts`, is only
+  `{kind:"bound",state,selectedRef?,family,group}` or
+  `{kind:"reject",reason,family,group}`. It has no `labelSource`,
+  `labelAuthority`, `oracleKind`, `reviewStatus` or adjudication field.
+- `lib/adapters/browser/b-a1-real-site-evaluation.ts` is the gold-free
+  projection half. It defines no gold or label fields and cannot carry them.
+
+Consequences:
+
+- The current machine consumer has no `labelSource` field and no exact
+  non-human `labelSource` value. Do not invent a `teacher`/`llm`/`rule` enum in
+  this document. A non-human producer is represented through existing fields:
+  `labelAuthority` names the producer and version, `oracleKind` names the
+  oracle method, and `oraclePreconditions` plus `evidenceRefs` remain in the
+  independent custody artifact. They are not serialized into the current
+  supervision row or `BA1EvaluatorGold`.
+- The current machine consumer has no `reviewStatus` or adjudication field.
+  Pending and approved custody states cannot be distinguished after mapping.
+  The adjudication gate must run before mapping: only an independently approved
+  custody record may be converted to the existing
+  `supervisionStatus`/`goldAllowedCandidateRefs`/`labelAuthority`/`oracleKind`
+  row and then to `BA1EvaluatorGold`. A machine-visible adjudication field is a
+  real contract gap; this task does not add one.
+- A future typed `labelSource` or `reviewStatus` requires a separate contract
+  change and review. Until then those fields may exist only as custody-artifact
+  metadata and must not be treated as current consumer schema.
+
+The `nnanything.b-a1.real-site-supervision.v1` JSON above is an independent
+custody artifact, not the converter supervision-row schema. Its fields are kept
+for human/adjudication provenance. Only the fields listed in this subsection
+cross into the current machine consumer.
+
+Non-human producer rule: a teacher/LLM/rule proposal must name its exact
+producer identity and version in `labelAuthority`, name its oracle method in
+`oracleKind`, and carry explicit `oraclePreconditions` and evidence refs in the
+custody artifact. It may not depend on candidate scores. Conflicts stay
+`labelConflict` and are not machine-consumable as approved gold.
 
 ## 4. First-result and provenance paths
 
@@ -231,7 +279,7 @@ fail stay visible in the failure receipt.
 | splitAuthority/splitDecisionRef | same design, plus approved decision record required | schema ready, decision `NOT_READY` |
 | supervision/gold custody | `nnanything.b-a1.real-site-supervision.v1`; `BA1EvaluatorGold` | schema ready, draft only; custodian assigned Henry but not accepted |
 | current-control record | `BA1Identity` three fields | proposed audit path only; `NOT_READY`; never derived by the consumer |
-| labelSource/labelAuthority/oracleKind/evidenceRefs | supervision schema | schema ready |
+| labelSource/labelAuthority/oracleKind/evidenceRefs | supervision schema vs current converter | `labelAuthority`/`oracleKind` are current converter fields; `labelSource`/`evidenceRefs` are custody-artifact only; see §3.1 |
 | consumer task ownership | `b-a1-e2-consumer-first-result-jack-20261109`; `worker-task.md` | Jenny and bounded GCM worker; explicit-input consumer only, not a control producer |
 | first-result save contract | prep-receipt §3a.3; Alice handoff on owned worktree | consumer implementation under way; actual execution `NOT_READY` |
 | real-site execution status | prep-receipt and design | `UNVERIFIED` |
