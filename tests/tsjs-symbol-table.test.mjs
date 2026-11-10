@@ -15,8 +15,11 @@ import {
   symbolIdFor,
   validateTsJsSymbolRequest,
 } from "../dist/filters/tsjs-symbol-table-policy.js";
-import { loadStepwiseEpisodeFamily } from "../dist/training/unified-student-converter.js";
-import { observeTsJsStepwiseRequest } from "../dist/training/unified-student-converter.js";
+import {
+  loadStepwiseEpisodeFamily,
+  observeTsJsStepwiseRequest,
+} from "../dist/training/unified-student-converter.js";
+import { relationStepContext } from "../dist/training/unified-step-context-builder.js";
 import { admitInitialEvidence } from "../dist/adapters/tsjs-unified-recursive.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tsjs-symbols");
@@ -1273,6 +1276,130 @@ test("coverage follows all successful producer reads and preserves explicit curs
   assert.equal(
     missingEpisodes[0].coverage.coveredModules.includes("src/runtime-branch-actions.ts"),
     false,
+  );
+});
+
+test("producer-backed serialization requires explicit work state", async () => {
+  const producerRequest = {
+    repo: ROOT,
+    language: "typescript",
+    scope: ["src"],
+    files: ["src/runtime-two-sites.ts", "src/runtime-actions.ts"],
+  };
+  const producer = await runTsJsSymbolTable(producerRequest);
+  assert.equal(producer.status, "ok", JSON.stringify(producer));
+  if (producer.status !== "ok") return;
+  const observation = producer.result.runtimeSelectorObservations[0];
+  assert.ok(observation);
+
+  const bridge = await observeTsJsStepwiseRequest(bridgeInput(
+    producerRequest,
+    observation,
+    {
+      remainingObligations: [{
+        kind: "observe",
+        ref: "obligation:explicit-work",
+        pendingRelationRef: "pending:tsjs-bridge-a",
+        arguments: [{
+          name: "target",
+          type: "call_site",
+          valueRef: observation.callSiteRef,
+        }],
+        informationGain: "advances_chain",
+      }],
+      localCandidateCursor: {
+        pendingRelationRef: "pending:tsjs-bridge-a",
+        state: "open",
+        evidenceRefs: [],
+      },
+    },
+  ));
+  assert.deepEqual(bridge.reasons, []);
+  assert.ok(bridge.record);
+
+  const episodes = await loadBridgeRecord(bridge.record);
+  const context = relationStepContext(episodes[0]);
+  assert.equal(context.localCandidateCursor.state, "open");
+  assert.equal(context.remainingObligations.length, 1);
+  assert.equal(context.remainingObligations[0].ref, "obligation:explicit-work");
+
+  for (const field of ["localCandidateCursor", "remainingObligations"]) {
+    const omitted = structuredClone(bridge.record);
+    delete omitted.steps[0][field];
+    await assert.rejects(
+      loadBridgeRecord(omitted),
+      new RegExp(`producer-backed step requires explicit ${field}`),
+      field,
+    );
+  }
+});
+
+test("bridge canonicalizes producer request paths for read accounting", async () => {
+  const producerRequest = {
+    repo: ROOT,
+    language: "typescript",
+    scope: ["src"],
+    files: ["src/runtime-two-sites.ts", "src/runtime-actions.ts"],
+  };
+  const producer = await runTsJsSymbolTable(producerRequest);
+  assert.equal(producer.status, "ok", JSON.stringify(producer));
+  if (producer.status !== "ok") return;
+  const observation = producer.result.runtimeSelectorObservations[0];
+  assert.ok(observation);
+
+  const variants = [
+    ["slash", ["src/runtime-two-sites.ts", "src/runtime-actions.ts"]],
+    ["backslash", ["src\\runtime-two-sites.ts", "src\\runtime-actions.ts"]],
+  ];
+  const coverage = [];
+  for (const [label, files] of variants) {
+    const bridge = await observeTsJsStepwiseRequest(bridgeInput(
+      { ...producerRequest, files },
+      observation,
+    ));
+    assert.deepEqual(bridge.reasons, [], label);
+    assert.ok(bridge.record, label);
+
+    const episodes = await loadBridgeRecord(bridge.record);
+    assert.deepEqual(
+      episodes[0].coverage.coveredModules,
+      ["src/runtime-two-sites.ts", "src/runtime-actions.ts"],
+      label,
+    );
+    assert.equal(episodes[0].coverage.targetModuleReached, true, label);
+    assert.deepEqual(
+      episodes[0].receipts[0].producerSource.producerRequest.files,
+      ["src/runtime-two-sites.ts", "src/runtime-actions.ts"],
+      label,
+    );
+    coverage.push(episodes[0].coverage);
+  }
+  assert.deepEqual(coverage[0], coverage[1]);
+
+  const failedRead = await observeTsJsStepwiseRequest(bridgeInput(
+    {
+      ...producerRequest,
+      files: [
+        "src/runtime-two-sites.ts",
+        "src/runtime-actions.ts",
+        "src\\runtime-missing.ts",
+      ],
+    },
+    observation,
+  ));
+  assert.deepEqual(failedRead.reasons, []);
+  assert.ok(failedRead.record);
+  const failedEpisodes = await loadBridgeRecord(failedRead.record);
+  assert.deepEqual(
+    failedEpisodes[0].coverage.coveredModules,
+    ["src/runtime-two-sites.ts", "src/runtime-actions.ts"],
+  );
+  assert.equal(failedEpisodes[0].coverage.targetModuleReached, true);
+  assert.equal(failedEpisodes[0].notReady, true);
+  assert.ok(
+    failedEpisodes[0].receipts[0].producerSource.coverage.scopeFilesFailed.some(
+      entry => entry.file === "src/runtime-missing.ts",
+    ),
   );
 });
 

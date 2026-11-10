@@ -33,6 +33,7 @@ import {
   type TsJsProducerSourceBinding,
 } from "./unified-step-context-builder.js";
 import { runTsJsSymbolTable } from "../adapters/cli/tsjs-symbol-table-adapter.js";
+import { validateTsJsSymbolRequest } from "../filters/tsjs-symbol-table-policy.js";
 import type {
   TsJsCoverageRecord,
   TsJsParserRecord,
@@ -457,6 +458,14 @@ export async function observeTsJsStepwiseRequest(
   if (!isRecord(input.localCandidateCursor)) {
     return bridgeFailure("bridge requires explicit localCandidateCursor");
   }
+  const validation = validateTsJsSymbolRequest(input.producerRequest);
+  if (!validation.ok) {
+    return bridgeFailure(`producer rejected request: ${validation.error.reasonCode}`);
+  }
+  const canonicalInput: TsJsStepwiseBridgeInput = {
+    ...input,
+    producerRequest: validation.request,
+  };
   const expectedCallSiteRef = input.request.relationObligation.callSiteRef;
   const requestedModuleFile = moduleFileFromRef(
     input.request.requestedDeclaration.moduleRef ?? null,
@@ -464,6 +473,9 @@ export async function observeTsJsStepwiseRequest(
   if (requestedModuleFile === null) {
     return bridgeFailure("requestedDeclaration.moduleRef must use module:<repo-relative-file>");
   }
+  // The producer already owns the one request validator/normalizer. Re-run it
+  // with the raw request so it remains the single execution path; canonicalInput
+  // carries the same validator's normalized request for provenance/accounting.
   const producer = await runTsJsSymbolTable(input.producerRequest);
   if (producer.status !== "ok") {
     return bridgeFailure(`producer rejected request: ${producer.reasonCode}`);
@@ -481,13 +493,13 @@ export async function observeTsJsStepwiseRequest(
     return bridgeFailure("producer observation callSiteRef is ambiguous");
   }
   const observation = matches[0]!;
-  const successfulFiles = successfulProducerFiles(input.producerRequest, result.coverage);
+  const successfulFiles = successfulProducerFiles(canonicalInput.producerRequest, result.coverage);
   const reasons = validateProducerObservation(observation, expectedCallSiteRef, successfulFiles);
   if (reasons.length > 0) {
     return { record: null, reasons };
   }
   return {
-    record: projectTsJsObservationToStepwiseRecord(input, result, observation),
+    record: projectTsJsObservationToStepwiseRecord(canonicalInput, result, observation),
     reasons: [],
   };
 }
@@ -1382,8 +1394,27 @@ export async function loadStepwiseEpisodeFamily(
               : {}),
             ...(typeof coverageRaw.note === "string" ? { note: coverageRaw.note } : {}),
           };
+      const producerBacked = receipts.some(receipt => receipt.producerSource !== undefined);
+      if (
+        producerBacked
+        && (!Object.hasOwn(rawStep, "remainingObligations")
+          || !Array.isArray(rawStep.remainingObligations))
+      ) {
+        throw new StepwiseStudentDataError(
+          `sample ${sampleId} ${stepId} producer-backed step requires explicit remainingObligations`,
+        );
+      }
+      if (
+        producerBacked
+        && (!Object.hasOwn(rawStep, "localCandidateCursor")
+          || !isRecord(rawStep.localCandidateCursor))
+      ) {
+        throw new StepwiseStudentDataError(
+          `sample ${sampleId} ${stepId} producer-backed step requires explicit localCandidateCursor`,
+        );
+      }
       const remainingObligations = requireArray(
-        rawStep.remainingObligations ?? [],
+        Object.hasOwn(rawStep, "remainingObligations") ? rawStep.remainingObligations : [],
         `sample ${sampleId} ${stepId} remainingObligations`,
       ).map((entry, index) => {
         if (!isRecord(entry) || (entry.kind !== "observe" && entry.kind !== "advance")) {
