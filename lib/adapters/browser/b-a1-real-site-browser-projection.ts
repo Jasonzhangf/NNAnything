@@ -134,19 +134,24 @@ export type BA1RealSiteBrowserActionResult =
       readonly kind: "scope_presence";
       readonly scopeCount: number;
       readonly eligibleInputCount: number;
+      readonly url: string;
     }
   | {
       readonly kind: "scope_observer_armed";
       readonly observerId: string;
     }
   | {
-      readonly kind: "scope_appearance";
+      readonly kind: "scope_observer_result";
+      readonly mode: "appearance" | "rerender";
       readonly appeared: boolean;
       readonly scopeCount: number;
       readonly eligibleInputCount: number;
+      readonly url: string;
     }
   | {
-      readonly kind: "released";
+      readonly kind: "scope_observer_released";
+      readonly observerId: string;
+      readonly released: boolean;
     };
 
 export interface BA1RealSiteBrowserActionSuccess {
@@ -170,17 +175,20 @@ interface RegisteredActionTarget {
 interface ScopeObserverRecord {
   readonly observerId: string;
   readonly scopeSelector: string;
+  readonly mode: "appearance" | "rerender";
   readonly observer: MutationObserver;
   readonly timer: ReturnType<typeof setTimeout>;
   readonly promise: Promise<{
     readonly appeared: boolean;
     readonly scopeCount: number;
     readonly eligibleInputCount: number;
+    readonly url: string;
   }>;
   readonly resolve: (value: {
     readonly appeared: boolean;
     readonly scopeCount: number;
     readonly eligibleInputCount: number;
+    readonly url: string;
   }) => void;
 }
 
@@ -799,29 +807,31 @@ function resolveActionElement(target: unknown): { readonly element: Element; rea
   });
 }
 
-function armScopeObserver(scopeSelector: string, timeoutMs: number): ScopeObserverRecord {
-  for (const record of scopeObservers.values()) {
-    record.observer.disconnect();
-    clearTimeout(record.timer);
-    const state = scopeState(record.scopeSelector);
-    record.resolve({
-      appeared: false,
-      scopeCount: state === null ? 0 : state.scopeCount,
-      eligibleInputCount: state === null ? 0 : state.eligibleInputCount,
+type ScopeObserverOutcome = {
+  readonly appeared: boolean;
+  readonly scopeCount: number;
+  readonly eligibleInputCount: number;
+  readonly url: string;
+};
+
+function armScopeObserver(
+  scopeSelector: string,
+  timeoutMs: number,
+  mode: "appearance" | "rerender",
+): ScopeObserverRecord {
+  const scopeRoot = mode === "rerender" ? document.querySelector(scopeSelector) : null;
+  if (mode === "rerender" && scopeRoot === null) {
+    throw Object.assign(new Error("rerender scope is not present"), {
+      actionCode: "scope_not_found" as const,
     });
   }
-  scopeObservers.clear();
+  const observerTarget = mode === "appearance" ? document.documentElement : scopeRoot!;
   const observerId = `scope-observer-${nextActionSequence++}`;
-  type Outcome = {
-    readonly appeared: boolean;
-    readonly scopeCount: number;
-    readonly eligibleInputCount: number;
-  };
-  let resolvePromise!: (value: Outcome) => void;
-  const promise = new Promise<Outcome>(resolve => {
+  let resolvePromise!: (value: ScopeObserverOutcome) => void;
+  const promise = new Promise<ScopeObserverOutcome>(resolve => {
     resolvePromise = resolve;
   });
-  const finish = (state: Outcome): void => {
+  const finish = (state: ScopeObserverOutcome): void => {
     record.observer.disconnect();
     clearTimeout(record.timer);
     scopeObservers.delete(observerId);
@@ -830,19 +840,36 @@ function armScopeObserver(scopeSelector: string, timeoutMs: number): ScopeObserv
   const observer = new MutationObserver(() => {
     const state = scopeState(scopeSelector);
     if (state === null) {
-      finish({ appeared: false, scopeCount: 0, eligibleInputCount: 0 });
+      finish({ appeared: false, scopeCount: 0, eligibleInputCount: 0, url: location.href });
       return;
     }
-    if (state.scopeCount === 1) {
+    if (mode === "appearance") {
+      if (state.scopeCount === 1) {
+        finish({
+          appeared: state.eligibleInputCount === 1,
+          scopeCount: state.scopeCount,
+          eligibleInputCount: state.eligibleInputCount,
+          url: location.href,
+        });
+        return;
+      }
+      if (state.scopeCount > 1) {
+        finish({
+          appeared: false,
+          scopeCount: state.scopeCount,
+          eligibleInputCount: 0,
+          url: location.href,
+        });
+      }
+      return;
+    }
+    if (state.scopeCount === 1 && state.eligibleInputCount === 1) {
       finish({
-        appeared: state.eligibleInputCount === 1,
-        scopeCount: state.scopeCount,
-        eligibleInputCount: state.eligibleInputCount,
+        appeared: true,
+        scopeCount: 1,
+        eligibleInputCount: 1,
+        url: location.href,
       });
-      return;
-    }
-    if (state.scopeCount > 1) {
-      finish({ appeared: false, scopeCount: state.scopeCount, eligibleInputCount: 0 });
     }
   });
   const timer = setTimeout(() => {
@@ -851,41 +878,52 @@ function armScopeObserver(scopeSelector: string, timeoutMs: number): ScopeObserv
       appeared: false,
       scopeCount: state === null ? 0 : state.scopeCount,
       eligibleInputCount: state === null ? 0 : state.eligibleInputCount,
+      url: location.href,
     });
   }, timeoutMs);
   const record: ScopeObserverRecord = {
     observerId,
     scopeSelector,
+    mode,
     observer,
     timer,
     promise,
     resolve: (value) => resolvePromise(value),
   };
   scopeObservers.set(observerId, record);
-  observer.observe(document.documentElement, {
+  observer.observe(observerTarget, {
     childList: true,
     subtree: true,
-    attributes: true,
+    ...(mode === "appearance" ? { attributes: true } : {}),
   });
-  const initialState = scopeState(scopeSelector);
-  if (initialState !== null && initialState.scopeCount > 0) {
-    queueMicrotask(() => finish({
-      appeared: initialState.scopeCount === 1 && initialState.eligibleInputCount === 1,
-      scopeCount: initialState.scopeCount,
-      eligibleInputCount: initialState.eligibleInputCount,
-    }));
+  if (mode === "appearance") {
+    const initialState = scopeState(scopeSelector);
+    if (initialState !== null && initialState.scopeCount > 0) {
+      queueMicrotask(() => finish({
+        appeared: initialState.scopeCount === 1 && initialState.eligibleInputCount === 1,
+        scopeCount: initialState.scopeCount,
+        eligibleInputCount: initialState.eligibleInputCount,
+        url: location.href,
+      }));
+    }
   }
   return record;
 }
 
-function releaseActionState(): void {
-  for (const record of scopeObservers.values()) {
-    record.observer.disconnect();
-    clearTimeout(record.timer);
-    record.resolve({ appeared: false, scopeCount: 0, eligibleInputCount: 0 });
-  }
-  scopeObservers.clear();
-  actionTargetRegistry.clear();
+function releaseScopeObserver(observerId: string): boolean {
+  const record = scopeObservers.get(observerId);
+  if (record === undefined) return false;
+  record.observer.disconnect();
+  clearTimeout(record.timer);
+  scopeObservers.delete(observerId);
+  const state = scopeState(record.scopeSelector);
+  record.resolve({
+    appeared: false,
+    scopeCount: state === null ? 0 : state.scopeCount,
+    eligibleInputCount: state === null ? 0 : state.eligibleInputCount,
+    url: location.href,
+  });
+  return true;
 }
 
 /**
@@ -955,13 +993,14 @@ export function handleBA1RealSiteBrowserActionRequest(
           kind: "scope_presence",
           scopeCount: count,
           eligibleInputCount: state?.eligibleInputCount ?? 0,
+          url: location.href,
         },
       };
     }
     if (op === "arm-scope-observer") {
       requireExactKeys(
         request,
-        ["schema", "requestId", "op", "scopeSelector", "timeoutMs"],
+        ["schema", "requestId", "op", "scopeSelector", "timeoutMs", "mode"],
         "arm-scope-observer request",
       );
       const selector = requireNonEmptyString(request.scopeSelector, "arm-scope-observer request.scopeSelector");
@@ -971,7 +1010,13 @@ export function handleBA1RealSiteBrowserActionRequest(
           actionCode: "invalid_request" as const,
         });
       }
-      const record = armScopeObserver(selector, timeoutMs);
+      const mode = request.mode;
+      if (mode !== "appearance" && mode !== "rerender") {
+        throw Object.assign(new Error("arm-scope-observer request.mode is invalid"), {
+          actionCode: "invalid_request" as const,
+        });
+      }
+      const record = armScopeObserver(selector, timeoutMs, mode);
       return {
         schema: BA1_REAL_SITE_BROWSER_ACTION_RESPONSE_SCHEMA,
         requestId,
@@ -979,45 +1024,58 @@ export function handleBA1RealSiteBrowserActionRequest(
         result: { kind: "scope_observer_armed", observerId: record.observerId },
       };
     }
-    if (op === "await-scope-appearance") {
+    if (op === "await-scope-observer") {
       requireExactKeys(
         request,
-        ["schema", "requestId", "op", "scopeSelector", "timeoutMs"],
-        "await-scope-appearance request",
+        ["schema", "requestId", "op", "observerId", "timeoutMs"],
+        "await-scope-observer request",
       );
-      const selector = requireNonEmptyString(
-        request.scopeSelector,
-        "await-scope-appearance request.scopeSelector",
+      const observerId = requireNonEmptyString(
+        request.observerId,
+        "await-scope-observer request.observerId",
       );
       const timeoutMs = request.timeoutMs;
       if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-        throw Object.assign(new Error("await-scope-appearance request.timeoutMs must be positive"), {
+        throw Object.assign(new Error("await-scope-observer request.timeoutMs must be positive"), {
           actionCode: "invalid_request" as const,
         });
       }
-      const existing = Array.from(scopeObservers.values())
-        .find(record => record.scopeSelector === selector);
-      const record = existing ?? armScopeObserver(selector, timeoutMs);
+      const record = scopeObservers.get(observerId);
+      if (record === undefined) {
+        throw Object.assign(new Error("scope observer is not armed"), {
+          actionCode: "invalid_request" as const,
+        });
+      }
       return record.promise.then(value => ({
         schema: BA1_REAL_SITE_BROWSER_ACTION_RESPONSE_SCHEMA,
         requestId,
         ok: true as const,
         result: {
-          kind: "scope_appearance" as const,
+          kind: "scope_observer_result" as const,
+          mode: record.mode,
           appeared: value.appeared,
           scopeCount: value.scopeCount,
           eligibleInputCount: value.eligibleInputCount,
+          url: value.url,
         },
       }));
     }
-    if (op === "release") {
-      requireExactKeys(request, ["schema", "requestId", "op"], "release request");
-      releaseActionState();
+    if (op === "release-scope-observer") {
+      requireExactKeys(
+        request,
+        ["schema", "requestId", "op", "observerId"],
+        "release-scope-observer request",
+      );
+      const observerId = requireNonEmptyString(
+        request.observerId,
+        "release-scope-observer request.observerId",
+      );
+      const released = releaseScopeObserver(observerId);
       return {
         schema: BA1_REAL_SITE_BROWSER_ACTION_RESPONSE_SCHEMA,
         requestId,
         ok: true,
-        result: { kind: "released" },
+        result: { kind: "scope_observer_released", observerId, released },
       };
     }
     throw Object.assign(new Error(`unsupported action op: ${op}`), {

@@ -74,6 +74,66 @@ const mismatchedScopeHtml = `
   <div id="scope"><input id="search" type="search" aria-label="Search"></div>
   <div id="dialog"></div>
 `;
+const sameDocumentHtml = `
+  <div id="scope">
+    <input id="search" type="search" aria-label="Search" value="query">
+    <button id="transition" aria-label="Transition">Transition</button>
+    <div id="result"></div>
+  </div>
+  <script>
+    document.getElementById("transition").addEventListener("click", () => {
+      history.pushState({}, "", "/same-document-next");
+      document.getElementById("result").textContent = "same document";
+    });
+  </script>
+`;
+const inPlaceRerenderHtml = `
+  <div id="scope">
+    <input id="search" type="search" aria-label="Search" value="query">
+    <button id="rerender" aria-label="Rerender">Rerender</button>
+  </div>
+  <script>
+    document.getElementById("rerender").addEventListener("click", () => {
+      const scope = document.getElementById("scope");
+      const result = Object.assign(document.createElement("input"), {
+        type: "search",
+        "aria-label": "Search",
+        value: "result"
+      });
+      scope.replaceChildren(result);
+    });
+  </script>
+`;
+const unrelatedMutationHtml = `
+  <div id="scope"><input id="search" type="search" aria-label="Search"></div>
+  <button id="outside" aria-label="Outside">Outside</button>
+  <div id="outside-result"></div>
+  <script>
+    document.getElementById("outside").addEventListener("click", () => {
+      document.getElementById("outside-result").textContent = "outside";
+    });
+  </script>
+`;
+
+function slowSubmitHtml(delayMs) {
+  return `
+    <div id="scope">
+      <form id="slow-form" method="get" action="/slow-target">
+        <input id="search" type="search" aria-label="Search" value="delayed query">
+        <button type="submit" aria-label="Submit">Go</button>
+      </form>
+    </div>
+    <input type="hidden" name="delay" value="${delayMs}" form="slow-form">
+    <script>${actionCounterScript}</script>
+  `;
+}
+
+function slowTargetHtml(delayMs) {
+  return `
+    <div id="scope"><input id="result" type="search" aria-label="Search"></div>
+    <script src="/slow-resource?delay=${delayMs}"></script>
+  `;
+}
 
 function assertNoActionFields(candidate) {
   for (const forbidden of [
@@ -128,10 +188,34 @@ async function startFixtureServer() {
       response.end();
       return;
     }
+    if (url.pathname === "/slow-resource") {
+      const delayMs = Math.max(0, Math.min(5_000, Number(url.searchParams.get("delay") ?? 0)));
+      setTimeout(() => {
+        if (response.destroyed || response.writableEnded) return;
+        response.writeHead(200, { "content-type": "application/javascript; charset=utf-8" });
+        response.end("");
+      }, delayMs);
+      return;
+    }
+    if (url.pathname === "/slow-submit") {
+      const delayMs = Math.max(0, Math.min(5_000, Number(url.searchParams.get("delay") ?? 0)));
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(slowSubmitHtml(delayMs));
+      return;
+    }
+    if (url.pathname === "/slow-target") {
+      const delayMs = Math.max(0, Math.min(5_000, Number(url.searchParams.get("delay") ?? 0)));
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(slowTargetHtml(delayMs));
+      return;
+    }
     const pages = new Map([
       ["/blank", "<div id=\"scope\"></div>"],
       ["/positive", positiveHtml],
       ["/target", targetHtml],
+      ["/same-document", sameDocumentHtml],
+      ["/in-place", inPlaceRerenderHtml],
+      ["/unrelated", unrelatedMutationHtml],
     ]);
     const body = pages.get(url.pathname);
     if (body !== undefined) {
@@ -178,8 +262,68 @@ async function waitUntil(predicate, message, timeoutMs = 5_000) {
   throw new Error(message);
 }
 
+async function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function withTransportLossAfterFirstInput(callback) {
+  const NativeWebSocket = globalThis.WebSocket;
+  let inputEventCount = 0;
+  let closeAfterInput = false;
+  class LossyWebSocket extends NativeWebSocket {
+    send(data) {
+      const message = typeof data === "string" ? JSON.parse(data) : {};
+      if (!closeAfterInput && typeof message.method === "string" && message.method.startsWith("Input.")) {
+        closeAfterInput = true;
+        inputEventCount += 1;
+        super.send(data);
+        this.close();
+        return;
+      }
+      return super.send(data);
+    }
+  }
+  globalThis.WebSocket = LossyWebSocket;
+  try {
+    await callback();
+    return inputEventCount;
+  } finally {
+    globalThis.WebSocket = NativeWebSocket;
+  }
+}
+
 function controlOf(operation) {
   return { identity: operation.identity, generation: operation.generation };
+}
+
+function projectedTarget(operation, projection, scopeSelector = "#scope") {
+  return {
+    kind: "projected-candidate",
+    control: controlOf(operation),
+    scopeSelector,
+    candidateRef: projection.candidates[0].ref,
+  };
+}
+
+function recipeTarget(operation, selector, accessibleName) {
+  return {
+    kind: "unique-recipe-selector",
+    control: controlOf(operation),
+    selector,
+    expectedTag: "button",
+    expectedRole: "button",
+    expectedAccessibleName: accessibleName,
+  };
 }
 
 test("B-A1 typed native action on the local Chrome public consumer", async t => {
@@ -246,6 +390,7 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
       settleId: settle.settleId,
       actionReceiptRef: submitReceipt.actionId,
       transitionSignalDeadlineMs: 15_000,
+      readinessDeadlineMs: 10_000,
     });
     assert.equal(transition.schema, "nnanything.b-a1.real-site-transition-receipt.v1");
     assert.equal(transition.observation, "document_transition");
@@ -379,6 +524,7 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
       settleId: settle.settleId,
       actionReceiptRef: openReceipt.actionId,
       transitionSignalDeadlineMs: 5_000,
+      readinessDeadlineMs: 1_000,
     });
     assert.equal(appeared.observation, "scope_appeared");
     assert.equal(appeared.next?.documentRef, "doc-action-scope");
@@ -399,6 +545,7 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
       settleId: ambiguous.settleId,
       actionReceiptRef: "receipt-scope-ambiguous",
       transitionSignalDeadlineMs: 5_000,
+      readinessDeadlineMs: 1_000,
     });
     assert.equal(ambiguousTransition.observation, "ambiguous_scope");
     assert.equal(ambiguousTransition.next, null);
@@ -417,8 +564,251 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
       settleId: mismatched.settleId,
       actionReceiptRef: "receipt-scope-mismatch",
       transitionSignalDeadlineMs: 5_000,
+      readinessDeadlineMs: 1_000,
     });
     assert.equal(mismatchedTransition.observation, "ambiguous_scope");
     assert.equal(mismatchedTransition.next, null);
+  });
+
+  await t.test("same-document URL change is reported as transition evidence only", async () => {
+    await runtime.navigate(`${fixture.origin}/same-document`, "doc-action-same");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const click = await runtime.executeNativeAction({
+      target: recipeTarget(projection.operation, "#transition", "Transition"),
+      action: { action: "click" },
+    });
+    assert.equal(click.dispatch, "complete");
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: click.actionId,
+      transitionSignalDeadlineMs: 2_000,
+      readinessDeadlineMs: 1_000,
+    });
+    assert.equal(transition.observation, "same_document");
+    assert.equal(transition.next, null);
+    assert.equal(transition.detail.requiresFreshProjection, true);
+    assert.ok(transition.detail.beforeUrl.endsWith("/same-document"));
+    assert.ok(transition.detail.afterUrl.endsWith("/same-document-next"));
+  });
+
+  await t.test("same-URL scoped rerender requires a fresh projection", async () => {
+    await runtime.navigate(`${fixture.origin}/in-place`, "doc-action-rerender");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const click = await runtime.executeNativeAction({
+      target: recipeTarget(projection.operation, "#rerender", "Rerender"),
+      action: { action: "click" },
+    });
+    assert.equal(click.dispatch, "complete");
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: click.actionId,
+      transitionSignalDeadlineMs: 2_000,
+      readinessDeadlineMs: 1_000,
+    });
+    assert.equal(transition.observation, "rerender_no_url_change");
+    assert.equal(transition.next, null);
+    assert.equal(transition.detail.requiresFreshProjection, true);
+    assert.ok(transition.detail.beforeUrl.endsWith("/in-place"));
+    assert.ok(transition.detail.afterUrl.endsWith("/in-place"));
+  });
+
+  await t.test("out-of-scope mutation does not resolve a rerender", async () => {
+    await runtime.navigate(`${fixture.origin}/unrelated`, "doc-action-unrelated");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const click = await runtime.executeNativeAction({
+      target: recipeTarget(projection.operation, "#outside", "Outside"),
+      action: { action: "click" },
+    });
+    assert.equal(click.dispatch, "complete");
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: click.actionId,
+      transitionSignalDeadlineMs: 200,
+      readinessDeadlineMs: 100,
+    });
+    assert.equal(transition.observation, "timeout");
+    assert.equal(transition.next, null);
+  });
+
+  await t.test("delayed cross-document readiness can still produce the next control", async () => {
+    await runtime.navigate(`${fixture.origin}/slow-submit?delay=300`, "doc-action-slow-ready");
+    const initial = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const replace = await runtime.executeNativeAction({
+      target: projectedTarget(initial.operation, initial.projection),
+      action: { action: "replace-text", text: "delayed query" },
+    });
+    assert.equal(replace.dispatch, "complete");
+    const refreshed = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(refreshed.operation),
+      scopeSelector: "#scope",
+    });
+    const submit = await runtime.executeNativeAction({
+      target: projectedTarget(refreshed.operation, refreshed.projection),
+      action: { action: "submit-enter", expectedText: "delayed query" },
+    });
+    assert.equal(submit.dispatch, "complete");
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: submit.actionId,
+      transitionSignalDeadlineMs: 5_000,
+      readinessDeadlineMs: 3_000,
+    });
+    assert.equal(transition.observation, "document_transition");
+    assert.equal(transition.detail.readiness, "ready");
+    assert.notEqual(transition.next, null);
+  });
+
+  await t.test("cross-document readiness timeout preserves the boundary event", async () => {
+    await runtime.navigate(`${fixture.origin}/slow-submit?delay=1500`, "doc-action-slow-timeout");
+    const initial = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const replace = await runtime.executeNativeAction({
+      target: projectedTarget(initial.operation, initial.projection),
+      action: { action: "replace-text", text: "delayed query" },
+    });
+    assert.equal(replace.dispatch, "complete");
+    const refreshed = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(refreshed.operation),
+      scopeSelector: "#scope",
+    });
+    const submit = await runtime.executeNativeAction({
+      target: projectedTarget(refreshed.operation, refreshed.projection),
+      action: { action: "submit-enter", expectedText: "delayed query" },
+    });
+    assert.equal(submit.dispatch, "complete");
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: submit.actionId,
+      transitionSignalDeadlineMs: 5_000,
+      readinessDeadlineMs: 250,
+    });
+    assert.equal(transition.observation, "document_transition");
+    assert.equal(transition.detail.readiness, "timeout");
+    assert.equal(transition.detail.code, "NAVIGATION_READINESS_TIMEOUT");
+    assert.equal(transition.next, null);
+  });
+
+  await t.test("transport loss after input handoff is unknown and is not retried", async () => {
+    const inputEventCount = await withTransportLossAfterFirstInput(async () => {
+      const lossyRuntime = await createBA1RealSiteCdpRuntime();
+      try {
+        await lossyRuntime.installProjectionBundle(projectionScript);
+        await lossyRuntime.navigate(`${fixture.origin}/positive`, "doc-action-transport-loss");
+        const projection = await lossyRuntime.beginProjection({
+          scopeSelector: "#scope",
+          requestedRole: "search-input-host",
+          access: "available",
+        });
+        const receipt = await lossyRuntime.executeNativeAction({
+          target: projectedTarget(projection.operation, projection.projection),
+          action: { action: "click" },
+        });
+        assert.equal(receipt.dispatch, "unknown");
+        assert.equal(receipt.error?.code, "UNKNOWN_DISPATCH");
+        assert.ok(receipt.error?.message.length > 0, "the original transport error message must be retained");
+      } finally {
+        await lossyRuntime.close();
+      }
+    });
+    assert.equal(inputEventCount, 1);
+  });
+
+  await t.test("abandonment retires the settle without clearing current targets", async () => {
+    await runtime.navigate(`${fixture.origin}/in-place`, "doc-action-abandon");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    await runtime.abandonPostDispatchObservation({ settleId: settle.settleId });
+    await assert.rejects(
+      runtime.awaitPostDispatchObservation({
+        settleId: settle.settleId,
+        actionReceiptRef: "receipt-abandoned",
+        transitionSignalDeadlineMs: 100,
+        readinessDeadlineMs: 100,
+      }),
+      /unknown post-dispatch settle/,
+    );
+    const click = await runtime.executeNativeAction({
+      target: projectedTarget(projection.operation, projection.projection),
+      action: { action: "click" },
+    });
+    assert.equal(click.dispatch, "complete");
+  });
+
+  await t.test("close rejects a live settle waiter and clears bounded lifecycle state", async () => {
+    await runtime.navigate(`${fixture.origin}/in-place`, "doc-action-close-settle");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const pending = runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: "receipt-close",
+      transitionSignalDeadlineMs: 5_000,
+      readinessDeadlineMs: 5_000,
+    });
+    const observed = pending.then(
+      () => ({ status: "resolved" }),
+      error => ({ status: "rejected", error }),
+    );
+    await runtime.close();
+    const closeOutcome = await withTimeout(
+      observed,
+      1_000,
+      "close did not reject the active settle waiter",
+    );
+    assert.equal(closeOutcome.status, "rejected");
   });
 });

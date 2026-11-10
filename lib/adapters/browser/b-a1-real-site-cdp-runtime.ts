@@ -154,6 +154,8 @@ export interface BA1RealSiteTransitionReceipt {
   readonly scopeSelector: string;
   readonly observation:
     | "document_transition"
+    | "same_document"
+    | "rerender_no_url_change"
     | "scope_appeared"
     | "ambiguous_scope"
     | "timeout"
@@ -193,7 +195,11 @@ export interface BA1RealSiteCdpRuntime {
     readonly settleId: string;
     readonly actionReceiptRef: string;
     readonly transitionSignalDeadlineMs: number;
+    readonly readinessDeadlineMs: number;
   }): Promise<BA1RealSiteTransitionReceipt>;
+  abandonPostDispatchObservation(input: {
+    readonly settleId: string;
+  }): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -212,6 +218,7 @@ interface CdpEvent {
 interface PendingCdpRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: Error) => void;
+  handedOff: boolean;
 }
 
 interface ContextWaiter {
@@ -227,6 +234,21 @@ interface DocumentEpochWaiter {
 interface SettleTransitionWaiter {
   readonly epoch: number;
   readonly resolve: (value: { readonly epoch: number; readonly documentRef: string }) => void;
+  readonly reject: (error: Error) => void;
+}
+
+interface SettleSameDocumentWaiter {
+  readonly epoch: number;
+  readonly resolve: (value: { readonly epoch: number; readonly url: string }) => void;
+  readonly reject: (error: Error) => void;
+}
+
+interface ScopeObservationOutcome {
+  readonly appeared: boolean;
+  readonly scopeCount: number;
+  readonly eligibleInputCount: number;
+  readonly url: string;
+  readonly mode: "appearance" | "rerender";
 }
 
 interface PendingSettle {
@@ -237,12 +259,15 @@ interface PendingSettle {
   readonly armedAt: string;
   readonly transition: Promise<{ readonly epoch: number; readonly documentRef: string }>;
   readonly transitionWaiter: SettleTransitionWaiter;
-  readonly appearance: Promise<{
-    readonly appeared: boolean;
-    readonly scopeCount: number;
-    readonly eligibleInputCount: number;
-  }> | null;
+  readonly sameDocument: Promise<{ readonly epoch: number; readonly url: string }>;
+  readonly sameDocumentWaiter: SettleSameDocumentWaiter;
+  readonly appearance: Promise<ScopeObservationOutcome> | null;
+  readonly observerId: string | null;
   readonly ambiguousScope: boolean;
+  readonly beforeUrl: string;
+  readonly timers: Set<ReturnType<typeof setTimeout>>;
+  readonly abort: Promise<never>;
+  readonly rejectAbort: (error: Error) => void;
 }
 
 function sameIdentity(left: BA1Identity, right: BA1Identity): boolean {
@@ -559,6 +584,23 @@ function pageActionErrorCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
+function deliveryStateOf(error: unknown): "not_sent" | "unknown" {
+  return error instanceof BA1RealSiteCdpRuntimeError && error.detail.delivery === "not_sent"
+    ? "not_sent"
+    : "unknown";
+}
+
+interface InputDispatchResult {
+  readonly dispatch: BA1RealSiteActionReceipt["dispatch"];
+  readonly error: Error | null;
+}
+
+function inputDispatchFailureCode(result: InputDispatchResult): BA1RealSiteActionErrorCode {
+  return result.dispatch === "unknown" || (result.error !== null && deliveryStateOf(result.error) === "unknown")
+    ? "UNKNOWN_DISPATCH"
+    : "DISPATCH_FAILED";
+}
+
 const EMPTY_ACTION_TARGET: BA1RealSiteActionReceipt["target"] = Object.freeze({
   candidateRef: null,
   tag: "other" as const,
@@ -715,6 +757,7 @@ class CdpConnection {
   private readonly contextWaiters = new Set<ContextWaiter>();
   private readonly documentEpochWaiters = new Set<DocumentEpochWaiter>();
   private readonly settleTransitionWaiters = new Set<SettleTransitionWaiter>();
+  private readonly settleSameDocumentWaiters = new Set<SettleSameDocumentWaiter>();
   private readonly settles = new Map<string, PendingSettle>();
   private settleSequence = 0;
 
@@ -752,7 +795,11 @@ class CdpConnection {
     this.websocket.addEventListener("close", () => {
       this.closed = true;
       for (const pending of this.pending.values()) {
-        pending.reject(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket closed"));
+        pending.reject(new BA1RealSiteCdpRuntimeError(
+          "cdp_failure",
+          "CDP websocket closed",
+          { delivery: pending.handedOff ? "unknown" : "not_sent" },
+        ));
       }
       this.pending.clear();
       this.rejectContextWaiters(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket closed"));
@@ -762,7 +809,11 @@ class CdpConnection {
     });
     this.websocket.addEventListener("error", () => {
       for (const pending of this.pending.values()) {
-        pending.reject(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket error"));
+        pending.reject(new BA1RealSiteCdpRuntimeError(
+          "cdp_failure",
+          "CDP websocket error",
+          { delivery: pending.handedOff ? "unknown" : "not_sent" },
+        ));
       }
       this.pending.clear();
       this.rejectContextWaiters(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket error"));
@@ -802,6 +853,19 @@ class CdpConnection {
         this.defaultContextId = contextId;
         this.projectionInstalledContextId = null;
         this.resolveContextWaiters(contextId);
+        return;
+      }
+      case "Page.navigatedWithinDocument": {
+        const params = requireRecord(message.params ?? {}, "Page.navigatedWithinDocument.params");
+        if (params.frameId !== this.mainFrameId || typeof params.url !== "string" || params.url.length === 0) {
+          return;
+        }
+        for (const waiter of this.settleSameDocumentWaiters) {
+          if (waiter.epoch === this.documentEpoch) {
+            waiter.resolve({ epoch: waiter.epoch, url: params.url });
+            this.settleSameDocumentWaiters.delete(waiter);
+          }
+        }
         return;
       }
       case "Page.frameNavigated": {
@@ -1019,7 +1083,13 @@ class CdpConnection {
   }
 
   private async send(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
-    if (this.closed) throw new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP connection is closed");
+    if (this.closed) {
+      throw new BA1RealSiteCdpRuntimeError(
+        "cdp_failure",
+        "CDP connection is closed",
+        { delivery: "not_sent" },
+      );
+    }
     const id = this.nextId++;
     const message = {
       id,
@@ -1028,8 +1098,19 @@ class CdpConnection {
       ...(this.sessionId === null ? {} : { sessionId: this.sessionId }),
     };
     return await new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.websocket.send(JSON.stringify(message));
+      const pending: PendingCdpRequest = { resolve, reject, handedOff: false };
+      this.pending.set(id, pending);
+      try {
+        this.websocket.send(JSON.stringify(message));
+        pending.handedOff = true;
+      } catch (error) {
+        this.pending.delete(id);
+        reject(new BA1RealSiteCdpRuntimeError(
+          "cdp_failure",
+          error instanceof Error ? error.message : String(error),
+          { delivery: "not_sent" },
+        ));
+      }
     });
   }
 
@@ -1157,7 +1238,9 @@ class CdpConnection {
     return parseActionPageResponse(raw, requestId);
   }
 
-  private async dispatchClickAt(geometry: NativeActionTargetFacts["geometry"]): Promise<BA1RealSiteActionReceipt["dispatch"]> {
+  private async dispatchClickAt(
+    geometry: NativeActionTargetFacts["geometry"],
+  ): Promise<InputDispatchResult> {
     const x = geometry.x + geometry.width / 2;
     const y = geometry.y + geometry.height / 2;
     try {
@@ -1169,8 +1252,11 @@ class CdpConnection {
         buttons: 1,
         clickCount: 1,
       });
-    } catch {
-      return "not_sent";
+    } catch (error) {
+      return {
+        dispatch: deliveryStateOf(error),
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
     try {
       await this.send("Input.dispatchMouseEvent", {
@@ -1181,13 +1267,16 @@ class CdpConnection {
         buttons: 0,
         clickCount: 1,
       });
-    } catch {
-      return "partial";
+    } catch (error) {
+      return {
+        dispatch: "partial",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
-    return "complete";
+    return { dispatch: "complete", error: null };
   }
 
-  private async selectAllText(): Promise<BA1RealSiteActionReceipt["dispatch"]> {
+  private async selectAllText(): Promise<InputDispatchResult> {
     try {
       await this.send("Input.dispatchKeyEvent", {
         type: "rawKeyDown",
@@ -1197,8 +1286,11 @@ class CdpConnection {
         nativeVirtualKeyCode: 65,
         commands: ["selectAll"],
       });
-    } catch {
-      return "not_sent";
+    } catch (error) {
+      return {
+        dispatch: deliveryStateOf(error),
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
     try {
       await this.send("Input.dispatchKeyEvent", {
@@ -1208,22 +1300,28 @@ class CdpConnection {
         windowsVirtualKeyCode: 65,
         nativeVirtualKeyCode: 65,
       });
-    } catch {
-      return "partial";
+    } catch (error) {
+      return {
+        dispatch: "partial",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
-    return "complete";
+    return { dispatch: "complete", error: null };
   }
 
-  private async insertText(text: string): Promise<boolean> {
+  private async insertText(text: string): Promise<InputDispatchResult> {
     try {
       await this.send("Input.insertText", { text });
-      return true;
-    } catch {
-      return false;
+      return { dispatch: "complete", error: null };
+    } catch (error) {
+      return {
+        dispatch: deliveryStateOf(error),
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
   }
 
-  private async pressEnter(): Promise<BA1RealSiteActionReceipt["dispatch"]> {
+  private async pressEnter(): Promise<InputDispatchResult> {
     try {
       await this.send("Input.dispatchKeyEvent", {
         type: "keyDown",
@@ -1234,8 +1332,11 @@ class CdpConnection {
         text: "\r",
         unmodifiedText: "\r",
       });
-    } catch {
-      return "not_sent";
+    } catch (error) {
+      return {
+        dispatch: deliveryStateOf(error),
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
     try {
       await this.send("Input.dispatchKeyEvent", {
@@ -1245,10 +1346,13 @@ class CdpConnection {
         windowsVirtualKeyCode: 13,
         nativeVirtualKeyCode: 13,
       });
-    } catch {
-      return "partial";
+    } catch (error) {
+      return {
+        dispatch: "partial",
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
     }
-    return "complete";
+    return { dispatch: "complete", error: null };
   }
 
   private tryReadControl(): BA1RealSiteControlRead | null {
@@ -1372,11 +1476,17 @@ class CdpConnection {
 
     if (action.action === "click") {
       const dispatch = await this.dispatchClickAt(facts.geometry);
-      if (dispatch !== "complete") {
-        return fail("DISPATCH_FAILED", `click dispatch ${dispatch}`, dispatch, {
+      if (dispatch.dispatch !== "complete") {
+        return fail(
+          inputDispatchFailureCode(dispatch),
+          dispatch.error?.message ?? `click dispatch ${dispatch.dispatch}`,
+          dispatch.dispatch,
+          {
           target: targetReceipt,
           focus: initialFocus,
-        });
+          effectKnowledge: dispatch.dispatch === "unknown" ? "unknown" : "none",
+          },
+        );
       }
       const after = await readTarget();
       const focus: BA1RealSiteActionReceipt["focus"] = after === null
@@ -1403,11 +1513,17 @@ class CdpConnection {
 
     if (action.action === "replace-text") {
       const clickDispatch = await this.dispatchClickAt(facts.geometry);
-      if (clickDispatch !== "complete") {
-        return fail("DISPATCH_FAILED", `click dispatch ${clickDispatch}`, clickDispatch, {
+      if (clickDispatch.dispatch !== "complete") {
+        return fail(
+          inputDispatchFailureCode(clickDispatch),
+          clickDispatch.error?.message ?? `click dispatch ${clickDispatch.dispatch}`,
+          clickDispatch.dispatch,
+          {
           target: targetReceipt,
           focus: initialFocus,
-        });
+          effectKnowledge: clickDispatch.dispatch === "unknown" ? "unknown" : "none",
+          },
+        );
       }
       const focused = await readTarget();
       if (focused === null || !focused.focused) {
@@ -1417,17 +1533,30 @@ class CdpConnection {
         });
       }
       const selectDispatch = await this.selectAllText();
-      if (selectDispatch !== "complete") {
-        return fail("DISPATCH_FAILED", `select-all dispatch ${selectDispatch}`, "partial", {
+      if (selectDispatch.dispatch !== "complete") {
+        return fail(
+          inputDispatchFailureCode(selectDispatch),
+          selectDispatch.error?.message ?? `select-all dispatch ${selectDispatch.dispatch}`,
+          "partial",
+          {
           target: targetReceipt,
           focus: "target",
-        });
+          effectKnowledge: "unknown",
+          },
+        );
       }
-      if (!(await this.insertText(action.text))) {
-        return fail("DISPATCH_FAILED", "text insertion dispatch failed", "partial", {
+      const insertDispatch = await this.insertText(action.text);
+      if (insertDispatch.dispatch !== "complete") {
+        return fail(
+          inputDispatchFailureCode(insertDispatch),
+          insertDispatch.error?.message ?? `text insertion dispatch ${insertDispatch.dispatch}`,
+          "partial",
+          {
           target: targetReceipt,
           focus: "target",
-        });
+          effectKnowledge: "unknown",
+          },
+        );
       }
       const after = await readTarget();
       const readbackStatus = after !== null && after.value === action.text ? "exact" as const : "mismatch" as const;
@@ -1476,13 +1605,18 @@ class CdpConnection {
       });
     }
     const enterDispatch = await this.pressEnter();
-    if (enterDispatch !== "complete") {
-      return fail("DISPATCH_FAILED", `enter dispatch ${enterDispatch}`, enterDispatch, {
-        target: targetReceipt,
-        focus: "target",
-        readback: { status: "exact", value: precheck.value },
-        effectKnowledge: "unknown",
-      });
+    if (enterDispatch.dispatch !== "complete") {
+      return fail(
+        inputDispatchFailureCode(enterDispatch),
+        enterDispatch.error?.message ?? `enter dispatch ${enterDispatch.dispatch}`,
+        enterDispatch.dispatch,
+        {
+          target: targetReceipt,
+          focus: "target",
+          readback: { status: "exact", value: precheck.value },
+          effectKnowledge: enterDispatch.dispatch === "unknown" ? "unknown" : "unknown",
+        },
+      );
     }
     return buildActionReceipt({
       actionId,
@@ -1516,63 +1650,84 @@ class CdpConnection {
     const settleId = `settle-${++this.settleSequence}`;
     const armedEpoch = this.documentEpoch;
     let resolveTransition!: (value: { readonly epoch: number; readonly documentRef: string }) => void;
-    const transition = new Promise<{ readonly epoch: number; readonly documentRef: string }>(resolve => {
+    let rejectTransition!: (error: Error) => void;
+    const transition = new Promise<{ readonly epoch: number; readonly documentRef: string }>((resolve, reject) => {
       resolveTransition = resolve;
+      rejectTransition = reject;
     });
+    void transition.catch(() => undefined);
     const transitionWaiter: SettleTransitionWaiter = {
       epoch: armedEpoch,
       resolve: value => resolveTransition(value),
+      reject: error => rejectTransition(error),
     };
     this.settleTransitionWaiters.add(transitionWaiter);
-    let appearance: Promise<{
-      readonly appeared: boolean;
-      readonly scopeCount: number;
-      readonly eligibleInputCount: number;
-    }> | null = null;
+
+    let resolveSameDocument!: (value: { readonly epoch: number; readonly url: string }) => void;
+    let rejectSameDocument!: (error: Error) => void;
+    const sameDocument = new Promise<{ readonly epoch: number; readonly url: string }>((resolve, reject) => {
+      resolveSameDocument = resolve;
+      rejectSameDocument = reject;
+    });
+    void sameDocument.catch(() => undefined);
+    const sameDocumentWaiter: SettleSameDocumentWaiter = {
+      epoch: armedEpoch,
+      resolve: value => resolveSameDocument(value),
+      reject: error => rejectSameDocument(error),
+    };
+    this.settleSameDocumentWaiters.add(sameDocumentWaiter);
+
+    let appearance: Promise<ScopeObservationOutcome> | null = null;
+    let observerId: string | null = null;
     let ambiguousScope = false;
+    let beforeUrl = "";
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    let rejectAbort!: (error: Error) => void;
+    const abort = new Promise<never>((_, reject) => {
+      rejectAbort = reject;
+    });
+    void abort.catch(() => undefined);
+
     try {
-      const presence = await this.pageAction(
-        "scope-presence",
-        { scopeSelector },
-        armedEpoch,
-      );
+      const presence = await this.pageAction("scope-presence", { scopeSelector }, armedEpoch);
       if (presence.kind !== "scope_presence" || typeof presence.scopeCount !== "number") {
         throw new BA1RealSiteCdpRuntimeError("action_failed", "scope presence response is invalid");
       }
+      beforeUrl = typeof presence.url === "string" ? presence.url : "";
       const eligibleInputCount = typeof presence.eligibleInputCount === "number"
         ? presence.eligibleInputCount
         : 0;
       if (presence.scopeCount === 0 && this.documentEpoch === armedEpoch) {
-        await this.pageAction(
+        const armed = await this.pageAction(
           "arm-scope-observer",
-          { scopeSelector, timeoutMs: 120_000 },
+          { scopeSelector, timeoutMs: 120_000, mode: "appearance" },
           armedEpoch,
         );
-        appearance = this.pageAction(
-          "await-scope-appearance",
-          { scopeSelector, timeoutMs: 120_000 },
+        observerId = typeof armed.observerId === "string" ? armed.observerId : null;
+        appearance = this.scopeObservation(observerId, armedEpoch, "appearance", beforeUrl);
+      } else if (presence.scopeCount === 1 && eligibleInputCount === 1 && this.documentEpoch === armedEpoch) {
+        const armed = await this.pageAction(
+          "arm-scope-observer",
+          { scopeSelector, timeoutMs: 120_000, mode: "rerender" },
           armedEpoch,
-        ).then(value => {
-          if (value.kind !== "scope_appearance"
-            || typeof value.appeared !== "boolean"
-            || typeof value.scopeCount !== "number") {
-            return { appeared: false, scopeCount: 0, eligibleInputCount: 0 };
-          }
-          return {
-            appeared: value.appeared,
-            scopeCount: value.scopeCount,
-            eligibleInputCount: typeof value.eligibleInputCount === "number"
-              ? value.eligibleInputCount
-              : 0,
-          };
-        }).catch(() => ({ appeared: false, scopeCount: 0, eligibleInputCount: 0 }));
+        );
+        observerId = typeof armed.observerId === "string" ? armed.observerId : null;
+        appearance = this.scopeObservation(observerId, armedEpoch, "rerender", beforeUrl);
       } else if (presence.scopeCount > 1 || eligibleInputCount !== 1) {
         ambiguousScope = true;
       }
     } catch (error) {
       this.settleTransitionWaiters.delete(transitionWaiter);
+      this.settleSameDocumentWaiters.delete(sameDocumentWaiter);
+      const settledError = error instanceof Error ? error : new Error(String(error));
+      rejectTransition(settledError);
+      rejectSameDocument(settledError);
+      if (observerId !== null) {
+        void this.releaseScopeObserver(observerId, armedEpoch);
+      }
       throw error;
     }
+
     this.settles.set(settleId, {
       settleId,
       control,
@@ -1581,16 +1736,86 @@ class CdpConnection {
       armedAt: new Date().toISOString(),
       transition,
       transitionWaiter,
+      sameDocument,
+      sameDocumentWaiter,
       appearance,
+      observerId,
       ambiguousScope,
+      beforeUrl,
+      timers,
+      abort,
+      rejectAbort,
     });
     return { settleId };
+  }
+
+  private scopeObservation(
+    observerId: string | null,
+    expectedEpoch: number,
+    mode: "appearance" | "rerender",
+    beforeUrl: string,
+  ): Promise<ScopeObservationOutcome> {
+    if (observerId === null) {
+      return new Promise<never>(() => undefined);
+    }
+    return this.pageAction(
+      "await-scope-observer",
+      { observerId, timeoutMs: 120_000 },
+      expectedEpoch,
+    ).then(value => {
+      if (
+        value.kind !== "scope_observer_result"
+        || typeof value.appeared !== "boolean"
+        || typeof value.scopeCount !== "number"
+        || typeof value.url !== "string"
+        || value.mode !== mode
+      ) {
+        return new Promise<never>(() => undefined);
+      }
+      return {
+        appeared: value.appeared,
+        scopeCount: value.scopeCount,
+        eligibleInputCount: typeof value.eligibleInputCount === "number"
+          ? value.eligibleInputCount
+          : 0,
+        url: value.url,
+        mode,
+      };
+    }).catch(() => new Promise<never>(() => undefined));
+  }
+
+  private async releaseScopeObserver(observerId: string | null, expectedEpoch: number): Promise<void> {
+    if (observerId === null) return;
+    try {
+      await this.pageAction("release-scope-observer", { observerId }, expectedEpoch);
+    } catch {
+      // The page observer is scoped to its own document and dies with that document.
+    }
+  }
+
+  private async waitForDocumentReadyUntil(deadline: number): Promise<void> {
+    while (Date.now() < deadline) {
+      const contextId = await this.waitForDefaultContext(deadline);
+      try {
+        const state = await this.evaluate("document.readyState", contextId);
+        if (state === "complete" && this.defaultContextId === contextId) return;
+      } catch (error) {
+        if (this.defaultContextId !== contextId) continue;
+        throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new BA1RealSiteCdpRuntimeError(
+      "cdp_failure",
+      "document did not reach readyState=complete before the readiness deadline",
+    );
   }
 
   async awaitPostDispatchObservation(input: {
     readonly settleId: string;
     readonly actionReceiptRef: string;
     readonly transitionSignalDeadlineMs: number;
+    readonly readinessDeadlineMs: number;
   }): Promise<BA1RealSiteTransitionReceipt> {
     const settleId = requireNonEmptyString(input.settleId, "awaitPostDispatchObservation.settleId");
     const actionReceiptRef = requireNonEmptyString(
@@ -1601,6 +1826,14 @@ class CdpConnection {
     if (typeof deadlineMs !== "number" || !Number.isFinite(deadlineMs) || deadlineMs <= 0) {
       throw new TypeError("awaitPostDispatchObservation.transitionSignalDeadlineMs must be positive");
     }
+    const readinessDeadlineMs = input.readinessDeadlineMs;
+    if (
+      typeof readinessDeadlineMs !== "number"
+      || !Number.isFinite(readinessDeadlineMs)
+      || readinessDeadlineMs <= 0
+    ) {
+      throw new TypeError("awaitPostDispatchObservation.readinessDeadlineMs must be positive");
+    }
     const settle = this.settles.get(settleId);
     if (settle === undefined) {
       throw new BA1RealSiteCdpRuntimeError(
@@ -1608,70 +1841,191 @@ class CdpConnection {
         `unknown post-dispatch settle: ${settleId}`,
       );
     }
+
     const timeout = new Promise<{ readonly kind: "timeout" }>(resolve => {
-      setTimeout(() => resolve({ kind: "timeout" }), deadlineMs);
+      const timer = setTimeout(() => resolve({ kind: "timeout" }), deadlineMs);
+      settle.timers.add(timer);
     });
     const transition = settle.transition.then(value => ({ kind: "document_transition" as const, value }));
+    const sameDocument = settle.sameDocument.then(value => ({ kind: "same_document" as const, value }));
     const appearance = settle.ambiguousScope
       ? Promise.resolve({ kind: "ambiguous_scope" as const })
       : settle.appearance === null
         ? new Promise<never>(() => undefined)
-        : settle.appearance.then(value => ({ kind: "appearance" as const, value }));
-    const outcome = await Promise.race([transition, appearance, timeout]);
-    this.settles.delete(settleId);
-    this.settleTransitionWaiters.delete(settle.transitionWaiter);
-    void this.pageAction("release", {}, this.documentEpoch).catch(() => undefined);
+        : settle.appearance.then(value => ({ kind: "scope_observation" as const, value }));
+    let outcome: { readonly kind: "timeout" }
+      | { readonly kind: "document_transition"; readonly value: { readonly epoch: number; readonly documentRef: string } }
+      | { readonly kind: "same_document"; readonly value: { readonly epoch: number; readonly url: string } }
+      | { readonly kind: "scope_observation"; readonly value: ScopeObservationOutcome }
+      | { readonly kind: "ambiguous_scope" } | null = null;
 
-    const observedTransition = outcome.kind === "document_transition"
-      || (outcome.kind === "appearance" && outcome.value.appeared);
-    if (outcome.kind === "document_transition") {
-      try {
-        this.slot.current().beginObservation();
-      } catch {
-        // The new provider is not readable yet; the receipt stays without a next control.
+    try {
+      outcome = await Promise.race([
+        transition,
+        sameDocument,
+        appearance,
+        settle.abort,
+        timeout,
+      ]);
+      let observation: BA1RealSiteTransitionReceipt["observation"] = "timeout";
+      let next: BA1RealSiteTransitionReceipt["next"] = null;
+      let detail: Record<string, unknown> = { deadlineMs };
+
+      if (outcome.kind === "document_transition") {
+        observation = "document_transition";
+        detail = { documentEpoch: outcome.value.epoch };
+        const readinessDeadline = Date.now() + readinessDeadlineMs;
+        const readinessTimeout = new Promise<{ readonly readiness: "timeout" }>(resolve => {
+          const timer = setTimeout(() => resolve({ readiness: "timeout" }), readinessDeadlineMs);
+          settle.timers.add(timer);
+        });
+        const readinessWait = this.waitForDocumentReadyUntil(readinessDeadline)
+          .then(() => ({ readiness: "ready" as const }))
+          .catch(() => ({ readiness: "timeout" as const }));
+        const readiness = await Promise.race([readinessWait, readinessTimeout]);
+        detail = {
+          ...detail,
+          readiness: readiness.readiness,
+        };
+        if (readiness.readiness === "ready") {
+          try {
+            this.slot.current().beginObservation();
+          } catch {
+            // The new provider is not readable yet; the receipt stays without a next control.
+          }
+          const current = this.tryReadControl();
+          if (current !== null) {
+            next = Object.freeze({
+              documentRef: current.identity.documentRef,
+              observationId: current.identity.observationId,
+              revision: current.identity.revision,
+              generation: current.generation,
+            });
+          }
+        } else {
+          detail = { ...detail, code: "NAVIGATION_READINESS_TIMEOUT" };
+        }
+      } else if (outcome.kind === "same_document") {
+        observation = "same_document";
+        detail = {
+          beforeUrl: settle.beforeUrl,
+          afterUrl: outcome.value.url,
+          requiresFreshProjection: true,
+        };
+      } else if (outcome.kind === "scope_observation") {
+        const value = outcome.value;
+        if (value.mode === "rerender") {
+          if (value.url !== settle.beforeUrl) {
+            observation = "same_document";
+            detail = {
+              beforeUrl: settle.beforeUrl,
+              afterUrl: value.url,
+              requiresFreshProjection: true,
+            };
+          } else if (value.appeared) {
+            observation = "rerender_no_url_change";
+            detail = {
+              beforeUrl: settle.beforeUrl,
+              afterUrl: value.url,
+              requiresFreshProjection: true,
+            };
+          }
+        } else {
+          if (value.appeared) {
+            observation = "scope_appeared";
+            detail = {
+              scopeCount: value.scopeCount,
+              eligibleInputCount: value.eligibleInputCount,
+            };
+          } else if (value.scopeCount > 0) {
+            observation = "ambiguous_scope";
+            detail = {
+              scopeCount: value.scopeCount,
+              eligibleInputCount: value.eligibleInputCount,
+            };
+          }
+        }
+      } else if (outcome.kind === "ambiguous_scope") {
+        observation = "ambiguous_scope";
+      }
+
+      if (observation === "scope_appeared") {
+        const current = this.tryReadControl();
+        if (current !== null) {
+          next = Object.freeze({
+            documentRef: current.identity.documentRef,
+            observationId: current.identity.observationId,
+            revision: current.identity.revision,
+            generation: current.generation,
+          });
+        }
+      }
+
+      return Object.freeze({
+        schema: "nnanything.b-a1.real-site-transition-receipt.v1" as const,
+        settleId,
+        actionReceiptRef,
+        control: Object.freeze({
+          documentRef: settle.control.identity.documentRef,
+          observationId: settle.control.identity.observationId,
+          revision: settle.control.identity.revision,
+          generation: settle.control.generation,
+        }),
+        scopeSelector: settle.scopeSelector,
+        observation,
+        next,
+        armedAt: settle.armedAt,
+        observedAt: new Date().toISOString(),
+        detail: Object.freeze(detail),
+      });
+    } finally {
+      for (const timer of settle.timers) clearTimeout(timer);
+      settle.timers.clear();
+      this.settles.delete(settleId);
+      this.settleTransitionWaiters.delete(settle.transitionWaiter);
+      this.settleSameDocumentWaiters.delete(settle.sameDocumentWaiter);
+      if (settle.observerId !== null && this.documentEpoch === settle.armedEpoch) {
+        await this.releaseScopeObserver(settle.observerId, settle.armedEpoch);
       }
     }
-    const current = this.tryReadControl();
-    const next = observedTransition && current !== null
-      ? Object.freeze({
-          documentRef: current.identity.documentRef,
-          observationId: current.identity.observationId,
-          revision: current.identity.revision,
-          generation: current.generation,
-        })
-      : null;
-    return Object.freeze({
-      schema: "nnanything.b-a1.real-site-transition-receipt.v1" as const,
-      settleId,
-      actionReceiptRef,
-      control: Object.freeze({
-        documentRef: settle.control.identity.documentRef,
-        observationId: settle.control.identity.observationId,
-        revision: settle.control.identity.revision,
-        generation: settle.control.generation,
-      }),
-      scopeSelector: settle.scopeSelector,
-      observation: outcome.kind === "document_transition"
-        ? "document_transition" as const
-        : outcome.kind === "appearance"
-          ? outcome.value.appeared
-            ? "scope_appeared" as const
-            : outcome.value.scopeCount > 0 ? "ambiguous_scope" as const : "timeout" as const
-          : outcome.kind === "ambiguous_scope" ? "ambiguous_scope" as const : "timeout" as const,
-      next,
-      armedAt: settle.armedAt,
-      observedAt: new Date().toISOString(),
-      detail: Object.freeze(
-        outcome.kind === "document_transition"
-          ? { documentEpoch: outcome.value.epoch }
-          : outcome.kind === "appearance"
-            ? {
-                scopeCount: outcome.value.scopeCount,
-                eligibleInputCount: outcome.value.eligibleInputCount,
-              }
-            : { deadlineMs },
-      ),
-    });
+  }
+
+  async abandonPostDispatchObservation(input: {
+    readonly settleId: string;
+  }): Promise<void> {
+    const settleId = requireNonEmptyString(input.settleId, "abandonPostDispatchObservation.settleId");
+    const settle = this.settles.get(settleId);
+    if (settle === undefined) return;
+    this.settles.delete(settleId);
+    this.settleTransitionWaiters.delete(settle.transitionWaiter);
+    this.settleSameDocumentWaiters.delete(settle.sameDocumentWaiter);
+    for (const timer of settle.timers) clearTimeout(timer);
+    settle.timers.clear();
+    const error = new BA1RealSiteCdpRuntimeError(
+      "invalid_request",
+      `post-dispatch settle abandoned: ${settleId}`,
+    );
+    settle.transitionWaiter.reject(error);
+    settle.sameDocumentWaiter.reject(error);
+    settle.rejectAbort(error);
+    if (settle.observerId !== null && this.documentEpoch === settle.armedEpoch) {
+      await this.releaseScopeObserver(settle.observerId, settle.armedEpoch);
+    }
+  }
+
+  private rejectSettleWaiters(error: Error): void {
+    for (const settle of this.settles.values()) {
+      for (const timer of settle.timers) clearTimeout(timer);
+      settle.timers.clear();
+      settle.transitionWaiter.reject(error);
+      settle.sameDocumentWaiter.reject(error);
+      settle.rejectAbort(error);
+    }
+    this.settles.clear();
+    for (const waiter of this.settleTransitionWaiters) waiter.reject(error);
+    this.settleTransitionWaiters.clear();
+    for (const waiter of this.settleSameDocumentWaiters) waiter.reject(error);
+    this.settleSameDocumentWaiters.clear();
   }
 
   get slot(): BA1RealSiteControlSlot {
@@ -1689,6 +2043,7 @@ class CdpConnection {
       return;
     }
     this.closed = true;
+    this.rejectSettleWaiters(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP connection closed"));
     try {
       this.websocket.close();
     } catch {
@@ -1792,6 +2147,7 @@ export async function createBA1RealSiteCdpRuntime(options: {
     executeNativeAction: input => connection.executeNativeAction(input),
     armPostDispatchObservation: input => connection.armPostDispatchObservation(input),
     awaitPostDispatchObservation: input => connection.awaitPostDispatchObservation(input),
+    abandonPostDispatchObservation: input => connection.abandonPostDispatchObservation(input),
     close: () => connection.close(),
   };
   return runtime;
