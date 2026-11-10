@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "neural-cli-source-family-v1",
+  "sourceGroup": "tsjs-verification-runtime-selector-c",
+  "language": "ts",
+  "semanticStratum": "runtime_selector_call_site",
+  "partition": "verification",
+  "sourceType": "independent_project_authored_fixture",
+  "repositoryOrFamily": "training/samples/neural-cli/tsjs/verification-runtime-selector-c",
+  "derivationFamily": {
+    "familyId": "tsjs-runtime-selector-verification-v1",
+    "templateRole": "origin",
+    "derivedFrom": null,
+    "independentVerificationEligible": true,
+    "see": "../source-derivation.json"
+  },
+  "sourceRefs": [
+    "sources/src/units.ts",
+    "sources/src/registry.ts",
+    "sources/src/lookup.ts",
+    "sources/src/direct.ts",
+    "sources/src/alias.ts",
+    "sources/src/other-units.ts",
+    "sources/src/cross-module.ts",
+    "sources/src/local-shadow.ts",
+    "sources/src/barrel.ts",
+    "sources/src/via-barrel.ts"
+  ],
+  "reproduction": {
+    "tsconfig": "sources/tsconfig.json",
+    "command": "npx tsc -p sources/tsconfig.json --noEmit --pretty false"
+  },
+  "goldAuthority": "researcher_structural_proof+typescript_compiler_api",
+  "oracleKind": "independent_tsc+controlled_fixture",
+  "oracleRefs": [
+    "evidence/manual-structural-proof.md",
+    "evidence/tsc-receipt.txt"
+  ],
+  "license": "project-authored; repository license",
+  "privateAndSecrets": {
+    "containsPrivateSource": false,
+    "containsLoginState": false,
+    "containsSecrets": false
+  },
+  "owner": "Rose",
+  "sampleCount": 0,
+  "studentRowsDeferred": true,
+  "failureModes": [
+    "runtime_dynamic_selector_unknown"
+  ]
+}
