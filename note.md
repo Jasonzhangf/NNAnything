@@ -4270,3 +4270,16 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - goal：消费 deadline `m1794194271289-7104` 后已 rearm，status Active=true/subscribed；project patrol `sub-m1793963843713-143` armed。
 - 边界：本轮只做容量核对、派单、review 协调、只读审计派发、board/note 更新；未改产品代码/语料/权重/gold/threshold/采用，未训练/拟合/采样/接线/安装，未动 daemon/tmux。
 - 下一步：等 Henry 回报 §5.2 窄修；Alice 正式 review 待 Leo 完成 deliver（受 lifecycle）；AppSDK 候选核查完成后把独立证据交用户做安装决策；用户仍需裁定「是否恢复整体重设计/训练」与「64 维/两层/统一格式是否仍约束」。
+
+## 2026-11-09 Jenny：caller 设计集成、caller-bind 接力、authority review 派单；integrated 记录被 daemon TCC 阻塞（16:16 America/Los_Angeles）
+
+- 目的：消费本轮 collab 通知批次，完成 caller 设计（`da1bf92`）集成，按已审 Node/CDP 合同发布实现后继，并清除 authority 实现任务的派单缺口。
+- 证据：`collab board show`；运行目录 `b-a1-e2-current-control-runtime-caller-design-r1-20261109/{task-log.md,alice-review.md}`；运行目录 `b-a1-e2-current-control-authority-module-r1-20261109/`；`collab status --all` 的 pending_merges；Iris 回执 `m1794269577042-500` 与 `m1794269380727-489`。
+- 动作与结果：
+  - caller 设计 `da1bf92` 已由 Alice 在 subject2 正式 ACCEPT；master 以 `--no-ff` 合入 main 并推送为 merge `426baaa`，本地与 origin/main 回执一致。仅新增 `docs/b-a1-e2-current-control-runtime-caller-design.md`，无产品代码变化。
+  - 已按设计 §7 发布实现后继 `b-a1-e2-current-control-runtime-caller-bind-r2-20261109`（p1/code，prefer engineering，reviewer Alice，parent=provider-records，depends_on=authority-impl-r2）。
+  - authority 实现后继 `b-a1-e2-current-control-authority-impl-r2-20261109` 的等待派发缺口已用 `collab board dispatch` 清除：rev14 状态 invited、目标 Iris，范围为按 GCM 候选 `ae33b0e` 做 bounded 核对并交付 Alice，明确禁止重复实现；caller-bind 后继以其完成为依赖。
+  - runtime-binding-r2 已由 Iris 走 respond→deliver→review→close，Alice 窄审已挂 board；结论保持 NOT_READY（生产 observation/evaluation caller 不存在）。
+- 阻塞（需用户动作）：`collab task integrated` 因 daemon 子进程 `git ... rev-parse` 永久挂起而无法记录。daemon PID 63957 spawn 的多个 git 子进程（NNAnything `/Volumes/extension` 与 appsdk `~/Documents/github/appsdk`）长时间停在 S 态；我在自身 shell 运行同一 git 命令立即返回 0，故确认是 daemon 进程的 TCC 授权（Documents/Removable Volumes）与其 adhoc 签名身份不匹配。受影响四笔记录：caller-design(`426baaa`)、consumer-first-result-jack(`aac5333`)、provider-records(`900dcfb`)、bug-15c0be4(`fc54bb2`)。恢复动作=用户为 `/Users/fanzhang/.cargo/bin/collab`（`Signature=adhoc`，Identifier `collab-4018e89fd6c6e768`）重新授权 Files and Folders/Documents 或 FDA，随后由 Jenny 执行 `collab task integrated --commit <sha>`，再由各 owner 清理并 close。同根因已在 AppSDK bug `87bf3a7` 登记。
+- 边界：本轮只做只读核对、Git 集成、board 发布/派单与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/采样/接线/安装，未动 daemon/tmux，未 force-close，未绕过 TCC。
+- 下一步：等 Iris 接受 authority 邀请并交付 Alice 窄审；四笔集成记录待用户修复 daemon TCC 后补记。
