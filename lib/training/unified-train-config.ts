@@ -11,6 +11,7 @@ import {
   applyFullBatchSgd,
   cloneTensors,
   createXavierTensors,
+  forwardUnifiedScore,
   type MutableUnifiedTensors,
   type UnifiedTensors,
 } from "./unified-forward.js";
@@ -33,6 +34,8 @@ import {
   type UnifiedCeilingAmendment,
   type UnifiedTrainingCheckpoint,
   type UnifiedTrainingCheckpointAtomicSaveReceipt,
+  type UnifiedWarmStartEpochZeroReceipt,
+  type UnifiedWarmStartLineage,
 } from "./unified-training-checkpoint.js";
 import { UNIFIED_STUDENT_ROW_SCHEMA, type StudentCandidateRow } from "./unified-student-converter.js";
 import { UNIFIED_SUPERVISION_ROW_SCHEMA } from "./unified-supervision-converter.js";
@@ -124,8 +127,19 @@ export interface UnifiedTrainRunReceipt {
 export interface UnifiedTrainingRunOptions {
   /** Continue from this committed checkpoint boundary instead of Xavier init. */
   readonly resumeFrom?: UnifiedTrainingCheckpoint;
+  /** Initialize a fresh stage from an accepted source package's tensors. */
+  readonly warmStartFrom?: UnifiedWarmStartSource;
   /** Bounded invocation: run at most this many epochs in this call. */
   readonly epochsThisRun?: number;
+}
+
+export interface UnifiedWarmStartSource {
+  readonly tensors: UnifiedTensors;
+  readonly modelId: string;
+  readonly version: string;
+  readonly route: ModelRoute;
+  readonly encoderVersion: string;
+  readonly sourcePackagePath: string;
 }
 
 export interface UnifiedTrainExecutionTiming {
@@ -138,6 +152,14 @@ export class UnifiedTrainDataError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "UnifiedTrainDataError";
+  }
+}
+
+export class UnifiedWarmStartEpochZeroError extends Error {
+  readonly code = "WARMSTART_EPOCH0_MISMATCH" as const;
+  constructor(message: string) {
+    super(message);
+    this.name = "UnifiedWarmStartEpochZeroError";
   }
 }
 
@@ -267,6 +289,65 @@ function cloneMutable(tensors: UnifiedTensors): MutableUnifiedTensors {
   };
 }
 
+function tensorsExactlyEqual(left: UnifiedTensors, right: UnifiedTensors): boolean {
+  for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
+    const a = left[key];
+    const b = right[key];
+    if (a.length !== b.length) return false;
+    for (let index = 0; index < a.length; index += 1) {
+      if (a[index] !== b[index]) return false;
+    }
+  }
+  return true;
+}
+
+function maxAbsTensorDelta(left: UnifiedTensors, right: UnifiedTensors): number {
+  let max = 0;
+  for (const key of ["W1", "b1", "W2", "b2", "W3", "b3"] as const) {
+    const a = left[key];
+    const b = right[key];
+    if (a.length !== b.length) return Number.POSITIVE_INFINITY;
+    for (let index = 0; index < a.length; index += 1) {
+      const delta = Math.abs((a[index] ?? 0) - (b[index] ?? 0));
+      if (delta > max) max = delta;
+    }
+  }
+  return max;
+}
+
+export function checkWarmStartEpochZeroEquality(
+  sourceTensors: UnifiedTensors,
+  postTensors: UnifiedTensors,
+  inputs: readonly (readonly number[])[],
+): UnifiedWarmStartEpochZeroReceipt {
+  const tensorEquality = tensorsExactlyEqual(sourceTensors, postTensors);
+  if (!tensorEquality) {
+    throw new UnifiedWarmStartEpochZeroError(
+      "warm start epoch-zero tensor equality failed before any optimizer step: "
+      + `maxAbsDelta=${maxAbsTensorDelta(sourceTensors, postTensors)}`,
+    );
+  }
+  for (let index = 0; index < inputs.length; index += 1) {
+    const input = inputs[index];
+    if (input === undefined) continue;
+    const sourceScore = forwardUnifiedScore(input, sourceTensors);
+    const postScore = forwardUnifiedScore(input, postTensors);
+    if (sourceScore !== postScore) {
+      throw new UnifiedWarmStartEpochZeroError(
+        `warm start epoch-zero forward mismatch at encoded input ${index}: `
+        + `checkedInputs=${inputs.length} maxAbsDelta=${Math.abs(sourceScore - postScore)} `
+        + `source=${sourceScore} post=${postScore}`,
+      );
+    }
+  }
+  return {
+    exact: true,
+    tensorEquality: true,
+    checkedInputs: inputs.length,
+    maxAbsDelta: 0,
+  };
+}
+
 export function runUnifiedTraining(
   groups: readonly EncodedGroup[],
   config: UnifiedTrainConfig,
@@ -275,6 +356,7 @@ export function runUnifiedTraining(
   readonly report: UnifiedTrainReport;
   readonly tensors: UnifiedTensors;
   readonly timing: UnifiedTrainExecutionTiming;
+  readonly warmStartLineage?: UnifiedWarmStartLineage;
 } {
   validateUnifiedTrainConfig(config);
   if (groups.length === 0) throw new UnifiedTrainDataError("no trainable groups");
@@ -285,9 +367,14 @@ export function runUnifiedTraining(
   ) {
     throw new TypeError("epochsThisRun must be a positive integer");
   }
+  if (options.resumeFrom !== undefined && options.warmStartFrom !== undefined) {
+    throw new TypeError("warmStartFrom and resumeFrom are mutually exclusive");
+  }
   const tensors: MutableUnifiedTensors = options.resumeFrom !== undefined
     ? cloneTensors(options.resumeFrom.tensors)
-    : createXavierTensors(config.seed);
+    : options.warmStartFrom !== undefined
+      ? cloneTensors(options.warmStartFrom.tensors)
+      : createXavierTensors(config.seed);
   const amendment = config.ceilingAmendment;
   if (amendment !== undefined && options.resumeFrom === undefined) {
     throw new TypeError("ceilingAmendment requires an inherited checkpoint");
@@ -297,6 +384,7 @@ export function runUnifiedTraining(
     : amendment.amendedMaxEpochs;
   const epochs: UnifiedTrainEpochRecord[] = [];
   const violations: string[] = [];
+  let warmStartLineage: UnifiedWarmStartLineage | undefined;
   let startEpoch = 0;
   if (options.resumeFrom !== undefined) {
     assertResumeRecipeCompatible(options.resumeFrom, config);
@@ -316,6 +404,25 @@ export function runUnifiedTraining(
     endEpoch >= effectiveMaxEpochs
       ? "epoch_limit_exhausted"
       : "invocation_budget_exhausted";
+  if (options.warmStartFrom !== undefined) {
+    const checkInputs = groups.flatMap(group =>
+      group.candidates.map(candidate => candidate.input)
+    );
+    const epochZero = checkWarmStartEpochZeroEquality(
+      options.warmStartFrom.tensors,
+      tensors,
+      checkInputs,
+    );
+    warmStartLineage = {
+      kind: "package-warm-start",
+      sourceModelId: options.warmStartFrom.modelId,
+      sourceVersion: options.warmStartFrom.version,
+      sourcePackagePath: options.warmStartFrom.sourcePackagePath,
+      sourceRoute: options.warmStartFrom.route,
+      sourceEncoderVersion: options.warmStartFrom.encoderVersion,
+      epochZero,
+    };
+  }
   const optimizationStartedNs = process.hrtime.bigint();
 
   for (let epoch = startEpoch; epoch < endEpoch; epoch += 1) {
@@ -381,6 +488,7 @@ export function runUnifiedTraining(
     report,
     tensors: tensors as UnifiedTensors,
     timing: { optimizationSeconds, cutPointNs },
+    ...(warmStartLineage === undefined ? {} : { warmStartLineage }),
   };
 }
 
@@ -407,6 +515,7 @@ export async function saveUnifiedTrainingCheckpoint(
   report: UnifiedTrainReport,
   tensors: UnifiedTensors,
   timing?: UnifiedPersistedTiming,
+  warmStart?: UnifiedWarmStartLineage,
 ): Promise<UnifiedTrainingCheckpoint> {
   const checkpoint = createUnifiedTrainingCheckpoint({
     config,
@@ -415,6 +524,7 @@ export async function saveUnifiedTrainingCheckpoint(
     violations: report.violations,
     tensors,
     ...(timing !== undefined ? { timing } : {}),
+    ...(warmStart === undefined ? {} : { warmStart }),
   });
   await saveUnifiedTrainingCheckpointAtomic(checkpointPath, checkpoint);
   return checkpoint;
@@ -426,6 +536,7 @@ export async function saveUnifiedTrainingCheckpointWithTiming(
   report: UnifiedTrainReport,
   tensors: UnifiedTensors,
   timing: UnifiedPersistedTiming,
+  warmStart?: UnifiedWarmStartLineage,
 ): Promise<{
   readonly checkpoint: UnifiedTrainingCheckpoint;
   readonly io: UnifiedTrainingCheckpointAtomicSaveReceipt["io"];
@@ -437,6 +548,7 @@ export async function saveUnifiedTrainingCheckpointWithTiming(
     violations: report.violations,
     tensors,
     timing,
+    ...(warmStart === undefined ? {} : { warmStart }),
   });
   const saved = await saveUnifiedTrainingCheckpointAtomicWithTiming(checkpointPath, checkpoint);
   return { checkpoint, io: saved.io };

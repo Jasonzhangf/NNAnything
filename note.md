@@ -1,5 +1,60 @@
 # 当前任务
 
+## 2026-11-10 rex master（接替 Jenny）：tmux→rex 交接确认，两个已接受候选集成，后继已派（19:30Z）
+
+- 目的：接替 Jenny 成为 collab master，核对 tmux peer 的 board，完成 tmux→rex 交接，并把已 ACCEPT 的工程/准备候选推进到真实集成与后继执行；不训练、不评分、不改权重/gold/threshold/采用、不做产品接线或全局安装。
+- 身份与交接：`collab context` 显示 master 为 rex transport（display_name Jenny，session `01a1baae-5766-7724-92d9-59a846daaf02`）。board 8 个未关闭任务全部在 rex peers；tmux peers Emma/Henry/Carol/Iris/Grace/Kate/Leo/Olivia/Jack 无未关闭任务，tmux→rex handoff 完成。rex peers 均为本 rex session 内 live block。
+- 集成一（browser native-action）：Alice subject4 正式 ACCEPT candidate `a0923b1`。把候选与最新 origin/main 组合为 `195fc3e`，在 main 上 fast-forward；`npm run build` exit 0；受影响 `tests/b-a1-real-site-native-action.test.mjs` 与 `tests/b-a1-e2-runtime-caller-bind.test.mjs` 25/25 通过。Tina 已移除自有 worktree、删除分支并 close；任务 `b-a1-real-site-native-action-engineering-r1-20261110` closed，`completion_missing=[]`。
+- 集成二（source/proof）：Alice subject1 ACCEPT candidate `686ce92`（20 cases，`raw-checks` CHECKS_COMPLETE，0 diagnostics，全部 NOT_READY）。merge 到 main 得到 `3e7510c`；`collab task integrated` 记录 status=merged；peer-15 按授权收口 worktree/分支并 close。
+- 推送：`origin/main` 由 `10ca0b3` 前进到 `3e7510c`，本地与远端一致。合并后重建 `dist` 再跑受影响测试，避免使用 stale build。
+- 后继派发：按 Alice 已 ACCEPT 的 `helper-source-proof-contract.md` 发布并 invite `tsjs-unknown-supervision-helper-source-production-r1-20261110` 给 peer-15（executor）与 Alice（reviewer），严格限定 `helper(selector)(...)` + `const` object-literal callable table，新 TRAIN/DEV roots，不碰 verification/PROTECTED_HOLD，不产样本标签、不 conversion/admission/fit。
+- 依赖解锁：native-action 已接受+集成+关闭，且 Mia 的 diagnostic static-source 任务已关闭，满足 `b-a1-real-site-no-score-continuation-observation-r1-20261110` 依赖；已 dispatch 给 Mia（invited）。
+- binding 恢复：Noah 的 fixture task 通过 `collab board claim` 公共路径重绑成功后已 deliver（status=delivered）；Quinn 的 observation-facts 同路径处理中。未改 identity、未手动 rebind、未改 daemon。
+- 边界：未访问 sealed verification、未 fit/scoring/候选重跑、未改 gold/weight/threshold/adoption/product wiring/install；未操作 daemon/tmux 生命周期，未 broad kill。
+
+## 2026-11-10 Jenny：B-A1 后继收口，旧任务清理，两个实际后继已派（15:07Z）
+
+- 目的：消费 Alice B-A1 formal subject4 ACCEPT 与流程审计回执，关闭两个设计后继与旧 stale 生命周期，把可执行工作从"设计关闭"推进到实际执行；不重训、不自动重跑、不改实现/权重/gold/threshold/采用。
+- 收口事实：Alice 正式 ACCEPT subject4，delivery kind 修正为 `read_only`，真实 receipt `no_merge_required`，无 dummy merge（`m1794322545352-624`、`m1794322732624-647`）。`b-a1-real-site-eval-design-formal-delivery-r1-20261110` 已按 owner lifecycle 关闭，`completion_missing=[]`，cleanup verified，原 rev2 `plan.md` 与 Alice review 不变；real-site evaluation 仍为 UNVERIFIED。`tsjs-fixed-candidate-consumer-evaluation-design-r1-20261110` 也已按 Alice ACCEPT 正常关闭，`completion_missing=[]`，cleanup verified（`m1794322797193-661`）；§2.1 continuation result/review 指向 `tsjs-fixed-candidate-resume-execution-r1-20261110/{result,alice-review}.md`，停止条件保留禁二次调用与任务内修复、独立样本继续。
+- 旧任务清理：`b-a1-real-site-eval-design-r1-20261109` 已作为 verified superseded lifecycle cleanup 正式 force-close：后继 subject4 ACCEPT、no-merge、stale `reason=test` block 不可写、real-site evaluation 保持 UNVERIFIED，实际 E2 readiness 另派独立后继。不伪造 delivery，不重试已失败的 typed reject 路由。
+- 实际派发一：`tsjs-fixed-candidate-consumer-evaluation-execution-r1-20261110` 已发布并派发，Henry 已接受，status=working。范围严格按 Alice-accepted handoff §4：fresh worktree/run dir、单次固定 evaluate entry、原四行 exposed family 不变、candidate 为 accepted resumed package、四类分母分开、raw receipts 全保留；仅 fatal setup/package/admission error 停整次运行，sample-local 错误保留并继续。
+- 实际派发二：`b-a1-real-site-e2-readiness-r1-20261110` 已发布并派发，Carol 已接受，status=working。范围仅四项 readiness gap：actual source admission、observed current control/scope、independent gold custody、first-result storage；复用已接受 adapter/preparation，E3/E4/B-R 分开不并入 E2；缺项只停受影响场景。real-site evaluation 保持 UNVERIFIED。
+- 边界：本轮未改产品代码、权重、gold、threshold、采用、接线；未训练、未二次调用、未安装、未重启 daemon/tmux、未 broad kill。`playground/browser/search/b-a1/cua-fixture.html` 保持未跟踪 PROTECTED_HOLD。
+
+## 2026-11-10 Jenny：Alice 语义 ACCEPT 落位，两后继已派（14:41Z）
+
+- 目的：消费 Alice 正式语义 ACCEPT 与 Grace Round-89 巡检，把“工程/checker 已过”更新为“TRAIN 语义已过”，并落实两个后继派单；不重训、不自动重跑、不改实现/权重/gold/threshold/采用。
+- Alice 回执 `m1794320751541-418` 已消费。结论：唯一一次 actual TS/JS continuation 正式 ACCEPT，仅 TRAIN 正例修正；证据 `/Volumes/Intel/playground/nnanything-runs/tsjs-fixed-candidate-resume-execution-r1-20261110/alice-review.md`。续训起点 loss `0.3993456` -> 保存后 `0.0128488`，raw `epoch_limit_exhausted` 与 `monotonicViolations=3` 保留，不宣称逐步单调。该 ACCEPT 不证明 unknown/泛化/产品采用，候选仍 `uncalibrated/not_applied`。
+- owner 更正：`tsjs-fixed-candidate-resume-execution-r1-20261110` 是运行目录，不是 board task；已向 Alice 回 `m1794321191338-455`，说明真实 owner 记录是 `nnanything-overall-redesign-orchestration-r1`，下轮 review subject 使用正式后继任务。
+- P0：Iris 已把 `nnanything-overall-redesign-orchestration-r1` 更新到 rev179，记录上述 ACCEPT 与后继；本记录不重复其正文。
+- TSJS consumer evaluation：已发布并派发 `tsjs-fixed-candidate-consumer-evaluation-design-r1-20261110`，rev4 working，owner/executor Henry，reviewer Alice，parent P0。范围仅固定新候选 consumer evaluation handoff；已暴露样本只作已知诊断，新来源隔离，真/假/未知与证据完成度分别评价；不实现、不训练、不自动重跑。
+- B-A1 real-site：旧 `b-a1-real-site-eval-design-r1-20261109` 仍因 stale `reason=test` TASK_BLOCK_PENDING_APPROVAL 不可写，已不重复失败 CLI。为确定性解除，发布并派发 `b-a1-real-site-eval-design-formal-delivery-r1-20261110`，rev2 working，owner/executor Carol，reviewer Alice，只读复用原 rev2 `plan.md` 与 Alice ACCEPT-for-preparation 结论，不重做设计或审计。旧记录待该后继 review 完成后 supersede/close。
+- 边界：未改产品代码、权重、gold、threshold、采用、接线；未训练、安装、重启 daemon/tmux；未 broad kill。
+
+## 2026-11-10 Jenny：TSJS 实际续训已完成，Alice 审查待办（14:24Z）
+
+- 目的：消费 dispatch-gap 与 worker-unresponsive 通知，核实上一轮一次性 GCM 是否完成，并把结果从“待派”改为“已执行、待审查”；不回放或重复执行续训。
+- 身份：`collab context` 仍为 Jenny/master，pane `%24`，daemon live。本轮未重新注册，未回收 name；Jack/Leo 本次 `worker status` 为 lost/missing，不按业务容量派单，也不执行 pane/daemon/tmux 生命周期操作。
+- 续训事实：一次性 GCM `tsjs-fixed-candidate-resume-execution-r1-20261110` 已完成，exit 0。三步固定命令均 exit 0；runner 使用 `4ca9357` 修复后的 worktree 与 rebuilt dist，resume-config 带 `ceilingAmendment {previousMaxEpochs:200, amendedMaxEpochs:2000}`。raw `status=completed`、`stopReason=epoch_limit_exhausted`、`resumedFromEpoch=200`、`completedEpochs=2000`、`epochsThisRun=1800`；checker `derived.status=accepted_for_next_stage`，15 组 12 retained/3 fixed、全部 `marginOk=true`，checkpoint/package reload `tensorsMatch=true`；候选保持 `uncalibrated/not_applied`。证据：`/Volumes/Intel/playground/nnanything-runs/tsjs-fixed-candidate-resume-execution-r1-20261110/result.md`，raw report/acceptance 在 `tsjs-fixed-candidate-resume-checker-prep-r1-20261110/execution/`。无 retry、无扩上限、无 adoption/install/merge/push。
+- 动作：已向 Alice 发送 `m1794320657710-408`（reply-required），要求对真实语义结果正式 ACCEPT/REWORK，不以 checker exit 或工程 ACCEPT 当训练成功；已向 Iris 发送 `m1794320657855-409`（reply-required），要求把 P0 `nnanything-overall-redesign-orchestration-r1` rev177 更新为“实际续训已执行一次，Alice 语义审查待办，无 retry/扩上限”。
+- real-site 与 name：`b-a1-real-site-eval-design-r1-20261109` 仍被 stale `reason=test` block 卡住，本轮不重复失败 CLI、不 force-close；Jack/Leo offline 只登记，不伪造回收。未改产品代码、权重、gold/threshold、采用，未训练、安装、重启 daemon/tmux。
+
+## 2026-11-10 Jenny：Round-78 TS 后继落板与 Jack 排除（07:49Z）
+
+- 目的：消费 `m1794296946632-1199`，把 Alice Round-77 审计指出的真实 TS 后继落板并派给 Carol，同时保持 Jack 排除和 real-site 只等 typed decision。
+- 动作：发布并分配 `tsjs-fixed-candidate-evaluation-handoff-r1-20261109`，revision 2，owner/executor Carol，reviewer Alice，P1，parent `nnanything-overall-redesign-orchestration-r1`。任务复用既有 `derived-observation/` 产物，不重复生成；只产出固定候选评价交接文件，固定候选/loss/gold/threshold 不变，不执行 fit/evaluation/merge/push/install。Carol durable 接收回执 `m1794297143575-1208`，`collab worker snapshot` 显示她已消费通知并开始处理该任务。
+- Jack：`collab worker read` 仍显示 live shared tmux pane `%19` / session `$19`、`active_task=null`；本轮 close attempt 返回 `TRANSPORT_UNSUPPORTED: close cannot archive a live tmux pane`，operation `ctxop-fd4353e7d72c4638b0df4aeb573c5738`，query 返回 `PEER_LIFECYCLE_CLEANUP_OPEN`。因此继续从可派容量排除，不 kill pane/daemon/tmux、不手改 identity-map；下一 owner 仍为 appsdk.Jenny typed retire/rebind/cancel 或 typed refusal。
+- real-site：`b-a1-real-site-eval-design-r1-20261109` 保持 revision 26 working，只等 CEO/AppSDK typed decision；未重试失败 CLI、未改设计、未 force-close。P0 rev168 已是单一当前事实，不重写。
+- 回执：已向 Grace 回复 `m1794297174759-1211`，包含 task/revision/message/operation IDs。未改产品代码、语料、权重、gold/threshold/采用；未安装、重启或 kill。
+
+## 2026-11-10 Jenny：idle peer 与 name 回收核实（07:46Z）
+
+- 目的：回应用户对 peer idle 与名字回收的质问，按当前身份、真实 board、live worker 状态和 dispatch-sweep 逐项核实，不用 board 标签或旧名字冒充容量。
+- 身份：本轮 `collab context` 确认 Jenny/master、pane `%24`、daemon live；未重新注册。`collab who` 中 Henry/Carol/Iris/Alice 等 present/idle，但 Grace/Kate 是巡检保护角色，Bob cold、Emma identity-mismatch、Henry/David/Frank unknown，均不计入业务派发容量。
+- 调度事实：真实 `dispatch-sweep` 返回 `idle_peers=[Alice,Carol,Iris,Jack]`、`idle_with_work=[Iris/P0]`、`unassigned_ready=[]`、`awaiting_acceptance=[]`、`queued_for_peer=[]`。当前 open board 仅三项：Jenny 的 real-site design（等待 typed CEO/AppSDK 清除旧 `reason=test` block）、Grace 巡检、Iris P0。没有已授权且未派的 ready 工作，不造占位任务。
+- Jack name 回收尝试：`collab worker read` 确认其身份有效、pane `%19` live、`active_task=null`、无 open board 责任；按公开 master 入口执行 `collab worker close collab-ac320bdeedec883cf3b39397196b2e66`。入口返回原错 `TRANSPORT_UNSUPPORTED: close cannot archive a live tmux pane`，operation `ctxop-fd4353e7d72c4638b0df4aeb573c5738`，name 仍为 cleanup-open。按规则不 kill pane、不重启 tmux/daemon、不手改 identity-map。
+- 结论：idle 的直接原因是当前主线被两个 typed/owner 依赖卡住：real-site design 等 AppSDK/CEO typed reject 后 Jenny 交付并交 Alice review；P0 等 Iris 依据该前置继续推进。Jack name 的确定性收口入口缺失，已保留原错和 operation id，继续由 lifecycle owner 修复；不把已注册 live pane 伪造成已回收。
+
 ## 2026-11-10 Jenny：TSJS root-evidence 集成关闭，P0 前置条件更新（06:07Z）
 
 - 目的：消费 `m1794290786779-879` 并继续核对未能派发的 peer 容量，避免把已完成集成误记成待办。
@@ -4317,3 +4372,175 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 阻塞（不变，需用户动作）：`collab task integrated` 仍因 daemon TCC 授权不匹配而挂起。待补集成记录共五笔：caller-design(`426baaa`)、authority-module(`6162663`)、consumer-first-result-jack(`aac5333`)、provider-records(`900dcfb`)、bug-15c0be4(`fc54bb2`)。
 - 边界：本轮只做 Git 集成、主线本地验证、只读核对与 note 记录；未改产品语义/权重/gold/threshold/采用，未训练，未动 daemon/tmux，未 force-close。
 - 下一步：用户为 `/Users/fanzhang/.cargo/bin/collab` 重新授权 Documents/Removable Volumes 或 FDA 后，Jenny 逐笔执行 `collab task integrated`，随后各 owner 清理并 close；authority 交付后 caller-bind r2 解除 depends_on。
+
+## 2026-11-10 Jenny：Round-76 身份槽 lifecycle 收口（06:43Z）
+
+- 目的：消费 Grace Round-76 `m1794292090982-971`，按 no-kill/no-daemon-restart/no-manual-identity-map-edit 边界处理 `%19` 与 `%72` 的 stale identity rows，并把 owner typed 回执收回 board/canonical bug 追踪范围。
+- 事实与处置：
+  - `%19`：物理 pane `%19` / session `$19` 实际运行 `appsdk_2_Iris`；NNAnything.Jack `worker_id=collab-ac320bdeedec883cf3b39397196b2e66` 的 identity-map row 仍 active，NNAnything-scope close 返回 `TRANSPORT_UNSUPPORTED: close cannot archive a live tmux pane`，已有 ops `ctxop-539f2560c02f871a477f1a9c33a77e1d`、`ctxop-fa1054b947a3ab8ba271adeea9a9ec3b`、`ctxop-b21da5b1a52a4fa5948c14eba1eead0d`。已向 `appsdk.Jenny` 发送 typed retire/rebind 请求 `m1794292890697-1012`，要求由 identity-map/daemon lifecycle owner 退休或重绑，或返回 typed retention/conflict 回执。
+  - canonical bug `e001c48` 已追加 `%19` stale-slot 证据与上述 op IDs，并把仍未收到的 appsdk、humanagent 回执列入追踪。
+  - `%72`：`zcamapp.Jack` 已由 zcamapp owner 完成 typed retire，op `ctxop-1b4ef98bb6baeb578bb3318b7860fe82`，worker/binding/route/subscription retirement verified，post-read closed，`runtime_archive=missing`，未 kill/daemon/tmux/手工编辑；`zterm.Noah` 已由 zterm owner 完成 typed retire，op `ctxop-78b3caed108e31cf3a512847c5b9d613`，worker/binding/route/subscription retirement verified，`runtime_archive=missing`，同样未动 pane/daemon/identity-map。
+  - `humanagent.Jenny` 短地址当前解析到两个 humanagent holders，send 返回 `ADDRESS_AMBIGUOUS`；已把 exact request 改发 `humanagent.Grace` `m1794293006964-1021`。Grace 回执 `m1794293250674-1037` 确认当前 humanagent lifecycle owner 为 `worker_id=collab-583be19de85e92f3c35cf0f69b302f89`、`session_id=01a1adff-1292-7663-a270-ca453af97bb7`，并已把 Noah/Bob 请求转发为 `m1794293100079-1029`；该跨项目消息不在 NNAnything mailbox 保留，故按 Grace 的 routing receipt 记录为已转发而非本地正文回读。humanagent.Noah/Bob 的 typed 退休结果仍未收到。
+  - 已向 Iris 发送 reply-required `m1794292973292-1018`，要求把四个 owner receipts 收回 P0 父任务 board next_step；Jenny 作为非 owner 直接 `board update` 被拒，保持 owner 边界而不绕过。
+- 边界：本轮只消费通知、发送跨项目 lifecycle 请求、追加 bug/note 证据；未改产品代码/语料/权重/gold/threshold/采用，未训练/采样/接线/安装，未 kill pane、未重启 daemon/tmux、未手工编辑 identity-map。
+- 下一步：等 `appsdk.Jenny` 对 NNAnything.Jack `%19` 的 typed disposition，以及 humanagent exact owner 对 Noah/Bob 的 typed disposition；收到后由 Iris 更新 P0 父任务 next_step，Jenny 只维护 bug/note 证据与跨项目追踪。
+
+## 2026-11-10 Iris：身份恢复、P0 next_step 同步与 Jenny 回执（06:56Z）
+
+- 目的：恢复 NNAnything.Iris 的当前绑定与 P0 task（`nnanything-overall-redesign-orchestration-r1`），按 Grace Round-77 的 owner 要求把漂移的 `next_step` 收敛为单一当前事实，并向 Jenny 回报。
+- 证据：`collab context` 确认当前 binding 为 NNAnything pane `%12` / session `$12`，display_name=Iris，work_role=engineering；`collab board show` 确认 P0 owner=Iris、status=working；`collab recv` 读取 `m1794293778582-1064` 与 reply-pending `m1794293779477-1065`；本机 main 与 origin/main 均为 `f9ee2e9`。
+- 处置：用 `collab task update` 将 P0 从 rev167 更新为 rev168，`next_step` 只保留当前 b-a1-real-site-eval-design-r1-20261109 rev26 working / reason=test typed block 未解除 / CEO 业务决定 reject / CEO-AppSDK typed decision route 未完成这一事实，并保留 humanagent Noah/Bob 已路由到 exact lifecycle owner、等待 typed outcome 的现状。通过 `collab send` 向 `NNAnything.Jenny` 回复 `m1794293860047-1074`；原 reply obligation `m1794293778582-1064` 已 answered。
+- 边界：本轮只做身份/任务恢复、board 更新、消息回执和 note 记录；未改产品代码、语料、权重、gold、threshold、采用状态，未训练、安装、合并、推送，未动 daemon 或 tmux。
+- 下一步：等待 `reason=test` 的 typed decision；block 解除后由 Jenny 正式 deliver、Alice 附加既有 review，再恢复真实站点 adapter 下游派单。appsdk `%19` 与 humanagent Noah/Bob 仍等待 typed owner outcome。
+
+## 2026-11-10 Jenny：Round-77 四项处置结果（06:59Z）
+
+- 目的：消费 Grace Round-77 `m1794293540484-1055`，按 no-kill/no-daemon-restart/no-manual-identity-map-edit 边界处理 Jack `%19` 失配、P0 next_step 漂移、real-site block 与 idle peer 容量，并把结果收回 canonical bug `e001c48` 与本 note。
+- 事实与处置：
+  - 已消费 `m1794293540484-1055`（Round-77）与 `m1794293647212-1059`（P0 rev167 路由证据）。
+  - Iris 按 `m1794293778582-1064` 将 P0 `nnanything-overall-redesign-orchestration-r1` 更新到 rev168，`next_step` 只保留单一当前事实：b-a1-real-site-eval-design-r1-20261109 rev26 working，reason=test pending block 未 typed 清除，CEO 业务决定 reject，CEO/AppSDK typed decision route 未完成；合法下一动作是等待/获取该 typed decision，不重复失败 CLI、不改设计、不 force-close；humanagent Noah/Bob 路由保持 `m1794293100079-1029`，等待 typed owner 结果。
+  - 已向 `NNAnything.Alice` 发送 `m1794293762400-1063`（Round-77 只读解阻审计，P1），Alice 已交付报告 `/Volumes/Intel/playground/nnanything-runs/round77-blocker-capacity-readonly-audit-20261109/audit.md` 并消费 `m1794293958369-1080`。结论：TS root repair 已正式 closed，integration `3dba575`，清理验证，不等待浏览器 block；Carol/Leo present/idle，有合法 TS 后继；Jack `%19` 仍与 appsdk.Iris 共享同一 session/namespace `$19`，worker query `ctxop-c754717931f1d142e1554a6faa420642` 返回 `PEER_LIFECYCLE_CLEANUP_OPEN`、`runtime_archive=refused`，binding/route/worker retirement `not-attempted`，无已建立的 cancel 或跨项目仅退役命令，Jack 不计入容量；下一 owner 为 `appsdk.Jenny`。
+  - 已向 `appsdk.Jenny` 发送 `m1794293803601-1069`，要求对 NNAnything.Jack `%19` stale row 和 real-site typed block 决定给出 typed retire/rebind/cancel receipt 或精确 typed refusal 与下一 owner；跨项目消息不在 NNAnything mailbox 保留，按发送回执记录。
+  - board publish Round-77 只读审计任务因 Jack `target_closing` 围栏被拒，已保留原错并不重复相同命令；TS 后继准备尚未落板，待生命周期修复或用户裁定后按主目标优先级派 Carol。
+- 边界：未改产品代码、训练、权重、gold、threshold、采用、daemon/tmux/pane；未手工编辑 identity-map；未 force-close；未重复失败的 publish/CEO 变更命令。
+- 下一步：等待 `appsdk.Jenny` 对 Jack `%19` 与 real-site typed block 的 typed outcome；收到后由 Iris 更新 P0 board 如需；Jenny 维护 bug/note 证据与跨项目追踪。若 board publish 恢复，直接派 Carol 做 TS 源标注派生与固定候选评价交接，实测评价取决于已入围输入/config 与已保存候选，不依赖浏览器行政 block。
+
+## 2026-11-10 Jenny：humanagent stale identity 路由回执（07:41Z）
+
+- 目的：消费 `m1794294961710-1122` 与 `m1794295556685-1138` 两条 humanagent routing receipt，确认 Round-76 stale identity 请求是否已有 typed 终态。
+- 事实：
+  - 当前 humanagent lifecycle owner 是 `humanagent.Jenny`，但短地址会返回 `ADDRESS_AMBIGUOUS`；唯一可用事实是 `worker_id=collab-583be19de85e92f3c35cf0f69b302f89`、`binding_id=binding-collab-583be19de85e92f3c35cf0f69b302f89`、`session_id=01a1adff-1292-7663-a270-ca453af97bb7`、tmux `$15`、`endpoint_live=true`。
+  - Grace 已把请求转发给该 exact binding：`m1794294822110-1112`（state=pending, reply_required=true）和 `m1794295479360-1136`。这两条是路由 receipt，不是 retire/rebind 结果。
+  - 受影响 stale rows：`humanagent.Noah` worker `collab-efe03c96682ada01092463d023533e76` 与 stale tmux `humanagent.Bob` worker `collab-1316e8a8743752c4b9278d97465ac946`，共用 session `01a1b9e2-f7e9-71a3-80c1-f3e176fdec5a` / tmux `$71`。活动中的 `humanagent.Bob` 是另一条 DSH row：`dsh-thread-73657373696f6e2d35663737623437652d336236342d346537662d393738382d323938623764393030336233` / `session-5f77b47e-3b64-4e7f-9788-298b7d9003b3`。
+- 处置：把精确 owner、pending receipt 和受影响 rows 写入 canonical bug `e001c48` 与本 note；不重复发送 humanagent 请求，不重试 worker lifecycle 命令，不把 routing receipt 当成 typed outcome。
+- 边界：未 kill/restart/identity-map 手改；未改产品/训练/权重/gold/threshold/采用；未 force-close。
+- 下一步：只等待 humanagent lifecycle owner 对两条 stale rows 的 typed retire/rebind/retention refusal；收到后由 Iris 更新 P0 board 如需，Jenny 维护 bug/note 证据。
+
+## 2026-11-10 Iris：P0 rev169 当前事实同步与回执（09:02Z）
+
+- 目的：消费 Jenny `m1794301352812-1476`，把 P0 `nnanything-overall-redesign-orchestration-r1` 的 `next_step` 从 rev168 的旧事实改写为 09:02Z 的单一当前事实。
+- 事实与处置：`collab board update` 把 P0 从 rev168 更新到 rev169，owner=Iris，status=working；`next_step` 记录 tsjs-fixed-candidate-evaluation-r1-20261109 有效失败收口、Alice 派发只读窄范围后继 tsjs-fixed-candidate-failure-analysis-r1-20261110、b-a1-real-site-eval-design-r1-20261109 rev27 仍被 reason=test 残留 block、CEO 确认 reject 但 typed route 未验证、Jack close 返回 TRANSPORT_UNSUPPORTED、Emma PEER_LIFECYCLE_TARGET_UNPROVEN。已向 Jenny 回传 `m1794301492551-1486`。
+- 边界：未改产品代码、语料、权重、gold、threshold、采用状态；未训练、安装、合并、推送；未动 daemon 或 tmux；未 force-close。
+- 下一步：等待 tsjs 后继 review 与 AppSDK master 对 reason=test block 的 exact owner/progress/resume condition；收到 typed outcome 后由 Iris 更新 P0 board 如需。
+
+## 2026-11-10 Iris：P0 rev170 训练修正设计事实同步与回执（10:20Z）
+
+- 目的：消费 Jenny `m1794305997946-1850`，把 TSJS 链路新事实同步进 P0 `nnanything-overall-redesign-orchestration-r1` 的单一当前 `next_step`。
+- 事实与处置：`collab board show` 确认 tsjs-fixed-candidate-diagnostic-entry-r1-20261110 已 closed（Alice subject_revision=2 ACCEPT，read-only，cleanup verified，diagnostic worktree/dist 保留为后继依赖）；后继 tsjs-fixed-candidate-training-correction-design-r1-20261110 已派发，rev3 working，executor Henry，reviewer Alice，design-only 执行中。`collab board update` 把 P0 从 rev169 更新到 rev170，owner=Iris，status=working，`next_step` 记录新 TSJS 链路、原 64 维/两层/固定引擎/统一格式与原候选/gold/分区约束、以及 b-a1 reason=test 残留 block、Jack TRANSPORT_UNSUPPORTED、Emma PEER_LIFECYCLE_TARGET_UNPROVEN 三条未变外部项。已向 Jenny 回传 `m1794306242933-1867`。
+- 边界：未改产品代码、语料、权重、gold、threshold、采用状态；未 fit、未训练、未安装、未合并、未推送；未动 daemon 或 tmux。
+- 下一步：等待 Henry 交付训练修正设计并交 Alice 审计；等待 AppSDK master 对 reason=test block 的 typed decision；收到 outcome 后由 Iris 更新 P0 board 如需。
+
+## 2026-11-10 Iris：P0 rev171 修正设计已关闭、后继 prep 已派（11:03Z）
+
+- 目的：消费 Jenny `m1794308746591-2047`，把 TSJS 链路新事实同步进 P0 `nnanything-overall-redesign-orchestration-r1` 的单一当前 `next_step`。
+- 事实与处置：`collab board show` 确认 tsjs-fixed-candidate-training-correction-design-r1-20261110 已 closed（Alice ACCEPT subject revision 2；status=closed，completion_missing=[], disposition=no_merge_required，delivery_complete=true）；后继 tsjs-fixed-candidate-resume-checker-prep-r1-20261110 已派发，rev3 working，executor Henry，reviewer Alice，goal subscription armed。`collab board update` 把 P0 从 rev170 更新到 rev171，owner=Iris，status=working，`next_step` 记录新 TSJS 链路与下一步：等 Henry 交付 prep、Alice 审具体入口后再派 bounded execution。还记录 b-a1 rev27 仍被 stale reason=test block 阻塞、CEO typed 路由未返回、Jack TRANSPORT_UNSUPPORTED、Emma PEER_LIFECYCLE_TARGET_UNPROVEN，以及不要重复同一 CLI 尝试、不要 force-close。已向 Jenny 回传 `m1794308929028-2072`。
+- 边界：未改产品代码、语料、权重、gold、threshold、采用状态；未 fit、未训练、未安装、未合并、未推送；未动 daemon 或 tmux；不预提 bounded execution。
+- 下一步：等待 Henry prep delivery、Alice 审具体入口；收到 AppSDK typed block 决策后更新 P0 board。
+
+## 2026-11-10 Iris：P0 rev172 登记 P1 bug 63ba673 与单次 rerun 依赖顺序（12:00Z）
+
+- 目的：消费 Jenny `m1794311990086-2256`，把 TSJS bounded resume 两次真实入口失败、P1 bug 63ba673 和 Henry→Alice→Iris 依赖顺序写进 P0 `nnanything-overall-redesign-orchestration-r1` 的单一当前 `next_step`。
+- 事实与处置：attempt 1 为 GCM wrapper 参数为空、无副作用；attempt 2 在 runner ESM 模块解析阶段失败，报 `Cannot find module dist/adapters/l2/contracts.js`，训练与 checker 均未运行。Grace Round-86 已登记 P1 bug 63ba673，证据文件 `gcm-execution-attempt2.log` 与 `execution/out/full-run-transcript.txt` 已核对存在。`collab board update` 把 P0 从 rev171 更新到 rev172，owner=Iris，status=working；`next_step` 明确依赖顺序为 Henry 完成确定性模块闭包并从 f9ee2e9 干净重建/给出真实入口证据 → Alice 复审修正后的真实入口 → Iris 只执行一次 bounded rerun，并保留 b-a1 reason=test 残留 block、Jack TRANSPORT_UNSUPPORTED、Emma PEER_LIFECYCLE_TARGET_UNPROVEN。已向 Jenny 回传 `m1794312128605-2268`。
+- 边界：未重复同一失败命令；未改 recipe/gold/threshold/adoption、产品/训练/权重/daemon/tmux；未预提 bounded execution。
+- 下一步：等 Henry 给出确定性模块闭包与干净重建的真实入口证据，Alice 复审后由 Iris 单次 rerun；同时等 AppSDK typed block decision。
+
+## 2026-11-10 Iris：P0 rev173 attempt 3 CHECKPOINT_INVALID 与新依赖顺序（12:28Z）
+
+- 目的：消费 Jenny `m1794313670037-2381`，把 TSJS 单次 bounded rerun 的 attempt 3 结果、maxEpochs 不匹配根因证据、以及 Henry→Alice→Iris 依赖顺序写入 P0 `nnanything-overall-redesign-orchestration-r1`。
+- 事实与处置：Henry 完成模块闭包修复、Alice module-closure PASS 后，单次 bounded rerun 已派发。attempt 3 结果：prep-checkpoint exit 0（already_present_identical）；standard runner resume exit 1，CHECKPOINT_INVALID `resume maxEpochs mismatch: checkpoint=200 config=2000`；checker 未运行。已核对 `execution/out/run-report.json` 为 status=failed、stopReason=null、candidateState uncalibrated/not_applied；`execution/attempt3-runner.stdout-stderr.log` 实际在 execution/ 下（消息中路径前缀有误）；run-report.md 存在。根因证据：原 checkpoint recipe.maxEpochs=200（completedEpochs=200），resume-config training.maxEpochs=2000（epochsThisRun=1800）；设计 §7 认为 resume 不比较 maxEpochs，但实际 loader 抛 UnifiedTrainingCheckpointError。这是与已关闭 bug 63ba673 不同的新真实入口阻塞。`collab board update` 把 P0 从 rev172 更新到 rev173，owner=Iris，status=working；`next_step` 记录新依赖顺序：Henry narrow resolution → Alice design adjudication/re-audit → corrected entry → Iris 只执行一次 bounded rerun；prep 任务 rev12 保持 open。已向 Jenny 回传 `m1794313837307-2393`（含实际 evidence 路径修正）。
+- 边界：未盲试、未重复失败命令；未改 recipe/gold/threshold/adoption、产品/训练/权重/daemon/tmux。
+- 下一步：等 Henry narrow resolution 和 Alice design adjudication/re-audit 完成后，由 Iris 只执行一次 corrected-entry bounded rerun；b-a1 rev27 仍等 AppSDK typed block decision。
+
+## 2026-11-10 Jenny：身份确认、诊断入口派单与不可用名字回收检查（09:53Z）
+
+- 目的：核验当前 master 身份与 peer 容量，消费 Alice 对 `tsjs-fixed-candidate-diagnostic-entry-r1-20261110` 的正式 REWORK，并把已分配但 idle 的 Henry 拉回执行；同时检查不可用稳定名字的正式回收路径。
+- 身份：`collab context` 回读当前绑定为 `NNAnything` 的 Jenny，role=master，worker_id=`collab-c2be330cef6f8359aa66fa607e8b02e6`，binding=`binding-collab-c2be330cef6f8359aa66fa607e8b02e6`，tmux pane `%24`/session `$24`，daemon PID 5094 online。`collab master status` 回读同一 grant 和 project scope，未采用历史名字或 pane 推断身份。
+- 通知与任务：`m1794303939335-1695` 正文确认 diagnostic entry 的脚本默认路径会实际新跑 consumer+file executor 全轨迹，不能直接交普通 GCM；Alice 已正式 REWORK，最小修改为独立对 stored TRAIN candidateInputs 固定评分、真实终态恢复不足单报且不阻塞 TRAIN 诊断、修资源来源与 stored/recomputed 归因、保留原始 slot 索引并移除违规 HEAD gate。`dispatch-sweep.sh` 当时唯一 `idle_with_work` 是 Henry 的该 rework；其余没有 unassigned/awaiting/queued 的 ready 授权任务。
+- 派单回执：已向 Henry 发送 durable 指令 `m1794304429555-1730`，内容和 Alice review 一致，明确仍由 Henry 修入口、有限自检、Alice 窄复核，不把脚本交 GCM，不重跑 evaluate，不训练或改采用状态。随后 `collab worker status` 回读 Henry 从 `idle` 进入 `working`，active_task 仍为 `tsjs-fixed-candidate-diagnostic-entry-r1-20261110`，identity_valid=true。
+- 名字回收：Emma 当前 `identity-mismatch`、`identity_valid=false`、presence=missing、无 open task；已按正式入口执行 `collab worker close <Emma-worker-id> --reason ...`，返回 `PEER_LIFECYCLE_TARGET_UNPROVEN`，因此名字未回收，也未手工编辑 identity-map、kill pane 或伪造 retirement。可用的 Alice、Carol、Kate、Jack 保持注册；不因“占满容量”给他们制造无合同任务。
+- 容量结论：Henry 已实际执行；Alice 仍可在 Henry 重交后做窄复核；Carol/Kate/Jack 当前没有匹配的 ready 授权 board 工作；Grace/Kate 的巡检职责不能当普通实现派单。当前独立浏览器线仍被 `b-a1-real-site-eval-design-r1-20261109` 的 `reason=test` typed lifecycle 缺口限制，必须继续解阻，不绕过。
+- 边界：本轮只做 Collab 身份/board/worker 只读核验、消息消费与派单、正式名字回收尝试和 note 更新；未改产品代码、语料、权重、gold、threshold、采用状态；未训练、安装、合并或推送；未动 daemon 或 tmux。
+- 下一步：等 Henry 按 Alice 四条 finding 重交；重交后立即交 Alice 窄复核；同时继续等待 AppSDK lifecycle owner 对 `reason=test` block 的 typed outcome。若 Emma 的 lifecycle owner 提供可用 runtime archive，再由当前 master 按正式 operation 重试回收。
+
+## 2026-11-10 Iris：P0 rev174 Alice 显式续训上限裁定与完整依赖顺序（12:32Z）
+
+- 目的：消费 Jenny `m1794313915621-2404`，把 Alice 对 attempt 3 CHECKPOINT_INVALID 的正式裁定和后续完整依赖顺序写入 P0 `nnanything-overall-redesign-orchestration-r1`。
+- 事实与处置：Alice 于 12:28Z 裁定（m1794313701181-2384），设计裁定已不再 pending，裁定追加在同目录 alice-review.md。内容：保留有限 continuation 目标/配方；不重跑原命令；Henry 先纠正设计/provenance，给出最小显式 ceiling amendment 合同，保留普通 resume 严格兼容和旧上限/历史，其余字段不变；严禁改原/副本 checkpoint metadata 绕检查。后续顺序：Henry 给出 amendment 合同 → Alice 审 → Jenny 安排授权工程 peer 落实 scoped repair → 真实 runner 合成 checkpoint 正反验收 → Alice 审 → Jenny 再派实际训练 GCM。attempt3 保留为红证据，null timing 不变，原 report/log 不覆盖；Henry 修正请求已转发 m1794313801143-2390。`collab board update` 把 P0 从 rev173 更新到 rev174，owner=Iris，status=working，`next_step` 按新依赖顺序重写；prep 任务 rev12 保持 open。已向 Jenny 回传 `m1794314005489-2409`。
+- 边界：未改原/副本 checkpoint metadata，未改 recipe/gold/threshold/adoption，未改产品/训练/权重/daemon/tmux；未重跑原命令。
+- 下一步：等 Henry amendment 合同与 Alice 审核，然后由 Jenny 安排 scoped repair 与真实 runner 正反验收；之后 Alice 审、Jenny 派实际训练 GCM。b-a1 rev27 仍等 AppSDK typed block decision。
+
+## 2026-11-10 Iris：身份恢复、P0 任务恢复与状态汇报 Jenny（12:35Z）
+
+- 目的：按用户指令恢复 peer 身份与在办任务，并向 Jenny 报告当前可用事实；不重复已完成的 board 修订与已有回执。
+- 事实与处置：`collab context` 回读 registered=true、work_roles=["engineering"]，项目 `/Volumes/extension/code/NNAnything`，pane `%12`；工作树仅保留 `note.md` 改动与既有 `playground/browser/search/b-a1/cua-fixture.html`（PROTECTED_HOLD）。P0 `nnanything-overall-redesign-orchestration-r1` 仍为 rev174、status=working、owner=Iris，next_step 保持 Alice 12:28Z 显式续训上限裁定与依赖顺序：Henry amendment 合同 → Alice 审 → Jenny 安排 scoped repair → 真实 runner 合成 checkpoint 正反验收 → Alice 审 → Jenny 派实际训练 GCM。`collab recv --timeout 3` 返回 count=0，收件箱为空，本轮无新 COLLAB_NOTIFY 待消费。已向 Jenny 发送状态回执 `m1794314313025-2432`。
+- 边界：未改产品/训练/权重/gold/threshold/adoption，未动 checkpoint metadata、daemon、tmux；未重复失败命令。
+- 下一步：等待 Henry amendment 合同与 Alice 审核、Jenny 安排 scoped repair、AppSDK typed block decision；收到可承接任务或通知再执行。
+
+## 2026-11-10 Iris：TSJS resume ceiling amendment scoped engineering 交付与 ACCEPT subject2（13:45Z）
+
+- 目的：按 Jenny 派单（rev3）与扩展合同实现 Alice-PASS 的显式续训上限 amendment，交 Alice 一次完整工程验收，不跑实际语料 fit。
+- 事实与处置：接受任务后建 worktree `/Volumes/Intel/playground/nnanything/tsjs-resume-ceiling-amendment-r1-20261110`，候选 `4ca9357`（base `f9ee2e9`），仅改 `lib/training/l2-standard-runner.ts`、`unified-train-config.ts`、`unified-training-checkpoint.ts` 与两个受影响测试。实现：typed resume-only `training.ceilingAmendment`；checkpoint 反序列化校验存储 amendment 并按 `effectiveCeiling=amendedMaxEpochs` 约束 `completedEpochs`；constructor 保留原 `recipe.maxEpochs` 并携带 amendment；同 amendment 续接、缺失/冲突/train 命令/其他 recipe mismatch 均在 optimizer 前拒绝；普通 resume 保持严格相等兼容。本地 build/typecheck exit0；受影响测试 17/17+24/24+56/56+18/18 全通过。真实 public-runner 合成证据根目录 `/Volumes/Intel/playground/nnanything-runs/tsjs-resume-ceiling-amendment-r1-20261110/`：`result.md`、`receipts/summary.json`、partial 200→202→204、小规模 completed endpoint 2→4（checkpoint+package reload tensorsMatch true、cumulative steps/rows）、new-process reload、原 checkpoint before/after 内容相等、全部 negatives 于 optimizer 前 exit1。Alice 首轮 REWORK 仅两项（completed endpoint、禁 hash helper）；补齐后复检正式 ACCEPT subject2（`alice-review.md` delta 节）。P3 64ac7c4（receipt SHA-256 helper）已消融，带 hash 旧 summary 保留于 `receipts/history/summary-2026-11-10-hash-superseded.json`，`receipts/history/CORRECTION.md` 记录纠正；此后 preservation 用 plain content equality，不新增替代 hash。
+- 事实与处置（board/消息）：任务经 `collab task deliver` 两次（attempt 1/2）记录交付，Alice 复审 ACCEPT；P0 `nnanything-overall-redesign-orchestration-r1` 已更新 rev175，记录工程 ACCEPT 与下一步：Jenny 集成 `4ca9357`、准备唯一一次既定续训（只加 amendment `{previousMaxEpochs:200, amendedMaxEpochs:2000}`，执行环境加载修复后实现与完整 built 依赖、不复用旧 prep dist、保留 attempt-2/3 失败回执、无自动重试/扩上限）；实际语义结果另交 Alice。已回报 Jenny `m1794318167504-166`。
+- 边界：未跑实际语料 fit；未改 recipe/gold/loss/threshold/adoption、权重、原/副本 checkpoint metadata；未动 daemon/tmux/product wiring；attempt-2/3 证据未覆盖；工程 ACCEPT 不宣称训练成功。
+- 下一步：等 Jenny 集成候选并派实际续训；实际训练语义结果由 Alice 复审。b-a1 rev27 仍等 AppSDK typed block decision。
+
+## 2026-11-10 Iris：4ca9357 集成到 origin/main 与续训待派（13:54Z）
+
+- 目的：按子任务 next_step（integrate candidate then record integrated）与 Alice ACCEPT，把已验收候选择合 main，解阻唯一一次既定续训。
+- 事实与处置：`origin/main` 从 `f9ee2e9` 快进到 `4ca9357` 并 `git push origin main` 成功；`git rev-parse origin/main` 回读 `4ca9357e124f23cec5afef1eb57bc177851a4d0f`。候选内容与 Alice subject2 ACCEPT 一致，证据根目录不变。随后 `collab task integrated --commit 4ca9357` 返回 `TASK_MERGE_PENDING`：daemon 规定 accepted task 的 pending merge 必须由当前 master 在 main 落点后记录；已回报 Jenny `m1794318856011-224`，请其记录 integrated 并派唯一一次续训（只加 `training.ceilingAmendment {previousMaxEpochs:200, amendedMaxEpochs:2000}`，加载修复后 runner/checkpoint 与完整 built 依赖、不复用旧 prep dist、保留 attempt-2/3 回执、无重试/扩上限，实际语义交 Alice）。P0 board 更新为 rev176，记录 `4ca9357` 已在 origin/main 与上述待办。
+- 边界：未跑实际语料 fit；未改 recipe/gold/loss/threshold/adoption/权重/checkpoint metadata；未动 daemon/tmux；worktree 保留到 successor 接管执行依赖。
+- 下一步：等 Jenny 记录 integrated 并派实际续训；工程任务收尾由 master integrated 后 owner record/close。b-a1 rev27 仍等 AppSDK typed block decision。
+
+## 2026-11-10 Iris：TSJS resume ceiling 工程任务 worktree 清理与 close（14:03Z）
+
+- 目的：按 Jenny integration 回执执行 owner 侧收尾：清理已合入 worktree/branch 并关闭子任务，不重做实现。
+- 事实与处置：Jenny 已记录 integration commit `4ca9357e124f23cec5afef1eb57bc177851a4d0f`（origin/main），clean `npm run build`/typecheck 与两个受影响测试 41/41 通过。`git worktree remove /Volumes/Intel/playground/nnanything/tsjs-resume-ceiling-amendment-r1-20261110` 成功，`git branch -d tsjs-resume-ceiling-amendment-r1-20261110`（was 4ca9357）成功；证据目录保留。`collab task close` 返回 status=closed，`collab task status` 回读 status=closed、completion_missing=[]。P0 board 更新 rev177：工程任务关闭，`4ca9357` 在 origin/main，下一步由 Jenny 派唯一一次既定续训（只加 `training.ceilingAmendment {previousMaxEpochs:200, amendedMaxEpochs:2000}`，修复后 runner/checkpoint + 完整 built 依赖、旧 prep dist 不复用、保留 attempt-2/3 回执、无重试/扩上限，实际语义交 Alice）。
+- 边界：未重跑实现/训练；未改 recipe/gold/loss/threshold/adoption/权重/checkpoint metadata；未动 daemon/tmux。
+- 下一步：等 Jenny 派实际续训并给实际 task worktree/module-root handoff；实际语义结果由 Alice 审。b-a1 rev27 仍等 AppSDK typed block decision。
+
+## 2026-11-10 Iris：P0 rev178 同步单次续训已执行事实（14:26Z）
+
+- 目的：消费 Jenny `m1794320657855-409`，把唯一一次已批准的 TS/JS 实际续训结果写入 P0 父任务，不派发、不重跑。
+- 证据：`result.md` 在 `/Volumes/Intel/playground/nnanything-runs/tsjs-fixed-candidate-resume-execution-r1-20261110/`；`run-report.json` 为 status=completed、stopReason=epoch_limit_exhausted、resumedFromEpoch=200、checkpointReload.completedEpochs=2000、checkpoint/package tensorsMatch=true、candidateState=uncalibrated/not_applied；`acceptance-check-result.json` 为 derived.status=accepted_for_next_stage、semanticMarginPassed=true、executionEvidenceComplete=true、outcomeCounts retained=12/fixed=3。
+- 处置：`collab task update` 将 P0 从 rev177 更新为 rev178，next_step 只记录单次续训已执行（repaired worktree `4ca9357` + rebuilt dist，ceilingAmendment 200→2000）、不得重跑或扩上限、Alice 语义 review pending、b-a1 stale reason=test 不变；已用 `--in-reply-to m1794320657855-409` 回复 Jenny `m1794320792112-421`，回执 answered=true。
+- 边界：未派发、未训练、未重跑；未改产品/语料/权重/recipe/gold/threshold/采用；未动 daemon/tmux。
+- 下一步：等 Alice 对本次实际续训的语义 review disposition；按结果更新 P0，不自动重试。
+
+## 2026-11-10 Iris：P0 rev179 同步 Alice 语义 ACCEPT 与 Henry 后继（14:41Z）
+
+- 目的：消费 Jenny `m1794321538064-482`，把唯一一次 TS/JS 续训的 Alice 语义 ACCEPT 与正式后继任务写入 P0，不重训、不重跑、不扩 ceiling。
+- 证据：`alice-review.md` 正式 ACCEPT 仅授予 TRAIN decision learning；续训起始 loss 0.3993455553518456，保存后 0.012848828348495248；raw `epoch_limit_exhausted` 与 `monotonicViolations=3` 保留，不宣称逐步单调。`collab task status tsjs-fixed-candidate-consumer-evaluation-design-r1-20261110` 回读 status=working、executor Henry、reviewer Alice、parent=本 P0。
+- 处置：`collab task update` 将 P0 从 rev178 更新为 rev179，记录 ACCEPT 范围、候选仍 uncalibrated/not_applied、不得重训/自动重跑/扩 ceiling、后继任务只做固定新候选 consumer evaluation handoff（已暴露样本仅已知诊断、新来源隔离、真/假/未知与证据完成度分开评价），并保留 b-a1 stale reason=test 阻塞。已用 `--in-reply-to m1794321538064-482` 回复 Jenny `m1794321662140-490`，回执 answered=true。
+- 边界：未训练、未重跑、未改实现/权重/gold/threshold/采用；未动 daemon/tmux。
+- 下一步：等 Henry 交付 consumer evaluation 设计并交 Alice 审计；P0 按审查结果推进，不重开训练。
+
+## 2026-11-10 Iris：P0 rev180 记录 B-A1 formal delivery 后继（14:48Z）
+
+- 目的：消费 Jenny `m1794321960729-526`，把旧 b-a1 stale reason=test 阻塞的确定性后继写入 P0，不重试不可写 route。
+- 证据：旧 `b-a1-real-site-eval-design-r1-20261109` rev27 working、stale reason=test；后继 `b-a1-real-site-eval-design-formal-delivery-r1-20261110` 已由 Jenny 发布，parent=本 P0，owner/executor=Carol，reviewer=Alice。`collab task status` 与 board 回读后继当前为 rev4 delivered、await Alice read-only review；delivery 证据为 `/Volumes/Intel/playground/nnanything-runs/b-a1-real-site-eval-design-formal-delivery-r1-20261110/task-log.md`，只读复用原 rev2 plan.md 与既有 Alice ACCEPT-for-preparation，未改设计。
+- 处置：`collab task update` 将 P0 从 rev179 更新为 rev180，记录后继交付中、旧记录待后继 review 后 supersede/close；已用 `--in-reply-to m1794321960729-526` 回复 Jenny `m1794322068324-545`，回执 answered=true。未重试 typed reject route。同一轮内 board 续进：后继升至 rev6 accepted（Alice 只读 review valid），因此把 P0 增补为 rev181，记录后继 accepted、owner 下一步在 refs/heads/main 集成并登记 `collab task integrated`，随后 supersede/close 旧 b-a1 记录；已读回 `collab board show` 确认 rev181 生效。
+- 边界：未改实现/训练/权重/gold/threshold/采用/接线；未采样、未跑真实站点；未动 daemon/tmux。
+- 下一步：等 Alice 对 formal delivery 的只读 review；通过后由 Jenny/owner 收口旧 b-a1 记录并推进后继设计下游。
+
+## 2026-11-10 Iris：P0 rev182 登记 consumer evaluation design ACCEPT（14:55Z）
+
+- 目的：消费 Henry `m1794322422323-596`，把 `tsjs-fixed-candidate-consumer-evaluation-design-r1-20261110` 的交付结果登记到 P0 父记录，并按 live board 使用最新 ACTUAL 状态。
+- 证据：`handoff.md` 已交付（`delivery_kind=read_only`，路径 `/Volumes/Intel/playground/nnanything-runs/tsjs-fixed-candidate-consumer-evaluation-design-r1-20261110/handoff.md`）；`collab task status` 回读 status=accepted、review.valid=true、reviewed_subject_revision=1、review evidence 同目录 `alice-review.md`；下一步为 read-only 无需 merge，owner 清理资源并 close。
+- 处置：`collab task update` 将 P0 从 rev181 更新为 rev182，登记 design ACCEPT、handoff 范围（固定候选、已暴露与新来源隔离、true/false/unknown/missing/unresolved/incomplete 与证据完成度分账）、不授权实现/训练/重跑/权重/gold/threshold/采用/接线，实际 evaluation 须另派任务。B-A1 的 live board 在本轮内由 rev10 working 前进到 rev14 accepted：后继 `b-a1-real-site-eval-design-formal-delivery-r1-20261110` 已通过 Alice 只读 review，处于 owner close 步骤；P0 因此再增补为 rev183，B-A1 只记录后继已过 review、live revision 取子 board、旧 b-a1 stale reason=test 记录待后继 close 后 supersede/close。
+- 边界：未实现、未训练、未重跑、未改权重/gold/threshold/采用/接线；未动 daemon/tmux。
+- 下一步：等 Henry 清理并 close design 任务；正式 consumer evaluation 由 Jenny 另派执行。B-A1 后继已在同一轮内完成 reviewed read-only delivery 与 owner cleanup 并 closed，P0 因此更新为 rev184：旧 b-a1 rev27 由 owner 以该后继证据 supersede/close，不重试 typed reject route。
+
+## 2026-11-10 Iris：P0 rev185 同步两个实际后继（15:10Z）
+
+- 目的：消费 Jenny `m1794323331167-694`，把两个设计后继关闭、旧 b-a1 生命周期清理和两个实际后继派单写入 P0。
+- 证据：`b-a1-real-site-eval-design-formal-delivery-r1-20261110` status=closed、completion_missing=[]、disposition=no_merge_required、review valid，subject4 由 Alice 正式 ACCEPT；`tsjs-fixed-candidate-consumer-evaluation-design-r1-20261110` status=closed、completion_missing=[]、disposition=no_merge_required、review valid；旧 `b-a1-real-site-eval-design-r1-20261109` 已 force-close（cleanup receipt `cleanup-manual-b-a1-real-site-eval-design-r1-20261109-1794322855329`，保留 review 未通过事实，未伪造 delivery）；两个实际后继 `tsjs-fixed-candidate-consumer-evaluation-execution-r1-20261110`（Henry/Alice）与 `b-a1-real-site-e2-readiness-r1-20261110`（Carol/Alice）均为 working。
+- 处置：`collab task update` 将 P0 从 rev184 更新为 rev185，记录两设计后继关闭、旧 b-a1 已清理且 real-site 仍 UNVERIFIED、两个实际后继正在等待执行/审查、旧 gap 不再 unassigned；不需新建任务。通知无回复义务，未另发回执。
+- 边界：未实现、未训练、未重跑、未改权重/gold/threshold/采用/接线；未动 daemon/tmux。
+- 下一步：等 Henry 的单次 consumer evaluation 与 Carol 的四项 E2 readiness 交付并交 Alice 审查；保持两类分母分离，不把 readiness 当 real-site 通过。
+
+## 2026-11-10 Iris：master 交接给 Mia 的 P0 handoff（15:45Z）
+
+- 目的：按 handoff `m1794325353950-826` 停止接新任务，并把旧 P0 `nnanything-overall-redesign-orchestration-r1` 的当前事实、最后 next_step、在飞命令与未交付资源交给 Mia；不重跑训练/评价，不操作 daemon/tmux。
+- 事实：旧 P0 rev185 working，completion_missing=[review]；Henry 的 consumer evaluation execution 与 Carol 的 E2 readiness 在 handoff 时为 working；Iris 名下无在飞命令；主树有未提交 note.md 与既有未跟踪 `playground/browser/search/b-a1/cua-fixture.html`，另有两个保留 worktree 与 `nnanything-runs` 证据目录；rex successor `nnanything-overall-redesign-orchestration-rex-r1-20261110` 已建立。
+- 处置：已向 `NNAnything.Mia` 发送 handoff 回执 `m1794325814870-844`；停止接新任务。未改实现/训练/权重/gold/threshold/采用/接线，未动 daemon/tmux。旧 P0 保持工作状态，等待 Mia 的 lifecycle 关闭方向。
+

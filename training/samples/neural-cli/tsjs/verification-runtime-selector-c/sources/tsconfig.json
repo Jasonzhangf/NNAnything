@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/units.ts",
+    "src/registry.ts",
+    "src/lookup.ts",
+    "src/direct.ts",
+    "src/alias.ts",
+    "src/other-units.ts",
+    "src/cross-module.ts",
+    "src/local-shadow.ts",
+    "src/barrel.ts",
+    "src/via-barrel.ts"
+  ]
+}
