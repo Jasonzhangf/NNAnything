@@ -2,6 +2,7 @@ import { declaredTabIndexKind, hasNonFormatDirectText, shapeAppearanceMeasuremen
 import { isSafeRuleAttribute, type ForegroundState, type ObservationCurrentView, type ObservationNode, type PageObservation, type Rect } from "./observation.js";
 import { buildExplorationInputs, type ExplorationInputV1, type UnassessedInteriorKind } from "./exploration-input.js";
 import { deriveBasicKindContentRelations } from "./content-relations.js";
+import type { SearchInputHostBoundedMeasurements } from "./search-input-host-projection.js";
 import {
   axisLinearGradientDomain,
   axisLinearGradientPaintRect,
@@ -88,7 +89,7 @@ export function resolveStableNodeRef(registry: StableNodeRefRegistry, nodeRef: s
   return element;
 }
 export interface LiveCaptureCoverage {
-  readonly scope: "top_document_only";
+  readonly scope: "top_document_only" | "explicit_element_subtree";
   readonly frameContent: "captured";
   readonly directChildren: "complete";
   readonly traversedElementCount: number;
@@ -140,6 +141,7 @@ export interface LiveDomSnapshot {
   readonly properties: ReadonlyMap<string, BasicKindProperties>;
   readonly evidence: ReadonlyMap<string, LiveDomEvidence>;
   readonly coverage: LiveCaptureCoverage;
+  readonly boundedCandidateMeasurements?: ReadonlyMap<string, SearchInputHostBoundedMeasurements>;
   readonly explorationInputs?: ReadonlyMap<string, ExplorationInputV1>;
   resolveElement(nodeRef: string): Element | null;
 }
@@ -2392,10 +2394,98 @@ function certifyImageCoverage(
   return { targetPaintDomain, commonAncestor };
 }
 
+function validatedBoundedRoot(input: {
+  readonly document: Document;
+  readonly rootElement?: Element;
+  readonly ancestrySeed?: readonly Element[];
+}): { readonly root: Element; readonly ancestrySeed?: readonly Element[] } {
+  const root = input.rootElement ?? input.document.documentElement;
+  if (root === null || root === undefined) {
+    throw new TypeError("observeLiveDom.rootElement must resolve to an Element");
+  }
+  if (input.rootElement === undefined) {
+    if (input.ancestrySeed !== undefined) {
+      throw new TypeError("observeLiveDom.ancestrySeed requires rootElement");
+    }
+    return { root };
+  }
+  const seed = input.ancestrySeed;
+  if (seed === undefined || seed.length === 0) {
+    throw new TypeError("observeLiveDom.ancestrySeed must contain the selected host");
+  }
+  if (seed.at(-1) !== input.document.documentElement) {
+    throw new TypeError("observeLiveDom.ancestrySeed must end at document.documentElement");
+  }
+  const rootNode = root.getRootNode();
+  const shadowHost = rootNode !== null && typeof rootNode === "object" && "host" in rootNode
+    ? (rootNode as ShadowRoot).host
+    : null;
+  if (shadowHost !== seed[0]) {
+    throw new TypeError("observeLiveDom.rootElement must belong to the seeded open shadow root");
+  }
+  for (let index = 0; index < seed.length - 1; index++) {
+    if (seed[index]?.parentElement !== seed[index + 1]) {
+      throw new TypeError("observeLiveDom.ancestrySeed must be the normal host parent chain");
+    }
+  }
+  return { root, ancestrySeed: seed };
+}
+
+function boundedCandidateMeasurement(
+  element: Element,
+  node: ObservationNode,
+  item: { nodeRef: string } & BasicKindMeasurements,
+  window: Window,
+  ancestry: ElementAncestry,
+  viewport: Rect,
+): SearchInputHostBoundedMeasurements {
+  let cssHidden: boolean | null = false;
+  let cssHiddenKnown = true;
+  let effectiveOpacity = 1;
+  for (const current of ancestryPath(element, ancestry)) {
+    const style = window.getComputedStyle(current);
+    if (
+      style.display === "none"
+      || style.contentVisibility === "hidden"
+      || (current === element && (style.visibility === "hidden" || style.visibility === "collapse"))
+    ) {
+      cssHidden = true;
+    }
+    const ownOpacity = style.opacity === "" || style.opacity === undefined
+      ? 1
+      : Number(style.opacity);
+    if (!Number.isFinite(ownOpacity)) {
+      cssHiddenKnown = false;
+      break;
+    }
+    effectiveOpacity *= ownOpacity;
+  }
+  if (effectiveOpacity === 0) cssHidden = true;
+  if (!cssHiddenKnown && !cssHidden) cssHidden = null;
+
+  let intersectsViewport: boolean | null = null;
+  if (node.clippedRect !== null && node.fragments !== null) {
+    const clippedRect = node.clippedRect;
+    const geometry = [clippedRect, ...node.fragments];
+    if (geometry.every(rect => [rect.x, rect.y, rect.width, rect.height].every(Number.isFinite))) {
+      intersectsViewport = node.fragments.some(fragment =>
+        positive(intersection(intersection(fragment, node.rect ?? fragment), intersection(clippedRect, viewport))));
+    }
+  }
+  return {
+    cssHidden,
+    intersectsViewport,
+    explicitTabIndexKind: item.explicitTabIndexKind as SearchInputHostBoundedMeasurements["explicitTabIndexKind"],
+    tabIndexFocus: typeof item.tabIndexFocus === "boolean" ? item.tabIndexFocus : null,
+  };
+}
+
 export function observeLiveDom(input: {
   document: Document; window: Window; registry: StableNodeRefRegistry; excludeRoot: Element | null;
   excludeRoots?: readonly (Element | null)[]; excludeRootIds?: readonly string[];
   snapshotRef: string; documentRef: string;
+  rootElement?: Element;
+  ancestrySeed?: readonly Element[];
   // Ordinary content reads are explicit. Classification capture and the overlay
   // path never read form values, so a password field can never reach a bundle.
   readContent?: boolean;
@@ -2407,6 +2497,11 @@ export function observeLiveDom(input: {
   imageResourceFor?: (element: Element) => JpegImageResourceObservation | undefined;
 }): LiveDomSnapshot {
   const { document, window, registry } = input;
+  const boundedRoot = validatedBoundedRoot({
+    document,
+    ...(input.rootElement === undefined ? {} : { rootElement: input.rootElement }),
+    ...(input.ancestrySeed === undefined ? {} : { ancestrySeed: input.ancestrySeed }),
+  });
   const nodes: ObservationNode[] = [], itemObservations: ({ nodeRef: string } & BasicKindMeasurements)[] = [];
   const properties = new Map<string, BasicKindProperties>(), evidence = new Map<string, LiveDomEvidence>();
   const pendingAccessibleNames: { nodeRef: string; targets: { token: string; element: Element | null }[] }[] = [];
@@ -2429,7 +2524,15 @@ export function observeLiveDom(input: {
     byKey.set(key, value);
     return value;
   };
-  const stack: Element[] = document.documentElement ? [document.documentElement] : [];
+  const stack: Element[] = [boundedRoot.root];
+  if (boundedRoot.ancestrySeed !== undefined) {
+    let current = boundedRoot.root;
+    for (const ancestor of boundedRoot.ancestrySeed) {
+      ancestryByElement.set(current, ancestor);
+      current = ancestor;
+    }
+    ancestryByElement.set(current, current.parentElement);
+  }
   const excludedRoots = new Set(input.excludeRoots?.filter((root): root is Element => root !== null) ?? []);
   if (input.excludeRoot) excludedRoots.add(input.excludeRoot);
   const excludedIds = new Set([...DEFAULT_EXCLUDED_TOOL_ROOT_IDS, ...(input.excludeRootIds ?? [])]);
@@ -2444,7 +2547,7 @@ export function observeLiveDom(input: {
   while (stack.length) {
     const element = stack.pop()!;
     if (isExcluded(element)) { excluded += 1 + element.querySelectorAll("*").length; continue; }
-    ancestryByElement.set(element, element.parentElement);
+    if (!ancestryByElement.has(element)) ancestryByElement.set(element, element.parentElement);
     const allChildren = Array.from(element.children), children = allChildren.filter(child => !isExcluded(child));
     for (let index = allChildren.length - 1; index >= 0; index--) stack.push(allChildren[index]!);
     const nodeRef = stableNodeRefFor(registry, element), tag = element.tagName.toLowerCase();
@@ -3300,11 +3403,26 @@ export function observeLiveDom(input: {
       },
     });
   }
+  const itemByRef = new Map(itemObservations.map(item => [item.nodeRef, item] as const));
+  const finalNodeByRef = new Map(nodes.map(node => [node.nodeRef, node] as const));
+  const boundedCandidateMeasurements = boundedRoot.ancestrySeed === undefined
+    ? undefined
+    : new Map(itemObservations.flatMap(item => {
+      const element = elementByRef.get(item.nodeRef);
+      const node = finalNodeByRef.get(item.nodeRef);
+      return element === undefined || node === undefined
+        ? []
+        : [[
+          item.nodeRef,
+          boundedCandidateMeasurement(element, node, itemByRef.get(item.nodeRef)!, window, ancestryByElement, viewport),
+        ] as const];
+    }));
   return {
     snapshotRef: input.snapshotRef, documentRef: input.documentRef, frameRef: "top", pageRef: input.documentRef,
     observation, explorationInputs,
+    ...(boundedCandidateMeasurements === undefined ? {} : { boundedCandidateMeasurements }),
     itemObservations: enrichedObservations, properties, evidence,
-    coverage: { scope: "top_document_only", frameContent: "captured", directChildren: "complete", traversedElementCount: nodes.length, excludedElementCount: excluded, unassessedIframeCount: frames, unassessedObjectCount: objects, unassessedOpenShadowRootCount: shadows, closedShadowRootDetection: "not_available" },
+    coverage: { scope: boundedRoot.ancestrySeed === undefined ? "top_document_only" : "explicit_element_subtree", frameContent: "captured", directChildren: "complete", traversedElementCount: nodes.length, excludedElementCount: excluded, unassessedIframeCount: frames, unassessedObjectCount: objects, unassessedOpenShadowRootCount: shadows, closedShadowRootDetection: "not_available" },
     resolveElement: ref => resolveStableNodeRef(registry, ref),
   };
 }

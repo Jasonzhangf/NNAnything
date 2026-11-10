@@ -15,6 +15,7 @@ import type {
   SearchInputHostDepthBand,
   SearchInputHostHost,
   SearchInputHostInferInput,
+  SearchInputHostTabIndexKind,
   SearchInputHostType,
 } from "./search-input-host-contract.js";
 import { SEARCH_INPUT_HOST_ROLE } from "./search-input-host-contract.js";
@@ -92,6 +93,14 @@ export interface SearchInputHostProjectionInput {
   readonly scopeRoot: Element;
   readonly nodes: readonly { readonly nodeRef: string; readonly element: Element }[];
   readonly propertiesOf: (nodeRef: string) => Record<string, unknown> | null;
+  /**
+   * Bounded observations already own the four visibility/focus facts for the
+   * selected subtree. When present, the projector copies them without reading
+   * the candidate's own style or rectangle again.
+   */
+  readonly boundedMeasurementsOf?: (
+    nodeRef: string,
+  ) => SearchInputHostBoundedMeasurements | null;
   readonly coverage: SearchInputHostCoverage;
   /**
    * Access is a caller-level fact, not an observeLiveDom measurement: the caller
@@ -99,6 +108,13 @@ export interface SearchInputHostProjectionInput {
    * Passing null keeps the candidate unmeasured, and the unit then abstains.
    */
   readonly access: SearchInputHostCandidate["access"];
+}
+
+export interface SearchInputHostBoundedMeasurements {
+  readonly cssHidden: boolean | null;
+  readonly intersectsViewport: boolean | null;
+  readonly explicitTabIndexKind: SearchInputHostTabIndexKind | null;
+  readonly tabIndexFocus: boolean | null;
 }
 
 /**
@@ -125,16 +141,28 @@ export function projectSearchInputHostCandidates(
     const placeholder = element.getAttribute("placeholder") ?? "";
     const aria = element.getAttribute("aria-label") ?? "";
     const cueText = `${labelText} ${placeholder} ${aria}`.toLowerCase();
-    const style = getComputedStyle(element);
-    const rect = element.getBoundingClientRect();
-    const cssHidden = style.display === "none"
-      || style.visibility === "hidden"
-      || Number(style.opacity) === 0;
-    const intersectsViewport = rect.width > 0 && rect.height > 0
-      && rect.right > 0 && rect.bottom > 0
-      && rect.left < viewportWidth && rect.top < viewportHeight;
-    const measuredTabIndexKind = properties?.explicitTabIndexKind;
-    const measuredTabIndexFocus = properties?.tabIndexFocus;
+    const bounded = input.boundedMeasurementsOf?.(node.nodeRef);
+    let cssHidden: boolean | null;
+    let intersectsViewport: boolean | null;
+    let explicitTabIndexKind: SearchInputHostCandidate["explicitTabIndexKind"];
+    let tabIndexFocus: SearchInputHostCandidate["tabIndexFocus"];
+    if (input.boundedMeasurementsOf === undefined) {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      cssHidden = style.display === "none"
+        || style.visibility === "hidden"
+        || Number(style.opacity) === 0;
+      intersectsViewport = rect.width > 0 && rect.height > 0
+        && rect.right > 0 && rect.bottom > 0
+        && rect.left < viewportWidth && rect.top < viewportHeight;
+      explicitTabIndexKind = (properties?.explicitTabIndexKind ?? null) as SearchInputHostCandidate["explicitTabIndexKind"];
+      tabIndexFocus = typeof properties?.tabIndexFocus === "boolean" ? properties.tabIndexFocus : null;
+    } else {
+      cssHidden = bounded?.cssHidden ?? null;
+      intersectsViewport = bounded?.intersectsViewport ?? null;
+      explicitTabIndexKind = bounded?.explicitTabIndexKind ?? null;
+      tabIndexFocus = bounded?.tabIndexFocus ?? null;
+    }
     candidates.push({
       ref: node.nodeRef,
       scopeRef: input.scopeRef,
@@ -150,8 +178,8 @@ export function projectSearchInputHostCandidates(
       cssHidden,
       intersectsViewport,
       // Missing measurement stays null. It is never coerced to a default.
-      explicitTabIndexKind: (measuredTabIndexKind ?? null) as SearchInputHostCandidate["explicitTabIndexKind"],
-      tabIndexFocus: typeof measuredTabIndexFocus === "boolean" ? measuredTabIndexFocus : null,
+      explicitTabIndexKind,
+      tabIndexFocus,
       inForm: form !== null,
       formRoleSearch: form !== null && form.getAttribute("role") === "search",
       nearbySubmit: form !== null
