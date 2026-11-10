@@ -27,6 +27,13 @@ import type {
   BA1RealSiteProjectedObservation,
 } from "./b-a1-real-site-browser-projection.js";
 
+const USER_DATA_REMOVAL_OPTIONS = {
+  recursive: true,
+  force: true,
+  maxRetries: 10,
+  retryDelay: 50,
+} as const;
+
 export type BA1RealSiteCdpErrorCode =
   | "invalid_request"
   | "projection_failed"
@@ -584,6 +591,12 @@ function pageActionErrorCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
+function isNavigationInvalidationError(error: unknown): boolean {
+  return error instanceof BA1RealSiteCdpRuntimeError
+    && error.code === "cdp_failure"
+    && error.message.includes("Inspected target navigated or closed");
+}
+
 function deliveryStateOf(error: unknown): "not_sent" | "unknown" {
   return error instanceof BA1RealSiteCdpRuntimeError && error.detail.delivery === "not_sent"
     ? "not_sent"
@@ -939,32 +952,46 @@ class CdpConnection {
     }
   }
 
-  private async waitForDefaultContext(deadline: number): Promise<number> {
+  private async waitForDefaultContext(deadline: number, abort?: Promise<never>): Promise<number> {
     if (this.defaultContextId !== null) return this.defaultContextId;
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
       throw new BA1RealSiteCdpRuntimeError("cdp_failure", "main-frame execution context did not become ready");
     }
-    return await new Promise<number>((resolve, reject) => {
-      const timer = setTimeout(() => {
+    let waiter!: ContextWaiter;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const operation = new Promise<number>((resolve, reject) => {
+      timer = setTimeout(() => {
         this.contextWaiters.delete(waiter);
-        reject(new BA1RealSiteCdpRuntimeError(
-          "cdp_failure",
-          "main-frame execution context did not become ready",
-        ));
+        reject(
+          abort === undefined
+            ? new BA1RealSiteCdpRuntimeError(
+              "cdp_failure",
+              "main-frame execution context did not become ready",
+            )
+            : this.readinessTimeoutError(),
+        );
       }, remaining);
-      const waiter: ContextWaiter = {
+      waiter = {
         resolve: contextId => {
-          clearTimeout(timer);
+          if (timer !== null) clearTimeout(timer);
           resolve(contextId);
         },
         reject: error => {
-          clearTimeout(timer);
+          if (timer !== null) clearTimeout(timer);
           reject(error);
         },
       };
       this.contextWaiters.add(waiter);
     });
+    if (abort === undefined) return await operation;
+    try {
+      return await Promise.race([operation, abort]);
+    } catch (error) {
+      this.contextWaiters.delete(waiter);
+      if (timer !== null) clearTimeout(timer);
+      throw error;
+    }
   }
 
   private async evaluateInDocument(expression: string, expectedEpoch: number): Promise<unknown> {
@@ -995,7 +1022,18 @@ class CdpConnection {
         }
         return await this.evaluate(expression, contextId);
       })();
-      return await Promise.race([operation, invalidation]);
+      try {
+        return await Promise.race([operation, invalidation]);
+      } catch (error) {
+        if (this.documentEpoch !== expectedEpoch || isNavigationInvalidationError(error)) {
+          throw new BA1RealSiteCdpRuntimeError(
+            "provider_replaced",
+            "document changed while evaluating a page action",
+            { cause: error instanceof Error ? error.message : String(error) },
+          );
+        }
+        throw error;
+      }
     } finally {
       if (waiter !== null) this.documentEpochWaiters.delete(waiter);
     }
@@ -1043,7 +1081,7 @@ class CdpConnection {
     }
     if (websocketUrl === null) {
       process.kill("SIGTERM");
-      await rm(userDataDir, { recursive: true, force: true });
+      await rm(userDataDir, USER_DATA_REMOVAL_OPTIONS);
       throw new BA1RealSiteCdpRuntimeError("cdp_failure", "Chrome CDP endpoint did not become ready");
     }
 
@@ -1705,6 +1743,7 @@ class CdpConnection {
         );
         observerId = typeof armed.observerId === "string" ? armed.observerId : null;
         appearance = this.scopeObservation(observerId, armedEpoch, "appearance", beforeUrl);
+        void appearance.catch(() => undefined);
       } else if (presence.scopeCount === 1 && eligibleInputCount === 1 && this.documentEpoch === armedEpoch) {
         const armed = await this.pageAction(
           "arm-scope-observer",
@@ -1713,6 +1752,7 @@ class CdpConnection {
         );
         observerId = typeof armed.observerId === "string" ? armed.observerId : null;
         appearance = this.scopeObservation(observerId, armedEpoch, "rerender", beforeUrl);
+        void appearance.catch(() => undefined);
       } else if (presence.scopeCount > 1 || eligibleInputCount !== 1) {
         ambiguousScope = true;
       }
@@ -1770,7 +1810,10 @@ class CdpConnection {
         || typeof value.url !== "string"
         || value.mode !== mode
       ) {
-        return new Promise<never>(() => undefined);
+        throw new BA1RealSiteCdpRuntimeError(
+          "action_failed",
+          "scope observer result is invalid",
+        );
       }
       return {
         appeared: value.appeared,
@@ -1781,7 +1824,7 @@ class CdpConnection {
         url: value.url,
         mode,
       };
-    }).catch(() => new Promise<never>(() => undefined));
+    });
   }
 
   private async releaseScopeObserver(observerId: string | null, expectedEpoch: number): Promise<void> {
@@ -1793,22 +1836,35 @@ class CdpConnection {
     }
   }
 
-  private async waitForDocumentReadyUntil(deadline: number): Promise<void> {
+  private readinessTimeoutError(): BA1RealSiteCdpRuntimeError {
+    return new BA1RealSiteCdpRuntimeError(
+      "cdp_failure",
+      "document did not reach readyState=complete before the readiness deadline",
+      { code: "NAVIGATION_READINESS_TIMEOUT" },
+    );
+  }
+
+  private async waitForDocumentReadyUntil(deadline: number, abort?: Promise<never>): Promise<void> {
     while (Date.now() < deadline) {
-      const contextId = await this.waitForDefaultContext(deadline);
+      const contextId = await this.waitForDefaultContext(deadline, abort);
       try {
-        const state = await this.evaluate("document.readyState", contextId);
+        const stateOperation = this.evaluate("document.readyState", contextId);
+        const state = abort === undefined
+          ? await stateOperation
+          : await Promise.race([stateOperation, abort]);
         if (state === "complete" && this.defaultContextId === contextId) return;
       } catch (error) {
         if (this.defaultContextId !== contextId) continue;
         throw error;
       }
-      await new Promise(resolve => setTimeout(resolve, 20));
+      const delay = new Promise<void>(resolve => setTimeout(resolve, 20));
+      if (abort === undefined) {
+        await delay;
+      } else {
+        await Promise.race([delay, abort]);
+      }
     }
-    throw new BA1RealSiteCdpRuntimeError(
-      "cdp_failure",
-      "document did not reach readyState=complete before the readiness deadline",
-    );
+    throw this.readinessTimeoutError();
   }
 
   async awaitPostDispatchObservation(input: {
@@ -1852,12 +1908,21 @@ class CdpConnection {
       ? Promise.resolve({ kind: "ambiguous_scope" as const })
       : settle.appearance === null
         ? new Promise<never>(() => undefined)
-        : settle.appearance.then(value => ({ kind: "scope_observation" as const, value }));
+        : settle.appearance
+          .then(value => ({ kind: "scope_observation" as const, value }))
+          .catch(error => {
+            if (error instanceof BA1RealSiteCdpRuntimeError && error.code === "provider_replaced") {
+              return new Promise<never>(() => undefined);
+            }
+            throw error;
+          });
     let outcome: { readonly kind: "timeout" }
       | { readonly kind: "document_transition"; readonly value: { readonly epoch: number; readonly documentRef: string } }
       | { readonly kind: "same_document"; readonly value: { readonly epoch: number; readonly url: string } }
       | { readonly kind: "scope_observation"; readonly value: ScopeObservationOutcome }
       | { readonly kind: "ambiguous_scope" } | null = null;
+    let readinessWait: Promise<void> | null = null;
+    const readinessCancellation: { cancel: (() => void) | null } = { cancel: null };
 
     try {
       outcome = await Promise.race([
@@ -1875,14 +1940,34 @@ class CdpConnection {
         observation = "document_transition";
         detail = { documentEpoch: outcome.value.epoch };
         const readinessDeadline = Date.now() + readinessDeadlineMs;
+        const readinessCancel = new Promise<never>((_, reject) => {
+          readinessCancellation.cancel = () => reject(new BA1RealSiteCdpRuntimeError(
+            "cdp_failure",
+            "readiness wait was cancelled",
+          ));
+        });
+        const readinessAbort = Promise.race([settle.abort, readinessCancel]);
+        void readinessAbort.catch(() => undefined);
         const readinessTimeout = new Promise<{ readonly readiness: "timeout" }>(resolve => {
           const timer = setTimeout(() => resolve({ readiness: "timeout" }), readinessDeadlineMs);
           settle.timers.add(timer);
         });
-        const readinessWait = this.waitForDocumentReadyUntil(readinessDeadline)
-          .then(() => ({ readiness: "ready" as const }))
-          .catch(() => ({ readiness: "timeout" as const }));
-        const readiness = await Promise.race([readinessWait, readinessTimeout]);
+        readinessWait = this.waitForDocumentReadyUntil(readinessDeadline, readinessAbort);
+        const readiness = await Promise.race([
+          readinessWait
+            .then(() => ({ readiness: "ready" as const }))
+            .catch(error => {
+              if (
+                error instanceof BA1RealSiteCdpRuntimeError
+                && error.detail.code === "NAVIGATION_READINESS_TIMEOUT"
+              ) {
+                return { readiness: "timeout" as const };
+              }
+              throw error;
+            }),
+          readinessTimeout,
+          settle.abort,
+        ]);
         detail = {
           ...detail,
           readiness: readiness.readiness,
@@ -1979,6 +2064,8 @@ class CdpConnection {
         detail: Object.freeze(detail),
       });
     } finally {
+      if (readinessWait !== null) void readinessWait.catch(() => undefined);
+      if (readinessCancellation.cancel !== null) readinessCancellation.cancel();
       for (const timer of settle.timers) clearTimeout(timer);
       settle.timers.clear();
       this.settles.delete(settleId);
@@ -2039,7 +2126,7 @@ class CdpConnection {
 
   async close(): Promise<void> {
     if (this.closed && this.process.exitCode !== null) {
-      await rm(this.userDataDir, { recursive: true, force: true });
+      await rm(this.userDataDir, USER_DATA_REMOVAL_OPTIONS);
       return;
     }
     this.closed = true;
@@ -2053,7 +2140,7 @@ class CdpConnection {
       this.process.kill("SIGTERM");
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    await rm(this.userDataDir, { recursive: true, force: true });
+    await rm(this.userDataDir, USER_DATA_REMOVAL_OPTIONS);
   }
 }
 

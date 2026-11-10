@@ -656,6 +656,22 @@ function isEligibleInput(element: Element): boolean {
   return (element as HTMLElement).isContentEditable === true && isVisible(element) && isEnabled(element);
 }
 
+function rerenderMutationIsRelevant(scopeSelector: string, mutation: MutationRecord): boolean {
+  const scopeMatches = document.querySelectorAll(scopeSelector);
+  const scopeRoot = scopeMatches.length === 1 ? scopeMatches[0]! : null;
+  if (scopeRoot !== null && mutation.target instanceof Element && isWithinScope(mutation.target, scopeRoot)) {
+    return true;
+  }
+  for (const node of [
+    ...Array.from(mutation.addedNodes),
+    ...Array.from(mutation.removedNodes),
+  ]) {
+    if (!(node instanceof Element)) continue;
+    if (node.matches(scopeSelector) || node.querySelector(scopeSelector) !== null) return true;
+  }
+  return false;
+}
+
 function scopeState(scopeSelector: string): {
   readonly scopeCount: number;
   readonly eligibleInputCount: number;
@@ -825,25 +841,32 @@ function armScopeObserver(
       actionCode: "scope_not_found" as const,
     });
   }
-  const observerTarget = mode === "appearance" ? document.documentElement : scopeRoot!;
+  const observerTarget = mode === "appearance"
+    ? document.documentElement
+    : scopeRoot!.parentElement ?? document.documentElement;
   const observerId = `scope-observer-${nextActionSequence++}`;
   let resolvePromise!: (value: ScopeObserverOutcome) => void;
   const promise = new Promise<ScopeObserverOutcome>(resolve => {
     resolvePromise = resolve;
   });
+  let finished = false;
   const finish = (state: ScopeObserverOutcome): void => {
+    if (finished) return;
+    finished = true;
     record.observer.disconnect();
     clearTimeout(record.timer);
-    scopeObservers.delete(observerId);
     resolvePromise(state);
   };
-  const observer = new MutationObserver(() => {
-    const state = scopeState(scopeSelector);
-    if (state === null) {
-      finish({ appeared: false, scopeCount: 0, eligibleInputCount: 0, url: location.href });
+  const observer = new MutationObserver(mutations => {
+    if (mode === "rerender" && !mutations.some(mutation => rerenderMutationIsRelevant(scopeSelector, mutation))) {
       return;
     }
+    const state = scopeState(scopeSelector);
     if (mode === "appearance") {
+      if (state === null) {
+        finish({ appeared: false, scopeCount: 0, eligibleInputCount: 0, url: location.href });
+        return;
+      }
       if (state.scopeCount === 1) {
         finish({
           appeared: state.eligibleInputCount === 1,
@@ -863,7 +886,7 @@ function armScopeObserver(
       }
       return;
     }
-    if (state.scopeCount === 1 && state.eligibleInputCount === 1) {
+    if (state !== null && state.scopeCount === 1 && state.eligibleInputCount === 1) {
       finish({
         appeared: true,
         scopeCount: 1,
@@ -1046,6 +1069,7 @@ export function handleBA1RealSiteBrowserActionRequest(
           actionCode: "invalid_request" as const,
         });
       }
+      scopeObservers.delete(observerId);
       return record.promise.then(value => ({
         schema: BA1_REAL_SITE_BROWSER_ACTION_RESPONSE_SCHEMA,
         requestId,
