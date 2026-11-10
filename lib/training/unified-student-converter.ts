@@ -30,14 +30,24 @@ import {
   type RelationStepLocalFact,
   type RelationStepReceipt,
   type RelationStepSourceContent,
+  type TsJsCompletionWork,
+  type TsJsCompletionWorkItem,
+  type TsJsCompletionWorkKind,
   type TsJsProducerSourceBinding,
 } from "./unified-step-context-builder.js";
 import { runTsJsSymbolTable } from "../adapters/cli/tsjs-symbol-table-adapter.js";
-import { validateTsJsSymbolRequest } from "../filters/tsjs-symbol-table-policy.js";
+import {
+  isSafeRepoRelative,
+  normalizeRepoRelative,
+  spanKey,
+  validateTsJsSymbolRequest,
+} from "../filters/tsjs-symbol-table-policy.js";
 import type {
   TsJsCoverageRecord,
+  TsJsInlineCallableIdentity,
   TsJsParserRecord,
   TsJsRuntimeSelectorObservation,
+  TsJsRuntimeCallableTable,
   TsJsRuntimeSelectorRoleFact,
   TsJsSymbolTableRequest,
   TsJsSymbolTableResult,
@@ -51,6 +61,8 @@ export const STEPWISE_STUDENT_OBSERVATION_SCHEMA = "emma-tsjs-student-observatio
 // shape in one place so the original corpus stays read-only and no second
 // schema file is introduced.
 export const FIXED_STEPWISE_STUDENT_SCHEMA = "carol-tsjs-fixed-stepwise-student-v1" as const;
+
+const NUL = String.fromCharCode(0);
 
 export class StepwiseStudentDataError extends Error {
   readonly code = "DATA_INVALID" as const;
@@ -233,11 +245,214 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function moduleFileFromRef(moduleRef: string | null): string | null {
+export function moduleFileFromRef(moduleRef: string | null): string | null {
   if (moduleRef === null || !moduleRef.startsWith("module:")) return null;
-  const file = moduleRef.slice("module:".length);
-  if (file.length === 0 || file.startsWith("/") || file.includes("..")) return null;
+  const suffix = moduleRef.slice("module:".length);
+  if (
+    suffix.length === 0
+    || suffix.startsWith("module:")
+    || suffix.startsWith("/")
+    || suffix.includes(NUL)
+    || suffix.includes("://")
+    || /^[A-Za-z]:/.test(suffix)
+  ) {
+    return null;
+  }
+  const file = normalizeRepoRelative(suffix);
+  if (!isSafeRepoRelative(file) || file.includes(":")) return null;
   return file;
+}
+
+export interface TsJsObservedCompletionRequirement {
+  readonly kind: TsJsCompletionWorkKind;
+  readonly subjectRef: string;
+}
+
+export interface TsJsObservedCompletionDerivationGap {
+  readonly code:
+    | "invalid_requested_module"
+    | "invalid_invocation_file"
+    | "missing_selected_observation"
+    | "missing_callable_table"
+    | "invalid_callable_identity"
+    | "caller_helper_not_in_invocation"
+    | "duplicate_receipt_module";
+  readonly subjectRef: string | null;
+  readonly reason: string;
+}
+
+export interface TsJsObservedCompletionRequirements {
+  readonly requirements: readonly TsJsObservedCompletionRequirement[];
+  readonly gaps: readonly TsJsObservedCompletionDerivationGap[];
+}
+
+function canonicalProducerFile(file: string): boolean {
+  if (typeof file !== "string" || file.length === 0) return false;
+  if (file.includes(NUL) || file.startsWith("module:") || file.includes("://")) return false;
+  if (/^[A-Za-z]:/.test(file)) return false;
+  const normalized = normalizeRepoRelative(file);
+  return normalized === file && isSafeRepoRelative(normalized);
+}
+
+function uniqueCanonicalInvocationFiles(
+  request: TsJsSymbolTableRequest,
+): readonly string[] {
+  return [...new Set(request.files.map(file => normalizeRepoRelative(file)))];
+}
+
+function exactCallableDeclarationRef(identity: TsJsInlineCallableIdentity): string {
+  return `callable.${identity.syntaxKind}:${identity.moduleRef}@${spanKey(identity.span)}`;
+}
+
+function exactCallableInitializerRef(identity: TsJsInlineCallableIdentity): string {
+  return `member:${identity.moduleRef}@${spanKey(identity.span)}`;
+}
+
+export function isTsJsCallableIdentityExact(
+  identity: TsJsInlineCallableIdentity,
+  initializerRef: string,
+): boolean {
+  if (
+    !canonicalProducerFile(identity.moduleRef)
+    || identity.span.startLine < 1
+    || identity.span.startCol < 1
+    || identity.span.endLine < 1
+    || identity.span.endCol < 1
+    || (identity.syntaxKind !== "arrow_function"
+      && identity.syntaxKind !== "function_expression")
+  ) {
+    return false;
+  }
+  return exactCallableDeclarationRef(identity) === identity.declarationRef
+    && exactCallableInitializerRef(identity) === initializerRef;
+}
+
+export function deriveTsJsObservedCompletionRequirements(input: {
+  readonly requestRef: string;
+  readonly pendingRelationRef: string;
+  readonly callSiteRef: string;
+  readonly requestedDeclarationRef: string;
+  readonly requestedModuleRef: string;
+  readonly producerRequest: TsJsSymbolTableRequest;
+  readonly observation: TsJsRuntimeSelectorObservation;
+}): TsJsObservedCompletionRequirements {
+  const gaps: TsJsObservedCompletionDerivationGap[] = [];
+  const requirements: TsJsObservedCompletionRequirement[] = [];
+  const files = uniqueCanonicalInvocationFiles(input.producerRequest);
+  if (files.some(file => !canonicalProducerFile(file))) {
+    gaps.push({
+      code: "invalid_invocation_file",
+      subjectRef: null,
+      reason: "captured producer request contains a non-canonical invocation file",
+    });
+  }
+
+  const requestedModuleFile = moduleFileFromRef(input.requestedModuleRef);
+  if (requestedModuleFile === null) {
+    gaps.push({
+      code: "invalid_requested_module",
+      subjectRef: input.requestedModuleRef,
+      reason: "requestedDeclaration.moduleRef is not a valid module:<file> reference",
+    });
+  }
+
+  const requiredFiles = new Set(files);
+  if (requestedModuleFile !== null) requiredFiles.add(requestedModuleFile);
+  for (const file of requiredFiles) {
+    requirements.push({ kind: "source_read", subjectRef: file });
+  }
+
+  if (input.observation.observationRef.length === 0) {
+    gaps.push({
+      code: "missing_selected_observation",
+      subjectRef: input.callSiteRef,
+      reason: "selected observation reference is missing",
+    });
+  } else {
+    requirements.push({
+      kind: "selector_structure",
+      subjectRef: input.observation.observationRef,
+    });
+  }
+
+  const table = input.observation.callableTable;
+  const rawModules = input.observation.sourceReadReceipt.modules;
+  if (rawModules.length === 0 || rawModules.some(module => !canonicalProducerFile(module.file))) {
+    gaps.push({
+      code: "caller_helper_not_in_invocation",
+      subjectRef: input.observation.observationRef,
+      reason: "selected observation does not retain canonical caller/helper source modules",
+    });
+  } else if (rawModules.some(module => !files.includes(module.file))) {
+    gaps.push({
+      code: "caller_helper_not_in_invocation",
+      subjectRef: input.observation.observationRef,
+      reason: "selected observation module is not in the captured producer invocation",
+    });
+  }
+  if (new Set(rawModules.map(module => module.file)).size !== rawModules.length) {
+    gaps.push({
+      code: "duplicate_receipt_module",
+      subjectRef: input.observation.observationRef,
+      reason: "source-read receipt repeats one module",
+    });
+  }
+
+  if (table === undefined) {
+    gaps.push({
+      code: "missing_callable_table",
+      subjectRef: input.observation.observationRef,
+      reason: "selected observation has no typed callable table",
+    });
+  } else {
+    const tableFiles = new Set(
+      table.members
+        .filter(member => member.callableIdentity !== null)
+        .map(member => member.callableIdentity!.moduleRef),
+    );
+    if (tableFiles.size > 1) {
+      gaps.push({
+        code: "invalid_callable_identity",
+        subjectRef: table.tableRef,
+        reason: "typed callable table spans more than one producer module",
+      });
+    }
+    for (const member of table.members) {
+      const identity = member.callableIdentity;
+      if (identity !== null && !isTsJsCallableIdentityExact(identity, member.initializerRef)) {
+        gaps.push({
+          code: "invalid_callable_identity",
+          subjectRef: member.initializerRef,
+          reason: "callable identity does not reconstruct from its module, span, and syntax kind",
+        });
+      }
+      if (identity !== null && !files.includes(identity.moduleRef)) {
+        gaps.push({
+          code: "caller_helper_not_in_invocation",
+          subjectRef: identity.moduleRef,
+          reason: "callable identity module is not in the captured producer invocation",
+        });
+      }
+      requirements.push({
+        kind: "callable_identity",
+        subjectRef: member.initializerRef,
+      });
+    }
+  }
+
+  requirements.push({
+    kind: "requested_target_mapping",
+    subjectRef: input.requestedDeclarationRef,
+  });
+  requirements.push({
+    kind: "selector_scope",
+    subjectRef: input.callSiteRef,
+  });
+
+  return Object.freeze({
+    requirements: Object.freeze(requirements),
+    gaps: Object.freeze(gaps),
+  });
 }
 
 function rawProducerRequestForValidation(request: unknown): unknown {
@@ -248,7 +463,7 @@ function rawProducerRequestForValidation(request: unknown): unknown {
   return raw;
 }
 
-function successfulProducerFiles(
+export function successfulProducerFiles(
   request: TsJsSymbolTableRequest,
   coverage: TsJsCoverageRecord,
 ): readonly string[] {
@@ -258,6 +473,265 @@ function successfulProducerFiles(
     ...coverage.parseErrorFiles.map(entry => entry.file),
   ]);
   return uniqueStrings(request.files).filter(file => !unsuccessful.has(file));
+}
+
+function completionKey(
+  requirement: TsJsObservedCompletionRequirement,
+): string {
+  return `${requirement.kind}\u0000${requirement.subjectRef}`;
+}
+
+function completionRoleFact(
+  observation: TsJsRuntimeSelectorObservation,
+  role: "selector_candidate_table" | "runtime_selector_dependency",
+): TsJsRuntimeSelectorRoleFact | null {
+  const matches = observation.facts.filter(fact => fact.role === role);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function matchingCallableMembers(
+  observation: TsJsRuntimeSelectorObservation,
+  requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>,
+): readonly NonNullable<TsJsRuntimeCallableTable["members"][number]>[] {
+  const requestedFile = moduleFileFromRef(requestedDeclaration.moduleRef);
+  if (
+    requestedFile === null
+    || requestedDeclaration.kind !== "function"
+    || (requestedDeclaration.role !== undefined && requestedDeclaration.role !== "member")
+  ) {
+    return [];
+  }
+  return (observation.callableTable?.members ?? []).filter(member => {
+    const identity = member.callableIdentity;
+    return identity !== null
+      && isTsJsCallableIdentityExact(identity, member.initializerRef)
+      && identity.moduleRef === requestedFile
+      && identity.declarationRef === requestedDeclaration.declarationRef;
+  });
+}
+
+function completionWorkFor(
+  input: TsJsStepwiseBridgeInput,
+  result: TsJsSymbolTableResult,
+  observation: TsJsRuntimeSelectorObservation,
+): TsJsCompletionWork {
+  const derivation = deriveTsJsObservedCompletionRequirements({
+    requestRef: input.request.requestRef,
+    pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+    callSiteRef: input.request.relationObligation.callSiteRef,
+    requestedDeclarationRef: input.request.requestedDeclaration.declarationRef,
+    requestedModuleRef: input.request.requestedDeclaration.moduleRef ?? "",
+    producerRequest: input.producerRequest,
+    observation,
+  });
+  const successfulFiles = successfulProducerFiles(input.producerRequest, result.coverage);
+  const failedFiles = new Map(result.coverage.scopeFilesFailed.map(entry => [entry.file, entry.reason]));
+  const skippedFiles = new Map(result.coverage.skipped.map(entry => [entry.file, entry.reason]));
+  const parseErrorFiles = new Set(result.coverage.parseErrorFiles.map(entry => entry.file));
+  const sourceReadRef = observation.sourceReadRef;
+  const rawReceipt = observation.sourceReadReceipt;
+  const tableFact = completionRoleFact(observation, "selector_candidate_table");
+  const runtimeFact = completionRoleFact(observation, "runtime_selector_dependency");
+  const table = observation.callableTable;
+  const matchingMembers = matchingCallableMembers(observation, input.request.requestedDeclaration);
+
+  const items = derivation.requirements.map(
+    (requirement): TsJsCompletionWorkItem => {
+      if (requirement.kind === "source_read") {
+        const file = requirement.subjectRef;
+        const moduleResultRef = `${sourceReadRef}:module:${file}`;
+        if (result.coverage.truncated) {
+          return {
+            kind: requirement.kind,
+            subjectRef: file,
+            disposition: {
+              state: "unresolved",
+              evidenceRefs: [sourceReadRef],
+              reason: "producer coverage is truncated",
+            },
+          };
+        }
+        const failedReason = failedFiles.get(file);
+        if (failedReason !== undefined) {
+          return {
+            kind: requirement.kind,
+            subjectRef: file,
+            disposition: {
+              state: "failed",
+              evidenceRefs: [sourceReadRef],
+              reason: failedReason,
+            },
+          };
+        }
+        const skippedReason = skippedFiles.get(file);
+        if (skippedReason !== undefined || parseErrorFiles.has(file)) {
+          return {
+            kind: requirement.kind,
+            subjectRef: file,
+            disposition: {
+              state: "unresolved",
+              evidenceRefs: [sourceReadRef],
+              reason: skippedReason ?? "producer parse failed",
+            },
+          };
+        }
+        if (!successfulFiles.includes(file) || !rawReceipt.result.includes(moduleResultRef)) {
+          return {
+            kind: requirement.kind,
+            subjectRef: file,
+            disposition: {
+              state: "unresolved",
+              evidenceRefs: [sourceReadRef],
+              reason: "required source read is not established by the producer result",
+            },
+          };
+        }
+        return {
+          kind: requirement.kind,
+          subjectRef: file,
+          disposition: {
+            state: "satisfied",
+            evidenceRefs: [sourceReadRef, moduleResultRef],
+          },
+        };
+      }
+
+      if (requirement.kind === "selector_structure") {
+        if (
+          table === undefined
+          || tableFact === null
+          || runtimeFact === null
+          || tableFact.state !== "known"
+          || runtimeFact.state !== "known"
+          || !tableFact.evidenceRefs.includes(sourceReadRef)
+          || !runtimeFact.evidenceRefs.includes(sourceReadRef)
+        ) {
+          return {
+            kind: requirement.kind,
+            subjectRef: requirement.subjectRef,
+            disposition: {
+              state: "unresolved",
+              evidenceRefs: [observation.observationRef, sourceReadRef],
+              reason: "selected helper/table structure is not completely source-backed",
+            },
+          };
+        }
+        return {
+          kind: requirement.kind,
+          subjectRef: requirement.subjectRef,
+          disposition: {
+            state: "satisfied",
+            evidenceRefs: [
+              observation.observationRef,
+              sourceReadRef,
+              tableFact.factRef,
+              runtimeFact.factRef,
+              table.tableRef,
+            ],
+          },
+        };
+      }
+
+      if (requirement.kind === "callable_identity") {
+        const member = table?.members.find(entry => entry.initializerRef === requirement.subjectRef);
+        const identity = member?.callableIdentity ?? null;
+        if (
+          member === undefined
+          || identity === null
+          || !isTsJsCallableIdentityExact(identity, member.initializerRef)
+        ) {
+          return {
+            kind: requirement.kind,
+            subjectRef: requirement.subjectRef,
+            disposition: {
+              state: "unresolved",
+              evidenceRefs: [sourceReadRef, table?.tableRef ?? ""].filter(ref => ref.length > 0),
+              reason: "exact inline callable identity is absent or does not reconstruct",
+            },
+          };
+        }
+        return {
+          kind: requirement.kind,
+          subjectRef: requirement.subjectRef,
+          disposition: {
+            state: "satisfied",
+            evidenceRefs: [
+              member.initializerRef,
+              identity.declarationRef,
+              sourceReadRef,
+              table!.tableRef,
+            ],
+          },
+        };
+      }
+
+      if (requirement.kind === "requested_target_mapping") {
+        if (matchingMembers.length !== 1) {
+          return {
+            kind: requirement.kind,
+            subjectRef: requirement.subjectRef,
+            disposition: {
+              state: "unresolved",
+              evidenceRefs: [sourceReadRef, table?.tableRef ?? ""].filter(ref => ref.length > 0),
+              reason: matchingMembers.length === 0
+                ? "requested declaration does not match one typed callable"
+                : "requested declaration matches more than one typed callable",
+            },
+          };
+        }
+        return {
+          kind: requirement.kind,
+          subjectRef: requirement.subjectRef,
+          disposition: {
+            state: "satisfied",
+            evidenceRefs: [
+              requirement.subjectRef,
+              matchingMembers[0]!.initializerRef,
+              sourceReadRef,
+              table!.tableRef,
+            ],
+          },
+        };
+      }
+
+      if (
+        observation.binding.bindingMode !== "dynamic"
+        || observation.binding.resolution.status !== "dynamic"
+        || observation.binding.resolution.reason !== "dynamic_undecidable"
+        || tableFact === null
+        || runtimeFact === null
+      ) {
+        return {
+          kind: requirement.kind,
+          subjectRef: requirement.subjectRef,
+          disposition: {
+            state: "unresolved",
+            evidenceRefs: [observation.observationRef, sourceReadRef],
+            reason: "source-local selector scope is not established",
+          },
+        };
+      }
+      return {
+        kind: requirement.kind,
+        subjectRef: requirement.subjectRef,
+        disposition: {
+          state: "satisfied",
+          evidenceRefs: [
+            observation.observationRef,
+            sourceReadRef,
+            runtimeFact.factRef,
+            observation.callSiteRef,
+          ],
+        },
+      };
+    },
+  );
+
+  return Object.freeze({
+    contract: "tsjs.observed-dynamic-source-closure.v1",
+    scope: "source_local",
+    items: Object.freeze(items),
+  });
 }
 
 function validateProducerObservation(
@@ -345,6 +819,7 @@ function producerSourceBinding(
     pendingRelationRef: input.request.relationObligation.pendingRelationRef,
     requestedDeclarationRef: input.request.requestedDeclaration.declarationRef,
     requestedModuleRef: input.request.requestedDeclaration.moduleRef ?? "",
+    completionWork: completionWorkFor(input, result, observation),
   };
 }
 
@@ -507,6 +982,23 @@ export async function observeTsJsStepwiseRequest(
   if (reasons.length > 0) {
     return { record: null, reasons };
   }
+  const completionRequirements = deriveTsJsObservedCompletionRequirements({
+    requestRef: canonicalInput.request.requestRef,
+    pendingRelationRef: canonicalInput.request.relationObligation.pendingRelationRef,
+    callSiteRef: canonicalInput.request.relationObligation.callSiteRef,
+    requestedDeclarationRef: canonicalInput.request.requestedDeclaration.declarationRef,
+    requestedModuleRef: canonicalInput.request.requestedDeclaration.moduleRef ?? "",
+    producerRequest: canonicalInput.producerRequest,
+    observation,
+  });
+  if (completionRequirements.gaps.length > 0) {
+    return {
+      record: null,
+      reasons: completionRequirements.gaps.map(
+        gap => `completion requirement derivation failed: ${gap.reason}`,
+      ),
+    };
+  }
   return {
     record: projectTsJsObservationToStepwiseRecord(canonicalInput, result, observation),
     reasons: [],
@@ -579,6 +1071,99 @@ function parseObservedLocalFacts(
   });
 }
 
+function parseCompletionWork(
+  raw: unknown,
+  sampleId: string,
+  stepId: string,
+): TsJsCompletionWork {
+  if (!isRecord(raw) || raw.contract !== "tsjs.observed-dynamic-source-closure.v1") {
+    throw new TypeError(`sample ${sampleId} ${stepId} producerSource.completionWork is invalid`);
+  }
+  if (raw.scope !== "source_local") {
+    throw new TypeError(`sample ${sampleId} ${stepId} completionWork.scope is invalid`);
+  }
+  const rawItems = requireArray(
+    raw.items,
+    `sample ${sampleId} ${stepId} completionWork.items`,
+  );
+  return {
+    contract: "tsjs.observed-dynamic-source-closure.v1",
+    scope: "source_local",
+    items: rawItems.map((rawItem, index) => {
+      if (!isRecord(rawItem)) {
+        throw new TypeError(
+          `sample ${sampleId} ${stepId} completionWork.items[${index}] is invalid`,
+        );
+      }
+      const kind = rawItem.kind;
+      if (
+        kind !== "source_read"
+        && kind !== "selector_structure"
+        && kind !== "callable_identity"
+        && kind !== "requested_target_mapping"
+        && kind !== "selector_scope"
+      ) {
+        throw new TypeError(
+          `sample ${sampleId} ${stepId} completionWork.items[${index}].kind is invalid`,
+        );
+      }
+      const disposition = rawItem.disposition;
+      if (!isRecord(disposition)) {
+        throw new TypeError(
+          `sample ${sampleId} ${stepId} completionWork.items[${index}].disposition is invalid`,
+        );
+      }
+      const state = disposition.state;
+      if (
+        state !== "satisfied"
+        && state !== "failed"
+        && state !== "unsupported"
+        && state !== "unresolved"
+      ) {
+        throw new TypeError(
+          `sample ${sampleId} ${stepId} completionWork.items[${index}].disposition.state is invalid`,
+        );
+      }
+      const evidenceRefs = requireArray(
+        disposition.evidenceRefs ?? [],
+        `sample ${sampleId} ${stepId} completionWork.items[${index}].disposition.evidenceRefs`,
+      ).map((ref, refIndex) =>
+        requireString(
+          ref,
+          `sample ${sampleId} ${stepId} completionWork.items[${index}].disposition.evidenceRefs[${refIndex}]`,
+        ));
+      if (state === "satisfied") {
+        return {
+          kind,
+          subjectRef: requireString(
+            rawItem.subjectRef,
+            `sample ${sampleId} ${stepId} completionWork.items[${index}].subjectRef`,
+          ),
+          disposition: {
+            state,
+            evidenceRefs,
+          },
+        };
+      }
+      return {
+        kind,
+        subjectRef: requireString(
+          rawItem.subjectRef,
+          `sample ${sampleId} ${stepId} completionWork.items[${index}].subjectRef`,
+        ),
+        disposition: {
+          state,
+          evidenceRefs,
+          reason: requireString(
+            disposition.reason,
+            `sample ${sampleId} ${stepId} completionWork.items[${index}].disposition.reason`,
+          ),
+        },
+      };
+    }),
+  };
+}
+
 function parseProducerSourceBinding(
   raw: unknown,
   sampleId: string,
@@ -619,6 +1204,9 @@ function parseProducerSourceBinding(
     pendingRelationRef: requireString(raw.pendingRelationRef, `sample ${sampleId} ${stepId} producerSource.pendingRelationRef`),
     requestedDeclarationRef: requireString(raw.requestedDeclarationRef, `sample ${sampleId} ${stepId} producerSource.requestedDeclarationRef`),
     requestedModuleRef: requireString(raw.requestedModuleRef, `sample ${sampleId} ${stepId} producerSource.requestedModuleRef`),
+    ...(raw.completionWork === undefined
+      ? {}
+      : { completionWork: parseCompletionWork(raw.completionWork, sampleId, stepId) }),
   };
 }
 
@@ -932,6 +1520,60 @@ function validateReceiptsAndPreviousExecution(
   }
 }
 
+function validateTsJsCompletionWork(
+  source: TsJsProducerSourceBinding,
+  fail: (reason: string) => never,
+): void {
+  const completionWork = source.completionWork;
+  if (completionWork === undefined) return;
+  const derivation = deriveTsJsObservedCompletionRequirements({
+    requestRef: source.requestRef,
+    pendingRelationRef: source.pendingRelationRef,
+    callSiteRef: source.callSiteRef,
+    requestedDeclarationRef: source.requestedDeclarationRef,
+    requestedModuleRef: source.requestedModuleRef,
+    producerRequest: source.producerRequest,
+    observation: source.rawObservation,
+  });
+  if (derivation.gaps.length > 0) {
+    fail(`completion derivation failed: ${derivation.gaps[0]!.reason}`);
+  }
+  const actual = new Map<string, TsJsCompletionWorkItem>();
+  for (const item of completionWork.items) {
+    const key = `${item.kind}\u0000${item.subjectRef}`;
+    if (actual.has(key)) fail(`duplicate completion-work key ${key}`);
+    actual.set(key, item);
+  }
+  const expected = new Map(
+    derivation.requirements.map(requirement => [
+      `${requirement.kind}\u0000${requirement.subjectRef}`,
+      requirement,
+    ]),
+  );
+  if (actual.size !== expected.size) {
+    fail("completion-work item set does not equal the derived required set");
+  }
+  for (const [key, requirement] of expected) {
+    if (!actual.has(key)) {
+      fail(`completion-work omits required item ${requirement.kind}:${requirement.subjectRef}`);
+    }
+  }
+  for (const item of completionWork.items) {
+    if (item.kind === "callable_identity") {
+      const member = source.rawObservation.callableTable?.members.find(
+        entry => entry.initializerRef === item.subjectRef,
+      );
+      if (
+        member === undefined
+        || member.callableIdentity === null
+        || !isTsJsCallableIdentityExact(member.callableIdentity, member.initializerRef)
+      ) {
+        fail(`callable identity ${item.subjectRef} is not a valid typed identity`);
+      }
+    }
+  }
+}
+
 function validateTsJsProducerSourceBinding(input: {
   readonly sampleId: string;
   readonly stepId: string;
@@ -964,6 +1606,7 @@ function validateTsJsProducerSourceBinding(input: {
     fail("requestedDeclarationRef mismatch");
   }
   if (source.requestedModuleRef !== input.requestedModuleRef) fail("requestedModuleRef mismatch");
+  validateTsJsCompletionWork(source, fail);
   if (source.fromStepId !== (input.receipt.fromStepId ?? null)) fail("fromStepId mismatch");
   if (source.parser.semanticBinding !== false) fail("parser.semanticBinding must remain false");
   if (source.rawObservation.callSiteRef !== input.callSiteRef) fail("raw callSiteRef mismatch");
@@ -1069,7 +1712,19 @@ function validateTsJsProducerSourceBinding(input: {
     fail("previousExecution mismatch");
   }
   const moduleFiles = rawReceipt.modules.map(module => module.file);
-  const successfulFiles = successfulProducerFiles(source.producerRequest, source.coverage);
+  const producerRequestValidation = validateTsJsSymbolRequest(
+    rawProducerRequestForValidation(source.producerRequest),
+  );
+  const validatedProducerRequest = (() => {
+    if (producerRequestValidation.ok) return producerRequestValidation.request;
+    return fail(
+      `captured producer request is invalid: ${producerRequestValidation.error.reasonCode}`,
+    );
+  })();
+  const successfulFiles = successfulProducerFiles(
+    validatedProducerRequest,
+    source.coverage,
+  );
   if (moduleFiles.some(file => !successfulFiles.includes(file))) {
     fail("raw observation modules are not in the producer read set");
   }

@@ -54,6 +54,36 @@ export interface RelationStepLocalFact {
   readonly evidenceRefs: readonly string[];
 }
 
+export type TsJsCompletionWorkKind =
+  | "source_read"
+  | "selector_structure"
+  | "callable_identity"
+  | "requested_target_mapping"
+  | "selector_scope";
+
+export type TsJsCompletionDisposition =
+  | Readonly<{
+      state: "satisfied";
+      evidenceRefs: readonly string[];
+    }>
+  | Readonly<{
+      state: "failed" | "unsupported" | "unresolved";
+      evidenceRefs: readonly string[];
+      reason: string;
+    }>;
+
+export interface TsJsCompletionWorkItem {
+  readonly kind: TsJsCompletionWorkKind;
+  readonly subjectRef: string;
+  readonly disposition: TsJsCompletionDisposition;
+}
+
+export interface TsJsCompletionWork {
+  readonly contract: "tsjs.observed-dynamic-source-closure.v1";
+  readonly scope: "source_local";
+  readonly items: readonly TsJsCompletionWorkItem[];
+}
+
 export interface TsJsProducerSourceBinding {
   readonly kind: "nnanything.tsjs.producer-source.v1";
   readonly producerRequest: TsJsSymbolTableRequest;
@@ -68,6 +98,7 @@ export interface TsJsProducerSourceBinding {
   readonly pendingRelationRef: string;
   readonly requestedDeclarationRef: string;
   readonly requestedModuleRef: string;
+  readonly completionWork?: TsJsCompletionWork;
 }
 
 export interface RelationStepReceipt {

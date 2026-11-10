@@ -57,6 +57,12 @@ import {
   type TsJsProducerSourceBinding,
 } from "../training/unified-step-context-builder.js";
 import {
+  deriveTsJsObservedCompletionRequirements,
+  isTsJsCallableIdentityExact,
+  moduleFileFromRef,
+  successfulProducerFiles,
+} from "../training/unified-student-converter.js";
+import {
   loadFeatureThresholdsFromFile,
   loadMissingModeTableFromFile,
 } from "../training/unified-thresholds.js";
@@ -267,6 +273,56 @@ export type TsJsRootGapCode =
 export interface TsJsRootGap {
   readonly code: TsJsRootGapCode;
   readonly refs: readonly string[];
+}
+
+export type TsJsObservedCompletionGapCode =
+  | "producer_branch_ambiguous"
+  | "producer_binding_mismatch"
+  | "source_not_observed"
+  | "target_module_not_reached"
+  | "read_record_missing"
+  | "read_record_mismatch"
+  | "completion_work_missing"
+  | "completion_requirements_invalid"
+  | "completion_work_omits_required_item"
+  | "completion_work_unexpected_item"
+  | "completion_work_duplicate_item"
+  | "completion_work_unsatisfied"
+  | "completion_evidence_invalid"
+  | "selector_structure_invalid"
+  | "callable_identity_invalid"
+  | "requested_target_mapping_invalid"
+  | "selector_scope_invalid"
+  | "work_state_open"
+  | "enumeration_not_closed";
+
+export interface TsJsObservedCompletionGap {
+  readonly code: TsJsObservedCompletionGapCode;
+  readonly reason: string;
+  readonly evidenceRefs: readonly string[];
+  readonly kind?: string;
+  readonly subjectRef?: string;
+}
+
+export interface TsJsObservedDynamicCompletionAssessment {
+  readonly status: "not_applicable" | "supported" | "incomplete";
+  readonly producer_backed: boolean;
+  readonly evidenceRefs: readonly string[];
+  readonly gaps: readonly TsJsObservedCompletionGap[];
+}
+
+export interface TsJsObservedCompletionState {
+  readonly stepSequence: readonly string[];
+  readonly context: StepContext;
+  readonly terminal: boolean;
+  readonly terminalKind:
+    | "judge"
+    | "control_return"
+    | "control_defer"
+    | "exhausted"
+    | "binding_failed"
+    | null;
+  readonly terminalJudgement: TsJsUnifiedTerminalJudgement;
 }
 
 /**
@@ -2874,6 +2930,546 @@ function observedLocalFactsOf(
   return (episode as AdmittedEpisode).observedLocalFacts ?? [];
 }
 
+function observedCompletionGap(
+  code: TsJsObservedCompletionGapCode,
+  reason: string,
+  evidenceRefs: readonly string[] = [],
+  item?: { readonly kind: string; readonly subjectRef: string },
+): TsJsObservedCompletionGap {
+  return {
+    code,
+    reason,
+    evidenceRefs: uniqueRefs(evidenceRefs),
+    ...(item === undefined ? {} : { kind: item.kind, subjectRef: item.subjectRef }),
+  };
+}
+
+/**
+ * Deterministic source-local completion assessment. It validates already
+ * admitted observation evidence and never loads a model or produces a
+ * judgement. The root controller remains the only owner of terminal mapping.
+ */
+export function assessTsJsObservedDynamicCompletion(
+  episodes: readonly RelationStepEpisode[],
+  state: TsJsObservedCompletionState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): TsJsObservedDynamicCompletionAssessment {
+  const executed = executedEpisodesOf(
+    state as unknown as MultiStepState,
+    episodes,
+  );
+  const producerEpisodes = executed.filter(episode =>
+    (episode.receipts ?? []).some(receipt => receipt.producerSource !== undefined));
+  if (producerEpisodes.length === 0) {
+    return {
+      status: "not_applicable",
+      producer_backed: false,
+      evidenceRefs: [],
+      gaps: [],
+    };
+  }
+
+  const gaps: TsJsObservedCompletionGap[] = [];
+  if (producerEpisodes.length !== 1) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: [],
+      gaps: [observedCompletionGap(
+        "producer_branch_ambiguous",
+        `observed-source branch requires one producer-backed episode, got ${producerEpisodes.length}`,
+      )],
+    };
+  }
+
+  const episode = producerEpisodes[0]!;
+  const producerReceipts = (episode.receipts ?? []).filter(
+    receipt => receipt.producerSource !== undefined,
+  );
+  if (producerReceipts.length !== 1) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: episode.evidenceRefs,
+      gaps: [observedCompletionGap(
+        "producer_branch_ambiguous",
+        `observed-source episode requires one producer source receipt, got ${producerReceipts.length}`,
+      )],
+    };
+  }
+
+  const receipt = producerReceipts[0]!;
+  const source = receipt.producerSource!;
+  const raw = source.rawObservation;
+  const rawReceipt = raw.sourceReadReceipt;
+  const sourceReadRef = raw.sourceReadRef;
+  const successfulReadFiles = new Set(
+    successfulProducerFiles(source.producerRequest, source.coverage),
+  );
+  const currentRelation = episode.currentRelation;
+  const currentBinding = currentRelation?.binding.state === "known"
+    ? currentRelation.binding.value
+    : null;
+  const contextRelation = state.context.currentRelation?.binding.state === "known"
+    ? state.context.currentRelation.binding.value
+    : null;
+  const requestedDeclaration = episode.requestedDeclaration ?? null;
+
+  if (
+    episode.receipts === undefined
+    || state.context.stepId !== episode.stepId
+    || state.context.requestRef !== episode.requestId
+    || state.context.goal.targetRef !== episode.targetRef
+    || source.sampleId !== episode.sampleId
+    || source.requestRef !== episode.requestId
+    || source.stepId !== episode.stepId
+    || source.fromStepId !== (receipt.fromStepId ?? null)
+    || source.callSiteRef !== episode.callSiteRef
+    || source.callSiteRef !== currentRelation?.callSiteRef
+    || source.callSiteRef !== contextRelation?.callSiteRef
+    || source.callSiteRef !== raw.callSiteRef
+    || raw.binding.callSiteRef !== source.callSiteRef
+    || source.pendingRelationRef !== episode.pendingRelationRef
+    || source.pendingRelationRef !== currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== state.context.currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== receipt.pendingRelationRef
+    || source.requestedDeclarationRef !== episode.targetRef
+    || source.requestedModuleRef !== (requestedDeclaration?.moduleRef ?? null)
+    || rawReceipt.receiptId !== receipt.receiptId
+    || rawReceipt.actionRef !== receipt.actionRef
+    || rawReceipt.action !== receipt.action
+    || rawReceipt.origin !== receipt.origin
+    || rawReceipt.outcome !== receipt.outcome
+    || rawReceipt.targetRef !== receipt.target
+  ) {
+    gaps.push(observedCompletionGap(
+      "producer_binding_mismatch",
+      "producer source does not match the exact request/event/episode tuple",
+      [sourceReadRef, episode.callSiteRef ?? ""],
+    ));
+  }
+
+  if (
+    episode.sourceContent?.state !== "observed"
+    || !episode.sourceContent.evidenceRefs.includes(sourceReadRef)
+    || episode.coverage?.targetModuleReached !== true
+    || episode.coverage.note !== "runtime_selector_source_observed"
+    || !sameStringArray(
+      episode.sourceContent.resultRefs as readonly string[],
+      rawReceipt.result,
+    )
+  ) {
+    gaps.push(observedCompletionGap(
+      "source_not_observed",
+      "source content or target-module coverage is not truthfully observed",
+      [sourceReadRef],
+    ));
+  }
+
+  const readRecords = initialEvidence.filter(record =>
+    record.validity === "valid"
+    && record.payload.kind === "source_read_receipt"
+    && record.id === sourceReadRef);
+  if (readRecords.length !== 1) {
+    gaps.push(observedCompletionGap(
+      "read_record_missing",
+      `observed-source completion requires one admitted read record for ${sourceReadRef}`,
+      [sourceReadRef],
+    ));
+  } else {
+    const record = readRecords[0]!;
+    if (
+      record.payload.kind !== "source_read_receipt"
+      || record.payload.callSiteRef !== source.callSiteRef
+      || record.payload.requestRef !== source.requestRef
+      || record.payload.stepId !== source.stepId
+      || record.payload.requestedDeclarationRef !== source.requestedDeclarationRef
+      || record.payload.requestedModuleRef !== source.requestedModuleRef
+      || record.payload.pendingRelationRef !== source.pendingRelationRef
+      || !sameStringArray(record.payload.resultRefs, rawReceipt.result)
+      || !sameStringArray(
+        (record.payload.modules ?? []).map(module => module.file),
+        rawReceipt.modules.map(module => module.file),
+      )
+    ) {
+      gaps.push(observedCompletionGap(
+        "read_record_mismatch",
+        "admitted read record does not retain the producer source/event tuple",
+        [sourceReadRef],
+      ));
+    }
+  }
+
+  if (
+    !raw.binding.evidenceRefs.includes(sourceReadRef)
+    || !raw.binding.resolution.evidenceRefs.includes(sourceReadRef)
+    || raw.binding.bindingMode !== "dynamic"
+    || raw.binding.resolution.status !== "dynamic"
+    || raw.binding.resolution.reason !== "dynamic_undecidable"
+    || raw.binding.declarationRefs.length !== 0
+    || raw.binding.scopeRef !== null
+    || currentBinding === null
+    || currentBinding === undefined
+    || contextRelation === null
+    || contextRelation === undefined
+    || currentBinding.symbolRef !== raw.binding.symbolRef
+    || contextRelation.symbolRef !== raw.binding.symbolRef
+    || currentBinding.role !== raw.binding.role
+    || contextRelation.role !== raw.binding.role
+    || currentBinding.bindingMode !== "dynamic"
+    || contextRelation.bindingMode !== "dynamic"
+  ) {
+    gaps.push(observedCompletionGap(
+      "selector_scope_invalid",
+      "dynamic selector binding is not preserved across observation, episode, and state",
+      [sourceReadRef, raw.observationRef],
+    ));
+  }
+
+  const tableFactMatches = raw.facts.filter(fact => fact.role === "selector_candidate_table");
+  const runtimeFactMatches = raw.facts.filter(fact => fact.role === "runtime_selector_dependency");
+  const tableFact = tableFactMatches.length === 1 ? tableFactMatches[0]! : null;
+  const runtimeFact = runtimeFactMatches.length === 1 ? runtimeFactMatches[0]! : null;
+  const projectedFacts = observedLocalFactsOf(episode);
+  if (
+    raw.facts.length !== 2
+    || tableFact === null
+    || runtimeFact === null
+    || tableFact.state !== "known"
+    || runtimeFact.state !== "known"
+    || !tableFact.evidenceRefs.includes(sourceReadRef)
+    || !runtimeFact.evidenceRefs.includes(sourceReadRef)
+    || projectedFacts.length !== 2
+    || projectedFacts.some((fact, index) =>
+      fact.factRef !== raw.facts[index]?.factRef
+      || fact.role !== raw.facts[index]?.role
+      || fact.state !== raw.facts[index]?.state
+      || fact.value !== raw.facts[index]?.value
+      || !sameStringArray(fact.evidenceRefs, raw.facts[index]?.evidenceRefs ?? []))
+  ) {
+    gaps.push(observedCompletionGap(
+      "selector_structure_invalid",
+      "source-backed selector role facts are incomplete or substituted",
+      [sourceReadRef, raw.observationRef],
+    ));
+  }
+
+  const table = raw.callableTable;
+  const memberInitializers = new Set<string>();
+  const identityDeclarations = new Set<string>();
+  if (table === undefined || table.members.length < 2) {
+    gaps.push(observedCompletionGap(
+      "selector_structure_invalid",
+      "typed callable table is missing or has no distinct alternative",
+      [sourceReadRef, raw.observationRef],
+    ));
+  } else {
+    for (const member of table.members) {
+      if (
+        memberInitializers.has(member.initializerRef)
+        || member.initializerRef.length === 0
+      ) {
+        gaps.push(observedCompletionGap(
+          "callable_identity_invalid",
+          "callable table repeats or omits an initializer identity",
+          [table.tableRef, member.initializerRef],
+        ));
+        continue;
+      }
+      memberInitializers.add(member.initializerRef);
+      const identity = member.callableIdentity;
+      if (
+        identity === null
+        || !isTsJsCallableIdentityExact(identity, member.initializerRef)
+        || identityDeclarations.has(identity.declarationRef)
+      ) {
+        gaps.push(observedCompletionGap(
+          "callable_identity_invalid",
+          `callable identity ${member.name} is absent, substituted, or duplicated`,
+          [table.tableRef, member.initializerRef],
+        ));
+      } else {
+        identityDeclarations.add(identity.declarationRef);
+      }
+    }
+  }
+
+  const requestedFile = requestedDeclaration === null
+    ? null
+    : moduleFileFromRef(requestedDeclaration.moduleRef ?? null);
+  const matchedMembers = requestedDeclaration === null || table === undefined
+    ? []
+    : table.members.filter(member => {
+        const identity = member.callableIdentity;
+        return requestedFile !== null
+          && requestedDeclaration.kind === "function"
+          && (requestedDeclaration.role === undefined || requestedDeclaration.role === "member")
+          && identity !== null
+          && isTsJsCallableIdentityExact(identity, member.initializerRef)
+          && identity.moduleRef === requestedFile
+          && identity.declarationRef === requestedDeclaration.declarationRef;
+      });
+  const distinctAlternatives = matchedMembers.length === 1 && table !== undefined
+    ? table.members.filter(member =>
+        member.initializerRef !== matchedMembers[0]!.initializerRef
+        && member.callableIdentity !== null
+        && isTsJsCallableIdentityExact(member.callableIdentity, member.initializerRef))
+    : [];
+  if (matchedMembers.length !== 1 || distinctAlternatives.length === 0) {
+    gaps.push(observedCompletionGap(
+      "requested_target_mapping_invalid",
+      matchedMembers.length === 1
+        ? "typed callable table has no distinct source-local alternative"
+        : "requested declaration does not identify exactly one typed callable",
+      [raw.observationRef, sourceReadRef, table?.tableRef ?? ""],
+    ));
+  }
+
+  const derivation = deriveTsJsObservedCompletionRequirements({
+    requestRef: source.requestRef,
+    pendingRelationRef: source.pendingRelationRef,
+    callSiteRef: source.callSiteRef,
+    requestedDeclarationRef: source.requestedDeclarationRef,
+    requestedModuleRef: source.requestedModuleRef,
+    producerRequest: source.producerRequest,
+    observation: raw,
+  });
+  for (const gap of derivation.gaps) {
+    gaps.push(observedCompletionGap(
+      "completion_requirements_invalid",
+      gap.reason,
+      gap.subjectRef === null ? [] : [gap.subjectRef],
+    ));
+  }
+  const completionWork = source.completionWork;
+  if (completionWork === undefined) {
+    gaps.push(observedCompletionGap(
+      "completion_work_missing",
+      "producer-backed observed-source episode has no completionWork",
+      [sourceReadRef],
+    ));
+  } else if (derivation.gaps.length === 0) {
+    const expected = new Map(
+      derivation.requirements.map(requirement => [
+        `${requirement.kind}\u0000${requirement.subjectRef}`,
+        requirement,
+      ]),
+    );
+    const actual = new Map<string, typeof completionWork.items[number]>();
+    for (const item of completionWork.items) {
+      const key = `${item.kind}\u0000${item.subjectRef}`;
+      if (actual.has(key)) {
+        gaps.push(observedCompletionGap(
+          "completion_work_duplicate_item",
+          `completionWork repeats ${item.kind}:${item.subjectRef}`,
+          item.disposition.evidenceRefs,
+          item,
+        ));
+        continue;
+      }
+      actual.set(key, item);
+    }
+    for (const [key, requirement] of expected) {
+      if (!actual.has(key)) {
+        gaps.push(observedCompletionGap(
+          "completion_work_omits_required_item",
+          `completionWork omits ${requirement.kind}:${requirement.subjectRef}`,
+          [sourceReadRef],
+          requirement,
+        ));
+      }
+    }
+    for (const [key, item] of actual) {
+      if (!expected.has(key)) {
+        gaps.push(observedCompletionGap(
+          "completion_work_unexpected_item",
+          `completionWork contains unexpected ${item.kind}:${item.subjectRef}`,
+          item.disposition.evidenceRefs,
+          item,
+        ));
+      }
+    }
+  }
+
+  const knownRefs = new Set<string>([
+    raw.observationRef,
+    raw.callSiteRef,
+    sourceReadRef,
+    raw.binding.symbolRef,
+    ...raw.binding.evidenceRefs,
+    ...raw.binding.resolution.evidenceRefs,
+    ...raw.facts.flatMap(fact => [fact.factRef, ...fact.evidenceRefs]),
+    ...rawReceipt.result,
+    ...rawReceipt.evidenceRefs,
+    ...(table === undefined
+      ? []
+      : [
+          table.tableRef,
+          ...table.members.flatMap(member => [
+            member.initializerRef,
+            ...(member.callableIdentity === null ? [] : [member.callableIdentity.declarationRef]),
+          ]),
+        ]),
+    source.requestedDeclarationRef,
+  ]);
+  for (const item of completionWork?.items ?? []) {
+    if (item.disposition.state !== "satisfied") {
+      gaps.push(observedCompletionGap(
+        "completion_work_unsatisfied",
+        `${item.kind}:${item.subjectRef} is ${item.disposition.state}: ${item.disposition.reason}`,
+        item.disposition.evidenceRefs,
+        item,
+      ));
+      continue;
+    }
+    const evidenceRefs = item.disposition.evidenceRefs;
+    if (
+      evidenceRefs.length === 0
+      || evidenceRefs.some(ref => ref.length === 0 || !knownRefs.has(ref))
+    ) {
+      gaps.push(observedCompletionGap(
+        "completion_evidence_invalid",
+        `${item.kind}:${item.subjectRef} cites evidence outside retained producer output`,
+        evidenceRefs,
+        item,
+      ));
+      continue;
+    }
+    const requires = (ref: string): boolean => evidenceRefs.includes(ref);
+    if (item.kind === "source_read") {
+      const moduleResultRef = `${sourceReadRef}:module:${item.subjectRef}`;
+      if (
+        source.coverage.truncated
+        || !successfulReadFiles.has(item.subjectRef)
+        || !requires(sourceReadRef)
+        || !requires(moduleResultRef)
+        || readRecords.length !== 1
+      ) {
+        gaps.push(observedCompletionGap(
+          "completion_evidence_invalid",
+          `source_read:${item.subjectRef} lacks the shared admitted read and module result`,
+          [sourceReadRef, moduleResultRef],
+          item,
+        ));
+      }
+    } else if (item.kind === "selector_structure") {
+      if (
+        table === undefined
+        || tableFact === null
+        || runtimeFact === null
+        || !requires(raw.observationRef)
+        || !requires(sourceReadRef)
+        || !requires(tableFact.factRef)
+        || !requires(runtimeFact.factRef)
+        || !requires(table.tableRef)
+      ) {
+        gaps.push(observedCompletionGap(
+          "selector_structure_invalid",
+          "selector_structure lacks its observation, read, role facts, or typed table",
+          evidenceRefs,
+          item,
+        ));
+      }
+    } else if (item.kind === "callable_identity") {
+      const member = table?.members.find(entry => entry.initializerRef === item.subjectRef);
+      if (
+        member === undefined
+        || member.callableIdentity === null
+        || !requires(member.initializerRef)
+        || !requires(member.callableIdentity.declarationRef)
+        || !requires(sourceReadRef)
+      ) {
+        gaps.push(observedCompletionGap(
+          "callable_identity_invalid",
+          "callable_identity lacks its exact member, declaration, or shared read",
+          evidenceRefs,
+          item,
+        ));
+      }
+    } else if (item.kind === "requested_target_mapping") {
+      if (
+        matchedMembers.length !== 1
+        || table === undefined
+        || !requires(source.requestedDeclarationRef)
+        || !requires(matchedMembers[0]!.initializerRef)
+        || !requires(sourceReadRef)
+        || !requires(table.tableRef)
+      ) {
+        gaps.push(observedCompletionGap(
+          "requested_target_mapping_invalid",
+          "requested_target_mapping lacks one exact typed member and its shared evidence",
+          evidenceRefs,
+          item,
+        ));
+      }
+    } else if (item.kind === "selector_scope") {
+      if (
+        runtimeFact === null
+        || !requires(raw.observationRef)
+        || !requires(sourceReadRef)
+        || !requires(runtimeFact.factRef)
+        || !requires(raw.callSiteRef)
+      ) {
+        gaps.push(observedCompletionGap(
+          "selector_scope_invalid",
+          "selector_scope lacks the accepted dynamic runtime-selector evidence",
+          evidenceRefs,
+          item,
+        ));
+      }
+    }
+  }
+
+  if (
+    episode.remainingObligations === undefined
+    || episode.remainingObligations.length !== 0
+    || episode.localCandidateCursor === undefined
+    || episode.localCandidateCursor.state !== "closed"
+    || episode.localCandidateCursor.pendingRelationRef !== source.pendingRelationRef
+    || !enumerationClosed(state as unknown as MultiStepState)
+  ) {
+    gaps.push(observedCompletionGap(
+      "work_state_open",
+      "observed-source completion requires explicit closed cursor and empty pending work",
+      [
+        sourceReadRef,
+        ...(episode.localCandidateCursor?.evidenceRefs ?? []),
+      ],
+    ));
+  }
+
+  const uniqueGaps = gaps.filter((gap, index) =>
+    gaps.findIndex(candidate =>
+      candidate.code === gap.code
+      && candidate.reason === gap.reason
+      && candidate.kind === gap.kind
+      && candidate.subjectRef === gap.subjectRef
+      && sameStringArray(candidate.evidenceRefs, gap.evidenceRefs)) === index);
+  if (uniqueGaps.length > 0) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: uniqueRefs([
+        sourceReadRef,
+        ...uniqueGaps.flatMap(gap => gap.evidenceRefs),
+      ]),
+      gaps: uniqueGaps,
+    };
+  }
+
+  return {
+    status: "supported",
+    producer_backed: true,
+    evidenceRefs: uniqueRefs([
+      sourceReadRef,
+      raw.observationRef,
+      ...readRecords.map(record => record.id),
+      ...(table === undefined ? [] : [table.tableRef]),
+    ]),
+    gaps: [],
+  };
+}
+
 function negativeShadowWitness(
   episodes: readonly RelationStepEpisode[],
   state: MultiStepState,
@@ -2929,6 +3525,16 @@ function dynamicUndecidableWitness(
   state: MultiStepState,
   initialEvidence: readonly TsJsInitialEvidenceRecord[],
 ): readonly string[] {
+  const observedSourceAssessment = assessTsJsObservedDynamicCompletion(
+    episodes,
+    state,
+    initialEvidence,
+  );
+  if (observedSourceAssessment.producer_backed) {
+    return observedSourceAssessment.status === "supported"
+      ? observedSourceAssessment.evidenceRefs
+      : [];
+  }
   if (!enumerationClosed(state)) return [];
   for (const episode of executedEpisodesOf(state, episodes)) {
     const currentRelation = episode.currentRelation;
