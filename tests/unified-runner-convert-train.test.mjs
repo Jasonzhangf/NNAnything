@@ -226,6 +226,23 @@ test("convert-samples writes separated student rows and labels and data gate is 
   }
 });
 
+test("convert-samples does not require a training recipe", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root);
+    const config = await readJson(paths.configPath);
+    delete config.training;
+    await writeJson(paths.configPath, config);
+
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    const report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "READY");
+    assert.equal(report.dataGate.status, "READY");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("same episode with two steps keeps separate group ids", async () => {
   const root = await makeCorpus();
   try {

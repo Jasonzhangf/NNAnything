@@ -121,6 +121,111 @@ test("unknown gold guessed as true is not accepted", () => {
   assert.equal(report.unknownRecall, 0);
 });
 
+test("unknown gold with a definitive true answer stays wrong even when completion is incomplete", () => {
+  const samples = [sample({ sampleId: "unknown-incomplete-true", gold: "unknown" })];
+  const runs = [
+    run({
+      sampleId: "unknown-incomplete-true",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=true", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+      queryCompletion: "incomplete",
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.deepEqual(report.validUnknown, {
+    correct: 0,
+    missed: 0,
+    wrongTrueOrFalse: 1,
+    finalUnknown: 0,
+  });
+  assert.equal(report.incompleteCompletions, 1);
+  assert.equal(report.returnedUnresolved, 0);
+  assert.equal(report.unsupportedUnknown, 1);
+  assert.equal(report.unknownRecall, 0);
+});
+
+test("unknown gold with a definitive false answer stays wrong when completion is incomplete", () => {
+  const samples = [sample({ sampleId: "unknown-incomplete-false", gold: "unknown" })];
+  const runs = [
+    run({
+      sampleId: "unknown-incomplete-false",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=false", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+      queryCompletion: "incomplete",
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.deepEqual(report.validUnknown, {
+    correct: 0,
+    missed: 0,
+    wrongTrueOrFalse: 1,
+    finalUnknown: 0,
+  });
+  assert.equal(report.incompleteCompletions, 1);
+  assert.equal(report.returnedUnresolved, 0);
+  assert.equal(report.unsupportedUnknown, 1);
+  assert.equal(report.unknownRecall, 0);
+  assert.ok(report.violations.some(violation => /final judge false but gold is unknown/.test(violation)));
+});
+
+test("unknown gold returned unresolved without an answer counts as missed", () => {
+  const samples = [sample({ sampleId: "unknown-returned", gold: "unknown" })];
+  const runs = [
+    run({
+      sampleId: "unknown-returned",
+      steps: [],
+      rootConditionStates: [],
+      rootGaps: ["NO_POSITIVE_RELATION_ANSWER"],
+      rootSatisfied: false,
+      predictedJudgement: null,
+      queryCompletion: "returned_unresolved",
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.deepEqual(report.validUnknown, {
+    correct: 0,
+    missed: 1,
+    wrongTrueOrFalse: 0,
+    finalUnknown: 0,
+  });
+  assert.equal(report.incompleteCompletions, 0);
+  assert.equal(report.returnedUnresolved, 1);
+  assert.equal(report.unsupportedUnknown, 1);
+  assert.equal(report.unknownRecall, 0);
+  assert.ok(!report.violations.some(violation => /queryCompletion returned_unresolved conflicts/.test(violation)));
+});
+
+test("unknown gold with an incomplete unknown prediction counts as missed", () => {
+  const samples = [sample({ sampleId: "unknown-incomplete", gold: "unknown" })];
+  const runs = [
+    run({
+      sampleId: "unknown-incomplete",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=unknown", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+      queryCompletion: "incomplete",
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.deepEqual(report.validUnknown, {
+    correct: 0,
+    missed: 1,
+    wrongTrueOrFalse: 0,
+    finalUnknown: 0,
+  });
+  assert.equal(report.incompleteCompletions, 1);
+  assert.equal(report.returnedUnresolved, 0);
+  assert.equal(report.unsupportedUnknown, 1);
+  assert.equal(report.unknownRecall, 0);
+  assert.ok(!report.violations.some(violation => /queryCompletion incomplete conflicts/.test(violation)));
+});
+
 test("known-gold unknown must not count toward valid unknown recall", () => {
   const samples = [
     sample({ sampleId: "known-true", gold: "true" }),

@@ -857,6 +857,9 @@ export async function runUnifiedRunnerEvaluate(
   let episodes: readonly RelationStepEpisode[] = [];
   let goldRowsForAccounting: readonly GoldRecord[] = [];
   let oracleRefsForAccounting: readonly string[] = [];
+  let validatedCandidate: UnifiedEvaluateReport["candidate"] | null = null;
+  let validatedAdmission: UnifiedEvaluateReport["admission"] | null = null;
+  let validatedConsumerEntry: string | null = null;
   const runs: StudentRelationRun[] = [];
   const executionEntries: UnifiedEvaluateExecutionEntry[] = [];
   const evidenceRefs = new Set<string>();
@@ -913,6 +916,7 @@ export async function runUnifiedRunnerEvaluate(
 
   try {
     const config = requireEvaluateConfig(evaluate);
+    validatedConsumerEntry = config.consumerEntry;
     const packagePath = resolve(config.candidatePackagePath);
     const loaded = await loadUnifiedModelPackageFromFile(packagePath);
     const loadedPackage = loaded.package;
@@ -923,10 +927,23 @@ export async function runUnifiedRunnerEvaluate(
     ) {
       throw new UnifiedRunnerEvaluateError("CANDIDATE_INVALID", "candidate package route or encoder version does not match the evaluate config");
     }
+    validatedCandidate = {
+      packagePath,
+      schema: loadedPackage.schema,
+      modelId: loadedPackage.modelId,
+      version: loadedPackage.version,
+      route: loadedPackage.route,
+    };
 
     const familyDir = resolve(config.independentFamilyPath);
     const manifest = await readJson(join(familyDir, "manifest.json"));
     const admission = await loadAdmission(manifest, config.admissionsPath);
+    validatedAdmission = {
+      familyPath: familyDir,
+      sourceGroup: admission.sourceGroup,
+      partition: admission.partition,
+      evidence: admission.evidence,
+    };
     // Load and validate independent supervision first. If the student file is
     // absent or malformed, partial accounting keeps the admitted gold
     // denominator and sample identities instead of reporting an empty set.
@@ -1033,6 +1050,13 @@ export async function runUnifiedRunnerEvaluate(
   } catch (caught) {
     const evaluationSeconds = monotonicSeconds(evaluationStartNs);
     const partial = partialFailureState();
+    // Retain metadata that was already validated before the failure. Fields not
+    // yet validated are omitted so finalize keeps the baseline defaults.
+    const validatedMetadata = {
+      ...(validatedCandidate === null ? {} : { candidate: validatedCandidate }),
+      ...(validatedAdmission === null ? {} : { admission: validatedAdmission }),
+      ...(validatedConsumerEntry === null ? {} : { consumerEntry: validatedConsumerEntry }),
+    };
     if (caught instanceof UnifiedRunnerEvaluateError) {
       const detail: Readonly<Record<string, unknown>> = {
         ...caught.detail,
@@ -1042,6 +1066,7 @@ export async function runUnifiedRunnerEvaluate(
       return finalize({
         status: "failed",
         evaluationSeconds,
+        ...validatedMetadata,
         oracle: partial.oracle,
         sampleDetails: partial.sampleDetails,
         executionEntries,
@@ -1063,6 +1088,7 @@ export async function runUnifiedRunnerEvaluate(
       return finalize({
         status: "failed",
         evaluationSeconds,
+        ...validatedMetadata,
         oracle: partial.oracle,
         sampleDetails: partial.sampleDetails,
         executionEntries,
@@ -1075,6 +1101,7 @@ export async function runUnifiedRunnerEvaluate(
     return finalize({
       status: "failed",
       evaluationSeconds,
+      ...validatedMetadata,
       oracle: partial.oracle,
       sampleDetails: partial.sampleDetails,
       executionEntries,

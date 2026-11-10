@@ -29,6 +29,23 @@ export interface UnifiedCeilingAmendment {
   readonly amendedMaxEpochs: number;
 }
 
+export interface UnifiedWarmStartEpochZeroReceipt {
+  readonly exact: true;
+  readonly tensorEquality: true;
+  readonly checkedInputs: number;
+  readonly maxAbsDelta: 0;
+}
+
+export interface UnifiedWarmStartLineage {
+  readonly kind: "package-warm-start";
+  readonly sourceModelId: string;
+  readonly sourceVersion: string;
+  readonly sourcePackagePath: string;
+  readonly sourceRoute: ModelRoute;
+  readonly sourceEncoderVersion: string;
+  readonly epochZero: UnifiedWarmStartEpochZeroReceipt;
+}
+
 export interface UnifiedTrainingCheckpointRecipe {
   readonly optimizer: "full_batch_sgd";
   readonly momentum: 0;
@@ -67,6 +84,8 @@ export interface UnifiedTrainingCheckpoint {
   readonly epochRecords: readonly UnifiedTrainEpochRecord[];
   readonly violations: readonly string[];
   readonly tensors: UnifiedTensors;
+  /** Optional additive warm-start lineage; ordinary checkpoints omit it. */
+  readonly warmStart?: UnifiedWarmStartLineage;
   /** Optional explicit resume-only ceiling; absent for ordinary checkpoints. */
   readonly ceilingAmendment?: UnifiedCeilingAmendment;
 }
@@ -92,6 +111,7 @@ export interface UnifiedTrainingCheckpointInput {
   readonly violations: readonly string[];
   readonly tensors: UnifiedTensors;
   readonly timing?: UnifiedPersistedTiming;
+  readonly warmStart?: UnifiedWarmStartLineage;
 }
 
 export interface UnifiedTrainingCheckpointReloadReceipt {
@@ -432,6 +452,50 @@ function validateCeilingAmendment(
   return { previousMaxEpochs: previous, amendedMaxEpochs: amended };
 }
 
+function validateWarmStartEpochZeroReceipt(
+  raw: unknown,
+): UnifiedWarmStartEpochZeroReceipt {
+  const receipt = assertObject(raw, "warmStart.epochZero");
+  if (receipt.exact !== true) {
+    throw invalid("warmStart.epochZero.exact must be true");
+  }
+  if (receipt.tensorEquality !== true) {
+    throw invalid("warmStart.epochZero.tensorEquality must be true");
+  }
+  const checkedInputs = validateNonnegativeInteger(
+    receipt.checkedInputs,
+    "warmStart.epochZero.checkedInputs",
+  );
+  if (receipt.maxAbsDelta !== 0) {
+    throw invalid("warmStart.epochZero.maxAbsDelta must be 0");
+  }
+  return {
+    exact: true,
+    tensorEquality: true,
+    checkedInputs,
+    maxAbsDelta: 0,
+  };
+}
+
+function validateWarmStartLineage(
+  raw: unknown,
+): UnifiedWarmStartLineage | undefined {
+  if (raw === undefined) return undefined;
+  const lineage = assertObject(raw, "warmStart");
+  if (lineage.kind !== "package-warm-start") {
+    throw invalid("warmStart.kind must be package-warm-start");
+  }
+  return {
+    kind: "package-warm-start",
+    sourceModelId: assertNonEmptyString(lineage.sourceModelId, "warmStart.sourceModelId"),
+    sourceVersion: assertNonEmptyString(lineage.sourceVersion, "warmStart.sourceVersion"),
+    sourcePackagePath: assertNonEmptyString(lineage.sourcePackagePath, "warmStart.sourcePackagePath"),
+    sourceRoute: validateRoute(lineage.sourceRoute),
+    sourceEncoderVersion: assertNonEmptyString(lineage.sourceEncoderVersion, "warmStart.sourceEncoderVersion"),
+    epochZero: validateWarmStartEpochZeroReceipt(lineage.epochZero),
+  };
+}
+
 export function validateUnifiedTrainingCheckpoint(
   raw: unknown,
 ): UnifiedTrainingCheckpoint {
@@ -442,6 +506,7 @@ export function validateUnifiedTrainingCheckpoint(
   const completedEpochs = checkpoint.completedEpochs;
   const recipe = validateRecipe(checkpoint.recipe);
   const storedAmendment = validateCeilingAmendment(checkpoint.ceilingAmendment);
+  const warmStart = validateWarmStartLineage(checkpoint.warmStart);
   const effectiveMaxEpochs =
     storedAmendment === undefined ? recipe.maxEpochs : storedAmendment.amendedMaxEpochs;
   if (
@@ -495,6 +560,7 @@ export function validateUnifiedTrainingCheckpoint(
     earlyStop: validateEarlyStop(checkpoint.earlyStop),
     cumulativeTimingSeconds,
     timing,
+    ...(warmStart === undefined ? {} : { warmStart }),
     ...(storedAmendment === undefined ? {} : { ceilingAmendment: storedAmendment }),
     epochRecords,
     violations: validateViolations(checkpoint.violations),
@@ -531,6 +597,7 @@ export function createUnifiedTrainingCheckpoint(
     epochRecords: input.epochRecords,
     violations: input.violations,
     tensors: input.tensors,
+    ...(input.warmStart === undefined ? {} : { warmStart: input.warmStart }),
     ...(amendment === undefined ? {} : { ceilingAmendment: amendment }),
   });
 }
