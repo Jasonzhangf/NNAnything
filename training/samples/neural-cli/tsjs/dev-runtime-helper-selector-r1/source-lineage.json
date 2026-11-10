@@ -1,0 +1,49 @@
+{
+  "schema": "nnanything.tsjs.helper-source-lineage.v1",
+  "family": "tsjs-dev-runtime-helper-selector-r1",
+  "partition": "DEV",
+  "synthetic": true,
+  "lineageFixedAt": "2026-11-10T19:33:00Z",
+  "lineageEvidence": {
+    "kind": "separate pre-generation author declaration",
+    "independentNonDerivationVerified": false,
+    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table."
+  },
+  "instances": [
+    {
+      "id": "dv-h01-import-alias",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/dv-h01-import-alias",
+      "entry": "sources/dv-h01-import-alias/entry.ts",
+      "requestedDeclaration": "pickKernel",
+      "callSiteExpression": "pickKernel(selectedChannel)(input)",
+      "selectorConstruction": "one immutable local alias",
+      "moduleLayout": "entry plus helper module",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; request-aware admission remains NOT_READY because the bounded bridge is absent."
+    },
+    {
+      "id": "dv-h02-local-forward-helper",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/dv-h02-local-forward-helper",
+      "entry": "sources/dv-h02-local-forward-helper/index.ts",
+      "requestedDeclaration": "chooseRenderer",
+      "callSiteExpression": "chooseRenderer(theme)(index)",
+      "selectorConstruction": "direct caller parameter in a function declaration before the local helper",
+      "moduleLayout": "single module with caller before the local helper declaration",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; request-aware admission remains NOT_READY because the bounded bridge is absent."
+    }
+  ],
+  "controls": [
+    "controls/non-runtime-constant.ts",
+    "controls/out-of-slice-array-index.ts"
+  ],
+  "evidence": {
+    "compilerAndRuntimeReceipts": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/raw-checks.json",
+    "publicProducerOutput": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/public-producer-output.json",
+    "semanticProofs": "proofs/semantic-proofs.md"
+  }
+}
