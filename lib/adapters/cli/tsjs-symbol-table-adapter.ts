@@ -32,6 +32,8 @@ import {
   type TsJsParseError,
   type TsJsParseErrorFile,
   type TsJsParserRecord,
+  type TsJsInlineCallableIdentity,
+  type TsJsRuntimeCallableTable,
   type TsJsRuntimeSelectorGap,
   type TsJsRuntimeSelectorObservation,
   type TsJsRuntimeSelectorRoleFact,
@@ -106,6 +108,7 @@ type RuntimeTableMemberDraft = Readonly<{
   name: string;
   initializerRef: string;
   callable: boolean;
+  callableIdentity: TsJsInlineCallableIdentity | null;
 }>;
 
 type RuntimeTableDraft = Readonly<{
@@ -776,10 +779,25 @@ function runtimeTableDraftFor(
       continue;
     }
     const initializer = stripParensAndAssertions(property.initializer);
+    const span = spanOf(initializer.getStart(sf), initializer.getEnd());
+    const callable = ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer);
+    const syntaxKind = ts.isArrowFunction(initializer)
+      ? "arrow_function"
+      : ts.isFunctionExpression(initializer)
+        ? "function_expression"
+        : null;
     members.push({
       name,
-      initializerRef: runtimeRef("member", sf.fileName, spanOf(initializer.getStart(sf), initializer.getEnd())),
-      callable: ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer),
+      initializerRef: runtimeRef("member", sf.fileName, span),
+      callable,
+      callableIdentity: syntaxKind === null
+        ? null
+        : Object.freeze({
+            declarationRef: runtimeRef(`callable.${syntaxKind}`, sf.fileName, span),
+            moduleRef: sf.fileName,
+            span,
+            syntaxKind,
+          }),
     });
   }
   return Object.freeze({
@@ -2069,6 +2087,18 @@ function makeRuntimeSelectorObservation(
     }),
     evidenceRefs: Object.freeze([sourceReadRef]),
   });
+  const callableTable: TsJsRuntimeCallableTable = Object.freeze({
+    tableRef: table.ref,
+    members: Object.freeze(
+      table.members.map(member =>
+        Object.freeze({
+          name: member.name,
+          initializerRef: member.initializerRef,
+          callableIdentity: member.callableIdentity,
+        }),
+      ),
+    ),
+  });
   return Object.freeze({
     observationRef: `observation:${callSiteRef}`,
     callSiteRef,
@@ -2088,6 +2118,7 @@ function makeRuntimeSelectorObservation(
       evidenceRefs: Object.freeze([sourceReadRef]),
     }),
     facts: Object.freeze([tableFact, dependencyFact]),
+    callableTable,
     sourceReadReceipt: Object.freeze({
       receiptId: sourceReadRef,
       actionRef: `${sourceReadRef}:action`,
