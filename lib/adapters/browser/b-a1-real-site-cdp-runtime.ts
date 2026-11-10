@@ -213,6 +213,7 @@ export interface BA1RealSiteCdpRuntime {
   setViewport(viewport: BA1ObservationViewport): Promise<BA1ObservationViewportMeasurement>;
   beginProjection(input: {
     readonly scopeSelector: string;
+    readonly openShadowRootChildSelector?: string;
     readonly requestedRole: string;
     readonly access: BA1RealSiteBrowserProjectionRequest["access"];
   }): Promise<BA1RealSiteProjectionOperation>;
@@ -2363,6 +2364,9 @@ export async function createBA1RealSiteCdpRuntime(options: {
         requestId: randomUUID(),
         identity: token,
         scopeSelector: requireNonEmptyString(input.scopeSelector, "beginProjection.scopeSelector"),
+        ...(input.openShadowRootChildSelector === undefined
+          ? {}
+          : { openShadowRootChildSelector: input.openShadowRootChildSelector }),
         requestedRole: requireNonEmptyString(input.requestedRole, "beginProjection.requestedRole"),
         access: input.access,
       };

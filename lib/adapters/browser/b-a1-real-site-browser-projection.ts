@@ -7,6 +7,7 @@
 import {
   projectSearchInputHostCandidates,
   searchInputHostHostOf,
+  type SearchInputHostBoundedMeasurements,
 } from "./search-input-host-projection.js";
 import {
   createStableNodeRefRegistry,
@@ -39,6 +40,7 @@ export interface BA1RealSiteBrowserProjectionRequest {
   readonly requestId: string;
   readonly identity: BA1Identity;
   readonly scopeSelector: string;
+  readonly openShadowRootChildSelector?: string;
   readonly requestedRole: string;
   readonly access: SearchInputHostAccess;
 }
@@ -68,6 +70,8 @@ export interface BA1RealSiteBrowserProjectionFailure {
       | "invalid_request"
       | "scope_not_found"
       | "scope_ambiguous"
+      | "scope_shadow_root_unavailable"
+      | "scope_stale"
       | "observation_failed"
       | "projection_failed";
     readonly stage: "request" | "resolver" | "observation" | "projection";
@@ -215,9 +219,11 @@ function requireExactKeys(
   value: Record<string, unknown>,
   keys: readonly string[],
   label: string,
+  optionalKeys: readonly string[] = [],
 ): void {
   const expected = new Set(keys);
-  const unknown = Object.keys(value).filter(key => !expected.has(key));
+  const optional = new Set(optionalKeys);
+  const unknown = Object.keys(value).filter(key => !expected.has(key) && !optional.has(key));
   const missing = keys.filter(key => !Object.hasOwn(value, key));
   if (unknown.length > 0 || missing.length > 0) {
     throw new TypeError(
@@ -260,6 +266,7 @@ function validateRequest(raw: unknown): BA1RealSiteBrowserProjectionRequest {
     request,
     ["schema", "requestId", "identity", "scopeSelector", "requestedRole", "access"],
     "projection request",
+    ["openShadowRootChildSelector"],
   );
   if (request.schema !== BA1_REAL_SITE_BROWSER_PROJECTION_REQUEST_SCHEMA) {
     throw new TypeError("projection request schema is invalid");
@@ -269,6 +276,14 @@ function validateRequest(raw: unknown): BA1RealSiteBrowserProjectionRequest {
     requestId: requireNonEmptyString(request.requestId, "projection request.requestId"),
     identity: parseIdentity(request.identity, "projection request.identity"),
     scopeSelector: requireNonEmptyString(request.scopeSelector, "projection request.scopeSelector"),
+    ...(request.openShadowRootChildSelector === undefined
+      ? {}
+      : {
+          openShadowRootChildSelector: requireNonEmptyString(
+            request.openShadowRootChildSelector,
+            "projection request.openShadowRootChildSelector",
+          ),
+        }),
     requestedRole: requireNonEmptyString(request.requestedRole, "projection request.requestedRole"),
     access: requireAccess(request.access, "projection request.access"),
   });
@@ -319,45 +334,155 @@ function correctMissingMeasurements(
   return { ...candidate, disabled, editable };
 }
 
-function measureProjection(
-  request: BA1RealSiteBrowserProjectionRequest,
-): BA1RealSiteProjectedObservation {
-  let scopeRoot: Element;
+function projectionError(
+  code: BA1RealSiteBrowserProjectionFailure["error"]["code"],
+  stage: BA1RealSiteBrowserProjectionFailure["error"]["stage"],
+  message: string,
+): Error {
+  return Object.assign(new Error(message), {
+    projectionCode: code,
+    projectionStage: stage,
+  });
+}
+
+interface ResolvedProjectionScope {
+  readonly scopeRoot: Element;
+  readonly scopeRef: string;
+  readonly host: Element | null;
+  readonly shadowRoot: ShadowRoot | null;
+  readonly ancestrySeed: readonly Element[] | null;
+}
+
+function normalAncestrySeed(host: Element): readonly Element[] {
+  const seed: Element[] = [host];
+  let current = host.parentElement;
+  while (current !== null) {
+    seed.push(current);
+    if (current === document.documentElement) return Object.freeze(seed);
+    current = current.parentElement;
+  }
+  throw projectionError(
+    "scope_not_found",
+    "resolver",
+    "selected host ancestry does not reach document.documentElement",
+  );
+}
+
+function directShadowChildren(
+  root: ShadowRoot,
+  selector: string,
+): readonly Element[] {
+  try {
+    return Array.from(root.children).filter(child => child.matches(selector));
+  } catch {
+    throw projectionError("invalid_request", "request", "openShadowRootChildSelector is invalid");
+  }
+}
+
+function resolveProjectionScope(request: BA1RealSiteBrowserProjectionRequest): ResolvedProjectionScope {
+  let host: Element;
   try {
     const matches = document.querySelectorAll(request.scopeSelector);
     if (matches.length === 0) {
-      throw Object.assign(new Error(`scope selector matched no elements: ${request.scopeSelector}`), {
-        projectionCode: "scope_not_found",
-        projectionStage: "resolver",
-      });
+      throw projectionError(
+        "scope_not_found",
+        "resolver",
+        `scope selector matched no elements: ${request.scopeSelector}`,
+      );
     }
     if (matches.length !== 1) {
-      throw Object.assign(new Error(`scope selector matched ${matches.length} elements`), {
-        projectionCode: "scope_ambiguous",
-        projectionStage: "resolver",
-      });
+      throw projectionError(
+        "scope_ambiguous",
+        "resolver",
+        `scope selector matched ${matches.length} elements`,
+      );
     }
-    scopeRoot = matches[0]!;
+    host = matches[0]!;
   } catch (error) {
     if (error instanceof Error && "projectionCode" in error) throw error;
-    throw Object.assign(new Error(`scope selector is invalid: ${request.scopeSelector}`), {
-      projectionCode: "invalid_request",
-      projectionStage: "resolver",
-    });
+    throw projectionError("invalid_request", "request", `scope selector is invalid: ${request.scopeSelector}`);
   }
-
-  if (!(scopeRoot instanceof Element)) {
-    throw Object.assign(new Error("scope selector did not resolve to an Element"), {
-      projectionCode: "observation_failed",
-      projectionStage: "resolver",
-    });
+  if (!(host instanceof Element)) {
+    throw projectionError("observation_failed", "resolver", "scope selector did not resolve to an Element");
   }
+  if (request.openShadowRootChildSelector === undefined) {
+    return {
+      scopeRoot: host,
+      scopeRef: request.scopeSelector,
+      host: null,
+      shadowRoot: null,
+      ancestrySeed: null,
+    };
+  }
+  const shadowRoot = host.shadowRoot;
+  if (shadowRoot === null) {
+    throw projectionError(
+      "scope_shadow_root_unavailable",
+      "resolver",
+      "selected host has no open shadow root",
+    );
+  }
+  const children = directShadowChildren(shadowRoot, request.openShadowRootChildSelector);
+  if (children.length === 0) {
+    throw projectionError(
+      "scope_not_found",
+      "resolver",
+      "openShadowRootChildSelector matched no direct child",
+    );
+  }
+  if (children.length !== 1) {
+    throw projectionError(
+      "scope_ambiguous",
+      "resolver",
+      `openShadowRootChildSelector matched ${children.length} direct children`,
+    );
+  }
+  return {
+    scopeRoot: children[0]!,
+    scopeRef: JSON.stringify({
+      kind: "open-shadow-root-child",
+      hostSelector: request.scopeSelector,
+      childSelector: request.openShadowRootChildSelector,
+    }),
+    host,
+    shadowRoot,
+    ancestrySeed: normalAncestrySeed(host),
+  };
+}
 
-  const scopeRef = request.scopeSelector;
+function assertProjectionScopeCurrent(
+  request: BA1RealSiteBrowserProjectionRequest,
+  resolved: ResolvedProjectionScope,
+): void {
+  if (request.openShadowRootChildSelector === undefined) return;
+  const { host, shadowRoot, scopeRoot } = resolved;
+  const children = shadowRoot === null || request.openShadowRootChildSelector === undefined
+    ? []
+    : directShadowChildren(shadowRoot, request.openShadowRootChildSelector);
+  if (
+    host === null
+    || shadowRoot === null
+    || !host.isConnected
+    || host.shadowRoot !== shadowRoot
+    || !scopeRoot.isConnected
+    || scopeRoot.parentNode !== shadowRoot
+    || children.length !== 1
+    || children[0] !== scopeRoot
+  ) {
+    throw projectionError("scope_stale", "resolver", "selected shadow-root path changed during projection");
+  }
+}
+
+function measureProjection(
+  request: BA1RealSiteBrowserProjectionRequest,
+): BA1RealSiteProjectedObservation {
+  const resolved = resolveProjectionScope(request);
+  const { scopeRoot, scopeRef } = resolved;
   let live: {
     readonly observed: readonly { readonly nodeRef: string; readonly element: Element }[];
     readonly observedHosts: readonly { readonly nodeRef: string; readonly element: Element }[];
     readonly propertiesOf: (nodeRef: string) => Record<string, unknown> | null;
+    readonly boundedMeasurementsOf: ((nodeRef: string) => SearchInputHostBoundedMeasurements | null) | undefined;
   };
   try {
     const snapshot = observeLiveDom({
@@ -367,6 +492,9 @@ function measureProjection(
       excludeRoot: null,
       snapshotRef: request.identity.observationId,
       documentRef: request.identity.documentRef,
+      ...(resolved.ancestrySeed === null
+        ? {}
+        : { rootElement: resolved.scopeRoot, ancestrySeed: resolved.ancestrySeed }),
     });
     const observed = snapshot.observation.nodes.flatMap(node => {
       const element = snapshot.resolveElement(node.nodeRef);
@@ -382,6 +510,9 @@ function measureProjection(
         const properties = snapshot.properties.get(nodeRef);
         return properties === undefined ? null : properties as unknown as Record<string, unknown>;
       },
+      boundedMeasurementsOf: resolved.ancestrySeed === null
+        ? undefined
+        : (nodeRef: string) => snapshot.boundedCandidateMeasurements?.get(nodeRef) ?? null,
     };
   } catch (error) {
     throw Object.assign(
@@ -400,6 +531,9 @@ function measureProjection(
       scopeRoot,
       nodes: live.observed,
       propertiesOf: live.propertiesOf,
+      ...(live.boundedMeasurementsOf === undefined
+        ? {}
+        : { boundedMeasurementsOf: live.boundedMeasurementsOf }),
       coverage: {
         scopeRef,
         observedCandidateCount: live.observedHosts.length,
@@ -448,6 +582,7 @@ function measureProjection(
     })
     .map(candidate => candidate.ref);
 
+  assertProjectionScopeCurrent(request, resolved);
   registerProjectedActionTargets(request, candidates, candidateByRef);
 
   return Object.freeze({
@@ -469,7 +604,16 @@ export function handleBA1RealSiteBrowserProjectionRequest(
 ): BA1RealSiteBrowserProjectionResponse {
   let requestId = "";
   try {
-    const request = validateRequest(raw);
+    let request: BA1RealSiteBrowserProjectionRequest;
+    try {
+      request = validateRequest(raw);
+    } catch (error) {
+      throw projectionError(
+        "invalid_request",
+        "request",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     requestId = request.requestId;
     if (request.requestedRole !== SEARCH_INPUT_HOST_ROLE) {
       return failure(

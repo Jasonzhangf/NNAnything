@@ -16,8 +16,15 @@ import {
   runBA1RealSiteFirstResult,
 } from "../dist/adapters/browser/b-a1-real-site-consumer.js";
 import {
+  BA1RealSiteCdpRuntimeError,
   createBA1RealSiteCdpRuntime,
 } from "../dist/adapters/browser/b-a1-real-site-cdp-runtime.js";
+import {
+  SEARCH_INPUT_HOST_WIRES,
+  inferSearchInputHostBinding,
+  neutralSearchInputHostProfile,
+  validateSearchInputHostProfile,
+} from "../dist/search-input-host.js";
 import { BA1_ENCODER_VERSION } from "../dist/training/b-a1-route-encoder.js";
 import {
   createUnifiedModelPackage,
@@ -156,6 +163,45 @@ function selectedGold(ref) {
   };
 }
 
+async function projectionBundleScript() {
+  const projectionBundle = await build({
+    entryPoints: [new URL("../lib/adapters/browser/b-a1-real-site-browser-projection.ts", import.meta.url).pathname],
+    bundle: true,
+    write: false,
+    format: "iife",
+    globalName: "BA1Projection",
+    platform: "browser",
+    target: "es2022",
+  });
+  return `${projectionBundle.outputFiles[0].text}
+globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBrowserProjectionRequest;`;
+}
+
+function openShadowFixture({
+  id = "mdn-search",
+  hostStyle = "",
+  rootHtml = '<dialog open style="display:block; position:relative; margin:20px; padding:16px; width:320px; height:80px;"><label>Search<input id="shadow-search" type="search" tabindex="0"></label></dialog>',
+  hostTag = "div",
+  className = "",
+} = {}) {
+  return `
+    <${hostTag} id="${id}" class="${className}" style="${hostStyle}"></${hostTag}>
+    <script>
+      document.getElementById(${JSON.stringify(id)})
+        .attachShadow({ mode: "open" })
+        .innerHTML = ${JSON.stringify(rootHtml)};
+    </script>
+  `;
+}
+
+async function expectRuntimeProjectionFailure(promise, expectedCode, expectedStage) {
+  const error = await promise.then(() => null, value => value);
+  assert.ok(error instanceof BA1RealSiteCdpRuntimeError, `expected typed projection error, got ${String(error)}`);
+  assert.equal(error.code, "projection_failed");
+  assert.equal(error.detail.code, expectedCode);
+  assert.equal(error.detail.stage, expectedStage);
+}
+
 test("real headless Chrome projection and current-control freshness", async t => {
   const evidenceRoot = process.env.B_A1_RUNTIME_EVIDENCE_DIR
     ?? await mkdtemp(join(tmpdir(), "b-a1-runtime-evidence-"));
@@ -186,17 +232,7 @@ test("real headless Chrome projection and current-control freshness", async t =>
     });
   });
   const pageInitiatedTarget = `http://127.0.0.1:${pageNavigationPort}/target`;
-  const projectionBundle = await build({
-    entryPoints: [new URL("../lib/adapters/browser/b-a1-real-site-browser-projection.ts", import.meta.url).pathname],
-    bundle: true,
-    write: false,
-    format: "iife",
-    globalName: "BA1Projection",
-    platform: "browser",
-    target: "es2022",
-  });
-  const projectionScript = `${projectionBundle.outputFiles[0].text}
-globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBrowserProjectionRequest;`;
+  const projectionScript = await projectionBundleScript();
 
   const runtime = await createBA1RealSiteCdpRuntime();
   try {
@@ -544,5 +580,324 @@ globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBr
   } finally {
     await runtime.close();
     await new Promise(resolve => pageNavigationServer.close(() => resolve()));
+  }
+});
+
+test("bounded open-shadow-root resolver public controls", async t => {
+  const evidenceRoot = process.env.B_A1_RUNTIME_EVIDENCE_DIR
+    ?? await mkdtemp(join(tmpdir(), "b-a1-shadow-runtime-evidence-"));
+  const runRoot = join(evidenceRoot, "shadow-run");
+  await rm(runRoot, { recursive: true, force: true });
+  await mkdir(runRoot, { recursive: true });
+  const packageDir = await mkdtemp(join(tmpdir(), "b-a1-shadow-runtime-package-"));
+  const packagePath = await packageScoringHasLabel(packageDir);
+  const runtime = await createBA1RealSiteCdpRuntime();
+  const projectionScript = await projectionBundleScript();
+  const expectedScopeRef = JSON.stringify({
+    kind: "open-shadow-root-child",
+    hostSelector: "#mdn-search",
+    childSelector: "dialog",
+  });
+  const selectionProfile = validateSearchInputHostProfile({
+    ...neutralSearchInputHostProfile(),
+    weights: SEARCH_INPUT_HOST_WIRES.map(wire => ({
+      "type.search": 2,
+      "hasLabel": 1,
+      "markerHit": 2,
+      "nonSearchMarker": -2,
+    })[wire] ?? 0),
+  });
+
+  const bind = (projection, profile = selectionProfile) => inferSearchInputHostBinding({
+    goal: { requestedRole: projection.requestedRole, allowedScopeRef: projection.scopeRef },
+    candidates: projection.candidates,
+    coverage: projection.coverage,
+    currentControl: projection.identity,
+  }, { profile });
+
+  const projectionRequest = (scopeSelector = "#mdn-search", childSelector = "dialog") => ({
+    scopeSelector,
+    openShadowRootChildSelector: childSelector,
+    requestedRole: "search-input-host",
+    access: "available",
+  });
+
+  const setAndProject = async (html, documentRef, input = projectionRequest()) => {
+    await runtime.setDocumentContent(html, documentRef);
+    return runtime.beginProjection(input);
+  };
+
+  try {
+    await runtime.setDocumentContent(html1, "shadow-light");
+    await runtime.installProjectionBundle(projectionScript);
+    const light = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    assert.equal(light.projection.scopeRef, "#scope");
+    assert.equal(light.projection.candidates.length, 1);
+    assert.equal(light.projection.candidates[0].cssHidden, false);
+    assert.equal(light.projection.candidates[0].intersectsViewport, true);
+    assert.equal(bind(light.projection).state, "selected");
+
+    await runtime.setDocumentContent(openShadowFixture(), "shadow-q-sequence");
+    const q1 = await runtime.beginProjection(projectionRequest());
+    const q2 = await runtime.beginProjection(projectionRequest());
+    assert.equal(q1.projection.scopeRef, expectedScopeRef);
+    assert.equal(q2.projection.scopeRef, expectedScopeRef);
+    assert.equal(q1.projection.identity.documentRef, q2.projection.identity.documentRef);
+    assert.equal(q1.operation.generation, q2.operation.generation);
+    assert.notEqual(q1.operation.identity.observationId, q2.operation.identity.observationId);
+    assert.equal(q1.projection.identity.documentRef, q1.operation.identity.documentRef);
+    assert.equal(q1.projection.identity.observationId, q1.operation.identity.observationId);
+    assert.equal(q1.projection.identity.revision, q1.operation.identity.revision);
+    assert.equal(q2.projection.identity.documentRef, q2.operation.identity.documentRef);
+    assert.equal(q2.projection.identity.observationId, q2.operation.identity.observationId);
+    assert.equal(q2.projection.identity.revision, q2.operation.identity.revision);
+    assert.equal(q1.projection.candidates.length, 1);
+    assert.equal(q2.projection.candidates.length, 1);
+    assert.match(q1.projection.candidates[0].ref, /^node-\d+$/);
+    assert.match(q2.projection.candidates[0].ref, /^node-\d+$/);
+    assert.equal(q1.projection.candidates[0].scopeRef, expectedScopeRef);
+    assert.equal(q2.projection.candidates[0].scopeRef, expectedScopeRef);
+    assert.equal(q1.projection.coverage.scopeRef, expectedScopeRef);
+    assert.equal(q2.projection.coverage.scopeRef, expectedScopeRef);
+    const positiveCandidate = q2.projection.candidates[0];
+    assert.equal(positiveCandidate.cssHidden, false);
+    assert.equal(positiveCandidate.intersectsViewport, true);
+    assert.equal(positiveCandidate.explicitTabIndexKind, "nonnegative");
+    assert.equal(positiveCandidate.tabIndexFocus, true);
+    assert.deepEqual(q2.projection.coverage, {
+      scopeRef: expectedScopeRef,
+      observedCandidateCount: 1,
+      unassessedIframeCount: 0,
+      unassessedObjectCount: 0,
+      unassessedOpenShadowRootCount: 0,
+      excluded: [],
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(q2.projection)), q2.projection);
+    assertJsonProjection(q2.projection);
+    assert.equal(bind(q2.projection).state, "selected");
+    await assert.rejects(
+      runBA1RealSiteFirstResult({
+        observation: q1.projection,
+        packagePath,
+        currentControl: () => runtime.readControl(),
+        gold: selectedGold(q1.projection.candidates[0].ref),
+        sampleId: "shadow-q1-stale",
+        outputDir: join(runRoot, "shadow-q1-stale"),
+      }),
+      error => error instanceof BA1RealSiteFreshnessError && error.code === "stale_candidate",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject("<div id=\"other\"></div>", "shadow-missing-host"),
+      "scope_not_found",
+      "resolver",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(
+        `${openShadowFixture({ id: "mdn-search", className: "mdn-host" })}
+         ${openShadowFixture({ id: "mdn-search-second", className: "mdn-host" })}`,
+        "shadow-duplicate-host",
+        projectionRequest(".mdn-host"),
+      ),
+      "scope_ambiguous",
+      "resolver",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(
+        openShadowFixture({ rootHtml: "<span>no dialog</span>" }),
+        "shadow-missing-child",
+      ),
+      "scope_not_found",
+      "resolver",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(
+        openShadowFixture({ rootHtml: "<dialog>first</dialog><dialog>second</dialog>" }),
+        "shadow-duplicate-child",
+      ),
+      "scope_ambiguous",
+      "resolver",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(
+        openShadowFixture({ rootHtml: "<section><dialog>nested</dialog></section>" }),
+        "shadow-nested-only",
+      ),
+      "scope_not_found",
+      "resolver",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(
+        "<div id=\"mdn-search\"></div>",
+        "shadow-no-open-root",
+      ),
+      "scope_shadow_root_unavailable",
+      "resolver",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(openShadowFixture(), "shadow-invalid-host-selector", projectionRequest("[")),
+      "invalid_request",
+      "request",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(openShadowFixture(), "shadow-invalid-child-selector", projectionRequest("#mdn-search", "[")),
+      "invalid_request",
+      "request",
+    );
+
+    await expectRuntimeProjectionFailure(
+      setAndProject(openShadowFixture(), "shadow-empty-child-selector", projectionRequest("#mdn-search", "")),
+      "invalid_request",
+      "request",
+    );
+
+    const hiddenHost = await setAndProject(
+      openShadowFixture({ hostStyle: "display:none" }),
+      "shadow-hidden-host",
+    );
+    assert.equal(hiddenHost.projection.candidates[0].cssHidden, true);
+    const hiddenHostBinding = bind(hiddenHost.projection, neutralSearchInputHostProfile());
+    assert.equal(hiddenHostBinding.state, "insufficient_observation");
+    assert.equal(hiddenHostBinding.rejection, "unassessed_scope_content");
+
+    const hiddenDialog = await setAndProject(
+      openShadowFixture({
+        rootHtml: '<dialog open style="display:none">Search<input id="shadow-search" type="search"></dialog>',
+      }),
+      "shadow-hidden-dialog",
+    );
+    assert.equal(hiddenDialog.projection.candidates[0].cssHidden, true);
+    const hiddenDialogBinding = bind(hiddenDialog.projection, neutralSearchInputHostProfile());
+    assert.equal(hiddenDialogBinding.state, "insufficient_observation");
+    assert.equal(hiddenDialogBinding.rejection, "unassessed_scope_content");
+
+    const opacityZero = await setAndProject(
+      openShadowFixture({
+        hostStyle: "opacity:0",
+        rootHtml: '<dialog open style="display:block; position:relative; margin:20px; width:320px; height:80px;"><input id="shadow-search" type="search" style="display:block; opacity:1; width:200px; height:30px;"></dialog>',
+      }),
+      "shadow-opacity-zero",
+    );
+    assert.equal(opacityZero.projection.candidates[0].cssHidden, true);
+    assert.equal(opacityZero.projection.candidates[0].intersectsViewport, true);
+    const opacityZeroBinding = bind(opacityZero.projection, neutralSearchInputHostProfile());
+    assert.equal(opacityZeroBinding.state, "insufficient_observation");
+    assert.equal(opacityZeroBinding.rejection, "unassessed_scope_content");
+
+    const unsupportedAncestry = await setAndProject(
+      openShadowFixture({ hostStyle: "transform: perspective(100px)" }),
+      "shadow-unsupported-ancestry",
+    );
+    assert.equal(unsupportedAncestry.projection.candidates[0].intersectsViewport, null);
+    const unsupportedAncestryBinding = bind(
+      unsupportedAncestry.projection,
+      neutralSearchInputHostProfile(),
+    );
+    assert.equal(unsupportedAncestryBinding.state, "insufficient_observation");
+    assert.equal(unsupportedAncestryBinding.rejection, "unmeasured_candidate_fields");
+
+    const nestedCoverage = await setAndProject(
+      `${openShadowFixture({
+        rootHtml: '<dialog open style="display:block"><input type="search"><div id="nested-shadow-host"></div></dialog>',
+      })}
+      <script>
+        document.getElementById("mdn-search").shadowRoot
+          .querySelector("#nested-shadow-host")
+          .attachShadow({ mode: "open" })
+          .innerHTML = '<input type="search">';
+      </script>`,
+      "shadow-nested-coverage",
+    );
+    assert.equal(nestedCoverage.projection.coverage.unassessedOpenShadowRootCount, 1);
+    const nestedCoverageBinding = bind(nestedCoverage.projection, neutralSearchInputHostProfile());
+    assert.equal(nestedCoverageBinding.state, "insufficient_observation");
+    assert.equal(nestedCoverageBinding.rejection, "unassessed_scope_content");
+
+    const staleReplacement = `${openShadowFixture()}
+      <script>
+        const staleHost = document.getElementById("mdn-search");
+        const staleDialog = staleHost.shadowRoot.querySelector("dialog");
+        const originalRect = staleDialog.getBoundingClientRect.bind(staleDialog);
+        let replaced = false;
+        staleDialog.getBoundingClientRect = () => {
+          if (!replaced) {
+            replaced = true;
+            const replacement = document.createElement("div");
+            replacement.id = "mdn-search";
+            replacement.attachShadow({ mode: "open" }).innerHTML =
+              '<dialog open style="display:block"><input type="search"></dialog>';
+            staleHost.replaceWith(replacement);
+          }
+          return originalRect();
+        };
+      </script>`;
+    await expectRuntimeProjectionFailure(
+      setAndProject(staleReplacement, "shadow-stale-replacement"),
+      "scope_stale",
+      "resolver",
+    );
+
+    const measurementFailure = `${openShadowFixture()}
+      <script>
+        document.getElementById("mdn-search").shadowRoot
+          .querySelector("dialog")
+          .getBoundingClientRect = () => { throw new Error("measurement failed"); };
+      </script>`;
+    await expectRuntimeProjectionFailure(
+      setAndProject(measurementFailure, "shadow-measurement-failure"),
+      "observation_failed",
+      "observation",
+    );
+
+    const report = {
+      ok: true,
+      lightScopeRef: light.projection.scopeRef,
+      shadowScopeRef: q2.projection.scopeRef,
+      positiveCandidate: {
+        cssHidden: positiveCandidate.cssHidden,
+        intersectsViewport: positiveCandidate.intersectsViewport,
+        explicitTabIndexKind: positiveCandidate.explicitTabIndexKind,
+        tabIndexFocus: positiveCandidate.tabIndexFocus,
+      },
+      identity: q2.projection.identity,
+      generation: q2.operation.generation,
+      coverage: q2.projection.coverage,
+      q1StaleRejected: true,
+      hiddenHost: hiddenHostBinding,
+      hiddenDialog: hiddenDialogBinding,
+      opacityZero: {
+        candidate: {
+          cssHidden: opacityZero.projection.candidates[0].cssHidden,
+          intersectsViewport: opacityZero.projection.candidates[0].intersectsViewport,
+        },
+        binder: opacityZeroBinding,
+      },
+      unsupportedAncestry: {
+        candidate: {
+          cssHidden: unsupportedAncestry.projection.candidates[0].cssHidden,
+          intersectsViewport: unsupportedAncestry.projection.candidates[0].intersectsViewport,
+        },
+        binder: unsupportedAncestryBinding,
+      },
+      nestedCoverage: {
+        coverage: nestedCoverage.projection.coverage,
+        binder: nestedCoverageBinding,
+      },
+    };
+    await writeFile(join(runRoot, "shadow-runtime-report.json"), `${JSON.stringify(report, null, 2)}\n`);
+    console.log(JSON.stringify(report, null, 2));
+  } finally {
+    await runtime.close();
   }
 });
