@@ -170,6 +170,30 @@ gold=unknown 子集。红测保留为
 - Carol R2 语料当前没有 admitted training-ready semantic-unknown row。该缺口必须保留，
   不通过改 gold 或把 gap 补成 unknown 来制造分母。
 
+### 6.2 B.6 admitted evidence 与 D.4 query completion
+
+root evidence admission 只接受 admitted source observation 的 typed payload，不接受
+requested-declaration audit ref、gold、model score 或 inferred 字符串。`source_read_receipt`
+必须与当前 binding/resolution、receipt result membership 和 typed `previousExecution`
+identity 一致；`previousExecution` 缺失时不得回退或放宽 target、action、step 或
+pending-relation 检查。重复 evidence ID 不进入 root eligibility，拒绝项只保留诊断原因。
+
+`observedLocalFacts` 的语义只来自显式 closed role：
+`selector_candidate_table` 与 `runtime_selector_dependency`。`factRef` 和 audit text 不
+参与分类；缺失 role 的旧样本保持 unsupported。动态 witness 需要同一已执行 episode 中
+两个角色事实，并共同 join 到当前 relation 的有效 admitted source read；未 visited
+episode、缺失角色、重复角色或断开的 evidence join 都保持 incomplete 或
+returned_unresolved。
+
+D.4 的 `queryCompletion` 必须显式记录 `complete_true`、`complete_false`、
+`complete_unknown`、`returned_unresolved` 或 `incomplete`。terminal prediction 本身不证明
+query completed；缺失 completion 不合成结果，`RETURN` 不等于 complete，显式 completion
+与 terminal judgement 冲突时不得进入 gold comparison。gold 仍只在下游比较阶段读取。
+
+受控合成 fixture 只验证工程 bookkeeping、拒绝路径和输入/决策不变量。它不是真实
+candidate evaluation，不恢复 real unknown success，也不授权重跑 holdout、修改原
+verification rows、gold、阈值、权重或采用状态。
+
 ## 7. 评价准备步骤
 
 未来真实评价按以下顺序执行，不在本准备任务中执行：

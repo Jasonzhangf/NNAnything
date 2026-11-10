@@ -195,6 +195,62 @@ function requireArray(value: unknown, field: string): readonly unknown[] {
   return value;
 }
 
+export interface StepwiseObservedLocalFact {
+  readonly factRef: string;
+  readonly role?: "selector_candidate_table" | "runtime_selector_dependency";
+  readonly state: string;
+  readonly value: string | null;
+  readonly evidenceRefs: readonly string[];
+}
+
+function parseObservedLocalFacts(
+  localSyntax: Record<string, unknown>,
+  sampleId: string,
+  stepId: string,
+): readonly StepwiseObservedLocalFact[] {
+  const rawFacts = requireArray(
+    localSyntax.observedLocalFacts ?? [],
+    `sample ${sampleId} ${stepId} observedLocalFacts`,
+  );
+  return rawFacts.map((rawFact, index) => {
+    if (!isRecord(rawFact)) {
+      throw new TypeError(
+        `sample ${sampleId} ${stepId} observedLocalFacts[${index}] must be an object`,
+      );
+    }
+    const role = rawFact.role;
+    if (
+      role !== undefined
+      && role !== "selector_candidate_table"
+      && role !== "runtime_selector_dependency"
+    ) {
+      throw new TypeError(
+        `sample ${sampleId} ${stepId} observedLocalFacts[${index}].role is invalid; expected selector_candidate_table or runtime_selector_dependency`,
+      );
+    }
+    return {
+      factRef: requireString(
+        rawFact.factRef,
+        `sample ${sampleId} ${stepId} observedLocalFacts[${index}].factRef`,
+      ),
+      ...(role === undefined ? {} : { role }),
+      state: requireString(
+        rawFact.state,
+        `sample ${sampleId} ${stepId} observedLocalFacts[${index}].state`,
+      ),
+      value: typeof rawFact.value === "string" ? rawFact.value : null,
+      evidenceRefs: requireArray(
+        rawFact.evidenceRefs ?? [],
+        `sample ${sampleId} ${stepId} observedLocalFacts[${index}].evidenceRefs`,
+      ).map((ref, refIndex) =>
+        requireString(
+          ref,
+          `sample ${sampleId} ${stepId} observedLocalFacts[${index}].evidenceRefs[${refIndex}]`,
+        )),
+    };
+  });
+}
+
 function parseJsonl(text: string, field: string): readonly unknown[] {
   return text.split("\n").flatMap((line, index) => {
     if (line.trim().length === 0) return [];
@@ -741,7 +797,11 @@ export async function loadStepwiseEpisodeFamily(
             receiptId: requireString(entry.receiptId, `sample ${sampleId} ${stepId} receiptId`),
             ...(typeof entry.actionRef === "string" ? { actionRef: entry.actionRef } : {}),
             action: requireString(entry.action, `sample ${sampleId} ${stepId} receipt action`),
-            ...(typeof entry.target === "string" ? { target: entry.target } : {}),
+            ...(typeof entry.target === "string"
+              ? { target: entry.target }
+              : typeof entry.targetRef === "string"
+                ? { target: entry.targetRef }
+                : {}),
             ...(typeof entry.fromEdgeRef === "string" ? { fromEdgeRef: entry.fromEdgeRef } : {}),
             ...(entry.origin === "source_observation" || entry.origin === "model_execution"
               ? { origin: entry.origin }
@@ -892,6 +952,7 @@ export async function loadStepwiseEpisodeFamily(
         previousExecution,
       );
       const localEvidence = collectStepEvidence(localSyntax);
+      const observedLocalFacts = parseObservedLocalFacts(localSyntax, sampleId, stepId);
       const evidenceRefs = [...new Set([
         ...localEvidence,
         ...receipts.flatMap(receipt => receipt.evidenceRefs),
@@ -900,7 +961,7 @@ export async function loadStepwiseEpisodeFamily(
         ...(previousExecution?.evidenceRefs ?? []),
         ...(localCandidateCursor?.evidenceRefs ?? []),
       ])];
-      episodes.push({
+      const episode = {
         sampleId,
         stepId,
         requestId: requestRef,
@@ -947,7 +1008,9 @@ export async function loadStepwiseEpisodeFamily(
           : null,
         derivationFamily: manifest.derivationFamily,
         adapterRef: `tsjs-unified-adapter:${manifest.language}`,
-      });
+        observedLocalFacts,
+      };
+      episodes.push(episode as unknown as RelationStepEpisode);
     }
   }
   if (episodes.length === 0) throw new TypeError(`stepwise student corpus ${observationsPath} has no steps`);
