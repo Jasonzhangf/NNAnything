@@ -25,8 +25,15 @@ import { loadStepwiseEpisodeFamily } from "./unified-student-converter.js";
 import { loadGoldFamily, type GoldRecord } from "./unified-supervision-converter.js";
 import { loadUnifiedModelPackageFromFile, UnifiedModelPackageError } from "./unified-model-package.js";
 import { monotonicSeconds } from "./unified-timing.js";
+import {
+  aggregateFamilyLabel,
+  familyLabelOfGold,
+  type FamilyLabelAggregation,
+  type FamilyLabelAggregationRow,
+} from "./unified-evaluation-aggregation.js";
 
 export const UNIFIED_EVALUATE_CONFIG_SCHEMA = "nnanything.unified.evaluate-config.v1" as const;
+export const UNIFIED_DEV_EVALUATE_CONFIG_SCHEMA = "nnanything.unified.dev-evaluate-config.v1" as const;
 export const UNIFIED_EVALUATE_REPORT_SCHEMA = "nnanything.unified.evaluate-report.v1" as const;
 
 export interface UnifiedRunnerEvaluateConfig {
@@ -38,12 +45,36 @@ export interface UnifiedRunnerEvaluateConfig {
   readonly runId: string;
 }
 
+export interface UnifiedRunnerEvaluateDevConfig {
+  readonly schema: typeof UNIFIED_DEV_EVALUATE_CONFIG_SCHEMA;
+  readonly candidatePackagePath: string;
+  readonly devFamilyPath: string;
+  readonly admissionsPath: string;
+  readonly consumerEntry: string;
+  readonly runId: string;
+}
+
+type UnifiedEvaluationMode = "independent-verification" | "development";
+type UnifiedEvaluationCommand = "evaluate" | "evaluate-dev";
+
+interface NormalizedEvaluateConfig {
+  readonly command: UnifiedEvaluationCommand;
+  readonly mode: UnifiedEvaluationMode;
+  readonly schema: string;
+  readonly candidatePackagePath: string;
+  readonly familyPath: string;
+  readonly admissionsPath: string;
+  readonly consumerEntry: string;
+  readonly runId: string;
+}
+
 export type UnifiedRunnerEvaluateErrorCode =
   | "EVALUATION_INVALID"
   | "CANDIDATE_MISSING"
   | "CANDIDATE_INVALID"
   | "ADMISSION_MISSING"
   | "ADMISSION_NOT_INDEPENDENT"
+  | "ADMISSION_NOT_DEV"
   | "ADMISSION_AMBIGUOUS"
   | "GOLD_INVALID"
   | "GOLD_MISSING"
@@ -77,6 +108,19 @@ export interface UnifiedRunnerEvaluateRequest {
   readonly encoderVersion: string;
   readonly outputDir: string;
   readonly evaluate: UnifiedRunnerEvaluateConfig | undefined;
+}
+
+export interface UnifiedRunnerEvaluateDevRequest {
+  readonly commandStartNs: bigint;
+  readonly startedAt: string;
+  readonly route: Readonly<{
+    readonly domain: string;
+    readonly decisionKind: "R" | "D" | "E" | "A";
+  }>;
+  readonly phase: string;
+  readonly encoderVersion: string;
+  readonly outputDir: string;
+  readonly evaluateDev: UnifiedRunnerEvaluateDevConfig | undefined;
 }
 
 export interface UnifiedEvaluateExecutionEntry {
@@ -133,7 +177,7 @@ export type UnifiedRootState = "satisfied" | "unsatisfied" | "unknown" | "not_ev
 export interface UnifiedEvaluateReport {
   readonly schema: typeof UNIFIED_EVALUATE_REPORT_SCHEMA;
   readonly runId: string;
-  readonly command: "evaluate";
+  readonly command: UnifiedEvaluationCommand;
   readonly route: UnifiedRunnerEvaluateRequest["route"];
   readonly phase: string;
   readonly encoderVersion: string;
@@ -154,6 +198,15 @@ export interface UnifiedEvaluateReport {
     readonly sourceGroup: string | null;
     readonly partition: string | null;
     readonly evidence: string | null;
+    readonly usableForTrainingSupervision: boolean | null;
+    readonly usableForIndependentVerification: boolean | null;
+  }>;
+  readonly provenance: Readonly<{
+    readonly evaluationKind: UnifiedEvaluationMode;
+    readonly partition: string | null;
+    readonly sourceGroup: string | null;
+    readonly trainingUsable: boolean | null;
+    readonly independentVerificationEligible: boolean | null;
   }>;
   readonly consumerEntry: string | null;
   readonly gold: GoldDenominator;
@@ -168,6 +221,7 @@ export interface UnifiedEvaluateReport {
   readonly violations: readonly string[];
   readonly unassessed: readonly string[];
   readonly missingRun: readonly string[];
+  readonly aggregation: FamilyLabelAggregation;
   readonly evidenceRefs: readonly string[];
   readonly candidateOutput: Readonly<{
     readonly emitted: false;
@@ -211,7 +265,9 @@ async function readJson(path: string): Promise<Record<string, unknown>> {
   return parsed;
 }
 
-function requireEvaluateConfig(config: UnifiedRunnerEvaluateConfig | undefined): UnifiedRunnerEvaluateConfig {
+function requireEvaluateConfig(
+  config: UnifiedRunnerEvaluateConfig | undefined,
+): NormalizedEvaluateConfig {
   if (config === undefined) {
     throw new UnifiedRunnerEvaluateError("EVALUATION_INVALID", "evaluate requires config.evaluate");
   }
@@ -225,7 +281,44 @@ function requireEvaluateConfig(config: UnifiedRunnerEvaluateConfig | undefined):
   if (config.consumerEntry !== "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision") {
     throw new UnifiedRunnerEvaluateError("CONSUMER_ENTRY_UNSUPPORTED", `unsupported evaluate consumer entry: ${String(config.consumerEntry)}`);
   }
-  return config;
+  return {
+    command: "evaluate",
+    mode: "independent-verification",
+    schema: config.schema,
+    candidatePackagePath: config.candidatePackagePath,
+    familyPath: config.independentFamilyPath,
+    admissionsPath: config.admissionsPath,
+    consumerEntry: config.consumerEntry,
+    runId: config.runId,
+  };
+}
+
+function requireEvaluateDevConfig(
+  config: UnifiedRunnerEvaluateDevConfig | undefined,
+): NormalizedEvaluateConfig {
+  if (config === undefined) {
+    throw new UnifiedRunnerEvaluateError("EVALUATION_INVALID", "evaluate-dev requires config.evaluateDev");
+  }
+  if (config.schema !== UNIFIED_DEV_EVALUATE_CONFIG_SCHEMA) {
+    throw new UnifiedRunnerEvaluateError("EVALUATION_INVALID", "config.evaluateDev.schema is not supported");
+  }
+  requireString(config.candidatePackagePath, "config.evaluateDev.candidatePackagePath");
+  requireString(config.devFamilyPath, "config.evaluateDev.devFamilyPath");
+  requireString(config.admissionsPath, "config.evaluateDev.admissionsPath");
+  requireString(config.runId, "config.evaluateDev.runId");
+  if (config.consumerEntry !== "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision") {
+    throw new UnifiedRunnerEvaluateError("CONSUMER_ENTRY_UNSUPPORTED", `unsupported evaluate-dev consumer entry: ${String(config.consumerEntry)}`);
+  }
+  return {
+    command: "evaluate-dev",
+    mode: "development",
+    schema: config.schema,
+    candidatePackagePath: config.candidatePackagePath,
+    familyPath: config.devFamilyPath,
+    admissionsPath: config.admissionsPath,
+    consumerEntry: config.consumerEntry,
+    runId: config.runId,
+  };
 }
 
 function scanStudentLeakage(value: unknown, path = "student"): void {
@@ -279,19 +372,25 @@ function oracleJudgementOf(gold: GoldRecord): OracleJudgement {
 async function loadAdmission(
   manifest: Record<string, unknown>,
   admissionsPath: string,
+  mode: UnifiedEvaluationMode,
 ): Promise<{
   readonly sourceGroup: string;
   readonly partition: string;
   readonly evidence: string | null;
+  readonly usableForTrainingSupervision: boolean;
+  readonly usableForIndependentVerification: boolean;
 }> {
   const sourceGroup = requireString(manifest.sourceGroup, "manifest.sourceGroup");
   const partition = requireString(manifest.partition, "manifest.partition");
   const derivationFamily = manifest.derivationFamily;
-  if (
+  if (mode === "independent-verification" && (
     !isRecord(derivationFamily)
     || derivationFamily.independentVerificationEligible !== true
-  ) {
+  )) {
     throw new UnifiedRunnerEvaluateError("ADMISSION_NOT_INDEPENDENT", `family ${sourceGroup} is not independent-verification eligible`);
+  }
+  if (mode === "development" && isRecord(derivationFamily) && derivationFamily.independentVerificationEligible === true) {
+    throw new UnifiedRunnerEvaluateError("ADMISSION_NOT_DEV", `family ${sourceGroup} is marked independent-verification eligible`);
   }
 
   const admissions = await readJson(admissionsPath);
@@ -313,13 +412,41 @@ async function loadAdmission(
     throw new UnifiedRunnerEvaluateError("EVALUATION_INVALID", "admission must be an object");
   }
   const admittedPartition = requireString(admission.partition, "admission.partition");
-  const usable = admission.usableForIndependentVerification === true;
+  const usableForTrainingSupervision = admission.usableForTrainingSupervision === true;
+  const usableForIndependentVerification = admission.usableForIndependentVerification === true;
   const partitionMatches = admittedPartition.toLowerCase() === partition.toLowerCase();
-  if (!usable || !partitionMatches || partition.toLowerCase() === "train" || partition.toLowerCase() === "dev") {
+  if (mode === "development") {
+    if (
+      !partitionMatches
+      || partition.toLowerCase() !== "dev"
+      || usableForTrainingSupervision
+      || usableForIndependentVerification
+    ) {
+      throw new UnifiedRunnerEvaluateError(
+        "ADMISSION_NOT_DEV",
+        `family ${sourceGroup} is not admitted as a non-training DEV source`,
+      );
+    }
+    const evidence = typeof admission.evidence === "string" ? admission.evidence : null;
+    return {
+      sourceGroup,
+      partition,
+      evidence,
+      usableForTrainingSupervision: false,
+      usableForIndependentVerification: false,
+    };
+  }
+  if (!usableForIndependentVerification || !partitionMatches || partition.toLowerCase() === "train" || partition.toLowerCase() === "dev") {
     throw new UnifiedRunnerEvaluateError("ADMISSION_NOT_INDEPENDENT", `family ${sourceGroup} is not admitted as an independent verification source`);
   }
   const evidence = typeof admission.evidence === "string" ? admission.evidence : null;
-  return { sourceGroup, partition, evidence };
+  return {
+    sourceGroup,
+    partition,
+    evidence,
+    usableForTrainingSupervision,
+    usableForIndependentVerification,
+  };
 }
 
 function mapGoldSamples(
@@ -700,6 +827,36 @@ function missingRunOf(
     .map(sample => sample.sampleId);
 }
 
+function buildEvaluateAggregation(
+  admission: {
+    readonly sourceGroup: string | null;
+    readonly partition: string | null;
+  } | null,
+  sampleDetails: readonly UnifiedEvaluateSampleDetail[],
+): FamilyLabelAggregation {
+  const sourceFamily = admission?.sourceGroup ?? null;
+  if (sampleDetails.length === 0 || sourceFamily === null) {
+    return aggregateFamilyLabel([]);
+  }
+  const rows: FamilyLabelAggregationRow[] = sampleDetails.map(sample => ({
+    rowRef: sample.sampleId,
+    sourceFamily,
+    goldLabel: familyLabelOfGold(sample.gold ?? "unknown"),
+    decision: {
+      selected: sample.predicted,
+      correct: sample.goldComparison === "correct"
+        ? true
+        : sample.goldComparison === "incorrect"
+          ? false
+          : null,
+      margin: null,
+      marginOk: false,
+      outcome: sample.goldComparison ?? "unassessed",
+    },
+  }));
+  return aggregateFamilyLabel(rows);
+}
+
 function emptyEvidenceRefs(report: RelationOracleReport): readonly string[] {
   return [
     ...report.rootEvaluation.entries.flatMap(entry => entry.gaps),
@@ -762,8 +919,10 @@ function formatMarkdown(report: UnifiedEvaluateReport): string {
   return lines.join("\n");
 }
 
-export async function runUnifiedRunnerEvaluate(
-  request: UnifiedRunnerEvaluateRequest,
+async function runUnifiedEvaluation(
+  request: UnifiedRunnerEvaluateRequest | UnifiedRunnerEvaluateDevRequest,
+  mode: UnifiedEvaluationMode,
+  command: UnifiedEvaluationCommand,
 ): Promise<{
   readonly exitCode: number;
   readonly report: UnifiedEvaluateReport;
@@ -771,25 +930,43 @@ export async function runUnifiedRunnerEvaluate(
 }> {
   const startedAt = request.startedAt;
   const outputDir = resolve(request.outputDir);
-  const evaluate = request.evaluate;
-  const runId = evaluate?.runId ?? `evaluate-${Date.now().toString(36)}-${process.pid.toString(36)}`;
-  const reportPaths = {
+  const evaluationStartNs = process.hrtime.bigint();
+  const rawEvaluateConfig = mode === "independent-verification"
+    ? (request as UnifiedRunnerEvaluateRequest).evaluate
+    : (request as UnifiedRunnerEvaluateDevRequest).evaluateDev;
+  let runId = typeof rawEvaluateConfig?.runId === "string" && rawEvaluateConfig.runId.length > 0
+    ? rawEvaluateConfig.runId
+    : "evaluate";
+  let reportPaths = {
     outputDir,
     reportJsonPath: join(outputDir, "runs", runId, "run-report.json"),
     reportMdPath: join(outputDir, "runs", runId, "run-report.md"),
   };
   const baselineCandidate = {
-    packagePath: evaluate?.candidatePackagePath ?? null,
+    packagePath: typeof rawEvaluateConfig?.candidatePackagePath === "string"
+      ? rawEvaluateConfig.candidatePackagePath
+      : null,
     schema: null,
     modelId: null,
     version: null,
     route: null,
   };
+  const baselineFamilyPath = rawEvaluateConfig !== undefined && "independentFamilyPath" in rawEvaluateConfig
+    ? typeof rawEvaluateConfig.independentFamilyPath === "string"
+      ? rawEvaluateConfig.independentFamilyPath
+      : null
+    : rawEvaluateConfig !== undefined && "devFamilyPath" in rawEvaluateConfig
+      ? typeof rawEvaluateConfig.devFamilyPath === "string"
+        ? rawEvaluateConfig.devFamilyPath
+        : null
+      : null;
   const baselineAdmission = {
-    familyPath: evaluate?.independentFamilyPath ?? null,
+    familyPath: baselineFamilyPath,
     sourceGroup: null,
     partition: null,
     evidence: null,
+    usableForTrainingSupervision: null,
+    usableForIndependentVerification: null,
   };
 
   const finalize = (
@@ -813,10 +990,20 @@ export async function runUnifiedRunnerEvaluate(
   } => {
     const oracle = input.oracle ?? EMPTY_ORACLE;
     const evidenceRefs = input.evidenceRefs ?? emptyEvidenceRefs(oracle);
+    const sampleDetails = input.sampleDetails ?? [];
+    const admission = input.admission ?? baselineAdmission;
+    const provenance = {
+      evaluationKind: mode,
+      partition: admission.partition,
+      sourceGroup: admission.sourceGroup,
+      trainingUsable: admission.usableForTrainingSupervision,
+      independentVerificationEligible: admission.usableForIndependentVerification,
+    };
+    const aggregation = buildEvaluateAggregation(admission, sampleDetails);
     const report: UnifiedEvaluateReport = {
       schema: UNIFIED_EVALUATE_REPORT_SCHEMA,
       runId,
-      command: "evaluate",
+      command,
       route: request.route,
       phase: request.phase,
       encoderVersion: request.encoderVersion,
@@ -826,13 +1013,14 @@ export async function runUnifiedRunnerEvaluate(
       evaluationSeconds: input.evaluationSeconds,
       totalWallSeconds: monotonicSeconds(request.commandStartNs),
       candidate: input.candidate ?? baselineCandidate,
-      admission: input.admission ?? baselineAdmission,
+      admission,
+      provenance,
       consumerEntry: input.consumerEntry ?? null,
       gold: oracle.gold,
       studentPrediction: oracle.studentPrediction,
       perStepEvaluation: oracle.perStepEvaluation,
       rootEvaluation: oracle.rootEvaluation,
-      sampleDetails: input.sampleDetails ?? [],
+      sampleDetails,
       executionEntries: input.executionEntries ?? [],
       overall: oracle.overall,
       unknownRecall: oracle.unknownRecall,
@@ -840,6 +1028,7 @@ export async function runUnifiedRunnerEvaluate(
       violations: oracle.violations,
       unassessed: oracle.perStepEvaluation.entries.filter(entry => entry.outcome === "unknown").map(entry => `${entry.sampleId}:${entry.stepId}`),
       missingRun: input.missingRun ?? [],
+      aggregation,
       evidenceRefs,
       candidateOutput: { emitted: false, packagePath: null },
       error: input.error ?? null,
@@ -852,7 +1041,38 @@ export async function runUnifiedRunnerEvaluate(
     };
   };
 
-  const evaluationStartNs = process.hrtime.bigint();
+  let evaluate: NormalizedEvaluateConfig;
+  try {
+    evaluate = mode === "independent-verification"
+      ? requireEvaluateConfig((request as UnifiedRunnerEvaluateRequest).evaluate)
+      : requireEvaluateDevConfig((request as UnifiedRunnerEvaluateDevRequest).evaluateDev);
+    runId = evaluate.runId;
+    reportPaths = {
+      outputDir,
+      reportJsonPath: join(outputDir, "runs", runId, "run-report.json"),
+      reportMdPath: join(outputDir, "runs", runId, "run-report.md"),
+    };
+  } catch (caught) {
+    const evaluationSeconds = monotonicSeconds(evaluationStartNs);
+    if (caught instanceof UnifiedRunnerEvaluateError) {
+      return finalize({
+        status: "failed",
+        evaluationSeconds,
+        error: {
+          code: caught.code,
+          message: caught.message,
+          ...(Object.keys(caught.detail).length === 0 ? {} : { detail: caught.detail }),
+        },
+      });
+    }
+    const message = caught instanceof Error ? caught.message : String(caught);
+    return finalize({
+      status: "failed",
+      evaluationSeconds,
+      error: { code: "EVALUATION_INVALID", message },
+    });
+  }
+
   let samples: readonly IndependentOracleSample[] = [];
   let episodes: readonly RelationStepEpisode[] = [];
   let goldRowsForAccounting: readonly GoldRecord[] = [];
@@ -915,7 +1135,7 @@ export async function runUnifiedRunnerEvaluate(
   };
 
   try {
-    const config = requireEvaluateConfig(evaluate);
+    const config = evaluate;
     validatedConsumerEntry = config.consumerEntry;
     const packagePath = resolve(config.candidatePackagePath);
     const loaded = await loadUnifiedModelPackageFromFile(packagePath);
@@ -935,14 +1155,16 @@ export async function runUnifiedRunnerEvaluate(
       route: loadedPackage.route,
     };
 
-    const familyDir = resolve(config.independentFamilyPath);
+    const familyDir = resolve(config.familyPath);
     const manifest = await readJson(join(familyDir, "manifest.json"));
-    const admission = await loadAdmission(manifest, config.admissionsPath);
+    const admission = await loadAdmission(manifest, config.admissionsPath, mode);
     validatedAdmission = {
       familyPath: familyDir,
       sourceGroup: admission.sourceGroup,
       partition: admission.partition,
       evidence: admission.evidence,
+      usableForTrainingSupervision: admission.usableForTrainingSupervision,
+      usableForIndependentVerification: admission.usableForIndependentVerification,
     };
     // Load and validate independent supervision first. If the student file is
     // absent or malformed, partial accounting keeps the admitted gold
@@ -1039,6 +1261,8 @@ export async function runUnifiedRunnerEvaluate(
         sourceGroup: admission.sourceGroup,
         partition: admission.partition,
         evidence: admission.evidence,
+        usableForTrainingSupervision: admission.usableForTrainingSupervision,
+        usableForIndependentVerification: admission.usableForIndependentVerification,
       },
       consumerEntry: config.consumerEntry,
       oracle,
@@ -1110,4 +1334,24 @@ export async function runUnifiedRunnerEvaluate(
       error: { code: "EVALUATION_INVALID", message },
     });
   }
+}
+
+export async function runUnifiedRunnerEvaluate(
+  request: UnifiedRunnerEvaluateRequest,
+): Promise<{
+  readonly exitCode: number;
+  readonly report: UnifiedEvaluateReport;
+  readonly markdown: string;
+}> {
+  return runUnifiedEvaluation(request, "independent-verification", "evaluate");
+}
+
+export async function runUnifiedRunnerEvaluateDev(
+  request: UnifiedRunnerEvaluateDevRequest,
+): Promise<{
+  readonly exitCode: number;
+  readonly report: UnifiedEvaluateReport;
+  readonly markdown: string;
+}> {
+  return runUnifiedEvaluation(request, "development", "evaluate-dev");
 }
