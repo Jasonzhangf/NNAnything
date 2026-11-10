@@ -1,0 +1,64 @@
+{
+  "schema": "nnanything.tsjs.helper-source-lineage.v1",
+  "family": "tsjs-train-runtime-helper-selector-r1",
+  "partition": "TRAIN",
+  "synthetic": true,
+  "lineageFixedAt": "2026-11-10T19:33:00Z",
+  "lineageEvidence": {
+    "kind": "pre-generation declaration, single exposed execution context",
+    "authorContext": "peer-15 Codex session 01a1c6ca-701b-7d91-bf1a-17ac63a705a7",
+    "independentNonDerivationVerified": false,
+    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table.",
+    "isolationNote": "TRAIN and DEV were authored in the same exposed context; no independent authorship claim is made."
+  },
+  "instances": [
+    {
+      "id": "tr-h01-import-direct",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-h01-import-direct",
+      "entry": "sources/tr-h01-import-direct/entry.ts",
+      "requestedDeclaration": "selectDelivery",
+      "callSiteExpression": "selectDelivery(mode)(message)",
+      "selectorConstruction": "direct caller parameter",
+      "moduleLayout": "entry plus helper module",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; request-aware admission remains NOT_READY because the bounded bridge is absent."
+    },
+    {
+      "id": "tr-h02-local-alias",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-h02-local-alias",
+      "entry": "sources/tr-h02-local-alias/index.ts",
+      "requestedDeclaration": "chooseScale",
+      "callSiteExpression": "chooseScale(selectedScale)(amount)",
+      "selectorConstruction": "one immutable local alias",
+      "moduleLayout": "single module with local helper",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; request-aware admission remains NOT_READY because the bounded bridge is absent."
+    },
+    {
+      "id": "tr-h03-default-export-caller",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-h03-default-export-caller",
+      "entry": "sources/tr-h03-default-export-caller/entry.ts",
+      "requestedDeclaration": "formatValue",
+      "callSiteExpression": "formatValue(kind)(value)",
+      "selectorConstruction": "direct caller parameter in a default-export function declaration",
+      "moduleLayout": "entry plus helper module",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; request-aware admission remains NOT_READY because the bounded bridge is absent."
+    }
+  ],
+  "controls": [
+    "controls/non-runtime-constant.ts",
+    "controls/out-of-slice-direct-index.ts"
+  ],
+  "evidence": {
+    "compilerAndRuntimeReceipts": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/raw-checks.json",
+    "publicProducerOutput": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/public-producer-output.json",
+    "semanticProofs": "proofs/semantic-proofs.md"
+  }
+}
