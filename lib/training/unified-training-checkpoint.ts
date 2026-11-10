@@ -24,6 +24,11 @@ import type {
 export const UNIFIED_TRAINING_CHECKPOINT_SCHEMA =
   "nnanything.unified.training-checkpoint.v1" as const;
 
+export interface UnifiedCeilingAmendment {
+  readonly previousMaxEpochs: number;
+  readonly amendedMaxEpochs: number;
+}
+
 export interface UnifiedTrainingCheckpointRecipe {
   readonly optimizer: "full_batch_sgd";
   readonly momentum: 0;
@@ -62,6 +67,8 @@ export interface UnifiedTrainingCheckpoint {
   readonly epochRecords: readonly UnifiedTrainEpochRecord[];
   readonly violations: readonly string[];
   readonly tensors: UnifiedTensors;
+  /** Optional explicit resume-only ceiling; absent for ordinary checkpoints. */
+  readonly ceilingAmendment?: UnifiedCeilingAmendment;
 }
 
 interface UnifiedPersistedTiming {
@@ -386,6 +393,45 @@ function validateViolations(raw: unknown): readonly string[] {
   });
 }
 
+function validateCeilingAmendment(
+  raw: unknown,
+): UnifiedCeilingAmendment | undefined {
+  if (raw === undefined) return undefined;
+  const amendment = assertObject(raw, "ceilingAmendment");
+  const keys = Object.keys(amendment);
+  if (
+    keys.length !== 2
+    || !keys.includes("previousMaxEpochs")
+    || !keys.includes("amendedMaxEpochs")
+  ) {
+    throw invalid(
+      "ceilingAmendment must have exactly previousMaxEpochs and amendedMaxEpochs",
+    );
+  }
+  const previous = amendment.previousMaxEpochs;
+  const amended = amendment.amendedMaxEpochs;
+  if (
+    typeof previous !== "number"
+    || !Number.isInteger(previous)
+    || previous <= 0
+  ) {
+    throw invalid("ceilingAmendment.previousMaxEpochs must be a positive integer");
+  }
+  if (
+    typeof amended !== "number"
+    || !Number.isInteger(amended)
+    || amended <= 0
+  ) {
+    throw invalid("ceilingAmendment.amendedMaxEpochs must be a positive integer");
+  }
+  if (amended <= previous) {
+    throw invalid(
+      "ceilingAmendment.amendedMaxEpochs must exceed previousMaxEpochs",
+    );
+  }
+  return { previousMaxEpochs: previous, amendedMaxEpochs: amended };
+}
+
 export function validateUnifiedTrainingCheckpoint(
   raw: unknown,
 ): UnifiedTrainingCheckpoint {
@@ -395,13 +441,26 @@ export function validateUnifiedTrainingCheckpoint(
   }
   const completedEpochs = checkpoint.completedEpochs;
   const recipe = validateRecipe(checkpoint.recipe);
+  const storedAmendment = validateCeilingAmendment(checkpoint.ceilingAmendment);
+  const effectiveMaxEpochs =
+    storedAmendment === undefined ? recipe.maxEpochs : storedAmendment.amendedMaxEpochs;
+  if (
+    storedAmendment !== undefined
+    && storedAmendment.previousMaxEpochs !== recipe.maxEpochs
+  ) {
+    throw invalid(
+      "ceilingAmendment.previousMaxEpochs must equal checkpoint.recipe.maxEpochs",
+    );
+  }
   if (
     typeof completedEpochs !== "number"
     || !Number.isInteger(completedEpochs)
     || completedEpochs < 0
-    || completedEpochs > recipe.maxEpochs
+    || completedEpochs > effectiveMaxEpochs
   ) {
-    throw invalid("completedEpochs must be an integer between 0 and recipe.maxEpochs");
+    throw invalid(
+      `completedEpochs must be an integer between 0 and ${effectiveMaxEpochs}`,
+    );
   }
   const epochRecords = validateEpochRecords(checkpoint.epochRecords);
   if (epochRecords.length !== completedEpochs) {
@@ -436,6 +495,7 @@ export function validateUnifiedTrainingCheckpoint(
     earlyStop: validateEarlyStop(checkpoint.earlyStop),
     cumulativeTimingSeconds,
     timing,
+    ...(storedAmendment === undefined ? {} : { ceilingAmendment: storedAmendment }),
     epochRecords,
     violations: validateViolations(checkpoint.violations),
     tensors: validateTensors(checkpoint.tensors),
@@ -446,6 +506,7 @@ export function createUnifiedTrainingCheckpoint(
   input: UnifiedTrainingCheckpointInput,
 ): UnifiedTrainingCheckpoint {
   const config = input.config;
+  const amendment = config.ceilingAmendment;
   return validateUnifiedTrainingCheckpoint({
     schema: UNIFIED_TRAINING_CHECKPOINT_SCHEMA,
     modelId: config.modelId,
@@ -461,7 +522,7 @@ export function createUnifiedTrainingCheckpoint(
       learningRate: config.learningRate,
       seed: config.seed,
       init: config.init,
-      maxEpochs: config.maxEpochs,
+      maxEpochs: amendment === undefined ? config.maxEpochs : amendment.previousMaxEpochs,
     },
     completedEpochs: input.completedEpochs,
     earlyStop: { devEarlyStopEnabled: false },
@@ -470,6 +531,7 @@ export function createUnifiedTrainingCheckpoint(
     epochRecords: input.epochRecords,
     violations: input.violations,
     tensors: input.tensors,
+    ...(amendment === undefined ? {} : { ceilingAmendment: amendment }),
   });
 }
 
@@ -574,8 +636,43 @@ export function assertResumeRecipeCompatible(
   if (checkpoint.recipe.learningRate !== config.learningRate) {
     mismatch("learningRate", config.learningRate, checkpoint.recipe.learningRate);
   }
-  if (checkpoint.recipe.maxEpochs !== config.maxEpochs) {
-    mismatch("maxEpochs", config.maxEpochs, checkpoint.recipe.maxEpochs);
+  const configAmendment = config.ceilingAmendment;
+  const checkpointAmendment = checkpoint.ceilingAmendment;
+  if (configAmendment === undefined && checkpointAmendment === undefined) {
+    // Ordinary resume keeps the strict equality contract.
+    if (checkpoint.recipe.maxEpochs !== config.maxEpochs) {
+      mismatch("maxEpochs", config.maxEpochs, checkpoint.recipe.maxEpochs);
+    }
+  } else if (configAmendment !== undefined && checkpointAmendment !== undefined) {
+    // Continuing an amended checkpoint requires the exact same amendment.
+    if (
+      configAmendment.previousMaxEpochs !== checkpointAmendment.previousMaxEpochs
+      || configAmendment.amendedMaxEpochs !== checkpointAmendment.amendedMaxEpochs
+    ) {
+      mismatch("ceilingAmendment", configAmendment, checkpointAmendment);
+    }
+    if (config.maxEpochs !== configAmendment.amendedMaxEpochs) {
+      mismatch("maxEpochs", config.maxEpochs, configAmendment.amendedMaxEpochs);
+    }
+  } else if (configAmendment !== undefined) {
+    // First amended resume of an ordinary checkpoint must match history exactly.
+    if (configAmendment.previousMaxEpochs !== checkpoint.recipe.maxEpochs) {
+      mismatch(
+        "ceilingAmendment.previousMaxEpochs",
+        configAmendment.previousMaxEpochs,
+        checkpoint.recipe.maxEpochs,
+      );
+    }
+    if (configAmendment.amendedMaxEpochs !== config.maxEpochs) {
+      mismatch(
+        "ceilingAmendment.amendedMaxEpochs",
+        configAmendment.amendedMaxEpochs,
+        config.maxEpochs,
+      );
+    }
+  } else {
+    // A stored amendment must be carried explicitly; omission is not ordinary resume.
+    mismatch("ceilingAmendment", "absent", "stored amendment present");
   }
   if (checkpoint.recipe.seed !== config.seed) {
     mismatch("seed", config.seed, checkpoint.recipe.seed);

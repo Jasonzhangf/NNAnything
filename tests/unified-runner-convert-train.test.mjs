@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -293,6 +293,188 @@ test("A_g outside S_g is explicit DATA_INVALID and creates no package", async ()
     assert.equal(report.status, "DATA_INVALID");
     assert.match(report.error.message, /outside S_g/);
     await assert.rejects(readFile(paths.packagePath, "utf8"), error => error.code === "ENOENT");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("amended resume 200->2000 continues above the original ceiling and reloads in a new process", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 200 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+
+    const originalCheckpointPath = `${paths.packagePath}.checkpoint.json`;
+    const originalBefore = await readFile(originalCheckpointPath, "utf8");
+    const original = JSON.parse(originalBefore);
+    assert.equal(original.recipe.maxEpochs, 200);
+    assert.equal(original.completedEpochs, 200);
+    assert.equal("ceilingAmendment" in original, false);
+
+    const workingCheckpointPath = join(paths.outputDir, "working-checkpoint.json");
+    await copyFile(originalCheckpointPath, workingCheckpointPath);
+
+    const config = await readJson(paths.configPath);
+    config.command = "resume";
+    config.training.maxEpochs = 2000;
+    config.training.epochsThisRun = 2;
+    config.training.ceilingAmendment = {
+      previousMaxEpochs: 200,
+      amendedMaxEpochs: 2000,
+    };
+    config.training.checkpointPath = workingCheckpointPath;
+    await writeJson(paths.configPath, config);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 0);
+
+    let report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "paused");
+    assert.equal(report.resumedFromEpoch, 200);
+    assert.equal(report.trainReport.stopReason, "invocation_budget_exhausted");
+    assert.equal(report.trainReport.completedEpochs, 202);
+    assert.equal(report.checkpointReload.completedEpochs, 202);
+    assert.equal(report.checkpointReload.epochRecordCount, 202);
+    assert.equal(report.checkpointReload.tensorsMatch, true);
+
+    let working = await readJson(workingCheckpointPath);
+    assert.equal(working.recipe.maxEpochs, 200);
+    assert.deepEqual(working.ceilingAmendment, {
+      previousMaxEpochs: 200,
+      amendedMaxEpochs: 2000,
+    });
+    assert.equal(working.completedEpochs, 202);
+    assert.equal(working.epochRecords.length, 202);
+
+    config.training.epochsThisRun = 2;
+    await writeJson(paths.configPath, config);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 0);
+    report = await readJson(join(paths.outputDir, "run-report.json"));
+    assert.equal(report.status, "paused");
+    assert.equal(report.resumedFromEpoch, 202);
+    assert.equal(report.trainReport.completedEpochs, 204);
+    assert.equal(report.checkpointReload.completedEpochs, 204);
+
+    working = await readJson(workingCheckpointPath);
+    assert.equal(working.recipe.maxEpochs, 200);
+    assert.equal(working.completedEpochs, 204);
+    assert.equal(working.epochRecords.length, 204);
+    assert.equal(working.timing.cumulative.optimizerSteps, 204);
+    assert.equal(working.cumulativeTimingSeconds !== null, true);
+    assert.equal(await readFile(originalCheckpointPath, "utf8"), originalBefore);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("amended resume negative cases fail before optimizer work", async () => {
+  const root = await makeCorpus();
+  try {
+    const paths = await makeConfig(root, { maxEpochs: 2, epochsThisRun: 1 });
+    assert.equal(await runStandardRunnerCli(["convert-samples", "--config", paths.configPath]), 0);
+    assert.equal(await runStandardRunnerCli(["train", "--config", paths.configPath]), 0);
+    const checkpointPath = `${paths.packagePath}.checkpoint.json`;
+    const base = await readJson(paths.configPath);
+
+    const attempt = async (overrides, expectedCode, expectedPattern) => {
+      const next = {
+        ...base,
+        command: overrides.command ?? "resume",
+        training: { ...base.training, ...overrides.training },
+      };
+      await writeJson(paths.configPath, next);
+      assert.equal(await runStandardRunnerCli([next.command, "--config", paths.configPath]), 1);
+      const report = await readJson(join(paths.outputDir, "run-report.json"));
+      assert.equal(report.status, "failed");
+      assert.equal(report.error.code, expectedCode);
+      assert.match(report.error.message, expectedPattern);
+      assert.equal(report.thisRun.optimizationSeconds, null);
+      return report;
+    };
+
+    await attempt(
+      { training: { maxEpochs: 4 } },
+      "CHECKPOINT_INVALID",
+      /maxEpochs mismatch/,
+    );
+    await attempt(
+      {
+        training: {
+          maxEpochs: 4,
+          ceilingAmendment: { previousMaxEpochs: 1, amendedMaxEpochs: 4 },
+        },
+      },
+      "CHECKPOINT_INVALID",
+      /ceilingAmendment\.previousMaxEpochs/,
+    );
+    await attempt(
+      {
+        training: {
+          maxEpochs: 4,
+          ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 5 },
+        },
+      },
+      "CHECKPOINT_INVALID",
+      /ceilingAmendment\.amendedMaxEpochs/,
+    );
+    await attempt(
+      {
+        command: "train",
+        training: {
+          maxEpochs: 2,
+          ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 4 },
+        },
+      },
+      "CONFIG_ERROR",
+      /only valid for command=resume/,
+    );
+
+    const amended = {
+      ...base,
+      command: "resume",
+      training: {
+        ...base.training,
+        maxEpochs: 4,
+        ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 4 },
+      },
+    };
+    await writeJson(paths.configPath, amended);
+    assert.equal(await runStandardRunnerCli(["resume", "--config", paths.configPath]), 0);
+    const amendedCheckpoint = await readJson(checkpointPath);
+    assert.equal(amendedCheckpoint.recipe.maxEpochs, 2);
+    assert.deepEqual(amendedCheckpoint.ceilingAmendment, {
+      previousMaxEpochs: 2,
+      amendedMaxEpochs: 4,
+    });
+
+    await attempt(
+      { training: { maxEpochs: 4 } },
+      "CHECKPOINT_INVALID",
+      /ceilingAmendment/,
+    );
+    await attempt(
+      {
+        training: {
+          maxEpochs: 6,
+          ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 6 },
+        },
+      },
+      "CHECKPOINT_INVALID",
+      /ceilingAmendment/,
+    );
+
+    const tampered = await readJson(checkpointPath);
+    tampered.ceilingAmendment = { previousMaxEpochs: 1, amendedMaxEpochs: 4 };
+    await writeJson(checkpointPath, tampered);
+    await attempt(
+      {
+        training: {
+          maxEpochs: 4,
+          ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 4 },
+        },
+      },
+      "CHECKPOINT_INVALID",
+      /ceilingAmendment\.previousMaxEpochs/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

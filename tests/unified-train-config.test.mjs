@@ -12,6 +12,13 @@ import {
   UnifiedTrainDataError,
   UNIFIED_TRAIN_CONFIG_SCHEMA,
 } from "../dist/training/unified-train-config.js";
+import {
+  createUnifiedTrainingCheckpoint,
+  loadUnifiedTrainingCheckpointFromFile,
+  saveUnifiedTrainingCheckpointAtomic,
+  UnifiedTrainingCheckpointError,
+  validateUnifiedTrainingCheckpoint,
+} from "../dist/training/unified-training-checkpoint.js";
 import { convertEpisodeToStudentGroup } from "../dist/training/unified-student-converter.js";
 import { convertGoldToSupervisionRow } from "../dist/training/unified-supervision-converter.js";
 
@@ -260,4 +267,185 @@ test("loadStudentRowsFile keeps historical inference for undefined missingMode",
   const plainRowsPath = await writeStudentRows([studentRow()]);
   const plainGroups = await loadStudentRowsFile(plainRowsPath);
   assert.deepEqual(plainGroups[0].candidates[0].missingMode, []);
+});
+
+function encodedFixtureGroups() {
+  const groups = [
+    convertEpisodeToStudentGroup(episode("s1")),
+    convertEpisodeToStudentGroup(episode("s2")),
+  ];
+  const supervision = [
+    convertGoldToSupervisionRow(gold("s1", "c:judge:true")),
+    convertGoldToSupervisionRow(gold("s2", "c:judge:false")),
+  ];
+  return buildEncodedGroups(groups, supervision);
+}
+
+function ordinaryCheckpoint(configValue) {
+  const encoded = encodedFixtureGroups();
+  const { report, tensors } = runUnifiedTraining(encoded, configValue);
+  return createUnifiedTrainingCheckpoint({
+    config: configValue,
+    completedEpochs: report.completedEpochs,
+    epochRecords: report.epochs,
+    violations: report.violations,
+    tensors,
+  });
+}
+
+test("amended resume uses the amended ceiling and preserves the original recipe ceiling", async () => {
+  const encoded = encodedFixtureGroups();
+  const baseConfig = config({ maxEpochs: 2 });
+  const baseCheckpoint = ordinaryCheckpoint(baseConfig);
+  assert.equal(baseCheckpoint.recipe.maxEpochs, 2);
+  assert.equal(baseCheckpoint.ceilingAmendment, undefined);
+
+  const amendedConfig = config({
+    maxEpochs: 4,
+    ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 4 },
+  });
+  const { report, tensors } = runUnifiedTraining(encoded, amendedConfig, {
+    resumeFrom: baseCheckpoint,
+    epochsThisRun: 2,
+  });
+  assert.equal(report.status, "completed");
+  assert.equal(report.stopReason, "epoch_limit_exhausted");
+  assert.equal(report.completedEpochs, 4);
+
+  const amendedCheckpoint = createUnifiedTrainingCheckpoint({
+    config: amendedConfig,
+    completedEpochs: report.completedEpochs,
+    epochRecords: report.epochs,
+    violations: report.violations,
+    tensors,
+  });
+  assert.equal(amendedCheckpoint.recipe.maxEpochs, 2);
+  assert.deepEqual(amendedCheckpoint.ceilingAmendment, {
+    previousMaxEpochs: 2,
+    amendedMaxEpochs: 4,
+  });
+  assert.equal(amendedCheckpoint.completedEpochs, 4);
+
+  const dir = await mkdtemp(join(tmpdir(), "unified-amendment-checkpoint-"));
+  try {
+    const checkpointPath = join(dir, "checkpoint.json");
+    await saveUnifiedTrainingCheckpointAtomic(checkpointPath, amendedCheckpoint);
+    const loaded = await loadUnifiedTrainingCheckpointFromFile(checkpointPath);
+    assert.equal(loaded.completedEpochs, 4);
+    assert.equal(loaded.recipe.maxEpochs, 2);
+    assert.deepEqual(loaded.ceilingAmendment, {
+      previousMaxEpochs: 2,
+      amendedMaxEpochs: 4,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("ordinary resume keeps strict maxEpochs equality and no checkpoint amendment key", async () => {
+  const baseConfig = config({ maxEpochs: 2 });
+  const checkpoint = ordinaryCheckpoint(baseConfig);
+  assert.equal("ceilingAmendment" in checkpoint, false);
+  assert.throws(
+    () => runUnifiedTraining(encodedFixtureGroups(), config({ maxEpochs: 4 }), {
+      resumeFrom: checkpoint,
+    }),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /maxEpochs mismatch/.test(error.message),
+  );
+});
+
+test("amended resume rejects wrong or missing amendment values", async () => {
+  const baseCheckpoint = ordinaryCheckpoint(config({ maxEpochs: 2 }));
+  assert.throws(
+    () => runUnifiedTraining(encodedFixtureGroups(), config({
+      maxEpochs: 4,
+      ceilingAmendment: { previousMaxEpochs: 1, amendedMaxEpochs: 4 },
+    }), { resumeFrom: baseCheckpoint }),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /ceilingAmendment.previousMaxEpochs/.test(error.message),
+  );
+  assert.throws(
+    () => runUnifiedTraining(encodedFixtureGroups(), config({
+      maxEpochs: 4,
+      ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 5 },
+    }), { resumeFrom: baseCheckpoint }),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /ceilingAmendment.amendedMaxEpochs/.test(error.message),
+  );
+  assert.throws(
+    () => runUnifiedTraining(encodedFixtureGroups(), config({
+      maxEpochs: 4,
+      ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 4 },
+    })),
+    error => error instanceof TypeError && /inherited checkpoint/.test(error.message),
+  );
+  assert.throws(
+    () => runUnifiedTraining(encodedFixtureGroups(), config({
+      maxEpochs: 4,
+      ceilingAmendment: { previousMaxEpochs: 4, amendedMaxEpochs: 4 },
+    })),
+    error => error instanceof TypeError && /exceed previousMaxEpochs/.test(error.message),
+  );
+});
+
+test("amended checkpoint rejects a missing or conflicting continuation amendment", async () => {
+  const baseCheckpoint = ordinaryCheckpoint(config({ maxEpochs: 2 }));
+  const amendedConfig = {
+    ...config({ maxEpochs: 4 }),
+    ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 4 },
+  };
+  const first = runUnifiedTraining(encodedFixtureGroups(), amendedConfig, {
+    resumeFrom: baseCheckpoint,
+    epochsThisRun: 1,
+  });
+  const amendedCheckpoint = createUnifiedTrainingCheckpoint({
+    config: amendedConfig,
+    completedEpochs: first.report.completedEpochs,
+    epochRecords: first.report.epochs,
+    violations: first.report.violations,
+    tensors: first.tensors,
+  });
+  assert.throws(
+    () => runUnifiedTraining(encodedFixtureGroups(), config({ maxEpochs: 4 }), {
+      resumeFrom: amendedCheckpoint,
+    }),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /ceilingAmendment/.test(error.message),
+  );
+  assert.throws(
+    () => runUnifiedTraining(encodedFixtureGroups(), config({
+      maxEpochs: 6,
+      ceilingAmendment: { previousMaxEpochs: 2, amendedMaxEpochs: 6 },
+    }), { resumeFrom: amendedCheckpoint }),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /ceilingAmendment/.test(error.message),
+  );
+});
+
+test("stored malformed amendment fails checkpoint validation", async () => {
+  const baseCheckpoint = ordinaryCheckpoint(config({ maxEpochs: 2 }));
+  const tampered = JSON.parse(JSON.stringify(baseCheckpoint));
+  tampered.ceilingAmendment = { previousMaxEpochs: 1, amendedMaxEpochs: 4 };
+  assert.throws(
+    () => validateUnifiedTrainingCheckpoint(tampered),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /ceilingAmendment.previousMaxEpochs/.test(error.message),
+  );
+  tampered.ceilingAmendment = { previousMaxEpochs: 2, amendedMaxEpochs: 2 };
+  assert.throws(
+    () => validateUnifiedTrainingCheckpoint(tampered),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /must exceed previousMaxEpochs/.test(error.message),
+  );
+  tampered.ceilingAmendment = {
+    previousMaxEpochs: 2,
+    amendedMaxEpochs: 4,
+    extra: 1,
+  };
+  assert.throws(
+    () => validateUnifiedTrainingCheckpoint(tampered),
+    error => error instanceof UnifiedTrainingCheckpointError
+      && /exactly previousMaxEpochs and amendedMaxEpochs/.test(error.message),
+  );
 });

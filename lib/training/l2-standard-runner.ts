@@ -176,6 +176,11 @@ export interface UnifiedRunnerTrainingConfig {
   readonly epochsThisRun?: number;
   readonly seed: number;
   readonly init: "xavier_uniform";
+  /** Optional explicit resume-only ceiling amendment; only valid with command=resume. */
+  readonly ceilingAmendment?: {
+    readonly previousMaxEpochs: number;
+    readonly amendedMaxEpochs: number;
+  };
   /** Optional independent training checkpoint path; defaults beside the package. */
   readonly checkpointPath?: string;
 }
@@ -676,6 +681,9 @@ function buildUnifiedTrainConfig(config: UnifiedRunnerConfig): UnifiedTrainConfi
     maxEpochs: training.maxEpochs,
     seed: training.seed,
     init: training.init,
+    ...(training.ceilingAmendment === undefined
+      ? {}
+      : { ceilingAmendment: training.ceilingAmendment }),
     resources: {
       thresholdsRef: resolve(config.dataGate.thresholdsPath),
       thresholdsSchema: "nnanything.feature-thresholds.v1",
@@ -692,6 +700,48 @@ function unifiedCheckpointPath(config: UnifiedRunnerConfig): string {
   const explicit = config.training?.checkpointPath;
   if (explicit !== undefined) return resolve(explicit);
   return `${resolve(corpus.packagePath)}.checkpoint.json`;
+}
+
+function unifiedRunnerCeilingAmendmentError(
+  command: StandardRunnerCommand,
+  training: UnifiedRunnerTrainingConfig | undefined,
+): string | null {
+  const amendment = training?.ceilingAmendment;
+  if (amendment === undefined) return null;
+  if (command !== "resume") {
+    return "training.ceilingAmendment is only valid for command=resume";
+  }
+  if (
+    amendment === null
+    || typeof amendment !== "object"
+    || Array.isArray(amendment)
+  ) {
+    return "training.ceilingAmendment must be an object";
+  }
+  const keys = Object.keys(amendment);
+  if (
+    keys.length !== 2
+    || !keys.includes("previousMaxEpochs")
+    || !keys.includes("amendedMaxEpochs")
+  ) {
+    return "training.ceilingAmendment must have exactly previousMaxEpochs and amendedMaxEpochs";
+  }
+  if (
+    !Number.isInteger(amendment.previousMaxEpochs)
+    || amendment.previousMaxEpochs <= 0
+  ) {
+    return "training.ceilingAmendment.previousMaxEpochs must be a positive integer";
+  }
+  if (
+    !Number.isInteger(amendment.amendedMaxEpochs)
+    || amendment.amendedMaxEpochs <= 0
+  ) {
+    return "training.ceilingAmendment.amendedMaxEpochs must be a positive integer";
+  }
+  if (amendment.amendedMaxEpochs <= amendment.previousMaxEpochs) {
+    return "training.ceilingAmendment.amendedMaxEpochs must exceed previousMaxEpochs";
+  }
+  return null;
 }
 
 function findNonFiniteUnifiedInput(
@@ -2423,6 +2473,12 @@ export async function executeUnifiedRunnerRoute(
     await writeUnifiedRunnerReport(outputDir, report);
     return exitCode;
   };
+
+  const amendmentError = unifiedRunnerCeilingAmendmentError(command, config.training);
+  if (amendmentError !== null) {
+    error = { code: "CONFIG_ERROR", message: amendmentError };
+    return await finalize("failed", 1);
+  }
 
   try {
     if (command === "convert-samples") {

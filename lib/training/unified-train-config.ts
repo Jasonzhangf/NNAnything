@@ -30,6 +30,7 @@ import {
   createUnifiedTrainingCheckpoint,
   saveUnifiedTrainingCheckpointAtomicWithTiming,
   saveUnifiedTrainingCheckpointAtomic,
+  type UnifiedCeilingAmendment,
   type UnifiedTrainingCheckpoint,
   type UnifiedTrainingCheckpointAtomicSaveReceipt,
 } from "./unified-training-checkpoint.js";
@@ -57,6 +58,8 @@ export interface UnifiedTrainConfig {
   readonly maxEpochs: number;
   readonly seed: number;
   readonly init: "xavier_uniform";
+  /** Optional explicit resume-only ceiling; rejected without an inherited checkpoint. */
+  readonly ceilingAmendment?: UnifiedCeilingAmendment;
   readonly resources: UnifiedModelPackageResources;
   readonly modelId: string;
   readonly version: string;
@@ -161,6 +164,36 @@ export function validateUnifiedTrainConfig(config: UnifiedTrainConfig): void {
   }
   if (!Number.isInteger(config.seed)) throw new TypeError("seed must be an integer");
   if (config.init !== "xavier_uniform") throw new TypeError("init must be xavier_uniform");
+  const amendment = config.ceilingAmendment;
+  if (amendment !== undefined) {
+    const keys = Object.keys(amendment);
+    if (
+      keys.length !== 2
+      || !keys.includes("previousMaxEpochs")
+      || !keys.includes("amendedMaxEpochs")
+    ) {
+      throw new TypeError(
+        "ceilingAmendment must have exactly previousMaxEpochs and amendedMaxEpochs",
+      );
+    }
+    if (
+      !Number.isInteger(amendment.previousMaxEpochs)
+      || amendment.previousMaxEpochs <= 0
+    ) {
+      throw new TypeError("ceilingAmendment.previousMaxEpochs must be a positive integer");
+    }
+    if (
+      !Number.isInteger(amendment.amendedMaxEpochs)
+      || amendment.amendedMaxEpochs <= 0
+    ) {
+      throw new TypeError("ceilingAmendment.amendedMaxEpochs must be a positive integer");
+    }
+    if (amendment.amendedMaxEpochs <= amendment.previousMaxEpochs) {
+      throw new TypeError(
+        "ceilingAmendment.amendedMaxEpochs must exceed previousMaxEpochs",
+      );
+    }
+  }
 }
 
 export function buildEncodedGroups(
@@ -255,25 +288,34 @@ export function runUnifiedTraining(
   const tensors: MutableUnifiedTensors = options.resumeFrom !== undefined
     ? cloneTensors(options.resumeFrom.tensors)
     : createXavierTensors(config.seed);
+  const amendment = config.ceilingAmendment;
+  if (amendment !== undefined && options.resumeFrom === undefined) {
+    throw new TypeError("ceilingAmendment requires an inherited checkpoint");
+  }
+  const effectiveMaxEpochs = amendment === undefined
+    ? config.maxEpochs
+    : amendment.amendedMaxEpochs;
   const epochs: UnifiedTrainEpochRecord[] = [];
   const violations: string[] = [];
   let startEpoch = 0;
   if (options.resumeFrom !== undefined) {
     assertResumeRecipeCompatible(options.resumeFrom, config);
     startEpoch = options.resumeFrom.completedEpochs;
-    if (startEpoch >= config.maxEpochs) {
+    if (startEpoch >= effectiveMaxEpochs) {
       throw new UnifiedTrainDataError(
-        `checkpoint is already at completedEpochs=${startEpoch} of maxEpochs=${config.maxEpochs}`,
+        `checkpoint is already at completedEpochs=${startEpoch} of maxEpochs=${effectiveMaxEpochs}`,
       );
     }
     epochs.push(...options.resumeFrom.epochRecords);
     violations.push(...options.resumeFrom.violations);
   }
   const endEpoch = epochsThisRun === undefined
-    ? config.maxEpochs
-    : Math.min(config.maxEpochs, startEpoch + epochsThisRun);
+    ? effectiveMaxEpochs
+    : Math.min(effectiveMaxEpochs, startEpoch + epochsThisRun);
   let stopReason: UnifiedStopReason =
-    endEpoch >= config.maxEpochs ? "epoch_limit_exhausted" : "invocation_budget_exhausted";
+    endEpoch >= effectiveMaxEpochs
+      ? "epoch_limit_exhausted"
+      : "invocation_budget_exhausted";
   const optimizationStartedNs = process.hrtime.bigint();
 
   for (let epoch = startEpoch; epoch < endEpoch; epoch += 1) {
