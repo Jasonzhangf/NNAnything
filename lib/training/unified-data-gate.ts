@@ -47,6 +47,8 @@ export interface UnifiedUnassessedRow {
 export interface UnifiedDataGateRow {
   readonly schema: typeof UNIFIED_DATA_ROW_SCHEMA;
   readonly rowId: string;
+  /** Optional source-family attribution used by fixed acceptance aggregation. */
+  readonly sourceGroup?: string;
   readonly partition: "TRAIN" | "DEV";
   readonly route: Readonly<{ domain: string; decisionKind: UnifiedDecisionKind }>;
   readonly input: readonly number[];
