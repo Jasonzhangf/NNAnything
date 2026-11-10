@@ -2,7 +2,7 @@
 // This module owns the output shape only; callers retain their own scoring and
 // decision semantics.
 
-export type FamilyLabelGoldLabel = "true" | "false" | "unknown";
+export type FamilyLabelGoldLabel = "true" | "false" | "unknown" | "non_relation";
 
 export interface FamilyLabelDecisionEffect {
   readonly selected: string | null;
@@ -56,10 +56,11 @@ export class FamilyLabelAggregationError extends Error {
   }
 }
 
-const LABEL_ORDER: readonly FamilyLabelGoldLabel[] = ["true", "false", "unknown"];
+const LABEL_ORDER: readonly FamilyLabelGoldLabel[] = ["true", "false", "unknown", "non_relation"];
 
 export function familyLabelOfGold(gold: unknown): FamilyLabelGoldLabel {
   if (gold === "true" || gold === "false" || gold === "unknown") return gold;
+  if (typeof gold === "string" && gold.startsWith("c:advance:")) return "non_relation";
   if (typeof gold === "string" && gold.startsWith("c:judge:")) {
     const label = gold.slice("c:judge:".length);
     if (label === "true" || label === "false" || label === "unknown") return label;

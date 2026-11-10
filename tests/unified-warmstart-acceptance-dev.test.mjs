@@ -51,6 +51,10 @@ async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
+function oneHot(slot) {
+  return Array.from({ length: 64 }, (_, index) => index === slot ? 1 : 0);
+}
+
 function packageFor(extraW1 = {}) {
   const tensors = zeroTensors();
   tensors.W1[36] = 1;
@@ -72,6 +76,177 @@ function packageFor(extraW1 = {}) {
     },
     fixedStages: ["nnanything.unified-step.encoder.v2"],
   });
+}
+
+async function makeSyntheticAcceptanceFixture(rows) {
+  const root = await mkdtemp(join(tmpdir(), "unified-wa-synthetic-"));
+  const thresholdsPath = join(root, "feature-thresholds.json");
+  const missingModePath = join(root, "missing-mode.json");
+  await writeJson(thresholdsPath, THRESHOLDS);
+  await writeJson(missingModePath, MISSING_MODE);
+
+  const basePackage = packageFor();
+  const resources = {
+    ...basePackage.resources,
+    thresholdsRef: thresholdsPath,
+    missingModeTableRef: missingModePath,
+  };
+  const sourcePackage = { ...basePackage, resources };
+  const candidatePackage = { ...basePackage, resources };
+  const sourcePackagePath = await saveUnifiedModelPackageAtomic(
+    join(root, "source-package.json"),
+    sourcePackage,
+  );
+  const candidatePackagePath = await saveUnifiedModelPackageAtomic(
+    join(root, "candidate-package.json"),
+    candidatePackage,
+  );
+  const candidateCheckpointPath = join(root, "candidate-checkpoint.json");
+  const epochZero = {
+    exact: true,
+    tensorEquality: true,
+    checkedInputs: 4,
+    maxAbsDelta: 0,
+  };
+  const warmStart = {
+    kind: "package-warm-start",
+    sourceModelId: sourcePackage.modelId,
+    sourceVersion: sourcePackage.version,
+    sourcePackagePath,
+    sourceRoute: sourcePackage.route,
+    sourceEncoderVersion: sourcePackage.encoderVersion,
+    epochZero,
+  };
+  await writeJson(candidateCheckpointPath, {
+    schema: "nnanything.unified.training-checkpoint.v1",
+    modelId: candidatePackage.modelId,
+    version: candidatePackage.version,
+    route: candidatePackage.route,
+    inputSchema: candidatePackage.inputSchema,
+    encoderVersion: candidatePackage.encoderVersion,
+    resources,
+    architecture: { input: 64, hidden: [64, 64], output: 1, activation: "relu" },
+    recipe: {
+      optimizer: "full_batch_sgd",
+      momentum: 0,
+      learningRate: 0.1,
+      seed: 1,
+      init: "xavier_uniform",
+      maxEpochs: 1,
+    },
+    completedEpochs: 1,
+    earlyStop: { devEarlyStopEnabled: false },
+    cumulativeTimingSeconds: null,
+    timing: null,
+    epochRecords: [{ epoch: 0, epochLoss: 0, finite: true, maxAbsGrad: 0 }],
+    violations: [],
+    tensors: candidatePackage.tensors,
+    warmStart,
+  });
+
+  const rowsReportPath = join(root, "rows-report.json");
+  await writeJson(rowsReportPath, { dataGate: { rows } });
+  const rawReportPath = join(root, "raw-warmstart-report.json");
+  await writeJson(rawReportPath, {
+    status: "completed",
+    stopReason: "epoch_limit_exhausted",
+    trainReport: { status: "completed", stopReason: "epoch_limit_exhausted" },
+    error: null,
+    checkpointReload: {
+      checkpointPath: candidateCheckpointPath,
+      tensorsMatch: true,
+      completedEpochs: 1,
+      epochRecordCount: 1,
+    },
+    packageReload: {
+      packagePath: candidatePackagePath,
+      tensorsMatch: true,
+      modelId: candidatePackage.modelId,
+      version: candidatePackage.version,
+    },
+    warmStart: {
+      initializer: "inherited_package",
+      inheritanceSource: "source_package",
+      sourcePackagePath,
+      sourceModelId: sourcePackage.modelId,
+      sourceVersion: sourcePackage.version,
+      sourcePackageLoadedThisRun: true,
+      sourcePackageLoadSeconds: 0,
+      epochZero,
+    },
+    thisRun: {
+      loadSeconds: 0,
+      dataValidationSeconds: 0,
+      optimizationSeconds: 0,
+      evaluationSeconds: null,
+      totalWallSeconds: 0,
+      rowsPerSecond: null,
+      throughputDenominator: null,
+      attemptOptimizerSteps: 0,
+      attemptProcessedRows: rows.length,
+      completedOptimizerSteps: 0,
+      completedProcessedRows: rows.length,
+      checkpointIoSecs: {
+        serializeSeconds: 0,
+        atomicReplaceSeconds: 0,
+        packageReloadSeconds: 0,
+        totalSeconds: 0,
+      },
+    },
+  });
+
+  const outputDir = join(root, "out");
+  const configPath = join(root, "acceptance-config.json");
+  await writeJson(configPath, {
+    schema: "nnanything.unified.runner-config.v1",
+    command: "warmstart-acceptance",
+    route: { domain: "tsjs", decisionKind: "R" },
+    phase: "evaluation",
+    encoderVersion: "nnanything.unified-step.encoder.v2",
+    dataGate: {
+      schema: "nnanything.unified.data-gate.v1",
+      partition: "TRAIN",
+      encoderVersion: "nnanything.unified-step.encoder.v2",
+      thresholdsPath,
+      rowsPath: join(root, "unused-rows.jsonl"),
+    },
+    outputDir,
+    warmstartAcceptance: {
+      schema: "nnanything.unified.warmstart-acceptance-config.v1",
+      rowsReportPath,
+      sourcePackagePath,
+      candidatePackagePath,
+      candidateCheckpointPath,
+      rawWarmStartReportPath: rawReportPath,
+      tau: 0.1,
+    },
+  });
+  return { root, configPath, outputDir };
+}
+
+function syntheticAcceptanceRow({
+  rowId,
+  sourceGroup,
+  gold,
+  allowed,
+  candidateInputs,
+  labelMissing = false,
+}) {
+  return {
+    schema: "nnanything.unified.data-row.v1",
+    rowId,
+    sourceGroup,
+    partition: "TRAIN",
+    route: { domain: "tsjs", decisionKind: "R" },
+    input: candidateInputs[0].input,
+    candidateInputs,
+    missingMode: [],
+    candidates: candidateInputs.map(candidate => candidate.candidateRef),
+    allowed,
+    gold,
+    labelMissing,
+    enumeration: "complete",
+  };
 }
 
 async function writePackage(root) {
@@ -742,6 +917,173 @@ test("warmstart-acceptance accepts real lineage and rejects controlled corruptio
     for (const root of fixture.roots) {
       await rm(root, { recursive: true, force: true });
     }
+  }
+});
+
+test("warmstart-acceptance scores exact advance identity and retains non-relation attribution", async () => {
+  const advanceRef = "c:advance:edge:sources/src/entry-pos.ts:import:0";
+  const fixture = await makeSyntheticAcceptanceFixture([
+    syntheticAcceptanceRow({
+      rowId: "advance-row",
+      sourceGroup: "advance-family",
+      gold: advanceRef,
+      allowed: [advanceRef],
+      candidateInputs: [
+        { candidateRef: advanceRef, input: oneHot(36) },
+        { candidateRef: "c:defer", input: oneHot(0) },
+      ],
+    }),
+    syntheticAcceptanceRow({
+      rowId: "terminal-row",
+      sourceGroup: "terminal-family",
+      gold: "c:judge:true",
+      allowed: ["c:judge:true"],
+      candidateInputs: [
+        { candidateRef: "c:judge:true", input: oneHot(36) },
+        { candidateRef: "c:judge:false", input: oneHot(0) },
+        { candidateRef: "c:judge:unknown", input: oneHot(1) },
+      ],
+    }),
+  ]);
+  try {
+    assert.equal(
+      await runStandardRunnerCli(["warmstart-acceptance", "--config", fixture.configPath]),
+      0,
+    );
+    const report = await readJson(join(fixture.outputDir, "run-report.json"));
+    assert.equal(report.status, "accepted");
+    const advance = report.groups.find(group => group.rowId === "advance-row");
+    assert.ok(advance);
+    assert.equal(advance.gold, advanceRef);
+    assert.equal(advance.goldLabel, "non_relation");
+    assert.equal(advance.assessed, true);
+    assert.equal(typeof advance.loss, "number");
+    assert.equal(advance.candidate.selected, advanceRef);
+    assert.equal(advance.candidate.correct, true);
+    assert.ok(advance.margin >= 0.1);
+    assert.equal(advance.marginOk, true);
+
+    const terminal = report.groups.find(group => group.rowId === "terminal-row");
+    assert.ok(terminal);
+    assert.equal(terminal.goldLabel, "true");
+    assert.equal(terminal.assessed, true);
+    assert.equal(terminal.candidate.correct, true);
+    assert.equal(terminal.marginOk, true);
+
+    const advanceBucket = report.aggregation.buckets.find(
+      bucket => bucket.sourceFamily === "advance-family",
+    );
+    assert.ok(advanceBucket);
+    assert.equal(advanceBucket.goldLabel, "non_relation");
+    assert.equal(advanceBucket.decision.assessed, 1);
+    assert.equal(advanceBucket.loss.rowCount, 1);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("warmstart-acceptance fails a wrong advance selection without relabeling it", async () => {
+  const goldAdvance = "c:advance:edge:sources/src/entry-pos.ts:import:0";
+  const selectedAdvance = "c:advance:edge:sources/src/util.ts:reexport:0";
+  const fixture = await makeSyntheticAcceptanceFixture([
+    syntheticAcceptanceRow({
+      rowId: "wrong-advance",
+      sourceGroup: "advance-regression-family",
+      gold: goldAdvance,
+      allowed: [goldAdvance],
+      candidateInputs: [
+        { candidateRef: selectedAdvance, input: oneHot(36) },
+        { candidateRef: goldAdvance, input: oneHot(0) },
+        { candidateRef: "c:defer", input: oneHot(1) },
+      ],
+    }),
+  ]);
+  try {
+    assert.equal(
+      await runStandardRunnerCli(["warmstart-acceptance", "--config", fixture.configPath]),
+      1,
+    );
+    const report = await readJson(join(fixture.outputDir, "run-report.json"));
+    assert.equal(report.error.code, "WARMSTART_DECISION_FAILED");
+    const group = report.groups[0];
+    assert.equal(group.gold, goldAdvance);
+    assert.equal(group.goldLabel, "non_relation");
+    assert.equal(group.candidate.selected, selectedAdvance);
+    assert.equal(group.candidate.correct, false);
+    assert.ok(group.margin < 0.1);
+    assert.equal(group.marginOk, false);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("warmstart-acceptance keeps labelMissing out of loss and margin while assessing supervised unknown", async () => {
+  const fixture = await makeSyntheticAcceptanceFixture([
+    syntheticAcceptanceRow({
+      rowId: "missing-label",
+      sourceGroup: "missing-family",
+      gold: "unknown",
+      allowed: ["c:judge:unknown", "c:judge:true"],
+      labelMissing: true,
+      candidateInputs: [
+        { candidateRef: "c:judge:unknown", input: oneHot(36) },
+        { candidateRef: "c:judge:true", input: oneHot(36) },
+      ],
+    }),
+    syntheticAcceptanceRow({
+      rowId: "supervised-unknown",
+      sourceGroup: "supervised-family",
+      gold: "unknown",
+      allowed: ["c:judge:unknown"],
+      candidateInputs: [
+        { candidateRef: "c:judge:unknown", input: oneHot(36) },
+        { candidateRef: "c:judge:true", input: oneHot(0) },
+      ],
+    }),
+  ]);
+  try {
+    assert.equal(
+      await runStandardRunnerCli(["warmstart-acceptance", "--config", fixture.configPath]),
+      0,
+    );
+    const report = await readJson(join(fixture.outputDir, "run-report.json"));
+    const missing = report.groups.find(group => group.rowId === "missing-label");
+    assert.ok(missing);
+    assert.equal(missing.labelMissing, true);
+    assert.equal(missing.assessed, false);
+    assert.equal(missing.loss, null);
+    assert.equal(missing.margin, null);
+    assert.equal(missing.marginOk, false);
+    assert.equal(missing.outcome, "unassessed");
+
+    const supervised = report.groups.find(group => group.rowId === "supervised-unknown");
+    assert.ok(supervised);
+    assert.equal(supervised.goldLabel, "unknown");
+    assert.equal(supervised.assessed, true);
+    assert.equal(typeof supervised.loss, "number");
+    assert.ok(supervised.margin >= 0.1);
+    assert.equal(supervised.marginOk, true);
+
+    const missingBucket = report.aggregation.buckets.find(
+      bucket => bucket.sourceFamily === "missing-family",
+    );
+    assert.ok(missingBucket);
+    assert.equal(missingBucket.decision.assessed, 0);
+    assert.equal(missingBucket.decision.unassessed, 1);
+    assert.equal(missingBucket.loss, null);
+
+    const supervisedBucket = report.aggregation.buckets.find(
+      bucket => bucket.sourceFamily === "supervised-family",
+    );
+    assert.ok(supervisedBucket);
+    assert.equal(supervisedBucket.decision.assessed, 1);
+    assert.equal(supervisedBucket.loss.rowCount, 1);
+    assert.ok(
+      Math.abs(report.loss.recomputedMeanLoss - supervised.loss) < 1e-12,
+      "recomputed mean loss must use only the supervised unknown row",
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
   }
 });
 

@@ -16,6 +16,7 @@ import {
   requireSourceFamily,
   type FamilyLabelAggregation,
   type FamilyLabelAggregationRow,
+  type FamilyLabelGoldLabel,
 } from "./unified-evaluation-aggregation.js";
 import {
   loadUnifiedModelPackageFromFile,
@@ -75,11 +76,11 @@ interface WarmStartGroupResult {
   readonly sourceFamily: string;
   readonly partition: string;
   readonly gold: string;
-  readonly goldLabel: "true" | "false" | "unknown";
+  readonly goldLabel: FamilyLabelGoldLabel;
   readonly labelMissing: boolean;
   readonly allowed: readonly string[];
   readonly assessed: boolean;
-  readonly loss: number;
+  readonly loss: number | null;
   readonly previous: {
     readonly selected: string;
     readonly correct: boolean;
@@ -510,11 +511,15 @@ function asGroup(
     }
   });
   const requestedLabel = familyLabelOfGold(gold);
+  const exactGoldCandidateRef = candidates.some(candidate => candidate.candidateRef === gold)
+    ? gold
+    : null;
+  const labelCandidateRef = requestedLabel === "non_relation"
+    ? null
+    : knownLabels.find(entry => entry.label === requestedLabel)?.candidateRef ?? null;
   const goldCandidateRef = labelMissing
-    ? knownLabels.find(entry => entry.label === requestedLabel)?.candidateRef ?? null
-    : candidates.some(candidate => candidate.candidateRef === gold)
-      ? gold
-      : knownLabels.find(entry => entry.label === requestedLabel)?.candidateRef ?? null;
+    ? null
+    : exactGoldCandidateRef ?? labelCandidateRef;
   if (!labelMissing && goldCandidateRef === null) {
     throw new WarmStartAcceptanceFailure(
       "WARMSTART_EVIDENCE_INVALID",
@@ -892,7 +897,6 @@ export async function runUnifiedWarmStartAcceptance(
       );
     }
 
-    const groups: EncodedGroup[] = [];
     const rowMetadata: {
       readonly group: EncodedGroup;
       readonly rowId: string;
@@ -905,24 +909,30 @@ export async function runUnifiedWarmStartAcceptance(
     for (let index = 0; index < rows.length; index += 1) {
       const row = requireRecord(rows[index], `rows-report dataGate.rows[${index}]`);
       const mapped = asGroup(row);
-      groups.push(mapped.group);
       rowMetadata.push(mapped);
     }
 
-    const candidateLosses = new Map(
-      epochLoss(groups, checkpoint.tensors).groupLosses.map(entry => [entry.groupRef, entry.loss]),
-    );
+    const supervisedGroups = rowMetadata
+      .filter(row => !row.labelMissing)
+      .map(row => row.group);
+    const candidateLosses = supervisedGroups.length === 0
+      ? new Map<string, number>()
+      : new Map(
+          epochLoss(supervisedGroups, checkpoint.tensors)
+            .groupLosses.map(entry => [entry.groupRef, entry.loss]),
+        );
     const groupResults = rowMetadata.map(row => {
       const previousScores = scoresOf(row.group, loadedSource.package.tensors);
       const candidateScores = scoresOf(row.group, checkpoint.tensors);
       const classification = classifyGroup(previousScores, candidateScores, row.goldCandidateRef, tau);
-      const loss = candidateLosses.get(row.rowId);
-      if (loss === undefined || !Number.isFinite(loss)) {
+      const candidateLoss = candidateLosses.get(row.rowId);
+      if (!row.labelMissing && (candidateLoss === undefined || !Number.isFinite(candidateLoss))) {
         throw new WarmStartAcceptanceFailure(
           "WARMSTART_EVIDENCE_INVALID",
           `no candidate loss was computed for group ${row.rowId}`,
         );
       }
+      const loss = row.labelMissing ? null : candidateLoss!;
       return {
         rowId: row.rowId,
         sourceFamily: row.sourceFamily,
@@ -1006,7 +1016,10 @@ export async function runUnifiedWarmStartAcceptance(
         : typeof rawReport.finalLoss === "number"
           ? rawReport.finalLoss
           : null,
-      recomputedMeanLoss: epochLoss(groups, checkpoint.tensors).loss,
+      recomputedMeanLoss: supervisedGroups.length === 0
+        ? null
+        : [...candidateLosses.values()].reduce((sum, value) => sum + value, 0)
+          / candidateLosses.size,
       note: "recordedFinalLoss is the runner's pre-update epoch value; recomputedMeanLoss is a post-update forward on the saved candidate tensors.",
     };
 
