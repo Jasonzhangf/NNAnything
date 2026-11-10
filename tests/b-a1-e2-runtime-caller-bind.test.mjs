@@ -23,6 +23,31 @@ test("the page projection module has no Node filesystem or model import", async 
   assert.equal(BA1_REAL_SITE_MDN_SHADOW_ROOT_COVERAGE, "partial");
 });
 
+test("the native action boundary stays outside scoring and student geometry", async () => {
+  const projectionSource = await readFile(
+    join(root, "lib/adapters/browser/b-a1-real-site-browser-projection.ts"),
+    "utf8",
+  );
+  const runtimeSource = await readFile(
+    join(root, "lib/adapters/browser/b-a1-real-site-cdp-runtime.ts"),
+    "utf8",
+  );
+  const projectionModule = await import(
+    "../dist/adapters/browser/b-a1-real-site-browser-projection.js"
+  );
+  assert.equal(typeof projectionModule.handleBA1RealSiteBrowserActionRequest, "function");
+  for (const forbidden of [
+    "runBA1RealSiteFirstResult",
+    "evaluateBA1Sample",
+    "projectBA1RealSiteEvaluationInput",
+    "forwardUnifiedScore",
+    "attachShadow",
+  ]) {
+    assert.equal(projectionSource.includes(forbidden), false, `projection source must not use ${forbidden}`);
+    assert.equal(runtimeSource.includes(forbidden), false, `runtime source must not use ${forbidden}`);
+  }
+});
+
 test("the provider slot changes token currentness on a second observation", () => {
   const slot = createBA1RealSiteControlSlot();
   const provider = createCurrentControlAuthority({ documentRef: "doc-1" });
