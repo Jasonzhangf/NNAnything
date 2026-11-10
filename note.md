@@ -4283,3 +4283,16 @@ fix-r1 提交 `be57ddd`（31 文件）修复原整体 Review 两项 P1：P1-A �
 - 阻塞（需用户动作）：`collab task integrated` 因 daemon 子进程 `git ... rev-parse` 永久挂起而无法记录。daemon PID 63957 spawn 的多个 git 子进程（NNAnything `/Volumes/extension` 与 appsdk `~/Documents/github/appsdk`）长时间停在 S 态；我在自身 shell 运行同一 git 命令立即返回 0，故确认是 daemon 进程的 TCC 授权（Documents/Removable Volumes）与其 adhoc 签名身份不匹配。受影响四笔记录：caller-design(`426baaa`)、consumer-first-result-jack(`aac5333`)、provider-records(`900dcfb`)、bug-15c0be4(`fc54bb2`)。恢复动作=用户为 `/Users/fanzhang/.cargo/bin/collab`（`Signature=adhoc`，Identifier `collab-4018e89fd6c6e768`）重新授权 Files and Folders/Documents 或 FDA，随后由 Jenny 执行 `collab task integrated --commit <sha>`，再由各 owner 清理并 close。同根因已在 AppSDK bug `87bf3a7` 登记。
 - 边界：本轮只做只读核对、Git 集成、board 发布/派单与 note 记录；未改产品代码/语料/权重/gold/threshold/采用，未训练/采样/接线/安装，未动 daemon/tmux，未 force-close，未绕过 TCC。
 - 下一步：等 Iris 接受 authority 邀请并交付 Alice 窄审；四笔集成记录待用户修复 daemon TCC 后补记。
+
+## 2026-11-09 Jenny：authority 模块集成到 main；集成记录仍被 TCC 阻塞（16:24 America/Los_Angeles）
+
+- 目的：处理 Iris 对 authority-impl 邀请的 decline 与 Carol 的集成请求，完成 master 侧 Git 集成并核对主线可构建。
+- 证据：`/Volumes/Intel/playground/nnanything-runs/b-a1-e2-current-control-authority-module-r1-20261109/alice-review.md`（Alice ACCEPT `ae33b0e`，注明 "accepted for Jenny integration"）；Iris decline `m1794269959566-571`；Carol `m1794269945768-569` 与 `m1794270012567-576`。
+- 动作与结果：
+  - `ae33b0e` 基线为 `85f28d7`，已与当前 main 合并，仅新增 `lib/adapters/browser/current-control-authority.ts` 与 `tests/b-a1-e2-current-control-authority.test.mjs`；merge `6162663` 已推送到 origin/main，无冲突、无产品语义变化。
+  - 集成后在主线本地验证：`npm run typecheck` exit 0、`npm run build` exit 0、`node --test tests/b-a1-e2-current-control-authority.test.mjs` 5/5 pass。
+  - Iris 正式 decline authority-impl 邀请（rev14→15），理由是该任务剩余工作属 owner 集成与 lifecycle 而非 peer 实现，与一对一任务及 P0 容量一致；任务回到 pending，仍待 owner 交付/集成记录。
+  - Carol 的 design worktree 因 TCC hold 消息与其常规清理交叉，已恢复同一 branch/path 于 `da1bf92`，clean 且为 origin/main ancestor；她等待 integrated 记录后再 cleanup/close。
+- 阻塞（不变，需用户动作）：`collab task integrated` 仍因 daemon TCC 授权不匹配而挂起。待补集成记录共五笔：caller-design(`426baaa`)、authority-module(`6162663`)、consumer-first-result-jack(`aac5333`)、provider-records(`900dcfb`)、bug-15c0be4(`fc54bb2`)。
+- 边界：本轮只做 Git 集成、主线本地验证、只读核对与 note 记录；未改产品语义/权重/gold/threshold/采用，未训练，未动 daemon/tmux，未 force-close。
+- 下一步：用户为 `/Users/fanzhang/.cargo/bin/collab` 重新授权 Documents/Removable Volumes 或 FDA 后，Jenny 逐笔执行 `collab task integrated`，随后各 owner 清理并 close；authority 交付后 caller-bind r2 解除 depends_on。
