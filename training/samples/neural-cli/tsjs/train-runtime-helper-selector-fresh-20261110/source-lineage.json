@@ -29,7 +29,7 @@
         "return inside one nested block statement"
       ]
     },
-    "isolationNote": "Independence is claimed by non-exposure of the DEV sources, not by directory-name comparison. The author used only the accepted contract, the public producer, and its own authored programs."
+    "isolationNote": "Independence is claimed by non-exposure of the DEV source contents and verification families, not by directory-name comparison. Per authoringInputs, the author used the accepted contract, the public producer, its own authored programs, and the already-merged TRAIN helper family read only for context and name-collision confirmation. These are attestations, not independently verified unseen-family claims."
   },
   "instances": [
     {
