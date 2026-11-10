@@ -159,7 +159,31 @@ preparation receipt and the accepted E2 design define
 }
 ```
 
-Permitted supervision to `BA1EvaluatorGold` mapping (pending Alice review):
+Concrete non-human custody example (documentary metadata only, not a runtime
+`labelSource` enum):
+
+```json
+{
+  "schema": "nnanything.b-a1.real-site-supervision.v1",
+  "sourceGroupId": "rs-a-q1",
+  "sampleId": "rs-a-q1/rel/search-input",
+  "goldStatus": "labeled_selected",
+  "goldValue": "<candidateRef proposed by independent non-human review>",
+  "labelSource": "teacher-proposal",
+  "labelAuthority": "gpt-6.1-sol teacher session <teacher-session-id> revision <teacher-revision>",
+  "oracleKind": "teacher read of current page DOM/accessibility tree",
+  "evidenceRefs": ["teacher-proposal.json#rs-a-q1", "raw-observation.json#rs-a-q1"],
+  "reviewStatus": "pending",
+  "oraclePreconditions": ["producer is score-blind", "proposal must be independently adjudicated before approval"]
+}
+```
+
+`labelSource` is an independent custody-artifact field for human and
+non-human provenance. It is not a converter supervision-row field and does not
+add a `teacher`/`llm`/`rule` runtime enum. The actual producer identity and
+method are named by `labelAuthority` and `oracleKind`.
+
+Approved custody to `BA1EvaluatorGold` mapping (pending Alice review):
 
 - `labeled_selected` with `reviewStatus` explicitly approved -> `kind:"bound"`,
   `state:"selected"`, and `selectedRef` = `goldValue`.
@@ -178,9 +202,13 @@ Permitted supervision to `BA1EvaluatorGold` mapping (pending Alice review):
   supervision. `observation_missing` does not by itself prove that
   `insufficient_observation` is the expected semantic result.
 
-The example above is a pending draft only; Henry has not created or accepted any
-record yet. Only an independently approved record may map to
-`BA1EvaluatorGold`.
+The examples above are pending drafts only; Henry has not created or accepted
+any record yet. Only an independently approved record may map to
+`BA1EvaluatorGold`. `BA1RealSiteFirstResultRequest.gold` accepts that
+`BA1EvaluatorGold` directly and passes it to `evaluateBA1Sample`; the converter
+supervision row is not a required custody-to-gold stage for first-result
+evaluation. Converter mapping applies only where a supervision row is actually
+produced.
 
 Owners:
 
@@ -224,11 +252,11 @@ Consequences:
   supervision row or `BA1EvaluatorGold`.
 - The current machine consumer has no `reviewStatus` or adjudication field.
   Pending and approved custody states cannot be distinguished after mapping.
-  The adjudication gate must run before mapping: only an independently approved
-  custody record may be converted to the existing
-  `supervisionStatus`/`goldAllowedCandidateRefs`/`labelAuthority`/`oracleKind`
-  row and then to `BA1EvaluatorGold`. A machine-visible adjudication field is a
-  real contract gap; this task does not add one.
+  The custody gate owns adjudication upstream and must run before mapping: only
+  an independently approved custody record may become `BA1EvaluatorGold`.
+  The current consumer contract does not require a machine-visible adjudication
+  field, and its absence alone does not justify another schema or engineering
+  change.
 - A future typed `labelSource` or `reviewStatus` requires a separate contract
   change and review. Until then those fields may exist only as custody-artifact
   metadata and must not be treated as current consumer schema.
