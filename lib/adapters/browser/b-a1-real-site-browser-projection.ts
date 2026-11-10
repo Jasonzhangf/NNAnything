@@ -6,7 +6,12 @@
 
 import {
   projectSearchInputHostCandidates,
+  searchInputHostHostOf,
 } from "./search-input-host-projection.js";
+import {
+  createStableNodeRefRegistry,
+  observeLiveDom,
+} from "./live-dom.js";
 import {
   SEARCH_INPUT_HOST_ROLE,
   validateSearchInputHostCandidate,
@@ -184,24 +189,16 @@ function openShadowRootCount(scopeRoot: Element): number {
   return count;
 }
 
-function tabIndexKind(element: Element): "absent" | "negative" | "nonnegative" | "invalid" {
-  const raw = element.getAttribute("tabindex");
-  if (raw === null) return "absent";
-  const value = Number(raw);
-  if (!Number.isInteger(value)) return "invalid";
-  return value < 0 ? "negative" : "nonnegative";
-}
-
-function propertiesFor(element: Element): Record<string, unknown> {
-  const tag = element.tagName.toLowerCase();
-  const disabled = tag === "input" || tag === "textarea"
-    ? (element as HTMLInputElement | HTMLTextAreaElement).disabled
-    : false;
-  return {
-    disabled,
-    explicitTabIndexKind: tabIndexKind(element),
-    tabIndexFocus: document.activeElement === element,
-  };
+function correctMissingMeasurements(
+  candidate: SearchInputHostCandidate,
+  properties: Record<string, unknown> | null,
+): SearchInputHostCandidate {
+  const disabledMeasured = properties !== null && typeof properties.disabled === "boolean";
+  const disabled = disabledMeasured ? (properties.disabled as boolean) : null;
+  const editable = disabledMeasured && candidate.readOnly !== null
+    ? !disabled && candidate.readOnly !== true
+    : null;
+  return { ...candidate, disabled, editable };
 }
 
 function measureProjection(
@@ -239,9 +236,41 @@ function measureProjection(
   }
 
   const scopeRef = request.scopeSelector;
-  const live = Array.from(scopeRoot.querySelectorAll<Element>("input, textarea, [contenteditable]"));
-  const nodeRefs = new Map<Element, string>();
-  live.forEach((element, index) => nodeRefs.set(element, `node-${index + 1}`));
+  let live: {
+    readonly observed: readonly { readonly nodeRef: string; readonly element: Element }[];
+    readonly observedHosts: readonly { readonly nodeRef: string; readonly element: Element }[];
+    readonly propertiesOf: (nodeRef: string) => Record<string, unknown> | null;
+  };
+  try {
+    const snapshot = observeLiveDom({
+      document,
+      window,
+      registry: createStableNodeRefRegistry("node"),
+      excludeRoot: null,
+      snapshotRef: request.identity.observationId,
+      documentRef: request.identity.documentRef,
+    });
+    const observed = snapshot.observation.nodes.flatMap(node => {
+      const element = snapshot.resolveElement(node.nodeRef);
+      return element === null || !isWithinScope(element, scopeRoot)
+        ? []
+        : [{ nodeRef: node.nodeRef, element }];
+    });
+    const observedHosts = observed.filter(node => searchInputHostHostOf(node.element) !== null);
+    live = {
+      observed,
+      observedHosts,
+      propertiesOf: (nodeRef: string) => {
+        const properties = snapshot.properties.get(nodeRef);
+        return properties === undefined ? null : properties as unknown as Record<string, unknown>;
+      },
+    };
+  } catch (error) {
+    throw Object.assign(
+      new Error(error instanceof Error ? error.message : String(error)),
+      { projectionCode: "observation_failed", projectionStage: "observation" },
+    );
+  }
 
   let projected: readonly SearchInputHostCandidate[];
   try {
@@ -251,17 +280,11 @@ function measureProjection(
       observationId: request.identity.observationId,
       revision: request.identity.revision,
       scopeRoot,
-      nodes: live.map(element => ({
-        nodeRef: nodeRefs.get(element)!,
-        element,
-      })),
-      propertiesOf: nodeRef => {
-        const element = live.find(candidate => nodeRefs.get(candidate) === nodeRef);
-        return element === undefined ? null : propertiesFor(element);
-      },
+      nodes: live.observed,
+      propertiesOf: live.propertiesOf,
       coverage: {
         scopeRef,
-        observedCandidateCount: live.length,
+        observedCandidateCount: live.observedHosts.length,
         unassessedIframeCount: scopeRoot.querySelectorAll("iframe").length,
         unassessedObjectCount: scopeRoot.querySelectorAll("object, embed").length,
         unassessedOpenShadowRootCount: openShadowRootCount(scopeRoot),
@@ -280,10 +303,13 @@ function measureProjection(
   let coverage: SearchInputHostCoverage;
   try {
     candidates = Object.freeze(projected.map((candidate, index) =>
-      validateSearchInputHostCandidate(candidate, `projection.candidates[${index}]`)));
+      validateSearchInputHostCandidate(
+        correctMissingMeasurements(candidate, live.propertiesOf(candidate.ref)),
+        `projection.candidates[${index}]`,
+      )));
     coverage = validateSearchInputHostCoverage({
       scopeRef,
-      observedCandidateCount: live.length,
+      observedCandidateCount: live.observedHosts.length,
       unassessedIframeCount: scopeRoot.querySelectorAll("iframe").length,
       unassessedObjectCount: scopeRoot.querySelectorAll("object, embed").length,
       unassessedOpenShadowRootCount: openShadowRootCount(scopeRoot),
@@ -296,7 +322,7 @@ function measureProjection(
     );
   }
 
-  const candidateByRef = new Map(live.map(element => [nodeRefs.get(element)!, element]));
+  const candidateByRef = new Map(live.observed.map(node => [node.nodeRef, node.element]));
   const outsideScopeRefs = candidates
     .filter(candidate => {
       const element = candidateByRef.get(candidate.ref);

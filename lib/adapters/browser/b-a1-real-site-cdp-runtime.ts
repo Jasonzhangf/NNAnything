@@ -78,6 +78,7 @@ export interface BA1RealSiteCdpRuntime {
   installProjectionBundle(source: string): Promise<void>;
   setDocumentContent(html: string, documentRef: string): Promise<void>;
   navigate(url: string, documentRef: string): Promise<void>;
+  evaluate(expression: string, contextId?: number): Promise<unknown>;
   beginProjection(input: {
     readonly scopeSelector: string;
     readonly requestedRole: string;
@@ -102,6 +103,16 @@ interface CdpEvent {
 
 interface PendingCdpRequest {
   readonly resolve: (value: unknown) => void;
+  readonly reject: (error: Error) => void;
+}
+
+interface ContextWaiter {
+  readonly resolve: (contextId: number) => void;
+  readonly reject: (error: Error) => void;
+}
+
+interface DocumentEpochWaiter {
+  readonly epoch: number;
   readonly reject: (error: Error) => void;
 }
 
@@ -344,6 +355,15 @@ class CdpConnection {
   private nextId = 1;
   private sessionId: string | null = null;
   private closed = false;
+  private mainFrameId: string | null = null;
+  private defaultContextId: number | null = null;
+  private projectionBundleSource: string | null = null;
+  private projectionInstalledContextId: number | null = null;
+  private documentEpoch = 0;
+  private generatedDocumentSequence = 0;
+  private explicitBoundarySuppression = 0;
+  private readonly contextWaiters = new Set<ContextWaiter>();
+  private readonly documentEpochWaiters = new Set<DocumentEpochWaiter>();
 
   private constructor(
     process: ChildProcessByStdio<null, null, Readable>,
@@ -372,7 +392,9 @@ class CdpConnection {
         } else {
           pending.resolve(message.result);
         }
+        return;
       }
+      this.handleCdpEvent(message);
     });
     this.websocket.addEventListener("close", () => {
       this.closed = true;
@@ -380,13 +402,180 @@ class CdpConnection {
         pending.reject(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket closed"));
       }
       this.pending.clear();
+      this.rejectContextWaiters(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket closed"));
+      this.rejectDocumentEpochWaiters(
+        new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket closed"),
+      );
     });
     this.websocket.addEventListener("error", () => {
       for (const pending of this.pending.values()) {
         pending.reject(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket error"));
       }
       this.pending.clear();
+      this.rejectContextWaiters(new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket error"));
+      this.rejectDocumentEpochWaiters(
+        new BA1RealSiteCdpRuntimeError("cdp_failure", "CDP websocket error"),
+      );
     });
+  }
+
+  private handleCdpEvent(message: CdpEvent): void {
+    switch (message.method) {
+      case "Runtime.executionContextsCleared":
+        this.handleMainDocumentBoundary("execution_contexts_cleared");
+        return;
+      case "Runtime.executionContextDestroyed": {
+        const params = requireRecord(message.params ?? {}, "Runtime.executionContextDestroyed.params");
+        if (params.executionContextId !== this.defaultContextId) return;
+        this.handleMainDocumentBoundary("execution_context_destroyed");
+        return;
+      }
+      case "Runtime.executionContextCreated": {
+        const params = requireRecord(message.params ?? {}, "Runtime.executionContextCreated.params");
+        const context = requireRecord(params.context, "Runtime.executionContextCreated.params.context");
+        const contextId = context.id;
+        const auxData = requireRecord(
+          context.auxData ?? {},
+          "Runtime.executionContextCreated.params.context.auxData",
+        );
+        if (
+          typeof contextId !== "number"
+          || !Number.isInteger(contextId)
+          || auxData.isDefault !== true
+          || auxData.frameId !== this.mainFrameId
+        ) {
+          return;
+        }
+        this.defaultContextId = contextId;
+        this.projectionInstalledContextId = null;
+        this.resolveContextWaiters(contextId);
+        return;
+      }
+      case "Page.frameNavigated": {
+        const params = requireRecord(message.params ?? {}, "Page.frameNavigated.params");
+        if (params.type === "SameDocument") return;
+        const frame = requireRecord(params.frame, "Page.frameNavigated.params.frame");
+        if (frame.id !== this.mainFrameId || this.defaultContextId === null) return;
+        this.handleMainDocumentBoundary("frame_navigated");
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  private handleMainDocumentBoundary(reason: string): void {
+    if (this.defaultContextId === null) return;
+    this.defaultContextId = null;
+    this.projectionInstalledContextId = null;
+    if (this.explicitBoundarySuppression > 0) return;
+    this.replaceProvider(this.nextGeneratedDocumentRef(), reason);
+  }
+
+  private nextGeneratedDocumentRef(): string {
+    this.generatedDocumentSequence += 1;
+    return `page-document-${this.generatedDocumentSequence}`;
+  }
+
+  private replaceProvider(documentRef: string, reason: string): void {
+    const previousEpoch = this.documentEpoch;
+    this.documentEpoch += 1;
+    this.projectionInstalledContextId = null;
+    this.slot.replace(createCurrentControlAuthority({
+      documentRef: requireNonEmptyString(documentRef, "documentRef"),
+    }));
+    for (const waiter of this.documentEpochWaiters) {
+      if (waiter.epoch === previousEpoch) {
+        waiter.reject(new BA1RealSiteCdpRuntimeError(
+          "provider_replaced",
+          `active document was replaced by ${reason}`,
+        ));
+        this.documentEpochWaiters.delete(waiter);
+      }
+    }
+  }
+
+  private resolveContextWaiters(contextId: number): void {
+    for (const waiter of this.contextWaiters) {
+      waiter.resolve(contextId);
+      this.contextWaiters.delete(waiter);
+    }
+  }
+
+  private rejectContextWaiters(error: Error): void {
+    for (const waiter of this.contextWaiters) {
+      waiter.reject(error);
+      this.contextWaiters.delete(waiter);
+    }
+  }
+
+  private rejectDocumentEpochWaiters(error: Error): void {
+    for (const waiter of this.documentEpochWaiters) {
+      waiter.reject(error);
+      this.documentEpochWaiters.delete(waiter);
+    }
+  }
+
+  private async waitForDefaultContext(deadline: number): Promise<number> {
+    if (this.defaultContextId !== null) return this.defaultContextId;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new BA1RealSiteCdpRuntimeError("cdp_failure", "main-frame execution context did not become ready");
+    }
+    return await new Promise<number>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.contextWaiters.delete(waiter);
+        reject(new BA1RealSiteCdpRuntimeError(
+          "cdp_failure",
+          "main-frame execution context did not become ready",
+        ));
+      }, remaining);
+      const waiter: ContextWaiter = {
+        resolve: contextId => {
+          clearTimeout(timer);
+          resolve(contextId);
+        },
+        reject: error => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      this.contextWaiters.add(waiter);
+    });
+  }
+
+  private async evaluateInDocument(expression: string, expectedEpoch: number): Promise<unknown> {
+    if (this.documentEpoch !== expectedEpoch) {
+      throw new BA1RealSiteCdpRuntimeError(
+        "provider_replaced",
+        "document changed before the projection request was sent",
+      );
+    }
+    let waiter: DocumentEpochWaiter | null = null;
+    const invalidation = new Promise<never>((_, reject) => {
+      waiter = {
+        epoch: expectedEpoch,
+        reject: error => {
+          reject(error);
+        },
+      };
+      this.documentEpochWaiters.add(waiter);
+    });
+    try {
+      const operation = (async () => {
+        const contextId = await this.waitForDefaultContext(Date.now() + 10_000);
+        if (this.documentEpoch !== expectedEpoch) {
+          throw new BA1RealSiteCdpRuntimeError(
+            "provider_replaced",
+            "document changed before evaluate used the main-frame context",
+          );
+        }
+        return await this.evaluate(expression, contextId);
+      })();
+      return await Promise.race([operation, invalidation]);
+    } finally {
+      if (waiter !== null) this.documentEpochWaiters.delete(waiter);
+    }
   }
 
   static async launch(chromePath: string, headless: boolean): Promise<CdpConnection> {
@@ -455,6 +644,13 @@ class CdpConnection {
       );
       connection.sessionId = requireNonEmptyString(attached.sessionId, "Target.attachToTarget.sessionId");
       await connection.send("Page.enable");
+      const frameTree = requireRecord(await connection.send("Page.getFrameTree"), "Page.getFrameTree");
+      const frameTreeValue = requireRecord(frameTree.frameTree, "Page.getFrameTree.frameTree");
+      const frame = requireRecord(frameTreeValue.frame, "Page.getFrameTree.frameTree.frame");
+      connection.mainFrameId = requireNonEmptyString(
+        frame.id,
+        "Page.getFrameTree.frameTree.frame.id",
+      );
       await connection.send("Runtime.enable");
       return connection;
     } catch (error) {
@@ -479,16 +675,44 @@ class CdpConnection {
   }
 
   async installProjectionBundle(source: string): Promise<void> {
-    await this.evaluate(source);
+    this.projectionBundleSource = source;
+    this.projectionInstalledContextId = null;
+    await this.ensureProjectionBundle();
   }
 
-  async evaluate(expression: string): Promise<unknown> {
+  private async ensureProjectionBundle(): Promise<void> {
+    const source = this.projectionBundleSource;
+    if (source === null) return;
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const contextId = await this.waitForDefaultContext(deadline);
+      if (this.projectionInstalledContextId === contextId) return;
+      const epoch = this.documentEpoch;
+      try {
+        await this.evaluate(source, contextId);
+      } catch (error) {
+        if (this.documentEpoch !== epoch || this.defaultContextId !== contextId) continue;
+        throw error;
+      }
+      if (this.documentEpoch === epoch && this.defaultContextId === contextId) {
+        this.projectionInstalledContextId = contextId;
+        return;
+      }
+    }
+    throw new BA1RealSiteCdpRuntimeError(
+      "cdp_failure",
+      "projection bundle did not bind to the main-frame execution context",
+    );
+  }
+
+  async evaluate(expression: string, contextId?: number): Promise<unknown> {
     const result = requireRecord(
       await this.send("Runtime.evaluate", {
         expression,
         awaitPromise: true,
         returnByValue: true,
         userGesture: false,
+        ...(contextId === undefined ? {} : { contextId }),
       }),
       "Runtime.evaluate",
     );
@@ -505,29 +729,57 @@ class CdpConnection {
   }
 
   async setDocumentContent(html: string, documentRef: string): Promise<void> {
-    const slot = this.slot;
-    slot.replace(createCurrentControlAuthority({ documentRef }));
-    const frameTree = requireRecord(await this.send("Page.getFrameTree"), "Page.getFrameTree");
-    const frameTreeValue = requireRecord(frameTree.frameTree, "Page.getFrameTree.frameTree");
-    const frame = requireRecord(frameTreeValue.frame, "Page.getFrameTree.frameTree.frame");
-    const frameId = requireNonEmptyString(frame.id, "Page.getFrameTree.frameTree.frame.id");
-    await this.send("Page.setDocumentContent", { frameId, html });
-    await this.waitForDocumentReady();
+    this.replaceProvider(documentRef, "explicit_set_document_content");
+    this.explicitBoundarySuppression += 1;
+    try {
+      const frameId = this.mainFrameId;
+      if (frameId === null) {
+        throw new BA1RealSiteCdpRuntimeError("cdp_failure", "main frame is not known");
+      }
+      await this.send("Page.setDocumentContent", { frameId, html });
+      await this.waitForDocumentReady();
+    } finally {
+      this.explicitBoundarySuppression -= 1;
+    }
   }
 
   async navigate(url: string, documentRef: string): Promise<void> {
-    this.slot.replace(createCurrentControlAuthority({ documentRef }));
-    await this.send("Page.navigate", { url });
-    await this.waitForDocumentReady();
+    this.replaceProvider(documentRef, "explicit_navigate");
+    this.explicitBoundarySuppression += 1;
+    try {
+      await this.send("Page.navigate", { url });
+      await this.waitForDocumentReady();
+    } finally {
+      this.explicitBoundarySuppression -= 1;
+    }
   }
 
   async waitForDocumentReady(): Promise<void> {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-      if (await this.evaluate("document.readyState") === "complete") return;
+      const contextId = await this.waitForDefaultContext(deadline);
+      try {
+        const state = await this.evaluate("document.readyState", contextId);
+        if (state === "complete" && this.defaultContextId === contextId) return;
+      } catch (error) {
+        if (this.defaultContextId !== contextId) {
+          continue;
+        }
+        throw error;
+      }
       await new Promise(resolve => setTimeout(resolve, 20));
     }
     throw new BA1RealSiteCdpRuntimeError("cdp_failure", "document did not reach readyState=complete");
+  }
+
+  documentEpochValue(): number {
+    return this.documentEpoch;
+  }
+
+  async evaluateProjectionRequest(expression: string, expectedEpoch: number): Promise<unknown> {
+    await this.waitForDocumentReady();
+    await this.ensureProjectionBundle();
+    return await this.evaluateInDocument(expression, expectedEpoch);
   }
 
   get slot(): BA1RealSiteControlSlot {
@@ -604,10 +856,12 @@ export async function createBA1RealSiteCdpRuntime(options: {
     installProjectionBundle: source => connection.installProjectionBundle(source),
     setDocumentContent: (html, documentRef) => connection.setDocumentContent(html, documentRef),
     navigate: (url, documentRef) => connection.navigate(url, documentRef),
+    evaluate: (expression, contextId) => connection.evaluate(expression, contextId),
     beginProjection: async input => {
       const provider = runtime.slot.current();
       const generation = runtime.slot.generation();
       const token = provider.beginObservation();
+      const expectedEpoch = connection.documentEpochValue();
       const request: BA1RealSiteBrowserProjectionRequest = {
         schema: "nnanything.b-a1.real-site-browser-projection-request.v1",
         requestId: randomUUID(),
@@ -616,8 +870,9 @@ export async function createBA1RealSiteCdpRuntime(options: {
         requestedRole: requireNonEmptyString(input.requestedRole, "beginProjection.requestedRole"),
         access: input.access,
       };
-      const rawResponse = await connection.evaluate(
+      const rawResponse = await connection.evaluateProjectionRequest(
         `globalThis.__nnanythingBA1RealSiteProjection(${JSON.stringify(request)})`,
+        expectedEpoch,
       );
       const projection = parseProjection(
         rawResponse as BA1RealSiteBrowserProjectionResponse,

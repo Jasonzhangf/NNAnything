@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -37,6 +38,19 @@ function assertJsonProjection(value, path = "projection") {
     assert.equal(Object.hasOwn(value, forbidden), false, `${path}.${forbidden} must be absent`);
   }
   for (const [key, entry] of Object.entries(value)) assertJsonProjection(entry, `${path}.${key}`);
+}
+
+async function waitUntil(predicate, message, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if (await predicate()) return;
+    } catch {
+      // The page context can disappear during a real navigation.
+    }
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  throw new Error(message);
 }
 
 async function packageScoringHasLabel(dir) {
@@ -81,6 +95,50 @@ const html1 = `
 `;
 const html2 = '<div id="scope"><label>查询<input id="search2" type="text"></label></div>';
 const html3 = '<div id="scope"><label>检索<input id="search3" type="search"></label></div>';
+const pageInitiatedTargetHtml = '<div id="scope"><input id="after-real-navigation" type="search"></div>';
+const pageInitiatedHtml = target => `
+  <div id="scope"><input id="before-real-navigation" type="search"></div>
+  <script>
+    window.__startPageNavigation = () => {
+      location.href = ${JSON.stringify(target)};
+    };
+  </script>
+`;
+const subframeTarget = `data:text/html,${encodeURIComponent("<p>subframe loaded</p>")}`;
+const subframeOnlyHtml = `
+  <div id="scope"><input id="main-control" type="search"></div>
+  <script>
+    setTimeout(() => {
+      const frame = document.createElement("iframe");
+      frame.id = "subframe";
+      frame.src = ${JSON.stringify(subframeTarget)};
+      document.body.appendChild(frame);
+    }, 100);
+  </script>
+`;
+const observerSemanticsHtml = `
+  <div id="rootHost" contenteditable="true">
+    <span id="inherited"></span>
+    <div id="falseHost" contenteditable="false"></div>
+  </div>
+  <div id="ordinaryScope">
+    <input id="nonnegative" type="search" tabindex="0">
+    <input id="negative" type="search" tabindex="-1">
+    <input id="absent" type="search">
+    <input id="invalid" type="search" tabindex="abc">
+    <input id="focusedAbsent" type="search" onfocus="this.setAttribute('aria-label', 'focused')">
+    <input id="focusedNegative" type="search" tabindex="-1"
+      onfocus="this.setAttribute('aria-label', 'focused')">
+    <button id="ordinaryButton" type="button">ordinary</button>
+    <div id="shadowHost"></div>
+  </div>
+  <script>
+    const shadow = document.getElementById("shadowHost").attachShadow({ mode: "open" });
+    shadow.innerHTML = '<input id="shadowInput" type="search">';
+    setTimeout(() => document.getElementById("focusedAbsent").focus(), 0);
+    setTimeout(() => document.getElementById("focusedNegative").focus(), 50);
+  </script>
+`;
 
 function selectedGold(ref) {
   return {
@@ -101,6 +159,27 @@ test("real headless Chrome projection and current-control freshness", async t =>
   await mkdir(runRoot, { recursive: true });
   const packageDir = await mkdtemp(join(tmpdir(), "b-a1-runtime-package-"));
   const packagePath = await packageScoringHasLabel(packageDir);
+  const pageNavigationServer = createServer((request, response) => {
+    if (request.url === "/target") {
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(pageInitiatedTargetHtml);
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  const pageNavigationPort = await new Promise((resolve, reject) => {
+    pageNavigationServer.once("error", reject);
+    pageNavigationServer.listen(0, "127.0.0.1", () => {
+      const address = pageNavigationServer.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("page navigation server did not bind a TCP port"));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+  const pageInitiatedTarget = `http://127.0.0.1:${pageNavigationPort}/target`;
   const projectionBundle = await build({
     entryPoints: [new URL("../lib/adapters/browser/b-a1-real-site-browser-projection.ts", import.meta.url).pathname],
     bundle: true,
@@ -126,7 +205,7 @@ globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBr
     assert.equal(first.operation.identity.observationId, "observation-1");
     assert.equal(first.projection.identity.observationId, first.operation.identity.observationId);
     assert.equal(first.projection.candidates.length, 1);
-    assert.equal(first.projection.candidates[0].ref, "node-1");
+    assert.match(first.projection.candidates[0].ref, /^node-\d+$/);
     assert.deepEqual(JSON.parse(JSON.stringify(first.projection)), first.projection);
     assertJsonProjection(first.projection);
     assert.equal(BA1_REAL_SITE_MDN_SHADOW_ROOT_COVERAGE, "partial");
@@ -146,6 +225,119 @@ globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBr
     assert.equal(validFile.forward.status, "completed");
     assert.equal(validFile.acceptance.status, "accepted");
     assert.deepEqual(validFile.acceptance.operation, first.operation);
+
+    await runtime.setDocumentContent(
+      pageInitiatedHtml(pageInitiatedTarget),
+      "doc-runtime-page-source",
+    );
+    const pageOldProjection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    await runtime.evaluate("window.__startPageNavigation()");
+    await waitUntil(
+      async () => {
+        const raw = await runtime.evaluate("document.querySelector('#after-real-navigation') !== null");
+        return raw === true;
+      },
+      "page-initiated real navigation did not complete",
+    );
+    const observedAfterNavigation = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    assert.equal(observedAfterNavigation.projection.identity.documentRef, "page-document-1");
+    assert.equal(observedAfterNavigation.projection.candidates.length, 1);
+    assert.match(observedAfterNavigation.projection.candidates[0].ref, /^node-\d+$/);
+    const realBodyControl = runtime.readControl();
+    assert.equal(realBodyControl.identity.documentRef, "page-document-1");
+    assert.notEqual(realBodyControl.identity.documentRef, pageOldProjection.projection.identity.documentRef);
+    await assert.rejects(
+      runBA1RealSiteFirstResult({
+        observation: pageOldProjection.projection,
+        packagePath: join(packageDir, "missing.json"),
+        currentControl: () => runtime.readControl(),
+        gold: selectedGold(pageOldProjection.projection.candidates[0].ref),
+        sampleId: "runtime-page-navigation",
+        outputDir: join(runRoot, "page-navigation"),
+      }),
+      error => error instanceof BA1RealSiteFreshnessError && error.code === "stale_candidate",
+    );
+    const pageReplacementReceipt = JSON.parse(await readFile(
+      join(runRoot, "page-navigation", "failure-receipt.json"),
+      "utf8",
+    ));
+    assert.equal(pageReplacementReceipt.stage, "admission");
+    assert.equal(pageReplacementReceipt.failure.forward.status, "not_run");
+
+    await runtime.setDocumentContent(subframeOnlyHtml, "doc-runtime-subframe");
+    await waitUntil(
+      async () => {
+        const raw = await runtime.evaluate("document.getElementById('subframe') !== null");
+        return raw === true;
+      },
+      "subframe did not attach",
+    );
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const observedAfterSubframe = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    assert.equal(observedAfterSubframe.projection.identity.documentRef, "doc-runtime-subframe");
+    assert.equal(observedAfterSubframe.projection.candidates.length, 1);
+    assert.match(observedAfterSubframe.projection.candidates[0].ref, /^node-\d+$/);
+    const currentAfterSubframe = runtime.readControl();
+    assert.equal(currentAfterSubframe.identity.documentRef, "doc-runtime-subframe");
+    assert.equal(currentAfterSubframe.generation, 4, "subframe navigation must not replace the main document");
+
+    await runtime.setDocumentContent(observerSemanticsHtml, "doc-runtime-observer");
+    await waitUntil(
+      async () => await runtime.evaluate("document.activeElement.id === 'focusedNegative'"),
+      "observer fixture did not focus the negative-tabindex control",
+    );
+    const rootHostProjection = await runtime.beginProjection({
+      scopeSelector: "#rootHost",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const rootHostCandidates = rootHostProjection.projection.candidates;
+    assert.equal(rootHostProjection.projection.coverage.observedCandidateCount, 2);
+    assert.equal(rootHostCandidates.length, 2);
+    assert.equal(rootHostCandidates[0].host, "contenteditable");
+    assert.equal(rootHostCandidates[0].contentEditable, true);
+    assert.equal(rootHostCandidates[1].host, "contenteditable");
+    assert.equal(rootHostCandidates[1].contentEditable, true);
+    assert.equal(rootHostCandidates.some(candidate => candidate.contentEditable === false), false);
+
+    const ordinaryProjection = await runtime.beginProjection({
+      scopeSelector: "#ordinaryScope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const observerCandidates = ordinaryProjection.projection.candidates;
+    assert.equal(ordinaryProjection.projection.coverage.observedCandidateCount, 6);
+    assert.equal(ordinaryProjection.projection.coverage.unassessedOpenShadowRootCount, 1);
+    assert.equal(observerCandidates.length, 6);
+    assert.equal(observerCandidates[0].explicitTabIndexKind, "nonnegative");
+    assert.equal(observerCandidates[0].tabIndexFocus, true);
+    assert.equal(observerCandidates[1].explicitTabIndexKind, "negative");
+    assert.equal(observerCandidates[1].tabIndexFocus, false);
+    assert.equal(observerCandidates[2].explicitTabIndexKind, "absent");
+    assert.equal(observerCandidates[2].tabIndexFocus, false);
+    assert.equal(observerCandidates[3].explicitTabIndexKind, "invalid");
+    assert.equal(observerCandidates[3].tabIndexFocus, null);
+    assert.equal(observerCandidates[4].explicitTabIndexKind, "absent");
+    assert.equal(observerCandidates[4].hasAria, true);
+    assert.equal(observerCandidates[4].tabIndexFocus, false);
+    assert.equal(observerCandidates[5].explicitTabIndexKind, "negative");
+    assert.equal(observerCandidates[5].hasAria, true);
+    assert.equal(observerCandidates[5].tabIndexFocus, false);
+    assert.equal(observerCandidates.every(candidate => candidate.host === "input"), true);
+
+    await runtime.setDocumentContent(html1, "doc-runtime-observer-reset");
 
     const firstEnvelope = await runtime.beginProjection({
       scopeSelector: "#scope",
@@ -316,10 +508,38 @@ globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBr
       afterAcceptanceRecord: JSON.parse(beforeNavigation).acceptance,
       shadowRootCoverage: BA1_REAL_SITE_MDN_SHADOW_ROOT_COVERAGE,
       projectionJsonSafe: true,
+      rework: {
+        pageInitiatedNavigation: {
+          newDocumentRef: observedAfterNavigation.operation.identity.documentRef,
+          oldProjectionRejected: pageReplacementReceipt.failure.code === "stale_candidate",
+          oldProjectionStage: pageReplacementReceipt.stage,
+          oldForwardStatus: pageReplacementReceipt.failure.forward.status,
+          subframeDidNotReplaceMainDocument:
+            currentAfterSubframe.identity.documentRef === "doc-runtime-subframe"
+            && currentAfterSubframe.generation === 4,
+        },
+        observerSemantics: {
+          rootHostObservedCandidateCount: rootHostProjection.projection.coverage.observedCandidateCount,
+          rootHostCandidateCount: rootHostCandidates.length,
+          rootHostKinds: rootHostCandidates.map(candidate => ({
+            host: candidate.host,
+            contentEditable: candidate.contentEditable,
+          })),
+          ordinaryObservedCandidateCount: ordinaryProjection.projection.coverage.observedCandidateCount,
+          unassessedOpenShadowRootCount:
+            ordinaryProjection.projection.coverage.unassessedOpenShadowRootCount,
+          tabIndexCases: observerCandidates.map(candidate => ({
+            explicitTabIndexKind: candidate.explicitTabIndexKind,
+            tabIndexFocus: candidate.tabIndexFocus,
+            hasAria: candidate.hasAria,
+          })),
+        },
+      },
     };
     await writeFile(join(runRoot, "runtime-report.json"), `${JSON.stringify(report, null, 2)}\n`);
     console.log(JSON.stringify(report, null, 2));
   } finally {
     await runtime.close();
+    await new Promise(resolve => pageNavigationServer.close(() => resolve()));
   }
 });
