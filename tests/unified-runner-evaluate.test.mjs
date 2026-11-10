@@ -583,6 +583,30 @@ test("evaluate rejects a missing candidate package with a typed non-zero exit", 
     const report = await readReport(fixture.outputDir);
     assert.equal(report.error.code, "CANDIDATE_MISSING");
     assert.equal(report.candidateOutput.emitted, false);
+    // The package never validated, so no candidate/admission metadata is claimed.
+    assert.equal(report.candidate.modelId, null);
+    assert.equal(report.admission.sourceGroup, null);
+    assert.equal(report.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate keeps consumerEntry null when evaluate config validation fails", async () => {
+  const fixture = await makeFixture({
+    samples: [{ sampleId: "known-true", label: "true" }],
+  });
+  try {
+    const config = JSON.parse(await readFile(fixture.configPath, "utf8"));
+    config.evaluate.consumerEntry = "unsupported:entry";
+    await writeJson(fixture.configPath, config);
+
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 1);
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.error.code, "CONSUMER_ENTRY_UNSUPPORTED");
+    assert.equal(report.consumerEntry, null);
+    assert.equal(report.candidate.modelId, null);
+    assert.equal(report.admission.sourceGroup, null);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -614,6 +638,10 @@ test("evaluate rejects non-independent source partitions and TRAIN/DEV families"
     const report = await readReport(fixture.outputDir);
     assert.equal(report.error.code, "ADMISSION_NOT_INDEPENDENT");
     assert.equal(report.executionEntries.length, 0);
+    // The candidate validated before the admission failure, so its typed
+    // metadata survives while admission stays unclaimed.
+    assert.equal(report.candidate.modelId, "unified-evaluate-synthetic");
+    assert.equal(report.admission.sourceGroup, null);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -850,6 +878,34 @@ test("evaluate rejects an evaluated root with no root evidence", async () => {
     assert.equal(report.error.detail.affectedSampleId, "known-true");
     assert.deepEqual(report.error.detail.rootEvidenceRefs, []);
     assert.equal(report.sampleDetails[0].root, "unsatisfied");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("evaluate retains validated candidate and admission metadata on a sample-local failure", async () => {
+  // The candidate and admission are validated before the sample run. A later
+  // root-evidence failure must keep those typed metadata fields instead of
+  // reporting null model/version/source-group/partition.
+  const terminalOnly = studentRecord("known-true", {
+    steps: [terminalStep("step:0", ["ev:known-true:read"])],
+  });
+  const fixture = await makeFixture({
+    samples: [{ sampleId: "known-true", label: "true" }],
+    studentRows: [terminalOnly],
+  });
+  try {
+    assert.equal(await runStandardRunnerCli(["evaluate", "--config", fixture.configPath]), 1);
+    const report = await readReport(fixture.outputDir);
+    assert.equal(report.status, "failed");
+    assert.equal(report.candidate.modelId, "unified-evaluate-synthetic");
+    assert.equal(report.candidate.version, "1");
+    assert.notEqual(report.candidate.schema, null);
+    assert.equal(report.admission.sourceGroup, "tsjs-evaluate-verification-fixture");
+    assert.equal(report.admission.partition, "verification");
+    assert.equal(report.admission.evidence, "evidence/oracle-receipt.json");
+    assert.notEqual(report.admission.familyPath, null);
+    assert.equal(report.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
