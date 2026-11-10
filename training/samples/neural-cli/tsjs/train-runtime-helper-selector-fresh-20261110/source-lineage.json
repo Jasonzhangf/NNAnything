@@ -1,0 +1,103 @@
+{
+  "schema": "nnanything.tsjs.helper-source-lineage.v2",
+  "family": "tsjs-train-runtime-helper-selector-fresh-20261110",
+  "partition": "TRAIN",
+  "synthetic": true,
+  "lineageFixedAt": "2026-11-10T23:08:20Z",
+  "lineageEvidence": {
+    "kind": "fresh authorship against the accepted contract; no shared template or transformed derivative",
+    "authorContext": "Tina, Codex session 01a1c60e-66bd-7c13-8d21-325b7c519b3c, worktree /Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110, branch tsjs-train-helper-selector-r1-20261110",
+    "contract": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-source-fixture-prep-r1-20261110/helper-source-proof-contract.md",
+    "authoringInputs": [
+      "the accepted helper-source-proof-contract.md",
+      "the public producer runTsJsSymbolTable and its policy types in this worktree",
+      "the already-merged TRAIN helper family retained under train-runtime-helper-selector-r1 (read only to confirm the occupied name; not used as a source template)"
+    ],
+    "independentAuthorship": true,
+    "independentFromDev": "The TRAIN author (Tina) did not read any DEV source file contents and did not read the DEV counterpart family or any verification family. TRAIN instances were authored from the accepted contract and public producer only.",
+    "nameCollisionResolution": "The contract's requested TRAIN root train-runtime-helper-selector-r1 is already occupied by preserved, Alice-accepted preparation material in origin/main. Following the same resolution as the sibling fresh DEV task, this fresh family uses a distinct root and leaves the earlier family untouched.",
+    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table.",
+    "lineageDimensions": {
+      "sourceRoot": "train-runtime-helper-selector-fresh-20261110 (distinct from the preserved train-runtime-helper-selector-r1 and from the DEV roots)",
+      "moduleArrangement": "per-case directory; two-module for tr-f01 and tr-f03 (separate caller and helper modules), single-module for tr-f02",
+      "targetDeclarations": ["parserFor", "styleFor", "stepperFor"],
+      "selectorConstruction": ["direct caller parameter", "one immutable local alias", "direct caller parameter"],
+      "callSiteLayout": [
+        "result captured in a const and returned",
+        "single straight-line return",
+        "return inside one nested block statement"
+      ]
+    },
+    "isolationNote": "Independence is claimed by non-exposure of the DEV sources, not by directory-name comparison. The author used only the accepted contract, the public producer, and its own authored programs."
+  },
+  "instances": [
+    {
+      "id": "tr-f01-direct-import-block",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-f01-direct-import-block",
+      "entry": "sources/tr-f01-direct-import-block/routes.ts",
+      "helperModule": "sources/tr-f01-direct-import-block/strategies.ts",
+      "requestedDeclaration": "parserFor",
+      "callSiteExpression": "parserFor(strategy)(raw)",
+      "selectorConstruction": "direct caller parameter",
+      "callSiteLayout": "result captured in a const and returned",
+      "moduleLayout": "caller module plus a separate helper module that owns the table",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, structural proof, callable-identity runtime contrast, and raw public producer observation are complete. Admission remains NOT_READY because no request-aware bridge exists to bind the raw receipt to a request, step, pending relation, admitted source-read receipt, or coverage target."
+    },
+    {
+      "id": "tr-f02-alias-single-module",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-f02-alias-single-module",
+      "entry": "sources/tr-f02-alias-single-module/formatter.ts",
+      "helperModule": "sources/tr-f02-alias-single-module/formatter.ts",
+      "requestedDeclaration": "styleFor",
+      "callSiteExpression": "styleFor(chosen)(amount)",
+      "selectorConstruction": "one immutable local alias",
+      "callSiteLayout": "single straight-line return",
+      "moduleLayout": "single module owning the table, helper, and caller",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, structural proof, callable-identity runtime contrast, and raw public producer observation are complete. Admission remains NOT_READY pending the request-aware bridge."
+    },
+    {
+      "id": "tr-f03-direct-nested-block",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-f03-direct-nested-block",
+      "entry": "sources/tr-f03-direct-nested-block/index.ts",
+      "helperModule": "sources/tr-f03-direct-nested-block/operations.ts",
+      "requestedDeclaration": "stepperFor",
+      "callSiteExpression": "stepperFor(step)(base)",
+      "selectorConstruction": "direct caller parameter",
+      "callSiteLayout": "return inside one nested block statement",
+      "moduleLayout": "caller module plus a separate helper module that owns the table",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, structural proof, callable-identity runtime contrast, and raw public producer observation are complete. Admission remains NOT_READY pending the request-aware bridge."
+    }
+  ],
+  "controls": [
+    {
+      "id": "control-static-selector",
+      "path": "controls/static-selector.ts",
+      "kind": "non-runtime constant selector",
+      "expectedProducerObservations": 0,
+      "expectedProducerGaps": 0
+    },
+    {
+      "id": "control-direct-index",
+      "path": "controls/direct-index.ts",
+      "kind": "out-of-slice direct table-index call",
+      "expectedProducerObservations": 0,
+      "expectedProducerGaps": 0
+    }
+  ],
+  "evidence": {
+    "structuralAndRuntimeReceipt": "receipts/raw-checks.json",
+    "publicProducerOutput": "receipts/public-producer-output.json",
+    "semanticProofs": "proofs/semantic-proofs.md",
+    "supportedNotReady": "receipts/supported-not-ready.md",
+    "replayDriver": "proofs/verify-fresh-train.mjs"
+  }
+}

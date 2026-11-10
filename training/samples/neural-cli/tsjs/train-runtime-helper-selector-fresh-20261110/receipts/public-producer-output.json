@@ -1,0 +1,492 @@
+{
+  "schema": "nnanything.tsjs.helper-source-public-producer.v1",
+  "producer": "runTsJsSymbolTable@dist/adapters/cli/tsjs-symbol-table-adapter.js",
+  "family": "train-runtime-helper-selector-fresh-20261110",
+  "partition": "TRAIN",
+  "familyRoot": "/Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110/training/samples/neural-cli/tsjs/train-runtime-helper-selector-fresh-20261110",
+  "targets": [
+    {
+      "id": "tr-f01-direct-import-block",
+      "request": {
+        "repo": "/Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110/training/samples/neural-cli/tsjs/train-runtime-helper-selector-fresh-20261110",
+        "language": "typescript",
+        "scope": [
+          "."
+        ],
+        "files": [
+          "sources/tr-f01-direct-import-block/routes.ts",
+          "sources/tr-f01-direct-import-block/strategies.ts"
+        ]
+      },
+      "status": "ok",
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 2,
+        "scopeFilesParsed": 2,
+        "scopeFilesFailed": [],
+        "skipped": [],
+        "parseErrorFiles": [],
+        "partialReasons": []
+      },
+      "parser": {
+        "backend": "typescript_compiler_ast",
+        "compilerVersion": "5.9.3",
+        "invocation": "ts.createSourceFile(relPath, sourceText, ScriptTarget.Latest, setParentNodes=false, scriptKind)",
+        "semanticBinding": false
+      },
+      "runtimeSelectorObservations": [
+        {
+          "observationRef": "observation:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42",
+          "callSiteRef": "call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42",
+          "sourceReadRef": "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42",
+          "binding": {
+            "symbolRef": "function:sources/tr-f01-direct-import-block/strategies.ts@8:1-10:2",
+            "callSiteRef": "call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42",
+            "role": "member",
+            "bindingMode": "dynamic",
+            "resolution": {
+              "status": "dynamic",
+              "reason": "dynamic_undecidable",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42"
+              ]
+            },
+            "declarationRefs": [],
+            "scopeRef": null,
+            "evidenceRefs": [
+              "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42"
+            ]
+          },
+          "facts": [
+            {
+              "factRef": "fact:source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42:1",
+              "role": "selector_candidate_table",
+              "state": "known",
+              "value": "[{\"name\":\"strict\",\"initializerRef\":\"member:sources/tr-f01-direct-import-block/strategies.ts@4:11-4:38\"},{\"name\":\"loose\",\"initializerRef\":\"member:sources/tr-f01-direct-import-block/strategies.ts@5:10-5:30\"}]",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42"
+              ]
+            },
+            {
+              "factRef": "fact:source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42:2",
+              "role": "runtime_selector_dependency",
+              "state": "known",
+              "value": "{\"tableRef\":\"table:sources/tr-f01-direct-import-block/strategies.ts@3:7-6:2\",\"indexParameter\":\"strategy\",\"useRef\":\"selector-use:sources/tr-f01-direct-import-block/strategies.ts@9:10-9:27\"}",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42"
+              ]
+            }
+          ],
+          "callableTable": {
+            "tableRef": "table:sources/tr-f01-direct-import-block/strategies.ts@3:7-6:2",
+            "members": [
+              {
+                "name": "strict",
+                "initializerRef": "member:sources/tr-f01-direct-import-block/strategies.ts@4:11-4:38",
+                "callableIdentity": {
+                  "declarationRef": "callable.arrow_function:sources/tr-f01-direct-import-block/strategies.ts@4:11-4:38",
+                  "moduleRef": "sources/tr-f01-direct-import-block/strategies.ts",
+                  "span": {
+                    "startLine": 4,
+                    "startCol": 11,
+                    "endLine": 4,
+                    "endCol": 38
+                  },
+                  "syntaxKind": "arrow_function"
+                }
+              },
+              {
+                "name": "loose",
+                "initializerRef": "member:sources/tr-f01-direct-import-block/strategies.ts@5:10-5:30",
+                "callableIdentity": {
+                  "declarationRef": "callable.arrow_function:sources/tr-f01-direct-import-block/strategies.ts@5:10-5:30",
+                  "moduleRef": "sources/tr-f01-direct-import-block/strategies.ts",
+                  "span": {
+                    "startLine": 5,
+                    "startCol": 10,
+                    "endLine": 5,
+                    "endCol": 30
+                  },
+                  "syntaxKind": "arrow_function"
+                }
+              }
+            ]
+          },
+          "sourceReadReceipt": {
+            "receiptId": "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42",
+            "actionRef": "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42:action",
+            "action": "read_source",
+            "origin": "source_observation",
+            "outcome": "success",
+            "targetRef": "source:sources/tr-f01-direct-import-block/strategies.ts",
+            "result": [
+              "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42:module:sources/tr-f01-direct-import-block/routes.ts",
+              "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42:module:sources/tr-f01-direct-import-block/strategies.ts"
+            ],
+            "evidenceRefs": [
+              "source-read:call:sources/tr-f01-direct-import-block/routes.ts@4:18-4:42"
+            ],
+            "modules": [
+              {
+                "file": "sources/tr-f01-direct-import-block/routes.ts",
+                "textLength": 202,
+                "lineCount": 7
+              },
+              {
+                "file": "sources/tr-f01-direct-import-block/strategies.ts",
+                "textLength": 224,
+                "lineCount": 11
+              }
+            ]
+          }
+        }
+      ],
+      "runtimeSelectorGaps": [],
+      "observationCount": 1,
+      "gapCount": 0
+    },
+    {
+      "id": "tr-f02-alias-single-module",
+      "request": {
+        "repo": "/Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110/training/samples/neural-cli/tsjs/train-runtime-helper-selector-fresh-20261110",
+        "language": "typescript",
+        "scope": [
+          "."
+        ],
+        "files": [
+          "sources/tr-f02-alias-single-module/formatter.ts"
+        ]
+      },
+      "status": "ok",
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 1,
+        "scopeFilesParsed": 1,
+        "scopeFilesFailed": [],
+        "skipped": [],
+        "parseErrorFiles": [],
+        "partialReasons": []
+      },
+      "parser": {
+        "backend": "typescript_compiler_ast",
+        "compilerVersion": "5.9.3",
+        "invocation": "ts.createSourceFile(relPath, sourceText, ScriptTarget.Latest, setParentNodes=false, scriptKind)",
+        "semanticBinding": false
+      },
+      "runtimeSelectorObservations": [
+        {
+          "observationRef": "observation:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34",
+          "callSiteRef": "call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34",
+          "sourceReadRef": "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34",
+          "binding": {
+            "symbolRef": "function:sources/tr-f02-alias-single-module/formatter.ts@8:1-10:2",
+            "callSiteRef": "call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34",
+            "role": "member",
+            "bindingMode": "dynamic",
+            "resolution": {
+              "status": "dynamic",
+              "reason": "dynamic_undecidable",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34"
+              ]
+            },
+            "declarationRefs": [],
+            "scopeRef": null,
+            "evidenceRefs": [
+              "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34"
+            ]
+          },
+          "facts": [
+            {
+              "factRef": "fact:source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34:1",
+              "role": "selector_candidate_table",
+              "state": "known",
+              "value": "[{\"name\":\"currency\",\"initializerRef\":\"member:sources/tr-f02-alias-single-module/formatter.ts@4:13-4:56\"},{\"name\":\"percent\",\"initializerRef\":\"member:sources/tr-f02-alias-single-module/formatter.ts@5:12-5:63\"}]",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34"
+              ]
+            },
+            {
+              "factRef": "fact:source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34:2",
+              "role": "runtime_selector_dependency",
+              "state": "known",
+              "value": "{\"tableRef\":\"table:sources/tr-f02-alias-single-module/formatter.ts@3:7-6:2\",\"indexParameter\":\"style\",\"useRef\":\"selector-use:sources/tr-f02-alias-single-module/formatter.ts@9:10-9:23\"}",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34"
+              ]
+            }
+          ],
+          "callableTable": {
+            "tableRef": "table:sources/tr-f02-alias-single-module/formatter.ts@3:7-6:2",
+            "members": [
+              {
+                "name": "currency",
+                "initializerRef": "member:sources/tr-f02-alias-single-module/formatter.ts@4:13-4:56",
+                "callableIdentity": {
+                  "declarationRef": "callable.arrow_function:sources/tr-f02-alias-single-module/formatter.ts@4:13-4:56",
+                  "moduleRef": "sources/tr-f02-alias-single-module/formatter.ts",
+                  "span": {
+                    "startLine": 4,
+                    "startCol": 13,
+                    "endLine": 4,
+                    "endCol": 56
+                  },
+                  "syntaxKind": "arrow_function"
+                }
+              },
+              {
+                "name": "percent",
+                "initializerRef": "member:sources/tr-f02-alias-single-module/formatter.ts@5:12-5:63",
+                "callableIdentity": {
+                  "declarationRef": "callable.arrow_function:sources/tr-f02-alias-single-module/formatter.ts@5:12-5:63",
+                  "moduleRef": "sources/tr-f02-alias-single-module/formatter.ts",
+                  "span": {
+                    "startLine": 5,
+                    "startCol": 12,
+                    "endLine": 5,
+                    "endCol": 63
+                  },
+                  "syntaxKind": "arrow_function"
+                }
+              }
+            ]
+          },
+          "sourceReadReceipt": {
+            "receiptId": "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34",
+            "actionRef": "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34:action",
+            "action": "read_source",
+            "origin": "source_observation",
+            "outcome": "success",
+            "targetRef": "source:sources/tr-f02-alias-single-module/formatter.ts",
+            "result": [
+              "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34:module:sources/tr-f02-alias-single-module/formatter.ts"
+            ],
+            "evidenceRefs": [
+              "source-read:call:sources/tr-f02-alias-single-module/formatter.ts@14:10-14:34"
+            ],
+            "modules": [
+              {
+                "file": "sources/tr-f02-alias-single-module/formatter.ts",
+                "textLength": 389,
+                "lineCount": 16
+              }
+            ]
+          }
+        }
+      ],
+      "runtimeSelectorGaps": [],
+      "observationCount": 1,
+      "gapCount": 0
+    },
+    {
+      "id": "tr-f03-direct-nested-block",
+      "request": {
+        "repo": "/Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110/training/samples/neural-cli/tsjs/train-runtime-helper-selector-fresh-20261110",
+        "language": "typescript",
+        "scope": [
+          "."
+        ],
+        "files": [
+          "sources/tr-f03-direct-nested-block/index.ts",
+          "sources/tr-f03-direct-nested-block/operations.ts"
+        ]
+      },
+      "status": "ok",
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 2,
+        "scopeFilesParsed": 2,
+        "scopeFilesFailed": [],
+        "skipped": [],
+        "parseErrorFiles": [],
+        "partialReasons": []
+      },
+      "parser": {
+        "backend": "typescript_compiler_ast",
+        "compilerVersion": "5.9.3",
+        "invocation": "ts.createSourceFile(relPath, sourceText, ScriptTarget.Latest, setParentNodes=false, scriptKind)",
+        "semanticBinding": false
+      },
+      "runtimeSelectorObservations": [
+        {
+          "observationRef": "observation:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34",
+          "callSiteRef": "call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34",
+          "sourceReadRef": "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34",
+          "binding": {
+            "symbolRef": "function:sources/tr-f03-direct-nested-block/operations.ts@8:1-10:2",
+            "callSiteRef": "call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34",
+            "role": "member",
+            "bindingMode": "dynamic",
+            "resolution": {
+              "status": "dynamic",
+              "reason": "dynamic_undecidable",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34"
+              ]
+            },
+            "declarationRefs": [],
+            "scopeRef": null,
+            "evidenceRefs": [
+              "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34"
+            ]
+          },
+          "facts": [
+            {
+              "factRef": "fact:source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34:1",
+              "role": "selector_candidate_table",
+              "state": "known",
+              "value": "[{\"name\":\"add\",\"initializerRef\":\"member:sources/tr-f03-direct-nested-block/operations.ts@4:8-4:34\"},{\"name\":\"multiply\",\"initializerRef\":\"member:sources/tr-f03-direct-nested-block/operations.ts@5:13-5:39\"}]",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34"
+              ]
+            },
+            {
+              "factRef": "fact:source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34:2",
+              "role": "runtime_selector_dependency",
+              "state": "known",
+              "value": "{\"tableRef\":\"table:sources/tr-f03-direct-nested-block/operations.ts@3:7-6:2\",\"indexParameter\":\"step\",\"useRef\":\"selector-use:sources/tr-f03-direct-nested-block/operations.ts@9:10-9:24\"}",
+              "evidenceRefs": [
+                "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34"
+              ]
+            }
+          ],
+          "callableTable": {
+            "tableRef": "table:sources/tr-f03-direct-nested-block/operations.ts@3:7-6:2",
+            "members": [
+              {
+                "name": "add",
+                "initializerRef": "member:sources/tr-f03-direct-nested-block/operations.ts@4:8-4:34",
+                "callableIdentity": {
+                  "declarationRef": "callable.arrow_function:sources/tr-f03-direct-nested-block/operations.ts@4:8-4:34",
+                  "moduleRef": "sources/tr-f03-direct-nested-block/operations.ts",
+                  "span": {
+                    "startLine": 4,
+                    "startCol": 8,
+                    "endLine": 4,
+                    "endCol": 34
+                  },
+                  "syntaxKind": "arrow_function"
+                }
+              },
+              {
+                "name": "multiply",
+                "initializerRef": "member:sources/tr-f03-direct-nested-block/operations.ts@5:13-5:39",
+                "callableIdentity": {
+                  "declarationRef": "callable.arrow_function:sources/tr-f03-direct-nested-block/operations.ts@5:13-5:39",
+                  "moduleRef": "sources/tr-f03-direct-nested-block/operations.ts",
+                  "span": {
+                    "startLine": 5,
+                    "startCol": 13,
+                    "endLine": 5,
+                    "endCol": 39
+                  },
+                  "syntaxKind": "arrow_function"
+                }
+              }
+            ]
+          },
+          "sourceReadReceipt": {
+            "receiptId": "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34",
+            "actionRef": "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34:action",
+            "action": "read_source",
+            "origin": "source_observation",
+            "outcome": "success",
+            "targetRef": "source:sources/tr-f03-direct-nested-block/operations.ts",
+            "result": [
+              "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34:module:sources/tr-f03-direct-nested-block/index.ts",
+              "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34:module:sources/tr-f03-direct-nested-block/operations.ts"
+            ],
+            "evidenceRefs": [
+              "source-read:call:sources/tr-f03-direct-nested-block/index.ts@5:12-5:34"
+            ],
+            "modules": [
+              {
+                "file": "sources/tr-f03-direct-nested-block/index.ts",
+                "textLength": 164,
+                "lineCount": 8
+              },
+              {
+                "file": "sources/tr-f03-direct-nested-block/operations.ts",
+                "textLength": 206,
+                "lineCount": 11
+              }
+            ]
+          }
+        }
+      ],
+      "runtimeSelectorGaps": [],
+      "observationCount": 1,
+      "gapCount": 0
+    }
+  ],
+  "controls": [
+    {
+      "id": "control-static-selector",
+      "request": {
+        "repo": "/Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110/training/samples/neural-cli/tsjs/train-runtime-helper-selector-fresh-20261110",
+        "language": "typescript",
+        "scope": [
+          "."
+        ],
+        "files": [
+          "controls/static-selector.ts"
+        ]
+      },
+      "status": "ok",
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 1,
+        "scopeFilesParsed": 1,
+        "scopeFilesFailed": [],
+        "skipped": [],
+        "parseErrorFiles": [],
+        "partialReasons": []
+      },
+      "parser": {
+        "backend": "typescript_compiler_ast",
+        "compilerVersion": "5.9.3",
+        "invocation": "ts.createSourceFile(relPath, sourceText, ScriptTarget.Latest, setParentNodes=false, scriptKind)",
+        "semanticBinding": false
+      },
+      "runtimeSelectorObservations": [],
+      "runtimeSelectorGaps": [],
+      "observationCount": 0,
+      "gapCount": 0,
+      "controlReason": "constant selector literal; produces no runtime-selector role"
+    },
+    {
+      "id": "control-direct-index",
+      "request": {
+        "repo": "/Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110/training/samples/neural-cli/tsjs/train-runtime-helper-selector-fresh-20261110",
+        "language": "typescript",
+        "scope": [
+          "."
+        ],
+        "files": [
+          "controls/direct-index.ts"
+        ]
+      },
+      "status": "ok",
+      "coverage": {
+        "partial": false,
+        "scopeFilesDiscovered": 1,
+        "scopeFilesParsed": 1,
+        "scopeFilesFailed": [],
+        "skipped": [],
+        "parseErrorFiles": [],
+        "partialReasons": []
+      },
+      "parser": {
+        "backend": "typescript_compiler_ast",
+        "compilerVersion": "5.9.3",
+        "invocation": "ts.createSourceFile(relPath, sourceText, ScriptTarget.Latest, setParentNodes=false, scriptKind)",
+        "semanticBinding": false
+      },
+      "runtimeSelectorObservations": [],
+      "runtimeSelectorGaps": [],
+      "observationCount": 0,
+      "gapCount": 0,
+      "controlReason": "direct table-index call site; outside the reviewed helper slice"
+    }
+  ]
+}
