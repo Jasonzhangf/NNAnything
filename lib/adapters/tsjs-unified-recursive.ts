@@ -12,6 +12,7 @@ import type {
   AtomicInput,
   AtomicReceipt,
   DerivationInput,
+  EvidenceRecord,
   EvaluationInput,
   EvaluationReceipt,
   FactSnapshot,
@@ -186,6 +187,91 @@ export interface TsJsUnifiedObservedPostState {
   readonly cursorClosed: boolean;
 }
 
+/**
+ * B.6 minimal admitted initial-evidence payload union.
+ *
+ * Only the two observed-observation kinds are admitted. A declaration-audit
+ * ref, a gold label, a model score, or a synthesized identifier is not a kind.
+ * The records are built from the admitted row's own enclosing fields and are
+ * bound to the adapter's real `initialStateValue.stateRef`, never to a derived
+ * string.
+ */
+export type TsJsInitialEvidencePayload =
+  | {
+      readonly kind: "source_read_receipt";
+      readonly receiptId: string;
+      readonly actionRef: string;
+      readonly origin: "source_observation";
+      readonly outcome: "success";
+      readonly targetRef: string;
+      readonly fromStepId: string | null;
+      readonly pendingRelationRef: string;
+      readonly resultRefs: readonly string[];
+      readonly evidenceRefs: readonly string[];
+      readonly textLength?: number;
+      readonly lineCount?: number;
+    }
+  | {
+      readonly kind: "import_binding_observation";
+      readonly edgeRef: string;
+      readonly edgeKind: string;
+      readonly fromNodeRef: string | null;
+      readonly sourceName: string;
+      readonly targetName: string;
+      readonly sourceModuleRef: string;
+      readonly targetModuleRef: string;
+      readonly moduleSpecifierRaw: string | null;
+      readonly evidenceRefs: readonly string[];
+    };
+
+export type TsJsInitialEvidenceRecord = EvidenceRecord<TsJsInitialEvidencePayload>;
+
+export interface TsJsObservedLocalFact {
+  readonly factRef: string;
+  readonly role?: "selector_candidate_table" | "runtime_selector_dependency";
+  readonly state: string;
+  readonly value?: string | null;
+  readonly evidenceRefs: readonly string[];
+}
+
+type AdmittedEpisode = RelationStepEpisode & {
+  readonly observedLocalFacts?: readonly TsJsObservedLocalFact[];
+};
+
+export type TsJsQueryCompletion =
+  | "complete_true"
+  | "complete_false"
+  | "complete_unknown"
+  | "returned_unresolved"
+  | "incomplete";
+
+export type TsJsPredictedJudgement = "true" | "false" | "unknown" | null;
+
+export type TsJsRootGapCode =
+  | "POSITIVE_RELATION_NOT_ESTABLISHED"
+  | "POSITIVE_RELATION_NOT_DECIDABLE"
+  | "NO_POSITIVE_RELATION_ANSWER"
+  | "ROOT_EVIDENCE_MISSING";
+
+export interface TsJsRootGap {
+  readonly code: TsJsRootGapCode;
+  readonly refs: readonly string[];
+}
+
+/**
+ * D.4 query-completion output. Relation truth (the terminal prediction) and
+ * query completion stay separate. `positiveRootSatisfied` is true only for a
+ * fully verified positive relation, so a correct negative or justified unknown
+ * never flips the binary positive-relation field.
+ */
+export interface TsJsRootCompletion {
+  readonly predictedJudgement: TsJsPredictedJudgement;
+  readonly positiveRootSatisfied: boolean;
+  readonly positiveRootGaps: readonly TsJsRootGap[];
+  readonly queryCompletion: TsJsQueryCompletion;
+  readonly evidenceRefs: readonly string[];
+}
+
 interface DecisionReceiptPayload {
   readonly stepId?: string;
   readonly candidateChoice: TsJsUnifiedCandidateChoice;
@@ -207,6 +293,8 @@ interface DecisionEvidence {
   readonly candidateRef?: string;
   readonly postStateRef?: string;
 }
+
+type MultiStepDecisionEvidence = DecisionEvidence | TsJsInitialEvidencePayload;
 
 interface DecisionEffect {
   readonly effect: string;
@@ -431,6 +519,23 @@ function readDecisionState(value: unknown): DecisionState {
 
 function readEvidence(value: unknown): DecisionEvidence {
   return value as DecisionEvidence;
+}
+
+function readMultiStepEvidence(value: unknown): MultiStepDecisionEvidence {
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError("multi-step evidence payload must be an object");
+  }
+  const payload = value as Record<string, unknown>;
+  if (typeof payload.evidenceRef === "string") {
+    return value as DecisionEvidence;
+  }
+  if (
+    payload.kind === "source_read_receipt"
+    || payload.kind === "import_binding_observation"
+  ) {
+    return value as TsJsInitialEvidencePayload;
+  }
+  throw new TypeError("multi-step evidence payload has an unsupported kind");
 }
 
 function readEffect(value: unknown): DecisionEffect {
@@ -1948,7 +2053,7 @@ type MultiStepAdapter = RecursiveGoalAdapter<
   DecisionGoal,
   MultiStepState,
   DecisionBindings,
-  DecisionEvidence,
+  MultiStepDecisionEvidence,
   DecisionEffect,
   MultiStepReceiptPayload,
   null
@@ -2002,7 +2107,7 @@ export interface TsJsUnifiedMultiStepDecisionResult {
     DecisionGoal,
     MultiStepState,
     DecisionBindings,
-    DecisionEvidence,
+    MultiStepDecisionEvidence,
     DecisionEffect,
     MultiStepReceiptPayload,
     null
@@ -2013,6 +2118,12 @@ export interface TsJsUnifiedMultiStepDecisionResult {
   };
   readonly steps: readonly TsJsUnifiedMultiStepStepResult[];
   readonly rootEvaluation: RootEvaluation;
+  /** D.4 typed completion output, computed without gold access. */
+  readonly rootCompletion: TsJsRootCompletion;
+  /** B.6 admitted initial-evidence records; invalid candidates are dropped. */
+  readonly admittedInitialEvidence: readonly TsJsInitialEvidenceRecord[];
+  /** Explicit reasons a candidate initial-evidence record was not admitted. */
+  readonly initialEvidenceInvalidReasons: readonly string[];
 }
 
 function multiStepDiagnostic(
@@ -2036,7 +2147,7 @@ function multiStepAtomicFailure(
   runId: string,
   sourceResult: MultiStepReceiptPayload | null,
   diagnostic: AdapterDiagnostic,
-): AtomicReceipt<MultiStepState, DecisionEvidence, DecisionEffect, MultiStepReceiptPayload> {
+): AtomicReceipt<MultiStepState, MultiStepDecisionEvidence, DecisionEffect, MultiStepReceiptPayload> {
   return {
     runId,
     executorInvoked: true,
@@ -2231,6 +2342,509 @@ function multiStepObservedPreviousExecution(
   };
 }
 
+function uniqueRefs(values: readonly string[]): readonly string[] {
+  return [...new Set(values.filter((ref): ref is string => typeof ref === "string" && ref.length > 0))];
+}
+
+function receiptNumber(
+  receipt: NonNullable<RelationStepEpisode["receipts"]>[number],
+  field: "textLength" | "lineCount",
+): number | undefined {
+  const value = (receipt as unknown as Record<string, unknown>)[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function intersectRefs(...groups: readonly (readonly string[])[]): readonly string[] {
+  if (groups.length === 0) return [];
+  const first = groups[0] ?? [];
+  const rest = groups.slice(1);
+  const restSets = rest.map(group => new Set(group));
+  return uniqueRefs(
+    first.filter(ref => ref.length > 0 && restSets.every(set => set.has(ref))),
+  );
+}
+
+/**
+ * Admits the B.6 read record for one admitted source read receipt. The read
+ * ref must resolve through the typed read identities (receipt, previous
+ * execution, binding/resolution, and observed source content where present).
+ * A receipt-shaped assertion that only carries an `ev:` string is rejected.
+ */
+function admittedReadRecords(
+  episode: RelationStepEpisode,
+  stateRef: string,
+  receipt: NonNullable<RelationStepEpisode["receipts"]>[number],
+): { readonly records: readonly TsJsInitialEvidenceRecord[]; readonly reasons: readonly string[] } {
+  const reject = (reason: string) => ({ records: [] as const, reasons: [reason] });
+  if (receipt.action !== "read_source") return reject("source read receipt action mismatch");
+  if (receipt.outcome !== "success") return reject("source read receipt outcome not success");
+  if (receipt.origin !== "source_observation") {
+    return reject("source read receipt origin not source_observation");
+  }
+  const receiptId = nonEmptyString(receipt.receiptId);
+  const actionRef = nonEmptyString(receipt.actionRef);
+  const targetRef = nonEmptyString(receipt.target);
+  if (receiptId === null) return reject("source read receipt missing receiptId");
+  if (actionRef === null) return reject("source read receipt missing actionRef");
+  if (targetRef === null) return reject("source read receipt missing targetRef");
+
+  const reasons: string[] = [];
+  const receiptPendingRelationRef = nonEmptyString(receipt.pendingRelationRef);
+  const episodePendingRelationRef = nonEmptyString(episode.pendingRelationRef);
+  if (receiptPendingRelationRef === null) {
+    reasons.push("source read receipt missing pendingRelationRef");
+  } else if (
+    episodePendingRelationRef !== null
+    && receiptPendingRelationRef !== episodePendingRelationRef
+  ) {
+    reasons.push("source read receipt pendingRelationRef mismatch");
+  }
+  const fromStepId = receipt.fromStepId === undefined ? null : receipt.fromStepId;
+  const previous = episode.previousExecution?.state === "known"
+    ? episode.previousExecution.value ?? null
+    : null;
+  if (previous === null) {
+    return reject("source read receipt requires typed previous execution identity");
+  }
+  if (nonEmptyString(previous.receiptRef) !== receiptId) {
+    reasons.push("source read receiptId does not match previous execution");
+  }
+  if (nonEmptyString(previous.actionRef) !== actionRef) {
+    reasons.push("source read actionRef does not match previous execution");
+  }
+  if (nonEmptyString(previous.targetRef) !== targetRef) {
+    reasons.push("source read targetRef does not match previous execution");
+  }
+  if ((previous.fromStepId ?? null) !== fromStepId) {
+    reasons.push("source read fromStepId does not match previous execution");
+  }
+  if (
+    receiptPendingRelationRef !== null
+    && previous.pendingRelationRef !== null
+    && previous.pendingRelationRef !== receiptPendingRelationRef
+  ) {
+    reasons.push("source read pendingRelationRef does not match previous execution");
+  }
+  if (previous.outcome !== "success") {
+    reasons.push("source read previous execution outcome not success");
+  }
+
+  const receiptResultRefs = Array.isArray(receipt.result)
+    ? receipt.result.filter((ref): ref is string => typeof ref === "string" && ref.startsWith("ev:"))
+    : [];
+  const binding = episode.currentRelation?.binding.state === "known"
+    ? episode.currentRelation.binding.value ?? null
+    : null;
+  const bindingRefs = [
+    ...(binding?.evidenceRefs ?? []),
+    ...(binding !== null && binding.resolution.status !== "unresolved"
+      ? binding.resolution.evidenceRefs
+      : []),
+  ];
+  const membershipGroups: readonly (readonly string[])[] = [
+    receipt.evidenceRefs,
+    receiptResultRefs,
+    bindingRefs,
+    ...(episode.previousExecution?.evidenceRefs === undefined
+      ? []
+      : [episode.previousExecution.evidenceRefs]),
+    ...(episode.sourceContent?.state === "observed"
+      ? [episode.sourceContent.evidenceRefs]
+      : []),
+  ];
+  const readRefs = intersectRefs(...membershipGroups);
+  if (readRefs.length === 0) reasons.push("source read evidence membership missing");
+  if (reasons.length > 0 || receiptPendingRelationRef === null) {
+    return { records: [], reasons: uniqueRefs(reasons) };
+  }
+
+  const textLength = receiptNumber(receipt, "textLength");
+  const lineCount = receiptNumber(receipt, "lineCount");
+  const records = readRefs.map(ref => ({
+    id: ref,
+    stateRef,
+    validity: "valid" as const,
+    payload: {
+      kind: "source_read_receipt" as const,
+      receiptId,
+      actionRef,
+      origin: "source_observation" as const,
+      outcome: "success" as const,
+      targetRef,
+      fromStepId,
+      pendingRelationRef: receiptPendingRelationRef,
+      resultRefs: uniqueRefs(receiptResultRefs),
+      evidenceRefs: uniqueRefs(receipt.evidenceRefs),
+      ...(textLength === undefined ? {} : { textLength }),
+      ...(lineCount === undefined ? {} : { lineCount }),
+    },
+  }));
+  return { records, reasons: [] };
+}
+
+function admittedImportRecord(
+  episode: RelationStepEpisode,
+  stateRef: string,
+  binding: NonNullable<RelationStepEpisode["observedBindings"]>[number],
+): { readonly record: TsJsInitialEvidenceRecord | null; readonly reason: string | null } {
+  if (binding.edgeKind !== "import") return { record: null, reason: "not an import edge" };
+  if (binding.sourceModule.state !== "known" || binding.targetModule.state !== "known") {
+    return { record: null, reason: "import module is not known" };
+  }
+  const sourceModuleRef = binding.sourceModule.value;
+  const targetModuleRef = binding.targetModule.value;
+  if (
+    typeof sourceModuleRef !== "string"
+    || typeof targetModuleRef !== "string"
+  ) return { record: null, reason: "import module ref is missing" };
+  if (
+    binding.edgeRef.length === 0
+    || binding.sourceName.length === 0
+    || binding.targetName.length === 0
+  ) {
+    return { record: null, reason: "import binding identity is incomplete" };
+  }
+  if (binding.evidenceRefs.length === 0) {
+    return { record: null, reason: "import binding has no evidence refs" };
+  }
+  const importRef = binding.evidenceRefs.find(ref => ref.startsWith("ev:")) ?? null;
+  if (importRef === null) {
+    return { record: null, reason: "import binding evidence ref is not observed" };
+  }
+  return {
+    record: {
+      id: importRef,
+      stateRef,
+      validity: "valid",
+      payload: {
+        kind: "import_binding_observation",
+        edgeRef: binding.edgeRef,
+        edgeKind: binding.edgeKind,
+        fromNodeRef: binding.fromNodeRef,
+        sourceName: binding.sourceName,
+        targetName: binding.targetName,
+        sourceModuleRef,
+        targetModuleRef,
+        moduleSpecifierRaw: binding.moduleSpecifierRaw ?? null,
+        evidenceRefs: binding.evidenceRefs,
+      },
+    },
+    reason: null,
+  };
+}
+
+/**
+ * B.6 bounded initial-evidence admission. Reads only the admitted episode
+ * data and returns valid `TsJsInitialEvidenceRecord[]` plus explicit reasons
+ * for dropped candidates. It never imports a registry, checksum, gold, oracle,
+ * or teacher source and never synthesizes an identity.
+ */
+export function admitInitialEvidence(
+  requestId: string,
+  episodes: readonly RelationStepEpisode[],
+): {
+  readonly initialObservation: {
+    readonly stateId: string;
+    readonly evidence: readonly TsJsInitialEvidenceRecord[];
+  } | null;
+  readonly invalidReasons: readonly string[];
+  readonly initialStateRef: string;
+} {
+  if (episodes.length === 0) {
+    return { initialObservation: null, invalidReasons: ["no admitted episode"], initialStateRef: "" };
+  }
+  const startEpisode = episodes.find(episode => episode.stepId === multiStepStartStepId(episodes))
+    ?? episodes[0]!;
+  const stateRef = `ms:${requestId}:${startEpisode.stepId}`;
+  const reasons: string[] = [];
+  const records = new Map<string, TsJsInitialEvidenceRecord>();
+  const duplicateIds = new Set<string>();
+  const addRecord = (record: TsJsInitialEvidenceRecord): void => {
+    if (records.has(record.id)) {
+      reasons.push(`duplicate initial evidence id ${record.id}`);
+      duplicateIds.add(record.id);
+      return;
+    }
+    records.set(record.id, record);
+  };
+  const receipts = startEpisode.receipts ?? [];
+  const previous = startEpisode.previousExecution?.state === "known"
+    ? startEpisode.previousExecution.value
+    : null;
+  const previousReceiptRef = nonEmptyString(previous?.receiptRef);
+  const expectedPendingRelationRef = nonEmptyString(startEpisode.pendingRelationRef);
+  const readReceipt = previousReceiptRef === null
+    ? receipts.find(receipt =>
+        receipt.action === "read_source"
+        && receipt.outcome === "success"
+        && receipt.origin === "source_observation"
+        && expectedPendingRelationRef !== null
+        && receipt.pendingRelationRef === expectedPendingRelationRef)
+    : receipts.find(receipt => receipt.receiptId === previousReceiptRef);
+  if (readReceipt === undefined) {
+    reasons.push("missing source read receipt");
+  } else {
+    const readAdmission = admittedReadRecords(startEpisode, stateRef, readReceipt);
+    if (readAdmission.records.length === 0) {
+      reasons.push(...readAdmission.reasons);
+      if (readAdmission.reasons.length === 0) reasons.push("source read receipt not admitted");
+    }
+    for (const record of readAdmission.records) addRecord(record);
+  }
+  for (const binding of startEpisode.observedBindings ?? []) {
+    if (binding.edgeKind !== "import") continue;
+    const importAdmission = admittedImportRecord(startEpisode, stateRef, binding);
+    if (importAdmission.record === null) {
+      reasons.push(
+        `import binding ${binding.edgeRef} not admitted: ${importAdmission.reason ?? "unknown"}`,
+      );
+      continue;
+    }
+    addRecord(importAdmission.record);
+  }
+  for (const duplicateId of duplicateIds) {
+    records.delete(duplicateId);
+  }
+  const evidence = [...records.values()];
+  if (evidence.length === 0 && reasons.length === 0) {
+    reasons.push("no admitted initial evidence");
+  }
+  return {
+    initialObservation: { stateId: stateRef, evidence },
+    invalidReasons: uniqueRefs(reasons),
+    initialStateRef: stateRef,
+  };
+}
+
+function rootTerminalPrediction(state: MultiStepState): TsJsPredictedJudgement {
+  if (state.terminalKind !== "judge") return null;
+  if (state.terminalJudgement === "judge=true") return "true";
+  if (state.terminalJudgement === "judge=false") return "false";
+  if (state.terminalJudgement === "judge=unknown") return "unknown";
+  return null;
+}
+
+function enumerationClosed(state: MultiStepState): boolean {
+  if (state.context.candidateGroup.enumeration !== "complete") return false;
+  if (state.context.localCandidateCursor?.state !== "closed") return false;
+  if ((state.context.remainingObligations ?? []).length > 0) return false;
+  return !state.context.candidateGroup.candidates.some(candidate =>
+    candidate.optionSemantics === "advance" || candidate.optionSemantics === "observe");
+}
+
+function executedEpisodesOf(
+  state: MultiStepState,
+  episodes: readonly RelationStepEpisode[],
+): readonly RelationStepEpisode[] {
+  const executed = new Set([...state.stepSequence, state.context.stepId]);
+  return episodes.filter(episode => executed.has(episode.stepId));
+}
+
+function observedLocalFactsOf(
+  episode: RelationStepEpisode,
+): readonly TsJsObservedLocalFact[] {
+  return (episode as AdmittedEpisode).observedLocalFacts ?? [];
+}
+
+function negativeShadowWitness(
+  episodes: readonly RelationStepEpisode[],
+  state: MultiStepState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): readonly string[] {
+  if (!enumerationClosed(state)) return [];
+  for (const episode of executedEpisodesOf(state, episodes)) {
+    const currentRelation = episode.currentRelation;
+    const binding = currentRelation?.binding.state === "known"
+      ? currentRelation.binding.value
+      : null;
+    if (binding === null || binding === undefined || binding.role !== "shadow" || binding.bindingMode !== "bound") continue;
+    if (binding.resolution.status !== "resolved" || binding.resolution.declarationRef.length === 0) continue;
+    const declarationRef = binding.resolution.declarationRef;
+    const shadowDeclaration = (episode.observedDeclarations ?? []).find(
+      declaration => declaration.role === "shadow" && declaration.declarationRef === declarationRef);
+    if (shadowDeclaration === undefined) continue;
+    const shadowFact = (episode.shadowFacts ?? []).find(
+      fact => fact.declarationRef === declarationRef);
+    if (shadowFact === undefined) continue;
+    const requestModuleRef = episode.requestedDeclaration?.moduleRef ?? null;
+    const shadowModuleRef = shadowDeclaration.moduleRef;
+    if (
+      requestModuleRef === null
+      || shadowModuleRef === null
+      || sameModulePath(requestModuleRef, shadowModuleRef)
+    ) continue;
+    const importBinding = (episode.observedBindings ?? []).find(edge =>
+      edge.edgeKind === "import"
+      && edge.targetModule.state === "known"
+      && sameModulePath(edge.targetModule.value ?? null, shadowModuleRef));
+    if (importBinding === undefined) continue;
+    const bindingRefs = new Set<string>([
+      ...binding.evidenceRefs,
+      ...binding.resolution.evidenceRefs,
+    ]);
+    const readRecord = initialEvidence.find(record =>
+      record.validity === "valid"
+      && record.payload.kind === "source_read_receipt"
+      && bindingRefs.has(record.id));
+    const importRecord = initialEvidence.find(record =>
+      record.validity === "valid"
+      && record.payload.kind === "import_binding_observation"
+      && record.payload.edgeRef === importBinding.edgeRef);
+    if (readRecord === undefined || importRecord === undefined) continue;
+    return uniqueRefs([readRecord.id, importRecord.id]);
+  }
+  return [];
+}
+
+function dynamicUndecidableWitness(
+  episodes: readonly RelationStepEpisode[],
+  state: MultiStepState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): readonly string[] {
+  if (!enumerationClosed(state)) return [];
+  for (const episode of executedEpisodesOf(state, episodes)) {
+    const currentRelation = episode.currentRelation;
+    const binding = currentRelation?.binding.state === "known"
+      ? currentRelation.binding.value
+      : null;
+    if (binding === null || binding === undefined || binding.bindingMode !== "dynamic") continue;
+    if (
+      binding.resolution.status !== "dynamic"
+      || binding.resolution.reason !== "dynamic_undecidable"
+    ) continue;
+    if (episode.sourceContent?.state !== "not_requested") continue;
+    if (episode.coverage?.note !== "runtime_dynamic_selector") continue;
+    if (episode.coverage.targetModuleReached !== false) continue;
+    const bindingRefs = new Set<string>([
+      ...binding.evidenceRefs,
+      ...binding.resolution.evidenceRefs,
+    ]);
+    const readRecord = initialEvidence.find(record =>
+      record.validity === "valid"
+      && record.payload.kind === "source_read_receipt"
+      && bindingRefs.has(record.id));
+    if (readRecord === undefined) continue;
+    if (!binding.resolution.evidenceRefs.includes(readRecord.id)) continue;
+    const localFacts = observedLocalFactsOf(episode);
+    const admittedReadRefs = new Set(initialEvidence
+      .filter(record => record.validity === "valid" && record.payload.kind === "source_read_receipt")
+      .map(record => record.id));
+    const roleReadRef = (role: TsJsObservedLocalFact["role"]): string | null => {
+      const facts = localFacts.filter(fact => fact.role === role && fact.state === "known");
+      if (facts.length !== 1) return null;
+      const fact = facts[0]!;
+      const refs = uniqueRefs(fact.evidenceRefs.filter(ref =>
+        admittedReadRefs.has(ref)
+        && bindingRefs.has(ref)
+        && binding.resolution.evidenceRefs.includes(ref)
+      ));
+      return refs.length === 1 ? refs[0]! : null;
+    };
+    const tableRef = roleReadRef("selector_candidate_table");
+    const runtimeRef = roleReadRef("runtime_selector_dependency");
+    if (tableRef === null || runtimeRef === null || tableRef !== runtimeRef) continue;
+    return [tableRef];
+  }
+  return [];
+}
+
+function rootCompletionOf(
+  episodes: readonly RelationStepEpisode[],
+  state: MultiStepState,
+  evidence: readonly { readonly id: string; readonly stateRef: string; readonly validity: string }[],
+  goal: DecisionGoal,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): TsJsRootCompletion {
+  const predicted = rootTerminalPrediction(state);
+  const structural = evaluateMultiStepRoot(state, evidence, goal);
+  const availableRefs = [...structural.evidenceRefs];
+  const missingGap: TsJsRootGap = { code: "ROOT_EVIDENCE_MISSING", refs: availableRefs };
+  if (!state.terminal) {
+    return {
+      predictedJudgement: predicted,
+      positiveRootSatisfied: false,
+      positiveRootGaps: [missingGap],
+      queryCompletion: "incomplete",
+      evidenceRefs: availableRefs,
+    };
+  }
+  if (state.terminalKind === "control_return") {
+    return {
+      predictedJudgement: null,
+      positiveRootSatisfied: false,
+      positiveRootGaps: [{ code: "NO_POSITIVE_RELATION_ANSWER", refs: [] }],
+      queryCompletion: "returned_unresolved",
+      evidenceRefs: availableRefs,
+    };
+  }
+  if (state.terminalKind === "judge" && state.terminalJudgement === "judge=true") {
+    return structural.result === "satisfied"
+      ? {
+          predictedJudgement: "true",
+          positiveRootSatisfied: true,
+          positiveRootGaps: [],
+          queryCompletion: "complete_true",
+          evidenceRefs: availableRefs,
+        }
+      : {
+          predictedJudgement: "true",
+          positiveRootSatisfied: false,
+          positiveRootGaps: [missingGap],
+          queryCompletion: "incomplete",
+          evidenceRefs: availableRefs,
+        };
+  }
+  if (state.terminalKind === "judge" && state.terminalJudgement === "judge=false") {
+    const shadow = negativeShadowWitness(episodes, state, initialEvidence);
+    if (shadow.length === 0) {
+      return {
+        predictedJudgement: "false",
+        positiveRootSatisfied: false,
+        positiveRootGaps: [missingGap],
+        queryCompletion: "incomplete",
+        evidenceRefs: availableRefs,
+      };
+    }
+    return {
+      predictedJudgement: "false",
+      positiveRootSatisfied: false,
+      positiveRootGaps: [{ code: "POSITIVE_RELATION_NOT_ESTABLISHED", refs: shadow }],
+      queryCompletion: "complete_false",
+      evidenceRefs: shadow,
+    };
+  }
+  if (state.terminalKind === "judge" && state.terminalJudgement === "judge=unknown") {
+    const dynamic = dynamicUndecidableWitness(episodes, state, initialEvidence);
+    if (dynamic.length === 0) {
+      return {
+        predictedJudgement: "unknown",
+        positiveRootSatisfied: false,
+        positiveRootGaps: [missingGap],
+        queryCompletion: "incomplete",
+        evidenceRefs: availableRefs,
+      };
+    }
+    return {
+      predictedJudgement: "unknown",
+      positiveRootSatisfied: false,
+      positiveRootGaps: [{ code: "POSITIVE_RELATION_NOT_DECIDABLE", refs: dynamic }],
+      queryCompletion: "complete_unknown",
+      evidenceRefs: dynamic,
+    };
+  }
+  return {
+    predictedJudgement: predicted,
+    positiveRootSatisfied: false,
+    positiveRootGaps: [missingGap],
+    queryCompletion: "incomplete",
+    evidenceRefs: availableRefs,
+  };
+}
+
 /**
  * Root evaluation for the multi-step request. The request root is satisfied
  * only when the accumulated real read evidence backs a terminal outcome. A
@@ -2375,6 +2989,14 @@ export async function runTsJsUnifiedMultiStepDecision(
     nextStepId: null,
   };
 
+  const admission = admitInitialEvidence(request.requestId, episodes);
+  const admittedInitialEvidence = admission.initialObservation?.evidence ?? [];
+  const initialEvidenceInvalidReasons = admission.invalidReasons;
+  const admittedInitialObservation = {
+    stateId: initialStateValue.stateRef,
+    evidence: [...admittedInitialEvidence],
+  };
+
   const relationCondition = relationTargetCondition(startEpisode, episodes);
   const rootGoal: DecisionGoal = {
     kind: "verify",
@@ -2454,7 +3076,7 @@ export async function runTsJsUnifiedMultiStepDecision(
 
   const adapter: MultiStepAdapter = {
     validateRequest: async (envelope: RecursiveGoalRequestEnvelope): Promise<
-      ValidatedRequest<DecisionGoal, MultiStepState, DecisionBindings, DecisionEvidence, DecisionEffect, MultiStepReceiptPayload, null>
+      ValidatedRequest<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence, DecisionEffect, MultiStepReceiptPayload, null>
     > => ({
       requestId: envelope.requestId,
       rootGoal,
@@ -2464,7 +3086,10 @@ export async function runTsJsUnifiedMultiStepDecision(
       rootEvaluatorId: MULTI_STEP_ROOT_EVALUATOR_ID,
       rootSelectorId: MULTI_STEP_ROOT_SELECTOR_ID,
       ...(envelope.limits !== undefined ? { limits: envelope.limits } : {}),
-      initialObservation: { stateId: initialStateValue.stateRef, evidence: [] },
+      initialObservation: {
+        stateId: admittedInitialObservation.stateId,
+        evidence: [...admittedInitialObservation.evidence],
+      },
       continuation: null,
     }),
     supports: (input: SupportsInput<DecisionGoal, DecisionBindings>) =>
@@ -2473,11 +3098,11 @@ export async function runTsJsUnifiedMultiStepDecision(
         || input.skill.id === MULTI_STEP_RELATION_READ_SKILL_ID
         || input.skill.id === MULTI_STEP_RELATION_OBSERVE_SKILL_ID
         || input.skill.id === MULTI_STEP_RELATION_CONTROL_SKILL_ID),
-    evaluate: async (input: EvaluationInput<DecisionGoal, MultiStepState, DecisionBindings, DecisionEvidence>): Promise<EvaluationReceipt> => ({
+    evaluate: async (input: EvaluationInput<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence>): Promise<EvaluationReceipt> => ({
       evaluatorId: MULTI_STEP_ROOT_EVALUATOR_ID,
       ...evaluateMultiStepRoot(input.state, input.evidence, input.goal),
     }),
-    select: async (input: SelectionInput<DecisionGoal, MultiStepState, DecisionBindings, DecisionEvidence>): Promise<Selection> => {
+    select: async (input: SelectionInput<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence>): Promise<Selection> => {
       if (input.state.terminal) {
         return {
           kind: "defer",
@@ -2498,12 +3123,12 @@ export async function runTsJsUnifiedMultiStepDecision(
       }
       return { kind: "selected", skillId: enabled.id };
     },
-    derive: async (input: DerivationInput<DecisionGoal, MultiStepState, DecisionBindings, DecisionEvidence, null>) => ({
+    derive: async (input: DerivationInput<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence, null>) => ({
       conditions: [],
       nextCursor: null,
       expansion: "closed",
     }),
-    executeAtomic: async (input: AtomicInput<DecisionGoal, MultiStepState, DecisionBindings, DecisionEvidence>) => {
+    executeAtomic: async (input: AtomicInput<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence>) => {
       const state = input.state;
       const runId = `${request.requestId}:run:${state.context.stepId}`;
       const scores = encodedScores(state.context, thresholds, binding.tensors);
@@ -2900,12 +3525,12 @@ export async function runTsJsUnifiedMultiStepDecision(
     },
     validateAtomicReceipt: (raw: unknown): AtomicReceipt<
       MultiStepState,
-      DecisionEvidence,
+      MultiStepDecisionEvidence,
       DecisionEffect,
       MultiStepReceiptPayload
     > => readAtomicReceipt(raw, {
       state: value => value as MultiStepState,
-      evidencePayload: readEvidence,
+      evidencePayload: readMultiStepEvidence,
       effectFact: readEffect,
       receiptPayload: value => value as MultiStepReceiptPayload,
     }),
@@ -2925,7 +3550,7 @@ export async function runTsJsUnifiedMultiStepDecision(
     DecisionGoal,
     MultiStepState,
     DecisionBindings,
-    DecisionEvidence,
+    MultiStepDecisionEvidence,
     DecisionEffect,
     MultiStepReceiptPayload,
     null
@@ -2952,7 +3577,10 @@ export async function runTsJsUnifiedMultiStepDecision(
     rootEvaluatorId: MULTI_STEP_ROOT_EVALUATOR_ID,
     rootSelectorId: MULTI_STEP_ROOT_SELECTOR_ID,
     ...(request.limits === undefined ? {} : { limits: request.limits }),
-    initialObservation: { stateId: initialStateValue.stateRef, evidence: [] },
+    initialObservation: {
+      stateId: admittedInitialObservation.stateId,
+      evidence: [...admittedInitialObservation.evidence],
+    },
   };
 
   const recursiveGoal = await runRecursiveGoal(envelope, dependencies);
@@ -2974,6 +3602,9 @@ export async function runTsJsUnifiedMultiStepDecision(
         reason: "binding_error",
         blockedByErrorId: null,
       },
+      rootCompletion: rootCompletionOf(episodes, initialStateValue, [], rootGoal, admittedInitialEvidence),
+      admittedInitialEvidence,
+      initialEvidenceInvalidReasons,
     };
   }
 
@@ -3009,6 +3640,8 @@ export async function runTsJsUnifiedMultiStepDecision(
           previousActionRef: entry.payload.previousActionRef,
         }],
   );
+  const finalState = recursiveGoal.report.states.at(-1)?.value ?? initialStateValue;
+  const finalEvidence = recursiveGoal.report.evidence;
 
   return {
     modelBinding,
@@ -3016,6 +3649,9 @@ export async function runTsJsUnifiedMultiStepDecision(
     sampleReceipt: { sampleId, steps },
     steps: stepResults,
     rootEvaluation: recursiveGoal.report.rootEvaluation,
+    rootCompletion: rootCompletionOf(episodes, finalState, finalEvidence, rootGoal, admittedInitialEvidence),
+    admittedInitialEvidence,
+    initialEvidenceInvalidReasons,
   };
 }
 

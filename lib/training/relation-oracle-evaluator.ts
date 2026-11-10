@@ -49,6 +49,13 @@ export interface StudentRootConditionState {
   readonly state: "satisfied" | "unsatisfied" | "unknown" | "not_applicable";
 }
 
+export type StudentQueryCompletion =
+  | "complete_true"
+  | "complete_false"
+  | "complete_unknown"
+  | "returned_unresolved"
+  | "incomplete";
+
 export interface StudentRelationRun {
   readonly sampleId: string;
   readonly steps: readonly StudentRelationStep[];
@@ -60,6 +67,16 @@ export interface StudentRelationRun {
   readonly rootEvaluationState?: "evaluated" | "not_evaluated";
   /** Independent root evaluation; never inferred from per-step correctness. */
   readonly rootSatisfied: boolean | null;
+  /** D.4 terminal prediction, kept separate from per-step correctness. */
+  readonly predictedJudgement?: OracleJudgement | null;
+  /** D.4 positive-relation closure. True only for a fully verified positive. */
+  readonly positiveRootSatisfied?: boolean;
+  /** D.4 typed positive-relation gaps, kept separate from legacy rootGaps. */
+  readonly positiveRootGaps?: readonly string[];
+  /** D.4 query completion; gates the overall report. */
+  readonly queryCompletion?: StudentQueryCompletion;
+  /** D.4 admitted provenance refs backing the completion witness. */
+  readonly completionEvidenceRefs?: readonly string[];
 }
 
 export interface GoldDenominator {
@@ -98,6 +115,8 @@ export interface RootEvaluationEntry {
   readonly outcome: RootOutcome;
   readonly rootSatisfied: boolean | null;
   readonly gaps: readonly string[];
+  /** Downstream comparison of the terminal prediction with gold. */
+  readonly goldComparison: "correct" | "incorrect" | "unsupported";
 }
 
 export interface RootEvaluation {
@@ -121,6 +140,9 @@ export interface RelationOracleReport {
     readonly wrongTrueOrFalse: number;
     readonly finalUnknown: number;
   };
+  readonly incompleteCompletions: number;
+  readonly returnedUnresolved: number;
+  readonly unsupportedUnknown: number;
   readonly violations: readonly string[];
 }
 
@@ -164,6 +186,55 @@ function rootOutcome(run: StudentRelationRun): RootOutcome {
   return run.rootSatisfied ? "satisfied" : "unsatisfied";
 }
 
+function terminalJudgeOf(run: StudentRelationRun): OracleJudgement | null {
+  for (let index = run.steps.length - 1; index >= 0; index -= 1) {
+    const judge = judgeOf(run.steps[index]!);
+    if (judge !== null) return judge;
+  }
+  return null;
+}
+
+/**
+ * Reads the explicit D.4 completion. A missing completion stays incomplete:
+ * a terminal judge alone never proves query completion.
+ */
+function queryCompletionOf(run: StudentRelationRun): StudentQueryCompletion {
+  return run.queryCompletion ?? "incomplete";
+}
+
+function predictedJudgementOf(run: StudentRelationRun): OracleJudgement | null {
+  return run.predictedJudgement ?? null;
+}
+
+function terminalStepJudgeOf(run: StudentRelationRun): OracleJudgement | null {
+  const terminalStep = run.steps.at(-1) ?? null;
+  return terminalStep === null ? null : judgeOf(terminalStep);
+}
+
+function completionIsConsistent(
+  run: StudentRelationRun,
+  completion: StudentQueryCompletion,
+  predicted: OracleJudgement | null,
+): boolean {
+  const terminalJudge = terminalStepJudgeOf(run);
+  if (terminalJudge === null) return completion === "incomplete";
+  if (predicted !== terminalJudge) return false;
+  if (completion === "complete_true") return terminalJudge === "true";
+  if (completion === "complete_false") return terminalJudge === "false";
+  if (completion === "complete_unknown") return terminalJudge === "unknown";
+  return true;
+}
+
+function goldComparisonOf(
+  completion: StudentQueryCompletion,
+  predicted: OracleJudgement | null,
+  gold: OracleJudgement,
+): RootEvaluationEntry["goldComparison"] {
+  if (completion === "incomplete" || completion === "returned_unresolved") return "unsupported";
+  if (predicted === null) return "unsupported";
+  return predicted === gold ? "correct" : "incorrect";
+}
+
 export function evaluateRelationOracle(
   samples: readonly IndependentOracleSample[],
   runs: readonly StudentRelationRun[],
@@ -191,6 +262,10 @@ export function evaluateRelationOracle(
   let validUnknownMissed = 0;
   let validUnknownWrongTrueOrFalse = 0;
   let validUnknownFinalUnknown = 0;
+  let incompleteCompletions = 0;
+  let returnedUnresolved = 0;
+  let unsupportedUnknown = 0;
+  let completedGoldMismatches = 0;
   const stepEntries: PerStepEvaluationEntry[] = [];
   const rootEntries: RootEvaluationEntry[] = [];
 
@@ -240,7 +315,6 @@ export function evaluateRelationOracle(
     if (judgeEntry === undefined) {
       predictionMissing += 1;
       violations.push(`sample ${sample.sampleId} has no terminal judge step`);
-      if (sample.gold === "unknown") validUnknownMissed += 1;
     } else {
       predictionTotal += 1;
       const judge = judgeEntry.judge;
@@ -249,14 +323,6 @@ export function evaluateRelationOracle(
       else predictionUnknown += 1;
       const outcome: StepOutcome =
         judge === sample.gold ? "correct" : judge === "unknown" ? "unknown" : "incorrect";
-      if (sample.gold === "unknown") {
-        if (judge === "unknown") {
-          validUnknownCorrect += 1;
-          validUnknownFinalUnknown += 1;
-        } else {
-          validUnknownWrongTrueOrFalse += 1;
-        }
-      }
       if (outcome === "unknown") {
         violations.push(
           `sample ${sample.sampleId} final judge unknown but gold is ${sample.gold}`,
@@ -269,11 +335,15 @@ export function evaluateRelationOracle(
     }
 
     if (!run) {
+      incompleteCompletions += 1;
+      unsupportedUnknown += 1;
+      if (sample.gold === "unknown") validUnknownMissed += 1;
       rootEntries.push({
         sampleId: sample.sampleId,
         outcome: "unknown",
         rootSatisfied: null,
         gaps: [],
+        goldComparison: "unsupported",
       });
       violations.push(`sample ${sample.sampleId} has no student run for root evaluation`);
       const stepOutcome: StepOutcome = "unknown";
@@ -288,12 +358,44 @@ export function evaluateRelationOracle(
     }
 
     const outcome = rootOutcome(run);
+    const completion = queryCompletionOf(run);
+    const predicted = predictedJudgementOf(run);
+    const completionConsistent = completionIsConsistent(run, completion, predicted);
+    const goldComparison = completionConsistent
+      ? goldComparisonOf(completion, predicted, sample.gold)
+      : "unsupported";
+    const accountingCompletion = completionConsistent ? completion : "incomplete";
+    if (!completionConsistent) {
+      violations.push(
+        `sample ${sample.sampleId} queryCompletion ${completion} conflicts with explicit predictedJudgement ${String(predicted)} or terminal step judge ${String(terminalStepJudgeOf(run))}`,
+      );
+    }
     rootEntries.push({
       sampleId: sample.sampleId,
       outcome,
       rootSatisfied: run.rootSatisfied,
       gaps: run.rootGaps,
+      goldComparison,
     });
+    if (accountingCompletion === "incomplete") incompleteCompletions += 1;
+    else if (accountingCompletion === "returned_unresolved") returnedUnresolved += 1;
+    if (accountingCompletion === "incomplete" || accountingCompletion === "returned_unresolved") {
+      unsupportedUnknown += 1;
+      if (sample.gold === "unknown") {
+        if (accountingCompletion === "returned_unresolved") validUnknownWrongTrueOrFalse += 1;
+        else validUnknownMissed += 1;
+      }
+    } else if (sample.gold === "unknown") {
+      if (predicted === "unknown") {
+        validUnknownCorrect += 1;
+        validUnknownFinalUnknown += 1;
+      } else {
+        validUnknownWrongTrueOrFalse += 1;
+      }
+    }
+    if (accountingCompletion !== "incomplete" && accountingCompletion !== "returned_unresolved") {
+      if (goldComparison !== "correct") completedGoldMismatches += 1;
+    }
     if (run.rootSatisfied === true) {
       const blocked = run.rootConditionStates.some(
         condition => condition.state === "unsatisfied" || condition.state === "unknown",
@@ -327,7 +429,11 @@ export function evaluateRelationOracle(
     predictionMissing === 0 &&
     perStepIncorrect === 0 &&
     perStepUnknown === 0 &&
-    unknownRecall === 1
+    unknownRecall === 1 &&
+    incompleteCompletions === 0 &&
+    returnedUnresolved === 0 &&
+    unsupportedUnknown === 0 &&
+    completedGoldMismatches === 0
       ? "pass"
       : "incomplete";
 
@@ -367,6 +473,9 @@ export function evaluateRelationOracle(
       wrongTrueOrFalse: validUnknownWrongTrueOrFalse,
       finalUnknown: validUnknownFinalUnknown,
     },
+    incompleteCompletions,
+    returnedUnresolved,
+    unsupportedUnknown,
     violations: Object.freeze(violations),
   };
 }

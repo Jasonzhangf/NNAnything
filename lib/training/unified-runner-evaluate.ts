@@ -17,6 +17,7 @@ import {
   type StepOutcome,
   type StudentRootConditionState,
   type StudentPredictionDenominator,
+  type StudentQueryCompletion,
   type StudentRelationRun,
 } from "./relation-oracle-evaluator.js";
 import type { RelationStepEpisode } from "./unified-step-context-builder.js";
@@ -118,6 +119,12 @@ export interface UnifiedEvaluateSampleDetail {
   readonly root: UnifiedRootState;
   readonly rootEvidenceRefs: readonly string[];
   readonly rootConditionStates: readonly StudentRootConditionState[];
+  /** D.4 typed runtime completion; never derived from gold. */
+  readonly predictedJudgement: OracleJudgement | null;
+  readonly positiveRootSatisfied: boolean;
+  readonly positiveRootGaps: readonly string[];
+  readonly queryCompletion: StudentQueryCompletion;
+  readonly goldComparison: "correct" | "incorrect" | "unsupported" | null;
   readonly steps: readonly UnifiedEvaluateSampleStepDetail[];
 }
 
@@ -467,23 +474,54 @@ function failedStepFailureOf(sampleId: string, result: Awaited<ReturnType<typeof
 }
 
 function rootEvidenceFailureOf(sampleId: string, result: Awaited<ReturnType<typeof runTsJsUnifiedMultiStepDecision>>): MultiStepMappingFailure | null {
+  const completion = result.rootCompletion;
+  const rootEvidenceRefs = result.rootEvaluation.state === "evaluated"
+    ? [...result.rootEvaluation.evidenceRefs]
+    : [];
+  if (completion.queryCompletion === "incomplete") {
+    return {
+      code: "ROOT_EVIDENCE_MISSING",
+      message: `sample ${sampleId} root completion is incomplete`,
+      affectedStepId: undefined,
+      detail: {
+        queryCompletion: completion.queryCompletion,
+        predictedJudgement: completion.predictedJudgement,
+        positiveRootGaps: completion.positiveRootGaps,
+        completionEvidenceRefs: [...completion.evidenceRefs],
+        rootEvidenceRefs,
+        rootState: result.rootEvaluation.state,
+        initialEvidenceInvalidReasons: [...result.initialEvidenceInvalidReasons],
+      },
+    };
+  }
   if (result.rootEvaluation.state !== "evaluated") {
     return {
       code: "ROOT_EVIDENCE_MISSING",
       message: `sample ${sampleId} has no evaluated root`,
       affectedStepId: undefined,
-      detail: { rootState: result.rootEvaluation.state },
+      detail: { rootState: result.rootEvaluation.state, queryCompletion: completion.queryCompletion },
     };
   }
-  if (result.rootEvaluation.evidenceRefs.length === 0) {
+  if (rootEvidenceRefs.length === 0 && completion.queryCompletion === "complete_true") {
     return {
       code: "ROOT_EVIDENCE_MISSING",
       message: `sample ${sampleId} has an evaluated root with no evidence`,
       affectedStepId: undefined,
-      detail: { rootState: result.rootEvaluation.state, rootEvidenceRefs: [...result.rootEvaluation.evidenceRefs] },
+      detail: {
+        rootState: result.rootEvaluation.state,
+        rootEvidenceRefs,
+        queryCompletion: completion.queryCompletion,
+      },
     };
   }
   return null;
+}
+
+function typedPositiveRootGaps(
+  completion: Awaited<ReturnType<typeof runTsJsUnifiedMultiStepDecision>>["rootCompletion"],
+): readonly string[] {
+  return completion.positiveRootGaps.map(gap =>
+    gap.refs.length === 0 ? gap.code : `${gap.code}(${gap.refs.join(",")})`);
 }
 
 function studentRunOfMultiStep(
@@ -556,12 +594,24 @@ function studentRunOfMultiStep(
     rootEvidenceRefs,
     rootEvaluationState: root.state === "evaluated" ? "evaluated" : "not_evaluated",
     rootSatisfied,
+    predictedJudgement: result.rootCompletion.predictedJudgement,
+    positiveRootSatisfied: result.rootCompletion.positiveRootSatisfied,
+    positiveRootGaps: typedPositiveRootGaps(result.rootCompletion),
+    queryCompletion: result.rootCompletion.queryCompletion,
+    completionEvidenceRefs: [...result.rootCompletion.evidenceRefs],
   };
   const stepFailure = failedStepFailureOf(sampleId, result);
   if (stepFailure !== null) {
     return { run, executionEntries, failure: stepFailure };
   }
   if (!steps.some(step => judgeOf(step.optionSemantics) !== null)) {
+    if (result.rootCompletion.queryCompletion === "returned_unresolved") {
+      return {
+        run,
+        executionEntries,
+        failure: null,
+      };
+    }
     return {
       run,
       executionEntries,
@@ -584,9 +634,13 @@ function buildSampleDetails(
   samples: readonly IndependentOracleSample[],
   episodes: readonly RelationStepEpisode[],
   runs: readonly StudentRelationRun[],
+  oracle: RelationOracleReport | undefined,
 ): readonly UnifiedEvaluateSampleDetail[] {
   const runsBySample = new Map(runs.map(run => [run.sampleId, run]));
   const partitions = new Map(episodes.map(episode => [episode.sampleId, episode.partition]));
+  const goldComparisonBySample = new Map(
+    (oracle?.rootEvaluation.entries ?? []).map(entry => [entry.sampleId, entry.goldComparison]),
+  );
   return samples.map(sample => {
     const run = runsBySample.get(sample.sampleId);
     // Availability comes from the engine's explicit root evaluation state, never
@@ -626,6 +680,11 @@ function buildSampleDetails(
       root: rootState,
       rootEvidenceRefs: [...(run?.rootEvidenceRefs ?? [])],
       rootConditionStates: [...(run?.rootConditionStates ?? [])],
+      predictedJudgement: run?.predictedJudgement ?? null,
+      positiveRootSatisfied: run?.positiveRootSatisfied ?? false,
+      positiveRootGaps: [...(run?.positiveRootGaps ?? [])],
+      queryCompletion: run?.queryCompletion ?? "incomplete",
+      goldComparison: goldComparisonBySample.get(sample.sampleId) ?? null,
       steps,
     };
   });
@@ -803,6 +862,35 @@ export async function runUnifiedRunnerEvaluate(
   const evidenceRefs = new Set<string>();
   let affectedSampleId: string | undefined;
   let affectedStepId: string | undefined;
+  const sampleFailureState: {
+    first: { readonly sampleId: string; readonly failure: MultiStepMappingFailure } | null;
+  } = { first: null };
+  const sampleFailures: {
+    readonly sampleId: string;
+    readonly stepId: string | null;
+    readonly code: UnifiedRunnerEvaluateErrorCode;
+    readonly message: string;
+    readonly detail: Readonly<Record<string, unknown>>;
+  }[] = [];
+  const sampleLocalFailureCodes = new Set<UnifiedRunnerEvaluateErrorCode>([
+    "EXECUTION_RECEIPT_MISSING",
+    "POST_STATE_MISSING",
+    "ROOT_EVIDENCE_MISSING",
+    "ROOT_MODEL_DISAGREEMENT",
+  ]);
+  const recordSampleFailure = (sampleId: string, failure: MultiStepMappingFailure): void => {
+    affectedStepId = failure.affectedStepId;
+    if (sampleFailureState.first === null) {
+      sampleFailureState.first = { sampleId, failure };
+    }
+    sampleFailures.push({
+      sampleId,
+      stepId: failure.affectedStepId ?? null,
+      code: failure.code,
+      message: failure.message,
+      detail: failure.detail,
+    });
+  };
 
   const partialFailureState = () => {
     let oracle: RelationOracleReport = EMPTY_ORACLE;
@@ -814,7 +902,7 @@ export async function runUnifiedRunnerEvaluate(
     if (accountingSamples.length > 0) {
       try {
         oracle = evaluateRelationOracle(accountingSamples, runs);
-        sampleDetails = buildSampleDetails(accountingSamples, episodes, runs);
+        sampleDetails = buildSampleDetails(accountingSamples, episodes, runs, oracle);
         missingRun = missingRunOf(accountingSamples, runs);
       } catch {
         // Keep the original execution error; partial accounting is best effort.
@@ -866,38 +954,59 @@ export async function runUnifiedRunnerEvaluate(
       const sampleId = sampleEpisodes[0]!.sampleId;
       affectedSampleId = sampleId;
       affectedStepId = undefined;
-      const result = await runTsJsUnifiedMultiStepDecision({
-        requestId: `evaluate:${runId}:${sampleId}`,
-        packagePath,
-        episodes: sampleEpisodes,
-        grantedEffects: ["read_only"],
-        executor,
-      });
-      if (
-        result.modelBinding.packageRef !== packagePath
-        || result.modelBinding.modelId !== loadedPackage.modelId
-        || result.modelBinding.version !== loadedPackage.version
-      ) {
-        throw new UnifiedRunnerEvaluateError("CANDIDATE_INVALID", `sample ${sampleId} did not use the selected candidate package`);
-      }
-      const mapped = studentRunOfMultiStep(sampleEpisodes, result);
-      runs.push(mapped.run);
-      executionEntries.push(...mapped.executionEntries);
-      if (result.rootEvaluation.state === "evaluated") {
-        result.rootEvaluation.evidenceRefs.forEach(ref => evidenceRefs.add(ref));
-      }
-      if (mapped.failure !== null) {
-        affectedStepId = mapped.failure.affectedStepId;
-        throw new UnifiedRunnerEvaluateError(
-          mapped.failure.code,
-          mapped.failure.message,
-          mapped.failure.detail,
-        );
+      try {
+        const result = await runTsJsUnifiedMultiStepDecision({
+          requestId: `evaluate:${runId}:${sampleId}`,
+          packagePath,
+          episodes: sampleEpisodes,
+          grantedEffects: ["read_only"],
+          executor,
+        });
+        if (
+          result.modelBinding.packageRef !== packagePath
+          || result.modelBinding.modelId !== loadedPackage.modelId
+          || result.modelBinding.version !== loadedPackage.version
+        ) {
+          throw new UnifiedRunnerEvaluateError("CANDIDATE_INVALID", `sample ${sampleId} did not use the selected candidate package`);
+        }
+        const mapped = studentRunOfMultiStep(sampleEpisodes, result);
+        runs.push(mapped.run);
+        executionEntries.push(...mapped.executionEntries);
+        if (result.rootEvaluation.state === "evaluated") {
+          result.rootEvaluation.evidenceRefs.forEach(ref => evidenceRefs.add(ref));
+        }
+        if (mapped.failure !== null) {
+          recordSampleFailure(sampleId, mapped.failure);
+        }
+      } catch (caught) {
+        if (caught instanceof UnifiedRunnerEvaluateError && sampleLocalFailureCodes.has(caught.code)) {
+          const failure: MultiStepMappingFailure = {
+            code: caught.code,
+            message: caught.message,
+            affectedStepId: typeof caught.detail.affectedStepId === "string"
+              ? caught.detail.affectedStepId
+              : undefined,
+            detail: caught.detail,
+          };
+          recordSampleFailure(sampleId, failure);
+          continue;
+        }
+        throw caught;
       }
     }
     const oracle = evaluateRelationOracle(samples, runs);
-    const sampleDetails = buildSampleDetails(samples, episodes, runs);
+    const sampleDetails = buildSampleDetails(samples, episodes, runs, oracle);
     const evaluationSeconds = monotonicSeconds(evaluationStartNs);
+    const firstSampleFailure = sampleFailureState.first;
+    if (firstSampleFailure !== null) {
+      const first = firstSampleFailure.failure;
+      affectedSampleId = firstSampleFailure.sampleId;
+      affectedStepId = first.affectedStepId;
+      throw new UnifiedRunnerEvaluateError(first.code, first.message, {
+        ...first.detail,
+        sampleFailures,
+      });
+    }
     return finalize({
       status: "completed",
       evaluationSeconds,
@@ -938,7 +1047,14 @@ export async function runUnifiedRunnerEvaluate(
         executionEntries,
         evidenceRefs: [...evidenceRefs],
         missingRun: partial.missingRun,
-        error: { code: caught.code, message: caught.message, detail },
+        error: {
+          code: caught.code,
+          message: caught.message,
+          detail: {
+            ...detail,
+            ...(sampleFailures.length === 0 ? {} : { sampleFailures }),
+          },
+        },
       });
     }
     if (caught instanceof UnifiedModelPackageError) {

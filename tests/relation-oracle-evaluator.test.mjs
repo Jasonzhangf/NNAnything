@@ -18,20 +18,33 @@ function sample(overrides = {}) {
 }
 
 function run(overrides = {}) {
+  const steps = overrides.steps ?? [
+    {
+      stepId: "s1",
+      optionSemantics: "judge=true",
+      executionReceiptRef: "r1",
+      postStateRef: "p1",
+      evidenceRefs: ["e1"],
+    },
+  ];
+  const terminal = [...steps]
+    .reverse()
+    .map(step => step.optionSemantics)
+    .find(option => option === "judge=true" || option === "judge=false" || option === "judge=unknown");
+  const predicted =
+    terminal === "judge=true" ? "true"
+      : terminal === "judge=false" ? "false"
+        : terminal === "judge=unknown" ? "unknown"
+          : null;
   return {
     sampleId: "sample-1",
-    steps: [
-      {
-        stepId: "s1",
-        optionSemantics: "judge=true",
-        executionReceiptRef: "r1",
-        postStateRef: "p1",
-        evidenceRefs: ["e1"],
-      },
-    ],
+    steps,
     rootConditionStates: [{ conditionRef: "c1", state: "satisfied" }],
     rootGaps: [],
     rootSatisfied: true,
+    predictedJudgement: predicted,
+    positiveRootSatisfied: predicted === "true",
+    queryCompletion: predicted === null ? "incomplete" : `complete_${predicted}`,
     ...overrides,
   };
 }
@@ -237,7 +250,7 @@ test("root satisfied without independent condition evidence is a violation", () 
 
   const report = evaluateRelationOracle(samples, runs);
   assert.equal(report.overall, "incomplete");
-  assert.match(report.violations[0], /rootSatisfied=true conflicts/);
+  assert.ok(report.violations.some(violation => /rootSatisfied=true conflicts/.test(violation)));
 });
 
 test("missing student run is explicit and not a false guess", () => {
@@ -248,4 +261,92 @@ test("missing student run is explicit and not a false guess", () => {
   assert.equal(report.studentPrediction.missing, 1);
   assert.equal(report.rootEvaluation.unknown, 1);
   assert.equal(report.overall, "incomplete");
+});
+
+test("missing query completion is not upgraded to a completed judgement", () => {
+  const samples = [sample({ sampleId: "gap-only", gold: "true" })];
+  const runs = [
+    run({
+      sampleId: "gap-only",
+      rootGaps: ["ROOT_EVIDENCE_MISSING"],
+      rootSatisfied: false,
+      queryCompletion: undefined,
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.incompleteCompletions, 1);
+  assert.equal(report.rootEvaluation.entries[0].goldComparison, "unsupported");
+  assert.equal(report.overall, "incomplete");
+});
+
+test("contradictory completion and predicted judgement are rejected", () => {
+  const samples = [sample({ sampleId: "contradictory", gold: "false" })];
+  const runs = [
+    run({
+      sampleId: "contradictory",
+      queryCompletion: "complete_true",
+      predictedJudgement: "false",
+      rootGaps: ["ROOT_EVIDENCE_MISSING"],
+      rootSatisfied: false,
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.overall, "incomplete");
+  assert.ok(report.violations.some(violation => /queryCompletion complete_true conflicts/.test(violation)));
+});
+
+test("complete_false with explicit terminal judge consistency passes gold comparison", () => {
+  const samples = [sample({ sampleId: "explicit-false", gold: "false" })];
+  const runs = [
+    run({
+      sampleId: "explicit-false",
+      steps: [
+        {
+          stepId: "s1",
+          optionSemantics: "judge=false",
+          executionReceiptRef: "r1",
+          postStateRef: "p1",
+          evidenceRefs: ["e1"],
+        },
+      ],
+      queryCompletion: "complete_false",
+      predictedJudgement: "false",
+      rootGaps: ["POSITIVE_RELATION_NOT_ESTABLISHED"],
+      rootSatisfied: false,
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.overall, "pass");
+  assert.equal(report.rootEvaluation.entries[0].goldComparison, "correct");
+});
+
+test("explicit predicted judgement cannot be substituted for an inconsistent terminal step", () => {
+  const samples = [sample({ sampleId: "substituted", gold: "false" })];
+  const runs = [
+    run({
+      sampleId: "substituted",
+      steps: [
+        {
+          stepId: "s1",
+          optionSemantics: "judge=true",
+          executionReceiptRef: "r1",
+          postStateRef: "p1",
+          evidenceRefs: ["e1"],
+        },
+      ],
+      queryCompletion: "complete_false",
+      predictedJudgement: "false",
+      rootGaps: ["POSITIVE_RELATION_NOT_ESTABLISHED"],
+      rootSatisfied: false,
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.equal(report.overall, "incomplete");
+  assert.ok(report.violations.some(violation =>
+    /queryCompletion complete_false conflicts/.test(violation),
+  ));
 });
