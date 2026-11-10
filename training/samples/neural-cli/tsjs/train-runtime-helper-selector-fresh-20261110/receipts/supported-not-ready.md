@@ -37,17 +37,32 @@ labels, student observations, admitted rows, or training samples.
 
 ## Exact remaining gap
 
-Admission is `NOT_READY` for all three cases for one reason: the request-aware
-bridge is absent. The public producer emits raw producer evidence, not an
-admitted episode. There is no accepted path from `TsJsSymbolTableResult` to a
-request-bound stepwise observation, so there is no `requestId`, `fromStepId`,
-`pendingRelationRef`, admitted source-read receipt, request-relative
-`coverage.targetModuleReached`, or `runtime_dynamic_selector` completion note.
+Admission is `NOT_READY` for all three cases for one reason: this family has
+not been passed through the existing request-aware admission/config path. The
+bridge and bounded completion engineering are already accepted, and
+`tsjs-request-aware-admission-config-r1-20261110` (peer-15) owns that path.
+The public producer emits raw producer evidence, not an admitted episode; no
+request-bound `requestId`, `fromStepId`, `pendingRelationRef`, admitted
+source-read receipt, request-relative `coverage.targetModuleReached`, or
+`runtime_dynamic_selector` completion note has been produced for this family.
 
-The named successor for that binding is the existing
-`tsjs-symbol-table-to-stepwise-observation-bridge-r1`. This task does not
-invent typed roles, joins, candidate groups, or receipts, and does not convert
-or admit any row.
+This task does not add a bridge implementation, does not make this extra family
+a dependency of the accepted-family successor, and does not invent typed
+roles, joins, candidate groups, or receipts.
+
+## Requested outer-call target mapping
+
+The requested outer-call target is the table-member callable reached through
+`helper(selector)(payload)`, not the helper. Each case maps the requested
+target to a real member using the public producer's
+`callableTable.members[*].callableIdentity` (declaration, module, span), with a
+distinct alternative:
+
+| Case | Requested target | Target declarationRef | Distinct alternative |
+| --- | --- | --- | --- |
+| `tr-f01-direct-import-block` | `strict` | `callable.arrow_function:sources/tr-f01-direct-import-block/strategies.ts@4:11-4:38` | `loose` |
+| `tr-f02-alias-single-module` | `currency` | `callable.arrow_function:sources/tr-f02-alias-single-module/formatter.ts@4:13-4:56` | `percent` |
+| `tr-f03-direct-nested-block` | `add` | `callable.arrow_function:sources/tr-f03-direct-nested-block/operations.ts@4:8-4:34` | `multiply` |
 
 No fit, scoring, candidate rerun, conversion, admission, gold, weight,
 threshold, adoption, product wiring, or global installation was performed.

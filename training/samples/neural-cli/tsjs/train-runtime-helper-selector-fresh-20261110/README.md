@@ -44,5 +44,17 @@ per-case disposition.
 Source facts, student observations, and supervision stay physically separate:
 this family contains source and proof-side evidence only. No student
 observation, episode, supervision row, or admitted sample is created here.
-Admission is `NOT_READY` for every case because the accepted request-aware
-bridge does not yet exist.
+Admission is `NOT_READY` for every case because this family has not been
+passed through the existing request-aware admission/config path
+(`tsjs-request-aware-admission-config-r1-20261110`); no bridge implementation
+is added here.
+
+The uncertain outer-call target is the table-member callable reached through
+`helper(selector)(payload)`, not the helper. Each case maps the requested
+target to a real member callable with a distinct alternative, using the public
+producer's `callableTable.members[*].callableIdentity` evidence.
+
+Relative to the accepted TRAIN preparation `bb67cd7`, this fresh family adds
+three independently authored contexts with distinct module arrangements,
+selector constructions, and call-site layouts; it does not displace the
+accepted preparation or the active admission task.
