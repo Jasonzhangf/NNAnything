@@ -1,0 +1,49 @@
+{
+  "schema": "nnanything.tsjs.request-aware-admission-config.v1",
+  "family": {
+    "familyRoot": "../../../training/samples/neural-cli/tsjs/dev-runtime-helper-selector-clean-r1-20261110",
+    "sourceGroup": "tsjs-dev-runtime-helper-selector-clean-r1-20261110",
+    "partition": "DEV",
+    "acceptedFamily": "a650492/94c1d81",
+    "acceptedRequestRefs": [
+      "request:dv-c01",
+      "request:dv-c02"
+    ]
+  },
+  "cases": [
+    {
+      "caseId": "dv-c01",
+      "entryFile": "src/dv-c01-direct.ts",
+      "files": [
+        "src/dv-c01-direct.ts",
+        "src/dispatch.ts"
+      ],
+      "requestRef": "request:dv-c01",
+      "pendingRelationRef": "relation:dv-c01",
+      "callSiteRef": "call:src/dv-c01-direct.ts@7:10-7:41",
+      "sourceReadRef": "source-read:call:src/dv-c01-direct.ts@7:10-7:41",
+      "calleeName": "pickDispatch",
+      "requestedMemberName": "spell",
+      "requestedRole": "member",
+      "stepId": "step:0",
+      "coverageContract": "tsjs.observed-dynamic-source-closure.v1"
+    },
+    {
+      "caseId": "dv-c02",
+      "entryFile": "src/dv-c02-alias.ts",
+      "files": [
+        "src/dv-c02-alias.ts",
+        "src/dispatch.ts"
+      ],
+      "requestRef": "request:dv-c02",
+      "pendingRelationRef": "relation:dv-c02",
+      "callSiteRef": "call:src/dv-c02-alias.ts@9:10-9:39",
+      "sourceReadRef": "source-read:call:src/dv-c02-alias.ts@9:10-9:39",
+      "calleeName": "pickDispatch",
+      "requestedMemberName": "chant",
+      "requestedRole": "member",
+      "stepId": "step:0",
+      "coverageContract": "tsjs.observed-dynamic-source-closure.v1"
+    }
+  ]
+}
