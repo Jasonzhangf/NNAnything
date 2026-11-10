@@ -105,6 +105,144 @@ export default function() {}
 `export const emoji = "😀"; export function afterEmoji() {}
 `);
 
+  writeFileSync(join(ROOT, "src", "runtime-actions.ts"),
+`export type ActionKey = "left" | "right";
+const actionMap: Record<ActionKey, (value: number) => number> = {
+  left: value => value + 2,
+  right: value => value * 5,
+};
+export function chooseAction(key: ActionKey) {
+  return actionMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-entry.ts"),
+`import { chooseAction, type ActionKey } from "./runtime-actions.js";
+export function runAction(key: ActionKey, value: number) {
+  return chooseAction(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-controls.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function constantAction(value: number) {
+  return chooseAction("left")(value);
+}
+export function directMemberAction(value: number) {
+  return chooseAction.left(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-one-actions.ts"),
+`const oneMap = {
+  left: (value: number) => value + 1,
+};
+export function chooseOne(key: string) {
+  return oneMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-one-entry.ts"),
+`import { chooseOne } from "./runtime-one-actions.js";
+export function runOne(key: string, value: number) {
+  return chooseOne(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-narrowing.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function narrowed(key: string, value: number) {
+  key = "left";
+  return chooseAction(key)(value);
+}
+export function reassigned(key: string, value: number) {
+  let alias = key;
+  alias = "right";
+  return chooseAction(alias)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-shadow-entry.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function shadowed(key: string, value: number) {
+  const chooseAction = () => () => value;
+  return chooseAction(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-branch-actions.ts"),
+`const branchMap = {
+  left: (value: number) => value + 1,
+  right: (value: number) => value * 2,
+};
+export function chooseBranch(key: string) {
+  if (key === "left") return branchMap.left;
+  return branchMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-branch-entry.ts"),
+`import { chooseBranch } from "./runtime-branch-actions.js";
+export function runBranch(key: string, value: number) {
+  return chooseBranch(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-read-failure-entry.ts"),
+`import { chooseMissing } from "./runtime-not-present.js";
+export function runMissing(key: string, value: number) {
+  return chooseMissing(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-broken-actions.ts"),
+`const brokenMap = {
+  left: (value: number) => value + 1,
+  right: (value: number) => value * 2,
+};
+export function chooseBroken(key: string) {
+  return brokenMap[key];
+}
+const broken = ;
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-broken-entry.ts"),
+`import { chooseBroken } from "./runtime-broken-actions.js";
+export function runBroken(key: string, value: number) {
+  return chooseBroken(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-constant-helper.ts"),
+`const constantMap = {
+  left: (value: number) => value + 1,
+  right: (value: number) => value * 2,
+};
+const unrelatedMap = {
+  left: (value: number) => value + 3,
+  right: (value: number) => value * 4,
+};
+export function readUnrelated(key: string) {
+  return unrelatedMap[key];
+}
+export function chooseConstant(_key: string) {
+  return constantMap.left;
+}
+export function chooseWithConstantArgument(key: string, value: number) {
+  return chooseConstant("left")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-two-sites.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runFirst(key: string, value: number) {
+  return chooseAction(key)(value);
+}
+export function runSecond(key: string, value: number) {
+  return chooseAction(key)(value + 1);
+}
+`);
+
   try {
     symlinkSync(join(ROOT, "src", "kinds.ts"), join(ROOT, "src", "link.ts"));
   } catch {
@@ -440,4 +578,226 @@ test("real repo black-box: extract symbols from a real project TS file", async (
   assert.ok(runCli, "runCliSymbols found in real dist file");
   assert.equal(runCli.kind, "function");
   assert.equal(runCli.visibility, "exported");
+});
+
+test("runtime-selector T1: emits one source-backed dynamic observation", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-entry.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 1);
+  assert.equal(out.result.runtimeSelectorGaps.length, 0);
+  const observation = out.result.runtimeSelectorObservations[0];
+  assert.equal(Object.hasOwn(observation, "coverage"), false);
+  assert.equal(observation.callSiteRef, observation.binding.callSiteRef);
+  assert.equal(observation.facts.length, 2);
+
+  const tableFacts = observation.facts.filter(f => f.role === "selector_candidate_table");
+  const dependencyFacts = observation.facts.filter(f => f.role === "runtime_selector_dependency");
+  assert.equal(tableFacts.length, 1);
+  assert.equal(dependencyFacts.length, 1);
+  assert.equal(tableFacts[0].state, "known");
+  assert.equal(dependencyFacts[0].state, "known");
+
+  for (const fact of observation.facts) {
+    assert.ok(fact.evidenceRefs.includes(observation.sourceReadRef));
+  }
+  assert.ok(observation.binding.evidenceRefs.includes(observation.sourceReadRef));
+  assert.ok(observation.binding.resolution.evidenceRefs.includes(observation.sourceReadRef));
+  assert.equal(observation.binding.bindingMode, "dynamic");
+  assert.equal(observation.binding.resolution.status, "dynamic");
+  assert.equal(observation.binding.resolution.reason, "dynamic_undecidable");
+  assert.deepEqual(observation.binding.declarationRefs, []);
+  assert.equal(observation.binding.scopeRef, null);
+
+  const receipt = observation.sourceReadReceipt;
+  assert.equal(receipt.action, "read_source");
+  assert.equal(receipt.origin, "source_observation");
+  assert.equal(receipt.outcome, "success");
+  assert.ok(receipt.evidenceRefs.includes(observation.sourceReadRef));
+  assert.deepEqual(
+    receipt.modules.map(module => module.file).sort(),
+    ["src/runtime-actions.ts", "src/runtime-entry.ts"],
+  );
+  assert.ok(receipt.result.every(ref => typeof ref === "string" && ref.length > 0));
+  assert.equal(out.result.parser.semanticBinding, false);
+  assert.equal(out.result.coverage.partial, false);
+  assert.equal(out.result.dynamicMemberBoundaries.length, 0);
+});
+
+test("runtime-selector T1b: queried helper read does not fabricate completion", async () => {
+  const out = await runTsJsSymbolTable(
+    request(
+      ["src/runtime-entry.ts", "src/runtime-actions.ts"],
+      { file: "src/runtime-actions.ts", symbol: "chooseAction" },
+    ),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 1);
+  const observation = out.result.runtimeSelectorObservations[0];
+  assert.ok(
+    observation.sourceReadReceipt.modules.some(
+      module => module.file === "src/runtime-actions.ts",
+    ),
+  );
+  assert.equal(Object.hasOwn(observation, "targetModuleReached"), false);
+  assert.equal("coverageNote" in observation, false);
+});
+
+test("runtime-selector T2: static literal and direct member calls are not relabelled", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-static-controls.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 0);
+  assert.equal(out.result.runtimeSelectorGaps.length, 0);
+  assert.equal(
+    out.result.runtimeSelectorObservations
+      .flatMap(observation => observation.facts)
+      .filter(fact => fact.role === "selector_candidate_table").length,
+    0,
+  );
+  assert.equal(out.result.coverage.partial, false);
+  assert.equal(out.result.parser.semanticBinding, false);
+});
+
+test("runtime-selector T3: one-member table records unsupported selector shape", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-one-entry.ts", "src/runtime-one-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 0);
+  assert.ok(
+    out.result.runtimeSelectorGaps.some(
+      gap => gap.reason === "unsupported_selector_shape",
+    ),
+  );
+  assert.equal(out.result.coverage.partial, false);
+});
+
+test("runtime-selector T4: narrowing and reassignment are rejected", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-narrowing.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 0);
+  assert.ok(
+    out.result.runtimeSelectorGaps.some(
+      gap => gap.reason === "unsupported_selector_shape",
+    ),
+  );
+});
+
+test("runtime-selector T5: helper shadowing and alternate return are rejected", async () => {
+  const shadowOut = await runTsJsSymbolTable(
+    request(["src/runtime-shadow-entry.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(shadowOut.status, "ok", JSON.stringify(shadowOut));
+  if (shadowOut.status === "ok") {
+    assert.equal(shadowOut.result.runtimeSelectorObservations.length, 0);
+    assert.ok(
+      shadowOut.result.runtimeSelectorGaps.some(
+        gap =>
+          gap.reason === "unsupported_selector_shape" ||
+          gap.reason === "ambiguous_selector_chain",
+      ),
+    );
+  }
+
+  const branchOut = await runTsJsSymbolTable(
+    request(["src/runtime-branch-entry.ts", "src/runtime-branch-actions.ts"]),
+  );
+  assert.equal(branchOut.status, "ok", JSON.stringify(branchOut));
+  if (branchOut.status !== "ok") return;
+  assert.equal(branchOut.result.runtimeSelectorObservations.length, 0);
+  assert.ok(
+    branchOut.result.runtimeSelectorGaps.some(
+      gap =>
+        gap.reason === "unsupported_selector_shape" ||
+        gap.reason === "ambiguous_selector_chain",
+    ),
+  );
+});
+
+test("runtime-selector T6: missing, failed, and broken reads stay not_ready", async () => {
+  const missingOut = await runTsJsSymbolTable(request(["src/runtime-entry.ts"]));
+  assert.equal(missingOut.status, "ok", JSON.stringify(missingOut));
+  if (missingOut.status === "ok") {
+    assert.equal(missingOut.result.runtimeSelectorObservations.length, 0);
+    assert.ok(
+      missingOut.result.runtimeSelectorGaps.some(
+        gap => gap.reason === "module_not_in_read_set",
+      ),
+    );
+  }
+
+  const failedOut = await runTsJsSymbolTable(
+    request(["src/runtime-read-failure-entry.ts", "src/runtime-not-present.ts"]),
+  );
+  assert.equal(failedOut.status, "ok", JSON.stringify(failedOut));
+  if (failedOut.status === "ok") {
+    assert.equal(failedOut.result.runtimeSelectorObservations.length, 0);
+    assert.ok(
+      failedOut.result.runtimeSelectorGaps.some(gap => gap.reason === "read_failed"),
+    );
+  }
+
+  const brokenOut = await runTsJsSymbolTable(
+    request(["src/runtime-broken-entry.ts", "src/runtime-broken-actions.ts"]),
+  );
+  assert.equal(brokenOut.status, "ok", JSON.stringify(brokenOut));
+  if (brokenOut.status === "ok") {
+    assert.equal(brokenOut.result.runtimeSelectorObservations.length, 0);
+    assert.ok(
+      brokenOut.result.runtimeSelectorGaps.some(gap => gap.reason === "parse_error"),
+    );
+  }
+});
+
+test("runtime-selector T7: unconnected and non-parameter dependencies emit no role", async () => {
+  const out = await runTsJsSymbolTable(request(["src/runtime-constant-helper.ts"]));
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 0);
+  assert.equal(
+    out.result.runtimeSelectorObservations
+      .flatMap(observation => observation.facts).length,
+    0,
+  );
+  assert.equal(out.result.parser.semanticBinding, false);
+});
+
+test("runtime-selector T8: separate call sites never join", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-two-sites.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 2);
+  const [first, second] = out.result.runtimeSelectorObservations;
+  assert.notEqual(first.callSiteRef, second.callSiteRef);
+  for (const observation of out.result.runtimeSelectorObservations) {
+    assert.equal(
+      observation.facts.filter(fact => fact.role === "selector_candidate_table").length,
+      1,
+    );
+    assert.equal(
+      observation.facts.filter(fact => fact.role === "runtime_selector_dependency").length,
+      1,
+    );
+    assert.ok(observation.facts.every(fact => fact.evidenceRefs.includes(observation.sourceReadRef)));
+  }
+  assert.notEqual(first.sourceReadRef, second.sourceReadRef);
 });

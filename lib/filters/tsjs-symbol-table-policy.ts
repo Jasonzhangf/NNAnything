@@ -91,6 +91,69 @@ export type TsJsDynamicMemberBoundary = Readonly<{
   reason: "DYNAMIC_COMPUTED_NAME";
 }>;
 
+export type TsJsRuntimeSelectorRole =
+  | "selector_candidate_table"
+  | "runtime_selector_dependency";
+
+export type TsJsRuntimeSelectorRoleFact = Readonly<{
+  factRef: string;
+  role: TsJsRuntimeSelectorRole;
+  state: "known";
+  value: string | null;
+  evidenceRefs: readonly string[];
+}>;
+
+export type TsJsRuntimeSelectorObservation = Readonly<{
+  observationRef: string;
+  callSiteRef: string;
+  sourceReadRef: string;
+  binding: Readonly<{
+    symbolRef: string;
+    callSiteRef: string;
+    role: "member";
+    bindingMode: "dynamic";
+    resolution: Readonly<{
+      status: "dynamic";
+      reason: "dynamic_undecidable";
+      evidenceRefs: readonly string[];
+    }>;
+    declarationRefs: readonly [];
+    scopeRef: null;
+    evidenceRefs: readonly string[];
+  }>;
+  facts: readonly TsJsRuntimeSelectorRoleFact[];
+  sourceReadReceipt: Readonly<{
+    receiptId: string;
+    actionRef: string;
+    action: "read_source";
+    origin: "source_observation";
+    outcome: "success";
+    targetRef: string;
+    result: readonly string[];
+    evidenceRefs: readonly string[];
+    modules: readonly Readonly<{
+      file: string;
+      textLength: number;
+      lineCount: number;
+    }>[];
+  }>;
+}>;
+
+export type TsJsRuntimeSelectorGap = Readonly<{
+  gapRef: string;
+  callSiteRef: string | null;
+  reason:
+    | "module_not_in_read_set"
+    | "read_failed"
+    | "parse_error"
+    | "dependency_not_parameter"
+    | "table_not_finite_callable"
+    | "table_not_connected"
+    | "ambiguous_selector_chain"
+    | "unsupported_selector_shape";
+  evidenceRefs: readonly string[];
+}>;
+
 export type TsJsParseError = Readonly<{
   line: number;
   column: number;
@@ -149,6 +212,8 @@ export type TsJsSymbolTableResult = Readonly<{
   parser: TsJsParserRecord;
   symbols: readonly TsJsSymbolRecord[];
   dynamicMemberBoundaries: readonly TsJsDynamicMemberBoundary[];
+  runtimeSelectorObservations: readonly TsJsRuntimeSelectorObservation[];
+  runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[];
   coverage: TsJsCoverageRecord;
   boundaries: Readonly<{
     projectModulePath: "unknown";
@@ -360,6 +425,8 @@ export function projectTsJsSymbolTableResult(
   symbols: readonly TsJsSymbolRecord[],
   dynamicMemberBoundaries: readonly TsJsDynamicMemberBoundary[],
   coverage: TsJsCoverageRecord,
+  runtimeSelectorObservations: readonly TsJsRuntimeSelectorObservation[] = [],
+  runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[] = [],
 ): TsJsSymbolTableResult {
   return Object.freeze({
     schema: TSJS_SYMBOL_RESULT_SCHEMA,
@@ -371,6 +438,8 @@ export function projectTsJsSymbolTableResult(
     dynamicMemberBoundaries: Object.freeze(
       filterTsJsDynamicMemberBoundaries(dynamicMemberBoundaries, request.file),
     ),
+    runtimeSelectorObservations: Object.freeze(runtimeSelectorObservations.slice()),
+    runtimeSelectorGaps: Object.freeze(runtimeSelectorGaps.slice()),
     coverage,
     boundaries: Object.freeze({
       projectModulePath: "unknown",
