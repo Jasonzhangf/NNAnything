@@ -121,6 +121,28 @@ test("unknown gold guessed as true is not accepted", () => {
   assert.equal(report.unknownRecall, 0);
 });
 
+test("unknown gold with a definitive true answer stays wrong even when completion is incomplete", () => {
+  const samples = [sample({ sampleId: "unknown-incomplete-true", gold: "unknown" })];
+  const runs = [
+    run({
+      sampleId: "unknown-incomplete-true",
+      steps: [
+        { stepId: "s1", optionSemantics: "judge=true", executionReceiptRef: null, postStateRef: null, evidenceRefs: [] },
+      ],
+      queryCompletion: "incomplete",
+    }),
+  ];
+
+  const report = evaluateRelationOracle(samples, runs);
+  assert.deepEqual(report.validUnknown, {
+    correct: 0,
+    missed: 0,
+    wrongTrueOrFalse: 1,
+    finalUnknown: 0,
+  });
+  assert.equal(report.unknownRecall, 0);
+});
+
 test("known-gold unknown must not count toward valid unknown recall", () => {
   const samples = [
     sample({ sampleId: "known-true", gold: "true" }),

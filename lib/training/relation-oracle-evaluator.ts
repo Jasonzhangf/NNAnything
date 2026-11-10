@@ -381,16 +381,15 @@ export function evaluateRelationOracle(
     else if (accountingCompletion === "returned_unresolved") returnedUnresolved += 1;
     if (accountingCompletion === "incomplete" || accountingCompletion === "returned_unresolved") {
       unsupportedUnknown += 1;
-      if (sample.gold === "unknown") {
-        if (accountingCompletion === "returned_unresolved") validUnknownWrongTrueOrFalse += 1;
-        else validUnknownMissed += 1;
-      }
-    } else if (sample.gold === "unknown") {
-      if (predicted === "unknown") {
+    }
+    if (sample.gold === "unknown") {
+      if (predicted === "true" || predicted === "false") {
+        validUnknownWrongTrueOrFalse += 1;
+      } else if (predicted === "unknown" && accountingCompletion === "complete_unknown") {
         validUnknownCorrect += 1;
         validUnknownFinalUnknown += 1;
       } else {
-        validUnknownWrongTrueOrFalse += 1;
+        validUnknownMissed += 1;
       }
     }
     if (accountingCompletion !== "incomplete" && accountingCompletion !== "returned_unresolved") {
