@@ -859,6 +859,7 @@ export async function runUnifiedRunnerEvaluate(
   let oracleRefsForAccounting: readonly string[] = [];
   let validatedCandidate: UnifiedEvaluateReport["candidate"] | null = null;
   let validatedAdmission: UnifiedEvaluateReport["admission"] | null = null;
+  let validatedConsumerEntry: string | null = null;
   const runs: StudentRelationRun[] = [];
   const executionEntries: UnifiedEvaluateExecutionEntry[] = [];
   const evidenceRefs = new Set<string>();
@@ -915,6 +916,7 @@ export async function runUnifiedRunnerEvaluate(
 
   try {
     const config = requireEvaluateConfig(evaluate);
+    validatedConsumerEntry = config.consumerEntry;
     const packagePath = resolve(config.candidatePackagePath);
     const loaded = await loadUnifiedModelPackageFromFile(packagePath);
     const loadedPackage = loaded.package;
@@ -1053,6 +1055,7 @@ export async function runUnifiedRunnerEvaluate(
     const validatedMetadata = {
       ...(validatedCandidate === null ? {} : { candidate: validatedCandidate }),
       ...(validatedAdmission === null ? {} : { admission: validatedAdmission }),
+      ...(validatedConsumerEntry === null ? {} : { consumerEntry: validatedConsumerEntry }),
     };
     if (caught instanceof UnifiedRunnerEvaluateError) {
       const detail: Readonly<Record<string, unknown>> = {

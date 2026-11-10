@@ -217,6 +217,9 @@ function completionIsConsistent(
   predicted: OracleJudgement | null,
 ): boolean {
   const terminalJudge = terminalStepJudgeOf(run);
+  if (completion === "returned_unresolved") {
+    return terminalJudge === null && predicted === null;
+  }
   if (terminalJudge === null) return completion === "incomplete";
   if (predicted !== terminalJudge) return false;
   if (completion === "complete_true") return terminalJudge === "true";
