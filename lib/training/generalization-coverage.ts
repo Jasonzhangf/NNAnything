@@ -707,7 +707,6 @@ export interface AllUnitsCoverageBundle {
   readonly schemaVersion: 1;
   readonly mode: CoverageReportMode;
   readonly units: Readonly<Record<string, UnitCoverageReport>>;
-  readonly extraDiagnostics: Readonly<Record<string, UnitCoverageReport>>;
 }
 
 function convertCliCommandDatasetToReport(input: {
@@ -819,8 +818,6 @@ export function convertAllExistingUnitsToCoverageReport(
     profilePath: cliBaseProfilePath,
     mode,
   });
-
-  const extraDiagnostics: Record<string, UnitCoverageReport> = {};
 
   // 2. CLI Path Controller
   const pathSamplesPath = resolve(
@@ -1507,6 +1504,5 @@ export function convertAllExistingUnitsToCoverageReport(
       "browser.action-feedback.v1": f1Report,
       "browser.strategy-policy.v1": f2Report,
     }),
-    extraDiagnostics: Object.freeze(extraDiagnostics),
   });
 }
