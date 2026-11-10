@@ -6,6 +6,7 @@
 - 事实：`tsjs-root-evidence-bounded-repair-r1-20261109` 已由 Alice 正式 ACCEPT subject 3，main 集成提交 `3dba575`，cleanup verified，`completion_missing=[]`，任务已 closed；本地 main 与 origin/main 均为 `3dba575`。`dispatch-sweep` 仍返回 `unassigned_ready=[]`、`awaiting_acceptance=[]`、`queued_for_peer=[]`。
 - 未派原因：当前 board 只有三条 working 任务。`b-a1-real-site-eval-design-r1-20261109` 仍因旧 `reason=test` pending block 返回 `TASK_BLOCK_PENDING_APPROVAL`，等待 AppSDK/CEO typed reject 入口；`nnanything-overall-redesign-orchestration-r1` 由 Iris 持有，等待更新后的 P0 前置核对；Grace 巡检任务由 Grace 持有。没有可新派的 ready 票，不制造占位任务。
 - 动作：已向 Iris 发送 `m1794290835781-890`，要求把 `3dba575` 集成关闭事实写入 P0 next_step，并重新判断 bounded real-site consumer/acceptance 的真实阻塞；明确不得重复 stale test-block CLI、不得 force-close。
+- Iris 回执：P0 `nnanything-overall-redesign-orchestration-r1` 已更新到 revision 162，next_step 确认 section-K 前置已 closed/no-action，但 bounded real-site consumer/acceptance 仍 NOT clear；`b-a1-real-site-eval-design-r1-20261109` revision 26 仍为 working 且 `TASK_BLOCK_PENDING_APPROVAL`，等待 AppSDK/CEO typed reject 和 Jenny owner delivery + Alice review。
 - 身份与边界：`collab context` 仍为 Jenny/master，pane `%24`，daemon live；未重新注册、未回收 name。Jack 仍是受保护共享绑定，未执行 `kill` 或 tmux 生命周期操作。本轮未改产品语义、权重、gold、threshold、采用，未训练/安装/重启。
 
 ## 2026-11-09 Jenny：Carol section-K rework 红交指令与 idle 复核（21:45Z）
