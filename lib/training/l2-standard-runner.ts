@@ -111,8 +111,14 @@ import {
 } from "./unified-timing.js";
 import {
   runUnifiedRunnerEvaluate,
+  runUnifiedRunnerEvaluateDev,
+  type UnifiedRunnerEvaluateDevConfig,
   type UnifiedRunnerEvaluateConfig,
 } from "./unified-runner-evaluate.js";
+import {
+  runUnifiedWarmStartAcceptance,
+  type UnifiedWarmStartAcceptanceConfig,
+} from "./unified-warmstart-acceptance.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -122,6 +128,8 @@ export type StandardRunnerCommand =
   | "warmstart"
   | "resume"
   | "evaluate"
+  | "evaluate-dev"
+  | "warmstart-acceptance"
   | "convert-samples";
 
 export type StandardRunnerPhase =
@@ -214,6 +222,8 @@ export interface UnifiedRunnerConfig {
   readonly training?: UnifiedRunnerTrainingConfig;
   readonly warmStart?: UnifiedRunnerWarmStartConfig;
   readonly evaluate?: UnifiedRunnerEvaluateConfig;
+  readonly evaluateDev?: UnifiedRunnerEvaluateDevConfig;
+  readonly warmstartAcceptance?: UnifiedWarmStartAcceptanceConfig;
 }
 
 export interface EvaluationBreakdown {
@@ -673,6 +683,7 @@ function dataGateRowsForRunner(
     return {
       schema: UNIFIED_DATA_ROW_SCHEMA,
       rowId: group.group_id,
+      sourceGroup: group.sourceGroup,
       partition: group.partition,
       route,
       input: first.input,
@@ -2411,11 +2422,13 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
     "warmstart",
     "resume",
     "evaluate",
+    "evaluate-dev",
+    "warmstart-acceptance",
     "convert-samples",
   ];
   if (command === undefined || !validCommands.includes(command)) {
     process.stderr.write(
-      `Usage: l2-standard-runner <validate-data|train|warmstart|resume|evaluate|convert-samples> --config <config.json>\n`,
+      `Usage: l2-standard-runner <validate-data|train|warmstart|resume|evaluate|evaluate-dev|warmstart-acceptance|convert-samples> --config <config.json>\n`,
     );
     return 2;
   }
@@ -2493,6 +2506,46 @@ export async function executeUnifiedRunnerRoute(
       encoderVersion: config.encoderVersion,
       outputDir,
       evaluate: config.evaluate,
+    });
+    await writeUnifiedRunnerReceiptFiles(
+      outputDir,
+      result.report.runId,
+      `${JSON.stringify(result.report, null, 2)}\n`,
+      result.markdown,
+    );
+    return result.exitCode;
+  }
+  if (command === "evaluate-dev") {
+    const outputDir = resolve(config.outputDir);
+    await mkdir(outputDir, { recursive: true });
+    const result = await runUnifiedRunnerEvaluateDev({
+      commandStartNs: timingStart?.commandStartNs ?? process.hrtime.bigint(),
+      startedAt: new Date().toISOString(),
+      route: config.route,
+      phase: config.phase,
+      encoderVersion: config.encoderVersion,
+      outputDir,
+      evaluateDev: config.evaluateDev,
+    });
+    await writeUnifiedRunnerReceiptFiles(
+      outputDir,
+      result.report.runId,
+      `${JSON.stringify(result.report, null, 2)}\n`,
+      result.markdown,
+    );
+    return result.exitCode;
+  }
+  if (command === "warmstart-acceptance") {
+    const outputDir = resolve(config.outputDir);
+    await mkdir(outputDir, { recursive: true });
+    const result = await runUnifiedWarmStartAcceptance({
+      commandStartNs: timingStart?.commandStartNs ?? process.hrtime.bigint(),
+      startedAt: new Date().toISOString(),
+      route: config.route,
+      phase: config.phase,
+      encoderVersion: config.encoderVersion,
+      outputDir,
+      warmstartAcceptance: config.warmstartAcceptance,
     });
     await writeUnifiedRunnerReceiptFiles(
       outputDir,
