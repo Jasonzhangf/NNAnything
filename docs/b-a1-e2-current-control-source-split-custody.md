@@ -202,8 +202,9 @@ Approved custody to `BA1EvaluatorGold` mapping (pending Alice review):
   supervision. `observation_missing` does not by itself prove that
   `insufficient_observation` is the expected semantic result.
 
-The examples above are pending drafts only; Henry has not created or accepted
-any record yet. Only an independently approved record may map to
+The examples above are pending drafts only; Tina has accepted the independent
+gold-custodian duty, but no approved gold or machine-admitted record exists
+yet. Only an independently approved record may map to
 `BA1EvaluatorGold`. `BA1RealSiteFirstResultRequest.gold` accepts that
 `BA1EvaluatorGold` directly and passes it to `evaluateBA1Sample`; the converter
 supervision row is not a required custody-to-gold stage for first-result
@@ -216,7 +217,7 @@ Owners:
 |---|---|---|
 | source admission and `real-site-source.json` fields | Carol, this task owner | `real-site-source.json` |
 | split decision and `splitAuthority/splitDecisionRef` | Jenny, project master and resource authority | `real-site-source.json` plus the approved decision record |
-| independent supervision/gold custody | Henry, independent-verification peer; Jenny assignment/acceptance is required before it becomes live | run directory `real-site-supervision.jsonl` |
+| independent supervision/gold custody | Tina, accepted independent gold custodian | run directory `real-site-supervision.jsonl` |
 | gold-only evaluator consumption | evaluator owner | `evaluateBA1Sample({gold,...})` in `lib/training/b-a1-evaluator.ts` |
 
 The gold record maps to `BA1EvaluatorGold` only at the `evaluateBA1Sample` call,
@@ -272,6 +273,49 @@ producer identity and version in `labelAuthority`, name its oracle method in
 custody artifact. It may not depend on candidate scores. Conflicts stay
 `labelConflict` and are not machine-consumable as approved gold.
 
+### 3.2 Accepted proposal serialization
+
+A pending `nnanything.b-a1.real-site-supervision.v1` record may serialize an
+accepted independent proposal before Alice approves gold. The custody record
+must include these additional custody-only fields:
+
+```json
+{
+  "recordId": "<unique custody record id>",
+  "proposalRef": "<pending-proposals.jsonl>#sourceGroupId=<id>",
+  "observationBinding": {
+    "sourceRun": "<source run>",
+    "documentRef": "<documentRef>",
+    "observationId": "<observationId>",
+    "revision": 1,
+    "generation": 1,
+    "candidateRef": "<candidateRef>",
+    "scopeRef": "<scopeRef>",
+    "projectionPhase": "<phase>",
+    "bindingRole": "search-input-host",
+    "sequenceRole": "<q1-pre-input or q2-pre-input>"
+  },
+  "supportingActionEvidence": [],
+  "scoreBlind": true,
+  "approvedGold": false,
+  "machineAdmitted": false,
+  "splitDecisionRef": "<split-decisions/<sourceGroupId>.json>"
+}
+```
+
+`observationBinding` preserves the exact observation-local identity of the
+selected input host. `supportingActionEvidence` keeps post-input submit
+observations separate and never converts them into a second selected target.
+These fields remain custody-only and do not enter the converter supervision
+row or `BA1EvaluatorGold`.
+
+A record with `reviewStatus:"pending"` is reviewable proposal material, not
+approved gold. It must keep `approvedGold:false` and
+`machineAdmitted:false`. A record whose proposal has no eligible target, whose
+scope is partial, or whose continuation is unresolved must not invent a
+binding or candidate. Its custody adjudication stays unresolved and points to
+the accepted raw failure or partial-scope evidence.
+
 ## 4. First-result and provenance paths
 
 The accepted prep receipt proposes
@@ -305,7 +349,7 @@ fail stay visible in the failure receipt.
 | currentControl authority | `BrowserSearchResources.currentControl()` callback + `BA1Identity` consumer boundary | type and stale-check boundary exist; authoritative producer missing `NOT_READY` |
 | real-site-source.json fields | `e2-observation-source-design.md` §2.3; §12 prep §1.5 | schema ready, source admission not recorded `NOT_READY` |
 | splitAuthority/splitDecisionRef | same design, plus approved decision record required | schema ready, decision `NOT_READY` |
-| supervision/gold custody | `nnanything.b-a1.real-site-supervision.v1`; `BA1EvaluatorGold` | schema ready, draft only; custodian assigned Henry but not accepted |
+| supervision/gold custody | `nnanything.b-a1.real-site-supervision.v1`; `BA1EvaluatorGold` | schema ready; Tina accepted as custodian; no approved gold or machine-admitted record |
 | current-control record | `BA1Identity` three fields | proposed audit path only; `NOT_READY`; never derived by the consumer |
 | labelSource/labelAuthority/oracleKind/evidenceRefs | supervision schema vs current converter | `labelAuthority`/`oracleKind` are current converter fields; `labelSource`/`evidenceRefs` are custody-artifact only; see §3.1 |
 | consumer task ownership | `b-a1-e2-consumer-first-result-jack-20261109`; `worker-task.md` | Jenny and bounded GCM worker; explicit-input consumer only, not a control producer |
@@ -320,8 +364,8 @@ fail stay visible in the failure receipt.
   recorded and remains `NOT_READY`
 - authoritative currentControl producer: implementation and owner assignment
   are absent and remain `NOT_READY`
-- independent gold custodian: Henry is designated for independent verification;
-  his assignment/acceptance is not yet recorded and remains `NOT_READY`
+- independent gold custodian: Tina is accepted; the approved-gold artifact
+  remains `NOT_READY` until independent review approves it
 - current-control record: `current-control.json` is not written and remains
   `NOT_READY`; it must not be copied from the observation
 - actual real-site observation/envelope and first projection: not run
