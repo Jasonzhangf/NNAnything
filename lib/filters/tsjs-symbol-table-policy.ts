@@ -103,6 +103,22 @@ export type TsJsRuntimeSelectorRoleFact = Readonly<{
   evidenceRefs: readonly string[];
 }>;
 
+export type TsJsInlineCallableIdentity = Readonly<{
+  declarationRef: string;
+  moduleRef: string;
+  span: TsJsSpan;
+  syntaxKind: "arrow_function" | "function_expression";
+}>;
+
+export type TsJsRuntimeCallableTable = Readonly<{
+  tableRef: string;
+  members: readonly Readonly<{
+    name: string;
+    initializerRef: string;
+    callableIdentity: TsJsInlineCallableIdentity | null;
+  }>[];
+}>;
+
 export type TsJsRuntimeSelectorObservation = Readonly<{
   observationRef: string;
   callSiteRef: string;
@@ -122,6 +138,7 @@ export type TsJsRuntimeSelectorObservation = Readonly<{
     evidenceRefs: readonly string[];
   }>;
   facts: readonly TsJsRuntimeSelectorRoleFact[];
+  callableTable?: TsJsRuntimeCallableTable;
   sourceReadReceipt: Readonly<{
     receiptId: string;
     actionRef: string;

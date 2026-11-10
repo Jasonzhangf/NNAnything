@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync, symlinkSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, readFileSync, symlinkSync, existsSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -352,6 +352,108 @@ chooseAction = replacement;
 declare const replacement: typeof chooseAction;
 export function runImportedReplacement(key: string, value: number) {
   return chooseAction(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-actions.ts"),
+`const actionMap = {
+  left: (value) => value + 2,
+  right: function (value) { return value * 5; },
+};
+export function chooseAction(key) {
+  return actionMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-entry.ts"),
+`import { chooseAction } from "./callable-identity-actions.js";
+export function runAction(key, value) {
+  return chooseAction(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-wrapped.ts"),
+`const wrappedMap = {
+  left: (((value) => value + 1) as (value: number) => number),
+  right: ((value) => value * 3)!,
+};
+export function chooseWrapped(key) {
+  return wrappedMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-wrapped-entry.ts"),
+`import { chooseWrapped } from "./callable-identity-wrapped.js";
+export function runWrapped(key, value) {
+  return chooseWrapped(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-samename.ts"),
+`const firstMap = {
+  left: (value) => value + 1,
+  right: (value) => value + 2,
+};
+export function chooseFirst(key) {
+  return firstMap[key];
+}
+// spacer keeps the second table at a distinct span
+const secondMap = {
+  left: (value) => value + 3,
+  right: (value) => value + 4,
+};
+export function chooseSecond(key) {
+  return secondMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-samename-first-entry.ts"),
+`import { chooseFirst } from "./callable-identity-samename.js";
+export function runFirst(key, value) {
+  return chooseFirst(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-samename-second-entry.ts"),
+`import { chooseSecond } from "./callable-identity-samename.js";
+export function runSecond(key, value) {
+  return chooseSecond(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-missing.ts"),
+`const leftThunk = () => 1;
+const rightThunk = () => 2;
+const missingMap = {
+  left: leftThunk,
+  right: rightThunk,
+};
+export function chooseMissing(key) {
+  return missingMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-missing-entry.ts"),
+`import { chooseMissing } from "./callable-identity-missing.js";
+export function runMissing(key, value) {
+  return chooseMissing(key)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-method.ts"),
+`const methodMap = {
+  left(value) { return value + 1; },
+  right(value) { return value * 2; },
+};
+export function chooseMethod(key) {
+  return methodMap[key];
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "callable-identity-method-entry.ts"),
+`import { chooseMethod } from "./callable-identity-method.js";
+export function runMethod(key, value) {
+  return chooseMethod(key)(value);
 }
 `);
 
@@ -1403,6 +1505,36 @@ test("bridge canonicalizes producer request paths for read accounting", async ()
   );
 });
 
+test("bridge accepts typed null optional filters at the raw validator boundary", async () => {
+  const producerRequest = {
+    repo: ROOT,
+    language: "typescript",
+    scope: ["src"],
+    files: ["src/runtime-two-sites.ts", "src/runtime-actions.ts"],
+  };
+  const producer = await runTsJsSymbolTable(producerRequest);
+  assert.equal(producer.status, "ok", JSON.stringify(producer));
+  if (producer.status !== "ok") return;
+  const observation = producer.result.runtimeSelectorObservations[0];
+  assert.ok(observation);
+
+  const bridge = await observeTsJsStepwiseRequest(bridgeInput(
+    { ...producerRequest, symbol: null, file: null },
+    observation,
+  ));
+  assert.deepEqual(bridge.reasons, []);
+  assert.ok(bridge.record);
+
+  const episodes = await loadBridgeRecord(bridge.record);
+  const storedRequest = episodes[0].receipts[0].producerSource.producerRequest;
+  assert.equal(storedRequest.symbol, null);
+  assert.equal(storedRequest.file, null);
+  assert.deepEqual(storedRequest.files, [
+    "src/runtime-two-sites.ts",
+    "src/runtime-actions.ts",
+  ]);
+});
+
 test("accepted clean DEV source/proof preparation loads and admits through the bridge", async () => {
   const producerRequest = {
     repo: CLEAN_DEV_FAMILY,
@@ -1440,4 +1572,172 @@ test("accepted clean DEV source/proof preparation loads and admits through the b
   const admission = admitInitialEvidence(episodes[0].requestId, episodes);
   assert.deepEqual(admission.invalidReasons, []);
   assert.equal(admission.initialObservation.evidence[0].id, observation.sourceReadRef);
+});
+
+function spanText(text, span) {
+  const lines = text.split("\n");
+  const out = [];
+  for (let line = span.startLine; line <= span.endLine; line += 1) {
+    const raw = lines[line - 1] ?? "";
+    const start = line === span.startLine ? span.startCol - 1 : 0;
+    const end = line === span.endLine ? span.endCol - 1 : raw.length;
+    out.push(raw.slice(start, end));
+  }
+  return out.join("\n");
+}
+
+test("callable-identity C1: serializes exact typed inline callable identities", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/callable-identity-entry.ts", "src/callable-identity-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 1);
+  const observation = out.result.runtimeSelectorObservations[0];
+  const table = observation.callableTable;
+  assert.ok(table, "callableTable is present");
+  assert.equal(typeof table.tableRef, "string");
+  assert.ok(table.tableRef.startsWith("table:src/callable-identity-actions.ts@"));
+
+  const byName = new Map(table.members.map(member => [member.name, member]));
+  const left = byName.get("left");
+  const right = byName.get("right");
+  assert.ok(left && right, "both members are typed");
+
+  for (const member of table.members) {
+    const identity = member.callableIdentity;
+    assert.ok(identity, `identity for ${member.name}`);
+    assert.equal(identity.moduleRef, "src/callable-identity-actions.ts");
+    assert.ok(
+      identity.syntaxKind === "arrow_function" || identity.syntaxKind === "function_expression",
+    );
+    const span = `${identity.span.startLine}:${identity.span.startCol}-${identity.span.endLine}:${identity.span.endCol}`;
+    assert.equal(
+      identity.declarationRef,
+      `callable.${identity.syntaxKind}:${identity.moduleRef}@${span}`,
+    );
+    assert.equal(member.initializerRef, `member:${identity.moduleRef}@${span}`);
+  }
+
+  const source = readFileSync(join(ROOT, "src", "callable-identity-actions.ts"), "utf8");
+  assert.equal(left.callableIdentity.syntaxKind, "arrow_function");
+  assert.equal(spanText(source, left.callableIdentity.span), "(value) => value + 2");
+  assert.equal(right.callableIdentity.syntaxKind, "function_expression");
+  assert.equal(
+    spanText(source, right.callableIdentity.span),
+    "function (value) { return value * 5; }",
+  );
+
+  // The callable identity is not the table, the helper function, or the
+  // property-assignment/initializer role reference.
+  assert.notEqual(left.callableIdentity.declarationRef, table.tableRef);
+  assert.notEqual(left.callableIdentity.declarationRef, left.initializerRef);
+  for (const member of table.members) {
+    assert.notEqual(member.callableIdentity.declarationRef, observation.binding.symbolRef);
+  }
+
+  // Old role strings and unresolved dynamic binding are unchanged.
+  const tableFact = observation.facts.find(fact => fact.role === "selector_candidate_table");
+  assert.ok(tableFact);
+  assert.deepEqual(
+    JSON.parse(tableFact.value),
+    table.members.map(member => ({ name: member.name, initializerRef: member.initializerRef })),
+  );
+  assert.equal(observation.binding.bindingMode, "dynamic");
+  assert.equal(observation.binding.resolution.status, "dynamic");
+  assert.equal(observation.binding.resolution.reason, "dynamic_undecidable");
+  assert.deepEqual(observation.binding.declarationRefs, []);
+});
+
+test("callable-identity C2: unwraps parentheses and assertions before extracting identity", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/callable-identity-wrapped-entry.ts", "src/callable-identity-wrapped.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 1);
+  const table = out.result.runtimeSelectorObservations[0].callableTable;
+  assert.ok(table);
+  const source = readFileSync(join(ROOT, "src", "callable-identity-wrapped.ts"), "utf8");
+  const left = table.members.find(member => member.name === "left");
+  const right = table.members.find(member => member.name === "right");
+  assert.ok(left?.callableIdentity && right?.callableIdentity);
+  assert.equal(spanText(source, left.callableIdentity.span), "(value) => value + 1");
+  assert.equal(spanText(source, right.callableIdentity.span), "(value) => value * 3");
+});
+
+test("callable-identity C3: same name at a different span yields a distinct exact identity", async () => {
+  const out = await runTsJsSymbolTable(
+    request([
+      "src/callable-identity-samename-first-entry.ts",
+      "src/callable-identity-samename-second-entry.ts",
+      "src/callable-identity-samename.ts",
+    ]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 2);
+  const leftMembers = out.result.runtimeSelectorObservations.map(observation => {
+    const table = observation.callableTable;
+    assert.ok(table);
+    const member = table.members.find(entry => entry.name === "left");
+    assert.ok(member?.callableIdentity);
+    return member;
+  }).sort(
+    (a, b) => a.callableIdentity.span.startLine - b.callableIdentity.span.startLine,
+  );
+
+  assert.equal(leftMembers[0].name, leftMembers[1].name);
+  assert.notEqual(
+    leftMembers[0].callableIdentity.declarationRef,
+    leftMembers[1].callableIdentity.declarationRef,
+  );
+  assert.notEqual(
+    leftMembers[0].callableIdentity.span.startLine,
+    leftMembers[1].callableIdentity.span.startLine,
+  );
+
+  const [first, second] = out.result.runtimeSelectorObservations;
+  assert.ok(first.callableTable && second.callableTable);
+  assert.equal(
+    second.callableTable.members.some(
+      member => member.callableIdentity?.declarationRef === leftMembers[0].callableIdentity.declarationRef,
+    ),
+    false,
+  );
+  assert.equal(
+    first.callableTable.members.some(
+      member => member.callableIdentity?.declarationRef === leftMembers[1].callableIdentity.declarationRef,
+    ),
+    false,
+  );
+});
+
+test("callable-identity C4: missing inline identity stays a preserved selector gap", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/callable-identity-missing-entry.ts", "src/callable-identity-missing.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 0);
+  assert.ok(
+    out.result.runtimeSelectorGaps.some(gap => gap.reason === "unsupported_selector_shape"),
+  );
+});
+
+test("callable-identity C5: method shorthand keeps the unsupported selector gap", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/callable-identity-method-entry.ts", "src/callable-identity-method.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 0);
+  assert.ok(
+    out.result.runtimeSelectorGaps.some(gap => gap.reason === "unsupported_selector_shape"),
+  );
 });

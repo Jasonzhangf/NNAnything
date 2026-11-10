@@ -240,6 +240,14 @@ function moduleFileFromRef(moduleRef: string | null): string | null {
   return file;
 }
 
+function rawProducerRequestForValidation(request: unknown): unknown {
+  if (!isRecord(request)) return request;
+  const raw = { ...request };
+  if (raw["symbol"] === null) delete raw["symbol"];
+  if (raw["file"] === null) delete raw["file"];
+  return raw;
+}
+
 function successfulProducerFiles(
   request: TsJsSymbolTableRequest,
   coverage: TsJsCoverageRecord,
@@ -458,7 +466,8 @@ export async function observeTsJsStepwiseRequest(
   if (!isRecord(input.localCandidateCursor)) {
     return bridgeFailure("bridge requires explicit localCandidateCursor");
   }
-  const validation = validateTsJsSymbolRequest(input.producerRequest);
+  const rawProducerRequest = rawProducerRequestForValidation(input.producerRequest);
+  const validation = validateTsJsSymbolRequest(rawProducerRequest);
   if (!validation.ok) {
     return bridgeFailure(`producer rejected request: ${validation.error.reasonCode}`);
   }
@@ -476,7 +485,7 @@ export async function observeTsJsStepwiseRequest(
   // The producer already owns the one request validator/normalizer. Re-run it
   // with the raw request so it remains the single execution path; canonicalInput
   // carries the same validator's normalized request for provenance/accounting.
-  const producer = await runTsJsSymbolTable(input.producerRequest);
+  const producer = await runTsJsSymbolTable(rawProducerRequest);
   if (producer.status !== "ok") {
     return bridgeFailure(`producer rejected request: ${producer.reasonCode}`);
   }
