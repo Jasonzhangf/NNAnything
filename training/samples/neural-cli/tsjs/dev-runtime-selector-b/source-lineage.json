@@ -1,0 +1,101 @@
+{
+  "schema": "nnanything.tsjs.source-lineage.v1",
+  "family": "tsjs-dev-runtime-selector-b",
+  "partition": "DEV",
+  "synthetic": true,
+  "lineageFixedAt": "2026-11-10T18:57:38Z",
+  "independence": {
+    "crossPartitionSharedSource": false,
+    "crossPartitionSharedTemplate": false,
+    "crossPartitionSharedModule": false,
+    "verificationDerivation": false,
+    "verificationAccess": false
+  },
+  "instances": [
+    {
+      "id": "dv-u01-palette",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/dv-u01-palette",
+      "requestedDeclaration": "paletteOperations.warm",
+      "callSiteExpression": "paletteOperations[swatch](value)",
+      "expectedSemanticAction": "c:judge:unknown",
+      "status": "NOT_READY",
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+    },
+    {
+      "id": "dv-u02-lanes",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/dv-u02-lanes",
+      "requestedDeclaration": "laneActions[0]",
+      "callSiteExpression": "laneActions[lane](input)",
+      "expectedSemanticAction": "c:judge:unknown",
+      "status": "NOT_READY",
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+    },
+    {
+      "id": "dv-n01-pair",
+      "role": "resolved negative",
+      "sourceRoot": "sources/dv-n01-pair",
+      "requestedDeclaration": "leftStep",
+      "callSiteExpression": "rightStep(value)",
+      "expectedSemanticAction": "c:judge:false",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "dv-n02-shadow",
+      "role": "resolved negative",
+      "sourceRoot": "sources/dv-n02-shadow",
+      "requestedDeclaration": "outer:convert",
+      "callSiteExpression": "convert(value)",
+      "expectedSemanticAction": "c:judge:false",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "dv-p01-alias",
+      "role": "positive control",
+      "sourceRoot": "sources/dv-p01-alias",
+      "requestedDeclaration": "clampRequested",
+      "callSiteExpression": "clampRequested(value)",
+      "expectedSemanticAction": "c:judge:true",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "dv-p02-factory",
+      "role": "positive control",
+      "sourceRoot": "sources/dv-p02-factory",
+      "requestedDeclaration": "formatRequest",
+      "callSiteExpression": "formatRequest(value)",
+      "expectedSemanticAction": "c:judge:true",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "dv-a01-import",
+      "role": "continue for evidence",
+      "sourceRoot": "sources/dv-a01-import",
+      "requestedDeclaration": "normalizeText",
+      "callSiteExpression": "normalizeText(value)",
+      "expectedSemanticAction": "c:advance:tsjs:import:./normalizer:normalizeText",
+      "status": "NOT_READY",
+      "reason": "The import edge exists, but no typed pending obligation or read receipt is produced for a legal advance candidate."
+    },
+    {
+      "id": "dv-a02-namespace",
+      "role": "continue for evidence",
+      "sourceRoot": "sources/dv-a02-namespace",
+      "requestedDeclaration": "dateTools.formatDay",
+      "callSiteExpression": "dateTools.formatDay(value)",
+      "expectedSemanticAction": "c:advance:tsjs:import:./dates:dateTools",
+      "status": "NOT_READY",
+      "reason": "The namespace import edge exists, but no typed pending obligation or read receipt is produced for a legal advance candidate."
+    }
+  ],
+  "evidence": {
+    "compilerAndRuntimeReceipts": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/raw-checks.json",
+    "semanticProofs": "proofs/semantic-proofs.md",
+    "sourceToEpisodeTrace": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/source-to-episode-trace.md"
+  }
+}

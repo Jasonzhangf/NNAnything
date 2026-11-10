@@ -1,0 +1,141 @@
+{
+  "schema": "nnanything.tsjs.source-lineage.v1",
+  "family": "tsjs-train-runtime-selector-a",
+  "partition": "TRAIN",
+  "synthetic": true,
+  "lineageFixedAt": "2026-11-10T18:57:38Z",
+  "independence": {
+    "crossPartitionSharedSource": false,
+    "crossPartitionSharedTemplate": false,
+    "crossPartitionSharedModule": false,
+    "verificationDerivation": false,
+    "verificationAccess": false
+  },
+  "instances": [
+    {
+      "id": "tr-u01-routes",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-u01-routes",
+      "requestedDeclaration": "deliveryRoutes.mail",
+      "callSiteExpression": "deliveryRoutes[channel](payload)",
+      "expectedSemanticAction": "c:judge:unknown",
+      "status": "NOT_READY",
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+    },
+    {
+      "id": "tr-u02-slots",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-u02-slots",
+      "requestedDeclaration": "workerSlots[0]",
+      "callSiteExpression": "workerSlots[slot](value)",
+      "expectedSemanticAction": "c:judge:unknown",
+      "status": "NOT_READY",
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+    },
+    {
+      "id": "tr-u03-modes",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-u03-modes",
+      "requestedDeclaration": "arithmeticModes.sum",
+      "callSiteExpression": "arithmeticModes[mode](left, right)",
+      "expectedSemanticAction": "c:judge:unknown",
+      "status": "NOT_READY",
+      "reason": "No source-to-episode producer emits callSiteRef, currentRelation, or both source-read-backed selector roles."
+    },
+    {
+      "id": "tr-n01-direct",
+      "role": "resolved negative",
+      "sourceRoot": "sources/tr-n01-direct",
+      "requestedDeclaration": "requestedFormat",
+      "callSiteExpression": "alternateFormat(value)",
+      "expectedSemanticAction": "c:judge:false",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "tr-n02-shadow",
+      "role": "resolved negative",
+      "sourceRoot": "sources/tr-n02-shadow",
+      "requestedDeclaration": "outer:label",
+      "callSiteExpression": "label(value)",
+      "expectedSemanticAction": "c:judge:false",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "tr-n03-method",
+      "role": "resolved negative",
+      "sourceRoot": "sources/tr-n03-method",
+      "requestedDeclaration": "PrimaryTool.step",
+      "callSiteExpression": "secondaryTool.step(value)",
+      "expectedSemanticAction": "c:judge:false",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "tr-p01-direct",
+      "role": "positive control",
+      "sourceRoot": "sources/tr-p01-direct",
+      "requestedDeclaration": "requestedHalf",
+      "callSiteExpression": "requestedHalf(value)",
+      "expectedSemanticAction": "c:judge:true",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "tr-p02-closure",
+      "role": "positive control",
+      "sourceRoot": "sources/tr-p02-closure",
+      "requestedDeclaration": "requestedOffset",
+      "callSiteExpression": "requestedOffset(value)",
+      "expectedSemanticAction": "c:judge:true",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "tr-p03-method",
+      "role": "positive control",
+      "sourceRoot": "sources/tr-p03-method",
+      "requestedDeclaration": "Basket.requestedCount",
+      "callSiteExpression": "basket.requestedCount(items)",
+      "expectedSemanticAction": "c:judge:true",
+      "status": "NOT_READY",
+      "reason": "Compiler symbol and runtime evidence are independent proof, but the public source path does not emit the accepted relation episode or legal candidate group."
+    },
+    {
+      "id": "tr-a01-import",
+      "role": "continue for evidence",
+      "sourceRoot": "sources/tr-a01-import",
+      "requestedDeclaration": "buildLabel",
+      "callSiteExpression": "buildLabel(value)",
+      "expectedSemanticAction": "c:advance:tsjs:import:./labels:buildLabel",
+      "status": "NOT_READY",
+      "reason": "The import edge exists, but no typed pending obligation or read receipt is produced for a legal advance candidate."
+    },
+    {
+      "id": "tr-a02-reexport",
+      "role": "continue for evidence",
+      "sourceRoot": "sources/tr-a02-reexport",
+      "requestedDeclaration": "resize",
+      "callSiteExpression": "resize(width)",
+      "expectedSemanticAction": "c:advance:tsjs:re_export:./facade:resize",
+      "status": "NOT_READY",
+      "reason": "The re-export edge exists, but no typed pending obligation or read receipt is produced for a legal advance candidate."
+    },
+    {
+      "id": "tr-a03-namespace",
+      "role": "continue for evidence",
+      "sourceRoot": "sources/tr-a03-namespace",
+      "requestedDeclaration": "measurements.scale",
+      "callSiteExpression": "measurements.scale(value)",
+      "expectedSemanticAction": "c:advance:tsjs:import:./measurements:measurements",
+      "status": "NOT_READY",
+      "reason": "The namespace import edge exists, but no typed pending obligation or read receipt is produced for a legal advance candidate."
+    }
+  ],
+  "evidence": {
+    "compilerAndRuntimeReceipts": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/raw-checks.json",
+    "semanticProofs": "proofs/semantic-proofs.md",
+    "sourceToEpisodeTrace": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-static-source-production-unexposed-r1-20261110/source-to-episode-trace.md"
+  }
+}
