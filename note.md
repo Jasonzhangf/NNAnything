@@ -1,5 +1,25 @@
 # 当前任务
 
+## 2026-11-10 Jenny：TSJS root-evidence 集成关闭，P0 前置条件更新（06:07Z）
+
+- 目的：消费 `m1794290786779-879` 并继续核对未能派发的 peer 容量，避免把已完成集成误记成待办。
+- 事实：`tsjs-root-evidence-bounded-repair-r1-20261109` 已由 Alice 正式 ACCEPT subject 3，main 集成提交 `3dba575`，cleanup verified，`completion_missing=[]`，任务已 closed；本地 main 与 origin/main 均为 `3dba575`。`dispatch-sweep` 仍返回 `unassigned_ready=[]`、`awaiting_acceptance=[]`、`queued_for_peer=[]`。
+- 未派原因：当前 board 只有三条 working 任务。`b-a1-real-site-eval-design-r1-20261109` 仍因旧 `reason=test` pending block 返回 `TASK_BLOCK_PENDING_APPROVAL`，等待 AppSDK/CEO typed reject 入口；`nnanything-overall-redesign-orchestration-r1` 由 Iris 持有，等待更新后的 P0 前置核对；Grace 巡检任务由 Grace 持有。没有可新派的 ready 票，不制造占位任务。
+- 动作：已向 Iris 发送 `m1794290835781-890`，要求把 `3dba575` 集成关闭事实写入 P0 next_step，并重新判断 bounded real-site consumer/acceptance 的真实阻塞；明确不得重复 stale test-block CLI、不得 force-close。
+- 身份与边界：`collab context` 仍为 Jenny/master，pane `%24`，daemon live；未重新注册、未回收 name。Jack 仍是受保护共享绑定，未执行 `kill` 或 tmux 生命周期操作。本轮未改产品语义、权重、gold、threshold、采用，未训练/安装/重启。
+
+## 2026-11-09 Jenny：Carol section-K rework 红交指令与 idle 复核（21:45Z）
+
+- 目的：回应用户继续质问 peer idle，按并发派发 > 解阻 > 当前任务 > 资源回收顺序处理；不制造任务填充 idle。
+- 身份已确认：`collab context` 返回 registered=true，Jenny/master，pane `%24`，daemon live，已消费 P0 rev160 回执 `m1794289379055-765`。未重新注册，也未回收任何 name；Jack 仍是同 pane 受保护共享绑定，`TRANSPORT_UNSUPPORTED: close cannot archive a live tmux pane`，不 kill pane；`%72` stale 项交各项目 owner。
+- 容量事实：`dispatch-sweep.sh` 返回 `unassigned_ready=[]`、`idle_peers=[Alice,Leo]`。Carol present/idle 但持有 rework 任务且 worktree 有未交付 delta；Alice present/idle 但无合法 ready 审查；Leo present/idle 无匹配 ready；Grace/Iris 有任务；其余 cold/offline/unknown 不计容量。
+- 动作：向 Carol 发送 `m1794289542741-780`（reply-required），要求只闭合 F1/F2/F4：F1 missing-previous 不得跳过身份 join；F2 用已接受 typed local-fact role 映射替换 suffix 解析；F4 用受控工程 fixture、raw 收据与 encoder/selected-decision 不变性证据，并更新项目文档；只跑受影响 typecheck/tests，随后红交 Alice，不训练、不重跑真实 heldout、不 merge/push/install。已接受的两项 source-to-role/role schema 审计不重复。
+- real-site design 的合法交回只差 lifecycle：Alice 的 `alice-review.md` 已明确要求 owner 把现有 design 作 read-only delivery；本轮实测 `collab task deliver ... --no-candidate` 返回 `TASK_BLOCK_PENDING_APPROVAL`，原因是旧的 reason=`test` block 仍未 typed reject。已向 host-wide CEO `fanzhang.Alice` 发送 `m1794289709109-800`（跨项目发送不支持 reply_policy，首次发送原错已保留），请求其在 NNAnything 上下文执行 `collab task update ... --blocker-action reject`；若 CEO workspace 不能访问任务，要求返回原错和 owner/workspace 修正，不把请求当成完成。
+- CEO 回执 `m1794289752737-806` 已消费：拒绝旧 `test` block 的业务裁决不变，但跨项目 typed reject 仍无合法入口，原错为 NNAnything cwd `BOARD_IDENTITY_REQUIRED`、CEO cwd `task not found`，已交 AppSDK owner 跟进恢复路由；保留 rev13 证据，不重复尝试，不 force-close。
+- Carol 恢复推进：`collab worker snapshot` 显示她已自查并发现当前 attempt=3（不是先前交接的 2），`board start --expected-revision 14 --attempt 3` 已成功。已发 `m1794289795904-812`（reply-required）明确 revision 14 / attempt 3，要求继续 F1/F2/F4 后红交 Alice delta，不重开任务、不重跑真实 heldout、不 merge/push/install。
+- section-K 交付与审查闭环：Carol 按 attempt 3 正式 redelivery（`m1794289876565-820`，board rev16/delivered）。Alice 正式 ACCEPT subject 3（`m1794289891006-824` + `m1794289927948-829` 重叠确认），board `accepted`、`merge.pending=true`、`review.valid=true`；Alice 记录 F1/F2/F3/F4 全闭合，原 untyped dynamic 仍缺 role 且原始失败保留，只记 development-exposed 派生观察；ACCEPT 不代表模型准确度或采用通过。已发 Carol 集成指令 `m1794289913105-828`；Carol 已 fetch/merge origin/main 到 `70f81e9` 并跑 typecheck/diff-check/focused tests，随后停在集成点，已补发精确继续指令 `m1794290142774-842`：合并到 main、push、校验远端、`collab task integrated` 并回传 commit/证据。
+- 下一步：Carol 红交 delta -> Alice delta review ACCEPT -> 检查 bug `87bf3a7` 与 real-site CEO unblock 清门 -> 派 bounded real-site consumer/acceptance。stale test block 等 AppSDK typed reject 入口恢复，不重复已失败命令，不 force-close。
+
 ## 2026-11-09 Jenny：a718710 解除后 idle peer 复核与首训独立评价派单（12:15Z）
 
 - 目的：回应用户再次质问“codex TUI peer 好几个 idle 未派任务”，按 codex-orchestrator 先读 collab/codex-orchestrator Skill，再核对 board、`collab who`、`collab worker status` 与逐人容量。
