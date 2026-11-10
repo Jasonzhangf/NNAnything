@@ -282,6 +282,44 @@ test("observed-source completion accepts an exact fully supported engineering re
   });
 });
 
+test("observed-source completion accepts an unspecified requested role", async () => {
+  await withEngineeringRepo(async repo => {
+    const base = await buildRecord(repo);
+    const request = await buildRecord(repo, {
+      requestedDeclaration: {
+        ...exactTarget(base.observation.callableTable.members[0]),
+        role: "unspecified",
+      },
+    });
+    const { assessment } = assessmentOf(await loadRecord(request.bridge.record));
+    assert.equal(assessment.status, "supported");
+    assert.deepEqual(assessment.gaps, []);
+  });
+});
+
+test("observed-source completion accepts a successful extra invocation file without synthesized module result", async () => {
+  await withEngineeringRepo(async repo => {
+    const extra = await buildRecord(repo, {
+      files: ["src/caller.js", "src/helper.js", "src/other-helper.js"],
+    });
+    const extraRead = extra.bridge.record.steps[0].receipts[0].producerSource;
+    assert.equal(
+      extraRead.rawObservation.sourceReadReceipt.modules.some(module => module.file === "src/other-helper.js"),
+      false,
+    );
+    const sourceRead = extraRead.completionWork.items.find(
+      item => item.kind === "source_read" && item.subjectRef === "src/other-helper.js",
+    );
+    assert.ok(sourceRead);
+    assert.equal(sourceRead.disposition.state, "satisfied");
+    assert.deepEqual(sourceRead.disposition.evidenceRefs, [extra.observation.sourceReadRef]);
+
+    const { assessment } = assessmentOf(await loadRecord(extra.bridge.record));
+    assert.equal(assessment.status, "supported");
+    assert.deepEqual(assessment.gaps, []);
+  });
+});
+
 test("observed-source completion rejects unrelated, same-name, and property-span targets", async () => {
   await withEngineeringRepo(async repo => {
     const dual = await buildRecord(repo, {

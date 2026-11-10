@@ -191,7 +191,9 @@ requested callable identity、shared source read 与 typed callable table 生成
 set；每项必须恰好出现一次并且为 `satisfied`，evidence refs 只能引用保留的 producer
 output。`module:<file>` 只经 `moduleFileFromRef` 解码，producer identity 与 invocation
 files 保持 bare canonical file。failed、parse-error、skipped 或 truncated read 不能
-支持 `source_read`。评估还要求显式 closed `localCandidateCursor`、空
+支持 `source_read`；caller/helper 文件还必须保留 shared module-result ref，额外成功
+读取的 invocation file 只由 captured invocation/coverage 证明，不合成 module-result
+ref。评估还要求显式 closed `localCandidateCursor`、空
 `remainingObligations`、closed enumeration、与当前 request/call-site/pending/step/
 predecessor/target 一致的 admitted read record。历史记录缺少 `completionWork` 时仍可
 加载，但不能进入该 completion branch。

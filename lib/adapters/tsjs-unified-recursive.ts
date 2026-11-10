@@ -3006,6 +3006,7 @@ export function assessTsJsObservedDynamicCompletion(
   const successfulReadFiles = new Set(
     successfulProducerFiles(source.producerRequest, source.coverage),
   );
+  const primaryReadFiles = new Set(rawReceipt.modules.map(module => module.file));
   const currentRelation = episode.currentRelation;
   const currentBinding = currentRelation?.binding.state === "known"
     ? currentRelation.binding.value
@@ -3203,7 +3204,9 @@ export function assessTsJsObservedDynamicCompletion(
         const identity = member.callableIdentity;
         return requestedFile !== null
           && requestedDeclaration.kind === "function"
-          && (requestedDeclaration.role === undefined || requestedDeclaration.role === "member")
+          && (requestedDeclaration.role === undefined
+            || requestedDeclaration.role === "member"
+            || requestedDeclaration.role === "unspecified")
           && identity !== null
           && isTsJsCallableIdentityExact(identity, member.initializerRef)
           && identity.moduleRef === requestedFile
@@ -3338,11 +3341,12 @@ export function assessTsJsObservedDynamicCompletion(
     const requires = (ref: string): boolean => evidenceRefs.includes(ref);
     if (item.kind === "source_read") {
       const moduleResultRef = `${sourceReadRef}:module:${item.subjectRef}`;
+      const requiresSharedModuleResult = primaryReadFiles.has(item.subjectRef);
       if (
         source.coverage.truncated
         || !successfulReadFiles.has(item.subjectRef)
         || !requires(sourceReadRef)
-        || !requires(moduleResultRef)
+        || (requiresSharedModuleResult && !requires(moduleResultRef))
         || readRecords.length !== 1
       ) {
         gaps.push(observedCompletionGap(

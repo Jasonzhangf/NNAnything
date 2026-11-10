@@ -497,7 +497,9 @@ function matchingCallableMembers(
   if (
     requestedFile === null
     || requestedDeclaration.kind !== "function"
-    || (requestedDeclaration.role !== undefined && requestedDeclaration.role !== "member")
+    || (requestedDeclaration.role !== undefined
+      && requestedDeclaration.role !== "member"
+      && requestedDeclaration.role !== "unspecified")
   ) {
     return [];
   }
@@ -540,6 +542,7 @@ function completionWorkFor(
       if (requirement.kind === "source_read") {
         const file = requirement.subjectRef;
         const moduleResultRef = `${sourceReadRef}:module:${file}`;
+        const primaryFiles = new Set(rawReceipt.modules.map(module => module.file));
         if (result.coverage.truncated) {
           return {
             kind: requirement.kind,
@@ -575,7 +578,7 @@ function completionWorkFor(
             },
           };
         }
-        if (!successfulFiles.includes(file) || !rawReceipt.result.includes(moduleResultRef)) {
+        if (!successfulFiles.includes(file)) {
           return {
             kind: requirement.kind,
             subjectRef: file,
@@ -586,12 +589,33 @@ function completionWorkFor(
             },
           };
         }
+        if (primaryFiles.has(file)) {
+          if (!rawReceipt.result.includes(moduleResultRef)) {
+            return {
+              kind: requirement.kind,
+              subjectRef: file,
+              disposition: {
+                state: "unresolved",
+                evidenceRefs: [sourceReadRef],
+                reason: "caller/helper source read lacks its shared module result",
+              },
+            };
+          }
+          return {
+            kind: requirement.kind,
+            subjectRef: file,
+            disposition: {
+              state: "satisfied",
+              evidenceRefs: [sourceReadRef, moduleResultRef],
+            },
+          };
+        }
         return {
           kind: requirement.kind,
           subjectRef: file,
           disposition: {
             state: "satisfied",
-            evidenceRefs: [sourceReadRef, moduleResultRef],
+            evidenceRefs: [sourceReadRef],
           },
         };
       }
