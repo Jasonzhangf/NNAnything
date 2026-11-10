@@ -20,6 +20,7 @@ import ts from "typescript";
 
 import {
   projectTsJsSymbolTableResult,
+  spanKey,
   symbolIdFor,
   validateTsJsSymbolRequest,
   type TsJsCoverageRecord,
@@ -31,6 +32,9 @@ import {
   type TsJsParseError,
   type TsJsParseErrorFile,
   type TsJsParserRecord,
+  type TsJsRuntimeSelectorGap,
+  type TsJsRuntimeSelectorObservation,
+  type TsJsRuntimeSelectorRoleFact,
   type TsJsSpan,
   type TsJsSymbolKind,
   type TsJsSymbolRecord,
@@ -45,6 +49,80 @@ type ExtractedFile = Readonly<{
   boundaries: readonly TsJsDynamicMemberBoundary[];
   parseErrors: readonly TsJsParseError[];
   moduleSystem: TsJsModuleSystem;
+  runtimeSelectorIndex: RuntimeSelectorFileIndex;
+}>;
+
+type RuntimeImportDraft = Readonly<{
+  localName: string;
+  importedName: string;
+  moduleSpecifier: string;
+  ref: string;
+}>;
+
+type RuntimeHelperShape = Readonly<{
+  tableName: string;
+  selectorParam: string;
+  returnRef: string;
+}>;
+
+type RuntimeAliasDraft = Readonly<{
+  name: string;
+  initializerName: string;
+  start: number;
+  ref: string;
+}>;
+
+type RuntimeWriteDraft = Readonly<{
+  name: string;
+  start: number;
+  ref: string;
+}>;
+
+type RuntimeCallSiteDraft = Readonly<{
+  callSiteRef: string;
+  outerStart: number;
+  calleeName: string;
+  selector:
+    | Readonly<{ kind: "identifier"; name: string; ref: string }>
+    | Readonly<{ kind: "non_identifier"; ref: string }>;
+}>;
+
+type RuntimeFunctionDraft = Readonly<{
+  name: string;
+  ref: string;
+  exported: boolean;
+  parameterNames: readonly string[];
+  localBindingNames: readonly string[];
+  aliases: readonly RuntimeAliasDraft[];
+  writes: readonly RuntimeWriteDraft[];
+  hasControlPath: boolean;
+  hasNestedFunction: boolean;
+  hasUnsupportedWrite: boolean;
+  helperShape: RuntimeHelperShape | null;
+  callSites: readonly RuntimeCallSiteDraft[];
+}>;
+
+type RuntimeTableMemberDraft = Readonly<{
+  name: string;
+  initializerRef: string;
+  callable: boolean;
+}>;
+
+type RuntimeTableDraft = Readonly<{
+  name: string;
+  ref: string;
+  literalKeys: boolean;
+  members: readonly RuntimeTableMemberDraft[];
+}>;
+
+type RuntimeSelectorFileIndex = Readonly<{
+  file: string;
+  textLength: number;
+  lineCount: number;
+  imports: readonly RuntimeImportDraft[];
+  functions: readonly RuntimeFunctionDraft[];
+  tables: readonly RuntimeTableDraft[];
+  mutations: readonly RuntimeWriteDraft[];
 }>;
 
 type ScopeKind = "sourceFile" | "module" | "function" | "block";
@@ -377,6 +455,407 @@ function leftmostIdentifier(expression: ts.Expression): string | null {
     return null;
   }
   return null;
+}
+
+function childNodesOf(node: ts.Node): readonly ts.Node[] {
+  const children: ts.Node[] = [];
+  ts.forEachChild(node, child => {
+    children.push(child);
+  });
+  return children;
+}
+
+function descendantsOf(root: ts.Node, includeRoot = false): readonly ts.Node[] {
+  const nodes: ts.Node[] = includeRoot ? [root] : [...childNodesOf(root)];
+  const out: ts.Node[] = [];
+  while (nodes.length > 0) {
+    const current = nodes.pop();
+    if (current === undefined) continue;
+    out.push(current);
+    for (const child of childNodesOf(current)) nodes.push(child);
+  }
+  return out;
+}
+
+function isRuntimeControlPathNode(node: ts.Node): boolean {
+  return (
+    ts.isIfStatement(node) ||
+    ts.isSwitchStatement(node) ||
+    ts.isConditionalExpression(node) ||
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node) ||
+    ts.isWhileStatement(node) ||
+    ts.isDoStatement(node) ||
+    ts.isTryStatement(node)
+  );
+}
+
+function isRuntimeFunctionLikeNode(node: ts.Node): boolean {
+  return (
+    ts.isFunctionDeclaration(node) ||
+    ts.isFunctionExpression(node) ||
+    ts.isArrowFunction(node) ||
+    ts.isMethodDeclaration(node) ||
+    ts.isConstructorDeclaration(node)
+  );
+}
+
+function runtimeRef(kind: string, file: string, span: TsJsSpan): string {
+  return `${kind}:${file}@${spanKey(span)}`;
+}
+
+function runtimeBindingsFrom(node: ts.Node, out: Set<string>): void {
+  if (ts.isVariableDeclaration(node)) {
+    collectBindingNames(node.name, out);
+  } else if ((ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) && node.name !== undefined) {
+    out.add(node.name.text);
+  } else if (ts.isModuleDeclaration(node)) {
+    out.add(node.name.text);
+  } else if (ts.isCatchClause(node) && node.variableDeclaration !== undefined) {
+    collectBindingNames(node.variableDeclaration.name, out);
+  } else if (ts.isFunctionLike(node) && "parameters" in node) {
+    for (const parameter of node.parameters) collectBindingNames(parameter.name, out);
+  }
+}
+
+/**
+ * Collect the observed write targets of an assignment/update/delete target.
+ * Returns false when a target shape cannot be reduced to observed bindings, so
+ * the bounded caller rejects the whole shape instead of dropping a write.
+ */
+function collectRuntimeWriteNames(node: ts.Node, out: string[]): boolean {
+  if (ts.isIdentifier(node)) {
+    out.push(node.text);
+    return true;
+  }
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    const name = leftmostIdentifier(node);
+    if (name === null) return false;
+    out.push(name);
+    return true;
+  }
+  if (ts.isParenthesizedExpression(node)) {
+    return collectRuntimeWriteNames(node.expression, out);
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    let resolved = true;
+    for (const element of node.elements) {
+      if (ts.isOmittedExpression(element)) continue;
+      const target: ts.Node = ts.isSpreadElement(element) ? element.expression : element;
+      if (!collectRuntimeWriteNames(target, out)) resolved = false;
+    }
+    return resolved;
+  }
+  if (ts.isObjectLiteralExpression(node)) {
+    let resolved = true;
+    for (const property of node.properties) {
+      if (ts.isShorthandPropertyAssignment(property)) {
+        out.push(property.name.text);
+      } else if (ts.isPropertyAssignment(property)) {
+        if (!collectRuntimeWriteNames(property.initializer, out)) resolved = false;
+      } else if (ts.isSpreadAssignment(property)) {
+        if (!collectRuntimeWriteNames(property.expression, out)) resolved = false;
+      } else {
+        resolved = false;
+      }
+    }
+    return resolved;
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return collectRuntimeWriteNames(node.left, out);
+  }
+  return false;
+}
+
+function pushRuntimeWrites(
+  writes: RuntimeWriteDraft[],
+  target: ts.Node,
+  owner: ts.Node,
+  file: string,
+  sf: ts.SourceFile,
+  spanOf: (start: number, end: number) => TsJsSpan,
+): boolean {
+  const names: string[] = [];
+  const resolved = collectRuntimeWriteNames(target, names);
+  const start = owner.getStart(sf);
+  const ref = runtimeRef("write", file, spanOf(start, owner.getEnd()));
+  for (const name of names) writes.push({ name, start, ref });
+  return resolved;
+}
+
+function isRuntimeAssignmentExpression(node: ts.BinaryExpression): boolean {
+  return (
+    node.operatorToken.kind === ts.SyntaxKind.EqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.MinusEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.AsteriskEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.SlashEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.PercentEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.LessThanLessThanEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.AmpersandEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.BarEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.CaretEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.BarBarEqualsToken ||
+    node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionEqualsToken
+  );
+}
+
+function collectRuntimeFunction(
+  node: ts.FunctionDeclaration,
+  sf: ts.SourceFile,
+  spanOf: (start: number, end: number) => TsJsSpan,
+): RuntimeFunctionDraft {
+  const body = node.body;
+  const parameterNames: string[] = [];
+  for (const parameter of node.parameters) {
+    if (ts.isIdentifier(parameter.name)) parameterNames.push(parameter.name.text);
+  }
+  if (body === undefined) {
+    return Object.freeze({
+      name: node.name?.text ?? "",
+      ref: runtimeRef("function", sf.fileName, spanOf(node.getStart(sf), node.getEnd())),
+      exported: modifierSet(node).has("export"),
+      parameterNames: Object.freeze(parameterNames),
+      localBindingNames: Object.freeze([]),
+      aliases: Object.freeze([]),
+      writes: Object.freeze([]),
+      hasControlPath: false,
+      hasNestedFunction: false,
+      hasUnsupportedWrite: false,
+      helperShape: null,
+      callSites: Object.freeze([]),
+    });
+  }
+
+  const descendants = descendantsOf(body);
+  const localBindings = new Set<string>();
+  for (const parameter of node.parameters) collectBindingNames(parameter.name, localBindings);
+  for (const descendant of descendants) runtimeBindingsFrom(descendant, localBindings);
+
+  const aliases: RuntimeAliasDraft[] = [];
+  const writes: RuntimeWriteDraft[] = [];
+  let hasUnsupportedWrite = false;
+  for (const statement of body.statements) {
+    if (!ts.isVariableStatement(statement) || (statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.initializer !== undefined &&
+        ts.isIdentifier(declaration.initializer)
+      ) {
+        const span = spanOf(declaration.getStart(sf), declaration.getEnd());
+        aliases.push({
+          name: declaration.name.text,
+          initializerName: declaration.initializer.text,
+          start: declaration.getStart(sf),
+          ref: runtimeRef("alias", sf.fileName, span),
+        });
+      }
+    }
+  }
+  for (const descendant of descendants) {
+    if (ts.isBinaryExpression(descendant) && isRuntimeAssignmentExpression(descendant)) {
+      if (!pushRuntimeWrites(writes, descendant.left, descendant, sf.fileName, sf, spanOf)) {
+        hasUnsupportedWrite = true;
+      }
+    }
+    if (ts.isPrefixUnaryExpression(descendant) || ts.isPostfixUnaryExpression(descendant)) {
+      if (!pushRuntimeWrites(writes, descendant.operand, descendant, sf.fileName, sf, spanOf)) {
+        hasUnsupportedWrite = true;
+      }
+    }
+    if (ts.isDeleteExpression(descendant)) {
+      if (!pushRuntimeWrites(writes, descendant.expression, descendant, sf.fileName, sf, spanOf)) {
+        hasUnsupportedWrite = true;
+      }
+    }
+  }
+
+  let helperShape: RuntimeHelperShape | null = null;
+  if (
+    node.parameters.length === 1 &&
+    node.parameters[0] !== undefined &&
+    ts.isIdentifier(node.parameters[0].name) &&
+    body.statements.length === 1 &&
+    ts.isReturnStatement(body.statements[0]!)
+  ) {
+    const statement = body.statements[0]!;
+    const expression = statement.expression;
+    const parameterName = node.parameters[0]?.name;
+    if (
+      expression !== undefined &&
+      ts.isElementAccessExpression(expression) &&
+      ts.isIdentifier(expression.expression) &&
+      ts.isIdentifier(expression.argumentExpression) &&
+      parameterName !== undefined &&
+      ts.isIdentifier(parameterName) &&
+      expression.argumentExpression.text === parameterName.text
+    ) {
+      helperShape = Object.freeze({
+        tableName: expression.expression.text,
+        selectorParam: parameterName.text,
+        returnRef: runtimeRef("selector-use", sf.fileName, spanOf(expression.getStart(sf), expression.getEnd())),
+      });
+    }
+  }
+
+  const callSites: RuntimeCallSiteDraft[] = [];
+  for (const descendant of descendants) {
+    if (!ts.isCallExpression(descendant) || !ts.isCallExpression(descendant.expression)) continue;
+    const innerCall = descendant.expression;
+    if (!ts.isIdentifier(innerCall.expression)) continue;
+    const outerSpan = spanOf(descendant.getStart(sf), descendant.getEnd());
+    const selector = innerCall.arguments.length === 1
+      ? innerCall.arguments[0]
+      : undefined;
+    const selectorDraft =
+      selector !== undefined && ts.isIdentifier(selector)
+        ? Object.freeze({
+            kind: "identifier" as const,
+            name: selector.text,
+            ref: runtimeRef("selector", sf.fileName, spanOf(selector.getStart(sf), selector.getEnd())),
+          })
+        : Object.freeze({
+            kind: "non_identifier" as const,
+            ref: runtimeRef("selector", sf.fileName, selector !== undefined ? spanOf(selector.getStart(sf), selector.getEnd()) : outerSpan),
+          });
+    callSites.push({
+      callSiteRef: runtimeRef("call", sf.fileName, outerSpan),
+      outerStart: descendant.getStart(sf),
+      calleeName: innerCall.expression.text,
+      selector: selectorDraft,
+    });
+  }
+
+  return Object.freeze({
+    name: node.name?.text ?? "",
+    ref: runtimeRef("function", sf.fileName, spanOf(node.getStart(sf), node.getEnd())),
+    exported: modifierSet(node).has("export"),
+    parameterNames: Object.freeze(parameterNames),
+    localBindingNames: Object.freeze([...localBindings]),
+    aliases: Object.freeze(aliases),
+    writes: Object.freeze(writes),
+    hasControlPath: descendants.some(isRuntimeControlPathNode),
+    hasNestedFunction: descendants.some(isRuntimeFunctionLikeNode),
+    hasUnsupportedWrite,
+    helperShape,
+    callSites: Object.freeze(callSites),
+  });
+}
+
+function runtimeTableDraftFor(
+  declaration: ts.VariableDeclaration,
+  isConst: boolean,
+  sf: ts.SourceFile,
+  spanOf: (start: number, end: number) => TsJsSpan,
+): RuntimeTableDraft | null {
+  if (
+    !isConst ||
+    !ts.isIdentifier(declaration.name) ||
+    declaration.initializer === undefined ||
+    !ts.isObjectLiteralExpression(stripParensAndAssertions(declaration.initializer))
+  ) {
+    return null;
+  }
+  const objectLiteral = stripParensAndAssertions(declaration.initializer) as ts.ObjectLiteralExpression;
+  const members: RuntimeTableMemberDraft[] = [];
+  let literalKeys = true;
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) {
+      literalKeys = false;
+      continue;
+    }
+    const name = staticMemberName(property.name);
+    if (name === null) {
+      literalKeys = false;
+      continue;
+    }
+    const initializer = stripParensAndAssertions(property.initializer);
+    members.push({
+      name,
+      initializerRef: runtimeRef("member", sf.fileName, spanOf(initializer.getStart(sf), initializer.getEnd())),
+      callable: ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer),
+    });
+  }
+  return Object.freeze({
+    name: declaration.name.text,
+    ref: runtimeRef("table", sf.fileName, spanOf(declaration.getStart(sf), declaration.getEnd())),
+    literalKeys,
+    members: Object.freeze(members),
+  });
+}
+
+function collectRuntimeImports(sf: ts.SourceFile, spanOf: (start: number, end: number) => TsJsSpan): readonly RuntimeImportDraft[] {
+  const imports: RuntimeImportDraft[] = [];
+  for (const statement of sf.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.importClause === undefined) continue;
+    const clause = statement.importClause;
+    if (clause.isTypeOnly) continue;
+    const span = spanOf(statement.getStart(sf), statement.getEnd());
+    const ref = runtimeRef("import", sf.fileName, span);
+    if (clause.name !== undefined) {
+      imports.push({ localName: clause.name.text, importedName: "default", moduleSpecifier: statement.moduleSpecifier.text, ref });
+    }
+    if (clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if (element.isTypeOnly) continue;
+        imports.push({
+          localName: element.name.text,
+          importedName: element.propertyName?.text ?? element.name.text,
+          moduleSpecifier: statement.moduleSpecifier.text,
+          ref,
+        });
+      }
+    }
+  }
+  return Object.freeze(imports);
+}
+
+function buildRuntimeSelectorFileIndex(
+  sf: ts.SourceFile,
+  sourceText: string,
+  spanOf: (start: number, end: number) => TsJsSpan,
+): RuntimeSelectorFileIndex {
+  const functions: RuntimeFunctionDraft[] = [];
+  const tables: RuntimeTableDraft[] = [];
+  const file = sf.fileName;
+  for (const statement of sf.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name !== undefined) {
+      functions.push(collectRuntimeFunction(statement, sf, spanOf));
+    } else if (ts.isVariableStatement(statement)) {
+      const isConst = (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
+      for (const declaration of statement.declarationList.declarations) {
+        const table = runtimeTableDraftFor(declaration, isConst, sf, spanOf);
+        if (table !== null) tables.push(table);
+      }
+    }
+  }
+
+  const mutations: RuntimeWriteDraft[] = [];
+  for (const descendant of descendantsOf(sf)) {
+    if (ts.isBinaryExpression(descendant) && isRuntimeAssignmentExpression(descendant)) {
+      pushRuntimeWrites(mutations, descendant.left, descendant, file, sf, spanOf);
+    } else if (ts.isDeleteExpression(descendant)) {
+      pushRuntimeWrites(mutations, descendant.expression, descendant, file, sf, spanOf);
+    } else if (ts.isPrefixUnaryExpression(descendant) || ts.isPostfixUnaryExpression(descendant)) {
+      pushRuntimeWrites(mutations, descendant.operand, descendant, file, sf, spanOf);
+    }
+  }
+
+  return Object.freeze({
+    file,
+    textLength: sourceText.length,
+    lineCount: computeLineStarts(sourceText).length,
+    imports: collectRuntimeImports(sf, spanOf),
+    functions: Object.freeze(functions),
+    tables: Object.freeze(tables),
+    mutations: Object.freeze(mutations),
+  });
 }
 
 function sourceHasEsmSyntax(sf: ts.SourceFile): boolean {
@@ -1388,6 +1867,7 @@ function extractSourceFileSymbols(
     boundaries: Object.freeze(boundaries),
     parseErrors: Object.freeze(parseErrors),
     moduleSystem,
+    runtimeSelectorIndex: buildRuntimeSelectorFileIndex(sf, sourceText, spanOf),
   });
 }
 
@@ -1474,6 +1954,335 @@ async function processOneFile(repoAbs: string, relFile: string): Promise<FileOut
   return { kind: "parsed", extracted, invocations: 1 };
 }
 
+type RuntimeFileStatus = "ok" | "failed" | "skipped" | "parse_error";
+
+type RuntimeResolvedFile =
+  | Readonly<{ kind: "ok"; index: RuntimeSelectorFileIndex }>
+  | Readonly<{
+      kind: "module_not_in_read_set" | "read_failed" | "parse_error" | "ambiguous_selector_chain";
+      refs: readonly string[];
+    }>;
+
+function runtimeRelativeImportCandidates(importer: string, moduleSpecifier: string): readonly string[] {
+  if (!moduleSpecifier.startsWith(".")) return Object.freeze([]);
+  const withoutExtension = path.posix.normalize(
+    path.posix.join(path.posix.dirname(importer), moduleSpecifier),
+  );
+  const extension = path.posix.extname(withoutExtension);
+  const extensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"] as const;
+  const candidates: string[] = [];
+  if (extension.length > 0) {
+    candidates.push(withoutExtension);
+    const base = withoutExtension.slice(0, -extension.length);
+    for (const candidateExtension of extensions) candidates.push(`${base}${candidateExtension}`);
+  } else {
+    for (const candidateExtension of extensions) candidates.push(`${withoutExtension}${candidateExtension}`);
+    for (const candidateExtension of extensions) {
+      candidates.push(path.posix.join(withoutExtension, `index${candidateExtension}`));
+    }
+  }
+  return Object.freeze([...new Set(candidates)]);
+}
+
+function resolveRuntimeImport(
+  importer: string,
+  moduleSpecifier: string,
+  statusByFile: ReadonlyMap<string, RuntimeFileStatus>,
+  indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
+  evidenceRefs: readonly string[],
+): RuntimeResolvedFile {
+  const candidates = runtimeRelativeImportCandidates(importer, moduleSpecifier);
+  if (candidates.length === 0) {
+    return { kind: "module_not_in_read_set", refs: evidenceRefs };
+  }
+  const requested = candidates.filter(candidate => statusByFile.has(candidate));
+  if (requested.length === 0) {
+    return { kind: "module_not_in_read_set", refs: evidenceRefs };
+  }
+  if (requested.length > 1) {
+    return { kind: "ambiguous_selector_chain", refs: evidenceRefs };
+  }
+  const file = requested[0];
+  if (file === undefined) return { kind: "module_not_in_read_set", refs: evidenceRefs };
+  const status = statusByFile.get(file);
+  if (status === "failed" || status === "skipped") return { kind: "read_failed", refs: evidenceRefs };
+  if (status === "parse_error") return { kind: "parse_error", refs: evidenceRefs };
+  const index = indexByFile.get(file);
+  return index === undefined
+    ? { kind: "read_failed", refs: evidenceRefs }
+    : { kind: "ok", index };
+}
+
+function runtimeGap(
+  callSiteRef: string | null,
+  reason: TsJsRuntimeSelectorGap["reason"],
+  evidenceRefs: readonly string[],
+): TsJsRuntimeSelectorGap {
+  return Object.freeze({
+    gapRef: `gap:${reason}:${callSiteRef ?? "no-call"}`,
+    callSiteRef,
+    reason,
+    evidenceRefs: Object.freeze([...new Set(evidenceRefs)]),
+  });
+}
+
+function makeRuntimeSelectorObservation(
+  callSiteRef: string,
+  caller: RuntimeSelectorFileIndex,
+  helper: RuntimeSelectorFileIndex,
+  helperFunction: RuntimeFunctionDraft,
+  table: RuntimeTableDraft,
+  shape: RuntimeHelperShape,
+  indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
+): TsJsRuntimeSelectorObservation {
+  const sourceReadRef = `source-read:${callSiteRef}`;
+  const files = caller.file === helper.file ? [caller.file] : [caller.file, helper.file];
+  const modules = files
+    .map(file => indexByFile.get(file))
+    .filter((index): index is RuntimeSelectorFileIndex => index !== undefined)
+    .map(index =>
+      Object.freeze({
+        file: index.file,
+        textLength: index.textLength,
+        lineCount: index.lineCount,
+      }),
+    );
+  const resultRefs = files.map(file => `${sourceReadRef}:module:${file}`);
+  const tableFact: TsJsRuntimeSelectorRoleFact = Object.freeze({
+    factRef: `fact:${sourceReadRef}:1`,
+    role: "selector_candidate_table",
+    state: "known",
+    value: JSON.stringify(table.members.map(member => ({
+      name: member.name,
+      initializerRef: member.initializerRef,
+    }))),
+    evidenceRefs: Object.freeze([sourceReadRef]),
+  });
+  const dependencyFact: TsJsRuntimeSelectorRoleFact = Object.freeze({
+    factRef: `fact:${sourceReadRef}:2`,
+    role: "runtime_selector_dependency",
+    state: "known",
+    value: JSON.stringify({
+      tableRef: table.ref,
+      indexParameter: shape.selectorParam,
+      useRef: shape.returnRef,
+    }),
+    evidenceRefs: Object.freeze([sourceReadRef]),
+  });
+  return Object.freeze({
+    observationRef: `observation:${callSiteRef}`,
+    callSiteRef,
+    sourceReadRef,
+    binding: Object.freeze({
+      symbolRef: helperFunction.ref,
+      callSiteRef,
+      role: "member",
+      bindingMode: "dynamic",
+      resolution: Object.freeze({
+        status: "dynamic",
+        reason: "dynamic_undecidable",
+        evidenceRefs: Object.freeze([sourceReadRef]),
+      }),
+      declarationRefs: Object.freeze([]) as readonly [],
+      scopeRef: null,
+      evidenceRefs: Object.freeze([sourceReadRef]),
+    }),
+    facts: Object.freeze([tableFact, dependencyFact]),
+    sourceReadReceipt: Object.freeze({
+      receiptId: sourceReadRef,
+      actionRef: `${sourceReadRef}:action`,
+      action: "read_source",
+      origin: "source_observation",
+      outcome: "success",
+      targetRef: `source:${helper.file}`,
+      result: Object.freeze(resultRefs),
+      evidenceRefs: Object.freeze([sourceReadRef]),
+      modules: Object.freeze(modules),
+    }),
+  });
+}
+
+function linkRuntimeSelectorFacts(
+  requestedFiles: readonly string[],
+  statusByFile: ReadonlyMap<string, RuntimeFileStatus>,
+  indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
+): Readonly<{
+  observations: readonly TsJsRuntimeSelectorObservation[];
+  gaps: readonly TsJsRuntimeSelectorGap[];
+}> {
+  const observations: TsJsRuntimeSelectorObservation[] = [];
+  const gaps: TsJsRuntimeSelectorGap[] = [];
+  for (const file of requestedFiles) {
+    const caller = indexByFile.get(file);
+    if (caller === undefined || statusByFile.get(file) !== "ok") continue;
+    for (const callerFunction of caller.functions) {
+      if (callerFunction.name.length === 0) continue;
+      for (const callSite of callerFunction.callSites) {
+        if (callSite.selector.kind !== "identifier") continue;
+        const callEvidence = [callSite.callSiteRef, callSite.selector.ref];
+        const matchingImports = caller.imports.filter(entry => entry.localName === callSite.calleeName);
+        if (matchingImports.length > 1) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "ambiguous_selector_chain", callEvidence));
+          continue;
+        }
+
+        let helperFile: RuntimeSelectorFileIndex | null = null;
+        let helperFunction: RuntimeFunctionDraft | null = null;
+        if (matchingImports.length === 1) {
+          const imported = matchingImports[0];
+          if (imported === undefined) continue;
+          if (callerFunction.localBindingNames.includes(callSite.calleeName)) {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [imported.ref, ...callEvidence]));
+            continue;
+          }
+          const resolved = resolveRuntimeImport(caller.file, imported.moduleSpecifier, statusByFile, indexByFile, [imported.ref]);
+          if (resolved.kind !== "ok") {
+            gaps.push(runtimeGap(callSite.callSiteRef, resolved.kind, resolved.refs));
+            continue;
+          }
+          helperFile = resolved.index;
+          const candidates = helperFile.functions.filter(
+            entry => entry.name === imported.importedName && entry.exported,
+          );
+          if (candidates.length > 1) {
+            gaps.push(runtimeGap(callSite.callSiteRef, "ambiguous_selector_chain", [imported.ref, ...callEvidence]));
+            continue;
+          }
+          helperFunction = candidates[0] ?? null;
+        } else {
+          if (callerFunction.localBindingNames.includes(callSite.calleeName)) {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+            continue;
+          }
+          helperFile = caller;
+          const candidates = helperFile.functions.filter(entry => entry.name === callSite.calleeName);
+          if (candidates.length > 1) {
+            gaps.push(runtimeGap(callSite.callSiteRef, "ambiguous_selector_chain", callEvidence));
+            continue;
+          }
+          helperFunction = candidates[0] ?? null;
+        }
+
+        if (helperFile === null || helperFunction === null) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          continue;
+        }
+        if (
+          callerFunction.hasControlPath ||
+          callerFunction.hasNestedFunction ||
+          callerFunction.hasUnsupportedWrite
+        ) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          continue;
+        }
+        if (helperFunction.hasControlPath || helperFunction.hasNestedFunction) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          continue;
+        }
+        const shape = helperFunction.helperShape;
+        if (shape === null) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          continue;
+        }
+        if (
+          helperFunction.localBindingNames.includes(helperFunction.name) ||
+          helperFunction.localBindingNames.includes(shape.tableName)
+        ) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          continue;
+        }
+
+        const selectorName = callSite.selector.name;
+        const directParameter = callerFunction.parameterNames.includes(selectorName);
+        const matchingAliases = callerFunction.aliases.filter(
+          alias =>
+            alias.name === selectorName &&
+            callerFunction.parameterNames.includes(alias.initializerName) &&
+            alias.start < callSite.outerStart,
+        );
+        if (matchingAliases.length > 1) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "ambiguous_selector_chain", callEvidence));
+          continue;
+        }
+        if (!directParameter && matchingAliases.length === 0) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "dependency_not_parameter", callEvidence));
+          continue;
+        }
+        const selectorBinding = directParameter
+          ? selectorName
+          : matchingAliases[0]?.name ?? selectorName;
+        if (
+          callerFunction.writes.some(
+            write =>
+              write.start < callSite.outerStart &&
+              (write.name === selectorBinding ||
+                (matchingAliases.length > 0 &&
+                  write.name === matchingAliases[0]?.initializerName)),
+          ) ||
+          callerFunction.writes.some(
+            write => write.name === callSite.calleeName && write.start < callSite.outerStart,
+          )
+        ) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          continue;
+        }
+
+        const matchingTables = helperFile.tables.filter(table => table.name === shape.tableName);
+        if (matchingTables.length === 0) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "table_not_connected", [helperFunction.ref, ...callEvidence]));
+          continue;
+        }
+        if (matchingTables.length > 1) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "ambiguous_selector_chain", [helperFunction.ref, ...callEvidence]));
+          continue;
+        }
+        const table = matchingTables[0];
+        if (
+          table === undefined ||
+          !table.literalKeys ||
+          table.members.length < 2 ||
+          !table.members.every(member => member.callable) ||
+          new Set(table.members.map(member => member.name)).size !== table.members.length
+        ) {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [table?.ref ?? helperFunction.ref, ...callEvidence]));
+          continue;
+        }
+        const tableMutation = helperFile.mutations.find(mutation => mutation.name === table.name);
+        const helperMutation =
+          helperFile.mutations.find(mutation => mutation.name === helperFunction.name) ??
+          (helperFile === caller
+            ? undefined
+            : caller.mutations.find(mutation => mutation.name === callSite.calleeName));
+        if (tableMutation !== undefined || helperMutation !== undefined) {
+          gaps.push(
+            runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [
+              (tableMutation ?? helperMutation)?.ref ?? table.ref,
+              ...callEvidence,
+            ]),
+          );
+          continue;
+        }
+
+        observations.push(
+          makeRuntimeSelectorObservation(
+            callSite.callSiteRef,
+            caller,
+            helperFile,
+            helperFunction,
+            table,
+            shape,
+            indexByFile,
+          ),
+        );
+      }
+    }
+  }
+  return Object.freeze({
+    observations: Object.freeze(observations),
+    gaps: Object.freeze(gaps),
+  });
+}
+
 export async function runTsJsSymbolTable(
   rawRequest: unknown,
   options: TsJsSymbolTableAdapterOptions = {},
@@ -1498,6 +2307,8 @@ export async function runTsJsSymbolTable(
   const failed: { file: string; reason: string }[] = [];
   const skipped: { file: string; reason: string }[] = [];
   const parseErrorFiles: TsJsParseErrorFile[] = [];
+  const runtimeSelectorStatus = new Map<string, RuntimeFileStatus>();
+  const runtimeSelectorIndexes = new Map<string, RuntimeSelectorFileIndex>();
   const partialReasons: string[] = [];
   let parsedCount = 0;
   let invocations = 0;
@@ -1505,11 +2316,13 @@ export async function runTsJsSymbolTable(
   for (const relFile of uniqueFiles) {
     const outcome = await processOneFile(repoAbs, relFile);
     if (outcome.kind === "failed") {
+      runtimeSelectorStatus.set(relFile, "failed");
       failed.push({ file: relFile, reason: outcome.reason });
       partialReasons.push(`${relFile}: ${outcome.reason}`);
       continue;
     }
     if (outcome.kind === "skipped") {
+      runtimeSelectorStatus.set(relFile, "skipped");
       skipped.push({ file: relFile, reason: outcome.reason });
       partialReasons.push(`${relFile}: ${outcome.reason}`);
       continue;
@@ -1518,6 +2331,11 @@ export async function runTsJsSymbolTable(
     parsedCount += 1;
     const { extracted } = outcome;
     const parseStatus = extracted.parseErrors.length > 0 ? "partial_syntax_error" : "complete";
+    runtimeSelectorStatus.set(
+      relFile,
+      extracted.parseErrors.length > 0 ? "parse_error" : "ok",
+    );
+    runtimeSelectorIndexes.set(relFile, extracted.runtimeSelectorIndex);
     for (const record of extracted.symbols) {
       symbolRecords.push(
         Object.freeze({
@@ -1567,6 +2385,12 @@ export async function runTsJsSymbolTable(
     semanticBinding: false,
   });
 
+  const runtimeSelector = linkRuntimeSelectorFacts(
+    uniqueFiles,
+    runtimeSelectorStatus,
+    runtimeSelectorIndexes,
+  );
+
   return Object.freeze({
     status: "ok",
     result: projectTsJsSymbolTableResult(
@@ -1575,6 +2399,8 @@ export async function runTsJsSymbolTable(
       Object.freeze(symbolRecords),
       Object.freeze(boundaryRecords),
       coverage,
+      runtimeSelector.observations,
+      runtimeSelector.gaps,
     ),
   });
 }
