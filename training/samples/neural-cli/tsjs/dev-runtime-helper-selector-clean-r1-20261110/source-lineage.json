@@ -1,0 +1,82 @@
+{
+  "schema": "nnanything.tsjs.dev.source-lineage.v1",
+  "taskId": "tsjs-clean-dev-author-r1-20261110",
+  "partition": "DEV",
+  "familyRoot": "training/samples/neural-cli/tsjs/dev-runtime-helper-selector-clean-r1-20261110",
+  "authorContext": {
+    "role": "clean DEV author",
+    "codexSessionId": "01a1c72c-dcfe-71a1-a31d-af36384bf3f0",
+    "codexThreadId": "01a1c72c-dcfe-71a1-a31d-af36384bf3f0",
+    "worktree": "/Volumes/Intel/playground/nnanything/tsjs-clean-dev-20261110",
+    "branch": "tsjs-clean-dev-author-r1-20261110",
+    "authoredAt": "2026-11-10",
+    "authorContextRef": "proofs/author-context.json"
+  },
+  "allowedInputs": {
+    "contract": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-source-fixture-prep-r1-20261110/helper-source-proof-contract.md",
+    "review": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/alice-review.md",
+    "priorAuthorshipEvidence": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/authorship-evidence.md",
+    "taskContract": "/Volumes/Intel/playground/nnanything-runs/tsjs-clean-dev-author-r1-20261110/worker-contract.md",
+    "repositoryCodeRead": [
+      "lib/filters/tsjs-symbol-table-policy.ts",
+      "lib/adapters/cli/tsjs-symbol-table-adapter.ts",
+      "lib/cli-symbols.ts",
+      "tests/tsjs-symbol-table.test.mjs",
+      "tsconfig.json",
+      "package.json",
+      ".gitignore",
+      "scripts/check-layout.mjs"
+    ]
+  },
+  "nonDerivation": {
+    "status": "author_attested_independent",
+    "independentNonDerivationVerified": false,
+    "independentNonDerivationVerifiedNote": "This author-owned field remains false. The author attests to the recorded boundary and exact read set in proofs/author-context.json; independent verification is cited separately below.",
+    "independentReviewEvidence": {
+      "reviewer": "Alice",
+      "path": "/Volumes/Intel/playground/nnanything-runs/tsjs-clean-dev-author-r1-20261110/alice-review.md",
+      "finding": "Bounded independent review checked the actual retry commands and found no read of TRAIN, existing DEV, verification, or sealed contents. The self-scoped find is retained as a literal-boundary deviation without evidence of forbidden-family exposure."
+    },
+    "authorReadTrainSources": false,
+    "authorReadExistingDevSources": false,
+    "authorReadVerificationOrSealed": false,
+    "authorReadProtectedHoldFamilies": false,
+    "templateReuse": false,
+    "copiedOrRenamedSource": false,
+    "derivedFromTrainFamily": false,
+    "note": "All names, layout, table keys, member types, selector paths, and call-site arrangement were chosen by this author. The only fixed shape retained is the accepted producer's source slice (a const object-literal table, a single straight-line helper returning table[selector], and a helper(selector)(payload) call site), which this contract requires. The producer's own test fixture in tests/tsjs-symbol-table.test.mjs was read to learn the accepted AST shape; no fixture text was copied into this family."
+  },
+  "familyLayout": {
+    "modules": {
+      "src/dispatch.ts": "finite const object-literal table + single straight-line helper",
+      "src/dv-c01-direct.ts": "unknown context dv-c01: direct caller parameter selector",
+      "src/dv-c02-alias.ts": "unknown context dv-c02: one immutable local alias selector",
+      "src/control-static-selector.ts": "non-runtime constant selector control",
+      "src/control-direct-table-index.ts": "out-of-slice direct table-index call control",
+      "src/control-branch-helper.ts": "unsupported branch-return helper control"
+    },
+    "targetDeclaration": "export function pickDispatch(selector: DispatchKey) { return dispatchTable[selector]; } in src/dispatch.ts",
+    "selectorConstruction": "type DispatchKey = \"spell\" | \"chant\"; dv-c01 passes the caller parameter selector; dv-c02 binds const chosen = selector and passes chosen",
+    "callSiteArrangement": "each caller module exports one named function whose body is helper(selector)(payload); the helper, table, and selectors live in a separate dispatch module",
+    "tableMembers": [
+      { "name": "spell", "kind": "arrow_function", "returns": "string" },
+      { "name": "chant", "kind": "arrow_function", "returns": "number" }
+    ],
+    "plannedCount": 2,
+    "authoredCount": 2
+  },
+  "evidenceRefs": {
+    "semanticProofs": "proofs/semantic-proofs.md",
+    "authorContext": "proofs/author-context.json",
+    "receipts": [
+      "receipts/compiler-receipt.json",
+      "receipts/runtime-contrast-receipt.json",
+      "receipts/producer-receipt.json"
+    ]
+  },
+  "notVerified": [
+    "Request-aware bridge/admission, cross-partition joins, and coverage obligations are downstream owners; only raw source observations are produced here.",
+    "No fitting, scoring, conversion, gold, weights, thresholds, adoption, product wiring, or install was performed.",
+    "The producer accepts these DEV sources as raw observations, but admission is not claimed by this family."
+  ]
+}

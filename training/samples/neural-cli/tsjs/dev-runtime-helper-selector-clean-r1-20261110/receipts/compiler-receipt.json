@@ -1,0 +1,37 @@
+{
+  "schema": "nnanything.tsjs.dev.compiler-proof.v1",
+  "producedAt": "2026-11-10T20:46:51.414Z",
+  "tool": "typescript_compiler_api",
+  "typescriptVersion": "5.9.3",
+  "nodeVersion": "v22.22.2",
+  "filesRead": [
+    "src/control-branch-helper.ts",
+    "src/control-direct-table-index.ts",
+    "src/control-static-selector.ts",
+    "src/dispatch.ts",
+    "src/dv-c01-direct.ts",
+    "src/dv-c02-alias.ts"
+  ],
+  "query": {
+    "api": "TypeChecker.getTypeAtLocation",
+    "nodeKind": "ElementAccessExpression",
+    "nodeText": "dispatchTable[selector]",
+    "scope": "pickDispatch body return expression"
+  },
+  "result": {
+    "returnType": "((payload: string) => string) | ((payload: string) => number)",
+    "isUnion": true,
+    "unionPartCount": 2,
+    "unionParts": [
+      "(payload: string) => string",
+      "(payload: string) => number"
+    ],
+    "tableType": "{ spell: (payload: string) => string; chant: (payload: string) => number; }",
+    "spellType": "(payload: string) => string",
+    "chantType": "(payload: string) => number",
+    "membersAreDistinct": true,
+    "eachMemberHasSingleCallSignature": true
+  },
+  "diagnostics": [],
+  "conclusion": "The runtime-selector element access resolves to a union of two distinct callables; the compiler cannot choose one callee at compile time."
+}

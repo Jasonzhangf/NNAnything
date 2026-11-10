@@ -1,0 +1,57 @@
+{
+  "schema": "nnanything.tsjs.dev.author-context.v1",
+  "taskId": "tsjs-clean-dev-author-r1-20261110",
+  "role": "clean DEV author",
+  "codexSessionId": "01a1c72c-dcfe-71a1-a31d-af36384bf3f0",
+  "codexThreadId": "01a1c72c-dcfe-71a1-a31d-af36384bf3f0",
+  "rexSession": "session:01a1baae-5766-7724-92d9-59a846daaf02",
+  "worktree": "/Volumes/Intel/playground/nnanything/tsjs-clean-dev-20261110",
+  "branch": "tsjs-clean-dev-author-r1-20261110",
+  "authoredAt": "2026-11-10",
+  "allowedInputFilesRead": [
+    "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-source-fixture-prep-r1-20261110/helper-source-proof-contract.md",
+    "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/alice-review.md",
+    "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-helper-source-production-r1-20261110/authorship-evidence.md",
+    "/Volumes/Intel/playground/nnanything-runs/tsjs-clean-dev-author-r1-20261110/worker-contract.md"
+  ],
+  "repositoryFilesRead": [
+    "lib/filters/tsjs-symbol-table-policy.ts",
+    "lib/adapters/cli/tsjs-symbol-table-adapter.ts",
+    "lib/cli-symbols.ts",
+    "tests/tsjs-symbol-table.test.mjs",
+    "tsconfig.json",
+    "package.json",
+    ".gitignore",
+    "scripts/check-layout.mjs"
+  ],
+  "directoryListings": [
+    "<worktree>",
+    "lib/",
+    "lib/adapters/",
+    "lib/adapters/cli/",
+    "lib/filters/",
+    "tests/",
+    "scripts/",
+    "playground/",
+    "training/",
+    "training/samples/",
+    "training/samples/neural-cli/"
+  ],
+  "boundaryStatement": "I authored only the new DEV family under training/samples/neural-cli/tsjs/dev-runtime-helper-selector-clean-r1-20261110/. I read no TRAIN source, no existing DEV source, no verification family, and no sealed surface. I did not run rg or grep -r anywhere under training/. I ran one self-scoped `find .` with cwd equal to this new family root; it listed only files I had just created and revealed no other family. The existing tsjs sample tree remained absent through the sparse checkout exclusions. No existing family was restored, fetched, modified, moved, or relabelled. All source, layout, target declarations, selector keys, member types, and call-site arrangement are my own choices.",
+  "forbiddenExposure": {
+    "existingTsjsSampleFamiliesRead": false,
+    "helperSourceProductionRunDirBeyondAllowedFiles": false,
+    "roseVerificationOrSealedSurfaces": false,
+    "recursiveSearchUnderTraining": {
+      "occurred": true,
+      "scope": "new_family_root_only",
+      "listedOnlyAuthorCreatedFiles": true,
+      "forbiddenFamilyExposureObserved": false
+    },
+    "notes": [
+      "ls of training/samples/neural-cli/tsjs returned 'No such file or directory' because the sparse checkout hides it; no family name was revealed.",
+      "An rg over the allowed directories docs/, lib/, tests/, scripts/, playground/ listed the filename docs/nn-code-tsjs-independent-holdout-evaluation.md; that file was not read.",
+      "One command ran `find .` with cwd equal to this new family directory (which is under training/). It listed only the six src modules, three proof scripts, semantic-proofs.md, three receipts, source-lineage.json, and tsconfig.json that this author had just created; no existing family, TRAIN, DEV, verification, or sealed path appeared. The command was not repeated, and no rg, grep -r, or broader find was ever run over training/."
+    ]
+  }
+}
