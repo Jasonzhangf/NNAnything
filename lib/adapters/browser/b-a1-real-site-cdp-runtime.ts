@@ -178,11 +178,39 @@ export interface BA1RealSiteTransitionReceipt {
   readonly detail: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * Explicit CSS observation environment for the dedicated CDP target. It is the
+ * only viewport control source: width/height are CSS pixels, the device scale
+ * factor is 1 and the environment is desktop. Omitting it leaves the previous
+ * launch shape unchanged.
+ */
+export interface BA1ObservationViewport {
+  readonly width: number;
+  readonly height: number;
+  readonly deviceScaleFactor: 1;
+  readonly mobile: false;
+}
+
+/**
+ * Values read back from the same target after a viewport change. This is
+ * diagnostic output, not control authority, and never enters a projection
+ * payload. A missing visual viewport is reported as null, never as a guess.
+ */
+export interface BA1ObservationViewportMeasurement {
+  readonly innerWidth: number;
+  readonly innerHeight: number;
+  readonly devicePixelRatio: number;
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+  readonly visualViewportScale: number | null;
+}
+
 export interface BA1RealSiteCdpRuntime {
   readonly slot: BA1RealSiteControlSlot;
   installProjectionBundle(source: string): Promise<void>;
   setDocumentContent(html: string, documentRef: string): Promise<void>;
   navigate(url: string, documentRef: string): Promise<void>;
+  setViewport(viewport: BA1ObservationViewport): Promise<BA1ObservationViewportMeasurement>;
   beginProjection(input: {
     readonly scopeSelector: string;
     readonly requestedRole: string;
@@ -715,6 +743,57 @@ function parseNativeActionFacts(value: unknown): NativeActionTargetFacts {
   };
 }
 
+/**
+ * Validate the explicit viewport contract before any CDP modification. No
+ * string coercion, partial fill-in or silent fallback is allowed.
+ */
+function parseObservationViewport(value: unknown, label: string): BA1ObservationViewport {
+  const record = requireRecord(value, label);
+  exactKeys(record, ["width", "height", "deviceScaleFactor", "mobile"], label);
+  const width = record.width;
+  const height = record.height;
+  if (typeof width !== "number" || !Number.isInteger(width) || width <= 0) {
+    throw new TypeError(`${label}.width must be a positive integer`);
+  }
+  if (typeof height !== "number" || !Number.isInteger(height) || height <= 0) {
+    throw new TypeError(`${label}.height must be a positive integer`);
+  }
+  if (record.deviceScaleFactor !== 1) {
+    throw new TypeError(`${label}.deviceScaleFactor must be 1`);
+  }
+  if (record.mobile !== false) {
+    throw new TypeError(`${label}.mobile must be false`);
+  }
+  return { width, height, deviceScaleFactor: 1, mobile: false };
+}
+
+function parseViewportMeasurement(value: unknown): BA1ObservationViewportMeasurement {
+  const record = requireRecord(value, "viewport measurement");
+  exactKeys(
+    record,
+    ["innerWidth", "innerHeight", "devicePixelRatio", "clientWidth", "clientHeight", "visualViewportScale"],
+    "viewport measurement",
+  );
+  const finite = (entry: unknown, label: string): number => {
+    if (typeof entry !== "number" || !Number.isFinite(entry)) {
+      throw new TypeError(`${label} must be a finite number`);
+    }
+    return entry;
+  };
+  const scale = record.visualViewportScale;
+  if (scale !== null && (typeof scale !== "number" || !Number.isFinite(scale))) {
+    throw new TypeError("viewport measurement.visualViewportScale must be a finite number or null");
+  }
+  return {
+    innerWidth: finite(record.innerWidth, "viewport measurement.innerWidth"),
+    innerHeight: finite(record.innerHeight, "viewport measurement.innerHeight"),
+    devicePixelRatio: finite(record.devicePixelRatio, "viewport measurement.devicePixelRatio"),
+    clientWidth: finite(record.clientWidth, "viewport measurement.clientWidth"),
+    clientHeight: finite(record.clientHeight, "viewport measurement.clientHeight"),
+    visualViewportScale: scale === null ? null : scale,
+  };
+}
+
 async function freePort(): Promise<number> {
   return await new Promise((resolve, reject) => {
     const server = createServer();
@@ -1039,7 +1118,11 @@ class CdpConnection {
     }
   }
 
-  static async launch(chromePath: string, headless: boolean): Promise<CdpConnection> {
+  static async launch(
+    chromePath: string,
+    headless: boolean,
+    viewport?: BA1ObservationViewport,
+  ): Promise<CdpConnection> {
     const userDataDir = await mkdtemp(join(tmpdir(), "nnanything-b-a1-cdp-"));
     const port = await freePort();
     const args = [
@@ -1113,6 +1196,11 @@ class CdpConnection {
         "Page.getFrameTree.frameTree.frame.id",
       );
       await connection.send("Runtime.enable");
+      if (viewport !== undefined) {
+        // Apply the explicit environment before the caller can navigate or set
+        // document content, through the same dedicated session.
+        await connection.applyViewport(viewport);
+      }
       return connection;
     } catch (error) {
       await connection.close();
@@ -1248,6 +1336,62 @@ class CdpConnection {
       await new Promise(resolve => setTimeout(resolve, 20));
     }
     throw new BA1RealSiteCdpRuntimeError("cdp_failure", "document did not reach readyState=complete");
+  }
+
+  /**
+   * Apply the metrics override through the current CDP session, then measure the
+   * actual environment on the same target. `Emulation.setDeviceMetricsOverride`
+   * applies before the command resolves; reading clientWidth/clientHeight and
+   * the bounding rect forces the layout flush, so the measurement and the
+   * following projection see the same settled environment without a fixed
+   * sleep. Requested values are never echoed in place of measurement.
+   */
+  private async applyViewport(
+    viewport: BA1ObservationViewport,
+  ): Promise<BA1ObservationViewportMeasurement> {
+    await this.send("Emulation.setDeviceMetricsOverride", {
+      width: viewport.width,
+      height: viewport.height,
+      deviceScaleFactor: viewport.deviceScaleFactor,
+      mobile: viewport.mobile,
+    });
+    const deadline = Date.now() + 10_000;
+    const contextId = await this.waitForDefaultContext(deadline);
+    const raw = await this.evaluate(
+      `(() => {
+        const root = document.documentElement;
+        void root.clientWidth;
+        void root.clientHeight;
+        void root.getBoundingClientRect();
+        const visualViewport = window.visualViewport;
+        return {
+          innerWidth: window.innerWidth,
+          innerHeight: window.innerHeight,
+          devicePixelRatio: window.devicePixelRatio,
+          clientWidth: root.clientWidth,
+          clientHeight: root.clientHeight,
+          visualViewportScale:
+            visualViewport === null || visualViewport === undefined
+              ? null
+              : visualViewport.scale,
+        };
+      })()`,
+      contextId,
+    );
+    return parseViewportMeasurement(raw);
+  }
+
+  /**
+   * Controlled viewport change on the same connection, target and document.
+   * A prior observation is invalidated before the metrics change, so an old
+   * projection cannot remain current across the boundary even if the CDP
+   * override later fails.
+   */
+  async setViewport(viewport: BA1ObservationViewport): Promise<BA1ObservationViewportMeasurement> {
+    const parsed = parseObservationViewport(viewport, "setViewport.viewport");
+    const slot = this.slotValue;
+    if (slot !== null) slot.invalidateCurrentObservation();
+    return await this.applyViewport(parsed);
   }
 
   documentEpochValue(): number {
@@ -2165,6 +2309,17 @@ class BA1RealSiteControlSlotImpl implements BA1RealSiteControlSlot {
     return this.generationValue;
   }
 
+  /**
+   * Advance the current observation so an existing projection stops being
+   * current. Returns false when no provider is installed yet, in which case
+   * there is no observation to invalidate.
+   */
+  invalidateCurrentObservation(): boolean {
+    if (this.providerValue === null) return false;
+    this.providerValue.beginObservation();
+    return true;
+  }
+
   read(): BA1RealSiteControlRead {
     return {
       identity: this.current().currentControl(),
@@ -2180,16 +2335,24 @@ export function createBA1RealSiteControlSlot(): BA1RealSiteControlSlot {
 export async function createBA1RealSiteCdpRuntime(options: {
   readonly chromePath?: string;
   readonly headless?: boolean;
+  readonly viewport?: BA1ObservationViewport;
 } = {}): Promise<BA1RealSiteCdpRuntime> {
+  // Validate before any Chrome launch or CDP modification. Omitting the option
+  // keeps the previous launch shape unchanged.
+  const viewport = options.viewport === undefined
+    ? undefined
+    : parseObservationViewport(options.viewport, "createBA1RealSiteCdpRuntime.viewport");
   const connection = await CdpConnection.launch(
     options.chromePath ?? defaultChromePath(),
     options.headless ?? true,
+    viewport,
   );
   const runtime: BA1RealSiteCdpRuntime = {
     slot: connection.slot,
     installProjectionBundle: source => connection.installProjectionBundle(source),
     setDocumentContent: (html, documentRef) => connection.setDocumentContent(html, documentRef),
     navigate: (url, documentRef) => connection.navigate(url, documentRef),
+    setViewport: viewport => connection.setViewport(viewport),
     beginProjection: async input => {
       const provider = runtime.slot.current();
       const generation = runtime.slot.generation();
