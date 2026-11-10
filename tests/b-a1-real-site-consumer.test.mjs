@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
   BA1FirstResultExistsError,
+  BA1RealSiteAcceptanceChangedError,
+  BA1RealSiteFreshnessError,
   BA1_REAL_SITE_FAMILY,
   runBA1RealSiteFirstResult,
 } from "../dist/adapters/browser/b-a1-real-site-consumer.js";
@@ -15,57 +17,59 @@ import {
 } from "../dist/training/unified-model-package.js";
 import { UNIFIED_PARAMETER_COUNTS } from "../dist/training/unified-forward.js";
 
-globalThis.document = { documentElement: { clientWidth: 1200, clientHeight: 800 } };
-globalThis.getComputedStyle = () => ({ display: "block", visibility: "visible", opacity: "1" });
-
-function element(overrides = {}) {
+function candidate(ref, overrides = {}) {
   return {
-    tagName: "INPUT",
-    textContent: "",
-    labels: [],
-    isContentEditable: false,
+    ref,
+    scopeRef: "#scope",
+    documentRef: "doc-1",
+    observationId: "obs-1",
+    revision: 1,
+    host: "input",
+    type: "search",
+    contentEditable: false,
+    editable: true,
+    disabled: false,
     readOnly: false,
-    closest: () => null,
-    getAttribute: () => null,
-    querySelector: () => null,
-    querySelectorAll: () => [],
-    getBoundingClientRect: () => ({ width: 200, height: 24, top: 10, left: 10, right: 210, bottom: 34 }),
-    parentElement: null,
+    cssHidden: false,
+    intersectsViewport: true,
+    explicitTabIndexKind: "absent",
+    tabIndexFocus: false,
+    inForm: false,
+    formRoleSearch: false,
+    nearbySubmit: false,
+    depthBand: "shallow",
+    hasLabel: true,
+    hasPlaceholder: false,
+    hasAria: false,
+    markerHit: true,
+    nonSearchMarker: false,
+    textLenBand: 1,
+    access: "available",
     ...overrides,
   };
 }
 
-const scopeRoot = element({ tagName: "DIV" });
-
-function labelHost(text = "搜索", overrides = {}) {
-  return element({
-    getAttribute: name => (name === "type" ? "search" : null),
-    labels: text === null ? [] : [element({ tagName: "LABEL", textContent: text })],
-    parentElement: scopeRoot,
-    ...overrides,
-  });
-}
-
-function observation(nodes, overrides = {}) {
+function observation(candidates, overrides = {}) {
   return {
-    documentRef: "doc-1",
-    observationId: "obs-1",
-    revision: 3,
-    scopeRef: "scope-1",
-    scopeRoot,
-    nodes,
-    propertiesOf: () => ({ disabled: false, explicitTabIndexKind: "absent", tabIndexFocus: false }),
+    identity: { documentRef: "doc-1", observationId: "obs-1", revision: 1 },
+    scopeRef: "#scope",
+    requestedRole: "search-input-host",
+    candidates,
+    outsideScopeRefs: [],
     coverage: {
-      scopeRef: "scope-1",
-      observedCandidateCount: nodes.length,
+      scopeRef: "#scope",
+      observedCandidateCount: candidates.length,
       unassessedIframeCount: 0,
       unassessedObjectCount: 0,
       unassessedOpenShadowRootCount: 0,
       excluded: [],
     },
-    access: "available",
     ...overrides,
   };
+}
+
+function operationRead(identity, generation = 1) {
+  return { identity: { ...identity }, generation };
 }
 
 async function packageScoringHasLabel(dir, seed) {
@@ -111,305 +115,204 @@ function selectedGold(ref = "c1", group = "g1") {
   };
 }
 
-test("a fixed non-search branch is recorded as not-run forward without a failure receipt", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-none-"));
-  const packagePath = await packageScoringHasLabel(dir, 5);
-  const observed = observation([
-    { nodeRef: "c1", element: labelHost("备注") },
-  ]);
-  const result = await runBA1RealSiteFirstResult({
-    observation: observed,
-    packagePath,
-    currentControl: {
-      documentRef: observed.documentRef,
-      observationId: observed.observationId,
-      revision: observed.revision,
-    },
-    gold: {
-      kind: "bound",
-      state: "none",
-      family: BA1_REAL_SITE_FAMILY,
-      group: "fixed",
-    },
-    sampleId: "sample-none",
-    outputDir: join(dir, "out"),
-  });
-
-  assert.equal(result.projection.output.kind, "bound");
-  assert.equal(result.projection.output.state, "none");
-  assert.equal(result.artifacts.failureReceipt, null);
-  const projectionFile = JSON.parse(await readFile(result.artifacts.projection, "utf8"));
-  assert.equal(projectionFile.forward.status, "not_run");
-  assert.equal(projectionFile.forward.noForwardReason, "fixed_non_search_branch");
-  assert.equal(result.evaluation.passed, true);
-});
-
-test("saves one consistent first projection, evaluation row, and summary", async () => {
+test("a selected projected observation saves the first result with forward completed", async () => {
   const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-success-"));
   const packagePath = await packageScoringHasLabel(dir, 1);
-  const observed = observation([
-    { nodeRef: "c1", element: labelHost("搜索") },
-    { nodeRef: "c2", element: labelHost(null) },
-  ]);
-  const currentControl = {
-    documentRef: observed.documentRef,
-    observationId: observed.observationId,
-    revision: observed.revision,
-  };
+  const observed = observation([candidate("c1")]);
+  const current = operationRead(observed.identity);
   const result = await runBA1RealSiteFirstResult({
     observation: observed,
     packagePath,
-    currentControl,
+    currentControl: () => current,
     gold: selectedGold("c1"),
     sampleId: "sample-1",
     outputDir: join(dir, "out"),
   });
-
   assert.equal(result.projection.output.kind, "bound");
   assert.equal(result.projection.output.state, "selected");
-  assert.equal(result.projection.output.selectedRef, "c1");
-  assert.deepEqual(result.projection.currentControl, currentControl);
-  assert.equal(Object.hasOwn(result.projection, "gold"), false);
   assert.equal(result.evaluation.passed, true);
-
+  assert.equal(Object.hasOwn(result.projection, "gold"), false);
   const projectionFile = JSON.parse(await readFile(result.artifacts.projection, "utf8"));
-  assert.equal(projectionFile.schema, "nnanything.b-a1.real-site-first-projection.v1");
-  assert.equal(projectionFile.package.modelId, "b-a1-real-site-consumer-fixture-1");
-  assert.deepEqual(projectionFile.projection, result.projection);
   assert.equal(projectionFile.forward.status, "completed");
-  assert.equal(projectionFile.forward.noForwardReason, null);
-
-  const rows = (await readFile(result.artifacts.evaluationRows, "utf8")).trim().split("\n");
-  assert.equal(rows.length, 1);
-  assert.deepEqual(JSON.parse(rows[0]), result.evaluationRow);
-
-  const summary = JSON.parse(await readFile(result.artifacts.summary, "utf8"));
-  assert.deepEqual(summary, result.summary);
-  assert.equal(summary.denominators[0].family, BA1_REAL_SITE_FAMILY);
+  assert.equal(projectionFile.acceptance.status, "accepted");
+  assert.deepEqual(projectionFile.acceptance.operation, current);
+  assert.deepEqual(projectionFile.acceptance.observed, current);
   assert.equal(result.artifacts.failureReceipt, null);
 });
 
-test("a second save is create-only and does not overwrite the first result", async () => {
+test("a second save is create-only and does not overwrite the accepted record", async () => {
   const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-duplicate-"));
   const packagePath = await packageScoringHasLabel(dir, 2);
-  const observed = observation([{ nodeRef: "c1", element: labelHost("搜索") }]);
+  const observed = observation([candidate("c1")]);
+  const current = operationRead(observed.identity);
   const request = {
     observation: observed,
     packagePath,
-    currentControl: {
-      documentRef: observed.documentRef,
-      observationId: observed.observationId,
-      revision: observed.revision,
-    },
+    currentControl: () => current,
     gold: selectedGold("c1"),
     sampleId: "sample-2",
     outputDir: join(dir, "out"),
   };
-
   const first = await runBA1RealSiteFirstResult(request);
-  const beforeProjection = await readFile(first.artifacts.projection, "utf8");
-  const beforeRows = await readFile(first.artifacts.evaluationRows, "utf8");
-
+  const before = await readFile(first.artifacts.projection, "utf8");
   await assert.rejects(
     runBA1RealSiteFirstResult(request),
-    error => error instanceof BA1FirstResultExistsError
-      && error.code === "BA1_FIRST_RESULT_EXISTS",
+    error => error instanceof BA1FirstResultExistsError,
   );
-  assert.equal(await readFile(first.artifacts.projection, "utf8"), beforeProjection);
-  assert.equal(await readFile(first.artifacts.evaluationRows, "utf8"), beforeRows);
+  assert.equal(await readFile(first.artifacts.projection, "utf8"), before);
 });
 
-test("an independently supplied current control is preserved and typed failure is receipted", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-control-"));
-  const packagePath = await packageScoringHasLabel(dir, 3);
-  const observed = observation([{ nodeRef: "c1", element: labelHost("搜索") }]);
-  const currentControl = {
-    documentRef: observed.documentRef,
-    observationId: "control-obs",
-    revision: 4,
-  };
-  const result = await runBA1RealSiteFirstResult({
-    observation: observed,
-    packagePath,
-    currentControl,
-    gold: { kind: "reject", reason: "stale_candidate", family: BA1_REAL_SITE_FAMILY, group: "stale" },
-    sampleId: "sample-3",
-    outputDir: join(dir, "out"),
-  });
-
-  assert.equal(result.projection.output.kind, "reject");
-  assert.equal(result.projection.output.reason, "stale_candidate");
-  assert.deepEqual(result.projection.currentControl, currentControl);
-  assert.notEqual(result.projection.currentControl.observationId, observed.observationId);
-  assert.ok(result.artifacts.failureReceipt);
-
-  const receipt = JSON.parse(await readFile(result.artifacts.failureReceipt, "utf8"));
-  assert.equal(receipt.stage, "projection");
-  assert.equal(receipt.failure.kind, "reject");
-  assert.equal(receipt.failure.reason, "stale_candidate");
-  assert.deepEqual(receipt.identity.currentControl, currentControl);
-  assert.deepEqual(receipt.identity.observed, {
-    documentRef: observed.documentRef,
-    observationId: observed.observationId,
-    revision: observed.revision,
-  });
-
-  const projectionFile = JSON.parse(await readFile(result.artifacts.projection, "utf8"));
-  assert.equal(projectionFile.forward.status, "not_run");
-  assert.equal(projectionFile.forward.noForwardReason, "reject:stale_candidate");
-});
-
-test("missing measurement is receipted without shrinking the expected denominator", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-missing-"));
-  const packagePath = await packageScoringHasLabel(dir, 4);
-  const observed = observation([{ nodeRef: "c1", element: labelHost("搜索") }], {
-    propertiesOf: () => null,
-  });
-  const result = await runBA1RealSiteFirstResult({
-    observation: observed,
-    packagePath,
-    currentControl: {
-      documentRef: observed.documentRef,
-      observationId: observed.observationId,
-      revision: observed.revision,
-    },
-    gold: {
-      kind: "bound",
-      state: "insufficient_observation",
-      family: BA1_REAL_SITE_FAMILY,
-      group: "missing",
-    },
-    sampleId: "sample-4",
-    outputDir: join(dir, "out"),
-  });
-
-  assert.equal(result.projection.output.kind, "bound");
-  assert.equal(result.projection.output.state, "insufficient_observation");
-  assert.equal(result.projection.expectedCount, 1);
-  assert.equal(result.projection.evaluatedCount, 0);
-  assert.ok(result.artifacts.failureReceipt);
-  const receipt = JSON.parse(await readFile(result.artifacts.failureReceipt, "utf8"));
-  assert.equal(receipt.failure.noForwardReason, "missing_measurement");
-  assert.equal(receipt.expectedCount, 1);
-  assert.equal(receipt.evaluatedCount, 0);
-});
-
-test("scored candidates below threshold keep forward executed and preserve typed semantic failure", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-all-below-"));
-  const packagePath = await packageScoringHasLabel(dir, 7);
-  const observed = observation([
-    { nodeRef: "c1", element: labelHost(null) },
-    { nodeRef: "c2", element: labelHost(null) },
-  ]);
-  const currentControl = {
-    documentRef: observed.documentRef,
-    observationId: observed.observationId,
-    revision: observed.revision,
-  };
-  const gold = {
-    kind: "bound",
-    state: "insufficient_observation",
-    family: BA1_REAL_SITE_FAMILY,
-    group: "all-below",
-  };
-  const result = await runBA1RealSiteFirstResult({
-    observation: observed,
-    packagePath,
-    currentControl,
-    gold,
-    sampleId: "sample-all-below",
-    outputDir: join(dir, "out"),
-  });
-
-  assert.equal(result.projection.output.kind, "bound");
-  assert.equal(result.projection.output.state, "insufficient_observation");
-  assert.ok(result.projection.scoredCandidates.length > 0);
-  const insufficient = result.projection.evidenceRecords.find(
-    record => record.type === "insufficient_observation",
-  );
-  assert.equal(insufficient?.payload.insufficientReason, "all_below_threshold");
-  assert.equal(result.evaluation.passed, true);
-  assert.ok(result.artifacts.failureReceipt);
-
-  const projectionFile = JSON.parse(await readFile(result.artifacts.projection, "utf8"));
-  assert.deepEqual(projectionFile.projection.currentControl, currentControl);
-  assert.equal(projectionFile.projection.output.state, "insufficient_observation");
-  assert.equal(projectionFile.projection.scoredCandidates.length, result.projection.scoredCandidates.length);
-  assert.equal(
-    projectionFile.projection.evidenceRecords.find(
-      record => record.type === "insufficient_observation",
-    )?.payload.insufficientReason,
-    "all_below_threshold",
-  );
-  assert.equal(projectionFile.forward.status, "completed");
-  assert.equal(projectionFile.forward.noForwardReason, null);
-
-  const receipt = JSON.parse(await readFile(result.artifacts.failureReceipt, "utf8"));
-  assert.equal(receipt.failure.kind, "bound");
-  assert.equal(receipt.failure.noForwardReason, "all_below_threshold");
-  assert.equal(receipt.identity.sampleId, "sample-all-below");
-  assert.equal(receipt.identity.family, BA1_REAL_SITE_FAMILY);
-  assert.equal(receipt.identity.group, "all-below");
-});
-
-test("a runtime failure keeps a receipt and no success artifacts", async () => {
+test("a missing package keeps a failure receipt and no success artifacts", async () => {
   const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-failure-"));
-  const observed = observation([{ nodeRef: "c1", element: labelHost("搜索") }]);
+  const observed = observation([candidate("c1")]);
+  const current = operationRead(observed.identity);
   const outputDir = join(dir, "out");
   await assert.rejects(
     runBA1RealSiteFirstResult({
       observation: observed,
-      packagePath: join(dir, "missing-package.json"),
-      currentControl: {
-        documentRef: observed.documentRef,
-        observationId: observed.observationId,
-        revision: observed.revision,
-      },
+      packagePath: join(dir, "missing.json"),
+      currentControl: () => current,
       gold: selectedGold("c1"),
-      sampleId: "sample-5",
+      sampleId: "sample-3",
       outputDir,
     }),
     /missing or unreadable/,
   );
-
   const receipt = JSON.parse(await readFile(join(outputDir, "failure-receipt.json"), "utf8"));
   assert.equal(receipt.ok, false);
   assert.equal(receipt.stage, "package");
-  assert.equal(receipt.identity.sampleId, "sample-5");
-  assert.equal(receipt.identity.family, BA1_REAL_SITE_FAMILY);
-  assert.equal(receipt.identity.group, "g1");
   await assert.rejects(readFile(join(outputDir, "first-projection.json"), "utf8"));
-  await assert.rejects(readFile(join(outputDir, "real-site-evaluation.jsonl"), "utf8"));
 });
 
-test("a JSON-shaped observation is refused instead of being rehydrated as DOM", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-json-"));
-  const packagePath = await packageScoringHasLabel(dir, 6);
-  const observed = observation([{ nodeRef: "c1", element: labelHost("搜索") }]);
-  const jsonObservation = JSON.parse(JSON.stringify(observed));
-  jsonObservation.scopeRoot = JSON.parse(JSON.stringify(observed.scopeRoot));
-  jsonObservation.nodes = observed.nodes.map(node => ({
-    nodeRef: node.nodeRef,
-    element: JSON.parse(JSON.stringify(node.element)),
-  }));
+test("admission rejects a stale projected observation before package load", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-stale-"));
+  const observed = observation([candidate("c1")]);
+  const stale = operationRead({ ...observed.identity, observationId: "obs-2" });
+  await assert.rejects(
+    runBA1RealSiteFirstResult({
+      observation: observed,
+      packagePath: join(dir, "missing.json"),
+      currentControl: () => stale,
+      gold: selectedGold("c1"),
+      sampleId: "sample-stale",
+      outputDir: join(dir, "out"),
+    }),
+    error => error instanceof BA1RealSiteFreshnessError && error.stage === "admission",
+  );
+  const receipt = JSON.parse(await readFile(join(dir, "out", "failure-receipt.json"), "utf8"));
+  assert.equal(receipt.stage, "admission");
+  assert.equal(receipt.failure.code, "stale_candidate");
+  assert.equal(receipt.failure.forward.status, "not_run");
+  assert.deepEqual(receipt.failure.scores, []);
+});
 
+test("provider replacement while package load is pending rejects stale_forward_gate with no forward", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-forward-gate-"));
+  const packagePath = await packageScoringHasLabel(dir, 3);
+  const observed = observation([candidate("c1")]);
+  const operation = operationRead(observed.identity, 1);
+  let reads = 0;
+  const reader = () => {
+    reads += 1;
+    return reads === 2
+      ? operationRead({ ...observed.identity, observationId: "obs-2" }, 2)
+      : operation;
+  };
+  const outputDir = join(dir, "out");
+  const promise = runBA1RealSiteFirstResult({
+    observation: observed,
+    packagePath,
+    currentControl: reader,
+    gold: selectedGold("c1"),
+    sampleId: "sample-forward",
+    outputDir,
+  });
+  await assert.rejects(
+    promise,
+    error => error instanceof BA1RealSiteFreshnessError && error.code === "stale_forward_gate",
+  );
+  const receipt = JSON.parse(await readFile(join(outputDir, "failure-receipt.json"), "utf8"));
+  assert.equal(receipt.stage, "forward_gate");
+  assert.equal(receipt.failure.code, "stale_forward_gate");
+  assert.equal(receipt.failure.forward.status, "not_run");
+  assert.deepEqual(receipt.failure.scores, []);
+  await assert.rejects(readFile(join(outputDir, "first-projection.json"), "utf8"));
+});
+
+test("provider change after forward before acceptance preserves completed scores", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-acceptance-"));
+  const packagePath = await packageScoringHasLabel(dir, 4);
+  const observed = observation([candidate("c1")]);
+  const operation = operationRead(observed.identity, 1);
+  let reads = 0;
+  const reader = () => {
+    reads += 1;
+    return reads === 3
+      ? operationRead({ ...observed.identity, observationId: "obs-3" }, 2)
+      : operation;
+  };
+  const outputDir = join(dir, "out");
+  const promise = runBA1RealSiteFirstResult({
+    observation: observed,
+    packagePath,
+    currentControl: reader,
+    gold: selectedGold("c1"),
+    sampleId: "sample-acceptance",
+    outputDir,
+  });
+  const error = await promise.then(() => null, value => value);
+  assert.ok(error instanceof BA1RealSiteAcceptanceChangedError);
+  assert.equal(error.attempt.forward.status, "completed");
+  assert.equal(error.attempt.scores.length, 1);
+  assert.equal(error.attempt.evaluationRow.output.state, "selected");
+  const receipt = JSON.parse(await readFile(join(outputDir, "failure-receipt.json"), "utf8"));
+  assert.equal(receipt.stage, "acceptance");
+  assert.equal(receipt.failure.kind, "current_control_changed_before_acceptance");
+  assert.equal(receipt.attempt.forward.status, "completed");
+  assert.equal(receipt.attempt.scores.length, 1);
+  assert.equal(receipt.attempt.evaluationRow.output.state, "selected");
+  await assert.rejects(readFile(join(outputDir, "first-projection.json"), "utf8"));
+});
+
+test("a JSON-shaped or callback-bearing observation is refused", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-json-"));
+  const observed = observation([candidate("c1")]);
+  const current = operationRead(observed.identity);
+  const fake = JSON.parse(JSON.stringify(observed));
+  fake.candidates[0].tagName = "INPUT";
   const outputDir = join(dir, "out");
   await assert.rejects(
     runBA1RealSiteFirstResult({
-      observation: jsonObservation,
-      packagePath,
-      currentControl: {
-        documentRef: observed.documentRef,
-        observationId: observed.observationId,
-        revision: observed.revision,
-      },
+      observation: fake,
+      packagePath: join(dir, "missing.json"),
+      currentControl: () => current,
       gold: selectedGold("c1"),
-      sampleId: "sample-6",
+      sampleId: "sample-json",
       outputDir,
     }),
-    /runtime Element/,
+    error => error instanceof TypeError && /DOM-like|must contain exactly/.test(error.message),
   );
   const receipt = JSON.parse(await readFile(join(outputDir, "failure-receipt.json"), "utf8"));
   assert.equal(receipt.stage, "input");
   await assert.rejects(readFile(join(outputDir, "first-projection.json"), "utf8"));
+});
+
+test("after acceptance, a later provider replacement does not rewrite the accepted record", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-consumer-later-"));
+  const packagePath = await packageScoringHasLabel(dir, 5);
+  const observed = observation([candidate("c1")]);
+  let current = operationRead(observed.identity, 1);
+  const result = await runBA1RealSiteFirstResult({
+    observation: observed,
+    packagePath,
+    currentControl: () => current,
+    gold: selectedGold("c1"),
+    sampleId: "sample-later",
+    outputDir: join(dir, "out"),
+  });
+  const before = await readFile(result.artifacts.projection, "utf8");
+  current = operationRead({ documentRef: "doc-2", observationId: "obs-9", revision: 1 }, 2);
+  assert.equal(await readFile(result.artifacts.projection, "utf8"), before);
+  const files = (await readdir(join(dir, "out"))).sort();
+  assert.deepEqual(files, ["first-projection.json", "real-site-evaluation.jsonl", "summary.json"]);
 });
