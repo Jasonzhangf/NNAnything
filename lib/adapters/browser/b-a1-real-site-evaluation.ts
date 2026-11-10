@@ -1,27 +1,9 @@
-// B-A1 E2: real-site observation -> evaluator input projection.
+// B-A1 E2: projected real-site observation -> evaluator input.
 //
-// This adapter is the wiring the accepted E2 design asks for
-// (b-a1-real-site-eval-e2-observation-source-design-carol-20261109,
-// e2-observation-source-design.md). It reuses the production projection, the
-// no-gold 64-slot route encoder, the saved unified model package loader, the
-// shared forward function and the existing B-A1 evaluator input shape.
-//
-// Boundaries kept on purpose:
-//   - no gold enters this module. `S_g` comes from the observation; `A_g` stays
-//     with the training supervision and the caller injects gold separately when
-//     it calls `evaluateBA1Sample`.
-//   - no old binder/profile is called: `inferSearchInputHostBinding`,
-//     `SearchInputHostProfile` and `validateSearchInputHostProfile` are not used
-//     here, because the old binder re-scores with `roleMatchOf` and drops the
-//     unified model scores.
-//   - no model, threshold, evaluator or evidence semantics are declared here.
-//     The adapter aggregates ref/score pairs with the accepted fixed rules and
-//     stops.
+// The browser bridge owns live DOM measurement. This Node-side evaluator accepts
+// only the validated JSON-safe projection, encodes candidates without gold,
+// forwards through the caller-prepared unified package, and aggregates scores.
 
-import {
-  projectSearchInputHostCandidates,
-  type SearchInputHostProjectionInput,
-} from "./search-input-host-projection.js";
 import {
   SEARCH_INPUT_HOST_ROLE,
   isMeasuredSearchInputHostCandidate,
@@ -34,8 +16,8 @@ import {
   type BA1RouteCandidateInput,
   type BA1RouteGateContext,
 } from "../../training/b-a1-route-encoder.js";
-import { loadUnifiedModelPackageFromFile } from "../../training/unified-model-package.js";
 import { forwardUnifiedScore, type UnifiedTensors } from "../../training/unified-forward.js";
+import type { UnifiedModelPackage } from "../../training/unified-model-package.js";
 import type {
   BA1BinderOutput,
   BA1EvaluationCandidate,
@@ -47,6 +29,7 @@ import type {
   BA1AggregatorState,
   BA1ContractGateReason,
 } from "../../training/b-a1-sample-evaluator-skeleton.js";
+import type { BA1RealSiteProjectedObservation } from "./b-a1-real-site-browser-projection.js";
 
 /**
  * The one fixed decision boundary in this milestone. It is the same frozen
@@ -56,35 +39,18 @@ import type {
 export const BA1_REAL_SITE_THRESHOLD = 0.5;
 
 /**
- * The real-site observation envelope the E2 design defines. It carries the
- * production projection input plus the explicit saved package path. It carries
- * no gold and no supervision fields.
+ * Compatibility name for callers that already use the evaluator projection
+ * shape. The value is the projected, non-DOM envelope only.
  */
-export interface BA1RealSiteObservation {
-  readonly documentRef: string;
-  readonly observationId: string;
-  readonly revision: number;
-  readonly scopeRef: string;
-  readonly scopeRoot: Element;
-  readonly nodes: readonly { readonly nodeRef: string; readonly element: Element }[];
-  readonly propertiesOf: (nodeRef: string) => Record<string, unknown> | null;
-  readonly coverage: SearchInputHostCoverage;
-  readonly access: SearchInputHostCandidate["access"];
-  /**
-   * The goal role the caller requested. Defaults to the only role this
-   * milestone supports, so an unsupported role stays visible instead of being
-   * silently rewritten to the supported one.
-   */
-  readonly requestedRole?: string;
-}
+export type BA1RealSiteObservation = BA1RealSiteProjectedObservation;
 
 export interface BA1RealSiteEvaluationRequest {
-  readonly observation: BA1RealSiteObservation;
-  readonly packagePath: string;
+  readonly observation: BA1RealSiteProjectedObservation;
+  /** Prepared by the consumer after the admission gate. */
+  readonly modelPackage: UnifiedModelPackage;
   /**
-   * The authoritative current-control fact from its existing owner. It is not
-   * derived from the observed envelope, so a stale envelope cannot relabel
-   * itself as current.
+   * The authority-issued observation token. It is passed in explicitly so the
+   * evaluator cannot derive current control from the observation envelope.
    */
   readonly currentControl: BA1Identity;
 }
@@ -162,27 +128,6 @@ function evaluationCandidate(candidate: SearchInputHostCandidate): BA1Evaluation
   };
 }
 
-/**
- * Apply the E2 design §1.2a correction to the projection output, then map the
- * candidate onto the accepted 64-slot route input.
- *
- * The projection folds a missing `properties` object into `disabled=false` and
- * `editable` from it. That false is not a measurement. `disabled`/`editable`
- * are therefore only kept when `propertiesOf(ref)` really carries a boolean
- * `disabled` key; `readOnly` stays a direct DOM read and is never dropped.
- */
-function correctCandidate(
-  projected: SearchInputHostCandidate,
-  properties: Record<string, unknown> | null,
-): SearchInputHostCandidate {
-  const disabledMeasured = properties !== null && typeof properties.disabled === "boolean";
-  const disabled = disabledMeasured ? (properties.disabled as boolean) : null;
-  const editable = disabledMeasured && projected.readOnly !== null
-    ? !disabled && projected.readOnly !== true
-    : null;
-  return { ...projected, disabled, editable };
-}
-
 function toRouteCandidate(measured: SearchInputHostCandidate): BA1RouteCandidateInput {
   return {
     candidateRef: measured.ref,
@@ -211,19 +156,6 @@ function toRouteCandidate(measured: SearchInputHostCandidate): BA1RouteCandidate
     textLenBand: measured.textLenBand,
     access: measured.access,
   };
-}
-
-/**
- * Actual DOM membership, not a ref stamped by projection. The scope root is
- * admitted; any element whose ancestor chain leaves it is outside scope.
- */
-function isWithinScope(element: Element, scopeRoot: Element): boolean {
-  let cursor: Element | null = element;
-  while (cursor !== null) {
-    if (cursor === scopeRoot) return true;
-    cursor = cursor.parentElement;
-  }
-  return false;
 }
 
 /** The accepted fixed non-search shape, kept as the accepted script defines it. */
@@ -277,43 +209,20 @@ function rejectOutput(
 }
 
 /**
- * Project one real-site observation into the gold-free evaluator input.
- *
- * Order (accepted E2 design §1.5): observe and count, run the fixed gates, take
- * the scorable set, encode it without gold, forward through the saved package,
- * then aggregate. Any gate hit stops before encoding or forward. A missing
- * measurement is `insufficient_observation` with `missing_measurement`
- * evidence; the other gates are typed rejects.
+ * Project one validated real-site observation into the gold-free evaluator
+ * input. This function is synchronous after the consumer has loaded the package,
+ * so the caller can check freshness immediately before encode/forward.
  */
-export async function projectBA1RealSiteEvaluationInput(
+export function projectBA1RealSiteEvaluationInput(
   request: BA1RealSiteEvaluationRequest,
-): Promise<BA1RealSiteEvaluationProjection> {
+): BA1RealSiteEvaluationProjection {
   const { observation } = request;
   const control = request.currentControl;
-  const requestedRole = observation.requestedRole ?? SEARCH_INPUT_HOST_ROLE;
+  const requestedRole = observation.requestedRole;
   const scopeRef = observation.scopeRef;
-  const coverageRef = `${observation.observationId}-coverage`;
-  const projectionInput: SearchInputHostProjectionInput = {
-    scopeRef,
-    documentRef: observation.documentRef,
-    observationId: observation.observationId,
-    revision: observation.revision,
-    scopeRoot: observation.scopeRoot,
-    nodes: observation.nodes,
-    propertiesOf: observation.propertiesOf,
-    coverage: observation.coverage,
-    access: observation.access,
-  };
-  const projected = projectSearchInputHostCandidates(projectionInput);
-  const corrected = projected.map(candidate =>
-    correctCandidate(candidate, observation.propertiesOf(candidate.ref)));
-  const elementByRef = new Map(observation.nodes.map(node => [node.nodeRef, node.element]));
-  const outsideScopeRefs = corrected
-    .filter(candidate => {
-      const element = elementByRef.get(candidate.ref);
-      return element === undefined || !isWithinScope(element, observation.scopeRoot);
-    })
-    .map(candidate => candidate.ref);
+  const coverageRef = `${observation.identity.observationId}-coverage`;
+  const corrected = observation.candidates;
+  const outsideScopeRefs = observation.outsideScopeRefs;
   const candidates = corrected.map(evaluationCandidate);
   const observedCandidateCount = observation.coverage.observedCandidateCount;
   const measuredCandidateCount = corrected.filter(isMeasuredSearchInputHostCandidate).length;
@@ -323,7 +232,7 @@ export async function projectBA1RealSiteEvaluationInput(
     {
       coverageStatus: "observed",
       observedCandidateCount,
-      projectedCandidateCount: projected.length,
+      projectedCandidateCount: corrected.length,
       measuredCandidateCount,
     },
     scopeRef,
@@ -363,18 +272,17 @@ export async function projectBA1RealSiteEvaluationInput(
   if (requestedRole !== SEARCH_INPUT_HOST_ROLE) {
     return rejectWith(
       "unsupported_requested_role",
-      `${observation.observationId}-unsupported-requested-role`,
+      `${observation.identity.observationId}-unsupported-requested-role`,
       "unsupported_requested_role",
       { requestedRole },
     );
   }
 
-  // R2: the observed scope must be the allowed scope.
-  if (observation.coverage.scopeRef !== scopeRef
-    || outsideScopeRefs.length > 0) {
+  // R2: the projection scope and every projected candidate must be in scope.
+  if (observation.coverage.scopeRef !== scopeRef || outsideScopeRefs.length > 0) {
     return rejectWith(
       "outside_scope",
-      `${observation.observationId}-outside-scope`,
+      `${observation.identity.observationId}-outside-scope`,
       "outside_scope",
       {
         allowedScopeRef: scopeRef,
@@ -384,45 +292,47 @@ export async function projectBA1RealSiteEvaluationInput(
     );
   }
 
-  // R3: coverage is proven only by the unassessed counts plus the observed and
-  // projected counts agreeing. A self-consistent declared count is not proof.
+  // R3: coverage is proven only by unassessed counts plus observed/projected
+  // count agreement. A self-consistent declared count is not proof.
   const unassessed = observation.coverage.unassessedIframeCount > 0
     || observation.coverage.unassessedObjectCount > 0
     || observation.coverage.unassessedOpenShadowRootCount > 0;
   if (unassessed
     || observation.coverage.excluded.length > 0
-    || observedCandidateCount !== projected.length) {
+    || observedCandidateCount !== corrected.length) {
     return rejectWith(
       "unverified_coverage",
-      `${observation.observationId}-unverified-coverage`,
+      `${observation.identity.observationId}-unverified-coverage`,
       "unverified_coverage",
       {
         coverageComplete: false,
         coverageStatus: "unverified",
         observedCandidateCount,
-        projectedCandidateCount: projected.length,
+        projectedCandidateCount: corrected.length,
         excluded: [...observation.coverage.excluded],
       },
       "unverified",
     );
   }
 
-  // R4: envelope currentness. A stale observation is rejected even when it
-  // carries no candidates, so an empty stale envelope cannot pass as a fresh
-  // insufficient observation.
-  if (observation.documentRef !== control.documentRef
-    || observation.observationId !== control.observationId
-    || observation.revision !== control.revision) {
+  // R4: envelope currentness. The identity must match the independent token
+  // passed by the consumer. This check never reads `currentControl` from the
+  // observation itself.
+  if (
+    observation.identity.documentRef !== control.documentRef
+    || observation.identity.observationId !== control.observationId
+    || observation.identity.revision !== control.revision
+  ) {
     return rejectWith(
       "stale_candidate",
-      `${observation.observationId}-stale-candidate`,
+      `${observation.identity.observationId}-stale-candidate`,
       "stale_candidate",
       {
-        observedRevision: observation.revision,
+        observedRevision: observation.identity.revision,
         currentRevision: control.revision,
-        observationId: observation.observationId,
+        observationId: observation.identity.observationId,
         currentObservationId: control.observationId,
-        observedDocumentRef: observation.documentRef,
+        observedDocumentRef: observation.identity.documentRef,
         currentDocumentRef: control.documentRef,
       },
     );
@@ -432,7 +342,7 @@ export async function projectBA1RealSiteEvaluationInput(
   // keeps its expected obligation; no x is produced and no forward runs.
   if (measuredCandidateCount !== corrected.length) {
     const record = evidenceRecord(
-      `${observation.observationId}-insufficient-missing-measurement`,
+      `${observation.identity.observationId}-insufficient-missing-measurement`,
       "insufficient_observation",
       {
         insufficientReason: "missing_measurement",
@@ -455,7 +365,7 @@ export async function projectBA1RealSiteEvaluationInput(
   if (corrected.some(candidate => candidate.access !== "available")) {
     return rejectWith(
       "access_unknown",
-      `${observation.observationId}-access-unknown`,
+      `${observation.identity.observationId}-access-unknown`,
       "access_unknown",
       { access: "unknown" },
     );
@@ -466,7 +376,7 @@ export async function projectBA1RealSiteEvaluationInput(
 
   if (evaluatedCount === 0) {
     const record = evidenceRecord(
-      `${observation.observationId}-insufficient-no-scorable-candidate`,
+      `${observation.identity.observationId}-insufficient-no-scorable-candidate`,
       "insufficient_observation",
       { insufficientReason: "no_scorable_candidate", expectedCount: observedCandidateCount },
       scopeRef,
@@ -481,8 +391,6 @@ export async function projectBA1RealSiteEvaluationInput(
     };
   }
 
-  // Encode without gold. x59/x60 are backfilled from the scorable count, and no
-  // gold ref or supervision field enters the vector.
   const context = gateContext(requestedRole, scopeRef, observation.coverage, evaluatedCount, observedCandidateCount);
   const vectors = scorable.map(candidate => [...encodeBA1RouteCandidate(context, toRouteCandidate(candidate))]);
   for (const x of vectors) {
@@ -511,13 +419,12 @@ export async function projectBA1RealSiteEvaluationInput(
     };
   }
 
-  const loaded = await loadUnifiedModelPackageFromFile(request.packagePath);
-  if (loaded.package.encoderVersion !== BA1_ENCODER_VERSION) {
+  if (request.modelPackage.encoderVersion !== BA1_ENCODER_VERSION) {
     throw new TypeError(
-      `saved package ${loaded.package.encoderVersion} is not the B-A1 route encoder ${BA1_ENCODER_VERSION}`,
+      `saved package ${request.modelPackage.encoderVersion} is not the B-A1 route encoder ${BA1_ENCODER_VERSION}`,
     );
   }
-  const tensors: UnifiedTensors = loaded.package.tensors;
+  const tensors: UnifiedTensors = request.modelPackage.tensors;
   const scored: BA1ScoredCandidate[] = scorable.map((candidate, index) => ({
     ref: candidate.ref,
     score: forwardUnifiedScore(vectors[index]!, tensors),
@@ -526,7 +433,7 @@ export async function projectBA1RealSiteEvaluationInput(
 
   if (max < BA1_REAL_SITE_THRESHOLD) {
     const record = evidenceRecord(
-      `${observation.observationId}-insufficient-all-below-threshold`,
+      `${observation.identity.observationId}-insufficient-all-below-threshold`,
       "insufficient_observation",
       { insufficientReason: "all_below_threshold", max, threshold: BA1_REAL_SITE_THRESHOLD },
       scopeRef,
@@ -546,7 +453,7 @@ export async function projectBA1RealSiteEvaluationInput(
   if (winners.length === 1) {
     const winner = winners[0]!;
     const record = evidenceRecord(
-      `${observation.observationId}-selected`,
+      `${observation.identity.observationId}-selected`,
       "search_host",
       { score: winner.score, threshold: BA1_REAL_SITE_THRESHOLD },
       scopeRef,
@@ -563,7 +470,7 @@ export async function projectBA1RealSiteEvaluationInput(
   }
 
   const ambiguityRecords = winners.map((winner, index) => evidenceRecord(
-    `${observation.observationId}-ambiguity-${index}`,
+    `${observation.identity.observationId}-ambiguity-${index}`,
     "ambiguity",
     { supportsAmbiguity: true, score: winner.score, threshold: BA1_REAL_SITE_THRESHOLD },
     scopeRef,
