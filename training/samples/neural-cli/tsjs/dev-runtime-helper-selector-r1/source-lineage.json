@@ -5,9 +5,12 @@
   "synthetic": true,
   "lineageFixedAt": "2026-11-10T19:33:00Z",
   "lineageEvidence": {
-    "kind": "separate pre-generation author declaration",
+    "kind": "pre-generation declaration, single exposed execution context",
+    "authorContext": "peer-15 Codex session 01a1c6ca-701b-7d91-bf1a-17ac63a705a7",
     "independentNonDerivationVerified": false,
-    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table."
+    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table.",
+    "authorshipDisposition": "UNADMITTED_PREPARATION_REQUIRES_CLEAN_DEV_AUTHOR",
+    "isolationNote": "TRAIN and DEV were authored in the same exposed context; no independent authorship claim is made. A clean DEV author must be assigned with only the accepted contract and DEV scope."
   },
   "instances": [
     {
@@ -21,7 +24,7 @@
       "moduleLayout": "entry plus helper module",
       "status": "NOT_READY",
       "producerObservation": "supported",
-      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; request-aware admission remains NOT_READY because the bounded bridge is absent."
+      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; admission remains NOT_READY because the bounded bridge is absent and independent DEV authorship is not established."
     },
     {
       "id": "dv-h02-local-forward-helper",
@@ -34,7 +37,7 @@
       "moduleLayout": "single module with caller before the local helper declaration",
       "status": "NOT_READY",
       "producerObservation": "supported",
-      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; request-aware admission remains NOT_READY because the bounded bridge is absent."
+      "reason": "Source, semantic proof, compiler evidence, runtime contrast, and public producer observation are complete; admission remains NOT_READY because the bounded bridge is absent and independent DEV authorship is not established."
     }
   ],
   "controls": [

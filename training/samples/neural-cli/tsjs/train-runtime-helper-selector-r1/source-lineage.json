@@ -5,9 +5,11 @@
   "synthetic": true,
   "lineageFixedAt": "2026-11-10T19:33:00Z",
   "lineageEvidence": {
-    "kind": "separate pre-generation author declaration",
+    "kind": "pre-generation declaration, single exposed execution context",
+    "authorContext": "peer-15 Codex session 01a1c6ca-701b-7d91-bf1a-17ac63a705a7",
     "independentNonDerivationVerified": false,
-    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table."
+    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table.",
+    "isolationNote": "TRAIN and DEV were authored in the same exposed context; no independent authorship claim is made."
   },
   "instances": [
     {

@@ -8,73 +8,123 @@ episodes, supervision rows, or training labels. All cases use the exact
 table. The runtime contrast varies only the selector and keeps every other
 argument constant.
 
+The proof receipt is `raw-checks.json` (`nnanything.tsjs.helper-source-checks.v2`)
+under the task run directory. It records the resolved helper symbol, the
+resolved table symbol, the single return of `table[selector]`, unique member
+keys with declaration positions, the outer call site, and per-selector
+reference equality between the helper result and the concrete table member.
+A null symbol on the outer `CallExpression` callee is not used as evidence.
+
 ## `tr-h01-import-direct`
 
-Requested declaration: `selectDelivery`.
-Call site: `selectDelivery(mode)(message)`.
-Current modules: `lookup.ts` and `entry.ts`.
+Requested declaration: `selectDelivery` in
+`sources/tr-h01-import-direct/lookup.ts`.
+Outer call site: `sources/tr-h01-import-direct/entry.ts:4:10`,
+`selectDelivery(mode)(message)`.
 
-`deliveryHandlers` is a finite const object literal with distinct callable
-members `email` and `sms`. `selectDelivery` returns
-`deliveryHandlers[mode]` through one straight-line return. The caller passes
-the direct `mode` parameter into the helper, and no shadowing, reassignment,
-narrowing, mutation, or alternate control path is present.
+Structural proof:
 
-Controlled runtime probes:
+- `deliveryHandlers` is a `const` object literal with unique callable members
+  `email` (`lookup.ts:4`) and `sms` (`lookup.ts:5`).
+- `selectDelivery` has exactly one statement, `return deliveryHandlers[mode]`.
+- The caller passes the direct `mode` parameter. No shadowing, reassignment,
+  narrowing, branch, or mutation is present.
+- The compiler resolves the helper to one function declaration and the table
+  to one variable declaration whose initializer is the object literal.
+
+Actual callable identity, per selector at the same outer call site:
+
+| Selector | `helper(selector) === table[selector]` | Inferred callable name | Member declaration |
+| --- | --- | --- | --- |
+| `email` | true | `email` | `lookup.ts:4` |
+| `sms` | true | `sms` | `lookup.ts:5` |
+
+The two selectors reach distinct function references. The outer call-site
+result equals the reached member result for each selector.
+
+Controlled runtime contrast:
 
 | Selector | Non-selector input | Result |
 | --- | --- | --- |
 | `email` | `"ping"` | `"email:ping"` |
 | `sms` | `"ping"` | `"sms:ping"` |
 
-The same input and call site produce distinct handler outputs after changing
-only the selector. Compiler evidence for the outer callee remains unresolved
-at the dynamic selector. The source is `NOT_READY` until the public producer
-emits both source-read-backed roles and the request-aware bridge is accepted.
+The source and semantic proof are supported. Admission remains `NOT_READY`
+until the public producer emits both source-read-backed roles and the
+request-aware bridge is accepted.
 
 ## `tr-h02-local-alias`
 
-Requested declaration: `chooseScale`.
-Call site: `chooseScale(selectedScale)(amount)`.
-Current module: `index.ts`.
+Requested declaration: `chooseScale` in
+`sources/tr-h02-local-alias/index.ts`.
+Outer call site: `sources/tr-h02-local-alias/index.ts:14:10`,
+`chooseScale(selectedScale)(amount)`.
 
-`scaleOperations` is a finite const object literal with distinct callable
-members. `chooseScale` returns `scaleOperations[mode]` through one
-straight-line return. `selectedScale` is one immutable local alias of the
-direct caller parameter and is not reassigned before the call.
+Structural proof:
 
-Controlled runtime probes:
+- `scaleOperations` is a `const` object literal with unique callable members
+  `double` (`index.ts:4`) and `triple` (`index.ts:5`).
+- `chooseScale` has exactly one statement, `return scaleOperations[mode]`.
+- `selectedScale` is one immutable local alias declared as
+  `const selectedScale = mode;` and is not reassigned before the call.
+- The helper and table are local to the same module; no excluded control path
+  is present.
+
+Actual callable identity, per selector at the same outer call site:
+
+| Selector | `helper(selector) === table[selector]` | Inferred callable name | Member declaration |
+| --- | --- | --- | --- |
+| `double` | true | `double` | `index.ts:4` |
+| `triple` | true | `triple` | `index.ts:5` |
+
+The two selectors reach distinct function references. The outer call-site
+result equals the reached member result for each selector.
+
+Controlled runtime contrast:
 
 | Selector | Non-selector input | Result |
 | --- | --- | --- |
 | `double` | `6` | `12` |
 | `triple` | `6` | `18` |
 
-Only the selector changes. The helper and table are local to the same module.
-The case remains `NOT_READY` until producer roles and the request-aware bridge
-exist.
+The source and semantic proof are supported. Admission remains `NOT_READY`
+until producer roles and the request-aware bridge exist.
 
 ## `tr-h03-default-export-caller`
 
-Requested declaration: `formatValue`.
-Call site: `formatValue(kind)(value)`.
-Current modules: `registry.ts` and `entry.ts`.
+Requested declaration: `formatValue` in
+`sources/tr-h03-default-export-caller/registry.ts`.
+Outer call site: `sources/tr-h03-default-export-caller/entry.ts:4:10`,
+`formatValue(kind)(value)`.
 
-`valueFormatters` is a finite const object literal with distinct callable
-members. `formatValue` returns `valueFormatters[kind]` through one
-straight-line return. The call site is inside a default-exported function
-declaration using the direct `kind` parameter. No excluded control path is
-present.
+Structural proof:
 
-Controlled runtime probes:
+- `valueFormatters` is a `const` object literal with unique callable members
+  `hex` (`registry.ts:4`) and `fixed` (`registry.ts:5`).
+- `formatValue` has exactly one statement, `return valueFormatters[kind]`.
+- The call site is inside a default-exported function declaration using the
+  direct `kind` parameter. No excluded control path is present.
+
+Actual callable identity, per selector at the same outer call site:
+
+| Selector | `helper(selector) === table[selector]` | Inferred callable name | Member declaration |
+| --- | --- | --- | --- |
+| `hex` | true | `hex` | `registry.ts:4` |
+| `fixed` | true | `fixed` | `registry.ts:5` |
+
+The two selectors reach distinct function references. The outer call-site
+result equals the reached member result for each selector.
+
+Controlled runtime contrast:
 
 | Selector | Non-selector input | Result |
 | --- | --- | --- |
 | `hex` | `31` | `"1f"` |
 | `fixed` | `31` | `"31.00"` |
 
-Only the selector changes. The source remains `NOT_READY` until the public
-producer emits the two roles and a request-aware bridge is accepted.
+The source and semantic proof are supported. Admission remains `NOT_READY`
+until the public producer emits the two roles and a request-aware bridge is
+accepted.
 
 ## Controls
 
