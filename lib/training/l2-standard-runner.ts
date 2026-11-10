@@ -453,16 +453,21 @@ interface UnifiedRunnerReport {
     readonly sourceModelId: string;
     readonly sourceVersion: string;
     readonly sourcePackagePath: string;
-    readonly sourcePackageLoadSeconds: number;
-    readonly epochZero: UnifiedWarmStartEpochZeroReceipt;
+    readonly sourcePackageLoadSeconds: number | null;
+    readonly epochZero: UnifiedWarmStartEpochZeroReceipt | null;
     readonly initializer: "inherited_package";
+    readonly inheritanceSource: "source_package" | "checkpoint";
+    readonly sourcePackageLoadedThisRun: boolean;
     readonly sourceTiming: null;
     readonly sourceTimingReason: "package_carries_no_training_timing";
   };
   readonly packageReload: UnifiedPackageReloadReceipt | null;
   readonly checkpointReload: UnifiedCheckpointReloadReceipt | null;
   readonly resumedFromEpoch: number | null;
-  readonly error: UnifiedDataGateViolation | { readonly code: string; readonly message: string } | null;
+  readonly error:
+    | UnifiedDataGateViolation
+    | { readonly code: string; readonly message: string; readonly cause?: string }
+    | null;
   readonly candidateState: {
     readonly calibration: "uncalibrated";
     readonly adoption: "not_applied";
@@ -777,12 +782,23 @@ type WarmStartFailureCode =
 
 class WarmStartRunnerError extends Error {
   readonly code: WarmStartFailureCode;
+  readonly cause: unknown;
 
-  constructor(code: WarmStartFailureCode, message: string) {
+  constructor(code: WarmStartFailureCode, message: string, cause?: unknown) {
     super(message);
     this.name = "WarmStartRunnerError";
     this.code = code;
+    this.cause = cause;
   }
+}
+
+function describeErrorCause(cause: unknown): string {
+  if (cause instanceof Error) {
+    const code = (cause as Error & { readonly code?: unknown }).code;
+    const codeSuffix = typeof code === "string" ? ` [${code}]` : "";
+    return `${cause.name}${codeSuffix}: ${cause.message}`;
+  }
+  return String(cause);
 }
 
 function unifiedRunnerWarmStartConfigError(
@@ -2613,7 +2629,6 @@ export async function executeUnifiedRunnerRoute(
   const supervisionRowsPath = resolve(corpus.supervisionRowsPath);
   const dataGateRowsPath = resolve(config.dataGate.rowsPath);
   const packagePath = resolve(corpus.packagePath);
-  const trainConfig = buildUnifiedTrainConfig(config);
   const checkpointPath = unifiedCheckpointPath(config);
   let dataGate: UnifiedDataGateResult | null = null;
   let counts: UnifiedRunnerCounts | null = null;
@@ -2690,7 +2705,7 @@ export async function executeUnifiedRunnerRoute(
         supervisionRowsPath,
         dataGateRowsPath,
         packagePath,
-        checkpointPath: unifiedCheckpointPath(config),
+        checkpointPath,
       },
     };
     await writeUnifiedRunnerReport(outputDir, report);
@@ -2709,35 +2724,6 @@ export async function executeUnifiedRunnerRoute(
   }
 
   try {
-    if (command === "warmstart") {
-      const sourcePackagePath = resolve(config.warmStart!.sourcePackagePath);
-      assertWarmStartPathsDistinct(sourcePackagePath, packagePath, checkpointPath);
-      const sourceLoadStartedNs = process.hrtime.bigint();
-      let loadedSource: UnifiedModelPackageResource;
-      try {
-        loadedSource = await loadUnifiedModelPackageFromFile(sourcePackagePath);
-      } catch (caught) {
-        warmStartSourcePackageLoadSeconds = monotonicSeconds(sourceLoadStartedNs);
-        loadSeconds += warmStartSourcePackageLoadSeconds;
-        throw new WarmStartRunnerError(
-          "WARMSTART_SOURCE_INVALID",
-          `warm start source package at ${sourcePackagePath} is missing or invalid: ${
-            caught instanceof Error ? caught.message : String(caught)
-          }`,
-        );
-      }
-      warmStartSourcePackageLoadSeconds = monotonicSeconds(sourceLoadStartedNs);
-      loadSeconds += warmStartSourcePackageLoadSeconds;
-      assertWarmStartCompatible(loadedSource, config, trainConfig);
-      warmStartFrom = {
-        tensors: loadedSource.package.tensors,
-        modelId: loadedSource.package.modelId,
-        version: loadedSource.package.version,
-        route: loadedSource.package.route,
-        encoderVersion: loadedSource.package.encoderVersion,
-        sourcePackagePath: loadedSource.packagePath,
-      };
-    }
     if (command === "convert-samples") {
       const admissions = await loadUnifiedFamilyAdmissions(corpus.admissionsPath);
       const familyDirs = await discoverUnifiedFamilyDirs(corpus.root);
@@ -2841,6 +2827,50 @@ export async function executeUnifiedRunnerRoute(
       return await finalize(dataGate.status === "NO_LEARNED_ROWS" ? "NO_LEARNED_ROWS" : "READY", 0);
     }
 
+    const trainConfig = buildUnifiedTrainConfig(config);
+    if (command === "warmstart") {
+      const sourcePackagePath = resolve(config.warmStart!.sourcePackagePath);
+      assertWarmStartPathsDistinct(sourcePackagePath, packagePath, checkpointPath);
+      const sourceLoadStartedNs = process.hrtime.bigint();
+      let loadedSource: UnifiedModelPackageResource;
+      try {
+        loadedSource = await loadUnifiedModelPackageFromFile(sourcePackagePath);
+      } catch (caught) {
+        warmStartSourcePackageLoadSeconds = monotonicSeconds(sourceLoadStartedNs);
+        loadSeconds += warmStartSourcePackageLoadSeconds;
+        throw new WarmStartRunnerError(
+          "WARMSTART_SOURCE_INVALID",
+          `warm start source package at ${sourcePackagePath} is missing or invalid: ${
+            caught instanceof Error ? caught.message : String(caught)
+          }`,
+          caught,
+        );
+      }
+      warmStartSourcePackageLoadSeconds = monotonicSeconds(sourceLoadStartedNs);
+      loadSeconds += warmStartSourcePackageLoadSeconds;
+      warmStart = {
+        sourceModelId: loadedSource.package.modelId,
+        sourceVersion: loadedSource.package.version,
+        sourcePackagePath: loadedSource.packagePath,
+        sourcePackageLoadSeconds: warmStartSourcePackageLoadSeconds,
+        epochZero: null,
+        initializer: "inherited_package",
+        inheritanceSource: "source_package",
+        sourcePackageLoadedThisRun: true,
+        sourceTiming: null,
+        sourceTimingReason: "package_carries_no_training_timing",
+      };
+      assertWarmStartCompatible(loadedSource, config, trainConfig);
+      warmStartFrom = {
+        tensors: loadedSource.package.tensors,
+        modelId: loadedSource.package.modelId,
+        version: loadedSource.package.version,
+        route: loadedSource.package.route,
+        encoderVersion: loadedSource.package.encoderVersion,
+        sourcePackagePath: loadedSource.packagePath,
+      };
+    }
+
     const loadStartedNs = process.hrtime.bigint();
     let admissions: ReadonlyMap<string, UnifiedFamilyAdmission>;
     let studentGroups: readonly StudentGroup[];
@@ -2907,6 +2937,20 @@ export async function executeUnifiedRunnerRoute(
       }
       resumedFromEpoch = resumeFrom.completedEpochs;
       cumulative = resumeFrom.timing?.cumulative ?? null;
+      if (resumeFrom.warmStart !== undefined) {
+        warmStart = {
+          sourceModelId: resumeFrom.warmStart.sourceModelId,
+          sourceVersion: resumeFrom.warmStart.sourceVersion,
+          sourcePackagePath: resumeFrom.warmStart.sourcePackagePath,
+          sourcePackageLoadSeconds: null,
+          epochZero: resumeFrom.warmStart.epochZero,
+          initializer: "inherited_package",
+          inheritanceSource: "checkpoint",
+          sourcePackageLoadedThisRun: false,
+          sourceTiming: null,
+          sourceTimingReason: "package_carries_no_training_timing",
+        };
+      }
     }
     const runOptions: UnifiedTrainingRunOptions = {
       ...(resumeFrom !== undefined ? { resumeFrom } : {}),
@@ -2926,6 +2970,8 @@ export async function executeUnifiedRunnerRoute(
         sourcePackageLoadSeconds: warmStartSourcePackageLoadSeconds,
         epochZero: warmStartLineage.epochZero,
         initializer: "inherited_package",
+        inheritanceSource: "source_package",
+        sourcePackageLoadedThisRun: true,
         sourceTiming: null,
         sourceTimingReason: "package_carries_no_training_timing",
       };
@@ -3078,7 +3124,16 @@ export async function executeUnifiedRunnerRoute(
       caught instanceof WarmStartRunnerError
       || caught instanceof UnifiedWarmStartEpochZeroError
     ) {
-      error = { code: caught.code, message };
+      error = caught instanceof WarmStartRunnerError && caught.cause !== undefined
+        ? { code: caught.code, message, cause: describeErrorCause(caught.cause) }
+        : { code: caught.code, message };
+      return await finalize("failed", 1);
+    }
+    if (
+      caught instanceof UnifiedTrainDataError
+      && message === "unified train requires config.training"
+    ) {
+      error = { code: "CONFIG_ERROR", message };
       return await finalize("failed", 1);
     }
     if (caught instanceof UnifiedTrainDataError || caught instanceof StepwiseStudentDataError) {

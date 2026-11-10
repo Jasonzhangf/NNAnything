@@ -265,6 +265,23 @@ epoch-zero 检查：源 tensors 与克隆后的 post-training tensors 六个张�
 每个输入的 forward score `===` 源包结果。失败为
 `WARMSTART_EPOCH0_MISMATCH`，报告 `optimizerSteps=0`，不写 checkpoint 或 package。
 
+warm-start report 的继承状态必须区分“已加载但尚未验证”与“已完成 epoch-zero”：
+
+- 直接从源包启动时，`inheritanceSource="source_package"`、
+  `sourcePackageLoadedThisRun=true`，`sourcePackageLoadSeconds` 为本次实际读取时间；
+  epoch-zero 验证完成前 `epochZero=null`，完成并返回 receipt 后才写入 exact receipt；
+- 源包加载成功后，数据门、编码或 epoch-zero 失败仍保留已验证的 source model/version/
+  path 和实际 load timing，报告 `epochZero=null`；不得把未执行检查写成 `exact=true`；
+- 源包加载失败没有已验证的 source metadata，但 `error.cause` 保留原始 loader cause；
+- 从 warm-start checkpoint resume 时，报告
+  `inheritanceSource="checkpoint"`、`sourcePackageLoadedThisRun=false`、
+  `sourcePackageLoadSeconds=null`，并继承 checkpoint 已记录的 epoch-zero receipt；
+  该报告不声称本次重新读取或初始化源包。
+
+合成 failpoint 还覆盖 package 输出失败：优化已提交一个 finite step 后，如果目标 package
+路径不可写，报告为 `PACKAGE_SAVE_ERROR`，保留非零 `optimizerSteps`、checkpoint、partial
+timing 和已保存 checkpoint 的回载回执，不产生有效 package。
+
 warm-start 兼容检查比较 source/target 的 route、inputSchema、encoderVersion、
 64→64→64→1 ReLU architecture、tensor shape 和实际解析后的 thresholds、missing-mode、
 slotMap 资源路径。资源引用字符串不同但解析到同一文件是合法；解析到不同文件则

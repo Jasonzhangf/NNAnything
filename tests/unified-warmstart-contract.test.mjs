@@ -300,7 +300,6 @@ test("warmstart starts a fresh stage, then resume continues without rereading th
 
     const sourcePackagePath = source.packagePath;
     const relocated = await makeRelocatedSourcePackage(warmRoot, sourcePackagePath);
-    const sourceBefore = await readFile(relocated.relocatedPath, "utf8");
     const warmOutputDir = join(warmRoot, "warm-out");
     const targetPackagePath = join(warmOutputDir, "package.json");
     const targetCheckpointPath = join(warmOutputDir, "checkpoint.json");
@@ -334,6 +333,9 @@ test("warmstart starts a fresh stage, then resume continues without rereading th
     let report = await readJson(join(warmOutputDir, "run-report.json"));
     assert.equal(report.status, "paused");
     assert.equal(report.warmStart.initializer, "inherited_package");
+    assert.equal(report.warmStart.inheritanceSource, "source_package");
+    assert.equal(report.warmStart.sourcePackageLoadedThisRun, true);
+    assert.equal(typeof report.warmStart.sourcePackageLoadSeconds, "number");
     assert.equal(report.warmStart.sourceTiming, null);
     assert.equal(report.warmStart.sourceTimingReason, "package_carries_no_training_timing");
     assert.deepEqual(report.warmStart.epochZero, {
@@ -354,6 +356,8 @@ test("warmstart starts a fresh stage, then resume continues without rereading th
     assert.equal(checkpoint.modelId, checkpoint.warmStart.sourceModelId);
     assert.equal(checkpoint.version, checkpoint.warmStart.sourceVersion);
 
+    await rm(relocated.relocatedPath, { force: true });
+    await assertMissing(relocated.relocatedPath);
     delete warmConfig.warmStart;
     warmConfig.command = "resume";
     warmConfig.training.epochsThisRun = 1;
@@ -366,6 +370,15 @@ test("warmstart starts a fresh stage, then resume continues without rereading th
     assert.equal(report.trainReport.completedEpochs, 2);
     assert.equal(report.cumulative.optimizerSteps, 2);
     assert.equal(report.optimizerSteps, 1);
+    assert.equal(report.warmStart.inheritanceSource, "checkpoint");
+    assert.equal(report.warmStart.sourcePackageLoadedThisRun, false);
+    assert.equal(report.warmStart.sourcePackageLoadSeconds, null);
+    assert.deepEqual(report.warmStart.epochZero, {
+      exact: true,
+      tensorEquality: true,
+      checkedInputs: 4,
+      maxAbsDelta: 0,
+    });
 
     checkpoint = await readJson(targetCheckpointPath);
     assert.equal(checkpoint.completedEpochs, 2);
@@ -376,7 +389,46 @@ test("warmstart starts a fresh stage, then resume continues without rereading th
       checkedInputs: 4,
       maxAbsDelta: 0,
     });
-    assert.equal(await readFile(relocated.relocatedPath, "utf8"), sourceBefore);
+    await assertMissing(relocated.relocatedPath);
+  } finally {
+    await rm(source.root, { recursive: true, force: true });
+    await rm(warmRoot, { recursive: true, force: true });
+  }
+});
+
+test("warmstart keeps committed work and timing when package output fails after optimization", async () => {
+  const source = await makeConfig(await mkdtemp(join(tmpdir(), "unified-warmstart-source-")));
+  const warmRoot = await mkdtemp(join(tmpdir(), "unified-warmstart-package-fail-"));
+  try {
+    await mkdir(source.outputDir, { recursive: true });
+    assert.equal(await runStandardRunnerCli(["train", "--config", source.configPath]), 0);
+    const relocated = await makeRelocatedSourcePackage(warmRoot, source.packagePath);
+    const base = await readJson(source.configPath);
+    const setup = buildWarmConfig(base, warmRoot, relocated);
+    setup.config.training.maxEpochs = 1;
+    delete setup.config.training.epochsThisRun;
+    await mkdir(setup.packagePath, { recursive: true });
+    await writeJson(setup.configPath, setup.config);
+
+    assert.equal(await runStandardRunnerCli(["warmstart", "--config", setup.configPath]), 1);
+    const report = await readJson(join(setup.outputDir, "run-report.json"));
+    assert.equal(report.status, "failed");
+    assert.equal(report.error.code, "PACKAGE_SAVE_ERROR");
+    assert.equal(report.optimizerSteps, 1);
+    assert.equal(report.processedRows > 0, true);
+    assert.equal(report.thisRun.completedOptimizerSteps, 1);
+    assert.equal(report.trainReport.completedEpochs, 1);
+    assert.equal(report.thisRun.optimizationSeconds !== null, true);
+    assert.equal(report.thisRun.checkpointIoSecs !== null, true);
+    assert.equal(report.checkpointReload.tensorsMatch, true);
+    assert.notEqual(report.warmStart.epochZero, null);
+
+    const checkpoint = await readJson(setup.checkpointPath);
+    assert.equal(checkpoint.completedEpochs, 1);
+    await assert.rejects(
+      readFile(setup.packagePath, "utf8"),
+      error => error.code === "EISDIR" || error.code === "ENOTFILE",
+    );
   } finally {
     await rm(source.root, { recursive: true, force: true });
     await rm(warmRoot, { recursive: true, force: true });
@@ -465,7 +517,7 @@ test("warmstart config and source guards fail before optimizer work", async () =
       "CONFIG_ERROR",
       /ceilingAmendment is only valid for command=resume/,
     );
-    await attempt(
+    const missingSourceReport = await attempt(
       {
         command: "warmstart",
         phase: "posttraining",
@@ -474,6 +526,59 @@ test("warmstart config and source guards fail before optimizer work", async () =
       "WARMSTART_SOURCE_INVALID",
       /missing or invalid/,
     );
+    assert.match(missingSourceReport.error.cause, /MODEL_NOT_FOUND|missing or unreadable/);
+
+    const missingTraining = {
+      ...base,
+      command: "warmstart",
+      phase: "posttraining",
+      outputDir: join(warmRoot, "missing-training-out"),
+      warmStart: { sourcePackagePath: relocated.relocatedPath },
+    };
+    delete missingTraining.training;
+    await writeJson(configPath, missingTraining);
+    assert.equal(await runStandardRunnerCli(["warmstart", "--config", configPath]), 1);
+    const missingTrainingReport = await readJson(join(missingTraining.outputDir, "run-report.json"));
+    assert.equal(missingTrainingReport.status, "failed");
+    assert.equal(missingTrainingReport.error.code, "CONFIG_ERROR");
+    assert.equal(missingTrainingReport.optimizerSteps, 0);
+    assert.equal("warmStart" in missingTrainingReport, false);
+  } finally {
+    await rm(source.root, { recursive: true, force: true });
+    await rm(warmRoot, { recursive: true, force: true });
+  }
+});
+
+test("warmstart data-gate failure retains loaded source evidence with epoch-zero null", async () => {
+  const source = await makeConfig(await mkdtemp(join(tmpdir(), "unified-warmstart-source-")));
+  const warmRoot = await mkdtemp(join(tmpdir(), "unified-warmstart-data-fail-"));
+  try {
+    await mkdir(source.outputDir, { recursive: true });
+    assert.equal(await runStandardRunnerCli(["train", "--config", source.configPath]), 0);
+    const relocated = await makeRelocatedSourcePackage(warmRoot, source.packagePath);
+    const base = await readJson(source.configPath);
+    const setup = buildWarmConfig(base, warmRoot, relocated);
+    const invalidRowsPath = join(warmRoot, "invalid-data-rows.jsonl");
+    const gateRows = (await readFile(source.gateRowsPath, "utf8"))
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line));
+    gateRows[0].allowed = ["outside-s-g"];
+    await writeJsonl(invalidRowsPath, gateRows);
+    setup.config.dataGate.rowsPath = invalidRowsPath;
+    await writeJson(setup.configPath, setup.config);
+
+    assert.equal(await runStandardRunnerCli(["warmstart", "--config", setup.configPath]), 1);
+    const report = await readJson(join(setup.outputDir, "run-report.json"));
+    assert.equal(report.status, "DATA_INVALID");
+    assert.equal(report.optimizerSteps, 0);
+    assert.equal(report.warmStart.sourceModelId, "tests.unified-warmstart");
+    assert.equal(report.warmStart.inheritanceSource, "source_package");
+    assert.equal(report.warmStart.sourcePackageLoadedThisRun, true);
+    assert.equal(typeof report.warmStart.sourcePackageLoadSeconds, "number");
+    assert.equal(report.warmStart.epochZero, null);
+    await assertMissing(setup.packagePath);
+    await assertMissing(setup.checkpointPath);
   } finally {
     await rm(source.root, { recursive: true, force: true });
     await rm(warmRoot, { recursive: true, force: true });
