@@ -80,17 +80,25 @@ import {
   saveUnifiedTrainingCheckpointWithTiming,
   saveUnifiedTrainPackage,
   UnifiedTrainDataError,
+  UnifiedWarmStartEpochZeroError,
   type UnifiedPackageReloadReceipt,
   type UnifiedTrainConfig,
   type UnifiedTrainReport,
   type UnifiedTrainingRunOptions,
+  type UnifiedWarmStartSource,
 } from "./unified-train-config.js";
 import {
   UnifiedTrainingCheckpointError,
   loadUnifiedTrainingCheckpointFromFile,
   type UnifiedTrainingCheckpoint,
+  type UnifiedWarmStartEpochZeroReceipt,
+  type UnifiedWarmStartLineage,
 } from "./unified-training-checkpoint.js";
-import type { UnifiedModelPackage } from "./unified-model-package.js";
+import {
+  loadUnifiedModelPackageFromFile,
+  type UnifiedModelPackage,
+  type UnifiedModelPackageResource,
+} from "./unified-model-package.js";
 import {
   addCheckpointIoTiming,
   addPackageReloadSeconds,
@@ -111,6 +119,7 @@ const execFileAsync = promisify(execFile);
 export type StandardRunnerCommand =
   | "validate-data"
   | "train"
+  | "warmstart"
   | "resume"
   | "evaluate"
   | "convert-samples";
@@ -164,6 +173,7 @@ export interface UnifiedRunnerCorpusConfig {
   readonly supervisionRowsPath: string;
   readonly packagePath: string;
   readonly missingModeTablePath: string;
+  readonly slotMapPath?: string;
 }
 
 export interface UnifiedRunnerTrainingConfig {
@@ -185,6 +195,10 @@ export interface UnifiedRunnerTrainingConfig {
   readonly checkpointPath?: string;
 }
 
+export interface UnifiedRunnerWarmStartConfig {
+  readonly sourcePackagePath: string;
+}
+
 export interface UnifiedRunnerConfig {
   readonly schema: "nnanything.unified.runner-config.v1";
   readonly command: StandardRunnerCommand;
@@ -198,6 +212,7 @@ export interface UnifiedRunnerConfig {
   readonly outputDir: string;
   readonly corpus?: UnifiedRunnerCorpusConfig;
   readonly training?: UnifiedRunnerTrainingConfig;
+  readonly warmStart?: UnifiedRunnerWarmStartConfig;
   readonly evaluate?: UnifiedRunnerEvaluateConfig;
 }
 
@@ -434,6 +449,16 @@ interface UnifiedRunnerReport {
   readonly dataGate: UnifiedDataGateResult | null;
   readonly counts: UnifiedRunnerCounts | null;
   readonly trainReport: UnifiedTrainReport | null;
+  readonly warmStart?: {
+    readonly sourceModelId: string;
+    readonly sourceVersion: string;
+    readonly sourcePackagePath: string;
+    readonly sourcePackageLoadSeconds: number;
+    readonly epochZero: UnifiedWarmStartEpochZeroReceipt;
+    readonly initializer: "inherited_package";
+    readonly sourceTiming: null;
+    readonly sourceTimingReason: "package_carries_no_training_timing";
+  };
   readonly packageReload: UnifiedPackageReloadReceipt | null;
   readonly checkpointReload: UnifiedCheckpointReloadReceipt | null;
   readonly resumedFromEpoch: number | null;
@@ -689,6 +714,7 @@ function buildUnifiedTrainConfig(config: UnifiedRunnerConfig): UnifiedTrainConfi
       thresholdsSchema: "nnanything.feature-thresholds.v1",
       missingModeTableRef: resolve(corpus.missingModeTablePath),
       missingModeSchema: "nnanything.unified.missing-mode.v1",
+      ...(corpus.slotMapPath === undefined ? {} : { slotMapRef: resolve(corpus.slotMapPath) }),
     },
     modelId: training.modelId,
     version: training.version,
@@ -742,6 +768,174 @@ function unifiedRunnerCeilingAmendmentError(
     return "training.ceilingAmendment.amendedMaxEpochs must exceed previousMaxEpochs";
   }
   return null;
+}
+
+type WarmStartFailureCode =
+  | "WARMSTART_SOURCE_INVALID"
+  | "WARMSTART_SOURCE_INCOMPATIBLE"
+  | "WARMSTART_PATH_CONFLICT";
+
+class WarmStartRunnerError extends Error {
+  readonly code: WarmStartFailureCode;
+
+  constructor(code: WarmStartFailureCode, message: string) {
+    super(message);
+    this.name = "WarmStartRunnerError";
+    this.code = code;
+  }
+}
+
+function unifiedRunnerWarmStartConfigError(
+  command: StandardRunnerCommand,
+  config: UnifiedRunnerConfig,
+): string | null {
+  const warmStart = config.warmStart;
+  if (command === "warmstart") {
+    if (config.phase !== "posttraining") {
+      return "command=warmstart requires phase=posttraining";
+    }
+    if (warmStart === undefined) {
+      return "command=warmstart requires config.warmStart";
+    }
+  } else if (warmStart !== undefined) {
+    return "config.warmStart is only valid for command=warmstart";
+  }
+  if (warmStart === undefined) return null;
+  if (!isRecord(warmStart)) {
+    return "config.warmStart must be an object";
+  }
+  const keys = Object.keys(warmStart);
+  if (keys.length !== 1 || keys[0] !== "sourcePackagePath") {
+    return "config.warmStart must have exactly sourcePackagePath";
+  }
+  if (
+    typeof warmStart.sourcePackagePath !== "string"
+    || warmStart.sourcePackagePath.length === 0
+  ) {
+    return "config.warmStart.sourcePackagePath must be a non-empty string";
+  }
+  return null;
+}
+
+function assertWarmStartPathsDistinct(
+  sourcePackagePath: string,
+  targetPackagePath: string,
+  targetCheckpointPath: string,
+): void {
+  const pairs = [
+    ["source package", sourcePackagePath, "target package", targetPackagePath],
+    ["source package", sourcePackagePath, "target checkpoint", targetCheckpointPath],
+    ["target package", targetPackagePath, "target checkpoint", targetCheckpointPath],
+  ] as const;
+  for (const [leftLabel, leftPath, rightLabel, rightPath] of pairs) {
+    if (leftPath === rightPath) {
+      throw new WarmStartRunnerError(
+        "WARMSTART_PATH_CONFLICT",
+        `${leftLabel} and ${rightLabel} resolve to the same path: ${leftPath}; `
+        + `sourcePackagePath=${sourcePackagePath} `
+        + `targetPackagePath=${targetPackagePath} `
+        + `targetCheckpointPath=${targetCheckpointPath}`,
+      );
+    }
+  }
+}
+
+function assertWarmStartCompatible(
+  source: UnifiedModelPackageResource,
+  config: UnifiedRunnerConfig,
+  trainConfig: UnifiedTrainConfig,
+): void {
+  const mismatches: string[] = [];
+  if (
+    source.package.route.domain !== config.route.domain
+    || source.package.route.decisionKind !== config.route.decisionKind
+  ) {
+    mismatches.push(
+      `route source=${JSON.stringify(source.package.route)} target=${JSON.stringify(config.route)}`,
+    );
+  }
+  if (source.package.inputSchema !== trainConfig.inputSchema) {
+    mismatches.push(
+      `inputSchema source=${source.package.inputSchema} target=${trainConfig.inputSchema}`,
+    );
+  }
+  if (source.package.encoderVersion !== trainConfig.encoderVersion) {
+    mismatches.push(
+      `encoderVersion source=${source.package.encoderVersion} target=${trainConfig.encoderVersion}`,
+    );
+  }
+  const sourceArchitecture = source.package.architecture;
+  const targetArchitecture = {
+    input: trainConfig.architecture.input,
+    hidden: trainConfig.architecture.hidden,
+    output: trainConfig.architecture.output,
+    activation: "relu" as const,
+  };
+  if (
+    sourceArchitecture.input !== targetArchitecture.input
+    || sourceArchitecture.hidden.length !== targetArchitecture.hidden.length
+    || sourceArchitecture.hidden[0] !== targetArchitecture.hidden[0]
+    || sourceArchitecture.hidden[1] !== targetArchitecture.hidden[1]
+    || sourceArchitecture.output !== targetArchitecture.output
+    || sourceArchitecture.activation !== targetArchitecture.activation
+  ) {
+    mismatches.push(
+      `architecture source=${JSON.stringify(sourceArchitecture)} `
+      + `target=${JSON.stringify(targetArchitecture)}`,
+    );
+  }
+  if (
+    source.package.resources.thresholdsSchema
+    !== trainConfig.resources.thresholdsSchema
+  ) {
+    mismatches.push(
+      `thresholdsSchema source=${source.package.resources.thresholdsSchema} `
+      + `target=${trainConfig.resources.thresholdsSchema}`,
+    );
+  }
+  if (
+    source.package.resources.missingModeSchema
+    !== trainConfig.resources.missingModeSchema
+  ) {
+    mismatches.push(
+      `missingModeSchema source=${source.package.resources.missingModeSchema} `
+      + `target=${trainConfig.resources.missingModeSchema}`,
+    );
+  }
+  const targetSlotMapPath = trainConfig.resources.slotMapRef === undefined
+    ? null
+    : resolve(trainConfig.resources.slotMapRef);
+  if (source.resolvedResources.slotMapPath !== targetSlotMapPath) {
+    mismatches.push(
+      `slotMap source=${String(source.resolvedResources.slotMapPath)} `
+      + `target=${String(targetSlotMapPath)}`,
+    );
+  }
+  if (
+    source.resolvedResources.thresholdsPath
+    !== resolve(trainConfig.resources.thresholdsRef)
+  ) {
+    mismatches.push(
+      `thresholds resolved source=${source.resolvedResources.thresholdsPath} `
+      + `target=${resolve(trainConfig.resources.thresholdsRef)}`,
+    );
+  }
+  if (
+    source.resolvedResources.missingModeTablePath
+    !== resolve(trainConfig.resources.missingModeTableRef)
+  ) {
+    mismatches.push(
+      `missingModeTable resolved source=${source.resolvedResources.missingModeTablePath} `
+      + `target=${resolve(trainConfig.resources.missingModeTableRef)}`,
+    );
+  }
+  if (mismatches.length > 0) {
+    throw new WarmStartRunnerError(
+      "WARMSTART_SOURCE_INCOMPATIBLE",
+      `warm start source package ${source.packagePath} is incompatible: `
+      + `${mismatches.join("; ")}`,
+    );
+  }
 }
 
 function findNonFiniteUnifiedInput(
@@ -2198,13 +2392,14 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
   const validCommands: readonly StandardRunnerCommand[] = [
     "validate-data",
     "train",
+    "warmstart",
     "resume",
     "evaluate",
     "convert-samples",
   ];
   if (command === undefined || !validCommands.includes(command)) {
     process.stderr.write(
-      `Usage: l2-standard-runner <validate-data|train|resume|evaluate|convert-samples> --config <config.json>\n`,
+      `Usage: l2-standard-runner <validate-data|train|warmstart|resume|evaluate|convert-samples> --config <config.json>\n`,
     );
     return 2;
   }
@@ -2218,6 +2413,21 @@ export async function runStandardRunnerCli(argv: readonly string[]): Promise<num
   const parsedConfig: unknown = JSON.parse(
     await readFile(resolve(configPath), "utf8"),
   );
+  if (
+    command === "warmstart"
+    && (
+      parsedConfig === null
+      || typeof parsedConfig !== "object"
+      || Array.isArray(parsedConfig)
+      || (parsedConfig as Readonly<Record<string, unknown>>).schema
+        !== "nnanything.unified.runner-config.v1"
+    )
+  ) {
+    process.stderr.write(
+      "command=warmstart requires nnanything.unified.runner-config.v1\n",
+    );
+    return 2;
+  }
   if (
     parsedConfig !== null
     && typeof parsedConfig === "object"
@@ -2280,6 +2490,7 @@ export async function executeUnifiedRunnerRoute(
     command !== "validate-data"
     && command !== "convert-samples"
     && command !== "train"
+    && command !== "warmstart"
     && command !== "resume"
   ) {
     process.stderr.write(
@@ -2299,8 +2510,17 @@ export async function executeUnifiedRunnerRoute(
   let attemptProcessedRows: number | null = null;
   let completedOptimizerSteps: number | null = null;
   let completedProcessedRows: number | null = null;
+  let warmStart: NonNullable<UnifiedRunnerReport["warmStart"]> | null = null;
+  let warmStartFrom: UnifiedWarmStartSource | undefined;
+  let warmStartLineage: UnifiedWarmStartLineage | undefined;
+  let warmStartSourcePackageLoadSeconds = 0;
   const outputDir = resolve(config.outputDir);
   await mkdir(outputDir, { recursive: true });
+  if (command === "warmstart") {
+    // A warm-start failure before the optimizer is still an optimizer with zero
+    // steps; the accepted contract requires this explicit zero for evidence.
+    completedOptimizerSteps = 0;
+  }
   const noteCheckpointIo = (io: UnifiedCheckpointIoTiming): void => {
     checkpointIoSecs = checkpointIoSecs === null
       ? io
@@ -2393,6 +2613,8 @@ export async function executeUnifiedRunnerRoute(
   const supervisionRowsPath = resolve(corpus.supervisionRowsPath);
   const dataGateRowsPath = resolve(config.dataGate.rowsPath);
   const packagePath = resolve(corpus.packagePath);
+  const trainConfig = buildUnifiedTrainConfig(config);
+  const checkpointPath = unifiedCheckpointPath(config);
   let dataGate: UnifiedDataGateResult | null = null;
   let counts: UnifiedRunnerCounts | null = null;
   let trainReport: UnifiedTrainReport | null = null;
@@ -2452,6 +2674,7 @@ export async function executeUnifiedRunnerRoute(
       dataGate,
       counts,
       trainReport,
+      ...(warmStart === null ? {} : { warmStart }),
       packageReload,
       checkpointReload,
       resumedFromEpoch,
@@ -2479,8 +2702,42 @@ export async function executeUnifiedRunnerRoute(
     error = { code: "CONFIG_ERROR", message: amendmentError };
     return await finalize("failed", 1);
   }
+  const warmStartConfigError = unifiedRunnerWarmStartConfigError(command, config);
+  if (warmStartConfigError !== null) {
+    error = { code: "CONFIG_ERROR", message: warmStartConfigError };
+    return await finalize("failed", 1);
+  }
 
   try {
+    if (command === "warmstart") {
+      const sourcePackagePath = resolve(config.warmStart!.sourcePackagePath);
+      assertWarmStartPathsDistinct(sourcePackagePath, packagePath, checkpointPath);
+      const sourceLoadStartedNs = process.hrtime.bigint();
+      let loadedSource: UnifiedModelPackageResource;
+      try {
+        loadedSource = await loadUnifiedModelPackageFromFile(sourcePackagePath);
+      } catch (caught) {
+        warmStartSourcePackageLoadSeconds = monotonicSeconds(sourceLoadStartedNs);
+        loadSeconds += warmStartSourcePackageLoadSeconds;
+        throw new WarmStartRunnerError(
+          "WARMSTART_SOURCE_INVALID",
+          `warm start source package at ${sourcePackagePath} is missing or invalid: ${
+            caught instanceof Error ? caught.message : String(caught)
+          }`,
+        );
+      }
+      warmStartSourcePackageLoadSeconds = monotonicSeconds(sourceLoadStartedNs);
+      loadSeconds += warmStartSourcePackageLoadSeconds;
+      assertWarmStartCompatible(loadedSource, config, trainConfig);
+      warmStartFrom = {
+        tensors: loadedSource.package.tensors,
+        modelId: loadedSource.package.modelId,
+        version: loadedSource.package.version,
+        route: loadedSource.package.route,
+        encoderVersion: loadedSource.package.encoderVersion,
+        sourcePackagePath: loadedSource.packagePath,
+      };
+    }
     if (command === "convert-samples") {
       const admissions = await loadUnifiedFamilyAdmissions(corpus.admissionsPath);
       const familyDirs = await discoverUnifiedFamilyDirs(corpus.root);
@@ -2633,8 +2890,6 @@ export async function executeUnifiedRunnerRoute(
       error = { code: "non_finite", message: nonFiniteInput };
       return await finalize("failed", 1);
     }
-    const trainConfig = buildUnifiedTrainConfig(config);
-    const checkpointPath = unifiedCheckpointPath(config);
     let resumeFrom: UnifiedTrainingCheckpoint | undefined;
     if (command === "resume") {
       const checkpointLoadStartedNs = process.hrtime.bigint();
@@ -2655,12 +2910,26 @@ export async function executeUnifiedRunnerRoute(
     }
     const runOptions: UnifiedTrainingRunOptions = {
       ...(resumeFrom !== undefined ? { resumeFrom } : {}),
+      ...(warmStartFrom !== undefined ? { warmStartFrom } : {}),
       ...(config.training?.epochsThisRun !== undefined
         ? { epochsThisRun: config.training.epochsThisRun }
         : {}),
     };
     const result = runUnifiedTraining(encodedGroups, trainConfig, runOptions);
     trainReport = result.report;
+    warmStartLineage = result.warmStartLineage;
+    if (warmStartLineage !== undefined) {
+      warmStart = {
+        sourceModelId: warmStartLineage.sourceModelId,
+        sourceVersion: warmStartLineage.sourceVersion,
+        sourcePackagePath: warmStartLineage.sourcePackagePath,
+        sourcePackageLoadSeconds: warmStartSourcePackageLoadSeconds,
+        epochZero: warmStartLineage.epochZero,
+        initializer: "inherited_package",
+        sourceTiming: null,
+        sourceTimingReason: "package_carries_no_training_timing",
+      };
+    }
     optimizationSeconds = result.timing.optimizationSeconds;
     const startEpoch = resumeFrom?.completedEpochs ?? 0;
     const appendedEpochs = result.report.epochs.slice(startEpoch);
@@ -2700,6 +2969,7 @@ export async function executeUnifiedRunnerRoute(
             (previousCumulative?.processedRows ?? 0) + (completedProcessedRows ?? 0),
         };
     let savedCheckpoint: UnifiedTrainingCheckpoint;
+    const checkpointWarmStart = warmStartLineage ?? resumeFrom?.warmStart;
     const checkpointSaveStartedNs = process.hrtime.bigint();
     try {
       if (committedCumulative === null) {
@@ -2708,6 +2978,8 @@ export async function executeUnifiedRunnerRoute(
           trainConfig,
           result.report,
           result.tensors,
+          undefined,
+          checkpointWarmStart,
         );
         noteCheckpointIo({
           serializeSeconds: monotonicSeconds(checkpointSaveStartedNs),
@@ -2729,6 +3001,7 @@ export async function executeUnifiedRunnerRoute(
               reason: result.report.status === "paused" ? "paused" : "epoch_commit",
             },
           },
+          checkpointWarmStart,
         );
         savedCheckpoint = saved.checkpoint;
         noteCheckpointIo(saved.io);
@@ -2801,6 +3074,13 @@ export async function executeUnifiedRunnerRoute(
     return await finalize("completed", 0);
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : String(caught);
+    if (
+      caught instanceof WarmStartRunnerError
+      || caught instanceof UnifiedWarmStartEpochZeroError
+    ) {
+      error = { code: caught.code, message };
+      return await finalize("failed", 1);
+    }
     if (caught instanceof UnifiedTrainDataError || caught instanceof StepwiseStudentDataError) {
       error = { code: "DATA_INVALID", message };
       return await finalize("DATA_INVALID", 1);

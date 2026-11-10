@@ -5,6 +5,11 @@
 模型包与回载边界，并记录当前实现差距。没有启动 fit、train、resume，没有修改权重、
 gold、threshold、采用状态、产品接线或安装。
 
+2026-11-10 更新：按 Alice 已接受的 TS/JS post-training warm-start 合同，增加
+`warmstart` 入口、独立 post-training lineage、`corpus.slotMapPath` 和
+warmstart→resume 切换边界。此更新仍只使用合成 fixture，不训练真实样本，不改权重、
+gold、threshold、采用状态或安装。
+
 ## 1. 适用合同与固定边界
 
 本页继承以下既有来源，不新建第二套训练配方：
@@ -27,6 +32,7 @@ optimizer 为 `full_batch_sgd (momentum=0)`，learning rate 为 `0.01`，max epo
 node dist/training/l2-standard-runner.js convert-samples --config <runner-config.json>
 node dist/training/l2-standard-runner.js validate-data --config <runner-config.json>
 node dist/training/l2-standard-runner.js train --config <runner-config.json>
+node dist/training/l2-standard-runner.js warmstart --config <runner-config.json>
 node dist/training/l2-standard-runner.js resume --config <runner-config.json>
 node dist/training/l2-standard-runner.js evaluate --config <runner-config.json>
 ```
@@ -38,8 +44,13 @@ node dist/training/l2-standard-runner.js evaluate --config <runner-config.json>
 | `convert-samples` | 可用 | 写学生行和监督行两个物理路径 |
 | `validate-data` | 可用 | 64 槽 typed 行、TRAIN 分区、threshold 和泄漏检查 |
 | `train` | 可用 | 只接收 TRAIN；当前会把 tensor package 保存到配置的 package path |
+| `warmstart` | 可用 | 仅接收统一 runner config；从已验收推理包初始化新 post-training stage |
 | `resume` | 可用 | 从独立 training checkpoint 恢复同一 recipe 的 epoch/tensor 状态 |
 | `evaluate` | `NOT_READY`，exit 2 | 独立 holdout 评价尚未接入该命令 |
+
+`warmstart` 只接受 `nnanything.unified.runner-config.v1`。非统一
+`StandardRunnerConfig` 以该命令传入时显式拒绝，不进入旧 runner 训练路径。普通
+`train` 和 `resume` 不接受 `warmStart` 配置块。
 
 语料直转换入口为：
 
@@ -81,6 +92,26 @@ inference tensor 回载，不证明 resume。
 5. `labelMissing=true` 的行不进入拟合组，但保留监督证据和排除计数。
 6. 空 `A_g`、`A_g` 不属于 `S_g`、学生行带 gold/teacher 字段时显式拒绝；不能生成
    candidate。
+
+统一 runner config 保持 `nnanything.unified.runner-config.v1`，并增加一个可选根块：
+
+```json
+{
+  "command": "warmstart",
+  "phase": "posttraining",
+  "corpus": {
+    "slotMapPath": "/absolute/path/to/slot-map.json"
+  },
+  "warmStart": {
+    "sourcePackagePath": "/absolute/path/to/accepted-package.json"
+  }
+}
+```
+
+`warmStart` 只在 `command=warmstart` 且 `phase=posttraining` 时合法。
+`warmstart` 不接受 `ceilingAmendment`。`corpus.slotMapPath` 可选；存在时写入目标
+package 的 `resources.slotMapRef`，缺失时源和目标都必须没有 slot map。源包、目标
+package 和目标 checkpoint 的解析路径必须两两不同。
 
 当前 `train` 和 `resume` 还显式拒绝配置中的 `evalSources`。DEV 和 VERIFICATION
 不能借评估路径进入拟合。这个边界是后续独立 holdout 的前提。
@@ -157,6 +188,35 @@ early-stop state 属于独立的 `nnanything.unified.training-checkpoint.v1`。�
 - 本 fitter 的 RNG 只影响初始 Xavier 参数。checkpoint 已保存实际参数 tensors，
   因此不保存 RNG state，也不从 seed 重推参数。
 
+`warmstart` 创建的 post-training checkpoint 在同一 v1 schema 上增加可选
+`warmStart` lineage：
+
+```json
+{
+  "schema": "nnanything.unified.training-checkpoint.v1",
+  "warmStart": {
+    "kind": "package-warm-start",
+    "sourceModelId": "accepted-model-id",
+    "sourceVersion": "accepted-version",
+    "sourcePackagePath": "/absolute/path/to/accepted-package.json",
+    "sourceRoute": { "domain": "tsjs", "decisionKind": "R" },
+    "sourceEncoderVersion": "nnanything.unified-step.encoder.v2",
+    "epochZero": {
+      "exact": true,
+      "tensorEquality": true,
+      "checkedInputs": 4,
+      "maxAbsDelta": 0
+    }
+  }
+}
+```
+
+该 lineage 是普通 post-training checkpoint 的附加字段。`completedEpochs`、
+`epochRecords`、`violations` 和 timing 只覆盖 post-training stage。后续
+`command=resume` 不读取源包，也不重新验证源路径；它从 checkpoint 继承 lineage。
+resume 配置必须移除 `warmStart`，并保持目标 route、encoder、recipe、身份、资源和
+checkpoint path 不变。
+
 该实现不宣称 `evaluate` 或独立 holdout 已经接入；它们仍由独立评价合同维护。
 
 ### 5.3 当前判定
@@ -189,6 +249,27 @@ typed、可核对的训练状态。
 - 上述两部分的 owner 是研究设计 owner（Carol），准入依赖是 Alice 接受独立评价与计时
   合同；完成并接入后再启动真实 fit。
 
+### 5.5 warm-start 计时与 epoch-zero
+
+`warmstart` 只初始化一个新 post-training stage。第一次调用开始时：
+
+- `completedEpochs=0`，`epochRecords=[]`，`violations=[]`；
+- 新 stage 的 cumulative optimizer steps、processed rows 和 timing 从 0 开始；
+- 源包不属于新 stage 的 optimizer 状态，`sourceTiming=null`，
+  `sourceTimingReason="package_carries_no_training_timing"`；
+- 源包读取时间计入本 stage 的 `loadSeconds`，并在
+  `warmStart.sourcePackageLoadSeconds` 单独报告。
+
+数据门通过并完成编码后，优化器启动前必须对所有 TRAIN candidate input 执行
+epoch-zero 检查：源 tensors 与克隆后的 post-training tensors 六个张量逐项相等，且
+每个输入的 forward score `===` 源包结果。失败为
+`WARMSTART_EPOCH0_MISMATCH`，报告 `optimizerSteps=0`，不写 checkpoint 或 package。
+
+warm-start 兼容检查比较 source/target 的 route、inputSchema、encoderVersion、
+64→64→64→1 ReLU architecture、tensor shape 和实际解析后的 thresholds、missing-mode、
+slotMap 资源路径。资源引用字符串不同但解析到同一文件是合法；解析到不同文件则
+显式失败。源和目标 modelId/version 相同不作为兼容性门槛，也不作为阶段分离证明。
+
 ## 6. 最小验证命令
 
 以下命令只做准备与现状核对，不运行 fit、train 或 resume：
@@ -198,6 +279,7 @@ npm run build
 
 node --test tests/unified-model-package.test.mjs
 node --test tests/unified-runner-route.test.mjs
+node --test tests/unified-warmstart-contract.test.mjs
 node --test tests/unified-data-gate.test.mjs
 node --test tests/relation-oracle-evaluator.test.mjs
 node --test tests/unified-runner-convert-train.test.mjs
