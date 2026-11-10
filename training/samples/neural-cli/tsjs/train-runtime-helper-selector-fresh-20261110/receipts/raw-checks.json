@@ -1,0 +1,344 @@
+{
+  "schema": "nnanything.tsjs.helper-source-checks.fresh-train.v1",
+  "family": "train-runtime-helper-selector-fresh-20261110",
+  "partition": "TRAIN",
+  "compilerVersion": "5.9.3",
+  "structural": [
+    {
+      "id": "tr-f01-direct-import-block",
+      "files": [
+        "sources/tr-f01-direct-import-block/routes.ts",
+        "sources/tr-f01-direct-import-block/strategies.ts"
+      ],
+      "selectorConstruction": "direct caller parameter",
+      "callSiteLayout": "result captured in a const and returned",
+      "diagnostics": [],
+      "compilerQuery": {
+        "api": "ts.createProgram + program.getTypeChecker().getSymbolAtLocation",
+        "queriedNodes": [
+          {
+            "query": "getSymbolAtLocation(helper name identifier)",
+            "file": "sources/tr-f01-direct-import-block/strategies.ts",
+            "text": "parserFor",
+            "result": "resolved symbol",
+            "declarations": 1
+          },
+          {
+            "query": "getSymbolAtLocation(table reference identifier)",
+            "file": "sources/tr-f01-direct-import-block/strategies.ts",
+            "text": "parsers",
+            "result": "resolved symbol",
+            "declarations": 1
+          }
+        ],
+        "scope": "the exact case file set passed as rootNames to the TypeScript program",
+        "notUsed": "no symbol query on the outer CallExpression callee is used as evidence"
+      },
+      "resolvedHelper": {
+        "name": "parserFor",
+        "parameterNames": [
+          "strategy"
+        ],
+        "statements": 1,
+        "returnExpression": "parsers[strategy]"
+      },
+      "resolvedTable": {
+        "name": "parsers",
+        "members": [
+          {
+            "key": "strict",
+            "file": "sources/tr-f01-direct-import-block/strategies.ts",
+            "line": 4,
+            "column": 3,
+            "initializerKind": "ArrowFunction",
+            "initializerText": "(raw: string) => raw.trim()",
+            "callable": true
+          },
+          {
+            "key": "loose",
+            "file": "sources/tr-f01-direct-import-block/strategies.ts",
+            "line": 5,
+            "column": 3,
+            "initializerKind": "ArrowFunction",
+            "initializerText": "(raw: string) => raw",
+            "callable": true
+          }
+        ]
+      },
+      "outerCall": {
+        "callText": "parserFor(strategy)(raw)",
+        "file": "sources/tr-f01-direct-import-block/routes.ts",
+        "line": 4,
+        "column": 18,
+        "payloadTexts": [
+          "raw"
+        ]
+      },
+      "selectorPath": {
+        "kind": "direct caller parameter",
+        "expressionText": "strategy"
+      },
+      "selectorDomain": [
+        "loose",
+        "strict"
+      ]
+    },
+    {
+      "id": "tr-f02-alias-single-module",
+      "files": [
+        "sources/tr-f02-alias-single-module/formatter.ts"
+      ],
+      "selectorConstruction": "one immutable local alias",
+      "callSiteLayout": "single straight-line return",
+      "diagnostics": [],
+      "compilerQuery": {
+        "api": "ts.createProgram + program.getTypeChecker().getSymbolAtLocation",
+        "queriedNodes": [
+          {
+            "query": "getSymbolAtLocation(helper name identifier)",
+            "file": "sources/tr-f02-alias-single-module/formatter.ts",
+            "text": "styleFor",
+            "result": "resolved symbol",
+            "declarations": 1
+          },
+          {
+            "query": "getSymbolAtLocation(table reference identifier)",
+            "file": "sources/tr-f02-alias-single-module/formatter.ts",
+            "text": "styles",
+            "result": "resolved symbol",
+            "declarations": 1
+          }
+        ],
+        "scope": "the exact case file set passed as rootNames to the TypeScript program",
+        "notUsed": "no symbol query on the outer CallExpression callee is used as evidence"
+      },
+      "resolvedHelper": {
+        "name": "styleFor",
+        "parameterNames": [
+          "style"
+        ],
+        "statements": 1,
+        "returnExpression": "styles[style]"
+      },
+      "resolvedTable": {
+        "name": "styles",
+        "members": [
+          {
+            "key": "currency",
+            "file": "sources/tr-f02-alias-single-module/formatter.ts",
+            "line": 4,
+            "column": 3,
+            "initializerKind": "ArrowFunction",
+            "initializerText": "(amount: number) => `$${amount.toFixed(2)}`",
+            "callable": true
+          },
+          {
+            "key": "percent",
+            "file": "sources/tr-f02-alias-single-module/formatter.ts",
+            "line": 5,
+            "column": 3,
+            "initializerKind": "ArrowFunction",
+            "initializerText": "(amount: number) => `${(amount * 100).toFixed(1)}%`",
+            "callable": true
+          }
+        ]
+      },
+      "outerCall": {
+        "callText": "styleFor(chosen)(amount)",
+        "file": "sources/tr-f02-alias-single-module/formatter.ts",
+        "line": 14,
+        "column": 10,
+        "payloadTexts": [
+          "amount"
+        ]
+      },
+      "selectorPath": {
+        "kind": "one immutable local alias",
+        "expressionText": "chosen",
+        "aliasDeclarationText": "const chosen = style;"
+      },
+      "selectorDomain": [
+        "currency",
+        "percent"
+      ]
+    },
+    {
+      "id": "tr-f03-direct-nested-block",
+      "files": [
+        "sources/tr-f03-direct-nested-block/index.ts",
+        "sources/tr-f03-direct-nested-block/operations.ts"
+      ],
+      "selectorConstruction": "direct caller parameter",
+      "callSiteLayout": "return inside one nested block statement",
+      "diagnostics": [],
+      "compilerQuery": {
+        "api": "ts.createProgram + program.getTypeChecker().getSymbolAtLocation",
+        "queriedNodes": [
+          {
+            "query": "getSymbolAtLocation(helper name identifier)",
+            "file": "sources/tr-f03-direct-nested-block/operations.ts",
+            "text": "stepperFor",
+            "result": "resolved symbol",
+            "declarations": 1
+          },
+          {
+            "query": "getSymbolAtLocation(table reference identifier)",
+            "file": "sources/tr-f03-direct-nested-block/operations.ts",
+            "text": "steppers",
+            "result": "resolved symbol",
+            "declarations": 1
+          }
+        ],
+        "scope": "the exact case file set passed as rootNames to the TypeScript program",
+        "notUsed": "no symbol query on the outer CallExpression callee is used as evidence"
+      },
+      "resolvedHelper": {
+        "name": "stepperFor",
+        "parameterNames": [
+          "step"
+        ],
+        "statements": 1,
+        "returnExpression": "steppers[step]"
+      },
+      "resolvedTable": {
+        "name": "steppers",
+        "members": [
+          {
+            "key": "add",
+            "file": "sources/tr-f03-direct-nested-block/operations.ts",
+            "line": 4,
+            "column": 3,
+            "initializerKind": "ArrowFunction",
+            "initializerText": "(base: number) => base + 1",
+            "callable": true
+          },
+          {
+            "key": "multiply",
+            "file": "sources/tr-f03-direct-nested-block/operations.ts",
+            "line": 5,
+            "column": 3,
+            "initializerKind": "ArrowFunction",
+            "initializerText": "(base: number) => base * 2",
+            "callable": true
+          }
+        ]
+      },
+      "outerCall": {
+        "callText": "stepperFor(step)(base)",
+        "file": "sources/tr-f03-direct-nested-block/index.ts",
+        "line": 5,
+        "column": 12,
+        "payloadTexts": [
+          "base"
+        ]
+      },
+      "selectorPath": {
+        "kind": "direct caller parameter",
+        "expressionText": "step"
+      },
+      "selectorDomain": [
+        "add",
+        "multiply"
+      ]
+    }
+  ],
+  "runtimeContrast": [
+    {
+      "id": "tr-f01-direct-import-block",
+      "method": "compile the case to CommonJS in a disposable dir, append proof-only exports for the helper module, require it, and compare the reached callable with the outer call result",
+      "perSelector": [
+        {
+          "selector": "strict",
+          "payload": "  hi  ",
+          "referenceEqual": true,
+          "reachedCallableName": "strict",
+          "reachedCallableKind": "function",
+          "outerCallResult": "hi",
+          "reachedMemberResult": "hi",
+          "outerCallMatchesMember": true,
+          "expected": "hi",
+          "matchesExpected": true
+        },
+        {
+          "selector": "loose",
+          "payload": "  hi  ",
+          "referenceEqual": true,
+          "reachedCallableName": "loose",
+          "reachedCallableKind": "function",
+          "outerCallResult": "  hi  ",
+          "reachedMemberResult": "  hi  ",
+          "outerCallMatchesMember": true,
+          "expected": "  hi  ",
+          "matchesExpected": true
+        }
+      ],
+      "distinctCallables": true,
+      "status": "ok"
+    },
+    {
+      "id": "tr-f02-alias-single-module",
+      "method": "compile the case to CommonJS in a disposable dir, append proof-only exports for the helper module, require it, and compare the reached callable with the outer call result",
+      "perSelector": [
+        {
+          "selector": "currency",
+          "payload": 12.5,
+          "referenceEqual": true,
+          "reachedCallableName": "currency",
+          "reachedCallableKind": "function",
+          "outerCallResult": "$12.50",
+          "reachedMemberResult": "$12.50",
+          "outerCallMatchesMember": true,
+          "expected": "$12.50",
+          "matchesExpected": true
+        },
+        {
+          "selector": "percent",
+          "payload": 12.5,
+          "referenceEqual": true,
+          "reachedCallableName": "percent",
+          "reachedCallableKind": "function",
+          "outerCallResult": "1250.0%",
+          "reachedMemberResult": "1250.0%",
+          "outerCallMatchesMember": true,
+          "expected": "1250.0%",
+          "matchesExpected": true
+        }
+      ],
+      "distinctCallables": true,
+      "status": "ok"
+    },
+    {
+      "id": "tr-f03-direct-nested-block",
+      "method": "compile the case to CommonJS in a disposable dir, append proof-only exports for the helper module, require it, and compare the reached callable with the outer call result",
+      "perSelector": [
+        {
+          "selector": "add",
+          "payload": 41,
+          "referenceEqual": true,
+          "reachedCallableName": "add",
+          "reachedCallableKind": "function",
+          "outerCallResult": 42,
+          "reachedMemberResult": 42,
+          "outerCallMatchesMember": true,
+          "expected": 42,
+          "matchesExpected": true
+        },
+        {
+          "selector": "multiply",
+          "payload": 41,
+          "referenceEqual": true,
+          "reachedCallableName": "multiply",
+          "reachedCallableKind": "function",
+          "outerCallResult": 82,
+          "reachedMemberResult": 82,
+          "outerCallMatchesMember": true,
+          "expected": 82,
+          "matchesExpected": true
+        }
+      ],
+      "distinctCallables": true,
+      "status": "ok"
+    }
+  ],
+  "status": "CHECKS_COMPLETE"
+}

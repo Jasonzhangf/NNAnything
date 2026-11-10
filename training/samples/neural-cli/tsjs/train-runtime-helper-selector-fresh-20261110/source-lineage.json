@@ -1,0 +1,155 @@
+{
+  "schema": "nnanything.tsjs.helper-source-lineage.v2",
+  "family": "tsjs-train-runtime-helper-selector-fresh-20261110",
+  "partition": "TRAIN",
+  "synthetic": true,
+  "lineageFixedAt": "2026-11-10T23:08:20Z",
+  "lineageEvidence": {
+    "kind": "fresh authorship against the accepted contract; no shared template or transformed derivative",
+    "authorContext": "Tina, Codex session 01a1c60e-66bd-7c13-8d21-325b7c519b3c, worktree /Volumes/Intel/playground/nnanything/tsjs-train-helper-selector-r1-20261110, branch tsjs-train-helper-selector-r1-20261110",
+    "contract": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-source-fixture-prep-r1-20261110/helper-source-proof-contract.md",
+    "authoringInputs": [
+      "the accepted helper-source-proof-contract.md",
+      "the public producer runTsJsSymbolTable and its policy types in this worktree",
+      "the already-merged TRAIN helper family retained under train-runtime-helper-selector-r1, read for context and to confirm the occupied name; the fresh programs are distinct and are not a copy, rename, or transformed derivative of it"
+    ],
+    "independentAuthorship": true,
+    "independentFromDev": "The TRAIN author (Tina) did not read any DEV source file contents and did not read any verification family. The fresh TRAIN programs were authored independently from the accepted contract and public producer, not derived from the DEV counterpart.",
+    "nameCollisionResolution": "The contract's requested TRAIN root train-runtime-helper-selector-r1 is already occupied by preserved, Alice-accepted preparation material in origin/main. Following the same resolution as the sibling fresh DEV task, this fresh family uses a distinct root and leaves the earlier family untouched.",
+    "sharedSyntax": "Reviewed helper(selector)(...) over a finite const object-literal callable table.",
+    "scopeIntent": "Relative to the already accepted TRAIN source/proof preparation bb67cd7, this fresh family supplies three additional, independently authored runtime-unknown contexts with distinct module arrangements, selector constructions, and call-site layouts. It does not displace the accepted preparation and does not claim to be the active request-aware admission task. If no independent increment is confirmed, it remains extra unadmitted preparation.",
+    "lineageDimensions": {
+      "sourceRoot": "train-runtime-helper-selector-fresh-20261110 (distinct from the preserved train-runtime-helper-selector-r1 and from the DEV roots)",
+      "moduleArrangement": "per-case directory; two-module for tr-f01 and tr-f03 (separate caller and helper modules), single-module for tr-f02",
+      "selectorHelperDeclarations": ["parserFor", "styleFor", "stepperFor"],
+      "selectorConstruction": ["direct caller parameter", "one immutable local alias", "direct caller parameter"],
+      "callSiteLayout": [
+        "result captured in a const and returned",
+        "single straight-line return",
+        "return inside one nested block statement"
+      ]
+    },
+    "isolationNote": "Independence is claimed by non-exposure of the DEV source contents and verification families, not by directory-name comparison. Per authoringInputs, the author used the accepted contract, the public producer, its own authored programs, and the already-merged TRAIN helper family read only for context and name-collision confirmation. These are attestations, not independently verified unseen-family claims."
+  },
+  "instances": [
+    {
+      "id": "tr-f01-direct-import-block",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-f01-direct-import-block",
+      "entry": "sources/tr-f01-direct-import-block/routes.ts",
+      "helperModule": "sources/tr-f01-direct-import-block/strategies.ts",
+      "selectorHelper": "parserFor",
+      "requestedTarget": {
+        "kind": "table_member_callable",
+        "name": "strict",
+        "role": "member",
+        "callableKind": "function",
+        "declarationRef": "callable.arrow_function:sources/tr-f01-direct-import-block/strategies.ts@4:11-4:38",
+        "moduleRef": "module:sources/tr-f01-direct-import-block/strategies.ts",
+        "span": { "startLine": 4, "startCol": 11, "endLine": 4, "endCol": 38 },
+        "syntaxKind": "arrow_function",
+        "mappingSource": "public producer callableTable.members[0].callableIdentity"
+      },
+      "distinctAlternative": {
+        "name": "loose",
+        "declarationRef": "callable.arrow_function:sources/tr-f01-direct-import-block/strategies.ts@5:10-5:30",
+        "moduleRef": "module:sources/tr-f01-direct-import-block/strategies.ts",
+        "span": { "startLine": 5, "startCol": 10, "endLine": 5, "endCol": 30 }
+      },
+      "callSiteExpression": "parserFor(strategy)(raw)",
+      "selectorConstruction": "direct caller parameter",
+      "callSiteLayout": "result captured in a const and returned",
+      "moduleLayout": "caller module plus a separate helper module that owns the table",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, structural proof, callable-identity runtime contrast, and raw public producer observation are complete. This family has not been passed through the existing request-aware admission/config path, so no admitted episode exists. No typed role, join, candidate group, or receipt is invented."
+    },
+    {
+      "id": "tr-f02-alias-single-module",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-f02-alias-single-module",
+      "entry": "sources/tr-f02-alias-single-module/formatter.ts",
+      "helperModule": "sources/tr-f02-alias-single-module/formatter.ts",
+      "selectorHelper": "styleFor",
+      "requestedTarget": {
+        "kind": "table_member_callable",
+        "name": "currency",
+        "role": "member",
+        "callableKind": "function",
+        "declarationRef": "callable.arrow_function:sources/tr-f02-alias-single-module/formatter.ts@4:13-4:56",
+        "moduleRef": "module:sources/tr-f02-alias-single-module/formatter.ts",
+        "span": { "startLine": 4, "startCol": 13, "endLine": 4, "endCol": 56 },
+        "syntaxKind": "arrow_function",
+        "mappingSource": "public producer callableTable.members[0].callableIdentity"
+      },
+      "distinctAlternative": {
+        "name": "percent",
+        "declarationRef": "callable.arrow_function:sources/tr-f02-alias-single-module/formatter.ts@5:12-5:63",
+        "moduleRef": "module:sources/tr-f02-alias-single-module/formatter.ts",
+        "span": { "startLine": 5, "startCol": 12, "endLine": 5, "endCol": 63 }
+      },
+      "callSiteExpression": "styleFor(chosen)(amount)",
+      "selectorConstruction": "one immutable local alias",
+      "callSiteLayout": "single straight-line return",
+      "moduleLayout": "single module owning the table, helper, and caller",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, structural proof, callable-identity runtime contrast, and raw public producer observation are complete. This family has not been passed through the existing request-aware admission/config path, so no admitted episode exists. No typed role, join, candidate group, or receipt is invented."
+    },
+    {
+      "id": "tr-f03-direct-nested-block",
+      "role": "runtime-selected unknown",
+      "sourceRoot": "sources/tr-f03-direct-nested-block",
+      "entry": "sources/tr-f03-direct-nested-block/index.ts",
+      "helperModule": "sources/tr-f03-direct-nested-block/operations.ts",
+      "selectorHelper": "stepperFor",
+      "requestedTarget": {
+        "kind": "table_member_callable",
+        "name": "add",
+        "role": "member",
+        "callableKind": "function",
+        "declarationRef": "callable.arrow_function:sources/tr-f03-direct-nested-block/operations.ts@4:8-4:34",
+        "moduleRef": "module:sources/tr-f03-direct-nested-block/operations.ts",
+        "span": { "startLine": 4, "startCol": 8, "endLine": 4, "endCol": 34 },
+        "syntaxKind": "arrow_function",
+        "mappingSource": "public producer callableTable.members[0].callableIdentity"
+      },
+      "distinctAlternative": {
+        "name": "multiply",
+        "declarationRef": "callable.arrow_function:sources/tr-f03-direct-nested-block/operations.ts@5:13-5:39",
+        "moduleRef": "module:sources/tr-f03-direct-nested-block/operations.ts",
+        "span": { "startLine": 5, "startCol": 13, "endLine": 5, "endCol": 39 }
+      },
+      "callSiteExpression": "stepperFor(step)(base)",
+      "selectorConstruction": "direct caller parameter",
+      "callSiteLayout": "return inside one nested block statement",
+      "moduleLayout": "caller module plus a separate helper module that owns the table",
+      "status": "NOT_READY",
+      "producerObservation": "supported",
+      "reason": "Source, structural proof, callable-identity runtime contrast, and raw public producer observation are complete. This family has not been passed through the existing request-aware admission/config path, so no admitted episode exists. No typed role, join, candidate group, or receipt is invented."
+    }
+  ],
+  "controls": [
+    {
+      "id": "control-static-selector",
+      "path": "controls/static-selector.ts",
+      "kind": "non-runtime constant selector",
+      "expectedProducerObservations": 0,
+      "expectedProducerGaps": 0
+    },
+    {
+      "id": "control-direct-index",
+      "path": "controls/direct-index.ts",
+      "kind": "out-of-slice direct table-index call",
+      "expectedProducerObservations": 0,
+      "expectedProducerGaps": 0
+    }
+  ],
+  "evidence": {
+    "structuralAndRuntimeReceipt": "receipts/raw-checks.json",
+    "publicProducerOutput": "receipts/public-producer-output.json",
+    "semanticProofs": "proofs/semantic-proofs.md",
+    "supportedNotReady": "receipts/supported-not-ready.md",
+    "replayDriver": "proofs/verify-fresh-train.mjs"
+  }
+}
