@@ -61,6 +61,13 @@ interface BA1RealSiteBrowserProjectionRequest {
 The page bridge resolves `scopeSelector` to the live scope root. A missing or
 ambiguous resolver is a typed error, not a fallback to the whole document.
 
+Scope limitation: `scopeSelector` resolves only to the explicitly resolvable
+host-document scope. It does not authorize traversal through MDN's known
+shadow-root boundary. If candidates are behind that boundary, coverage is
+reported `partial`/unresolved for this successor; no minimal exact shadow-root
+resolver is defined in this design, and scope must not be broadened to claim
+full source coverage.
+
 The page bridge then:
 
 1. Calls the existing live-DOM observer in the page.
@@ -212,27 +219,52 @@ replacement therefore cannot leave consumers closed over the old authority.
 from a live DOM observation to the projected observation plus a control reader:
 
 ```ts
+interface BA1RealSiteControlRead {
+  readonly identity: BA1Identity;
+  readonly generation: number;
+}
+
 interface BA1RealSiteFirstResultRequest {
   readonly observation: BA1RealSiteProjectedObservation;
   readonly packagePath: string;
-  readonly currentControl: () => BA1Identity;
+  readonly currentControl: () => BA1RealSiteControlRead;
   readonly gold: BA1EvaluatorGold;
   readonly sampleId: string;
   readonly outputDir: string;
 }
 ```
 
-The consumer reads `currentControl()` at the evaluation boundary. The stale gate
-compares the projected identity with that independently read token before model
-loading and before any forward. If they differ, it writes the typed failure
-receipt and does not call the model.
+The consumer reads an independent `currentControl()` value at three business
+boundaries. A value captured when the request is constructed is not authority.
 
-The consumer reads `currentControl()` again immediately before the atomic
-success write. If the token changed during evaluation, the first-result write
-is rejected as stale and the failure receipt retains the observed identity and
-the latest current token. This keeps provider replacement at the actual
-evaluation caller instead of relying on a token captured when the request was
-constructed.
+1. Admission gate before any package load: compare the projected identity with
+   the independently read current-control identity. If they differ, write a
+   typed failure receipt and do not load or call the model.
+2. Pre-forward freshness gate after all awaited package preparation and
+   immediately before synchronous encode/forward: read `currentControl()` again
+   and compare its identity and generation with the captured operation token.
+   Provider replacement while package load is pending rejects
+   `stale_forward_gate` with no forward and no scores.
+3. Acceptance cut after forward completes and before persistence: make one
+   synchronous read of `currentControl()` and capture the observed identity,
+   generation, forward status, scores/evaluation, and projection as the
+   acceptance snapshot. If the token changed after forward but before
+   acceptance, preserve the already-computed scores/evaluation and
+   `forward: completed` in failure/attempt evidence, record
+   `current_control_changed_before_acceptance`, do not discard the first
+   scores, do not label forward `not_run`, and do not retry to replace them.
+
+Persistence is a recorded decision cut, not continuous DOM freshness across
+disk I/O. The saver performs multiple async `open`/`write`/`rename` operations
+and per-file renames; it is not one navigation transaction spanning provider
+state and all files. A single pre-write check cannot guarantee that no
+navigation occurs during those writes. The acceptance cut is therefore the
+synchronization point: it records the provider state at a synchronous decision
+moment with immutable observed identity and result evidence. A later navigation
+during or after save is an audit fact and does not retroactively turn the
+historical record false. `currentControl` in persisted records is an audit
+value only; it is never read back as authority and never substituted for the
+active provider.
 
 The output location and existing files are unchanged:
 
@@ -242,9 +274,6 @@ real-site-evaluation.jsonl
 summary.json
 failure-receipt.json
 ```
-
-`currentControl` in a persisted record is an audit value. It is never read back
-as authority and never substituted for the active provider.
 
 ## 5. Exact runtime sequence
 
@@ -257,11 +286,14 @@ CDP target document created
 -> Node sends the token and a scope selector to the page bridge
 -> page measures live DOM and projects JSON-safe candidates
 -> Node validates the projection and candidate identities
--> Node reads the active provider again
+-> Node reads the active provider at the admission gate
 -> token mismatch: reject stale, save failure receipt, stop
--> token match: encode, load package, forward, evaluate
--> Node reads the active provider before persistence
--> token mismatch: reject stale, save failure receipt, stop
+-> token match: load the model package
+-> Node reads the active provider at the pre-forward freshness gate
+-> token mismatch: reject stale_forward_gate, save failure receipt, stop
+-> token match: encode, forward, evaluate
+-> Node reads the active provider at the acceptance cut
+-> token mismatch: save failure/attempt receipt preserving forward: completed and scores/evaluation, stop
 -> token match: atomically save the first result
 ```
 
@@ -284,6 +316,27 @@ first token issued
 -> first token is immediately non-current
 -> first projection returns
 -> stale comparison rejects the first envelope
+```
+
+Timing cases:
+
+```text
+before forward:
+  admission token matches
+  -> package load is pending
+  -> provider replacement makes the token stale
+  -> pre-forward freshness gate rejects with no forward
+
+after forward before acceptance:
+  forward completes
+  -> provider replacement makes the token stale before the acceptance cut
+  -> acceptance cut records current_control_changed_before_acceptance
+  -> preserve first scores/evaluation and forward: completed; do not retry
+
+after acceptance during save:
+  acceptance cut matches and captures an immutable record
+  -> file writes proceed as multiple async operations
+  -> later navigation is an audit fact; the accepted record is not rewritten or invalidated
 ```
 
 ## 6. Explicit rejections
@@ -352,6 +405,14 @@ Required evidence for the successor:
 - one second-observation case that rejects the earlier envelope before model
   load or forward;
 - one document replacement case that rejects the earlier document token;
+- one provider replacement while package load is pending that rejects
+  `stale_forward_gate` with no forward and no scores;
+- one after-forward-before-acceptance case that preserves the first
+  scores/evaluation and `forward: completed` in failure/attempt evidence;
+- one after-acceptance-during-save case where a later navigation does not
+  rewrite or invalidate the accepted record;
+- one host-scope source check that reports MDN shadow-root coverage as
+  `partial`/unresolved instead of claiming full traversal;
 - one real browser projection that contains no DOM objects and no callbacks.
 
 The successor must not modify `extension/controller.ts`,
