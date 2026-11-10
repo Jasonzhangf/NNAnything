@@ -30,8 +30,13 @@
   },
   "nonDerivation": {
     "status": "author_attested_independent",
-    "independentNonDerivationVerified": true,
-    "independentNonDerivationVerifiedNote": "Set by this author from the recorded boundary: author session 01a1c72c-dcfe-71a1-a31d-af36384bf3f0 never read TRAIN, existing DEV, verification, or sealed sources, and the exact read set is in proofs/author-context.json. Independent audit may re-check the same evidence.",
+    "independentNonDerivationVerified": false,
+    "independentNonDerivationVerifiedNote": "This author-owned field remains false. The author attests to the recorded boundary and exact read set in proofs/author-context.json; independent verification is cited separately below.",
+    "independentReviewEvidence": {
+      "reviewer": "Alice",
+      "path": "/Volumes/Intel/playground/nnanything-runs/tsjs-clean-dev-author-r1-20261110/alice-review.md",
+      "finding": "Bounded independent review checked the actual retry commands and found no read of TRAIN, existing DEV, verification, or sealed contents. The self-scoped find is retained as a literal-boundary deviation without evidence of forbidden-family exposure."
+    },
     "authorReadTrainSources": false,
     "authorReadExistingDevSources": false,
     "authorReadVerificationOrSealed": false,

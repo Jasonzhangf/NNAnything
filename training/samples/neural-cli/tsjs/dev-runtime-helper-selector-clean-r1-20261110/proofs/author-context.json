@@ -37,12 +37,17 @@
     "training/samples/",
     "training/samples/neural-cli/"
   ],
-  "boundaryStatement": "I authored only the new DEV family under training/samples/neural-cli/tsjs/dev-runtime-helper-selector-clean-r1-20261110/. I read no TRAIN source, no existing DEV source, no verification family, and no sealed surface. I did not run rg, grep -r, or find anywhere under training/. The existing tsjs sample tree is physically absent through the sparse checkout exclusions, and it stayed absent. No existing family was restored, fetched, modified, moved, or relabelled. All source, layout, target declarations, selector keys, member types, and call-site arrangement are my own choices.",
+  "boundaryStatement": "I authored only the new DEV family under training/samples/neural-cli/tsjs/dev-runtime-helper-selector-clean-r1-20261110/. I read no TRAIN source, no existing DEV source, no verification family, and no sealed surface. I did not run rg or grep -r anywhere under training/. I ran one self-scoped `find .` with cwd equal to this new family root; it listed only files I had just created and revealed no other family. The existing tsjs sample tree remained absent through the sparse checkout exclusions. No existing family was restored, fetched, modified, moved, or relabelled. All source, layout, target declarations, selector keys, member types, and call-site arrangement are my own choices.",
   "forbiddenExposure": {
     "existingTsjsSampleFamiliesRead": false,
     "helperSourceProductionRunDirBeyondAllowedFiles": false,
     "roseVerificationOrSealedSurfaces": false,
-    "recursiveSearchUnderTraining": false,
+    "recursiveSearchUnderTraining": {
+      "occurred": true,
+      "scope": "new_family_root_only",
+      "listedOnlyAuthorCreatedFiles": true,
+      "forbiddenFamilyExposureObserved": false
+    },
     "notes": [
       "ls of training/samples/neural-cli/tsjs returned 'No such file or directory' because the sparse checkout hides it; no family name was revealed.",
       "An rg over the allowed directories docs/, lib/, tests/, scripts/, playground/ listed the filename docs/nn-code-tsjs-independent-holdout-evaluation.md; that file was not read.",
