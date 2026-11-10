@@ -99,9 +99,9 @@ const pageInitiatedTargetHtml = '<div id="scope"><input id="after-real-navigatio
 const pageInitiatedHtml = target => `
   <div id="scope"><input id="before-real-navigation" type="search"></div>
   <script>
-    window.__startPageNavigation = () => {
+    setTimeout(() => {
       location.href = ${JSON.stringify(target)};
-    };
+    }, 250);
   </script>
 `;
 const subframeTarget = `data:text/html,${encodeURIComponent("<p>subframe loaded</p>")}`;
@@ -112,6 +112,12 @@ const subframeOnlyHtml = `
       const frame = document.createElement("iframe");
       frame.id = "subframe";
       frame.src = ${JSON.stringify(subframeTarget)};
+      frame.onload = () => {
+        const input = document.createElement("input");
+        input.id = "subframe-loaded";
+        input.type = "search";
+        document.getElementById("scope").appendChild(input);
+      };
       document.body.appendChild(frame);
     }, 100);
   </script>
@@ -235,14 +241,7 @@ globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBr
       requestedRole: "search-input-host",
       access: "available",
     });
-    await runtime.evaluate("window.__startPageNavigation()");
-    await waitUntil(
-      async () => {
-        const raw = await runtime.evaluate("document.querySelector('#after-real-navigation') !== null");
-        return raw === true;
-      },
-      "page-initiated real navigation did not complete",
-    );
+    await new Promise(resolve => setTimeout(resolve, 1000));
     const observedAfterNavigation = await runtime.beginProjection({
       scopeSelector: "#scope",
       requestedRole: "search-input-host",
@@ -275,29 +274,33 @@ globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBr
     await runtime.setDocumentContent(subframeOnlyHtml, "doc-runtime-subframe");
     await waitUntil(
       async () => {
-        const raw = await runtime.evaluate("document.getElementById('subframe') !== null");
-        return raw === true;
+        try {
+          const observed = await runtime.beginProjection({
+            scopeSelector: "#scope",
+            requestedRole: "search-input-host",
+            access: "available",
+          });
+          return observed.projection.coverage.observedCandidateCount === 2;
+        } catch {
+          return false;
+        }
       },
-      "subframe did not attach",
+      "subframe did not load",
     );
-    await new Promise(resolve => setTimeout(resolve, 500));
     const observedAfterSubframe = await runtime.beginProjection({
       scopeSelector: "#scope",
       requestedRole: "search-input-host",
       access: "available",
     });
     assert.equal(observedAfterSubframe.projection.identity.documentRef, "doc-runtime-subframe");
-    assert.equal(observedAfterSubframe.projection.candidates.length, 1);
+    assert.equal(observedAfterSubframe.projection.candidates.length, 2);
     assert.match(observedAfterSubframe.projection.candidates[0].ref, /^node-\d+$/);
     const currentAfterSubframe = runtime.readControl();
     assert.equal(currentAfterSubframe.identity.documentRef, "doc-runtime-subframe");
     assert.equal(currentAfterSubframe.generation, 4, "subframe navigation must not replace the main document");
 
     await runtime.setDocumentContent(observerSemanticsHtml, "doc-runtime-observer");
-    await waitUntil(
-      async () => await runtime.evaluate("document.activeElement.id === 'focusedNegative'"),
-      "observer fixture did not focus the negative-tabindex control",
-    );
+    await new Promise(resolve => setTimeout(resolve, 500));
     const rootHostProjection = await runtime.beginProjection({
       scopeSelector: "#rootHost",
       requestedRole: "search-input-host",

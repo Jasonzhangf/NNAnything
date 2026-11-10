@@ -78,7 +78,6 @@ export interface BA1RealSiteCdpRuntime {
   installProjectionBundle(source: string): Promise<void>;
   setDocumentContent(html: string, documentRef: string): Promise<void>;
   navigate(url: string, documentRef: string): Promise<void>;
-  evaluate(expression: string, contextId?: number): Promise<unknown>;
   beginProjection(input: {
     readonly scopeSelector: string;
     readonly requestedRole: string;
@@ -856,7 +855,6 @@ export async function createBA1RealSiteCdpRuntime(options: {
     installProjectionBundle: source => connection.installProjectionBundle(source),
     setDocumentContent: (html, documentRef) => connection.setDocumentContent(html, documentRef),
     navigate: (url, documentRef) => connection.navigate(url, documentRef),
-    evaluate: (expression, contextId) => connection.evaluate(expression, contextId),
     beginProjection: async input => {
       const provider = runtime.slot.current();
       const generation = runtime.slot.generation();
