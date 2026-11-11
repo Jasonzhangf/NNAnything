@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { promisify } from "node:util";
 import {
   encodeBA1RouteCandidate,
   encodeBA1RouteGroup,
 } from "../dist/training/b-a1-route-encoder.js";
 import { BA1_ENCODER_VERSION } from "../dist/training/b-a1-route-encoder.js";
 import { BA1_TRAIN_CONFIG_SCHEMA, trainBA1UnifiedRelationDecision } from "../dist/training/b-a1-training-entry.js";
+import { UNIFIED_ENCODER_VERSION } from "../dist/training/unified-encoder.js";
+
+const execFileAsync = promisify(execFile);
 
 function gateContext(overrides = {}) {
   return {
@@ -279,6 +284,8 @@ test("the fixed entry trains two groups, saves a package and a checkpoint, and v
   assert.equal(result.receipt.timing.completedOptimizerSteps, 3);
   assert.ok(result.report.initialLoss !== null && result.report.finalLoss !== null);
   assert.ok(result.receipt.checkpointOutPath !== null);
+  const checkpoint = JSON.parse(await readFile(result.receipt.checkpointOutPath, "utf8"));
+  assert.equal("warmStart" in checkpoint, false);
 });
 
 test("the fixed entry rejects an incompatible encoder version before training", async () => {
@@ -892,4 +899,173 @@ test("non-finite optimizer output is classified as non_finite, not data_invalid"
   assert.equal(result.report.stopReason, "non_finite");
   assert.equal(result.report.completedEpochs, 0);
   assert.match(result.report.violations.join("\n"), /non-finite loss or gradient/);
+});
+
+test("warmstart loads the source package, inherits tensors, records lineage, and reloads outputs in a fresh process", async () => {
+  const sourceDir = await mkdtemp(join(tmpdir(), "b-a1-warmstart-source-"));
+  const targetDir = await mkdtemp(join(tmpdir(), "b-a1-warmstart-target-"));
+  const g1 = encodedGroup("g1", ["c1", "c2"]);
+  const g2 = encodedGroup("g2", ["c1"]);
+  const student = [
+    studentRow("g1", "c1", g1.candidates[0].input),
+    studentRow("g1", "c2", g1.candidates[1].input),
+    studentRow("g2", "c1", g2.candidates[0].input),
+  ];
+  const supervision = [supervisionRow("g1", ["c1"]), supervisionRow("g2", ["c1"])];
+  const sourcePaths = await writeRows(sourceDir, student, supervision);
+  const sourcePackagePath = join(sourceDir, "source-package.json");
+  const source = await trainBA1UnifiedRelationDecision({
+    config: config({ maxEpochs: 3, fixedRecipe: false }),
+    ...sourcePaths,
+    packageOutPath: sourcePackagePath,
+  });
+
+  const targetPaths = await writeRows(targetDir, student, supervision);
+  const targetPackagePath = join(targetDir, "warm-package.json");
+  const targetCheckpointPath = join(targetDir, "warm-checkpoint.json");
+  const callerTensors = Object.fromEntries(
+    Object.entries(source.package.tensors).map(([key, values]) => [
+      key,
+      values.map(() => 0),
+    ]),
+  );
+  const target = await trainBA1UnifiedRelationDecision({
+    config: config({ maxEpochs: 1, fixedRecipe: false }),
+    ...targetPaths,
+    packageOutPath: targetPackagePath,
+    checkpointOutPath: targetCheckpointPath,
+    warmStartFrom: {
+      tensors: callerTensors,
+      modelId: "caller-supplied-decoy",
+      version: "caller-supplied-decoy",
+      route: source.package.route,
+      encoderVersion: "caller-supplied-decoy",
+      sourcePackagePath,
+    },
+  });
+
+  assert.equal(target.report.initialLoss, source.report.finalLoss);
+  const checkpoint = JSON.parse(await readFile(targetCheckpointPath, "utf8"));
+  assert.equal(checkpoint.warmStart.kind, "package-warm-start");
+  assert.equal(checkpoint.warmStart.sourcePackagePath, sourcePackagePath);
+  assert.equal(checkpoint.warmStart.sourceModelId, source.package.modelId);
+  assert.equal(checkpoint.warmStart.sourceVersion, source.package.version);
+  assert.deepEqual(checkpoint.warmStart.epochZero, {
+    exact: true,
+    tensorEquality: true,
+    checkedInputs: student.length,
+    maxAbsDelta: 0,
+  });
+
+  const checkpointLoaderUrl = new URL("../dist/training/unified-training-checkpoint.js", import.meta.url).href;
+  const packageLoaderUrl = new URL("../dist/training/unified-model-package.js", import.meta.url).href;
+  const forwardUrl = new URL("../dist/training/unified-forward.js", import.meta.url).href;
+  const script = `
+import { loadUnifiedTrainingCheckpointFromFile } from ${JSON.stringify(checkpointLoaderUrl)};
+import { loadUnifiedModelPackageFromFile } from ${JSON.stringify(packageLoaderUrl)};
+import { forwardUnifiedScore } from ${JSON.stringify(forwardUrl)};
+import { readFile } from "node:fs/promises";
+const checkpoint = await loadUnifiedTrainingCheckpointFromFile(${JSON.stringify(targetCheckpointPath)});
+const loadedPackage = await loadUnifiedModelPackageFromFile(${JSON.stringify(targetPackagePath)});
+const rows = (await readFile(${JSON.stringify(targetPaths.studentRowsPath)}, "utf8"))
+  .split("\\n")
+  .filter(line => line.trim().length > 0)
+  .map(line => JSON.parse(line));
+const outputs = rows.map(row => ({
+  checkpoint: forwardUnifiedScore(row.x, checkpoint.tensors),
+  package: forwardUnifiedScore(row.x, loadedPackage.package.tensors)
+}));
+process.stdout.write(JSON.stringify({ warmStart: checkpoint.warmStart, outputs }));
+`;
+  const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", script], {
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  const fresh = JSON.parse(String(stdout));
+  assert.deepEqual(fresh.warmStart, checkpoint.warmStart);
+  assert.equal(fresh.outputs.length, student.length);
+  for (const output of fresh.outputs) assert.equal(output.checkpoint, output.package);
+});
+
+test("warmstart rejects an incompatible source package before any optimizer step", async () => {
+  const sourceDir = await mkdtemp(join(tmpdir(), "b-a1-warmstart-incompatible-source-"));
+  const targetDir = await mkdtemp(join(tmpdir(), "b-a1-warmstart-incompatible-target-"));
+  const g1 = encodedGroup("g1", ["c1"]);
+  const paths = await writeRows(
+    sourceDir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+  );
+  const source = await trainBA1UnifiedRelationDecision({
+    config: config({ maxEpochs: 1, fixedRecipe: false }),
+    ...paths,
+    packageOutPath: join(sourceDir, "source-package.json"),
+  });
+  const incompatiblePackage = {
+    ...source.package,
+    encoderVersion: UNIFIED_ENCODER_VERSION,
+  };
+  const incompatibleSourcePath = join(sourceDir, "incompatible-package.json");
+  await writeFile(incompatibleSourcePath, JSON.stringify(incompatiblePackage, null, 2) + "\n");
+
+  const targetPaths = await writeRows(
+    targetDir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+  );
+  const targetPackagePath = join(targetDir, "package.json");
+  await assert.rejects(
+    trainBA1UnifiedRelationDecision({
+      config: config({ maxEpochs: 1, fixedRecipe: false }),
+      ...targetPaths,
+      packageOutPath: targetPackagePath,
+      warmStartFrom: {
+        tensors: source.package.tensors,
+        modelId: source.package.modelId,
+        version: source.package.version,
+        route: source.package.route,
+        encoderVersion: source.package.encoderVersion,
+        sourcePackagePath: incompatibleSourcePath,
+      },
+    }),
+    error => {
+      assert.equal(error?.code, "WARMSTART_SOURCE_INCOMPATIBLE");
+      assert.equal(error?.optimizerSteps, 0);
+      assert.match(error?.message ?? "", /encoderVersion/u);
+      return true;
+    },
+  );
+  await assert.rejects(readFile(targetPackagePath));
+});
+
+test("warmstart rejects source/output path collisions before reading or writing artifacts", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "b-a1-warmstart-path-conflict-"));
+  const g1 = encodedGroup("g1", ["c1"]);
+  const paths = await writeRows(
+    dir,
+    [studentRow("g1", "c1", g1.candidates[0].input)],
+    [supervisionRow("g1", ["c1"])],
+  );
+  const packageOutPath = join(dir, "package.json");
+  await assert.rejects(
+    trainBA1UnifiedRelationDecision({
+      config: config({ maxEpochs: 1, fixedRecipe: false }),
+      ...paths,
+      packageOutPath,
+      warmStartFrom: {
+        tensors: g1.candidates[0].input.map(() => 0),
+        modelId: "source",
+        version: "0.0.1",
+        route: { domain: "browser", decisionKind: "R" },
+        encoderVersion: BA1_ENCODER_VERSION,
+        sourcePackagePath: packageOutPath,
+      },
+    }),
+    error => {
+      assert.equal(error?.code, "WARMSTART_PATH_CONFLICT");
+      assert.equal(error?.optimizerSteps, 0);
+      assert.match(error?.message ?? "", /same path/u);
+      return true;
+    },
+  );
+  await assert.rejects(readFile(packageOutPath));
 });
