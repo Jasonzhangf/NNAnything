@@ -156,9 +156,9 @@ export function studentGroupId(input: {
 }
 
 export function partitionOf(raw: string): "TRAIN" | "DEV" | "VERIFICATION" {
-  if (raw === "train") return "TRAIN";
-  if (raw === "dev") return "DEV";
-  if (raw === "verification") return "VERIFICATION";
+  if (raw === "train" || raw === "TRAIN") return "TRAIN";
+  if (raw === "dev" || raw === "DEV") return "DEV";
+  if (raw === "verification" || raw === "VERIFICATION") return "VERIFICATION";
   throw new TypeError(`unknown partition: ${raw}`);
 }
 

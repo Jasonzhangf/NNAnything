@@ -23,6 +23,14 @@
       "evidence": "evidence/dynamic-label-correction.md"
     },
     {
+      "sourceGroup": "tsjs-train-runtime-helper-selector-r1",
+      "partition": "train",
+      "admission": "accepted_train_supervision",
+      "usableForTrainingSupervision": true,
+      "usableForIndependentVerification": false,
+      "evidence": "train-runtime-helper-selector-r1/proofs/semantic-proofs.md"
+    },
+    {
       "sourceGroup": "tsjs-dev-closure-shadow-b",
       "partition": "dev",
       "admission": "admitted_with_superseded_metadata",

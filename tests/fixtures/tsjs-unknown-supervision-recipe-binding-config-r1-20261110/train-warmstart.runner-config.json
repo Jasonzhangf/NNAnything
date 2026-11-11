@@ -1,0 +1,38 @@
+{
+  "schema": "nnanything.unified.runner-config.v1",
+  "command": "warmstart",
+  "route": {
+    "domain": "tsjs",
+    "decisionKind": "R"
+  },
+  "phase": "posttraining",
+  "encoderVersion": "nnanything.unified-step.encoder.v2",
+  "dataGate": {
+    "schema": "nnanything.unified.data-gate.v1",
+    "partition": "TRAIN",
+    "encoderVersion": "nnanything.unified-step.encoder.v2",
+    "thresholdsPath": "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
+    "rowsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/data-gate-rows.jsonl"
+  },
+  "outputDir": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/out",
+  "corpus": {
+    "root": "training/samples/neural-cli/tsjs/train-runtime-helper-selector-r1",
+    "admissionsPath": "training/samples/neural-cli/tsjs/corpus-admissions-v1.json",
+    "studentRowsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/student-rows.jsonl",
+    "supervisionRowsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/supervision-rows.jsonl",
+    "packagePath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/candidate-package.json",
+    "missingModeTablePath": "tests/fixtures/unified-64-slot/missing-mode-table.json"
+  },
+  "training": {
+    "modelId": "nn-code.tsjs.symbols.r",
+    "version": "0.1.1-runtime-unknown-r1",
+    "optimizer": "full_batch_sgd",
+    "learningRate": 0.01,
+    "maxEpochs": 200,
+    "seed": 20261104,
+    "init": "xavier_uniform"
+  },
+  "warmStart": {
+    "sourcePackagePath": "/Volumes/Intel/playground/nnanything-runs/tsjs-fixed-candidate-resume-checker-prep-r1-20261110/execution/package/model-package.json"
+  }
+}
