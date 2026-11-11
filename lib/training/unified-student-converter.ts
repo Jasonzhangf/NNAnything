@@ -635,6 +635,7 @@ function matchingCallableMembers(
     | TsJsRuntimeSelectorObservation
     | TsJsStaticSelectedSelectorObservation,
   requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>,
+  requireName = false,
 ): readonly NonNullable<TsJsRuntimeCallableTable["members"][number]>[] {
   const requestedFile = moduleFileFromRef(requestedDeclaration.moduleRef);
   if (
@@ -651,8 +652,94 @@ function matchingCallableMembers(
     return identity !== null
       && isTsJsCallableIdentityExact(identity, member.initializerRef)
       && identity.moduleRef === requestedFile
-      && identity.declarationRef === requestedDeclaration.declarationRef;
+      && identity.declarationRef === requestedDeclaration.declarationRef
+      && (!requireName || member.name === requestedDeclaration.name);
   });
+}
+
+export function matchingTsJsStaticCallableMembers(
+  observation: TsJsStaticSelectedSelectorObservation,
+  requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>,
+): readonly NonNullable<TsJsRuntimeCallableTable["members"][number]>[] {
+  return matchingCallableMembers(observation, requestedDeclaration, true);
+}
+
+export function deriveTsJsStaticRelationCompletionItem(
+  observation: TsJsStaticSelectedSelectorObservation,
+  requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>,
+  sharedReadAvailable: boolean,
+): TsJsCompletionWorkItem {
+  const table = observation.callableTable;
+  const selectedMember = table.members.find(
+    member => member.initializerRef === observation.selection.selectedMemberRef,
+  );
+  const selectedIdentity = selectedMember?.callableIdentity ?? null;
+  const requestedMembers = matchingTsJsStaticCallableMembers(observation, requestedDeclaration);
+  const requestedMember = requestedMembers.length === 1 ? requestedMembers[0]! : null;
+  const requestedModuleFile = moduleFileFromRef(requestedDeclaration.moduleRef ?? null);
+  const selectedExact = selectedMember !== undefined
+    && selectedMember.name === observation.selection.selectedMemberName
+    && selectedIdentity !== null
+    && isTsJsCallableIdentityExact(selectedIdentity, selectedMember.initializerRef)
+    && selectedIdentity.declarationRef === observation.selection.selectedDeclarationRef
+    && selectedIdentity.moduleRef === observation.selection.selectedModuleRef;
+  const requestedExact = requestedMember !== null
+    && requestedMember.callableIdentity !== null
+    && isTsJsCallableIdentityExact(
+      requestedMember.callableIdentity,
+      requestedMember.initializerRef,
+    )
+    && requestedModuleFile !== null
+    && requestedMember.callableIdentity.moduleRef === requestedModuleFile;
+  const sameModule = requestedExact
+    && selectedExact
+    && requestedModuleFile === selectedIdentity.moduleRef;
+  const distinct = sameModule
+    && selectedIdentity.declarationRef !== requestedMember.callableIdentity.declarationRef;
+  const baseEvidence = [
+    observation.observationRef,
+    observation.sourceReadRef,
+    table.tableRef,
+    observation.callSiteRef,
+  ].filter(ref => ref.length > 0);
+
+  if (!selectedExact || !requestedExact || !sameModule || !distinct || !sharedReadAvailable) {
+    return {
+      kind: "relation_completion",
+      subjectRef: observation.callSiteRef,
+      disposition: {
+        state: "unresolved",
+        reason: !selectedExact
+          ? "selected member identity is not exact"
+          : !requestedExact
+            ? "requested declaration does not match one typed callable"
+            : !sameModule
+              ? "selected and requested members are not in the same module"
+              : !distinct
+                ? "selected and requested declarations are not distinct"
+                : "shared source read is unavailable",
+        evidenceRefs: uniqueStrings(baseEvidence),
+      },
+    };
+  }
+
+  return {
+    kind: "relation_completion",
+    subjectRef: observation.callSiteRef,
+    disposition: {
+      state: "satisfied",
+      evidenceRefs: uniqueStrings([
+        observation.observationRef,
+        observation.sourceReadRef,
+        table.tableRef,
+        selectedMember.initializerRef,
+        selectedIdentity.declarationRef,
+        requestedMember.initializerRef,
+        requestedDeclaration.declarationRef,
+        observation.callSiteRef,
+      ]),
+    },
+  };
 }
 
 function completionWorkFor(
@@ -932,7 +1019,10 @@ function staticCompletionWorkFor(
   const tableFact = staticSelectedRoleFact(observation, "selector_candidate_table");
   const selectedFact = staticSelectedRoleFact(observation, "static_selected_member");
   const table = observation.callableTable;
-  const matchingMembers = matchingCallableMembers(observation, input.request.requestedDeclaration);
+  const matchingMembers = matchingTsJsStaticCallableMembers(
+    observation,
+    input.request.requestedDeclaration,
+  );
 
   const items = derivation.requirements.map(
     (requirement): TsJsCompletionWorkItem => {
@@ -1114,20 +1204,14 @@ function staticCompletionWorkFor(
         };
       }
 
-      return {
-        kind: "relation_completion",
-        subjectRef: requirement.subjectRef,
-        disposition: {
-          state: "unsupported",
-          reason: "static-selected completion witness is not yet reviewed",
-          evidenceRefs: [
-            observation.observationRef,
-            sourceReadRef,
-            selectedFact?.factRef ?? "",
-            observation.callSiteRef,
-          ].filter(ref => ref.length > 0),
-        },
-      };
+      return deriveTsJsStaticRelationCompletionItem(
+        observation,
+        input.request.requestedDeclaration,
+        sourceReadRef.length > 0
+          && rawReceipt.receiptId === sourceReadRef
+          && rawReceipt.action === "read_source"
+          && rawReceipt.outcome === "success",
+      );
     },
   );
 
@@ -2259,9 +2343,6 @@ function validateTsJsCompletionWork(
   source: TsJsProducerSourceBinding,
   fail: (reason: string) => never,
 ): void {
-  if (source.kind === "nnanything.tsjs.producer-source.static-selected.v1") {
-    return validateTsJsStaticCompletionWork(source, fail);
-  }
   if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
     return validateTsJsTargetMismatchCompletionWork(source, fail);
   }
@@ -2321,6 +2402,7 @@ function validateTsJsCompletionWork(
 
 function validateTsJsStaticCompletionWork(
   source: TsJsStaticProducerSourceBinding,
+  requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>,
   fail: (reason: string) => never,
 ): void {
   const completionWork = source.completionWork;
@@ -2376,12 +2458,35 @@ function validateTsJsStaticCompletionWork(
       }
     }
     if (item.kind === "relation_completion") {
-      if (
-        item.disposition.state !== "unsupported"
-        || item.disposition.reason !== "static-selected completion witness is not yet reviewed"
-      ) {
-        fail("static relation completion must remain unsupported");
+      if (item.disposition.state === "unsupported") {
+        if (
+          item.disposition.reason
+            !== "static-selected completion witness is not yet reviewed"
+        ) {
+          fail("legacy static relation completion reason is invalid");
+        }
+        continue;
       }
+      const expectedRelation = deriveTsJsStaticRelationCompletionItem(
+        source.rawObservation,
+        requestedDeclaration,
+        source.rawObservation.sourceReadRef.length > 0
+          && source.rawObservation.sourceReadReceipt.receiptId
+            === source.rawObservation.sourceReadRef
+          && source.rawObservation.sourceReadReceipt.action === "read_source"
+          && source.rawObservation.sourceReadReceipt.outcome === "success",
+      );
+      if (
+        item.disposition.state !== expectedRelation.disposition.state
+        || !sameStringArray(
+          item.disposition.evidenceRefs,
+          expectedRelation.disposition.evidenceRefs,
+        )
+      ) {
+        fail("static relation completion disposition or evidence is invalid");
+      }
+    } else if (item.disposition.state !== "satisfied") {
+      fail(`static completion item ${item.kind}:${item.subjectRef} is not satisfied`);
     }
   }
 }
@@ -2464,6 +2569,7 @@ function validateTsJsProducerSourceBinding(input: {
   readonly callSiteRef: string;
   readonly requestedDeclarationRef: string;
   readonly requestedModuleRef: string;
+  readonly requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>;
   readonly coverage: RelationStepCoverage | null;
   readonly sourceContent: RelationStepSourceContent | null;
   readonly currentRelation: CurrentRelationProjection | null;
@@ -2641,7 +2747,7 @@ function validateTsJsStaticProducerSourceBinding(
     fail("requestedDeclarationRef mismatch");
   }
   if (source.requestedModuleRef !== input.requestedModuleRef) fail("requestedModuleRef mismatch");
-  validateTsJsStaticCompletionWork(source, fail);
+  validateTsJsStaticCompletionWork(source, input.requestedDeclaration, fail);
   if (source.fromStepId !== (input.receipt.fromStepId ?? null)) fail("fromStepId mismatch");
   if (source.parser.semanticBinding !== false) fail("parser.semanticBinding must remain false");
   const raw = source.rawObservation;
@@ -3406,6 +3512,10 @@ export async function loadStepwiseEpisodeFamily(
           callSiteRef,
           requestedDeclarationRef: targetRef,
           requestedModuleRef,
+          requestedDeclaration:
+            requestedDeclaration as unknown as NonNullable<
+              RelationStepEpisode["requestedDeclaration"]
+            >,
           coverage,
           sourceContent,
           currentRelation,
