@@ -1,0 +1,116 @@
+[
+  {
+    "sampleId": "c-dev-positive-factory-call",
+    "request": {
+      "requestRef": "req-c-dev-positive-factory-call",
+      "requestedDeclaration": {
+        "declarationRef": {
+          "state": "known",
+          "value": "decl:sources/src/factory.ts#top:createStepper",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "moduleRef": {
+          "state": "known",
+          "value": "mod:sources/src/factory.ts",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "name": {
+          "state": "known",
+          "value": "createStepper",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "kind": {
+          "state": "known",
+          "value": "function",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "sourceTargetRef": "sources/src/factory.ts#top:createStepper"
+      },
+      "relationObligation": {
+        "pendingRelationRef": "pending:c-dev-positive-factory-call",
+        "callSiteRef": "call:sources/src/entry-known.ts:createStepper",
+        "calleeName": "createStepper"
+      }
+    }
+  },
+  {
+    "sampleId": "c-dev-negative-same-name-other",
+    "request": {
+      "requestRef": "req-c-dev-negative-same-name-other",
+      "requestedDeclaration": {
+        "declarationRef": {
+          "state": "known",
+          "value": "decl:sources/src/alternate.ts#top:createStepper",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "moduleRef": {
+          "state": "known",
+          "value": "mod:sources/src/alternate.ts",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "name": {
+          "state": "known",
+          "value": "createStepper",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "kind": {
+          "state": "known",
+          "value": "function",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "sourceTargetRef": "sources/src/alternate.ts#top:createStepper"
+      },
+      "relationObligation": {
+        "pendingRelationRef": "pending:c-dev-negative-same-name-other",
+        "callSiteRef": "call:sources/src/entry-known.ts:createStepper",
+        "calleeName": "createStepper"
+      }
+    }
+  },
+  {
+    "sampleId": "c-dev-unknown-dynamic-property",
+    "request": {
+      "requestRef": "req-c-dev-unknown-dynamic-property",
+      "requestedDeclaration": {
+        "declarationRef": {
+          "state": "known",
+          "value": "decl:sources/src/factory.ts#top:createStepper",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "moduleRef": {
+          "state": "known",
+          "value": "mod:sources/src/factory.ts",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "name": {
+          "state": "known",
+          "value": "createStepper",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "kind": {
+          "state": "known",
+          "value": "function",
+          "reason": null,
+          "evidenceRefs": []
+        },
+        "sourceTargetRef": "sources/src/factory.ts#top:createStepper"
+      },
+      "relationObligation": {
+        "pendingRelationRef": "pending:c-dev-unknown-dynamic-property",
+        "callSiteRef": "call:sources/src/entry-dynamic.ts:table[computedName]",
+        "calleeName": "createStepper"
+      }
+    }
+  }
+]
