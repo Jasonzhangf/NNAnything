@@ -9,12 +9,19 @@ import {
   createBA1RealSiteCdpRuntime,
 } from "../dist/adapters/browser/b-a1-real-site-cdp-runtime.js";
 import {
+  BA1ObservationDriverError,
   runBA1ObservationDriver,
   validateBA1ObservationDriverSourcePlan,
 } from "nnanything/b-a1-observation-driver";
 
-const acceptedSourcePlanPath = process.env.B_A1_ACCEPTED_SOURCE_PLAN
-  ?? "/Volumes/Intel/playground/nnanything-runs/b-a1-selection-contrast-acquisition-design-r1-20261111/source-plan.json";
+const acceptedSourcePlanFixtureUrl = new URL(
+  "./fixtures/b-a1-observation-driver/source-plan.approved.json",
+  import.meta.url,
+);
+const acceptedSourcePlanProvenanceUrl = new URL(
+  "./fixtures/b-a1-observation-driver/provenance.json",
+  import.meta.url,
+);
 
 const legalHtml = `<!doctype html>
 <html>
@@ -146,8 +153,14 @@ function assertMonotonicTiming(timing) {
 }
 
 test("accepts the exact approved pre-registered source plan without live sites", { timeout: 90000 }, async () => {
-  const accepted = JSON.parse(await readFile(acceptedSourcePlanPath, "utf8"));
-  const parsed = validateBA1ObservationDriverSourcePlan(accepted);
+  const provenance = JSON.parse(await readFile(acceptedSourcePlanProvenanceUrl, "utf8"));
+  assert.equal(provenance.fixture, "source-plan.approved.json");
+  assert.equal(provenance.relationship, "verbatim_copy_of_accepted_source_plan");
+  const acceptedSourcePlan = JSON.parse(await readFile(
+    process.env.B_A1_ACCEPTED_SOURCE_PLAN ?? acceptedSourcePlanFixtureUrl,
+    "utf8",
+  ));
+  const parsed = validateBA1ObservationDriverSourcePlan(acceptedSourcePlan);
   assert.equal(parsed.status, "pre_registered_not_observed");
   assert.equal(parsed.trainSlots.length, 2);
   assert.equal(parsed.reserves.length, 3);
@@ -155,7 +168,7 @@ test("accepts the exact approved pre-registered source plan without live sites",
   const root = await prepareEvidenceRoot("accepted-plan-run");
   const navigations = [];
   const result = await runBA1ObservationDriver({
-    sourcePlan: accepted,
+    sourcePlan: acceptedSourcePlan,
     outDir: root,
     runtime: {
       installProjectionBundle: async () => {},
@@ -193,7 +206,115 @@ test("accepts the exact approved pre-registered source plan without live sites",
       retryable: false,
     });
   }
-  assert.equal(await fileExists(join(root, "split-decisions", "pydocs-3.json")), true);
+
+  const draftPath = join(root, "split-decisions", "pydocs-3.json");
+  assert.equal(await fileExists(draftPath), true);
+  const draft = JSON.parse(await readFile(draftPath, "utf8"));
+  assert.deepEqual(draft, {
+    sourceFamily: "pydocs-3",
+    sourceGroupId: "pydocs-3",
+    siteId: "docs.python.org",
+    entryUrl: "https://docs.python.org/3/",
+    partition: "TRAIN",
+    priorExposure: "unseen",
+    splitAuthority: null,
+    splitDecisionRef: null,
+    evidenceRefs: [],
+  });
+  assert.equal(Object.hasOwn(draft, "decidedAt"), false);
+});
+
+test("consumes explicit approved split-decision input without inference", { timeout: 90000 }, async () => {
+  const root = await prepareEvidenceRoot("approved-split-run");
+  const approvedSplitDecision = {
+    sourceFamily: "fixture-approved",
+    sourceGroupId: "fixture-approved-group",
+    splitAuthority: "Jenny",
+    splitDecisionRef: "split-decisions/fixture-approved-group.json",
+    evidenceRefs: ["decision.md#approved-split", "source.json#fixture-approved"],
+  };
+  const sourcePlan = basePlan([{
+    slot: "A",
+    sourceFamily: "fixture-approved",
+    siteId: "fixture.invalid",
+    entryUrl: "https://fixture.invalid/approved",
+    selectorCandidates: ["#search"],
+  }]);
+
+  const result = await runBA1ObservationDriver({
+    sourcePlan,
+    outDir: root,
+    approvedSplitDecisions: [approvedSplitDecision],
+    runtime: {
+      installProjectionBundle: async () => {},
+      navigate: async () => {
+        throw new BA1RealSiteCdpRuntimeError(
+          "cdp_failure",
+          "controlled navigation stop",
+          { code: "fixture_navigation_stop", retryable: false },
+        );
+      },
+      beginProjection: async () => {
+        throw new Error("beginProjection must not run after navigation failure");
+      },
+    },
+  });
+
+  assert.equal(result.status, "navigation_failed");
+  const record = JSON.parse(await readFile(
+    join(root, "split-decisions", "fixture-approved-group.json"),
+    "utf8",
+  ));
+  assert.deepEqual(record, {
+    sourceFamily: "fixture-approved",
+    ...approvedSplitDecision,
+    siteId: "fixture.invalid",
+    entryUrl: "https://fixture.invalid/approved",
+    partition: "TRAIN",
+    priorExposure: "unseen",
+  });
+  assert.equal(record.splitAuthority, "Jenny");
+  assert.equal(record.splitDecisionRef, "split-decisions/fixture-approved-group.json");
+  assert.deepEqual(record.evidenceRefs, approvedSplitDecision.evidenceRefs);
+});
+
+test("rejects incomplete or extra approved split-decision fields", async () => {
+  const sourcePlan = basePlan([{
+    slot: "A",
+    sourceFamily: "fixture-approved",
+    siteId: "fixture.invalid",
+    entryUrl: "https://fixture.invalid/approved",
+    selectorCandidates: ["#search"],
+  }]);
+  const approvedSplitDecision = {
+    sourceFamily: "fixture-approved",
+    sourceGroupId: "fixture-approved-group",
+    splitAuthority: "Jenny",
+    splitDecisionRef: "split-decisions/fixture-approved-group.json",
+    evidenceRefs: ["decision.md#approved-split"],
+  };
+  const invalidDecisions = [
+    {
+      label: "missing splitAuthority",
+      value: { ...approvedSplitDecision, splitAuthority: undefined },
+    },
+    {
+      label: "extra decidedAt",
+      value: { ...approvedSplitDecision, decidedAt: "2026-11-11T20:57:27.990Z" },
+    },
+  ];
+
+  for (const invalid of invalidDecisions) {
+    await assert.rejects(
+      runBA1ObservationDriver({
+        sourcePlan,
+        outDir: await mkdtemp(join(tmpdir(), "b-a1-invalid-split-")),
+        approvedSplitDecisions: [invalid.value],
+      }),
+      error => error instanceof BA1ObservationDriverError && error.code === "invalid_plan",
+      invalid.label,
+    );
+  }
 });
 
 test("rejects a recapture whose hidden contrast disappeared and continues to a reserve", { timeout: 90000 }, async () => {
@@ -277,17 +398,23 @@ test("rejects a recapture whose hidden contrast disappeared and continues to a r
       "utf8",
     ));
     assert.deepEqual(Object.keys(split).sort(), [
-      "decidedAt",
       "entryUrl",
+      "evidenceRefs",
       "partition",
       "priorExposure",
       "siteId",
       "sourceFamily",
+      "sourceGroupId",
       "splitAuthority",
+      "splitDecisionRef",
     ]);
+    assert.equal(split.sourceGroupId, "fixture-changing");
     assert.equal(split.partition, "TRAIN");
     assert.equal(split.priorExposure, "unseen");
-    assert.equal(split.splitAuthority, "Carol");
+    assert.equal(split.splitAuthority, null);
+    assert.equal(split.splitDecisionRef, null);
+    assert.deepEqual(split.evidenceRefs, []);
+    assert.equal(Object.hasOwn(split, "decidedAt"), false);
     assertMonotonicTiming(JSON.parse(await readFile(join(root, "timing.json"), "utf8")));
   } finally {
     await runtime.close();

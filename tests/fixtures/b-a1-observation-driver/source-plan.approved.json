@@ -1,0 +1,41 @@
+{
+  "schema": "nnanything.b-a1.selection-contrast-source-plan.v1",
+  "status": "pre_registered_not_observed",
+  "partition": "TRAIN",
+  "trainSlots": [
+    {
+      "slot": "A",
+      "sourceFamily": "pydocs-3",
+      "siteId": "docs.python.org",
+      "entryUrl": "https://docs.python.org/3/",
+      "selectorCandidates": ["form.search", "#searchbox", ".search"]
+    },
+    {
+      "slot": "B",
+      "sourceFamily": "rustdocs-std",
+      "siteId": "doc.rust-lang.org",
+      "entryUrl": "https://doc.rust-lang.org/std/",
+      "selectorCandidates": ["#search-form", "form.search-form", "#search"]
+    }
+  ],
+  "reserves": [
+    {
+      "sourceFamily": "godocs",
+      "siteId": "go.dev",
+      "entryUrl": "https://go.dev/doc/",
+      "selectorCandidates": ["#search", "form[role=\"search\"]", ".search"]
+    },
+    {
+      "sourceFamily": "postgresql-docs",
+      "siteId": "www.postgresql.org",
+      "entryUrl": "https://www.postgresql.org/docs/",
+      "selectorCandidates": ["#search-form", "form[role=\"search\"]", ".search"]
+    },
+    {
+      "sourceFamily": "nodejs-docs",
+      "siteId": "nodejs.org",
+      "entryUrl": "https://nodejs.org/docs/latest/api/",
+      "selectorCandidates": ["#search", "form[role=\"search\"]", ".search"]
+    }
+  ]
+}

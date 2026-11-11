@@ -32,7 +32,6 @@ export const BA1_OBSERVATION_DRIVER_TIMING_SCHEMA =
 const MAX_SELECTOR_CANDIDATES = 3;
 const TARGET_CAPTURE_COUNT = 2;
 const SEARCH_HOST_KINDS = new Set(["input", "textarea", "contenteditable"]);
-const SPLIT_AUTHORITY = "Carol";
 
 export type BA1ObservationDriverErrorCode = "invalid_plan";
 
@@ -163,6 +162,14 @@ export interface BA1ObservationDriverResult {
   readonly sources: readonly BA1ObservationSourceOutcome[];
 }
 
+export interface BA1ObservationApprovedSplitDecision {
+  readonly sourceFamily: string;
+  readonly sourceGroupId: string;
+  readonly splitAuthority: string;
+  readonly splitDecisionRef: string;
+  readonly evidenceRefs: readonly string[];
+}
+
 export type BA1ObservationDriverRuntime = Pick<
   BA1RealSiteCdpRuntime,
   "installProjectionBundle" | "navigate" | "beginProjection"
@@ -171,6 +178,7 @@ export type BA1ObservationDriverRuntime = Pick<
 export interface BA1ObservationDriverOptions {
   readonly sourcePlan: unknown;
   readonly outDir: string;
+  readonly approvedSplitDecisions?: readonly BA1ObservationApprovedSplitDecision[];
   /**
    * Test and caller injection point. An injected runtime stays owned by the
    * caller; the driver closes only the runtime it creates.
@@ -286,6 +294,52 @@ function parseSource(value: unknown, label: string, allowSlot: boolean): BA1Obse
     selectorCandidates: Object.freeze(selectors),
     ...(scopeSelector === undefined ? {} : { scopeSelector }),
   });
+}
+
+function parseApprovedSplitDecision(
+  value: unknown,
+  label: string,
+): BA1ObservationApprovedSplitDecision {
+  const decision = requireRecord(value, label);
+  assertAllowedKeys(
+    decision,
+    ["sourceFamily", "sourceGroupId", "splitAuthority", "splitDecisionRef", "evidenceRefs"],
+    label,
+  );
+  const evidenceRefs = requireArray(decision.evidenceRefs, `${label}.evidenceRefs`)
+    .map((entry, index) => requireNonEmptyString(entry, `${label}.evidenceRefs[${index}]`));
+  if (evidenceRefs.length === 0) {
+    throw new BA1ObservationDriverError(
+      "invalid_plan",
+      `${label}.evidenceRefs must not be empty`,
+    );
+  }
+  return Object.freeze({
+    sourceFamily: requireFileSafeName(decision.sourceFamily, `${label}.sourceFamily`),
+    sourceGroupId: requireFileSafeName(decision.sourceGroupId, `${label}.sourceGroupId`),
+    splitAuthority: requireNonEmptyString(decision.splitAuthority, `${label}.splitAuthority`),
+    splitDecisionRef: requireNonEmptyString(decision.splitDecisionRef, `${label}.splitDecisionRef`),
+    evidenceRefs: Object.freeze(evidenceRefs),
+  });
+}
+
+function parseApprovedSplitDecisions(value: unknown): readonly BA1ObservationApprovedSplitDecision[] {
+  if (value === undefined) return Object.freeze([]);
+  const decisions = requireArray(value, "approvedSplitDecisions")
+    .map((entry, index) => parseApprovedSplitDecision(entry, `approvedSplitDecisions[${index}]`));
+  if (new Set(decisions.map(decision => decision.sourceFamily)).size !== decisions.length) {
+    throw new BA1ObservationDriverError(
+      "invalid_plan",
+      "approvedSplitDecisions sourceFamily values must be unique",
+    );
+  }
+  if (new Set(decisions.map(decision => decision.sourceGroupId)).size !== decisions.length) {
+    throw new BA1ObservationDriverError(
+      "invalid_plan",
+      "approvedSplitDecisions sourceGroupId values must be unique",
+    );
+  }
+  return Object.freeze(decisions);
 }
 
 export function validateBA1ObservationDriverSourcePlan(value: unknown): BA1ObservationDriverSourcePlan {
@@ -577,15 +631,33 @@ async function saveArtifact(
   );
 }
 
-function splitDecision(source: BA1ObservationDriverSource) {
+function splitDecision(
+  source: BA1ObservationDriverSource,
+  approved: BA1ObservationApprovedSplitDecision | null,
+) {
+  if (approved !== null) {
+    return Object.freeze({
+      sourceFamily: approved.sourceFamily,
+      sourceGroupId: approved.sourceGroupId,
+      siteId: source.siteId,
+      entryUrl: source.entryUrl,
+      partition: "TRAIN" as const,
+      priorExposure: "unseen" as const,
+      splitAuthority: approved.splitAuthority,
+      splitDecisionRef: approved.splitDecisionRef,
+      evidenceRefs: approved.evidenceRefs,
+    });
+  }
   return Object.freeze({
     sourceFamily: source.sourceFamily,
+    sourceGroupId: source.sourceFamily,
     siteId: source.siteId,
     entryUrl: source.entryUrl,
     partition: "TRAIN" as const,
     priorExposure: "unseen" as const,
-    splitAuthority: SPLIT_AUTHORITY,
-    decidedAt: new Date().toISOString(),
+    splitAuthority: null,
+    splitDecisionRef: null,
+    evidenceRefs: Object.freeze([]),
   });
 }
 
@@ -617,13 +689,15 @@ async function captureSource(
   source: BA1ObservationDriverSource,
   outDir: string,
   timing: BA1ObservationDriverTiming,
+  approvedSplitDecision: BA1ObservationApprovedSplitDecision | null,
 ): Promise<{ readonly plan: BA1ObservationDriverSourcePlan; readonly outcome: BA1ObservationSourceOutcome }> {
   const documentRef = `b-a1-observation-${source.sourceFamily}`;
+  const decision = splitDecision(source, approvedSplitDecision);
   await saveArtifact(
     timing,
-    join(outDir, "split-decisions", `${source.sourceFamily}.json`),
-    `split-decisions/${source.sourceFamily}.json`,
-    splitDecision(source),
+    join(outDir, "split-decisions", `${decision.sourceGroupId}.json`),
+    `split-decisions/${decision.sourceGroupId}.json`,
+    decision,
     source.sourceFamily,
   );
 
@@ -919,6 +993,19 @@ export async function runBA1ObservationDriver(
     throw new BA1ObservationDriverError("invalid_plan", "outDir must be a non-empty string");
   }
   const initialPlan = validateBA1ObservationDriverSourcePlan(options.sourcePlan);
+  const approvedSplitDecisions = parseApprovedSplitDecisions(options.approvedSplitDecisions);
+  const planSourceFamilies = new Set(
+    [...initialPlan.trainSlots, ...initialPlan.reserves].map(source => source.sourceFamily),
+  );
+  const unknownApprovedSourceFamily = approvedSplitDecisions.find(
+    decision => !planSourceFamilies.has(decision.sourceFamily),
+  );
+  if (unknownApprovedSourceFamily !== undefined) {
+    throw new BA1ObservationDriverError(
+      "invalid_plan",
+      `approvedSplitDecisions sourceFamily ${unknownApprovedSourceFamily.sourceFamily} is not in sourcePlan`,
+    );
+  }
   await mkdir(options.outDir, { recursive: true });
   const timing = new BA1ObservationDriverTiming(options.outDir, runStartedNs);
   await saveArtifact(
@@ -947,7 +1034,17 @@ export async function runBA1ObservationDriver(
     for (const source of candidates) {
       if (capturedCount >= targetCaptureCount) break;
       try {
-        const captured = await captureSource(runtime, plan, source, options.outDir, timing);
+        const approvedSplitDecision = approvedSplitDecisions.find(
+          decision => decision.sourceFamily === source.sourceFamily,
+        ) ?? null;
+        const captured = await captureSource(
+          runtime,
+          plan,
+          source,
+          options.outDir,
+          timing,
+          approvedSplitDecision,
+        );
         plan = captured.plan;
         outcomes.push(captured.outcome);
         if (captured.outcome.status === "captured") capturedCount += 1;
