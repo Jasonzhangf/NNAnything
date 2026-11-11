@@ -308,10 +308,10 @@ test("B4-B7 static projection, loader round trip, and producerSource contract", 
   const relationCompletion = step.receipts[0].producerSource.completionWork.items.find(
     item => item.kind === "relation_completion",
   );
-  assert.equal(relationCompletion.disposition.state, "unsupported");
+  assert.equal(relationCompletion.disposition.state, "unresolved");
   assert.equal(
     relationCompletion.disposition.reason,
-    "static-selected completion witness is not yet reviewed",
+    "selected and requested declarations are not distinct",
   );
   assert.equal(
     step.receipts[0].producerSource.completionWork.items.some(
@@ -514,7 +514,7 @@ test("E4 actual static and dynamic vectors differ only through factual identity 
   }
 });
 
-test("A1-A3 static read is admitted while completion remains unsupported", async (t) => {
+test("A1-A3 static read is admitted while a same-member request stays incomplete", async (t) => {
   const built = await buildStaticRecord();
   if (built === null) {
     t.skip("separate static producer slice is not present in this worktree");
@@ -539,7 +539,11 @@ test("A1-A3 static read is admitted while completion remains unsupported", async
   assert.equal(assessment.status, "incomplete");
   assert.equal(assessment.producer_backed, true);
   assert.ok(
+    assessment.gaps.some(gap => gap.code === "static_selected_relation_not_distinct"),
+  );
+  assert.equal(
     assessment.gaps.some(gap => gap.code === "static_completion_witness_unreviewed"),
+    false,
   );
   assert.equal(
     assessment.gaps.some(gap => gap.code === "producer_branch_ambiguous"),

@@ -64,9 +64,11 @@ import type {
 } from "../filters/tsjs-symbol-table-policy.js";
 import {
   deriveTsJsObservedCompletionRequirements,
+  deriveTsJsStaticRelationCompletionItem,
   deriveTsJsStaticSelectedCompletionRequirements,
   deriveTsJsTargetMismatchCompletionRequirements,
   isTsJsCallableIdentityExact,
+  matchingTsJsStaticCallableMembers,
   moduleFileFromRef,
   successfulProducerFiles,
 } from "../training/unified-student-converter.js";
@@ -307,6 +309,7 @@ export type TsJsObservedCompletionGapCode =
   | "work_state_open"
   | "enumeration_not_closed"
   | "static_completion_witness_unreviewed"
+  | "static_selected_relation_not_distinct"
   | "target_mismatch_binding_invalid"
   | "target_mismatch_declaration_invalid"
   | "target_mismatch_edge_invalid";
@@ -3985,6 +3988,11 @@ export function assessTsJsObservedStaticSelectedRead(
     member => member.initializerRef === raw.selection.selectedMemberRef,
   );
   const selectedIdentity = selectedMember?.callableIdentity ?? null;
+  const requestedMembers = requestedDeclaration === null
+    ? []
+    : matchingTsJsStaticCallableMembers(raw, requestedDeclaration);
+  const requestedMember = requestedMembers.length === 1 ? requestedMembers[0]! : null;
+  const requestedIdentity = requestedMember?.callableIdentity ?? null;
   if (
     selectedMember === undefined
     || selectedMember.name !== raw.selection.selectedMemberName
@@ -4058,6 +4066,8 @@ export function assessTsJsObservedStaticSelectedRead(
   }
 
   const completionWork = source.completionWork;
+  const sharedReadAdmitted = readRecords.length === 1
+    && !gaps.some(gap => gap.code === "read_record_mismatch");
   if (completionWork === undefined) {
     gaps.push(observedCompletionGap(
       "completion_work_missing",
@@ -4124,17 +4134,49 @@ export function assessTsJsObservedStaticSelectedRead(
     const relationCompletion = actual.get(
       `relation_completion\u0000${source.callSiteRef}`,
     );
-    if (
-      relationCompletion === undefined
-      || relationCompletion.disposition.state !== "unsupported"
-      || relationCompletion.disposition.reason
-        !== "static-selected completion witness is not yet reviewed"
-    ) {
+    if (relationCompletion === undefined) {
       gaps.push(observedCompletionGap(
         "completion_work_unsatisfied",
-        "static relation completion is not explicitly unsupported",
+        "static relation completion is missing",
         [sourceReadRef, raw.observationRef],
       ));
+    } else if (relationCompletion.disposition.state === "unsupported") {
+      if (
+        relationCompletion.disposition.reason
+          !== "static-selected completion witness is not yet reviewed"
+      ) {
+        gaps.push(observedCompletionGap(
+          "completion_work_unsatisfied",
+          "legacy static relation completion reason is invalid",
+          [sourceReadRef, raw.observationRef],
+        ));
+      } else {
+        gaps.push(observedCompletionGap(
+          "completion_work_unsatisfied",
+          "legacy unsupported static relation completion cannot witness judge=false",
+          [sourceReadRef, raw.observationRef],
+        ));
+      }
+    } else if (requestedDeclaration !== null) {
+      const expectedRelation = deriveTsJsStaticRelationCompletionItem(
+        raw,
+        requestedDeclaration,
+        sharedReadAdmitted,
+      );
+      if (
+        relationCompletion.disposition.state
+          !== expectedRelation.disposition.state
+        || !sameStringArray(
+          relationCompletion.disposition.evidenceRefs,
+          expectedRelation.disposition.evidenceRefs,
+        )
+      ) {
+        gaps.push(observedCompletionGap(
+          "completion_work_unsatisfied",
+          "static relation completion disposition or evidence does not match the typed table",
+          [sourceReadRef, raw.observationRef],
+        ));
+      }
     }
   }
 
@@ -4156,11 +4198,42 @@ export function assessTsJsObservedStaticSelectedRead(
     ));
   }
 
-  gaps.push(observedCompletionGap(
-    "static_completion_witness_unreviewed",
-    "static-selected completion witness is not yet reviewed",
-    [sourceReadRef, raw.observationRef, raw.callSiteRef],
-  ));
+  if (requestedMembers.length !== 1) {
+    gaps.push(observedCompletionGap(
+      "requested_target_mapping_invalid",
+      "requested declaration does not map to exactly one same-module typed member",
+      [sourceReadRef, raw.callableTable.tableRef, source.requestedDeclarationRef],
+    ));
+  } else if (selectedIdentity !== null && requestedIdentity !== null) {
+    if (selectedIdentity.moduleRef !== requestedIdentity.moduleRef) {
+      gaps.push(observedCompletionGap(
+        "requested_target_mapping_invalid",
+        "requested declaration is not a member of the selected closed module",
+        [sourceReadRef, raw.callableTable.tableRef],
+      ));
+    } else if (selectedIdentity.declarationRef === requestedIdentity.declarationRef) {
+      gaps.push(observedCompletionGap(
+        "static_selected_relation_not_distinct",
+        "selected and requested declarations are the same typed member",
+        [
+          sourceReadRef,
+          raw.observationRef,
+          selectedIdentity.declarationRef,
+        ],
+      ));
+    }
+  }
+
+  if (
+    state.terminalKind !== "judge"
+    || state.terminalJudgement !== "judge=false"
+  ) {
+    gaps.push(observedCompletionGap(
+      "completion_work_unsatisfied",
+      "static-selected witness is only applicable to terminal judge=false",
+      [sourceReadRef, raw.observationRef, raw.callSiteRef],
+    ));
+  }
 
   const uniqueGaps = gaps.filter((gap, index) =>
     gaps.findIndex(candidate =>
@@ -4169,14 +4242,33 @@ export function assessTsJsObservedStaticSelectedRead(
       && candidate.kind === gap.kind
       && candidate.subjectRef === gap.subjectRef
       && sameStringArray(candidate.evidenceRefs, gap.evidenceRefs)) === index);
+
+  if (uniqueGaps.length > 0) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: uniqueRefs([
+        sourceReadRef,
+        ...uniqueGaps.flatMap(gap => gap.evidenceRefs),
+      ]),
+      gaps: uniqueGaps,
+    };
+  }
+
   return {
-    status: "incomplete",
+    status: "supported",
     producer_backed: true,
     evidenceRefs: uniqueRefs([
       sourceReadRef,
-      ...uniqueGaps.flatMap(gap => gap.evidenceRefs),
+      raw.observationRef,
+      ...readRecords.map(record => record.id),
+      raw.callableTable.tableRef,
+      ...(selectedMember === undefined ? [] : [selectedMember.initializerRef]),
+      ...(selectedIdentity === null ? [] : [selectedIdentity.declarationRef]),
+      ...(requestedMember === null ? [] : [requestedMember.initializerRef]),
+      ...(requestedIdentity === null ? [] : [requestedIdentity.declarationRef]),
     ]),
-    gaps: uniqueGaps,
+    gaps: [],
   };
 }
 
@@ -4646,6 +4738,21 @@ function targetMismatchWitness(
     : [];
 }
 
+function staticSelectedMismatchWitness(
+  episodes: readonly RelationStepEpisode[],
+  state: MultiStepState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): readonly string[] {
+  const assessment = assessTsJsObservedStaticSelectedRead(
+    episodes,
+    state,
+    initialEvidence,
+  );
+  return assessment.producer_backed && assessment.status === "supported"
+    ? assessment.evidenceRefs
+    : [];
+}
+
 function rootCompletionOf(
   episodes: readonly RelationStepEpisode[],
   state: MultiStepState,
@@ -4697,7 +4804,10 @@ function rootCompletionOf(
     const negative = shadow.length > 0
       ? shadow
       : targetMismatchWitness(episodes, state, initialEvidence);
-    if (negative.length === 0) {
+    const completed = negative.length > 0
+      ? negative
+      : staticSelectedMismatchWitness(episodes, state, initialEvidence);
+    if (completed.length === 0) {
       return {
         predictedJudgement: "false",
         positiveRootSatisfied: false,
@@ -4709,9 +4819,9 @@ function rootCompletionOf(
     return {
       predictedJudgement: "false",
       positiveRootSatisfied: false,
-      positiveRootGaps: [{ code: "POSITIVE_RELATION_NOT_ESTABLISHED", refs: negative }],
+      positiveRootGaps: [{ code: "POSITIVE_RELATION_NOT_ESTABLISHED", refs: completed }],
       queryCompletion: "complete_false",
-      evidenceRefs: negative,
+      evidenceRefs: completed,
     };
   }
   if (state.terminalKind === "judge" && state.terminalJudgement === "judge=unknown") {
