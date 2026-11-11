@@ -72,6 +72,12 @@ The DEV invocation writes only `student-observations.jsonl` and the requested
 control receipt. It does not create supervision rows, fit, evaluate, or modify
 the source, gold, admission, or manifest inputs.
 
+To emit a diagnostic derived DEV family without changing the original family,
+pass `--derived-source-group <name>` with a separate `--out-dir`. The producer
+writes a derived `manifest.json`, `student-observations.jsonl`, and
+`familyAdmissions.json`. The derived family stays non-training and
+non-independent.
+
 Output:
 
 ```text

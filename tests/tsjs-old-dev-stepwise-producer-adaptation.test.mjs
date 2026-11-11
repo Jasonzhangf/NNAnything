@@ -16,6 +16,7 @@ import {
 } from "../dist/training/unified-student-converter.js";
 import { loadGoldFamily } from "../dist/training/unified-supervision-converter.js";
 import { assertStudentInputIsolated } from "../dist/training/unified-runner-evaluate.js";
+import { admitInitialEvidence } from "../dist/adapters/tsjs-unified-recursive.js";
 
 const EXPECTED_SAMPLE_IDS = [
   "c-dev-negative-same-name-other",
@@ -236,4 +237,89 @@ test("does not read the real verification family", async () => {
   const readFiles = result.controlReceipts.controls.flatMap((control) => control.readFiles);
   assert.equal(readFiles.some((file) => file.includes("verification")), false);
   assert.equal(resolve(familyRoot).includes("dev-closure-shadow-b"), true);
+});
+
+test("derived old DEV producer binds the active containing read without weakening admission", async () => {
+  const { root, familyRoot } = await makeFamilyCopy();
+  const originalGold = await readFile(join(familyRoot, "labels/gold.jsonl"), "utf8");
+  const originalManifest = await readFile(join(familyRoot, "manifest.json"), "utf8");
+  const outDir = join(root, "derived-dev");
+  const result = await generateOldDevStepwise({
+    familyRoot,
+    requestSource: DEFAULT_OLD_DEV_REQUEST_SOURCE,
+    outDir,
+    receiptPath: join(root, "control-receipts.json"),
+    derivedSourceGroup: "tsjs-dev-closure-shadow-b-derived-read-binding-v1",
+  });
+
+  assert.equal(await readFile(join(familyRoot, "labels/gold.jsonl"), "utf8"), originalGold);
+  assert.equal(await readFile(join(familyRoot, "manifest.json"), "utf8"), originalManifest);
+  assert.ok(result.derivedOutput);
+  assert.equal(result.derivedOutput.dir, outDir);
+  assert.equal(result.derivedOutput.sourceGroup, "tsjs-dev-closure-shadow-b-derived-read-binding-v1");
+  assert.equal(result.derivedOutput.admissionsPath, join(outDir, "familyAdmissions.json"));
+  const admissions = JSON.parse(await readFile(result.derivedOutput.admissionsPath, "utf8"));
+  assert.deepEqual(admissions.familyAdmissions, [{
+    sourceGroup: "tsjs-dev-closure-shadow-b-derived-read-binding-v1",
+    partition: "DEV",
+    usableForTrainingSupervision: false,
+    usableForIndependentVerification: false,
+    evidence:
+      "derived diagnostic DEV from the original family; same source lineage, not an independent holdout",
+  }]);
+
+  const episodes = await loadStepwiseEpisodeFamily(outDir);
+  assert.deepEqual(
+    [...new Set(episodes.map((episode) => episode.sampleId))].sort(),
+    EXPECTED_SAMPLE_IDS,
+  );
+  for (const episode of episodes.filter((episode) => episode.stepId === "step-0")) {
+    assert.equal(episode.sourceGroup, "tsjs-dev-closure-shadow-b-derived-read-binding-v1");
+    const binding = episode.currentRelation.binding.value;
+    const receipt = episode.receipts[0];
+    const readRef = receipt.evidenceRefs[0];
+    const importRef = binding.evidenceRefs.find((ref) => ref !== readRef);
+    assert.ok(importRef);
+    assert.deepEqual(binding.evidenceRefs, [readRef, importRef]);
+    assert.deepEqual(binding.resolution.evidenceRefs, [readRef, importRef]);
+
+    const admission = admitInitialEvidence(
+      `derived-admission:${episode.sampleId}`,
+      [episode],
+    );
+    assert.deepEqual(admission.invalidReasons, []);
+    const evidenceIds = admission.initialObservation.evidence.map((record) => record.id);
+    assert.equal(evidenceIds.includes(readRef), true);
+    assert.equal(evidenceIds.includes(importRef), true);
+  }
+
+  const positive = episodes.find(
+    (episode) => episode.sampleId === "c-dev-positive-factory-call",
+  );
+  const unrelatedRead = episodes.find(
+    (episode) => episode.sampleId === "c-dev-positive-factory-call",
+  );
+  const unrelatedFactoryRead = "ev:sources/src/factory.ts:read";
+  unrelatedRead.currentRelation.binding.value.evidenceRefs = [
+    unrelatedFactoryRead,
+    unrelatedRead.currentRelation.binding.value.evidenceRefs[1],
+  ];
+  unrelatedRead.currentRelation.binding.value.resolution.evidenceRefs = [
+    unrelatedFactoryRead,
+    unrelatedRead.currentRelation.binding.value.resolution.evidenceRefs[1],
+  ];
+  assert.notEqual(unrelatedFactoryRead, positive.receipts[0].evidenceRefs[0]);
+  const unrelatedAdmission = admitInitialEvidence("derived-admission:unrelated-read", [
+    unrelatedRead,
+  ]);
+  assert.equal(
+    unrelatedAdmission.invalidReasons.includes("source read evidence membership missing"),
+    true,
+  );
+  assert.equal(
+    unrelatedAdmission.initialObservation.evidence.some(
+      (record) => record.id === unrelatedFactoryRead,
+    ),
+    false,
+  );
 });

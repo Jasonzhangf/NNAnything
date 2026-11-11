@@ -34,6 +34,8 @@ export const OLD_DEV_CONTROL_RECEIPTS_SCHEMA =
 
 const STUDENT_SCHEMA = "carol-tsjs-fixed-stepwise-student-v1";
 const SUPERVISION_SCHEMA = "carol-tsjs-fixed-stepwise-supervision-v1";
+const FAMILY_ADMISSIONS_SCHEMA =
+  "nnanything.tsjs.request-aware-admission.family-admissions.v1";
 const JUDGES = ["c:judge:true", "c:judge:false", "c:judge:unknown"];
 const RETURN = "c:return";
 const DEFER = "c:defer";
@@ -665,8 +667,8 @@ function observeActionResult(sampleId, label, fromStepId, targetRef, resultRefs,
   };
 }
 
-function bindingImport(callSiteRef, edge, reason = "not_requested") {
-  const evidence = edge.evidenceRefs;
+function bindingImport(callSiteRef, edge, reason = "not_requested", activeReadEvidence = []) {
+  const evidence = [...new Set([...activeReadEvidence, ...edge.evidenceRefs])];
   return observed(
     {
       symbolRef: `symbol:${edge.edgeRef}`,
@@ -1001,6 +1003,7 @@ function aliasSteps(sample, root) {
     return missingReadResult(sample, entryRead, "entry source read failed");
   }
   const entryParsed = entryRead.parsed;
+  let activeReadEvidence = [parseEvidenceRef(root, entryParsed)];
   const importBinding = findImportBinding(entryParsed, episode.entrySymbol);
   const firstEdge = importBinding
     ? importEdges(root, entryParsed).find((edge) => edge.targetName === importBinding.targetName)
@@ -1035,7 +1038,7 @@ function aliasSteps(sample, root) {
     const relation = currentRelation(
       pendingRelationRef,
       callSiteRef,
-      bindingImport(callSiteRef, activeEdge),
+      bindingImport(callSiteRef, activeEdge, "not_requested", activeReadEvidence),
     );
     steps.push(
       makeStep({
@@ -1134,6 +1137,7 @@ function aliasSteps(sample, root) {
       ? null
       : findTopDeclaration(sourceRead.parsed.sourceFile, activeEdge.sourceName);
     const consumedEvidence = [parseEvidenceRef(root, sourceRead.parsed)];
+    activeReadEvidence = consumedEvidence;
     const consumedEdge = {
       ...activeEdge,
       sourceContent: sourceContentObserved(
@@ -1894,7 +1898,7 @@ function localTableDynamicSteps(sample, root) {
     currentRelation: currentRelation(
       pendingRelationRef,
       callSiteRef,
-      bindingImport(callSiteRef, edge, "dynamic_undecidable"),
+      bindingImport(callSiteRef, edge, "dynamic_undecidable", entryEvidence),
     ),
     cursorState: "closed",
     cursorEvidence: entryEvidence,
@@ -1936,7 +1940,7 @@ function localTableDynamicSteps(sample, root) {
     currentRelation: currentRelation(
       pendingRelationRef,
       callSiteRef,
-      bindingImport(callSiteRef, edge, "dynamic_undecidable"),
+      bindingImport(callSiteRef, edge, "dynamic_undecidable", entryEvidence),
     ),
     cursorState: "closed",
     cursorEvidence: [parseEvidenceRef(root, entryParsed)],
@@ -2155,9 +2159,18 @@ export async function generateOldDevStepwise({
   requestSource = DEFAULT_OLD_DEV_REQUEST_SOURCE,
   outDir = familyRoot,
   receiptPath,
+  derivedSourceGroup = null,
 } = {}) {
   if (!familyRoot) {
     throw new TypeError("familyRoot is required for old DEV stepwise generation");
+  }
+  if (derivedSourceGroup !== null) {
+    if (typeof derivedSourceGroup !== "string" || derivedSourceGroup.length === 0) {
+      throw new TypeError("derivedSourceGroup must be a non-empty string when provided");
+    }
+    if (path.resolve(outDir) === path.resolve(familyRoot)) {
+      throw new TypeError("derivedSourceGroup requires a separate derived output directory");
+    }
   }
   if (!receiptPath) {
     receiptPath = path.join(outDir, "control-receipts.json");
@@ -2208,7 +2221,7 @@ export async function generateOldDevStepwise({
     schemaVersion: STUDENT_SCHEMA,
     sampleId: built.episode.sampleId,
     family: built.family,
-    sourceGroup: built.episode.sourceGroup,
+    sourceGroup: derivedSourceGroup ?? built.episode.sourceGroup,
     partition: built.episode.partition,
     language: built.episode.language,
     semanticStratum: built.episode.semanticStratum,
@@ -2232,9 +2245,53 @@ export async function generateOldDevStepwise({
     outputPath: path.join(outDir, "student-observations.jsonl"),
     controls: builtSamples.map(oldDevControlReceipt),
   };
+  const studentObservationsPath = path.join(outDir, "student-observations.jsonl");
+  let derivedOutput = null;
+  if (derivedSourceGroup !== null) {
+    const manifestPath = path.join(outDir, "manifest.json");
+    const derivedManifest = {
+      ...manifest,
+      sourceGroup: derivedSourceGroup,
+      derivation: {
+        kind: "derived-diagnostic-dev",
+        derivedFrom: manifest.sourceGroup,
+        regeneratedBinding: "current-active-containing-read",
+        independentHoldout: false,
+        trainingEligible: false,
+        rows: builtSamples.map((built) => ({
+          sampleId: built.episode.sampleId,
+          originalSourceGroup: built.episode.sourceGroup,
+        })),
+      },
+    };
+    writeJson(manifestPath, derivedManifest);
+    const admissionsPath = path.join(outDir, "familyAdmissions.json");
+    writeJson(admissionsPath, {
+      schema: FAMILY_ADMISSIONS_SCHEMA,
+      familyAdmissions: [
+        {
+          sourceGroup: derivedSourceGroup,
+          partition: "DEV",
+          usableForTrainingSupervision: false,
+          usableForIndependentVerification: false,
+          evidence:
+            "derived diagnostic DEV from the original family; same source lineage, not an independent holdout",
+        },
+      ],
+    });
+    derivedOutput = {
+      dir: outDir,
+      manifestPath,
+      studentObservationsPath,
+      admissionsPath,
+      sourceGroup: derivedSourceGroup,
+      recordCount: studentRows.length,
+      sampleIds: builtSamples.map((built) => built.episode.sampleId),
+    };
+  }
   writeJsonl(path.join(outDir, "student-observations.jsonl"), studentRows);
   writeJson(receiptPath, controlReceipts);
-  return { studentRows, controlReceipts };
+  return { studentRows, controlReceipts, derivedOutput };
 }
 
 function buildStudent(sample, root) {
@@ -2785,6 +2842,7 @@ async function main() {
   let requestSource = DEFAULT_OLD_DEV_REQUEST_SOURCE;
   let devOutDir = null;
   let receiptPath = null;
+  let derivedSourceGroup = null;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--corpus-root") corpusRoot = path.resolve(args[++index]);
     else if (args[index] === "--out") outDir = path.resolve(args[++index]);
@@ -2792,9 +2850,10 @@ async function main() {
     else if (args[index] === "--request-source") requestSource = path.resolve(args[++index]);
     else if (args[index] === "--out-dir") devOutDir = path.resolve(args[++index]);
     else if (args[index] === "--receipts") receiptPath = path.resolve(args[++index]);
+    else if (args[index] === "--derived-source-group") derivedSourceGroup = args[++index];
     else if (args[index] === "--help" || args[index] === "-h") {
       process.stdout.write(
-        "Usage: node generate-fixed-stepwise.mjs [--corpus-root <absolute>] [--out <absolute>] [--dev-family-root <absolute>] [--request-source <absolute>] [--out-dir <absolute>] [--receipts <absolute>]\n",
+        "Usage: node generate-fixed-stepwise.mjs [--corpus-root <absolute>] [--out <absolute>] [--dev-family-root <absolute>] [--request-source <absolute>] [--out-dir <absolute>] [--receipts <absolute>] [--derived-source-group <name>]\n",
       );
       return;
     } else {
@@ -2807,6 +2866,7 @@ async function main() {
       requestSource,
       outDir: devOutDir ?? devFamilyRoot,
       receiptPath: receiptPath ?? path.join(devOutDir ?? devFamilyRoot, "control-receipts.json"),
+      derivedSourceGroup,
     })
     : await generateFixedStepwise({ corpusRoot, outDir });
   process.stdout.write(
