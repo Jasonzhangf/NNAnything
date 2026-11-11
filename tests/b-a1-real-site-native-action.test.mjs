@@ -78,6 +78,29 @@ const focusWithoutScrollHtml = `
     });
   </script>
 `;
+const focusNavigationHtml = `
+  <div id="scope">
+    <button id="focus-navigates" type="button" aria-label="Focus navigates">Focus navigates</button>
+  </div>
+  <script>
+    document.getElementById("focus-navigates").addEventListener("focus", () => {
+      globalThis.__bA1FocusNavigated = true;
+    });
+  </script>
+`;
+const focusNavigationActionWrapper = `
+const originalFocusAction = globalThis.__nnanythingBA1RealSiteAction;
+globalThis.__nnanythingBA1RealSiteAction = request => {
+  if (request && request.op === "focus-target") {
+    originalFocusAction(request);
+    if (globalThis.__bA1FocusNavigated === true) {
+      location.assign("/focus-navigated");
+    }
+    return new Promise(() => {});
+  }
+  return originalFocusAction(request);
+};
+`;
 const openShadowActionHtml = `
   <div id="scope"></div>
   <script>
@@ -327,6 +350,7 @@ async function buildProjectionScript(options = {}) {
 globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBrowserProjectionRequest;
 globalThis.__nnanythingBA1RealSiteAction = BA1Projection.handleBA1RealSiteBrowserActionRequest;
 ${observerLifecycleProbeScript(options.observerLifecycleProbe)}
+${options.actionWrapper ?? ""}
 ${options.invalidObserverResult === true ? `
 const validActionHandler = globalThis.__nnanythingBA1RealSiteAction;
 globalThis.__nnanythingBA1RealSiteAction = request => {
@@ -354,6 +378,7 @@ async function startFixtureServer() {
   let observerLifecycleResult = null;
   let replaceDone = false;
   let slowTargetRequestCount = 0;
+  let focusNavigationCount = 0;
   const deferredReplace = [];
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", origin === "" ? "http://127.0.0.1" : origin);
@@ -386,6 +411,12 @@ async function startFixtureServer() {
       replaceDone = true;
       response.writeHead(204);
       response.end();
+      return;
+    }
+    if (url.pathname === "/focus-navigated") {
+      focusNavigationCount += 1;
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(targetHtml);
       return;
     }
     if (url.pathname === "/slow-resource") {
@@ -454,6 +485,7 @@ async function startFixtureServer() {
     },
     replaceDone: () => replaceDone,
     slowTargetRequestCount: () => slowTargetRequestCount,
+    focusNavigationCount: () => focusNavigationCount,
     observerLifecycleResult: () => observerLifecycleResult,
     clearObserverLifecycleResult: () => { observerLifecycleResult = null; },
     close: () => new Promise(resolve => server.close(resolve)),
@@ -822,6 +854,38 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     assert.deepEqual(receipt.readback, { status: "not_applicable", value: null });
     assert.equal(receipt.effectKnowledge, "none");
     assert.equal(receipt.error?.code, "FOCUS_NOT_ACQUIRED");
+  });
+
+  await t.test("focus navigation after dispatch stays unknown instead of reporting a zero effect", async () => {
+    await runtime.installProjectionBundle(
+      await buildProjectionScript({ actionWrapper: focusNavigationActionWrapper }),
+    );
+    await runtime.navigate(`${fixture.origin}/blank`, "doc-action-focus-navigation");
+    await runtime.setDocumentContent(focusNavigationHtml, "doc-action-focus-navigation");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const receipt = await runtime.executeNativeAction({
+      target: {
+        kind: "unique-recipe-selector",
+        control: controlOf(projection.operation),
+        selector: "#focus-navigates",
+        expectedTag: "button",
+        expectedRole: "button",
+        expectedAccessibleName: "Focus navigates",
+      },
+      action: { action: "focus" },
+    });
+
+    assert.equal(receipt.action, "focus");
+    assert.equal(receipt.dispatch, "unknown");
+    assert.equal(receipt.focus, "unknown");
+    assert.equal(receipt.effectKnowledge, "unknown");
+    assert.equal(receipt.error?.code, "UNKNOWN_DISPATCH");
+    await waitUntil(() => fixture.focusNavigationCount() > 0, "focus handler did not navigate");
+    await runtime.installProjectionBundle(projectionScript);
   });
 
   await t.test("projected candidates inside an open shadow root stay within the declared host scope", async () => {

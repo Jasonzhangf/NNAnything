@@ -1084,6 +1084,7 @@ class CdpConnection {
       throw new BA1RealSiteCdpRuntimeError(
         "provider_replaced",
         "document changed before the projection request was sent",
+        { delivery: "not_sent" },
       );
     }
     let waiter: DocumentEpochWaiter | null = null;
@@ -1103,6 +1104,7 @@ class CdpConnection {
           throw new BA1RealSiteCdpRuntimeError(
             "provider_replaced",
             "document changed before evaluate used the main-frame context",
+            { delivery: "not_sent" },
           );
         }
         return await this.evaluate(expression, contextId);
@@ -1114,7 +1116,7 @@ class CdpConnection {
           throw new BA1RealSiteCdpRuntimeError(
             "provider_replaced",
             "document changed while evaluating a page action",
-            { cause: error instanceof Error ? error.message : String(error) },
+            { cause: error instanceof Error ? error.message : String(error), delivery: "unknown" },
           );
         }
         throw error;
@@ -1705,10 +1707,17 @@ class CdpConnection {
         }
       } catch (error) {
         if (error instanceof BA1RealSiteCdpRuntimeError && error.code === "provider_replaced") {
-          return fail("STALE_BEFORE_DISPATCH", "document changed before focus dispatch", "not_sent", {
-            target: targetReceipt,
-            focus: initialFocus,
-          });
+          const dispatch = deliveryStateOf(error);
+          return dispatch === "not_sent"
+            ? fail("STALE_BEFORE_DISPATCH", "document changed before focus dispatch", dispatch, {
+                target: targetReceipt,
+                focus: initialFocus,
+              })
+            : fail("UNKNOWN_DISPATCH", "document changed during focus dispatch", dispatch, {
+                target: targetReceipt,
+                focus: "unknown",
+                effectKnowledge: "unknown",
+              });
         }
         const pageCode = pageActionErrorCode(error);
         const pageMessage = error instanceof Error ? error.message : String(error);
