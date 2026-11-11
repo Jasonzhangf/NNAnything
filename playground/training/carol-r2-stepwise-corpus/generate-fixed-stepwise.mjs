@@ -25,6 +25,14 @@ export const DEFAULT_TYPED_REQUEST_SOURCE =
   "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-typed-observation-corpus-r1/student-observations.jsonl";
 export const DEFAULT_SUPERVISION_SOURCE =
   "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-typed-observation-corpus-r1/independent-supervision.jsonl";
+export const DEFAULT_OLD_DEV_FAMILY_ROOT =
+  "/Volumes/Intel/playground/nnanything/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/training/samples/neural-cli/tsjs/dev-closure-shadow-b";
+export const DEFAULT_OLD_DEV_REQUEST_SOURCE = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "tsjs-dev-closure-shadow-b.requests.json",
+);
+export const OLD_DEV_CONTROL_RECEIPTS_SCHEMA =
+  "carol-tsjs-old-dev-stepwise-control-receipts-v1";
 
 const STUDENT_SCHEMA = "carol-tsjs-fixed-stepwise-student-v1";
 const SUPERVISION_SCHEMA = "carol-tsjs-fixed-stepwise-supervision-v1";
@@ -1740,6 +1748,491 @@ function missingModuleSteps(sample, root) {
   };
 }
 
+function uniqueImportBinding(parsed, name) {
+  const matches = parsed.importBindings.filter((binding) => binding.targetName === name);
+  if (matches.length === 1) return { kind: "resolved", binding: matches[0] };
+  if (matches.length === 0) return { kind: "missing" };
+  return { kind: "ambiguous", count: matches.length };
+}
+
+function uniqueTopDeclaration(sourceFile, name) {
+  const matches = directStatementDeclarations(sourceFile.statements).filter(
+    (declaration) => declarationName(declaration) === name,
+  );
+  if (matches.length === 1) return { kind: "resolved", declaration: matches[0] };
+  if (matches.length === 0) return { kind: "missing" };
+  return { kind: "ambiguous", count: matches.length };
+}
+
+function findLocalTableDynamicShape(parsed, calleeName) {
+  const candidates = [];
+  for (const call of parsed.calls) {
+    if (!ts.isElementAccessExpression(call.expression)) continue;
+    const access = call.expression;
+    if (!ts.isIdentifier(access.expression) || !ts.isIdentifier(access.argumentExpression)) {
+      continue;
+    }
+    const table = uniqueTopDeclaration(parsed.sourceFile, access.expression.text);
+    if (table.kind !== "resolved" || !ts.isObjectLiteralExpression(table.declaration.initializer)) {
+      continue;
+    }
+    const members = table.declaration.initializer.properties.filter(
+      (property) =>
+        ts.isShorthandPropertyAssignment(property) && property.name.text === calleeName,
+    );
+    if (members.length !== 1) continue;
+    const key = uniqueTopDeclaration(parsed.sourceFile, access.argumentExpression.text);
+    if (key.kind !== "resolved") continue;
+    const folded = foldStringLiteral(key.declaration.initializer);
+    if (folded !== calleeName) continue;
+    const resolvedTable = resolveLocalIdentifier(access.expression);
+    const resolvedKey = resolveLocalIdentifier(access.argumentExpression);
+    if (
+      resolvedTable.candidates.length !== 1 ||
+      resolvedTable.candidates[0] !== table.declaration ||
+      resolvedKey.candidates.length !== 1 ||
+      resolvedKey.candidates[0] !== key.declaration
+    ) {
+      continue;
+    }
+    candidates.push({
+      call,
+      tableDeclaration: table.declaration,
+      keyDeclaration: key.declaration,
+      tableName: access.expression.text,
+      keyName: access.argumentExpression.text,
+      folded,
+    });
+  }
+  if (candidates.length === 1) return { kind: "resolved", ...candidates[0] };
+  if (candidates.length === 0) return { kind: "missing" };
+  return { kind: "ambiguous", count: candidates.length };
+}
+
+function localTableDynamicSteps(sample, root) {
+  const { episode, familyRoot } = sample;
+  const sampleId = episode.sampleId;
+  const { request, pendingRelationRef } = requestRelationFor(sample, `pending:${sampleId}`);
+  const calleeName = request.relationObligation.calleeName;
+  const entryPath = path.join(familyRoot, episode.entryFile);
+  const entryRead = readActionResult(
+    sampleId,
+    "step0-source-read",
+    null,
+    root,
+    entryPath,
+    pendingRelationRef,
+  );
+  if (entryRead.parsed === null) {
+    return missingReadResult(sample, entryRead, "entry source read failed");
+  }
+  const entryParsed = entryRead.parsed;
+  const importBinding = uniqueImportBinding(entryParsed, calleeName);
+  if (importBinding.kind === "ambiguous") {
+    return missingReadResult(
+      sample,
+      entryRead,
+      `ambiguous import binding for ${calleeName}`,
+    );
+  }
+  if (importBinding.kind !== "resolved") {
+    return missingReadResult(
+      sample,
+      entryRead,
+      `entry import not observed for ${calleeName}`,
+    );
+  }
+  const edge = importEdges(root, entryParsed).find(
+    (candidate) => candidate.targetName === calleeName,
+  );
+  if (!edge || edge.sourceModule.state !== "known" || !edge.sourceModule.value) {
+    return missingReadResult(
+      sample,
+      entryRead,
+      `entry import not observed for ${calleeName}`,
+    );
+  }
+  const shape = findLocalTableDynamicShape(entryParsed, calleeName);
+  if (shape.kind === "ambiguous") {
+    return missingReadResult(
+      sample,
+      entryRead,
+      `ambiguous local table/member/folded-key binding for ${calleeName}`,
+    );
+  }
+  if (shape.kind !== "resolved") {
+    return missingReadResult(
+      sample,
+      entryRead,
+      `local table/member/folded-key binding not observed for ${calleeName}`,
+    );
+  }
+  const derivedCallSiteRef =
+    `call:${entryParsed.rel}:${shape.tableName}[${shape.keyName}]`;
+  const callSiteRef = request.relationObligation.callSiteRef ?? derivedCallSiteRef;
+  request.relationObligation.callSiteRef = callSiteRef;
+  const entryEvidence = [parseEvidenceRef(root, entryParsed)];
+  const obligations0 = [
+    observeObligation(
+      pendingRelationRef,
+      OBSERVE_ENTRY_FOLD,
+      callSiteRef,
+      entryEvidence,
+      "The current entry module contains the local table and computed key.",
+    ),
+  ];
+  const step0 = makeStep({
+    stepId: "step-0",
+    localSyntax: localSyntax(
+      [edge],
+      [],
+      sourceContentNotRequested(edge.evidenceRefs),
+      { moduleSpecifierRaw: edge.moduleSpecifierRaw },
+    ),
+    remainingObligations: obligations0,
+    legalCandidates: legalCandidatesFor(obligations0),
+    previousExecution: entryRead.previousExecution,
+    receipts: [entryRead.receipt],
+    currentRelation: currentRelation(
+      pendingRelationRef,
+      callSiteRef,
+      bindingImport(callSiteRef, edge, "dynamic_undecidable"),
+    ),
+    cursorState: "closed",
+    cursorEvidence: entryEvidence,
+  });
+
+  const foldExecution = observeActionResult(
+    sampleId,
+    "step1-entry-fold",
+    "step-0",
+    OBSERVE_ENTRY_FOLD,
+    [`fact:${sampleId}:entry-fold`],
+    pendingRelationRef,
+  );
+  const keyIdentity = declarationRef(root, shape.keyDeclaration, "local");
+  const tableIdentity = declarationRef(root, shape.tableDeclaration, "local");
+  const obligations1 = [advanceObligation(pendingRelationRef, edge)];
+  const step1 = makeStep({
+    stepId: "step-1",
+    localSyntax: localSyntax(
+      [edge],
+      [tableIdentity, keyIdentity],
+      sourceContentObserved([tableIdentity.declarationRef, keyIdentity.declarationRef], entryEvidence),
+      {
+        moduleSpecifierRaw: edge.moduleSpecifierRaw,
+        observedLocalFacts: [
+          {
+            factRef: `fact:${sampleId}:entry-fold`,
+            state: "known",
+            value: shape.folded,
+            evidenceRefs: entryEvidence,
+          },
+        ],
+      },
+    ),
+    remainingObligations: obligations1,
+    legalCandidates: legalCandidatesFor(obligations1),
+    previousExecution: foldExecution.previousExecution,
+    receipts: [foldExecution.receipt],
+    currentRelation: currentRelation(
+      pendingRelationRef,
+      callSiteRef,
+      bindingImport(callSiteRef, edge, "dynamic_undecidable"),
+    ),
+    cursorState: "closed",
+    cursorEvidence: [parseEvidenceRef(root, entryParsed)],
+  });
+
+  const factoryPath = path.join(familyRoot, edge.sourceModule.value.replace("mod:", ""));
+  const factoryRead = readActionResult(
+    sampleId,
+    "step2-factory-read",
+    "step-1",
+    root,
+    factoryPath,
+    pendingRelationRef,
+    "advance",
+  );
+  if (factoryRead.parsed === null) {
+    return missingReadResult(sample, factoryRead, "imported factory source read failed");
+  }
+  const terminal = uniqueTopDeclaration(factoryRead.parsed.sourceFile, calleeName);
+  if (terminal.kind === "ambiguous") {
+    return missingReadResult(
+      sample,
+      factoryRead,
+      `ambiguous terminal declaration for ${calleeName}`,
+    );
+  }
+  if (terminal.kind !== "resolved") {
+    return missingReadResult(
+      sample,
+      factoryRead,
+      `terminal declaration ${calleeName} not observed`,
+    );
+  }
+  const terminalIdentity = declarationRef(root, terminal.declaration, "export");
+  const factoryEvidence = [parseEvidenceRef(root, factoryRead.parsed)];
+  const consumedEdge = {
+    ...edge,
+    sourceContent: sourceContentObserved([terminalIdentity.declarationRef], factoryEvidence),
+    evidenceRefs: [...edge.evidenceRefs, ...factoryEvidence],
+  };
+  const step2 = makeStep({
+    stepId: "step-2",
+    localSyntax: localSyntax(
+      [consumedEdge],
+      [terminalIdentity],
+      sourceContentObserved([terminalIdentity.declarationRef], factoryEvidence),
+      { moduleSpecifierRaw: edge.moduleSpecifierRaw },
+    ),
+    remainingObligations: [],
+    legalCandidates: legalCandidatesFor([]),
+    previousExecution: factoryRead.previousExecution,
+    receipts: [factoryRead.receipt],
+    currentRelation: currentRelation(
+      pendingRelationRef,
+      callSiteRef,
+      bindingResolved(callSiteRef, terminalIdentity, "export"),
+    ),
+    cursorState: "closed",
+    cursorEvidence: [...factoryEvidence, ...terminalIdentity.evidenceRefs],
+  });
+  return {
+    ...sample,
+    request,
+    steps: [step0, step1, step2],
+    reads: [entryRead.actualRead, factoryRead.actualRead],
+    ast: [astObservation(root, entryParsed), astObservation(root, factoryRead.parsed)],
+    stepFirsts: [
+      {
+        sampleId,
+        stepId: "step-0",
+        edgeRefs: [edge.edgeRef],
+        declarationRefs: [],
+        obligationRefs: obligations0.map((obligation) => obligation.ref),
+        actionRefs: [entryRead.actionRef],
+      },
+      {
+        sampleId,
+        stepId: "step-1",
+        edgeRefs: [edge.edgeRef],
+        declarationRefs: [tableIdentity.declarationRef, keyIdentity.declarationRef],
+        obligationRefs: obligations1.map((obligation) => obligation.ref),
+        actionRefs: [foldExecution.actionRef],
+      },
+      {
+        sampleId,
+        stepId: "step-2",
+        edgeRefs: [consumedEdge.edgeRef],
+        declarationRefs: [terminalIdentity.declarationRef],
+        obligationRefs: [],
+        actionRefs: [factoryRead.actionRef],
+      },
+    ],
+    gainBranches: [
+      {
+        sampleId,
+        stepId: "step-0",
+        kind: "observe",
+        ref: OBSERVE_ENTRY_FOLD,
+        branch: "known/advances_chain",
+        candidateEmitted: step0.legalCandidates.includes(`c:${OBSERVE_ENTRY_FOLD}`),
+      },
+      {
+        sampleId,
+        stepId: "step-1",
+        kind: "advance",
+        ref: edge.edgeRef,
+        branch: "known/advances_chain",
+        candidateEmitted: step1.legalCandidates.includes(`c:advance:${edge.edgeRef}`),
+      },
+    ],
+    predecessorAndConsumption: [
+      {
+        sampleId,
+        stepId: "step-0",
+        previousActionRef: entryRead.actionRef,
+        previousReceiptRef: entryRead.receiptRef,
+        fromStepId: null,
+        consumedEdgeRef: null,
+      },
+      {
+        sampleId,
+        stepId: "step-1",
+        previousActionRef: foldExecution.actionRef,
+        previousReceiptRef: foldExecution.receiptRef,
+        fromStepId: "step-0",
+        consumedEdgeRef: null,
+      },
+      {
+        sampleId,
+        stepId: "step-2",
+        previousActionRef: factoryRead.actionRef,
+        previousReceiptRef: factoryRead.receiptRef,
+        fromStepId: "step-1",
+        consumedEdgeRef: edge.edgeRef,
+      },
+    ],
+    terminalDeclarationRef: terminalIdentity.declarationRef,
+    trainingEligible: true,
+    notReadyReason: null,
+    devShape: "local-table-computed",
+  };
+}
+
+function buildOldDevStudent(sample, root) {
+  const calleeName = sample.request.relationObligation.calleeName;
+  const entryFile = path.join(sample.familyRoot, sample.episode.entryFile);
+  const entryParsed = parseModule(root, entryFile);
+  const directCalls = entryParsed.calls.filter(
+    (call) => ts.isIdentifier(call.expression) && call.expression.text === calleeName,
+  );
+  if (directCalls.length > 1) {
+    throw new Error(`ambiguous direct call for ${sample.episode.sampleId}: ${calleeName}`);
+  }
+  if (directCalls.length === 1) {
+    if (sample.episode.entrySymbol !== calleeName) {
+      throw new Error(
+        `request callee ${calleeName} does not match entry symbol ${sample.episode.entrySymbol}`,
+      );
+    }
+    const binding = uniqueImportBinding(entryParsed, calleeName);
+    if (binding.kind === "ambiguous") {
+      throw new Error(`ambiguous import binding for ${calleeName}`);
+    }
+    if (binding.kind !== "resolved") {
+      throw new Error(`entry import not observed for ${calleeName}`);
+    }
+    const built = aliasSteps(sample, root);
+    if (!built.trainingEligible) {
+      throw new Error(built.notReadyReason ?? `direct import path failed for ${calleeName}`);
+    }
+    return { ...built, devShape: "direct-import" };
+  }
+  const dynamicShape = findLocalTableDynamicShape(entryParsed, calleeName);
+  if (dynamicShape.kind === "ambiguous") {
+    throw new Error(`ambiguous local table binding for ${calleeName}`);
+  }
+  if (dynamicShape.kind === "resolved") {
+    const built = localTableDynamicSteps(sample, root);
+    if (!built.trainingEligible) {
+      throw new Error(built.notReadyReason ?? `local table path failed for ${calleeName}`);
+    }
+    return built;
+  }
+  throw new Error(`no supported AST-derived binding path for ${sample.episode.sampleId}`);
+}
+
+function oldDevControlReceipt(built) {
+  const requestedDecl = built.request.requestedDeclaration.declarationRef;
+  const requestedDeclarationRef =
+    requestedDecl && requestedDecl.state === "known" ? requestedDecl.value : null;
+  const requestedModuleRef =
+    built.request.requestedDeclaration.moduleRef?.state === "known"
+      ? built.request.requestedDeclaration.moduleRef.value
+      : null;
+  const requestedReadFile =
+    typeof requestedModuleRef === "string" && requestedModuleRef.startsWith("mod:")
+      ? requestedModuleRef.slice("mod:".length)
+      : null;
+  const readFiles = built.reads.map((read) => read.file);
+  return {
+    sampleId: built.student.sampleId,
+    shape: built.devShape,
+    requestedDeclarationRef,
+    observedTerminalDeclarationRef: built.terminalDeclarationRef,
+    readFiles,
+    requestTargetRead: requestedReadFile === null ? false : readFiles.includes(requestedReadFile),
+    requestShellPreserved:
+      built.student.request.requestRef === built.request.requestRef &&
+      requestedDeclarationRef ===
+        (built.student.request.requestedDeclaration.declarationRef?.value ?? null),
+  };
+}
+
+export async function generateOldDevStepwise({
+  familyRoot = DEFAULT_OLD_DEV_FAMILY_ROOT,
+  requestSource = DEFAULT_OLD_DEV_REQUEST_SOURCE,
+  outDir = familyRoot,
+  receiptPath = path.join(outDir, "control-receipts.json"),
+} = {}) {
+  await fsp.mkdir(outDir, { recursive: true });
+  const manifest = readJson(path.join(familyRoot, "manifest.json"));
+  const requestRows = readJson(requestSource);
+  if (!Array.isArray(requestRows)) {
+    throw new TypeError("old DEV request source must be a JSON array");
+  }
+  const requestsBySample = new Map();
+  for (const row of requestRows) {
+    if (!row || typeof row !== "object" || typeof row.sampleId !== "string") {
+      throw new TypeError("old DEV request row must contain sampleId");
+    }
+    if (requestsBySample.has(row.sampleId)) {
+      throw new TypeError(`duplicate old DEV request ${row.sampleId}`);
+    }
+    requestsBySample.set(row.sampleId, cloneRequest(row.request));
+  }
+  const episodeFiles = fs
+    .readdirSync(familyRoot)
+    .filter((name) => name.startsWith("episode-") && name.endsWith(".jsonl"))
+    .sort();
+  const samples = episodeFiles.map((file) => {
+    const episode = pickStudentEpisode(readJsonl(path.join(familyRoot, file))[0]);
+    if (episode.partition !== "dev") {
+      throw new TypeError(`old DEV episode ${episode.sampleId} is not partition dev`);
+    }
+    const request = requestsBySample.get(episode.sampleId);
+    if (!request) {
+      throw new TypeError(`old DEV request missing for ${episode.sampleId}`);
+    }
+    return {
+      family: manifest.sourceGroup,
+      familyRoot,
+      episode,
+      request,
+    };
+  });
+  if (samples.length !== 3 || requestsBySample.size !== 3) {
+    throw new TypeError(
+      `old DEV family ${manifest.sourceGroup} must contain exactly 3 episodes and requests`,
+    );
+  }
+  const builtSamples = samples.map((sample) => buildOldDevStudent(sample, familyRoot));
+  const studentRows = builtSamples.map((built) => ({
+    schemaVersion: STUDENT_SCHEMA,
+    sampleId: built.episode.sampleId,
+    family: built.family,
+    sourceGroup: built.episode.sourceGroup,
+    partition: built.episode.partition,
+    language: built.episode.language,
+    semanticStratum: built.episode.semanticStratum,
+    entryFile: built.episode.entryFile,
+    request: built.request,
+    steps: built.steps,
+  }));
+  if (studentRows.length !== 3) {
+    throw new Error("old DEV producer must emit exactly 3 student rows");
+  }
+  if (studentHasForbiddenKeys(studentRows)) {
+    throw new Error("old DEV student observations contain supervision-only fields");
+  }
+  for (const [index, built] of builtSamples.entries()) {
+    built.student = studentRows[index];
+  }
+  const controlReceipts = {
+    schemaVersion: OLD_DEV_CONTROL_RECEIPTS_SCHEMA,
+    familyRoot,
+    requestSource,
+    outputPath: path.join(outDir, "student-observations.jsonl"),
+    controls: builtSamples.map(oldDevControlReceipt),
+  };
+  writeJsonl(path.join(outDir, "student-observations.jsonl"), studentRows);
+  writeJson(receiptPath, controlReceipts);
+  return { studentRows, controlReceipts };
+}
+
 function buildStudent(sample, root) {
   let built;
   if (sample.episode.sampleId === "b-closure-unknown-dynamic-property") {
@@ -2284,29 +2777,51 @@ async function main() {
   const args = process.argv.slice(2);
   let corpusRoot = DEFAULT_CORPUS_ROOT;
   let outDir = DEFAULT_OUTPUT_DIR;
+  let devFamilyRoot = null;
+  let requestSource = DEFAULT_OLD_DEV_REQUEST_SOURCE;
+  let devOutDir = null;
+  let receiptPath = null;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--corpus-root") corpusRoot = path.resolve(args[++index]);
     else if (args[index] === "--out") outDir = path.resolve(args[++index]);
+    else if (args[index] === "--dev-family-root") devFamilyRoot = path.resolve(args[++index]);
+    else if (args[index] === "--request-source") requestSource = path.resolve(args[++index]);
+    else if (args[index] === "--out-dir") devOutDir = path.resolve(args[++index]);
+    else if (args[index] === "--receipts") receiptPath = path.resolve(args[++index]);
     else if (args[index] === "--help" || args[index] === "-h") {
       process.stdout.write(
-        "Usage: node generate-fixed-stepwise.mjs [--corpus-root <absolute>] [--out <absolute>]\n",
+        "Usage: node generate-fixed-stepwise.mjs [--corpus-root <absolute>] [--out <absolute>] [--dev-family-root <absolute>] [--request-source <absolute>] [--out-dir <absolute>] [--receipts <absolute>]\n",
       );
       return;
     } else {
       throw new Error(`unknown argument: ${args[index]}`);
     }
   }
-  const result = await generateFixedStepwise({ corpusRoot, outDir });
+  const result = devFamilyRoot
+    ? await generateOldDevStepwise({
+      familyRoot: devFamilyRoot,
+      requestSource,
+      outDir: devOutDir ?? devFamilyRoot,
+      receiptPath: receiptPath ?? path.join(devOutDir ?? devFamilyRoot, "control-receipts.json"),
+    })
+    : await generateFixedStepwise({ corpusRoot, outDir });
   process.stdout.write(
     `${JSON.stringify({
       ok: true,
-      outDir: path.resolve(outDir),
+      outDir: path.resolve(devFamilyRoot ? (devOutDir ?? devFamilyRoot) : outDir),
       sampleCount: result.studentRows.length,
-      stepCount: result.selfCheck.summary.stepCount,
-      trainingEligibleCount: result.selfCheck.summary.trainingEligibleCount,
-      notReadyCount: result.selfCheck.summary.notReadyCount,
-      assertionsFailed: result.selfCheck.assertions.failed,
-      outputPaths: result.selfCheck.outputPaths,
+      stepCount: result.controlReceipts
+        ? result.studentRows.reduce((total, row) => total + row.steps.length, 0)
+        : result.selfCheck.summary.stepCount,
+      trainingEligibleCount: result.controlReceipts ? null : result.selfCheck.summary.trainingEligibleCount,
+      notReadyCount: result.controlReceipts ? null : result.selfCheck.summary.notReadyCount,
+      assertionsFailed: result.controlReceipts ? 0 : result.selfCheck.assertions.failed,
+      outputPaths: result.controlReceipts
+        ? {
+          studentObservations: result.controlReceipts.outputPath,
+          controlReceipts: receiptPath ?? path.join(devOutDir ?? devFamilyRoot, "control-receipts.json"),
+        }
+        : result.selfCheck.outputPaths,
     })}\n`,
   );
 }

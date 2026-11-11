@@ -336,7 +336,7 @@ function scanStudentLeakage(value: unknown, path = "student"): void {
   }
 }
 
-async function assertStudentInputIsolated(familyDir: string): Promise<void> {
+export async function assertStudentInputIsolated(familyDir: string): Promise<void> {
   const path = join(familyDir, STUDENT_OBSERVATIONS_FILE);
   const rows = (await readFile(path, "utf8")).split("\n").flatMap(line => {
     if (line.trim().length === 0) return [];
