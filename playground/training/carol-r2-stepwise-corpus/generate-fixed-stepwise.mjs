@@ -25,8 +25,6 @@ export const DEFAULT_TYPED_REQUEST_SOURCE =
   "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-typed-observation-corpus-r1/student-observations.jsonl";
 export const DEFAULT_SUPERVISION_SOURCE =
   "/Volumes/Intel/playground/nnanything-runs/cd1-live-comparison-20261031/emma-tsjs-typed-observation-corpus-r1/independent-supervision.jsonl";
-export const DEFAULT_OLD_DEV_FAMILY_ROOT =
-  "/Volumes/Intel/playground/nnanything/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/training/samples/neural-cli/tsjs/dev-closure-shadow-b";
 export const DEFAULT_OLD_DEV_REQUEST_SOURCE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "tsjs-dev-closure-shadow-b.requests.json",
@@ -2153,11 +2151,17 @@ function oldDevControlReceipt(built) {
 }
 
 export async function generateOldDevStepwise({
-  familyRoot = DEFAULT_OLD_DEV_FAMILY_ROOT,
+  familyRoot,
   requestSource = DEFAULT_OLD_DEV_REQUEST_SOURCE,
   outDir = familyRoot,
-  receiptPath = path.join(outDir, "control-receipts.json"),
+  receiptPath,
 } = {}) {
+  if (!familyRoot) {
+    throw new TypeError("familyRoot is required for old DEV stepwise generation");
+  }
+  if (!receiptPath) {
+    receiptPath = path.join(outDir, "control-receipts.json");
+  }
   await fsp.mkdir(outDir, { recursive: true });
   const manifest = readJson(path.join(familyRoot, "manifest.json"));
   const requestRows = readJson(requestSource);

@@ -62,9 +62,9 @@ shells and a DEV-only output directory:
 
 ```sh
 node playground/training/carol-r2-stepwise-corpus/generate-fixed-stepwise.mjs \
-  --dev-family-root /Volumes/Intel/playground/nnanything/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/training/samples/neural-cli/tsjs/dev-closure-shadow-b \
+  --dev-family-root training/samples/neural-cli/tsjs/dev-closure-shadow-b \
   --request-source playground/training/carol-r2-stepwise-corpus/tsjs-dev-closure-shadow-b.requests.json \
-  --out-dir /Volumes/Intel/playground/nnanything/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/training/samples/neural-cli/tsjs/dev-closure-shadow-b \
+  --out-dir /Volumes/Intel/playground/nnanything-runs/tsjs-old-dev-stepwise-producer-adaptation-r1-20261111/dev-out \
   --receipts /Volumes/Intel/playground/nnanything-runs/tsjs-old-dev-stepwise-producer-adaptation-r1-20261111/control-receipts.json
 ```
 

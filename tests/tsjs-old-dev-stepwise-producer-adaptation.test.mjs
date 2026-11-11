@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
-  DEFAULT_OLD_DEV_FAMILY_ROOT,
   DEFAULT_OLD_DEV_REQUEST_SOURCE,
   generateOldDevStepwise,
 } from "../playground/training/carol-r2-stepwise-corpus/generate-fixed-stepwise.mjs";
@@ -23,6 +23,11 @@ const EXPECTED_SAMPLE_IDS = [
   "c-dev-unknown-dynamic-property",
 ];
 
+const REPO_OLD_DEV_FAMILY_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../training/samples/neural-cli/tsjs/dev-closure-shadow-b",
+);
+
 async function readJsonl(file) {
   const text = await readFile(file, "utf8");
   return text
@@ -34,7 +39,7 @@ async function readJsonl(file) {
 async function makeFamilyCopy() {
   const root = await mkdtemp(join(tmpdir(), "tsjs-old-dev-producer-"));
   const familyRoot = join(root, "dev-closure-shadow-b");
-  await cp(DEFAULT_OLD_DEV_FAMILY_ROOT, familyRoot, { recursive: true });
+  await cp(REPO_OLD_DEV_FAMILY_ROOT, familyRoot, { recursive: true });
   return { root, familyRoot };
 }
 
@@ -52,6 +57,13 @@ async function mutateSource(familyRoot, relativePath, mutate) {
   const before = await readFile(file, "utf8");
   await writeFile(file, mutate(before), "utf8");
 }
+
+test("requires an explicit familyRoot and does not fall back to a host default", async () => {
+  await assert.rejects(
+    () => generateOldDevStepwise({}),
+    /familyRoot is required for old DEV stepwise generation/,
+  );
+});
 
 test("generates the three old DEV rows from AST-derived direct and computed bindings", async () => {
   const { root, familyRoot } = await makeFamilyCopy();
