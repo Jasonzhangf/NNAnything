@@ -93,7 +93,8 @@ export type TsJsDynamicMemberBoundary = Readonly<{
 
 export type TsJsRuntimeSelectorRole =
   | "selector_candidate_table"
-  | "runtime_selector_dependency";
+  | "runtime_selector_dependency"
+  | "static_selected_member";
 
 export type TsJsRuntimeSelectorRoleFact = Readonly<{
   factRef: string;
@@ -137,7 +138,9 @@ export type TsJsRuntimeSelectorObservation = Readonly<{
     scopeRef: null;
     evidenceRefs: readonly string[];
   }>;
-  facts: readonly TsJsRuntimeSelectorRoleFact[];
+  facts: readonly (TsJsRuntimeSelectorRoleFact & Readonly<{
+    role: "selector_candidate_table" | "runtime_selector_dependency";
+  }>)[];
   callableTable?: TsJsRuntimeCallableTable;
   sourceReadReceipt: Readonly<{
     receiptId: string;
@@ -156,6 +159,38 @@ export type TsJsRuntimeSelectorObservation = Readonly<{
   }>;
 }>;
 
+export type TsJsStaticSelectedSelectorObservation = Readonly<{
+  observationRef: string;
+  callSiteRef: string;
+  sourceReadRef: string;
+  selection: Readonly<{
+    selectionKind: "static_selected";
+    selectorLiteral: string;
+    selectedMemberName: string;
+    selectedMemberRef: string;
+    selectedDeclarationRef: string;
+    selectedModuleRef: string;
+  }>;
+  binding: Readonly<{
+    symbolRef: string;
+    callSiteRef: string;
+    role: "member";
+    bindingMode: "bound";
+    resolution: Readonly<{
+      status: "resolved";
+      declarationRef: string;
+      moduleRef: string;
+      evidenceRefs: readonly string[];
+    }>;
+    declarationRefs: readonly string[];
+    scopeRef: null;
+    evidenceRefs: readonly string[];
+  }>;
+  facts: readonly TsJsRuntimeSelectorRoleFact[];
+  callableTable: TsJsRuntimeCallableTable;
+  sourceReadReceipt: TsJsRuntimeSelectorObservation["sourceReadReceipt"];
+}>;
+
 export type TsJsRuntimeSelectorGap = Readonly<{
   gapRef: string;
   callSiteRef: string | null;
@@ -167,7 +202,9 @@ export type TsJsRuntimeSelectorGap = Readonly<{
     | "table_not_finite_callable"
     | "table_not_connected"
     | "ambiguous_selector_chain"
-    | "unsupported_selector_shape";
+    | "unsupported_selector_shape"
+    | "static_selected_member_missing"
+    | "static_alias_unsupported";
   evidenceRefs: readonly string[];
 }>;
 
@@ -230,6 +267,7 @@ export type TsJsSymbolTableResult = Readonly<{
   symbols: readonly TsJsSymbolRecord[];
   dynamicMemberBoundaries: readonly TsJsDynamicMemberBoundary[];
   runtimeSelectorObservations: readonly TsJsRuntimeSelectorObservation[];
+  staticSelectedSelectorObservations: readonly TsJsStaticSelectedSelectorObservation[];
   runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[];
   coverage: TsJsCoverageRecord;
   boundaries: Readonly<{
@@ -444,6 +482,7 @@ export function projectTsJsSymbolTableResult(
   coverage: TsJsCoverageRecord,
   runtimeSelectorObservations: readonly TsJsRuntimeSelectorObservation[] = [],
   runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[] = [],
+  staticSelectedSelectorObservations: readonly TsJsStaticSelectedSelectorObservation[] = [],
 ): TsJsSymbolTableResult {
   return Object.freeze({
     schema: TSJS_SYMBOL_RESULT_SCHEMA,
@@ -456,6 +495,9 @@ export function projectTsJsSymbolTableResult(
       filterTsJsDynamicMemberBoundaries(dynamicMemberBoundaries, request.file),
     ),
     runtimeSelectorObservations: Object.freeze(runtimeSelectorObservations.slice()),
+    staticSelectedSelectorObservations: Object.freeze(
+      staticSelectedSelectorObservations.slice(),
+    ),
     runtimeSelectorGaps: Object.freeze(runtimeSelectorGaps.slice()),
     coverage,
     boundaries: Object.freeze({

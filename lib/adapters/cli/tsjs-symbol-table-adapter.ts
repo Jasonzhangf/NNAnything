@@ -37,6 +37,7 @@ import {
   type TsJsRuntimeSelectorGap,
   type TsJsRuntimeSelectorObservation,
   type TsJsRuntimeSelectorRoleFact,
+  type TsJsStaticSelectedSelectorObservation,
   type TsJsSpan,
   type TsJsSymbolKind,
   type TsJsSymbolRecord,
@@ -74,6 +75,13 @@ type RuntimeAliasDraft = Readonly<{
   ref: string;
 }>;
 
+type RuntimeStaticAliasDraft = Readonly<{
+  name: string;
+  literalValue: string;
+  start: number;
+  ref: string;
+}>;
+
 type RuntimeWriteDraft = Readonly<{
   name: string;
   start: number;
@@ -86,6 +94,7 @@ type RuntimeCallSiteDraft = Readonly<{
   calleeName: string;
   selector:
     | Readonly<{ kind: "identifier"; name: string; ref: string }>
+    | Readonly<{ kind: "string_literal"; value: string; ref: string }>
     | Readonly<{ kind: "non_identifier"; ref: string }>;
 }>;
 
@@ -96,6 +105,7 @@ type RuntimeFunctionDraft = Readonly<{
   parameterNames: readonly string[];
   localBindingNames: readonly string[];
   aliases: readonly RuntimeAliasDraft[];
+  staticAliases: readonly RuntimeStaticAliasDraft[];
   writes: readonly RuntimeWriteDraft[];
   hasControlPath: boolean;
   hasNestedFunction: boolean;
@@ -626,6 +636,7 @@ function collectRuntimeFunction(
       parameterNames: Object.freeze(parameterNames),
       localBindingNames: Object.freeze([]),
       aliases: Object.freeze([]),
+      staticAliases: Object.freeze([]),
       writes: Object.freeze([]),
       hasControlPath: false,
       hasNestedFunction: false,
@@ -641,6 +652,7 @@ function collectRuntimeFunction(
   for (const descendant of descendants) runtimeBindingsFrom(descendant, localBindings);
 
   const aliases: RuntimeAliasDraft[] = [];
+  const staticAliases: RuntimeStaticAliasDraft[] = [];
   const writes: RuntimeWriteDraft[] = [];
   let hasUnsupportedWrite = false;
   for (const statement of body.statements) {
@@ -655,6 +667,27 @@ function collectRuntimeFunction(
         aliases.push({
           name: declaration.name.text,
           initializerName: declaration.initializer.text,
+          start: declaration.getStart(sf),
+          ref: runtimeRef("alias", sf.fileName, span),
+        });
+      }
+    }
+  }
+  for (const descendant of descendants) {
+    if (
+      !ts.isVariableStatement(descendant) ||
+      (descendant.declarationList.flags & ts.NodeFlags.Const) === 0
+    ) {
+      continue;
+    }
+    for (const declaration of descendant.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) continue;
+      const initializer = stripParensAndAssertions(declaration.initializer);
+      const span = spanOf(declaration.getStart(sf), declaration.getEnd());
+      if (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) {
+        staticAliases.push({
+          name: declaration.name.text,
+          literalValue: initializer.text,
           start: declaration.getStart(sf),
           ref: runtimeRef("alias", sf.fileName, span),
         });
@@ -717,7 +750,14 @@ function collectRuntimeFunction(
       ? innerCall.arguments[0]
       : undefined;
     const selectorDraft =
-      selector !== undefined && ts.isIdentifier(selector)
+      selector !== undefined &&
+      (ts.isStringLiteral(selector) || ts.isNoSubstitutionTemplateLiteral(selector))
+        ? Object.freeze({
+            kind: "string_literal" as const,
+            value: selector.text,
+            ref: runtimeRef("selector", sf.fileName, spanOf(selector.getStart(sf), selector.getEnd())),
+          })
+        : selector !== undefined && ts.isIdentifier(selector)
         ? Object.freeze({
             kind: "identifier" as const,
             name: selector.text,
@@ -742,6 +782,7 @@ function collectRuntimeFunction(
     parameterNames: Object.freeze(parameterNames),
     localBindingNames: Object.freeze([...localBindings]),
     aliases: Object.freeze(aliases),
+    staticAliases: Object.freeze(staticAliases),
     writes: Object.freeze(writes),
     hasControlPath: descendants.some(isRuntimeControlPathNode),
     hasNestedFunction: descendants.some(isRuntimeFunctionLikeNode),
@@ -2044,15 +2085,12 @@ function runtimeGap(
   });
 }
 
-function makeRuntimeSelectorObservation(
+function makeRuntimeSelectorSourceReadReceipt(
   callSiteRef: string,
   caller: RuntimeSelectorFileIndex,
   helper: RuntimeSelectorFileIndex,
-  helperFunction: RuntimeFunctionDraft,
-  table: RuntimeTableDraft,
-  shape: RuntimeHelperShape,
   indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
-): TsJsRuntimeSelectorObservation {
+): TsJsRuntimeSelectorObservation["sourceReadReceipt"] {
   const sourceReadRef = `source-read:${callSiteRef}`;
   const files = caller.file === helper.file ? [caller.file] : [caller.file, helper.file];
   const modules = files
@@ -2066,7 +2104,24 @@ function makeRuntimeSelectorObservation(
       }),
     );
   const resultRefs = files.map(file => `${sourceReadRef}:module:${file}`);
-  const tableFact: TsJsRuntimeSelectorRoleFact = Object.freeze({
+  return Object.freeze({
+    receiptId: sourceReadRef,
+    actionRef: `${sourceReadRef}:action`,
+    action: "read_source",
+    origin: "source_observation",
+    outcome: "success",
+    targetRef: `source:${helper.file}`,
+    result: Object.freeze(resultRefs),
+    evidenceRefs: Object.freeze([sourceReadRef]),
+    modules: Object.freeze(modules),
+  });
+}
+
+function makeRuntimeSelectorTableFact(
+  sourceReadRef: string,
+  table: RuntimeTableDraft,
+): TsJsRuntimeSelectorRoleFact & Readonly<{ role: "selector_candidate_table" }> {
+  return Object.freeze({
     factRef: `fact:${sourceReadRef}:1`,
     role: "selector_candidate_table",
     state: "known",
@@ -2076,18 +2131,10 @@ function makeRuntimeSelectorObservation(
     }))),
     evidenceRefs: Object.freeze([sourceReadRef]),
   });
-  const dependencyFact: TsJsRuntimeSelectorRoleFact = Object.freeze({
-    factRef: `fact:${sourceReadRef}:2`,
-    role: "runtime_selector_dependency",
-    state: "known",
-    value: JSON.stringify({
-      tableRef: table.ref,
-      indexParameter: shape.selectorParam,
-      useRef: shape.returnRef,
-    }),
-    evidenceRefs: Object.freeze([sourceReadRef]),
-  });
-  const callableTable: TsJsRuntimeCallableTable = Object.freeze({
+}
+
+function makeRuntimeCallableTable(table: RuntimeTableDraft): TsJsRuntimeCallableTable {
+  return Object.freeze({
     tableRef: table.ref,
     members: Object.freeze(
       table.members.map(member =>
@@ -2099,6 +2146,33 @@ function makeRuntimeSelectorObservation(
       ),
     ),
   });
+}
+
+function makeRuntimeSelectorObservation(
+  callSiteRef: string,
+  caller: RuntimeSelectorFileIndex,
+  helper: RuntimeSelectorFileIndex,
+  helperFunction: RuntimeFunctionDraft,
+  table: RuntimeTableDraft,
+  shape: RuntimeHelperShape,
+  indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
+): TsJsRuntimeSelectorObservation {
+  const sourceReadRef = `source-read:${callSiteRef}`;
+  const tableFact = makeRuntimeSelectorTableFact(sourceReadRef, table);
+  const dependencyFact: TsJsRuntimeSelectorRoleFact & Readonly<{
+    role: "runtime_selector_dependency";
+  }> = Object.freeze({
+    factRef: `fact:${sourceReadRef}:2`,
+    role: "runtime_selector_dependency",
+    state: "known",
+    value: JSON.stringify({
+      tableRef: table.ref,
+      indexParameter: shape.selectorParam,
+      useRef: shape.returnRef,
+    }),
+    evidenceRefs: Object.freeze([sourceReadRef]),
+  });
+  const callableTable = makeRuntimeCallableTable(table);
   return Object.freeze({
     observationRef: `observation:${callSiteRef}`,
     callSiteRef,
@@ -2119,18 +2193,133 @@ function makeRuntimeSelectorObservation(
     }),
     facts: Object.freeze([tableFact, dependencyFact]),
     callableTable,
-    sourceReadReceipt: Object.freeze({
-      receiptId: sourceReadRef,
-      actionRef: `${sourceReadRef}:action`,
-      action: "read_source",
-      origin: "source_observation",
-      outcome: "success",
-      targetRef: `source:${helper.file}`,
-      result: Object.freeze(resultRefs),
-      evidenceRefs: Object.freeze([sourceReadRef]),
-      modules: Object.freeze(modules),
-    }),
+    sourceReadReceipt: makeRuntimeSelectorSourceReadReceipt(
+      callSiteRef,
+      caller,
+      helper,
+      indexByFile,
+    ),
   });
+}
+
+function makeStaticSelectedSelectorObservation(
+  callSiteRef: string,
+  caller: RuntimeSelectorFileIndex,
+  helper: RuntimeSelectorFileIndex,
+  helperFunction: RuntimeFunctionDraft,
+  table: RuntimeTableDraft,
+  selectorLiteral: string,
+  member: RuntimeTableMemberDraft,
+  indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
+): TsJsStaticSelectedSelectorObservation | null {
+  const identity = member.callableIdentity;
+  if (identity === null) return null;
+  const sourceReadRef = `source-read:${callSiteRef}`;
+  const tableFact = makeRuntimeSelectorTableFact(sourceReadRef, table);
+  const selectedFact: TsJsRuntimeSelectorRoleFact = Object.freeze({
+    factRef: `fact:${sourceReadRef}:2`,
+    role: "static_selected_member",
+    state: "known",
+    value: JSON.stringify({
+      name: member.name,
+      memberRef: member.initializerRef,
+      declarationRef: identity.declarationRef,
+      moduleRef: identity.moduleRef,
+    }),
+    evidenceRefs: Object.freeze([sourceReadRef]),
+  });
+  return Object.freeze({
+    observationRef: `observation:${callSiteRef}`,
+    callSiteRef,
+    sourceReadRef,
+    selection: Object.freeze({
+      selectionKind: "static_selected",
+      selectorLiteral,
+      selectedMemberName: member.name,
+      selectedMemberRef: member.initializerRef,
+      selectedDeclarationRef: identity.declarationRef,
+      selectedModuleRef: identity.moduleRef,
+    }),
+    binding: Object.freeze({
+      symbolRef: helperFunction.ref,
+      callSiteRef,
+      role: "member",
+      bindingMode: "bound",
+      resolution: Object.freeze({
+        status: "resolved",
+        declarationRef: identity.declarationRef,
+        moduleRef: identity.moduleRef,
+        evidenceRefs: Object.freeze([sourceReadRef]),
+      }),
+      declarationRefs: Object.freeze([identity.declarationRef]),
+      scopeRef: null,
+      evidenceRefs: Object.freeze([sourceReadRef]),
+    }),
+    facts: Object.freeze([tableFact, selectedFact]),
+    callableTable: makeRuntimeCallableTable(table),
+    sourceReadReceipt: makeRuntimeSelectorSourceReadReceipt(
+      callSiteRef,
+      caller,
+      helper,
+      indexByFile,
+    ),
+  });
+}
+
+function resolveRuntimeSelectorTable(
+  caller: RuntimeSelectorFileIndex,
+  helper: RuntimeSelectorFileIndex,
+  helperFunction: RuntimeFunctionDraft,
+  tableName: string,
+  calleeName: string,
+  callEvidence: readonly string[],
+): Readonly<
+  | { kind: "ok"; table: RuntimeTableDraft }
+  | { kind: "gap"; reason: TsJsRuntimeSelectorGap["reason"]; evidenceRefs: readonly string[] }
+> {
+  const matchingTables = helper.tables.filter(table => table.name === tableName);
+  if (matchingTables.length === 0) {
+    return {
+      kind: "gap",
+      reason: "table_not_connected",
+      evidenceRefs: [helperFunction.ref, ...callEvidence],
+    };
+  }
+  if (matchingTables.length > 1) {
+    return {
+      kind: "gap",
+      reason: "ambiguous_selector_chain",
+      evidenceRefs: [helperFunction.ref, ...callEvidence],
+    };
+  }
+  const table = matchingTables[0];
+  if (
+    table === undefined ||
+    !table.literalKeys ||
+    table.members.length < 2 ||
+    !table.members.every(member => member.callable) ||
+    new Set(table.members.map(member => member.name)).size !== table.members.length
+  ) {
+    return {
+      kind: "gap",
+      reason: "unsupported_selector_shape",
+      evidenceRefs: [table?.ref ?? helperFunction.ref, ...callEvidence],
+    };
+  }
+  const tableMutation = helper.mutations.find(mutation => mutation.name === table.name);
+  const helperMutation =
+    helper.mutations.find(mutation => mutation.name === helperFunction.name) ??
+    (helper === caller
+      ? undefined
+      : caller.mutations.find(mutation => mutation.name === calleeName));
+  if (tableMutation !== undefined || helperMutation !== undefined) {
+    return {
+      kind: "gap",
+      reason: "unsupported_selector_shape",
+      evidenceRefs: [(tableMutation ?? helperMutation)?.ref ?? table.ref, ...callEvidence],
+    };
+  }
+  return { kind: "ok", table };
 }
 
 function linkRuntimeSelectorFacts(
@@ -2139,9 +2328,11 @@ function linkRuntimeSelectorFacts(
   indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
 ): Readonly<{
   observations: readonly TsJsRuntimeSelectorObservation[];
+  staticSelectedObservations: readonly TsJsStaticSelectedSelectorObservation[];
   gaps: readonly TsJsRuntimeSelectorGap[];
 }> {
   const observations: TsJsRuntimeSelectorObservation[] = [];
+  const staticSelectedObservations: TsJsStaticSelectedSelectorObservation[] = [];
   const gaps: TsJsRuntimeSelectorGap[] = [];
   for (const file of requestedFiles) {
     const caller = indexByFile.get(file);
@@ -2149,7 +2340,6 @@ function linkRuntimeSelectorFacts(
     for (const callerFunction of caller.functions) {
       if (callerFunction.name.length === 0) continue;
       for (const callSite of callerFunction.callSites) {
-        if (callSite.selector.kind !== "identifier") continue;
         const callEvidence = [callSite.callSiteRef, callSite.selector.ref];
         const matchingImports = caller.imports.filter(entry => entry.localName === callSite.calleeName);
         if (matchingImports.length > 1) {
@@ -2163,7 +2353,9 @@ function linkRuntimeSelectorFacts(
           const imported = matchingImports[0];
           if (imported === undefined) continue;
           if (callerFunction.localBindingNames.includes(callSite.calleeName)) {
-            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [imported.ref, ...callEvidence]));
+            if (callSite.selector.kind === "identifier") {
+              gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [imported.ref, ...callEvidence]));
+            }
             continue;
           }
           const resolved = resolveRuntimeImport(caller.file, imported.moduleSpecifier, statusByFile, indexByFile, [imported.ref]);
@@ -2182,7 +2374,9 @@ function linkRuntimeSelectorFacts(
           helperFunction = candidates[0] ?? null;
         } else {
           if (callerFunction.localBindingNames.includes(callSite.calleeName)) {
-            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+            if (callSite.selector.kind === "identifier") {
+              gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+            }
             continue;
           }
           helperFile = caller;
@@ -2195,8 +2389,25 @@ function linkRuntimeSelectorFacts(
         }
 
         if (helperFile === null || helperFunction === null) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          }
           continue;
+        }
+        if (callSite.selector.kind === "identifier") {
+          const selector = callSite.selector;
+          const staticAlias = callerFunction.staticAliases.find(
+            alias => alias.name === selector.name && alias.start < callSite.outerStart,
+          );
+          if (staticAlias !== undefined) {
+            gaps.push(
+              runtimeGap(callSite.callSiteRef, "static_alias_unsupported", [
+                staticAlias.ref,
+                ...callEvidence,
+              ]),
+            );
+            continue;
+          }
         }
         if (
           callerFunction.hasControlPath ||
@@ -2212,14 +2423,77 @@ function linkRuntimeSelectorFacts(
         }
         const shape = helperFunction.helperShape;
         if (shape === null) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          }
           continue;
         }
         if (
           helperFunction.localBindingNames.includes(helperFunction.name) ||
           helperFunction.localBindingNames.includes(shape.tableName)
         ) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          }
+          continue;
+        }
+        if (callSite.selector.kind === "non_identifier") {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          continue;
+        }
+
+        if (callSite.selector.kind === "string_literal") {
+          const selector = callSite.selector;
+          const resolvedTable = resolveRuntimeSelectorTable(
+            caller,
+            helperFile,
+            helperFunction,
+            shape.tableName,
+            callSite.calleeName,
+            callEvidence,
+          );
+          if (resolvedTable.kind === "gap") {
+            gaps.push(
+              runtimeGap(
+                callSite.callSiteRef,
+                resolvedTable.reason,
+                resolvedTable.evidenceRefs,
+              ),
+            );
+            continue;
+          }
+          const member = resolvedTable.table.members.find(
+            entry => entry.name === selector.value,
+          );
+          if (member === undefined) {
+            gaps.push(
+              runtimeGap(callSite.callSiteRef, "static_selected_member_missing", [
+                resolvedTable.table.ref,
+                ...callEvidence,
+              ]),
+            );
+            continue;
+          }
+          const observation = makeStaticSelectedSelectorObservation(
+            callSite.callSiteRef,
+            caller,
+            helperFile,
+            helperFunction,
+            resolvedTable.table,
+            callSite.selector.value,
+            member,
+            indexByFile,
+          );
+          if (observation === null) {
+            gaps.push(
+              runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [
+                member.initializerRef,
+                ...callEvidence,
+              ]),
+            );
+            continue;
+          }
+          staticSelectedObservations.push(observation);
           continue;
         }
 
@@ -2258,38 +2532,21 @@ function linkRuntimeSelectorFacts(
           continue;
         }
 
-        const matchingTables = helperFile.tables.filter(table => table.name === shape.tableName);
-        if (matchingTables.length === 0) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "table_not_connected", [helperFunction.ref, ...callEvidence]));
-          continue;
-        }
-        if (matchingTables.length > 1) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "ambiguous_selector_chain", [helperFunction.ref, ...callEvidence]));
-          continue;
-        }
-        const table = matchingTables[0];
-        if (
-          table === undefined ||
-          !table.literalKeys ||
-          table.members.length < 2 ||
-          !table.members.every(member => member.callable) ||
-          new Set(table.members.map(member => member.name)).size !== table.members.length
-        ) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [table?.ref ?? helperFunction.ref, ...callEvidence]));
-          continue;
-        }
-        const tableMutation = helperFile.mutations.find(mutation => mutation.name === table.name);
-        const helperMutation =
-          helperFile.mutations.find(mutation => mutation.name === helperFunction.name) ??
-          (helperFile === caller
-            ? undefined
-            : caller.mutations.find(mutation => mutation.name === callSite.calleeName));
-        if (tableMutation !== undefined || helperMutation !== undefined) {
+        const resolvedTable = resolveRuntimeSelectorTable(
+          caller,
+          helperFile,
+          helperFunction,
+          shape.tableName,
+          callSite.calleeName,
+          callEvidence,
+        );
+        if (resolvedTable.kind === "gap") {
           gaps.push(
-            runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [
-              (tableMutation ?? helperMutation)?.ref ?? table.ref,
-              ...callEvidence,
-            ]),
+            runtimeGap(
+              callSite.callSiteRef,
+              resolvedTable.reason,
+              resolvedTable.evidenceRefs,
+            ),
           );
           continue;
         }
@@ -2300,7 +2557,7 @@ function linkRuntimeSelectorFacts(
             caller,
             helperFile,
             helperFunction,
-            table,
+            resolvedTable.table,
             shape,
             indexByFile,
           ),
@@ -2310,6 +2567,7 @@ function linkRuntimeSelectorFacts(
   }
   return Object.freeze({
     observations: Object.freeze(observations),
+    staticSelectedObservations: Object.freeze(staticSelectedObservations),
     gaps: Object.freeze(gaps),
   });
 }
@@ -2432,6 +2690,7 @@ export async function runTsJsSymbolTable(
       coverage,
       runtimeSelector.observations,
       runtimeSelector.gaps,
+      runtimeSelector.staticSelectedObservations,
     ),
   });
 }

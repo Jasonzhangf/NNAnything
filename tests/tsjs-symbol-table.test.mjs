@@ -209,6 +209,116 @@ export function directMemberAction(value: number) {
 }
 `);
 
+  writeFileSync(join(ROOT, "src", "runtime-static-right.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runStaticRight(value: number) {
+  return chooseAction("right")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-missing.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runStaticMissing(value: number) {
+  return chooseAction("middle")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-nonliteral.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runStaticNonLiteral(key: string, value: number) {
+  return chooseAction(\`\${key}\`)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-const-alias.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runStaticConstAlias(value: number) {
+  const selected = "right";
+  return chooseAction(selected)(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-nested.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runStaticNested(flag: boolean, value: number) {
+  if (flag) {
+    const selected = "right";
+    return chooseAction(selected)(value);
+  }
+  return value;
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-caller-control.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runStaticCallerControl(value: number) {
+  if (value > 0) {
+    return chooseAction("right")(value);
+  }
+  return value;
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-helper-control.ts"),
+`const controlledActionMap: Record<"left" | "right", (value: number) => number> = {
+  left: value => value + 2,
+  right: value => value * 5,
+};
+export function chooseControlledAction(key: "left" | "right") {
+  if (key === "left") {
+    return controlledActionMap.left;
+  }
+  return controlledActionMap.right;
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-helper-control-entry.ts"),
+`import { chooseControlledAction } from "./runtime-static-helper-control.js";
+export function runStaticHelperControl(value: number) {
+  return chooseControlledAction("right")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-out-of-scope.ts"),
+`export function runOutsideCandidate(value: number) {
+  const localHelper = (key: string) => key;
+  return localHelper("right")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-no-table.ts"),
+`function outsideCandidate(value: string) {
+  return value;
+}
+export function runOutsideCandidate(value: number) {
+  return outsideCandidate("right")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-ambiguous.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+import { chooseAction } from "./runtime-actions.js";
+export function runStaticAmbiguous(value: number) {
+  return chooseAction("right")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-mutated.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+chooseAction = replacement;
+declare const replacement: typeof chooseAction;
+export function runStaticMutated(value: number) {
+  return chooseAction("right")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-read-failure.ts"),
+`import { chooseAction } from "./runtime-not-present.js";
+export function runStaticReadFailure(value: number) {
+  return chooseAction("right")(value);
+}
+`);
+
   writeFileSync(join(ROOT, "src", "runtime-one-actions.ts"),
 `const oneMap = {
   left: (value: number) => value + 1,
@@ -862,7 +972,7 @@ test("runtime-selector T1b: queried helper read does not fabricate completion", 
   assert.equal("coverageNote" in observation, false);
 });
 
-test("runtime-selector T2: static literal and direct member calls are not relabelled", async () => {
+test("runtime-selector T2: direct literal is static and member access stays outside", async () => {
   const out = await runTsJsSymbolTable(
     request(["src/runtime-static-controls.ts", "src/runtime-actions.ts"]),
   );
@@ -871,14 +981,236 @@ test("runtime-selector T2: static literal and direct member calls are not relabe
 
   assert.equal(out.result.runtimeSelectorObservations.length, 0);
   assert.equal(out.result.runtimeSelectorGaps.length, 0);
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 1);
   assert.equal(
-    out.result.runtimeSelectorObservations
+    out.result.staticSelectedSelectorObservations
       .flatMap(observation => observation.facts)
       .filter(fact => fact.role === "selector_candidate_table").length,
-    0,
+    1,
   );
   assert.equal(out.result.coverage.partial, false);
   assert.equal(out.result.parser.semanticBinding, false);
+});
+
+test("static literal P1: emits one selected member observation", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-static-right.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 1);
+  const observation = out.result.staticSelectedSelectorObservations[0];
+  assert.ok(observation);
+  assert.equal(observation.callSiteRef, observation.binding.callSiteRef);
+  assert.equal(observation.selection.selectionKind, "static_selected");
+  assert.equal(observation.selection.selectorLiteral, "right");
+  assert.equal(observation.selection.selectedMemberName, "right");
+
+  const selectedMember = observation.callableTable.members.find(
+    member => member.name === observation.selection.selectedMemberName,
+  );
+  assert.ok(selectedMember);
+  assert.ok(selectedMember.callableIdentity);
+  assert.equal(observation.selection.selectedMemberRef, selectedMember.initializerRef);
+  assert.equal(
+    observation.selection.selectedDeclarationRef,
+    selectedMember.callableIdentity.declarationRef,
+  );
+  assert.equal(observation.selection.selectedModuleRef, selectedMember.callableIdentity.moduleRef);
+
+  assert.equal(observation.binding.bindingMode, "bound");
+  assert.equal(observation.binding.resolution.status, "resolved");
+  assert.equal(
+    observation.binding.resolution.declarationRef,
+    observation.selection.selectedDeclarationRef,
+  );
+  assert.equal(observation.binding.resolution.moduleRef, observation.selection.selectedModuleRef);
+  assert.deepEqual(observation.binding.declarationRefs, [
+    observation.selection.selectedDeclarationRef,
+  ]);
+  assert.equal(observation.binding.scopeRef, null);
+  assert.ok(observation.binding.evidenceRefs.includes(observation.sourceReadRef));
+  assert.ok(observation.binding.resolution.evidenceRefs.includes(observation.sourceReadRef));
+
+  assert.deepEqual(
+    observation.facts.map(fact => fact.role),
+    ["selector_candidate_table", "static_selected_member"],
+  );
+  assert.ok(observation.facts.every(fact => fact.state === "known"));
+  assert.ok(observation.facts.every(fact => fact.evidenceRefs.includes(observation.sourceReadRef)));
+
+  const receipt = observation.sourceReadReceipt;
+  assert.equal(receipt.action, "read_source");
+  assert.equal(receipt.origin, "source_observation");
+  assert.equal(receipt.outcome, "success");
+  assert.ok(receipt.evidenceRefs.includes(observation.sourceReadRef));
+  assert.ok(receipt.result.every(ref => ref.startsWith("source-read:")));
+});
+
+test("static literal P2: missing member emits an explicit gap", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-static-missing.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    out.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["static_selected_member_missing"],
+  );
+});
+
+test("static literal P3: non-literal selector emits unsupported shape", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-static-nonliteral.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    out.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["unsupported_selector_shape"],
+  );
+});
+
+test("static literal P4: const alias stays explicitly unsupported", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-static-const-alias.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    out.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["static_alias_unsupported"],
+  );
+});
+
+test("static literal P5: nested constant stays explicitly unsupported", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-static-nested.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    out.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["static_alias_unsupported"],
+  );
+});
+
+test("static literal P5A: recognized control paths emit explicit gaps", async () => {
+  const callerControl = await runTsJsSymbolTable(
+    request(["src/runtime-static-caller-control.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(callerControl.status, "ok", JSON.stringify(callerControl));
+  if (callerControl.status !== "ok") return;
+
+  assert.equal(callerControl.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    callerControl.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["unsupported_selector_shape"],
+  );
+
+  const helperControl = await runTsJsSymbolTable(
+    request([
+      "src/runtime-static-helper-control-entry.ts",
+      "src/runtime-static-helper-control.ts",
+    ]),
+  );
+  assert.equal(helperControl.status, "ok", JSON.stringify(helperControl));
+  if (helperControl.status !== "ok") return;
+
+  assert.equal(helperControl.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    helperControl.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["unsupported_selector_shape"],
+  );
+});
+
+test("static literal P6: dynamic observation semantics stay unchanged", async () => {
+  const out = await runTsJsSymbolTable(
+    request(["src/runtime-entry.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.runtimeSelectorObservations.length, 1);
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 0);
+  const observation = out.result.runtimeSelectorObservations[0];
+  assert.ok(observation);
+  assert.equal(observation.binding.bindingMode, "dynamic");
+  assert.equal(observation.binding.resolution.status, "dynamic");
+  assert.equal(observation.binding.resolution.reason, "dynamic_undecidable");
+  assert.deepEqual(observation.binding.declarationRefs, []);
+  assert.equal(observation.binding.scopeRef, null);
+  assert.deepEqual(
+    observation.facts.map(fact => fact.role),
+    ["selector_candidate_table", "runtime_selector_dependency"],
+  );
+});
+
+test("static literal P7: out-of-scope calls make no new claim", async () => {
+  const out = await runTsJsSymbolTable(request(["src/runtime-static-out-of-scope.ts"]));
+  assert.equal(out.status, "ok", JSON.stringify(out));
+  if (out.status !== "ok") return;
+
+  assert.equal(out.result.staticSelectedSelectorObservations.length, 0);
+  assert.equal(out.result.runtimeSelectorGaps.length, 0);
+
+  const noTable = await runTsJsSymbolTable(request(["src/runtime-static-no-table.ts"]));
+  assert.equal(noTable.status, "ok", JSON.stringify(noTable));
+  if (noTable.status !== "ok") return;
+
+  assert.equal(noTable.result.staticSelectedSelectorObservations.length, 0);
+  assert.equal(noTable.result.runtimeSelectorGaps.length, 0);
+});
+
+test("static literal P8: existing negative selector paths stay gaps", async () => {
+  const ambiguous = await runTsJsSymbolTable(
+    request(["src/runtime-static-ambiguous.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(ambiguous.status, "ok", JSON.stringify(ambiguous));
+  if (ambiguous.status === "ok") {
+    assert.equal(ambiguous.result.staticSelectedSelectorObservations.length, 0);
+    assert.ok(
+      ambiguous.result.runtimeSelectorGaps.some(
+        gap => gap.reason === "ambiguous_selector_chain",
+      ),
+    );
+  }
+
+  const mutated = await runTsJsSymbolTable(
+    request(["src/runtime-static-mutated.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(mutated.status, "ok", JSON.stringify(mutated));
+  if (mutated.status === "ok") {
+    assert.equal(mutated.result.staticSelectedSelectorObservations.length, 0);
+    assert.ok(
+      mutated.result.runtimeSelectorGaps.some(
+        gap => gap.reason === "unsupported_selector_shape",
+      ),
+    );
+  }
+
+  const failedRead = await runTsJsSymbolTable(
+    request([
+      "src/runtime-static-read-failure.ts",
+      "src/runtime-not-present.ts",
+    ]),
+  );
+  assert.equal(failedRead.status, "ok", JSON.stringify(failedRead));
+  if (failedRead.status === "ok") {
+    assert.equal(failedRead.result.staticSelectedSelectorObservations.length, 0);
+    assert.ok(
+      failedRead.result.runtimeSelectorGaps.some(gap => gap.reason === "read_failed"),
+    );
+  }
 });
 
 test("runtime-selector T3: one-member table records unsupported selector shape", async () => {
