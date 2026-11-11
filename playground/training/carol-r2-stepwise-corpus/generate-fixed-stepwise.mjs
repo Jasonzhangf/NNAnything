@@ -1271,6 +1271,321 @@ function aliasSteps(sample, root) {
   };
 }
 
+function mismatchReadReceipt(read, fromStepId, pendingRelationRef) {
+  return {
+    receiptId: read.receipt.receiptRef,
+    actionRef: read.receipt.actionRef,
+    action: "read_source",
+    origin: "source_observation",
+    outcome: read.receipt.outcome,
+    targetRef: read.receipt.targetRef,
+    fromStepId,
+    pendingRelationRef,
+    result: read.receipt.resultRefs,
+    evidenceRefs: read.receipt.evidenceRefs,
+    modules: [{
+      file: read.actualRead.file,
+      textLength: read.actualRead.textLength,
+      lineCount: read.actualRead.lineCount,
+    }],
+  };
+}
+
+function targetMismatchSteps(sample, root) {
+  const { episode, familyRoot } = sample;
+  const sampleId = episode.sampleId;
+  const { request, pendingRelationRef } = requestRelationFor(sample, `pending:${sampleId}`);
+  const entryFile = path.join(familyRoot, episode.entryFile);
+  const entryRead = readActionResult(
+    sampleId,
+    "step0-source-read",
+    null,
+    root,
+    entryFile,
+    pendingRelationRef,
+  );
+  if (entryRead.parsed === null) {
+    return missingReadResult(sample, entryRead, "entry source read failed");
+  }
+  const entryParsed = entryRead.parsed;
+  const importBinding = findImportBinding(entryParsed, episode.entrySymbol);
+  const firstEdge = importBinding
+    ? importEdges(root, entryParsed).find((edge) => edge.targetName === importBinding.targetName)
+    : null;
+  if (!firstEdge || firstEdge.sourceModule.state !== "known") {
+    return missingReadResult(
+      sample,
+      entryRead,
+      `entry symbol ${episode.entrySymbol} not observed with a known source module`,
+    );
+  }
+  const derivedCallSiteRef = `call:${entryParsed.rel}:${episode.entrySymbol}`;
+  const callSiteRef = request.relationObligation.callSiteRef ?? derivedCallSiteRef;
+  request.relationObligation.callSiteRef = callSiteRef;
+
+  const requestedModuleRef = request.requestedDeclaration.moduleRef?.state === "known"
+    ? request.requestedDeclaration.moduleRef.value
+    : null;
+  const requestedModuleFile = typeof requestedModuleRef === "string"
+    && requestedModuleRef.startsWith("mod:")
+    ? requestedModuleRef.slice("mod:".length)
+    : null;
+  const requestedName = request.requestedDeclaration.name?.state === "known"
+    ? request.requestedDeclaration.name.value
+    : null;
+  if (requestedModuleFile === null || requestedName === null) {
+    return missingReadResult(sample, entryRead, "requested target module/name is not known");
+  }
+
+  const boundPath = path.join(familyRoot, firstEdge.sourceModule.value.replace("mod:", ""));
+  const boundRead = readActionResult(
+    sampleId,
+    "step1-bound-read",
+    "step-0",
+    root,
+    boundPath,
+    pendingRelationRef,
+    "advance",
+  );
+  if (boundRead.parsed === null) {
+    return missingReadResult(sample, boundRead, "bound source read failed");
+  }
+  const boundTerminal = findTopDeclaration(boundRead.parsed.sourceFile, firstEdge.sourceName);
+  if (boundTerminal === null) {
+    return missingReadResult(sample, boundRead, `bound declaration ${firstEdge.sourceName} not found`);
+  }
+  const boundDeclaration = declarationRef(root, boundTerminal, "export");
+
+  const targetPath = path.join(familyRoot, requestedModuleFile);
+  const targetRead = readActionResult(
+    sampleId,
+    "step2-target-read",
+    "step-1",
+    root,
+    targetPath,
+    pendingRelationRef,
+    "advance",
+  );
+  if (targetRead.parsed === null) {
+    return missingReadResult(sample, targetRead, "requested target source read failed");
+  }
+  const targetTerminal = findTopDeclaration(targetRead.parsed.sourceFile, requestedName);
+  if (targetTerminal === null) {
+    return missingReadResult(sample, targetRead, `requested target ${requestedName} not found`);
+  }
+  const requestedDeclaration = declarationRef(root, targetTerminal, "export");
+
+  const entryReceipt = mismatchReadReceipt(entryRead, null, pendingRelationRef);
+  const boundReceipt = mismatchReadReceipt(boundRead, "step-0", pendingRelationRef);
+  const targetReceipt = mismatchReadReceipt(targetRead, "step-1", pendingRelationRef);
+  const bindingS = bindingResolved(callSiteRef, boundDeclaration, "export");
+
+  const rawObservation = {
+    kind: "resolved_target_mismatch",
+    observationRef: `obs:${sampleId}:target-mismatch`,
+    requestRef: request.requestRef,
+    sampleId,
+    stepId: "step-2",
+    fromStepId: "step-1",
+    callSiteRef,
+    pendingRelationRef,
+    requestedDeclaration: {
+      declarationRef: requestedDeclaration.declarationRef,
+      moduleRef: requestedDeclaration.moduleRef,
+      name: requestedDeclaration.name,
+      kind: requestedDeclaration.kind,
+      readRef: targetReceipt.receiptId,
+      evidenceRefs: targetReceipt.evidenceRefs,
+    },
+    boundDeclaration: {
+      declarationRef: boundDeclaration.declarationRef,
+      moduleRef: boundDeclaration.moduleRef,
+      name: boundDeclaration.name,
+      kind: boundDeclaration.kind,
+      readRef: boundReceipt.receiptId,
+      evidenceRefs: boundReceipt.evidenceRefs,
+    },
+    callSiteBinding: {
+      symbolRef: bindingS.value.symbolRef,
+      callSiteRef,
+      role: bindingS.value.role,
+      bindingMode: "bound",
+      resolution: {
+        status: "resolved",
+        declarationRef: boundDeclaration.declarationRef,
+        moduleRef: boundDeclaration.moduleRef,
+        evidenceRefs: bindingS.value.resolution.evidenceRefs,
+      },
+    },
+    importEdge: {
+      edgeRef: firstEdge.edgeRef,
+      edgeKind: "import",
+      sourceName: firstEdge.sourceName,
+      targetName: firstEdge.targetName,
+      sourceModuleRef: firstEdge.sourceModule.value,
+      targetModuleRef: firstEdge.targetModule.value,
+      moduleSpecifierRaw: firstEdge.moduleSpecifierRaw,
+      evidenceRefs: firstEdge.evidenceRefs,
+    },
+    sourceReadReceipts: [entryReceipt, boundReceipt, targetReceipt],
+  };
+
+  const completionWork = {
+    contract: "tsjs.observed-target-mismatch-read.v1",
+    scope: "source_local",
+    items: [
+      {
+        kind: "source_read",
+        subjectRef: entryReceipt.modules[0].file,
+        disposition: {
+          state: "satisfied",
+          evidenceRefs: [entryReceipt.receiptId, ...entryReceipt.result],
+        },
+      },
+      {
+        kind: "source_read",
+        subjectRef: boundReceipt.modules[0].file,
+        disposition: {
+          state: "satisfied",
+          evidenceRefs: [boundReceipt.receiptId, ...boundReceipt.result],
+        },
+      },
+      {
+        kind: "source_read",
+        subjectRef: targetReceipt.modules[0].file,
+        disposition: {
+          state: "satisfied",
+          evidenceRefs: [targetReceipt.receiptId, ...targetReceipt.result],
+        },
+      },
+      {
+        kind: "callable_identity",
+        subjectRef: boundDeclaration.declarationRef,
+        disposition: {
+          state: "satisfied",
+          evidenceRefs: [boundReceipt.receiptId, ...boundDeclaration.evidenceRefs],
+        },
+      },
+      {
+        kind: "requested_target_mapping",
+        subjectRef: requestedDeclaration.declarationRef,
+        disposition: {
+          state: "satisfied",
+          evidenceRefs: [targetReceipt.receiptId, ...requestedDeclaration.evidenceRefs],
+        },
+      },
+    ],
+  };
+
+  const producerSource = {
+    kind: "nnanything.tsjs.target-mismatch-source.v1",
+    rawObservation,
+    sampleId,
+    requestRef: request.requestRef,
+    stepId: "step-2",
+    fromStepId: "step-1",
+    callSiteRef,
+    pendingRelationRef,
+    requestedDeclarationRef: requestedDeclaration.declarationRef,
+    requestedModuleRef: requestedModuleRef,
+    completionWork,
+  };
+
+  const previousExecution = observed(
+    {
+      actionRef: targetReceipt.actionRef,
+      receiptRef: targetReceipt.receiptId,
+      origin: "source_observation",
+      fromStepId: "step-1",
+      pendingRelationRef,
+      optionSemantics: "advance",
+      targetRef: targetReceipt.targetRef,
+      outcome: "success",
+    },
+    targetReceipt.evidenceRefs,
+  );
+  const stepReceipt = {
+    receiptId: targetReceipt.receiptId,
+    actionRef: targetReceipt.actionRef,
+    action: "read_source",
+    target: targetReceipt.targetRef,
+    origin: "source_observation",
+    fromStepId: "step-1",
+    pendingRelationRef,
+    optionSemantics: "advance",
+    outcome: "success",
+    result: targetReceipt.result,
+    evidenceRefs: targetReceipt.evidenceRefs,
+    producerSource,
+  };
+  const coveredModules = [
+    entryReceipt.modules[0].file,
+    boundReceipt.modules[0].file,
+    targetReceipt.modules[0].file,
+  ];
+  const step = makeStep({
+    stepId: "step-2",
+    localSyntax: localSyntax(
+      [firstEdge],
+      [boundDeclaration, requestedDeclaration],
+      sourceContentObserved(targetReceipt.result, [targetReceipt.receiptId]),
+    ),
+    remainingObligations: [],
+    legalCandidates: legalCandidatesFor([]),
+    previousExecution,
+    receipts: [stepReceipt],
+    currentRelation: currentRelation(pendingRelationRef, callSiteRef, bindingS),
+    cursorState: "closed",
+    cursorEvidence: [...targetReceipt.evidenceRefs, ...boundDeclaration.evidenceRefs],
+    coverage: {
+      coveredModules,
+      targetModuleReached: true,
+      note: "target_mismatch_source_observed",
+    },
+  });
+  return {
+    ...sample,
+    request,
+    steps: [step],
+    reads: [entryRead.actualRead, boundRead.actualRead, targetRead.actualRead],
+    ast: [
+      astObservation(root, entryParsed),
+      astObservation(root, boundRead.parsed),
+      astObservation(root, targetRead.parsed),
+    ],
+    stepFirsts: [{
+      sampleId,
+      stepId: "step-2",
+      edgeRefs: [firstEdge.edgeRef],
+      declarationRefs: [
+        boundDeclaration.declarationRef,
+        requestedDeclaration.declarationRef,
+      ],
+      obligationRefs: [],
+      actionRefs: [targetReceipt.actionRef],
+    }],
+    gainBranches: [{
+      sampleId,
+      stepId: "step-2",
+      kind: "observe",
+      ref: requestedDeclaration.declarationRef,
+      branch: "known/target_mismatch",
+      candidateEmitted: true,
+    }],
+    predecessorAndConsumption: [{
+      sampleId,
+      stepId: "step-2",
+      previousActionRef: targetReceipt.actionRef,
+      previousReceiptRef: targetReceipt.receiptId,
+      fromStepId: "step-1",
+      consumedEdgeRef: firstEdge.edgeRef,
+    }],
+    terminalDeclarationRef: boundDeclaration.declarationRef,
+    trainingEligible: true,
+    notReadyReason: null,
+  };
+}
+
 function closureSteps(sample, root) {
   const { episode, familyRoot } = sample;
   const sampleId = episode.sampleId;
@@ -2084,7 +2399,7 @@ function localTableDynamicSteps(sample, root) {
   };
 }
 
-function buildOldDevStudent(sample, root) {
+function buildOldDevStudent(sample, root, useTargetMismatchPath = false) {
   const calleeName = sample.request.relationObligation.calleeName;
   const entryFile = path.join(sample.familyRoot, sample.episode.entryFile);
   const entryParsed = parseModule(root, entryFile);
@@ -2107,11 +2422,14 @@ function buildOldDevStudent(sample, root) {
     if (binding.kind !== "resolved") {
       throw new Error(`entry import not observed for ${calleeName}`);
     }
-    const built = aliasSteps(sample, root);
+    const built = useTargetMismatchPath ? targetMismatchSteps(sample, root) : aliasSteps(sample, root);
     if (!built.trainingEligible) {
       throw new Error(built.notReadyReason ?? `direct import path failed for ${calleeName}`);
     }
-    return { ...built, devShape: "direct-import" };
+    return {
+      ...built,
+      devShape: useTargetMismatchPath ? "direct-import-target-read" : "direct-import",
+    };
   }
   const dynamicShape = findLocalTableDynamicShape(entryParsed, calleeName);
   if (dynamicShape.kind === "ambiguous") {
@@ -2160,6 +2478,7 @@ export async function generateOldDevStepwise({
   outDir = familyRoot,
   receiptPath,
   derivedSourceGroup = null,
+  targetMismatchSourceGroup = null,
 } = {}) {
   if (!familyRoot) {
     throw new TypeError("familyRoot is required for old DEV stepwise generation");
@@ -2171,6 +2490,19 @@ export async function generateOldDevStepwise({
     if (path.resolve(outDir) === path.resolve(familyRoot)) {
       throw new TypeError("derivedSourceGroup requires a separate derived output directory");
     }
+  }
+  if (targetMismatchSourceGroup !== null) {
+    if (typeof targetMismatchSourceGroup !== "string" || targetMismatchSourceGroup.length === 0) {
+      throw new TypeError("targetMismatchSourceGroup must be a non-empty string when provided");
+    }
+    if (path.resolve(outDir) === path.resolve(familyRoot)) {
+      throw new TypeError("targetMismatchSourceGroup requires a separate derived output directory");
+    }
+  }
+  if (derivedSourceGroup !== null && targetMismatchSourceGroup !== null) {
+    throw new TypeError(
+      "derivedSourceGroup and targetMismatchSourceGroup are mutually exclusive",
+    );
   }
   if (!receiptPath) {
     receiptPath = path.join(outDir, "control-receipts.json");
@@ -2216,12 +2548,17 @@ export async function generateOldDevStepwise({
       `old DEV family ${manifest.sourceGroup} must contain exactly 3 episodes and requests`,
     );
   }
-  const builtSamples = samples.map((sample) => buildOldDevStudent(sample, familyRoot));
+  const builtSamples = samples.map((sample) => buildOldDevStudent(
+    sample,
+    familyRoot,
+    targetMismatchSourceGroup !== null
+      && sample.episode.sampleId === "c-dev-negative-same-name-other",
+  ));
   const studentRows = builtSamples.map((built) => ({
     schemaVersion: STUDENT_SCHEMA,
     sampleId: built.episode.sampleId,
     family: built.family,
-    sourceGroup: derivedSourceGroup ?? built.episode.sourceGroup,
+    sourceGroup: derivedSourceGroup ?? targetMismatchSourceGroup ?? built.episode.sourceGroup,
     partition: built.episode.partition,
     language: built.episode.language,
     semanticStratum: built.episode.semanticStratum,
@@ -2247,15 +2584,20 @@ export async function generateOldDevStepwise({
   };
   const studentObservationsPath = path.join(outDir, "student-observations.jsonl");
   let derivedOutput = null;
-  if (derivedSourceGroup !== null) {
+  const derivedGroup = derivedSourceGroup ?? targetMismatchSourceGroup;
+  if (derivedGroup !== null) {
     const manifestPath = path.join(outDir, "manifest.json");
     const derivedManifest = {
       ...manifest,
-      sourceGroup: derivedSourceGroup,
+      sourceGroup: derivedGroup,
       derivation: {
-        kind: "derived-diagnostic-dev",
+        kind: targetMismatchSourceGroup !== null
+          ? "derived-diagnostic-target-mismatch"
+          : "derived-diagnostic-dev",
         derivedFrom: manifest.sourceGroup,
-        regeneratedBinding: "current-active-containing-read",
+        regeneratedBinding: targetMismatchSourceGroup !== null
+          ? "bound-import-and-distinct-target-read"
+          : "current-active-containing-read",
         independentHoldout: false,
         trainingEligible: false,
         rows: builtSamples.map((built) => ({
@@ -2270,7 +2612,7 @@ export async function generateOldDevStepwise({
       schema: FAMILY_ADMISSIONS_SCHEMA,
       familyAdmissions: [
         {
-          sourceGroup: derivedSourceGroup,
+          sourceGroup: derivedGroup,
           partition: "DEV",
           usableForTrainingSupervision: false,
           usableForIndependentVerification: false,
@@ -2284,7 +2626,7 @@ export async function generateOldDevStepwise({
       manifestPath,
       studentObservationsPath,
       admissionsPath,
-      sourceGroup: derivedSourceGroup,
+      sourceGroup: derivedGroup,
       recordCount: studentRows.length,
       sampleIds: builtSamples.map((built) => built.episode.sampleId),
     };

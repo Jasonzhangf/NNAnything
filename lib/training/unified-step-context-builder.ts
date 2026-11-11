@@ -30,6 +30,7 @@ import type {
   TsJsRuntimeSelectorObservation,
   TsJsRuntimeSelectorRoleFact,
   TsJsStaticSelectedSelectorObservation,
+  TsJsTargetMismatchObservation,
   TsJsSymbolTableRequest,
 } from "../filters/tsjs-symbol-table-policy.js";
 import { UNIFIED_INPUT_SCHEMA } from "./unified-encoder.js";
@@ -87,7 +88,8 @@ export interface TsJsCompletionWorkItem {
 export interface TsJsCompletionWork {
   readonly contract:
     | "tsjs.observed-dynamic-source-closure.v1"
-    | "tsjs.observed-static-selected-read.v1";
+    | "tsjs.observed-static-selected-read.v1"
+    | "tsjs.observed-target-mismatch-read.v1";
   readonly scope: "source_local";
   readonly items: readonly TsJsCompletionWorkItem[];
 }
@@ -126,9 +128,24 @@ export interface TsJsStaticProducerSourceBinding {
   readonly completionWork?: TsJsCompletionWork;
 }
 
+export interface TsJsTargetMismatchProducerSourceBinding {
+  readonly kind: "nnanything.tsjs.target-mismatch-source.v1";
+  readonly rawObservation: TsJsTargetMismatchObservation;
+  readonly sampleId: string;
+  readonly requestRef: string;
+  readonly stepId: string;
+  readonly fromStepId: string | null;
+  readonly callSiteRef: string;
+  readonly pendingRelationRef: string;
+  readonly requestedDeclarationRef: string;
+  readonly requestedModuleRef: string;
+  readonly completionWork?: TsJsCompletionWork;
+}
+
 export type TsJsProducerSourceBinding =
   | TsJsDynamicProducerSourceBinding
-  | TsJsStaticProducerSourceBinding;
+  | TsJsStaticProducerSourceBinding
+  | TsJsTargetMismatchProducerSourceBinding;
 
 export interface RelationStepReceipt {
   readonly receiptId: string;

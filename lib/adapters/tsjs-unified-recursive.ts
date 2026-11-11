@@ -56,11 +56,16 @@ import {
   type RelationStepEpisode,
   type TsJsProducerSourceBinding,
   type TsJsStaticProducerSourceBinding,
+  type TsJsTargetMismatchProducerSourceBinding,
 } from "../training/unified-step-context-builder.js";
-import type { TsJsStaticSelectedSelectorObservation } from "../filters/tsjs-symbol-table-policy.js";
+import type {
+  TsJsStaticSelectedSelectorObservation,
+  TsJsTargetMismatchObservation,
+} from "../filters/tsjs-symbol-table-policy.js";
 import {
   deriveTsJsObservedCompletionRequirements,
   deriveTsJsStaticSelectedCompletionRequirements,
+  deriveTsJsTargetMismatchCompletionRequirements,
   isTsJsCallableIdentityExact,
   moduleFileFromRef,
   successfulProducerFiles,
@@ -301,7 +306,10 @@ export type TsJsObservedCompletionGapCode =
   | "selector_scope_invalid"
   | "work_state_open"
   | "enumeration_not_closed"
-  | "static_completion_witness_unreviewed";
+  | "static_completion_witness_unreviewed"
+  | "target_mismatch_binding_invalid"
+  | "target_mismatch_declaration_invalid"
+  | "target_mismatch_edge_invalid";
 
 export interface TsJsObservedCompletionGap {
   readonly code: TsJsObservedCompletionGapCode;
@@ -2463,6 +2471,15 @@ function admittedProducerReadRecords(input: {
       source,
     });
   }
+  if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
+    return admittedTargetMismatchProducerReadRecords({
+      requestId,
+      episode,
+      stateRef,
+      receipt,
+      source,
+    });
+  }
   const reasons: string[] = [];
   const raw = source.rawObservation;
   const rawReceipt = raw.sourceReadReceipt;
@@ -2868,6 +2885,100 @@ function admittedStaticProducerReadRecords(input: {
   };
 }
 
+/** Admits the three read records for the target-mismatch corpus producer source. */
+function admittedTargetMismatchProducerReadRecords(input: {
+  readonly requestId: string;
+  readonly episode: RelationStepEpisode;
+  readonly stateRef: string;
+  readonly receipt: NonNullable<RelationStepEpisode["receipts"]>[number];
+  readonly source: TsJsTargetMismatchProducerSourceBinding;
+}): { readonly records: readonly TsJsInitialEvidenceRecord[]; readonly reasons: readonly string[] } {
+  const { requestId, episode, stateRef, receipt, source } = input;
+  const reasons: string[] = [];
+  const raw = source.rawObservation;
+  const currentRelation = episode.currentRelation;
+  if (source.requestRef !== requestId || episode.requestId !== requestId) {
+    reasons.push("target-mismatch producer source request mismatch");
+  }
+  if (source.sampleId !== episode.sampleId) {
+    reasons.push("target-mismatch producer source sample mismatch");
+  }
+  if (source.stepId !== episode.stepId) {
+    reasons.push("target-mismatch producer source step mismatch");
+  }
+  if (source.fromStepId !== (receipt.fromStepId ?? null)) {
+    reasons.push("target-mismatch producer source predecessor mismatch");
+  }
+  if (
+    source.requestedDeclarationRef !== episode.targetRef
+    || source.requestedModuleRef !== (episode.requestedDeclaration?.moduleRef ?? null)
+  ) {
+    reasons.push("target-mismatch producer source requested target mismatch");
+  }
+  if (
+    source.callSiteRef !== episode.callSiteRef
+    || source.callSiteRef !== currentRelation?.callSiteRef
+    || source.callSiteRef !== raw.callSiteRef
+  ) {
+    reasons.push("target-mismatch producer source call-site mismatch");
+  }
+  if (
+    source.pendingRelationRef !== episode.pendingRelationRef
+    || source.pendingRelationRef !== currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== receipt.pendingRelationRef
+  ) {
+    reasons.push("target-mismatch producer source pending relation mismatch");
+  }
+  const receipts = raw.sourceReadReceipts;
+  if (receipts.length !== 3) {
+    reasons.push("target-mismatch producer source requires three source reads");
+  }
+  const targetReceipt = receipts[2];
+  if (
+    targetReceipt === undefined
+    || targetReceipt.receiptId !== receipt.receiptId
+    || targetReceipt.actionRef !== receipt.actionRef
+    || targetReceipt.outcome !== receipt.outcome
+    || targetReceipt.targetRef !== receipt.target
+  ) {
+    reasons.push("target-mismatch producer source receipt mismatch");
+  }
+  const boundReceipt = receipts[1];
+  if (
+    boundReceipt === undefined
+    || !sameModulePath(boundReceipt.modules[0]?.file ?? null, raw.boundDeclaration.moduleRef)
+  ) {
+    reasons.push("target-mismatch bound read does not back the bound declaration module");
+  }
+  if (reasons.length > 0) {
+    return { records: [], reasons: uniqueRefs(reasons) };
+  }
+  const records = receipts.map(read => ({
+    id: read.receiptId,
+    stateRef,
+    validity: "valid" as const,
+    payload: {
+      kind: "source_read_receipt" as const,
+      receiptId: read.receiptId,
+      actionRef: read.actionRef,
+      origin: read.origin,
+      outcome: read.outcome,
+      targetRef: read.targetRef,
+      fromStepId: read.fromStepId,
+      pendingRelationRef: read.pendingRelationRef,
+      resultRefs: read.result,
+      evidenceRefs: read.evidenceRefs,
+      requestRef: source.requestRef,
+      stepId: source.stepId,
+      callSiteRef: source.callSiteRef,
+      requestedDeclarationRef: source.requestedDeclarationRef,
+      requestedModuleRef: source.requestedModuleRef,
+      modules: read.modules,
+    },
+  }));
+  return { records, reasons: [] };
+}
+
 /**
  * Admits the B.6 read record for one admitted source read receipt. The read
  * ref must resolve through the typed read identities (receipt, previous
@@ -3224,7 +3335,7 @@ export function assessTsJsObservedDynamicCompletion(
 
   const episode = producerEpisodes[0]!;
   const producerReceipts = (episode.receipts ?? []).filter(
-    receipt => receipt.producerSource !== undefined,
+    receipt => receipt.producerSource?.kind === "nnanything.tsjs.producer-source.v1",
   );
   if (producerReceipts.length !== 1) {
     return {
@@ -3239,7 +3350,15 @@ export function assessTsJsObservedDynamicCompletion(
   }
 
   const receipt = producerReceipts[0]!;
-  const source = receipt.producerSource!;
+  const source = receipt.producerSource;
+  if (source?.kind !== "nnanything.tsjs.producer-source.v1") {
+    return {
+      status: "not_applicable",
+      producer_backed: false,
+      evidenceRefs: [],
+      gaps: [],
+    };
+  }
   const raw = source.rawObservation;
   const rawReceipt = raw.sourceReadReceipt;
   const sourceReadRef = raw.sourceReadRef;
@@ -4061,6 +4180,345 @@ export function assessTsJsObservedStaticSelectedRead(
   };
 }
 
+export function assessTsJsObservedTargetMismatchCompletion(
+  episodes: readonly RelationStepEpisode[],
+  state: TsJsObservedCompletionState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): TsJsObservedDynamicCompletionAssessment {
+  const executed = executedEpisodesOf(
+    state as unknown as MultiStepState,
+    episodes,
+  );
+  const producerEpisodes = executed.filter(episode =>
+    (episode.receipts ?? []).some(receipt =>
+      receipt.producerSource?.kind === "nnanything.tsjs.target-mismatch-source.v1"));
+  if (producerEpisodes.length === 0) {
+    return {
+      status: "not_applicable",
+      producer_backed: false,
+      evidenceRefs: [],
+      gaps: [],
+    };
+  }
+  if (producerEpisodes.length !== 1) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: [],
+      gaps: [observedCompletionGap(
+        "producer_branch_ambiguous",
+        `target-mismatch read requires one producer-backed episode, got ${producerEpisodes.length}`,
+      )],
+    };
+  }
+  const episode = producerEpisodes[0]!;
+  const producerReceipts = (episode.receipts ?? []).filter(
+    receipt =>
+      receipt.producerSource?.kind === "nnanything.tsjs.target-mismatch-source.v1",
+  );
+  if (producerReceipts.length !== 1) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: episode.evidenceRefs,
+      gaps: [observedCompletionGap(
+        "producer_branch_ambiguous",
+        `target-mismatch episode requires one producer receipt, got ${producerReceipts.length}`,
+      )],
+    };
+  }
+  const receipt = producerReceipts[0]!;
+  const source = receipt.producerSource;
+  if (source?.kind !== "nnanything.tsjs.target-mismatch-source.v1") {
+    return {
+      status: "not_applicable",
+      producer_backed: false,
+      evidenceRefs: [],
+      gaps: [],
+    };
+  }
+  const raw = source.rawObservation;
+  const [entryReceipt, boundReceipt, targetReceipt] = raw.sourceReadReceipts;
+  const gaps: TsJsObservedCompletionGap[] = [];
+  const requested = raw.requestedDeclaration;
+  const bound = raw.boundDeclaration;
+  const currentRelation = episode.currentRelation;
+  const currentBinding = currentRelation?.binding.state === "known"
+    ? currentRelation.binding.value
+    : null;
+  const contextRelation = state.context.currentRelation?.binding.state === "known"
+    ? state.context.currentRelation.binding.value
+    : null;
+  const requestedDeclaration = episode.requestedDeclaration ?? null;
+
+  if (
+    state.context.stepId !== episode.stepId
+    || state.context.requestRef !== episode.requestId
+    || state.context.goal.targetRef !== episode.targetRef
+    || source.sampleId !== episode.sampleId
+    || source.requestRef !== episode.requestId
+    || source.stepId !== episode.stepId
+    || source.fromStepId !== (receipt.fromStepId ?? null)
+    || source.callSiteRef !== episode.callSiteRef
+    || source.callSiteRef !== currentRelation?.callSiteRef
+    || source.callSiteRef !== contextRelation?.callSiteRef
+    || source.pendingRelationRef !== episode.pendingRelationRef
+    || source.pendingRelationRef !== currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== receipt.pendingRelationRef
+    || source.requestedDeclarationRef !== episode.targetRef
+    || source.requestedModuleRef !== (requestedDeclaration?.moduleRef ?? null)
+    || targetReceipt?.receiptId !== receipt.receiptId
+  ) {
+    gaps.push(observedCompletionGap(
+      "producer_binding_mismatch",
+      "target-mismatch producer source does not match the exact request/event/episode tuple",
+      [episode.callSiteRef ?? ""],
+    ));
+  }
+
+  for (const read of [entryReceipt, boundReceipt, targetReceipt]) {
+    if (read === undefined) {
+      gaps.push(observedCompletionGap(
+        "read_record_missing",
+        "target-mismatch source read receipt is absent",
+        [],
+      ));
+      continue;
+    }
+    const readRecords = initialEvidence.filter(record =>
+      record.validity === "valid"
+      && record.payload.kind === "source_read_receipt"
+      && record.id === read.receiptId);
+    if (readRecords.length !== 1) {
+      gaps.push(observedCompletionGap(
+        "read_record_missing",
+        `target-mismatch completion requires one admitted read record for ${read.receiptId}`,
+        [read.receiptId],
+      ));
+      continue;
+    }
+    const record = readRecords[0]!;
+    if (
+      record.payload.kind !== "source_read_receipt"
+      || record.payload.callSiteRef !== source.callSiteRef
+      || record.payload.requestRef !== source.requestRef
+      || record.payload.stepId !== source.stepId
+      || record.payload.requestedDeclarationRef !== source.requestedDeclarationRef
+      || record.payload.requestedModuleRef !== source.requestedModuleRef
+      || record.payload.pendingRelationRef !== source.pendingRelationRef
+      || !sameStringArray(record.payload.resultRefs, read.result)
+      || !sameStringArray(
+        (record.payload.modules ?? []).map(module => module.file),
+        read.modules.map(module => module.file),
+      )
+    ) {
+      gaps.push(observedCompletionGap(
+        "read_record_mismatch",
+        `admitted target-mismatch read record does not retain the producer tuple for ${read.receiptId}`,
+        [read.receiptId],
+      ));
+    }
+  }
+
+  if (
+    currentBinding === null
+    || currentBinding === undefined
+    || contextRelation === null
+    || contextRelation === undefined
+    || currentBinding.bindingMode !== "bound"
+    || contextRelation.bindingMode !== "bound"
+    || currentBinding.resolution.status !== "resolved"
+    || contextRelation.resolution.status !== "resolved"
+    || currentBinding.resolution.declarationRef !== bound.declarationRef
+    || contextRelation.resolution.declarationRef !== bound.declarationRef
+    || currentBinding.resolution.moduleRef !== bound.moduleRef
+    || contextRelation.resolution.moduleRef !== bound.moduleRef
+    || raw.callSiteBinding.resolution.declarationRef !== bound.declarationRef
+    || raw.callSiteBinding.resolution.moduleRef !== bound.moduleRef
+  ) {
+    gaps.push(observedCompletionGap(
+      "target_mismatch_binding_invalid",
+      "target-mismatch call-site binding does not resolve to the observed bound declaration",
+      [bound.readRef, raw.observationRef],
+    ));
+  }
+
+  if (
+    bound.name !== requested.name
+    || sameModulePath(bound.moduleRef, requested.moduleRef)
+    || bound.declarationRef === requested.declarationRef
+    || bound.readRef !== boundReceipt?.receiptId
+    || requested.readRef !== targetReceipt?.receiptId
+  ) {
+    gaps.push(observedCompletionGap(
+      "target_mismatch_declaration_invalid",
+      "same-name different-module target mismatch is not established by the observed declarations",
+      [bound.readRef, requested.readRef],
+    ));
+  }
+
+  const edge = raw.importEdge;
+  const observedEdge = (episode.observedBindings ?? []).find(
+    candidate => candidate.edgeRef === edge.edgeRef,
+  );
+  if (
+    observedEdge === undefined
+    || observedEdge.edgeKind !== "import"
+    || edge.edgeKind !== "import"
+    || observedEdge.targetName !== requested.name
+    || observedEdge.targetName !== edge.targetName
+    || observedEdge.sourceName !== edge.sourceName
+    || observedEdge.sourceModule.state !== "known"
+    || observedEdge.targetModule.state !== "known"
+    || !sameModulePath(observedEdge.targetModule.value ?? null, `mod:${episode.entryFile}`)
+    || !sameModulePath(observedEdge.sourceModule.value ?? null, bound.moduleRef)
+  ) {
+    gaps.push(observedCompletionGap(
+      "target_mismatch_edge_invalid",
+      "target-mismatch import edge does not join the call-site binding and requested target",
+      edge.evidenceRefs,
+    ));
+  }
+  const observedDeclarations = episode.observedDeclarations ?? [];
+  if (
+    !observedDeclarations.some(declaration =>
+      declaration.declarationRef === bound.declarationRef
+      && declaration.moduleRef === bound.moduleRef
+      && declaration.name === bound.name)
+    || !observedDeclarations.some(declaration =>
+      declaration.declarationRef === requested.declarationRef
+      && declaration.moduleRef === requested.moduleRef
+      && declaration.name === requested.name)
+  ) {
+    gaps.push(observedCompletionGap(
+      "target_mismatch_declaration_invalid",
+      "target-mismatch declarations are not present in the executed episode observations",
+      [bound.readRef, requested.readRef],
+    ));
+  }
+
+  const completionWork = source.completionWork;
+  if (completionWork === undefined) {
+    gaps.push(observedCompletionGap(
+      "completion_work_missing",
+      "target-mismatch episode has no completionWork",
+      [targetReceipt?.receiptId ?? ""],
+    ));
+  } else {
+    const derivation = deriveTsJsTargetMismatchCompletionRequirements({
+      observation: raw,
+    });
+    for (const gap of derivation.gaps) {
+      gaps.push(observedCompletionGap(
+        "completion_requirements_invalid",
+        gap.reason,
+        gap.subjectRef === null ? [] : [gap.subjectRef],
+      ));
+    }
+    const expected = new Map(
+      derivation.requirements.map(requirement => [
+        `${requirement.kind}\u0000${requirement.subjectRef}`,
+        requirement,
+      ]),
+    );
+    const actual = new Map<string, typeof completionWork.items[number]>();
+    for (const item of completionWork.items) {
+      const key = `${item.kind}\u0000${item.subjectRef}`;
+      if (actual.has(key)) {
+        gaps.push(observedCompletionGap(
+          "completion_work_duplicate_item",
+          `target-mismatch completionWork repeats ${item.kind}:${item.subjectRef}`,
+          item.disposition.evidenceRefs,
+          item,
+        ));
+        continue;
+      }
+      actual.set(key, item);
+    }
+    for (const [key, requirement] of expected) {
+      if (!actual.has(key)) {
+        gaps.push(observedCompletionGap(
+          "completion_work_omits_required_item",
+          `target-mismatch completionWork omits ${requirement.kind}:${requirement.subjectRef}`,
+          [targetReceipt?.receiptId ?? ""],
+          requirement,
+        ));
+      }
+    }
+    for (const [key, item] of actual) {
+      if (!expected.has(key)) {
+        gaps.push(observedCompletionGap(
+          "completion_work_unexpected_item",
+          `target-mismatch completionWork contains unexpected ${item.kind}:${item.subjectRef}`,
+          item.disposition.evidenceRefs,
+          item,
+        ));
+      }
+    }
+    for (const [key, item] of actual) {
+      if (item.disposition.state !== "satisfied") {
+        gaps.push(observedCompletionGap(
+          "completion_work_unsatisfied",
+          `target-mismatch completionWork item ${key} is not satisfied`,
+          item.disposition.evidenceRefs,
+          item,
+        ));
+        continue;
+      }
+      if (
+        item.kind === "source_read"
+        && !raw.sourceReadReceipts.some(read =>
+          read.receiptId === item.subjectRef
+          || read.modules.some(module => module.file === item.subjectRef))
+      ) {
+        gaps.push(observedCompletionGap(
+          "completion_evidence_invalid",
+          `target-mismatch source read ${item.subjectRef} does not cite an admitted receipt`,
+          item.disposition.evidenceRefs,
+          item,
+        ));
+      }
+    }
+  }
+
+  if (
+    episode.remainingObligations === undefined
+    || episode.remainingObligations.length !== 0
+    || episode.localCandidateCursor === undefined
+    || episode.localCandidateCursor.state !== "closed"
+    || !enumerationClosed(state as unknown as MultiStepState)
+  ) {
+    gaps.push(observedCompletionGap(
+      "work_state_open",
+      "target-mismatch read requires explicit closed cursor and empty pending work",
+      [...(episode.localCandidateCursor?.evidenceRefs ?? [])],
+    ));
+  }
+
+  const uniqueGaps = gaps.filter((gap, index) =>
+    gaps.findIndex(candidate =>
+      candidate.code === gap.code
+      && candidate.reason === gap.reason
+      && candidate.kind === gap.kind
+      && candidate.subjectRef === gap.subjectRef
+      && sameStringArray(candidate.evidenceRefs, gap.evidenceRefs)) === index);
+  const evidence = uniqueRefs([
+    entryReceipt?.receiptId ?? "",
+    boundReceipt?.receiptId ?? "",
+    targetReceipt?.receiptId ?? "",
+    ...bound.evidenceRefs,
+    ...requested.evidenceRefs,
+  ].filter(ref => ref.length > 0));
+  return {
+    status: uniqueGaps.length === 0 ? "supported" : "incomplete",
+    producer_backed: true,
+    evidenceRefs: uniqueGaps.length === 0
+      ? evidence
+      : uniqueRefs([...evidence, ...uniqueGaps.flatMap(gap => gap.evidenceRefs)]),
+    gaps: uniqueGaps,
+  };
+}
+
 function negativeShadowWitness(
   episodes: readonly RelationStepEpisode[],
   state: MultiStepState,
@@ -4173,6 +4631,21 @@ function dynamicUndecidableWitness(
   return [];
 }
 
+function targetMismatchWitness(
+  episodes: readonly RelationStepEpisode[],
+  state: MultiStepState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): readonly string[] {
+  const assessment = assessTsJsObservedTargetMismatchCompletion(
+    episodes,
+    state,
+    initialEvidence,
+  );
+  return assessment.producer_backed && assessment.status === "supported"
+    ? assessment.evidenceRefs
+    : [];
+}
+
 function rootCompletionOf(
   episodes: readonly RelationStepEpisode[],
   state: MultiStepState,
@@ -4221,7 +4694,10 @@ function rootCompletionOf(
   }
   if (state.terminalKind === "judge" && state.terminalJudgement === "judge=false") {
     const shadow = negativeShadowWitness(episodes, state, initialEvidence);
-    if (shadow.length === 0) {
+    const negative = shadow.length > 0
+      ? shadow
+      : targetMismatchWitness(episodes, state, initialEvidence);
+    if (negative.length === 0) {
       return {
         predictedJudgement: "false",
         positiveRootSatisfied: false,
@@ -4233,9 +4709,9 @@ function rootCompletionOf(
     return {
       predictedJudgement: "false",
       positiveRootSatisfied: false,
-      positiveRootGaps: [{ code: "POSITIVE_RELATION_NOT_ESTABLISHED", refs: shadow }],
+      positiveRootGaps: [{ code: "POSITIVE_RELATION_NOT_ESTABLISHED", refs: negative }],
       queryCompletion: "complete_false",
-      evidenceRefs: shadow,
+      evidenceRefs: negative,
     };
   }
   if (state.terminalKind === "judge" && state.terminalJudgement === "judge=unknown") {
