@@ -1195,7 +1195,7 @@ async function runUnifiedEvaluation(
       affectedStepId = undefined;
       try {
         const result = await runTsJsUnifiedMultiStepDecision({
-          requestId: `evaluate:${runId}:${sampleId}`,
+          requestId: sampleEpisodes[0]!.requestId,
           packagePath,
           episodes: sampleEpisodes,
           grantedEffects: ["read_only"],
