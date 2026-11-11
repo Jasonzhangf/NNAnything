@@ -819,6 +819,9 @@ function rerenderMutationIsRelevant(scopeSelector: string, mutation: MutationRec
   if (scopeRoot !== null && mutation.target instanceof Element && isWithinScope(mutation.target, scopeRoot)) {
     return true;
   }
+  if (scopeRoot !== null && mutation.target instanceof ShadowRoot && mutation.target.host === scopeRoot) {
+    return true;
+  }
   for (const node of [
     ...Array.from(mutation.addedNodes),
     ...Array.from(mutation.removedNodes),
@@ -844,6 +847,14 @@ function scopeState(scopeSelector: string): {
       scopeRoot.querySelectorAll("input, textarea, [contenteditable]"),
     )) {
       if (isEligibleInput(element)) eligibleInputCount += 1;
+    }
+    const directShadowRoot = scopeRoot.shadowRoot;
+    if (directShadowRoot !== null) {
+      for (const element of Array.from(
+        directShadowRoot.querySelectorAll("input, textarea, [contenteditable]"),
+      )) {
+        if (isEligibleInput(element)) eligibleInputCount += 1;
+      }
     }
     return { scopeCount: matches.length, eligibleInputCount };
   } catch {
@@ -1077,6 +1088,15 @@ function armScopeObserver(
     subtree: true,
     ...(mode === "appearance" ? { attributes: true } : {}),
   });
+  if (mode === "rerender") {
+    const directShadowRoot = scopeRoot!.shadowRoot;
+    if (directShadowRoot !== null) {
+      observer.observe(directShadowRoot, {
+        childList: true,
+        subtree: true,
+      });
+    }
+  }
   if (mode === "appearance") {
     const initialState = scopeState(scopeSelector);
     if (initialState !== null && initialState.scopeCount > 0) {
