@@ -90,6 +90,10 @@
       "types": "./dist/browser-receipt.d.ts",
       "import": "./dist/browser-receipt.js"
     },
+    "./b-a1-observation-driver": {
+      "types": "./dist/b-a1-observation-driver.d.ts",
+      "import": "./dist/b-a1-observation-driver.js"
+    },
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"
