@@ -13,6 +13,10 @@ import {
   observeTsJsStepwiseRequest,
   STEPWISE_STUDENT_OBSERVATIONS_FILE,
 } from "../dist/training/unified-student-converter.js";
+import {
+  STEPWISE_SUPERVISION_FILE,
+  STEPWISE_SUPERVISION_SCHEMA,
+} from "../dist/training/unified-supervision-converter.js";
 
 export const TSJS_RETENTION_CONTRAST_CONFIG_SCHEMA =
   "nnanything.tsjs.retention-contrast-config.v1";
@@ -186,6 +190,31 @@ function supervisionRowForArm(group, arm) {
   };
 }
 
+// Family-level stepwise supervision record. S_g is derived from the matching
+// converted student group; the arm's materialized supervision-row fields are
+// copied verbatim into the single step record.
+function supervisionRecordForArm(record, group, supervisionRow) {
+  return {
+    schemaVersion: STEPWISE_SUPERVISION_SCHEMA,
+    sampleId: record.sampleId,
+    family: record.family,
+    requestRef: record.request.requestRef,
+    steps: [
+      {
+        stepId: supervisionRow.stepId,
+        S_g: group.candidates.map(candidate => candidate.candidateRef),
+        A_g: [...supervisionRow.goldAllowedCandidateRefs],
+        agSubsetOfSg: supervisionRow.agSubsetOfSg,
+        labelAuthority: supervisionRow.labelAuthority,
+        oracleKind: supervisionRow.oracleKind,
+        unknownReason: supervisionRow.unknownReason,
+      },
+    ],
+    trainingEligible: true,
+    notReadyReason: null,
+  };
+}
+
 async function materializeArm({ repo, out, arm }) {
   const helperFile = arm.entryFile.replace(/entry\.ts$/, "lookup.ts");
   const request = {
@@ -276,6 +305,8 @@ async function materializeArm({ repo, out, arm }) {
     allowedCandidateRef: arm.allowedCandidateRef,
     unknownReason: arm.unknownReason,
     candidateCount: group.candidates.length,
+    record,
+    group,
     studentRows,
     supervisionRow,
   };
@@ -330,6 +361,60 @@ async function main() {
     "utf8",
   );
 
+  // Family-level stepwise bundle consumed by the fixed converter. The two
+  // student observations are written unchanged from the materialized arms;
+  // the supervision records derive S_g from the matching student groups and
+  // copy the arm supervision-row fields verbatim.
+  const familyDir = join(out, "corpus-union", SOURCE_GROUP);
+  await mkdir(familyDir, { recursive: true });
+  const firstRecord = arms[0].record;
+  for (const arm of arms.slice(1)) {
+    const record = arm.record;
+    if (
+      record.sourceGroup !== firstRecord.sourceGroup
+      || record.language !== firstRecord.language
+      || record.semanticStratum !== firstRecord.semanticStratum
+      || record.partition !== firstRecord.partition
+      || record.family !== firstRecord.family
+    ) {
+      throw new Error("materialized arm manifests disagree on family identity");
+    }
+  }
+  const familyManifestPath = join(familyDir, "manifest.json");
+  await writeFile(
+    familyManifestPath,
+    `${JSON.stringify(
+      {
+        sourceGroup: firstRecord.sourceGroup,
+        language: firstRecord.language,
+        semanticStratum: firstRecord.semanticStratum,
+        partition: firstRecord.partition,
+        derivationFamily: { familyId: firstRecord.family },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  const familyStudentObservationsPath = join(
+    familyDir,
+    STEPWISE_STUDENT_OBSERVATIONS_FILE,
+  );
+  await writeFile(
+    familyStudentObservationsPath,
+    `${arms.map(arm => JSON.stringify(arm.record)).join("\n")}\n`,
+    "utf8",
+  );
+  const supervisionRecords = arms.map(arm =>
+    supervisionRecordForArm(arm.record, arm.group, arm.supervisionRow),
+  );
+  const familySupervisionPath = join(familyDir, STEPWISE_SUPERVISION_FILE);
+  await writeFile(
+    familySupervisionPath,
+    `${supervisionRecords.map(record => JSON.stringify(record)).join("\n")}\n`,
+    "utf8",
+  );
+
   const packagePath = join(out, "model-package.json");
   await copyFile(initializationSourcePackagePath, packagePath);
 
@@ -374,6 +459,10 @@ async function main() {
     packagePath,
     studentRowsPath,
     supervisionRowsPath,
+    familyDir,
+    familyManifestPath,
+    familyStudentObservationsPath,
+    familySupervisionPath,
     initializationSourcePackagePath,
     baselineStudentRowsPath,
     baselineSupervisionRowsPath,
