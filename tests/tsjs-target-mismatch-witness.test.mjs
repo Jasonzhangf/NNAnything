@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -110,6 +110,33 @@ function gapCodes(assessment) {
   return assessment.gaps.map(gap => gap.code);
 }
 
+async function writeBoundReadContradiction(built) {
+  const observationsPath = join(built.derivedDir, "student-observations.jsonl");
+  const records = (await readFile(observationsPath, "utf8"))
+    .split("\n")
+    .filter(line => line.trim().length > 0)
+    .map(line => JSON.parse(line));
+  const record = records.find(candidate => candidate.sampleId === MISMATCH_SAMPLE_ID);
+  assert.ok(record);
+  const producerSource = record.steps[0].receipts[0].producerSource;
+  const raw = producerSource.rawObservation;
+  const boundReceipt = raw.sourceReadReceipts[1];
+  const boundModuleFile = raw.boundDeclaration.moduleRef.replace(/^mod:/, "");
+  const contradictoryFile = "sources/src/not-the-bound-module.ts";
+  assert.equal(boundReceipt.modules[0].file, boundModuleFile);
+  const derivedRead = producerSource.completionWork.items.find(
+    item => item.kind === "source_read" && item.subjectRef === boundModuleFile,
+  );
+  assert.ok(derivedRead);
+
+  boundReceipt.modules[0].file = contradictoryFile;
+  derivedRead.subjectRef = contradictoryFile;
+  await writeFile(
+    observationsPath,
+    `${records.map(candidate => JSON.stringify(candidate)).join("\n")}\n`,
+  );
+}
+
 test("default old DEV generation keeps the mismatch sample free of the target read", async () => {
   const root = await mkdtemp(join(tmpdir(), "tsjs-target-mismatch-default-"));
   try {
@@ -127,6 +154,41 @@ test("default old DEV generation keeps the mismatch sample free of the target re
     assert.equal(control.readFiles.includes("sources/src/alternate.ts"), false);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("loader rejects a bound read that contradicts the bound declaration module", async () => {
+  const built = await buildDerivedFamily();
+  try {
+    await writeBoundReadContradiction(built);
+    await assert.rejects(
+      () => loadStepwiseEpisodeFamily(built.derivedDir),
+      /bound read does not back the bound declaration module/,
+    );
+  } finally {
+    await rm(built.root, { recursive: true, force: true });
+  }
+});
+
+test("admission rejects typed episodes with a bound read module contradiction", async () => {
+  const built = await buildDerivedFamily();
+  try {
+    const contradictory = structuredClone(built.mismatch[0]);
+    const raw = rawObservationOf(contradictory);
+    const boundModuleFile = raw.boundDeclaration.moduleRef.replace(/^mod:/, "");
+    const contradictoryFile = "sources/src/not-the-bound-module.ts";
+    raw.sourceReadReceipts[1].modules[0].file = contradictoryFile;
+    const derivedRead = contradictory.receipts[0].producerSource.completionWork.items.find(
+      item => item.kind === "source_read" && item.subjectRef === boundModuleFile,
+    );
+    assert.ok(derivedRead);
+    derivedRead.subjectRef = contradictoryFile;
+
+    const admission = admitInitialEvidence(contradictory.requestId, [contradictory]);
+    assert.ok(admission.invalidReasons.some(reason =>
+      reason.includes("target-mismatch bound read does not back the bound declaration module")));
+  } finally {
+    await rm(built.root, { recursive: true, force: true });
   }
 });
 

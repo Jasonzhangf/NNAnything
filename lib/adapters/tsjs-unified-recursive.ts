@@ -2943,6 +2943,13 @@ function admittedTargetMismatchProducerReadRecords(input: {
   ) {
     reasons.push("target-mismatch producer source receipt mismatch");
   }
+  const boundReceipt = receipts[1];
+  if (
+    boundReceipt === undefined
+    || !sameModulePath(boundReceipt.modules[0]?.file ?? null, raw.boundDeclaration.moduleRef)
+  ) {
+    reasons.push("target-mismatch bound read does not back the bound declaration module");
+  }
   if (reasons.length > 0) {
     return { records: [], reasons: uniqueRefs(reasons) };
   }

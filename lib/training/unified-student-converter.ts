@@ -2902,6 +2902,9 @@ function validateTsJsTargetMismatchProducerSourceBinding(
       fail("source read module file is invalid");
     }
   }
+  if (boundReceipt.modules[0]!.file !== boundModuleFile) {
+    fail("bound read does not back the bound declaration module");
+  }
   if (edge.targetModuleRef !== entryReceipt.targetRef) fail("import edge entry module mismatch");
   if (entryReceipt.modules[0]!.file !== entryModuleFile) {
     fail("entry read does not back the import edge target module");
