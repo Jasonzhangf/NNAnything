@@ -37,6 +37,7 @@ import {
   type TsJsDynamicProducerSourceBinding,
   type TsJsProducerSourceBinding,
   type TsJsStaticProducerSourceBinding,
+  type TsJsTargetMismatchProducerSourceBinding,
 } from "./unified-step-context-builder.js";
 import { runTsJsSymbolTable } from "../adapters/cli/tsjs-symbol-table-adapter.js";
 import {
@@ -53,6 +54,7 @@ import type {
   TsJsRuntimeCallableTable,
   TsJsRuntimeSelectorRoleFact,
   TsJsStaticSelectedSelectorObservation,
+  TsJsTargetMismatchObservation,
   TsJsSymbolTableRequest,
   TsJsSymbolTableResult,
 } from "../filters/tsjs-symbol-table-policy.js";
@@ -299,6 +301,31 @@ export function moduleFileFromRef(moduleRef: string | null): string | null {
   return file;
 }
 
+// The static-selected request shell uses `module:<file>` while the preserved
+// old-DEV request shell uses `mod:<file>`. The target-mismatch validator
+// compares the request target module against observed `mod:` refs, so it
+// decodes both schemes to one canonical repo-relative file.
+function canonicalRequestedModuleFile(moduleRef: string | null): string | null {
+  const viaModule = moduleFileFromRef(moduleRef);
+  if (viaModule !== null) return viaModule;
+  if (moduleRef === null || !moduleRef.startsWith("mod:")) return null;
+  const suffix = moduleRef.slice("mod:".length).split("#", 1)[0]!;
+  if (
+    suffix.length === 0
+    || suffix.startsWith("mod:")
+    || suffix.startsWith("module:")
+    || suffix.startsWith("/")
+    || suffix.includes(NUL)
+    || suffix.includes("://")
+    || /^[A-Za-z]:/.test(suffix)
+  ) {
+    return null;
+  }
+  const file = normalizeRepoRelative(suffix);
+  if (!isSafeRepoRelative(file) || file.includes(":")) return null;
+  return file;
+}
+
 export interface TsJsObservedCompletionRequirement {
   readonly kind: TsJsCompletionWorkKind;
   readonly subjectRef: string;
@@ -312,7 +339,9 @@ export interface TsJsObservedCompletionDerivationGap {
     | "missing_callable_table"
     | "invalid_callable_identity"
     | "caller_helper_not_in_invocation"
-    | "duplicate_receipt_module";
+    | "duplicate_receipt_module"
+    | "invalid_target_mismatch_read_set"
+    | "invalid_target_mismatch_read";
   readonly subjectRef: string | null;
   readonly reason: string;
 }
@@ -512,6 +541,58 @@ export function deriveTsJsStaticSelectedCompletionRequirements(input: {
       },
     ]),
     gaps: base.gaps,
+  });
+}
+
+export function deriveTsJsTargetMismatchCompletionRequirements(input: {
+  readonly observation: TsJsTargetMismatchObservation;
+}): TsJsObservedCompletionRequirements {
+  const gaps: TsJsObservedCompletionDerivationGap[] = [];
+  const requirements: TsJsObservedCompletionRequirement[] = [];
+  const receipts = input.observation.sourceReadReceipts;
+  const files = receipts.map(receipt => receipt.modules.map(module => module.file));
+  if (
+    receipts.length !== 3
+    || files.some(modules => modules.length !== 1)
+    || new Set(files.flat()).size !== 3
+  ) {
+    gaps.push({
+      code: "invalid_target_mismatch_read_set",
+      subjectRef: input.observation.observationRef,
+      reason: "target-mismatch observation must retain three distinct single-module reads",
+    });
+  }
+  for (const [index, receipt] of receipts.entries()) {
+    if (receipt.outcome !== "success" || receipt.action !== "read_source") {
+      gaps.push({
+        code: "invalid_target_mismatch_read",
+        subjectRef: receipt.receiptId,
+        reason: `target-mismatch read ${index} is not a successful source read`,
+      });
+      continue;
+    }
+    const moduleFile = receipt.modules[0]?.file;
+    if (moduleFile === undefined || !canonicalProducerFile(moduleFile)) {
+      gaps.push({
+        code: "invalid_target_mismatch_read",
+        subjectRef: receipt.receiptId,
+        reason: `target-mismatch read ${index} has no canonical module file`,
+      });
+      continue;
+    }
+    requirements.push({ kind: "source_read", subjectRef: moduleFile });
+  }
+  requirements.push({
+    kind: "callable_identity",
+    subjectRef: input.observation.boundDeclaration.declarationRef,
+  });
+  requirements.push({
+    kind: "requested_target_mapping",
+    subjectRef: input.observation.requestedDeclaration.declarationRef,
+  });
+  return Object.freeze({
+    requirements: Object.freeze(requirements),
+    gaps: Object.freeze(gaps),
   });
 }
 
@@ -1666,6 +1747,7 @@ function parseCompletionWork(
   if (
     contract !== "tsjs.observed-dynamic-source-closure.v1"
     && contract !== "tsjs.observed-static-selected-read.v1"
+    && contract !== "tsjs.observed-target-mismatch-read.v1"
   ) {
     throw new TypeError(`sample ${sampleId} ${stepId} producerSource.completionWork is invalid`);
   }
@@ -1765,9 +1847,44 @@ function parseProducerSourceBinding(
     || (
       raw.kind !== "nnanything.tsjs.producer-source.v1"
       && raw.kind !== "nnanything.tsjs.producer-source.static-selected.v1"
+      && raw.kind !== "nnanything.tsjs.target-mismatch-source.v1"
     )
   ) {
     throw new TypeError(`sample ${sampleId} ${stepId} receipt.producerSource is invalid`);
+  }
+  if (raw.kind === "nnanything.tsjs.target-mismatch-source.v1") {
+    if (!isRecord(raw.rawObservation)) {
+      throw new TypeError(`sample ${sampleId} ${stepId} receipt.producerSource.rawObservation is invalid`);
+    }
+    const mismatchObservation = raw.rawObservation;
+    if (
+      typeof mismatchObservation.callSiteRef !== "string"
+      || !isRecord(mismatchObservation.requestedDeclaration)
+      || !isRecord(mismatchObservation.boundDeclaration)
+      || !isRecord(mismatchObservation.callSiteBinding)
+      || !isRecord(mismatchObservation.importEdge)
+      || !Array.isArray(mismatchObservation.sourceReadReceipts)
+    ) {
+      throw new TypeError(`sample ${sampleId} ${stepId} target-mismatch rawObservation is incomplete`);
+    }
+    if (raw.fromStepId !== null && typeof raw.fromStepId !== "string") {
+      throw new TypeError(`sample ${sampleId} ${stepId} producerSource.fromStepId is invalid`);
+    }
+    return {
+      kind: "nnanything.tsjs.target-mismatch-source.v1",
+      rawObservation: mismatchObservation as unknown as TsJsTargetMismatchObservation,
+      sampleId: requireString(raw.sampleId, `sample ${sampleId} ${stepId} producerSource.sampleId`),
+      requestRef: requireString(raw.requestRef, `sample ${sampleId} ${stepId} producerSource.requestRef`),
+      stepId: requireString(raw.stepId, `sample ${sampleId} ${stepId} producerSource.stepId`),
+      fromStepId: raw.fromStepId,
+      callSiteRef: requireString(raw.callSiteRef, `sample ${sampleId} ${stepId} producerSource.callSiteRef`),
+      pendingRelationRef: requireString(raw.pendingRelationRef, `sample ${sampleId} ${stepId} producerSource.pendingRelationRef`),
+      requestedDeclarationRef: requireString(raw.requestedDeclarationRef, `sample ${sampleId} ${stepId} producerSource.requestedDeclarationRef`),
+      requestedModuleRef: requireString(raw.requestedModuleRef, `sample ${sampleId} ${stepId} producerSource.requestedModuleRef`),
+      ...(raw.completionWork === undefined
+        ? {}
+        : { completionWork: parseCompletionWork(raw.completionWork, sampleId, stepId) }),
+    };
   }
   if (!isRecord(raw.producerRequest) || !isRecord(raw.parser) || !isRecord(raw.coverage)) {
     throw new TypeError(`sample ${sampleId} ${stepId} receipt.producerSource fields are incomplete`);
@@ -2145,6 +2262,9 @@ function validateTsJsCompletionWork(
   if (source.kind === "nnanything.tsjs.producer-source.static-selected.v1") {
     return validateTsJsStaticCompletionWork(source, fail);
   }
+  if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
+    return validateTsJsTargetMismatchCompletionWork(source, fail);
+  }
   if (source.completionWork !== undefined
     && source.completionWork.contract !== "tsjs.observed-dynamic-source-closure.v1") {
     fail("dynamic completion contract mismatch");
@@ -2266,6 +2386,76 @@ function validateTsJsStaticCompletionWork(
   }
 }
 
+function validateTsJsTargetMismatchCompletionWork(
+  source: TsJsTargetMismatchProducerSourceBinding,
+  fail: (reason: string) => never,
+): void {
+  const completionWork = source.completionWork;
+  if (completionWork === undefined) {
+    return fail("target-mismatch completionWork missing");
+  }
+  if (completionWork.contract !== "tsjs.observed-target-mismatch-read.v1") {
+    return fail("target-mismatch completion contract mismatch");
+  }
+  const derivation = deriveTsJsTargetMismatchCompletionRequirements({
+    observation: source.rawObservation,
+  });
+  if (derivation.gaps.length > 0) {
+    return fail(`completion derivation failed: ${derivation.gaps[0]!.reason}`);
+  }
+  const actual = new Map<string, TsJsCompletionWorkItem>();
+  for (const item of completionWork.items) {
+    const key = `${item.kind}\u0000${item.subjectRef}`;
+    if (actual.has(key)) fail(`duplicate completion-work key ${key}`);
+    actual.set(key, item);
+  }
+  const expected = new Map(
+    derivation.requirements.map(requirement => [
+      `${requirement.kind}\u0000${requirement.subjectRef}`,
+      requirement,
+    ]),
+  );
+  if (actual.size !== expected.size) {
+    return fail("target-mismatch completion-work item set does not equal the derived required set");
+  }
+  for (const [key, requirement] of expected) {
+    if (!actual.has(key)) {
+      return fail(
+        `target-mismatch completionWork omits required item ${requirement.kind}:${requirement.subjectRef}`,
+      );
+    }
+  }
+  for (const [key, item] of actual) {
+    if (!expected.has(key)) {
+      return fail(`target-mismatch completionWork contains unexpected item ${key}`);
+    }
+  }
+  const boundIdentity = actual.get(
+    `callable_identity\u0000${source.rawObservation.boundDeclaration.declarationRef}`,
+  );
+  const targetMapping = actual.get(
+    `requested_target_mapping\u0000${source.rawObservation.requestedDeclaration.declarationRef}`,
+  );
+  if (
+    boundIdentity === undefined
+    || boundIdentity.disposition.state !== "satisfied"
+    || !boundIdentity.disposition.evidenceRefs.includes(
+      source.rawObservation.boundDeclaration.readRef,
+    )
+  ) {
+    fail("target-mismatch callable identity is not satisfied by the admitted bound read");
+  }
+  if (
+    targetMapping === undefined
+    || targetMapping.disposition.state !== "satisfied"
+    || !targetMapping.disposition.evidenceRefs.includes(
+      source.rawObservation.requestedDeclaration.readRef,
+    )
+  ) {
+    fail("target-mismatch requested target mapping is not satisfied by the admitted target read");
+  }
+}
+
 function validateTsJsProducerSourceBinding(input: {
   readonly sampleId: string;
   readonly stepId: string;
@@ -2290,6 +2480,9 @@ function validateTsJsProducerSourceBinding(input: {
   };
   if (source.kind === "nnanything.tsjs.producer-source.static-selected.v1") {
     return validateTsJsStaticProducerSourceBinding(input, source, fail);
+  }
+  if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
+    return validateTsJsTargetMismatchProducerSourceBinding(input, source, fail);
   }
   if (source.kind !== "nnanything.tsjs.producer-source.v1") fail("kind mismatch");
   if (source.sampleId !== input.sampleId) fail("sampleId mismatch");
@@ -2611,6 +2804,154 @@ function validateTsJsStaticProducerSourceBinding(
     || input.coverage.targetModuleReached !== successfulFiles.includes(requestedModuleFile)
   ) {
     fail("coverage projection mismatch");
+  }
+}
+
+function validateTsJsTargetMismatchProducerSourceBinding(
+  input: Parameters<typeof validateTsJsProducerSourceBinding>[0],
+  source: TsJsTargetMismatchProducerSourceBinding,
+  fail: (reason: string) => never,
+): void {
+  const raw = source.rawObservation;
+  if (source.sampleId !== input.sampleId) fail("sampleId mismatch");
+  if (source.stepId !== input.stepId) fail("stepId mismatch");
+  if (source.requestRef !== input.requestRef) fail("requestRef mismatch");
+  if (source.pendingRelationRef !== input.pendingRelationRef) fail("pendingRelationRef mismatch");
+  if (source.callSiteRef !== input.callSiteRef) fail("callSiteRef mismatch");
+  if (source.requestedDeclarationRef !== input.requestedDeclarationRef) {
+    fail("requestedDeclarationRef mismatch");
+  }
+  if (source.requestedModuleRef !== input.requestedModuleRef) fail("requestedModuleRef mismatch");
+  validateTsJsTargetMismatchCompletionWork(source, fail);
+  if (source.fromStepId !== (input.receipt.fromStepId ?? null)) fail("fromStepId mismatch");
+  if (raw.kind !== "resolved_target_mismatch") fail("raw observation kind mismatch");
+  if (raw.sampleId !== input.sampleId) fail("raw sampleId mismatch");
+  if (raw.stepId !== input.stepId) fail("raw stepId mismatch");
+  if (raw.fromStepId !== source.fromStepId) fail("raw fromStepId mismatch");
+  if (raw.requestRef !== source.requestRef) fail("raw requestRef mismatch");
+  if (raw.callSiteRef !== input.callSiteRef) fail("raw callSiteRef mismatch");
+  if (raw.pendingRelationRef !== source.pendingRelationRef) fail("raw pendingRelationRef mismatch");
+
+  const requested = raw.requestedDeclaration;
+  const bound = raw.boundDeclaration;
+  if (
+    requested.declarationRef !== source.requestedDeclarationRef
+    || requested.moduleRef !== source.requestedModuleRef
+  ) {
+    fail("requested declaration does not match the request tuple");
+  }
+  const boundModuleFile = canonicalRequestedModuleFile(bound.moduleRef);
+  const requestedDeclarationModuleFile = canonicalRequestedModuleFile(requested.moduleRef);
+  if (
+    boundModuleFile === null
+    || requestedDeclarationModuleFile === null
+    || boundModuleFile === requestedDeclarationModuleFile
+    || bound.name !== requested.name
+    || bound.declarationRef === requested.declarationRef
+  ) {
+    fail("same-name different-module target mismatch is not established");
+  }
+  const binding = raw.callSiteBinding;
+  if (
+    binding.bindingMode !== "bound"
+    || binding.resolution.status !== "resolved"
+    || binding.resolution.declarationRef !== bound.declarationRef
+    || binding.resolution.moduleRef !== bound.moduleRef
+    || binding.callSiteRef !== source.callSiteRef
+  ) {
+    fail("call-site binding does not resolve to the bound declaration");
+  }
+
+  const edge = raw.importEdge;
+  if (edge.edgeKind !== "import" || edge.targetName !== requested.name) {
+    fail("import edge does not join the requested call site");
+  }
+  if (edge.sourceModuleRef !== bound.moduleRef) fail("import edge source module mismatch");
+
+  const receipts = raw.sourceReadReceipts;
+  if (receipts.length !== 3) fail("target-mismatch observation requires three source reads");
+  const [entryReceipt, boundReceipt, targetReceipt] = receipts;
+  if (
+    entryReceipt === undefined
+    || boundReceipt === undefined
+    || targetReceipt === undefined
+  ) {
+    fail("target-mismatch source reads are incomplete");
+  }
+  const requestedModuleFile = canonicalRequestedModuleFile(source.requestedModuleRef);
+  if (requestedModuleFile === null) fail("requested moduleRef is invalid");
+  const entryModuleFile = canonicalRequestedModuleFile(edge.targetModuleRef);
+  if (entryModuleFile === null) fail("import edge target module is invalid");
+  if (
+    targetReceipt.targetRef !== source.requestedModuleRef
+    || targetReceipt.receiptId !== requested.readRef
+  ) {
+    fail("target read does not back the requested declaration");
+  }
+  if (
+    boundReceipt.targetRef !== bound.moduleRef
+    || boundReceipt.receiptId !== bound.readRef
+  ) {
+    fail("bound read does not back the bound declaration");
+  }
+  for (const receipt of receipts) {
+    if (receipt.pendingRelationRef !== source.pendingRelationRef) {
+      fail("source read pendingRelationRef mismatch");
+    }
+    if (receipt.modules.length !== 1 || !canonicalProducerFile(receipt.modules[0]!.file)) {
+      fail("source read module file is invalid");
+    }
+  }
+  if (edge.targetModuleRef !== entryReceipt.targetRef) fail("import edge entry module mismatch");
+  if (entryReceipt.modules[0]!.file !== entryModuleFile) {
+    fail("entry read does not back the import edge target module");
+  }
+  if (targetReceipt.modules[0]!.file !== requestedModuleFile) {
+    fail("target read does not back the requested target module");
+  }
+
+  const projected = input.currentRelation?.binding.state === "known"
+    ? input.currentRelation.binding.value
+    : undefined;
+  if (projected === undefined) fail("currentRelation binding value missing");
+  if (
+    projected.bindingMode !== "bound"
+    || projected.resolution.status !== "resolved"
+    || projected.resolution.declarationRef !== bound.declarationRef
+    || projected.resolution.moduleRef !== bound.moduleRef
+    || !projected.declarationRefs.some(
+      declaration => declaration.declarationRef === bound.declarationRef)
+  ) {
+    fail("currentRelation projection does not resolve to the bound declaration");
+  }
+  if (
+    input.sourceContent === null
+    || input.sourceContent.state !== "observed"
+    || !sameStringArray(input.sourceContent.resultRefs, targetReceipt.result)
+    || !input.sourceContent.evidenceRefs.includes(targetReceipt.receiptId)
+  ) {
+    fail("sourceContent projection does not match the target read");
+  }
+  const previous = input.previous?.state === "known" ? input.previous.value : null;
+  if (
+    previous === null
+    || previous === undefined
+    || previous.actionRef !== targetReceipt.actionRef
+    || previous.receiptRef !== targetReceipt.receiptId
+    || previous.targetRef !== targetReceipt.targetRef
+    || previous.fromStepId !== source.fromStepId
+    || previous.pendingRelationRef !== source.pendingRelationRef
+    || previous.outcome !== "success"
+  ) {
+    fail("previousExecution mismatch");
+  }
+  if (
+    input.receipt.receiptId !== targetReceipt.receiptId
+    || input.receipt.actionRef !== targetReceipt.actionRef
+    || input.receipt.target !== targetReceipt.targetRef
+    || input.receipt.outcome !== targetReceipt.outcome
+  ) {
+    fail("receipt projection mismatch");
   }
 }
 

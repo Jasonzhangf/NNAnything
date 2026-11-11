@@ -191,6 +191,73 @@ export type TsJsStaticSelectedSelectorObservation = Readonly<{
   sourceReadReceipt: TsJsRuntimeSelectorObservation["sourceReadReceipt"];
 }>;
 
+export type TsJsTargetMismatchReadReceipt = Readonly<{
+  receiptId: string;
+  actionRef: string;
+  action: "read_source";
+  origin: "source_observation";
+  outcome: "success";
+  targetRef: string;
+  fromStepId: string | null;
+  pendingRelationRef: string;
+  result: readonly string[];
+  evidenceRefs: readonly string[];
+  modules: readonly Readonly<{
+    file: string;
+    textLength: number;
+    lineCount: number;
+  }>[];
+}>;
+
+export type TsJsTargetMismatchDeclaration = Readonly<{
+  declarationRef: string;
+  moduleRef: string;
+  name: string;
+  kind: string;
+  readRef: string;
+  evidenceRefs: readonly string[];
+}>;
+
+export type TsJsTargetMismatchObservation = Readonly<{
+  kind: "resolved_target_mismatch";
+  observationRef: string;
+  requestRef: string;
+  sampleId: string;
+  stepId: string;
+  fromStepId: string | null;
+  callSiteRef: string;
+  pendingRelationRef: string;
+  requestedDeclaration: TsJsTargetMismatchDeclaration;
+  boundDeclaration: TsJsTargetMismatchDeclaration;
+  callSiteBinding: Readonly<{
+    symbolRef: string;
+    callSiteRef: string;
+    role: string;
+    bindingMode: "bound";
+    resolution: Readonly<{
+      status: "resolved";
+      declarationRef: string;
+      moduleRef: string;
+      evidenceRefs: readonly string[];
+    }>;
+  }>;
+  importEdge: Readonly<{
+    edgeRef: string;
+    edgeKind: "import";
+    sourceName: string;
+    targetName: string;
+    sourceModuleRef: string;
+    targetModuleRef: string;
+    moduleSpecifierRaw: string;
+    evidenceRefs: readonly string[];
+  }>;
+  sourceReadReceipts: readonly [
+    TsJsTargetMismatchReadReceipt,
+    TsJsTargetMismatchReadReceipt,
+    TsJsTargetMismatchReadReceipt,
+  ];
+}>;
+
 export type TsJsRuntimeSelectorGap = Readonly<{
   gapRef: string;
   callSiteRef: string | null;
