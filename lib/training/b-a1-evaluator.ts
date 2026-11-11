@@ -37,6 +37,7 @@ export const BA1_DENOMINATOR_FAMILIES = Object.freeze([
   "family-b",
   "new-independent-implementation",
   "real-site-held-out",
+  "seen-source-diagnostics",
 ] as const);
 
 export type BA1DenominatorFamily = (typeof BA1_DENOMINATOR_FAMILIES)[number];
