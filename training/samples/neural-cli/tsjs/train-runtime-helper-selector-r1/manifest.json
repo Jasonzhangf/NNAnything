@@ -1,0 +1,9 @@
+{
+  "sourceGroup": "tsjs-train-runtime-helper-selector-r1",
+  "language": "typescript",
+  "semanticStratum": "module_export",
+  "partition": "TRAIN",
+  "derivationFamily": {
+    "familyId": "bb67cd7"
+  }
+}

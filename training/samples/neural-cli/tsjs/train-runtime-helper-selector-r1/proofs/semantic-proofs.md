@@ -17,7 +17,7 @@ A null symbol on the outer `CallExpression` callee is not used as evidence.
 
 ## `tr-h01-import-direct`
 
-Requested declaration: `selectDelivery` in
+Requested declaration: `email` in
 `sources/tr-h01-import-direct/lookup.ts`.
 Outer call site: `sources/tr-h01-import-direct/entry.ts:4:10`,
 `selectDelivery(mode)(message)`.
@@ -55,7 +55,7 @@ request-aware bridge is accepted.
 
 ## `tr-h02-local-alias`
 
-Requested declaration: `chooseScale` in
+Requested declaration: `double` in
 `sources/tr-h02-local-alias/index.ts`.
 Outer call site: `sources/tr-h02-local-alias/index.ts:14:10`,
 `chooseScale(selectedScale)(amount)`.
@@ -92,7 +92,7 @@ until producer roles and the request-aware bridge exist.
 
 ## `tr-h03-default-export-caller`
 
-Requested declaration: `formatValue` in
+Requested declaration: `hex` in
 `sources/tr-h03-default-export-caller/registry.ts`.
 Outer call site: `sources/tr-h03-default-export-caller/entry.ts:4:10`,
 `formatValue(kind)(value)`.
