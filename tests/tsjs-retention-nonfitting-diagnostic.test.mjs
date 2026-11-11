@@ -312,6 +312,7 @@ test("retention diagnostic reports per-package decisions and declared feature di
     assert.equal(control.marginDelta, 1);
     assert.equal(control.classification.scoreChange, true);
     assert.equal(control.classification.candidatePolicySelection, true);
+    assert.equal(control.classification.featureCollision, null);
 
     const trueCandidate = control.candidates.find(candidate => candidate.candidateRef === "c:judge:true");
     assert.equal(trueCandidate.sourceScore, 1);
@@ -338,6 +339,11 @@ test("retention diagnostic reports per-package decisions and declared feature di
     assert.equal(collisionNegative.featureCollision, false);
     assert.deepEqual([...collisionNegative.differingSlotsOutsideOptionIdentity].sort((a, b) => a - b), [40, 41]);
 
+    assert.equal(byGroup.get("g-collision-left").classification.featureCollision, true);
+    assert.equal(byGroup.get("g-collision-right").classification.featureCollision, true);
+    assert.equal(byGroup.get("g-no-collision-left").classification.featureCollision, false);
+    assert.equal(byGroup.get("g-no-collision-right").classification.featureCollision, false);
+
     assert.equal(report.labelMissing.count, 1);
     assert.equal(report.labelMissing.rows[0].groupId, "g-label-missing");
     assert.equal(byGroup.has("g-label-missing"), false);
@@ -353,6 +359,11 @@ test("retention diagnostic reports per-package decisions and declared feature di
     assert.equal(noComparisons.exitCode, 0);
     assert.equal(noComparisons.report.comparisons, "not_requested");
     assert.equal(noComparisons.report.summary.comparisons, 0);
+    assert.ok(
+      noComparisons.report.groups.every(
+        group => group.classification.featureCollision === null,
+      ),
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }

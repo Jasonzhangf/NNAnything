@@ -107,7 +107,7 @@ export interface TsjsRetentionNonfittingScore {
 }
 
 export interface TsjsRetentionNonfittingGroupClassification {
-  readonly featureCollision: boolean;
+  readonly featureCollision: boolean | null;
   readonly scoreChange: boolean;
   readonly candidatePolicySelection: boolean;
 }
@@ -467,7 +467,7 @@ function evaluateGroup(
   sourceTensors: UnifiedTensors,
   renewedTensors: UnifiedTensors,
   tau: 0.1,
-  featureCollision: boolean,
+  featureCollision: boolean | null,
 ): TsjsRetentionNonfittingGroupResult {
   const sourceScores = scoresFor(group, sourceTensors);
   const renewedScores = scoresFor(group, renewedTensors);
@@ -576,12 +576,13 @@ function evaluateComparisons(
 function featureCollisionForGroup(
   groupId: string,
   comparisons: "not_requested" | readonly TsjsRetentionNonfittingComparisonResult[],
-): boolean {
-  if (comparisons === "not_requested") return false;
-  return comparisons.some(comparison =>
-    comparison.featureCollision
-    && (comparison.leftGroupId === groupId || comparison.rightGroupId === groupId)
+): boolean | null {
+  if (comparisons === "not_requested") return null;
+  const groupComparisons = comparisons.filter(
+    comparison => comparison.leftGroupId === groupId || comparison.rightGroupId === groupId,
   );
+  if (groupComparisons.length === 0) return null;
+  return groupComparisons.some(comparison => comparison.featureCollision);
 }
 
 function summaryOf(
