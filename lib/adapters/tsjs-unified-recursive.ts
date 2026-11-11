@@ -38,6 +38,7 @@ import type {
   Candidate,
   CurrentRelationProjection,
   DeclarationIdentity,
+  EncoderResult,
   Observed,
   PreviousExecutionProjection,
   StepContext,
@@ -470,10 +471,10 @@ function advanceState(state: DecisionState, payload: DecisionReceiptPayload): De
   };
 }
 
-function chooseCandidate(
+function chooseCandidate<T extends { readonly candidate: Candidate; readonly score: number }>(
   _context: StepContext,
-  scores: readonly { readonly candidate: Candidate; readonly score: number }[],
-): { readonly candidate: Candidate; readonly score: number } {
+  scores: readonly T[],
+): T {
   const sorted = [...scores].sort((left, right) => {
     if (right.score !== left.score) return right.score - left.score;
     return left.candidate.candidateRef.localeCompare(right.candidate.candidateRef);
@@ -481,11 +482,18 @@ function chooseCandidate(
   return sorted[0]!;
 }
 
-function encodedScores(
+interface ScoredCandidate {
+  readonly candidate: Candidate;
+  readonly score: number;
+  /** The encoded vector the score was computed from, retained to avoid re-encoding. */
+  readonly encoded: EncoderResult;
+}
+
+function scoredCandidates(
   context: StepContext,
   thresholds: Parameters<typeof encodeUnifiedCandidateGroup>[1],
   tensors: UnifiedTensors,
-): readonly { readonly candidate: Candidate; readonly score: number }[] {
+): readonly ScoredCandidate[] {
   return encodeUnifiedCandidateGroup(context, thresholds).flatMap(result => {
     const candidate = context.candidateGroup.candidates.find(
       item => item.candidateRef === result.candidateRef,
@@ -493,8 +501,69 @@ function encodedScores(
     if (candidate === undefined) return [];
     const score = forwardUnifiedScore(result.vector, tensors);
     if (!Number.isFinite(score)) return [];
-    return [{ candidate, score }];
+    return [{ candidate, score, encoded: result }];
   });
+}
+
+function stepSelectionCaptureOf(
+  request: { readonly requestId: string; readonly packagePath: string },
+  binding: UnifiedModelPackageBinding,
+  encoderVersion: string,
+  state: MultiStepState,
+  scored: readonly ScoredCandidate[],
+  chosen: ScoredCandidate,
+): TsJsStepSelectionCapture {
+  const candidates = scored.map(entry => ({
+    candidateRef: entry.candidate.candidateRef,
+    goalRef: entry.candidate.goalRef,
+    skillRef: entry.candidate.skillRef,
+    candidateKind: entry.candidate.candidateKind,
+    optionSemantics: entry.candidate.optionSemantics,
+    targetRef: entry.candidate.targetRef,
+    edgeRef: entry.candidate.edgeRef,
+    vector: entry.encoded.vector,
+    missingMode: entry.encoded.missingMode,
+  }));
+  const lastReceipt = state.lastReceipt;
+  const priorStepId = state.stepSequence.length === 0
+    ? null
+    : state.stepSequence[state.stepSequence.length - 1]!;
+  return {
+    schema: "nnanything.tsjs.step-selection-capture.v1",
+    requestId: request.requestId,
+    sampleId: state.sampleId,
+    stepId: state.context.stepId,
+    stateRef: state.stateRef,
+    contextId: state.context.contextId,
+    context: state.context,
+    candidates,
+    chosen: {
+      candidateRef: chosen.candidate.candidateRef,
+      skillRef: chosen.candidate.skillRef,
+      score: chosen.score,
+    },
+    package: {
+      packagePath: request.packagePath,
+      packageRef: binding.packageRef,
+      modelId: binding.modelId,
+      version: binding.version,
+      route: {
+        domain: binding.route.domain,
+        decisionKind: binding.route.decisionKind,
+      },
+      encoderVersion,
+      thresholdsPath: binding.resources.thresholdsPath,
+      missingModeTablePath: binding.resources.missingModeTablePath,
+    },
+    priorStep: lastReceipt === null
+      ? null
+      : {
+          stepId: priorStepId,
+          actionRef: lastReceipt.actionRef,
+          receiptRef: lastReceipt.receiptId,
+          postStateRef: lastReceipt.postStateRef,
+        },
+  };
 }
 
 function evidenceFor(state: DecisionState, prefix = "initial:"): readonly {
@@ -2144,6 +2213,53 @@ type MultiStepAdapter = RecursiveGoalAdapter<
   null
 >;
 
+export interface TsJsStepSelectionCandidateVector {
+  readonly candidateRef: string;
+  readonly goalRef: string;
+  readonly skillRef: string;
+  readonly candidateKind: Candidate["candidateKind"];
+  readonly optionSemantics: string;
+  readonly targetRef: string | null;
+  readonly edgeRef: string | null;
+  readonly vector: readonly number[];
+  readonly missingMode: EncoderResult["missingMode"];
+}
+
+export interface TsJsStepSelectionCapture {
+  readonly schema: "nnanything.tsjs.step-selection-capture.v1";
+  readonly requestId: string;
+  readonly sampleId: string;
+  readonly stepId: string;
+  readonly stateRef: string;
+  readonly contextId: string;
+  /** The actual StepContext consumed by the selection boundary. */
+  readonly context: StepContext;
+  readonly candidates: readonly TsJsStepSelectionCandidateVector[];
+  readonly chosen: {
+    readonly candidateRef: string;
+    readonly skillRef: string;
+    readonly score: number;
+  };
+  readonly package: {
+    readonly packagePath: string;
+    readonly packageRef: string;
+    readonly modelId: string;
+    readonly version: string;
+    readonly route: { readonly domain: string; readonly decisionKind: string };
+    readonly encoderVersion: string;
+    readonly thresholdsPath: string;
+    readonly missingModeTablePath: string;
+  };
+  readonly priorStep: {
+    readonly stepId: string | null;
+    readonly actionRef: string | null;
+    readonly receiptRef: string | null;
+    readonly postStateRef: string | null;
+  } | null;
+}
+
+export type TsJsStepSelectionObserver = (capture: TsJsStepSelectionCapture) => void;
+
 export interface TsJsUnifiedMultiStepDecisionRequest {
   readonly requestId: string;
   readonly packagePath: string;
@@ -2151,6 +2267,11 @@ export interface TsJsUnifiedMultiStepDecisionRequest {
   readonly grantedEffects: readonly string[] | ReadonlySet<string>;
   /** Optional real executor. Without it advance/observe fail with a typed error. */
   readonly executor?: TsJsUnifiedStepExecutor;
+  /**
+   * Optional diagnostic observer invoked at the real selection boundary.
+   * Default behavior is unchanged when absent.
+   */
+  readonly onStepSelection?: TsJsStepSelectionObserver;
   readonly limits?: {
     readonly maxTransitions?: number;
     readonly maxDepth?: number;
@@ -5116,11 +5237,21 @@ export async function runTsJsUnifiedMultiStepDecision(
           reason: `rollout reached terminal state ${String(input.state.terminalKind)} without satisfying the request root`,
         };
       }
-      const scores = encodedScores(input.state.context, thresholds, binding.tensors);
-      if (scores.length === 0) {
+      const scored = scoredCandidates(input.state.context, thresholds, binding.tensors);
+      if (scored.length === 0) {
         return { kind: "defer", reason: "no finite candidates in the current candidate group" };
       }
-      const chosen = chooseCandidate(input.state.context, scores);
+      const chosen = chooseCandidate(input.state.context, scored);
+      if (request.onStepSelection !== undefined) {
+        request.onStepSelection(stepSelectionCaptureOf(
+          request,
+          binding,
+          loaded.package.encoderVersion,
+          input.state,
+          scored,
+          chosen,
+        ));
+      }
       const enabled = input.candidates.find(skill => skill.id === chosen.candidate.skillRef);
       if (enabled === undefined) {
         return {
@@ -5138,8 +5269,8 @@ export async function runTsJsUnifiedMultiStepDecision(
     executeAtomic: async (input: AtomicInput<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence>) => {
       const state = input.state;
       const runId = `${request.requestId}:run:${state.context.stepId}`;
-      const scores = encodedScores(state.context, thresholds, binding.tensors);
-      if (scores.length === 0) {
+      const scored = scoredCandidates(state.context, thresholds, binding.tensors);
+      if (scored.length === 0) {
         return multiStepAtomicFailure(
           runId,
           null,
@@ -5150,7 +5281,7 @@ export async function runTsJsUnifiedMultiStepDecision(
           ),
         );
       }
-      const chosen = chooseCandidate(state.context, scores);
+      const chosen = chooseCandidate(state.context, scored);
       if (chosen.candidate.skillRef !== input.skill.id) {
         return multiStepAtomicFailure(
           runId,

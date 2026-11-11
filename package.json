@@ -97,6 +97,10 @@
     "./training": {
       "types": "./dist/training.d.ts",
       "import": "./dist/training.js"
+    },
+    "./tsjs-step-context-capture": {
+      "types": "./dist/training/tsjs-step-context-capture.d.ts",
+      "import": "./dist/training/tsjs-step-context-capture.js"
     }
   },
   "engines": {
