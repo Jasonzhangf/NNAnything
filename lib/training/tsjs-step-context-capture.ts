@@ -1,9 +1,12 @@
 // Public diagnostic entry for TS/JS retention step-context capture.
 //
 // This entry runs the real `runTsJsUnifiedMultiStepDecision` selection boundary
-// and records the actual `StepContext` plus every legal candidate vector. It is
-// a read-only observer: the default product path never depends on it, and it
-// never writes weights, gold, adoption, or product wiring.
+// and records the actual `StepContext` plus the finite scored candidate vectors
+// retained by that selection. It also preserves the decision run's root
+// evaluation and completion outcome, so a completed capture never hides an
+// unsatisfied model result. It is a read-only observer: the default product
+// path never depends on it, and it never writes weights, gold, adoption, or
+// product wiring.
 
 import type {
   TsJsStepSelectionCapture,
@@ -48,6 +51,28 @@ export interface TsJsStepContextCaptureStepLink {
   readonly previousActionRef: string | null;
   readonly nextStepId: string | null;
 }
+
+type RecursiveGoalOutcomeResponse = TsJsUnifiedMultiStepDecisionResult["recursiveGoal"];
+type RunResultResponse = Extract<RecursiveGoalOutcomeResponse, { kind: "run_result" }>;
+type ModuleFaultResponse = Extract<RecursiveGoalOutcomeResponse, { kind: "module_fault" }>;
+type RequestRejectedResponse = Extract<RecursiveGoalOutcomeResponse, { kind: "request_rejected" }>;
+
+export type TsJsStepContextCaptureRootOutcome =
+  | {
+      readonly responseKind: "run_result";
+      readonly control: RunResultResponse["report"]["control"];
+      readonly primaryErrorId: RunResultResponse["report"]["primaryErrorId"];
+    }
+  | {
+      readonly responseKind: "module_fault";
+      readonly fault: ModuleFaultResponse["fault"];
+      readonly knownBoundary: ModuleFaultResponse["knownBoundary"];
+      readonly control: NonNullable<ModuleFaultResponse["report"]>["control"];
+    }
+  | {
+      readonly responseKind: "request_rejected";
+      readonly error: RequestRejectedResponse["error"];
+    };
 
 export interface TsJsStepContextCaptureSuccess {
   readonly status: "completed";
@@ -171,6 +196,31 @@ function stepLinksOf(
   }));
 }
 
+// The run report's `rootEvaluation`/`rootCompletion` already carry the model's
+// satisfaction result. `rootOutcome` retains the recursive response's actual
+// terminal/failure information (stop reason, primary error, module fault) that
+// those typed root fields do not represent, without re-evaluating anything.
+function rootOutcomeOf(
+  recursiveGoal: RecursiveGoalOutcomeResponse,
+): TsJsStepContextCaptureRootOutcome {
+  if (recursiveGoal.kind === "run_result") {
+    return {
+      responseKind: "run_result",
+      control: recursiveGoal.report.control,
+      primaryErrorId: recursiveGoal.report.primaryErrorId,
+    };
+  }
+  if (recursiveGoal.kind === "module_fault") {
+    return {
+      responseKind: "module_fault",
+      fault: recursiveGoal.fault,
+      knownBoundary: recursiveGoal.knownBoundary,
+      control: recursiveGoal.report === null ? null : recursiveGoal.report.control,
+    };
+  }
+  return { responseKind: "request_rejected", error: recursiveGoal.error };
+}
+
 /**
  * Loads a single sample family, drives the real multi-step decision with the
  * file-backed executor, records the real selection-boundary captures, and
@@ -246,6 +296,13 @@ export async function runTsjsStepContextCaptureFromFile(
     sourceRoot,
     captureCount: captures.length,
     modelBinding: result.modelBinding,
+    // A completed capture is not a satisfied model outcome: retain the run's
+    // typed root evaluation, root completion, invalid initial-evidence reasons,
+    // and the recursive response's terminal/failure facts unchanged.
+    rootEvaluation: result.rootEvaluation,
+    rootCompletion: result.rootCompletion,
+    initialEvidenceInvalidReasons: result.initialEvidenceInvalidReasons,
+    rootOutcome: rootOutcomeOf(result.recursiveGoal),
     captures,
     steps: result.steps,
   };

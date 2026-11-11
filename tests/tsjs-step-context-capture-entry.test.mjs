@@ -347,7 +347,7 @@ test("public capture records the real per-step context, candidate vectors, and r
   }
 });
 
-test("baseline decision without the observer matches the observed capture run", async () => {
+test("captured-but-unsatisfied outcome is preserved and matches the observer-free run", async () => {
   const root = await mkdtemp(join(tmpdir(), "tsjs-step-context-capture-baseline-"));
   try {
     const sampleId = "synthetic-retention-baseline";
@@ -384,6 +384,28 @@ test("baseline decision without the observer matches the observed capture run", 
       "the observer must not change the bounded decision result",
     );
     assert.equal(receipt.steps.length >= 2, true);
+
+    // A completed capture keeps the model result visibly distinct: the
+    // synthetic chain ends in a ROOT_EVIDENCE_MISSING / judge=false outcome,
+    // so the receipt must record an unsatisfied root while capture succeeds.
+    assert.equal(receipt.status, "completed");
+    assert.equal(receipt.rootEvaluation.state, "evaluated");
+    assert.equal(receipt.rootEvaluation.result, "unsatisfied");
+    assert.equal(receipt.rootCompletion.positiveRootSatisfied, false);
+    assert.equal(receipt.rootCompletion.queryCompletion, "incomplete");
+    assert.equal(receipt.rootCompletion.positiveRootGaps.length > 0, true);
+    assert.deepEqual(
+      receipt.initialEvidenceInvalidReasons,
+      baseline.initialEvidenceInvalidReasons,
+    );
+    assert.deepEqual(receipt.rootEvaluation, baseline.rootEvaluation);
+    assert.deepEqual(receipt.rootCompletion, baseline.rootCompletion);
+    assert.equal(baseline.recursiveGoal.kind, "run_result");
+    assert.deepEqual(receipt.rootOutcome, {
+      responseKind: "run_result",
+      control: baseline.recursiveGoal.report.control,
+      primaryErrorId: baseline.recursiveGoal.report.primaryErrorId,
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }
