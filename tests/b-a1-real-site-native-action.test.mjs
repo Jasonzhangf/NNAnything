@@ -856,38 +856,6 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     assert.equal(receipt.error?.code, "FOCUS_NOT_ACQUIRED");
   });
 
-  await t.test("focus navigation after dispatch stays unknown instead of reporting a zero effect", async () => {
-    await runtime.installProjectionBundle(
-      await buildProjectionScript({ actionWrapper: focusNavigationActionWrapper }),
-    );
-    await runtime.navigate(`${fixture.origin}/blank`, "doc-action-focus-navigation");
-    await runtime.setDocumentContent(focusNavigationHtml, "doc-action-focus-navigation");
-    const projection = await runtime.beginProjection({
-      scopeSelector: "#scope",
-      requestedRole: "search-input-host",
-      access: "available",
-    });
-    const receipt = await runtime.executeNativeAction({
-      target: {
-        kind: "unique-recipe-selector",
-        control: controlOf(projection.operation),
-        selector: "#focus-navigates",
-        expectedTag: "button",
-        expectedRole: "button",
-        expectedAccessibleName: "Focus navigates",
-      },
-      action: { action: "focus" },
-    });
-
-    assert.equal(receipt.action, "focus");
-    assert.equal(receipt.dispatch, "unknown");
-    assert.equal(receipt.focus, "unknown");
-    assert.equal(receipt.effectKnowledge, "unknown");
-    assert.equal(receipt.error?.code, "UNKNOWN_DISPATCH");
-    await waitUntil(() => fixture.focusNavigationCount() > 0, "focus handler did not navigate");
-    await runtime.installProjectionBundle(projectionScript);
-  });
-
   await t.test("projected candidates inside an open shadow root stay within the declared host scope", async () => {
     await runtime.navigate(`${fixture.origin}/open-shadow-action`, "doc-action-open-shadow-scope");
     const projection = await runtime.beginProjection({
@@ -1547,4 +1515,42 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     assert.equal(closeOutcome.status, "rejected");
   });
 
+});
+
+test("B-A1 focus-triggered navigation action receipt is never a zero-effect not_sent", async t => {
+  const fixture = await startFixtureServer();
+  const projectionScript = await buildProjectionScript();
+  const runtime = await createBA1RealSiteCdpRuntime();
+  t.after(async () => {
+    await runtime.close();
+    await fixture.close();
+  });
+  await runtime.installProjectionBundle(
+    await buildProjectionScript({ actionWrapper: focusNavigationActionWrapper }),
+  );
+  await runtime.navigate(`${fixture.origin}/blank`, "doc-action-focus-navigation");
+  await runtime.setDocumentContent(focusNavigationHtml, "doc-action-focus-navigation");
+  const projection = await runtime.beginProjection({
+    scopeSelector: "#scope",
+    requestedRole: "search-input-host",
+    access: "available",
+  });
+  const receipt = await runtime.executeNativeAction({
+    target: {
+      kind: "unique-recipe-selector",
+      control: controlOf(projection.operation),
+      selector: "#focus-navigates",
+      expectedTag: "button",
+      expectedRole: "button",
+      expectedAccessibleName: "Focus navigates",
+    },
+    action: { action: "focus" },
+  });
+
+  assert.equal(receipt.action, "focus");
+  assert.equal(receipt.dispatch, "unknown");
+  assert.equal(receipt.focus, "unknown");
+  assert.equal(receipt.effectKnowledge, "unknown");
+  assert.equal(receipt.error?.code, "UNKNOWN_DISPATCH");
+  await waitUntil(() => fixture.focusNavigationCount() > 0, "focus handler did not navigate");
 });
