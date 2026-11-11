@@ -198,6 +198,152 @@ const unrelatedMutationHtml = `
   </script>
 `;
 
+// Direct open-shadow fixture: the eligible search input lives only inside the
+// selected host's directly attached open shadow root. The rerender target
+// chooses whether the deterministic mutation touches the ShadowRoot itself
+// ("root") or one element inside it ("dialog").
+function openShadowSettleHtml(rerenderTarget) {
+  const rerenderBody = rerenderTarget === "root"
+    ? "root.replaceChildren(createDialog());"
+    : "root.querySelector(\"dialog\").replaceChildren(createDialog().firstChild);";
+  return `
+  <div id="scope"></div>
+  <button id="shadow-rerender" aria-label="Shadow rerender">Rerender</button>
+  <script>
+    const host = document.getElementById("scope");
+    const root = host.attachShadow({ mode: "open" });
+    const createDialog = () => {
+      const dialog = document.createElement("dialog");
+      dialog.open = true;
+      dialog.style.display = "block";
+      dialog.style.position = "relative";
+      dialog.style.margin = "20px";
+      dialog.style.width = "320px";
+      dialog.style.height = "80px";
+      const input = document.createElement("input");
+      input.type = "search";
+      input.setAttribute("aria-label", "Search");
+      input.setAttribute("tabindex", "0");
+      dialog.append(input);
+      return dialog;
+    };
+    root.append(createDialog());
+    document.getElementById("shadow-rerender").addEventListener("click", () => {
+      ${rerenderBody}
+    });
+  </script>`;
+}
+
+const openShadowAmbiguousHtml = `
+  <div id="scope"></div>
+  <script>
+    const host = document.getElementById("scope");
+    const root = host.attachShadow({ mode: "open" });
+    const dialog = document.createElement("dialog");
+    dialog.open = true;
+    dialog.style.display = "block";
+    dialog.style.position = "relative";
+    dialog.style.margin = "20px";
+    dialog.style.width = "320px";
+    dialog.style.height = "120px";
+    for (const name of ["First", "Second"]) {
+      const input = document.createElement("input");
+      input.type = "search";
+      input.setAttribute("aria-label", name);
+      input.setAttribute("tabindex", "0");
+      dialog.append(input);
+    }
+    root.append(dialog);
+  </script>
+`;
+
+const openShadowMixedHtml = `
+  <div id="scope"><input id="light" type="search" aria-label="Light search"></div>
+  <script>
+    const host = document.getElementById("scope");
+    const root = host.attachShadow({ mode: "open" });
+    root.append(document.createElement("slot"));
+    const dialog = document.createElement("dialog");
+    dialog.open = true;
+    dialog.style.display = "block";
+    dialog.style.position = "relative";
+    dialog.style.margin = "20px";
+    dialog.style.width = "320px";
+    dialog.style.height = "80px";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.setAttribute("aria-label", "Shadow search");
+    input.setAttribute("tabindex", "0");
+    dialog.append(input);
+    root.append(dialog);
+  </script>
+`;
+
+const closedShadowHtml = `
+  <div id="scope"></div>
+  <script>
+    const host = document.getElementById("scope");
+    const root = host.attachShadow({ mode: "closed" });
+    const dialog = document.createElement("dialog");
+    dialog.open = true;
+    dialog.style.display = "block";
+    dialog.style.position = "relative";
+    dialog.style.margin = "20px";
+    dialog.style.width = "320px";
+    dialog.style.height = "80px";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.setAttribute("aria-label", "Search");
+    dialog.append(input);
+    root.append(dialog);
+  </script>
+`;
+
+const nestedShadowHtml = `
+  <div id="scope"></div>
+  <script>
+    const host = document.getElementById("scope");
+    const root = host.attachShadow({ mode: "open" });
+    const dialog = document.createElement("dialog");
+    dialog.open = true;
+    dialog.style.display = "block";
+    dialog.style.position = "relative";
+    dialog.style.margin = "20px";
+    dialog.style.width = "320px";
+    dialog.style.height = "80px";
+    const nestedHost = document.createElement("div");
+    const nestedRoot = nestedHost.attachShadow({ mode: "open" });
+    const input = document.createElement("input");
+    input.type = "search";
+    input.setAttribute("aria-label", "Nested search");
+    input.setAttribute("tabindex", "0");
+    nestedRoot.append(input);
+    dialog.append(nestedHost);
+    root.append(dialog);
+  </script>
+`;
+
+const ineligibleShadowHtml = `
+  <div id="scope"></div>
+  <script>
+    const host = document.getElementById("scope");
+    const root = host.attachShadow({ mode: "open" });
+    const dialog = document.createElement("dialog");
+    dialog.open = true;
+    dialog.style.display = "block";
+    dialog.style.position = "relative";
+    dialog.style.margin = "20px";
+    dialog.style.width = "320px";
+    dialog.style.height = "80px";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.setAttribute("aria-label", "Hidden search");
+    input.style.display = "none";
+    dialog.append(input);
+    root.append(dialog);
+  </script>
+`;
+
 function slowSubmitHtml(delayMs) {
   return `
     <div id="scope">
@@ -333,6 +479,45 @@ void (async () => {
   });
 });`;
   }
+  if (kind === "shadow-settled") {
+    return `
+void (async () => {
+  const action = globalThis.__nnanythingBA1RealSiteAction;
+  const request = (requestId, op, fields = {}) => action({
+    schema: "nnanything.b-a1.real-site-browser-action-request.v1",
+    requestId,
+    op,
+    ...fields,
+  });
+  const arm = await request("probe-shadow-arm", "arm-scope-observer", {
+    scopeSelector: "#scope",
+    timeoutMs: 2000,
+    mode: "rerender",
+  });
+  const observerId = arm.result.observerId;
+  document.getElementById("shadow-rerender").click();
+  await new Promise(resolve => setTimeout(resolve, 25));
+  const first = await request("probe-shadow-first", "await-scope-observer", {
+    observerId,
+    timeoutMs: 2000,
+  });
+  const second = await request("probe-shadow-second", "await-scope-observer", {
+    observerId,
+    timeoutMs: 2000,
+  });
+  await fetch("/observer-lifecycle-result", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ arm, first, second }),
+  });
+})().catch(async error => {
+  await fetch("/observer-lifecycle-result", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ error: String(error) }),
+  });
+});`;
+  }
   throw new Error(`unsupported observer lifecycle probe: ${kind}`);
 }
 
@@ -446,6 +631,13 @@ async function startFixtureServer() {
       ["/positive", positiveHtml],
       ["/focus-without-scroll", focusWithoutScrollHtml],
       ["/open-shadow-action", openShadowActionHtml],
+      ["/open-shadow-settle-root", openShadowSettleHtml("root")],
+      ["/open-shadow-settle-dialog", openShadowSettleHtml("dialog")],
+      ["/open-shadow-ambiguous", openShadowAmbiguousHtml],
+      ["/open-shadow-mixed", openShadowMixedHtml],
+      ["/closed-shadow", closedShadowHtml],
+      ["/nested-shadow", nestedShadowHtml],
+      ["/open-shadow-ineligible", ineligibleShadowHtml],
       ["/target", targetHtml],
       ["/same-document", sameDocumentHtml],
       ["/in-place", inPlaceRerenderHtml],
@@ -884,6 +1076,191 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     assert.equal(receipt.readback.value, "shadow query");
     assert.equal(receipt.effectKnowledge, "text_written");
     assert.equal(receipt.error, null);
+  });
+
+  await t.test("direct open-root shadow rerender settles and rebinds the fresh shadow input", async () => {
+    await runtime.navigate(`${fixture.origin}/open-shadow-settle-root`, "doc-action-shadow-settle-root");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      openShadowRootChildSelector: "dialog",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    assert.equal(projection.projection.candidates.length, 1);
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const click = await runtime.executeNativeAction({
+      target: recipeTarget(projection.operation, "#shadow-rerender", "Shadow rerender"),
+      action: { action: "click" },
+    });
+    assert.equal(click.dispatch, "complete");
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: click.actionId,
+      transitionSignalDeadlineMs: 2_000,
+      readinessDeadlineMs: 1_000,
+    });
+    assert.equal(transition.observation, "rerender_no_url_change");
+    assert.equal(transition.next, null);
+    assert.equal(transition.detail.requiresFreshProjection, true);
+    assert.ok(transition.detail.beforeUrl.endsWith("/open-shadow-settle-root"));
+    assert.ok(transition.detail.afterUrl.endsWith("/open-shadow-settle-root"));
+
+    const reprojection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      openShadowRootChildSelector: "dialog",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    assert.equal(reprojection.projection.candidates.length, 1);
+    const rebound = await runtime.executeNativeAction({
+      target: projectedTarget(reprojection.operation, reprojection.projection),
+      action: { action: "replace-text", text: "shadow rerender query" },
+    });
+    assert.equal(rebound.dispatch, "complete");
+    assert.equal(rebound.readback.status, "exact");
+    assert.equal(rebound.readback.value, "shadow rerender query");
+  });
+
+  await t.test("element mutation inside the direct open root settles without a URL change", async () => {
+    await runtime.navigate(`${fixture.origin}/open-shadow-settle-dialog`, "doc-action-shadow-settle-dialog");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      openShadowRootChildSelector: "dialog",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const click = await runtime.executeNativeAction({
+      target: recipeTarget(projection.operation, "#shadow-rerender", "Shadow rerender"),
+      action: { action: "click" },
+    });
+    assert.equal(click.dispatch, "complete");
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: click.actionId,
+      transitionSignalDeadlineMs: 2_000,
+      readinessDeadlineMs: 1_000,
+    });
+    assert.equal(transition.observation, "rerender_no_url_change");
+    assert.equal(transition.next, null);
+    assert.equal(transition.detail.requiresFreshProjection, true);
+    assert.ok(transition.detail.beforeUrl.endsWith("/open-shadow-settle-dialog"));
+    assert.ok(transition.detail.afterUrl.endsWith("/open-shadow-settle-dialog"));
+  });
+
+  await t.test("two open-root inputs stay ambiguous without first-input preference", async () => {
+    await runtime.navigate(`${fixture.origin}/open-shadow-ambiguous`, "doc-action-shadow-ambiguous");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      openShadowRootChildSelector: "dialog",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: "receipt-shadow-ambiguous",
+      transitionSignalDeadlineMs: 200,
+      readinessDeadlineMs: 100,
+    });
+    assert.equal(transition.observation, "ambiguous_scope");
+    assert.equal(transition.next, null);
+  });
+
+  await t.test("one light-DOM input plus one open-root input stays ambiguous", async () => {
+    await runtime.navigate(`${fixture.origin}/open-shadow-mixed`, "doc-action-shadow-mixed");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: "receipt-shadow-mixed",
+      transitionSignalDeadlineMs: 200,
+      readinessDeadlineMs: 100,
+    });
+    assert.equal(transition.observation, "ambiguous_scope");
+    assert.equal(transition.next, null);
+  });
+
+  await t.test("closed-root contents are not inferred into scope presence", async () => {
+    await runtime.navigate(`${fixture.origin}/closed-shadow`, "doc-action-closed-shadow");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: "receipt-closed-shadow",
+      transitionSignalDeadlineMs: 200,
+      readinessDeadlineMs: 100,
+    });
+    assert.equal(transition.observation, "ambiguous_scope");
+    assert.equal(transition.next, null);
+  });
+
+  await t.test("nested open roots are not traversed by direct scope presence", async () => {
+    await runtime.navigate(`${fixture.origin}/nested-shadow`, "doc-action-nested-shadow");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      openShadowRootChildSelector: "dialog",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    assert.equal(projection.projection.candidates.length, 0);
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: "receipt-nested-shadow",
+      transitionSignalDeadlineMs: 200,
+      readinessDeadlineMs: 100,
+    });
+    assert.equal(transition.observation, "ambiguous_scope");
+    assert.equal(transition.next, null);
+  });
+
+  await t.test("ineligible open-root inputs do not become eligible through shadow support", async () => {
+    await runtime.navigate(`${fixture.origin}/open-shadow-ineligible`, "doc-action-shadow-ineligible");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      openShadowRootChildSelector: "dialog",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const settle = await runtime.armPostDispatchObservation({
+      control: controlOf(projection.operation),
+      scopeSelector: "#scope",
+    });
+    const transition = await runtime.awaitPostDispatchObservation({
+      settleId: settle.settleId,
+      actionReceiptRef: "receipt-shadow-ineligible",
+      transitionSignalDeadlineMs: 200,
+      readinessDeadlineMs: 100,
+    });
+    assert.equal(transition.observation, "ambiguous_scope");
+    assert.equal(transition.next, null);
   });
 
   await t.test("absent scope appearance and ambiguous scope are reported without retry", async () => {
@@ -1479,6 +1856,29 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     assert.equal(outcome.first.ok, true);
     assert.equal(outcome.first.result.kind, "scope_observer_result");
     assert.equal(outcome.first.result.appeared, true);
+    assert.equal(outcome.second.ok, false);
+    assert.equal(outcome.second.error?.code, "invalid_request");
+  });
+
+  await t.test("shadow scope observer settles on the direct-root mutation and keeps single-consumer ownership", async () => {
+    await runtime.navigate(`${fixture.origin}/open-shadow-settle-root`, "doc-page-observer-shadow");
+    fixture.clearObserverLifecycleResult();
+    await runtime.installProjectionBundle(
+      await buildProjectionScript({ observerLifecycleProbe: "shadow-settled" }),
+    );
+    const outcome = await waitUntil(
+      () => fixture.observerLifecycleResult(),
+      "shadow page observer probe did not report a result",
+      4_000,
+    );
+
+    assert.equal(outcome.error, undefined);
+    assert.equal(outcome.arm.ok, true);
+    assert.equal(outcome.first.ok, true);
+    assert.equal(outcome.first.result.kind, "scope_observer_result");
+    assert.equal(outcome.first.result.mode, "rerender");
+    assert.equal(outcome.first.result.appeared, true);
+    assert.equal(outcome.first.result.eligibleInputCount, 1);
     assert.equal(outcome.second.ok, false);
     assert.equal(outcome.second.error?.code, "invalid_request");
   });
