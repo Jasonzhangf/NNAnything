@@ -249,6 +249,36 @@ export function runStaticNested(flag: boolean, value: number) {
 }
 `);
 
+  writeFileSync(join(ROOT, "src", "runtime-static-caller-control.ts"),
+`import { chooseAction } from "./runtime-actions.js";
+export function runStaticCallerControl(value: number) {
+  if (value > 0) {
+    return chooseAction("right")(value);
+  }
+  return value;
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-helper-control.ts"),
+`const controlledActionMap: Record<"left" | "right", (value: number) => number> = {
+  left: value => value + 2,
+  right: value => value * 5,
+};
+export function chooseControlledAction(key: "left" | "right") {
+  if (key === "left") {
+    return controlledActionMap.left;
+  }
+  return controlledActionMap.right;
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-helper-control-entry.ts"),
+`import { chooseControlledAction } from "./runtime-static-helper-control.js";
+export function runStaticHelperControl(value: number) {
+  return chooseControlledAction("right")(value);
+}
+`);
+
   writeFileSync(join(ROOT, "src", "runtime-static-out-of-scope.ts"),
 `export function runOutsideCandidate(value: number) {
   const localHelper = (key: string) => key;
@@ -1071,6 +1101,35 @@ test("static literal P5: nested constant stays explicitly unsupported", async ()
   assert.deepEqual(
     out.result.runtimeSelectorGaps.map(gap => gap.reason),
     ["static_alias_unsupported"],
+  );
+});
+
+test("static literal P5A: recognized control paths emit explicit gaps", async () => {
+  const callerControl = await runTsJsSymbolTable(
+    request(["src/runtime-static-caller-control.ts", "src/runtime-actions.ts"]),
+  );
+  assert.equal(callerControl.status, "ok", JSON.stringify(callerControl));
+  if (callerControl.status !== "ok") return;
+
+  assert.equal(callerControl.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    callerControl.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["unsupported_selector_shape"],
+  );
+
+  const helperControl = await runTsJsSymbolTable(
+    request([
+      "src/runtime-static-helper-control-entry.ts",
+      "src/runtime-static-helper-control.ts",
+    ]),
+  );
+  assert.equal(helperControl.status, "ok", JSON.stringify(helperControl));
+  if (helperControl.status !== "ok") return;
+
+  assert.equal(helperControl.result.staticSelectedSelectorObservations.length, 0);
+  assert.deepEqual(
+    helperControl.result.runtimeSelectorGaps.map(gap => gap.reason),
+    ["unsupported_selector_shape"],
   );
 });
 

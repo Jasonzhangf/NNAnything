@@ -2414,15 +2414,11 @@ function linkRuntimeSelectorFacts(
           callerFunction.hasNestedFunction ||
           callerFunction.hasUnsupportedWrite
         ) {
-          if (callSite.selector.kind === "identifier") {
-            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
-          }
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
           continue;
         }
         if (helperFunction.hasControlPath || helperFunction.hasNestedFunction) {
-          if (callSite.selector.kind === "identifier") {
-            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
-          }
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
           continue;
         }
         const shape = helperFunction.helperShape;
