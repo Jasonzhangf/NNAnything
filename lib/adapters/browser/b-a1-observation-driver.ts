@@ -26,10 +26,13 @@ export const BA1_OBSERVATION_DRIVER_SOURCE_PLAN_SCHEMA =
   "nnanything.b-a1.selection-contrast-source-plan.v1" as const;
 export const BA1_OBSERVATION_DRIVER_RESULT_SCHEMA =
   "nnanything.b-a1.observation-driver-result.v1" as const;
+export const BA1_OBSERVATION_DRIVER_TIMING_SCHEMA =
+  "nnanything.b-a1.observation-driver-timing.v1" as const;
 
 const MAX_SELECTOR_CANDIDATES = 3;
 const TARGET_CAPTURE_COUNT = 2;
 const SEARCH_HOST_KINDS = new Set(["input", "textarea", "contenteditable"]);
+const SPLIT_AUTHORITY = "Carol";
 
 export type BA1ObservationDriverErrorCode = "invalid_plan";
 
@@ -56,6 +59,7 @@ export interface BA1ObservationDriverSource {
 
 export interface BA1ObservationDriverSourcePlan {
   readonly schema: typeof BA1_OBSERVATION_DRIVER_SOURCE_PLAN_SCHEMA;
+  readonly status: "pre_registered_not_observed";
   readonly partition: "TRAIN";
   readonly trainSlots: readonly BA1ObservationDriverSource[];
   readonly reserves: readonly BA1ObservationDriverSource[];
@@ -84,6 +88,7 @@ export interface BA1ObservationDiscoveryAttempt {
   readonly hiddenMeasuredCandidateCount: number;
   readonly passed: boolean;
   readonly rejection: BA1DiscoveryRejection | null;
+  readonly error: BA1ObservationDriverFailureReceipt | null;
 }
 
 export interface BA1ObservationDiscoveryResult {
@@ -102,14 +107,38 @@ export interface BA1RawObservationRecord {
 
 export type BA1ObservationSourceStatus =
   | "captured"
+  | "navigation_failed"
+  | "no_contrast"
   | "observation_missing"
   | "no_provisional_scope"
   | "projection_failed";
 
 export type BA1ObservationSourceRejection =
+  | "contrast_missing"
   | "incomplete_coverage"
+  | "navigation_failed"
   | "no_provisional_scope"
   | "projection_failed";
+
+export type BA1ObservationFailureStage =
+  | "discovery"
+  | "navigation"
+  | "admitted_projection"
+  | "family";
+
+export interface BA1ObservationDriverFailureReceipt {
+  readonly stage: BA1ObservationFailureStage;
+  readonly selector: string | null;
+  readonly name: string;
+  readonly code: string | null;
+  readonly message: string;
+  readonly detail: unknown;
+}
+
+export interface BA1ObservationAdmissionPredicates {
+  readonly provisionalSearchHostCount: number;
+  readonly hiddenMeasuredCandidateCount: number;
+}
 
 export interface BA1ObservationSourceOutcome {
   readonly sourceFamily: string;
@@ -121,8 +150,10 @@ export interface BA1ObservationSourceOutcome {
   readonly discovery: BA1ObservationDiscoveryResult;
   readonly rawObservation?: BA1RawObservationRecord;
   readonly derivedCoverage?: BA1DerivedHarnessCoverage;
+  readonly admissionPredicates?: BA1ObservationAdmissionPredicates;
   readonly candidateGroupEnumerationComplete?: boolean;
   readonly rejection: BA1ObservationSourceRejection | null;
+  readonly error?: BA1ObservationDriverFailureReceipt;
 }
 
 export interface BA1ObservationDriverResult {
@@ -259,11 +290,21 @@ function parseSource(value: unknown, label: string, allowSlot: boolean): BA1Obse
 
 export function validateBA1ObservationDriverSourcePlan(value: unknown): BA1ObservationDriverSourcePlan {
   const plan = requireRecord(value, "source-plan");
-  assertAllowedKeys(plan, ["schema", "partition", "trainSlots", "reserves"], "source-plan");
+  assertAllowedKeys(
+    plan,
+    ["schema", "status", "partition", "trainSlots", "reserves"],
+    "source-plan",
+  );
   if (plan.schema !== BA1_OBSERVATION_DRIVER_SOURCE_PLAN_SCHEMA) {
     throw new BA1ObservationDriverError(
       "invalid_plan",
       `source-plan.schema must be ${BA1_OBSERVATION_DRIVER_SOURCE_PLAN_SCHEMA}`,
+    );
+  }
+  if (plan.status !== "pre_registered_not_observed") {
+    throw new BA1ObservationDriverError(
+      "invalid_plan",
+      "source-plan.status must be pre_registered_not_observed",
     );
   }
   if (plan.partition !== "TRAIN") {
@@ -288,6 +329,7 @@ export function validateBA1ObservationDriverSourcePlan(value: unknown): BA1Obser
 
   return Object.freeze({
     schema: BA1_OBSERVATION_DRIVER_SOURCE_PLAN_SCHEMA,
+    status: "pre_registered_not_observed",
     partition: "TRAIN",
     trainSlots: Object.freeze(trainSlots),
     reserves: Object.freeze(reserves),
@@ -422,9 +464,129 @@ function projectionRejection(error: unknown): BA1DiscoveryRejection {
   return "projection_failed";
 }
 
+function failureReceipt(
+  error: unknown,
+  stage: BA1ObservationFailureStage,
+  selector: string | null = null,
+): BA1ObservationDriverFailureReceipt {
+  const record = error !== null && typeof error === "object"
+    ? error as Readonly<Record<string, unknown>>
+    : null;
+  return Object.freeze({
+    stage,
+    selector,
+    name: error instanceof Error ? error.name : "Error",
+    code: typeof record?.code === "string" ? record.code : null,
+    message: error instanceof Error ? error.message : String(error),
+    detail: record?.detail ?? null,
+  });
+}
+
 async function writeJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+type BA1ObservationTimingStageName =
+  | "launch"
+  | "bundle_install"
+  | "navigation"
+  | "discovery"
+  | "admitted_projection"
+  | "save";
+
+interface BA1ObservationTimingStage {
+  readonly stage: BA1ObservationTimingStageName;
+  readonly sourceFamily: string | null;
+  readonly selector: string | null;
+  readonly artifact: string | null;
+  readonly started_at_ns: string;
+  readonly ended_at_ns: string;
+  readonly duration_ns: string;
+}
+
+interface BA1ObservationTimingReceipt {
+  readonly schema: typeof BA1_OBSERVATION_DRIVER_TIMING_SCHEMA;
+  readonly clock: "process.hrtime.bigint";
+  readonly origin: "run_start";
+  readonly stages: readonly BA1ObservationTimingStage[];
+}
+
+class BA1ObservationDriverTiming {
+  readonly outDir: string;
+  readonly startedNs: bigint;
+  readonly stages: BA1ObservationTimingStage[] = [];
+
+  constructor(outDir: string, startedNs: bigint) {
+    this.outDir = outDir;
+    this.startedNs = startedNs;
+  }
+
+  async measure<T>(
+    stage: BA1ObservationTimingStageName,
+    metadata: {
+      readonly sourceFamily?: string;
+      readonly selector?: string;
+      readonly artifact?: string;
+    },
+    action: () => Promise<T>,
+  ): Promise<T> {
+    const startedNs = process.hrtime.bigint();
+    try {
+      return await action();
+    } finally {
+      const endedNs = process.hrtime.bigint();
+      this.stages.push(Object.freeze({
+        stage,
+        sourceFamily: metadata.sourceFamily ?? null,
+        selector: metadata.selector ?? null,
+        artifact: metadata.artifact ?? null,
+        started_at_ns: String(startedNs - this.startedNs),
+        ended_at_ns: String(endedNs - this.startedNs),
+        duration_ns: String(endedNs - startedNs),
+      }));
+      await this.persist();
+    }
+  }
+
+  async persist(): Promise<void> {
+    const receipt: BA1ObservationTimingReceipt = Object.freeze({
+      schema: BA1_OBSERVATION_DRIVER_TIMING_SCHEMA,
+      clock: "process.hrtime.bigint",
+      origin: "run_start",
+      stages: Object.freeze([...this.stages]),
+    });
+    await writeJson(join(this.outDir, "timing.json"), receipt);
+  }
+}
+
+async function saveArtifact(
+  timing: BA1ObservationDriverTiming,
+  path: string,
+  artifact: string,
+  value: unknown,
+  sourceFamily?: string,
+): Promise<void> {
+  await timing.measure(
+    "save",
+    {
+      artifact,
+      ...(sourceFamily === undefined ? {} : { sourceFamily }),
+    },
+    () => writeJson(path, value),
+  );
+}
+
+function splitDecision(source: BA1ObservationDriverSource) {
+  return Object.freeze({
+    sourceFamily: source.sourceFamily,
+    siteId: source.siteId,
+    entryUrl: source.entryUrl,
+    partition: "TRAIN" as const,
+    priorExposure: "unseen" as const,
+    splitAuthority: SPLIT_AUTHORITY,
+    decidedAt: new Date().toISOString(),
+  });
 }
 
 function pinSelector(
@@ -454,26 +616,68 @@ async function captureSource(
   plan: BA1ObservationDriverSourcePlan,
   source: BA1ObservationDriverSource,
   outDir: string,
+  timing: BA1ObservationDriverTiming,
 ): Promise<{ readonly plan: BA1ObservationDriverSourcePlan; readonly outcome: BA1ObservationSourceOutcome }> {
   const documentRef = `b-a1-observation-${source.sourceFamily}`;
-  await runtime.navigate(source.entryUrl, documentRef);
+  await saveArtifact(
+    timing,
+    join(outDir, "split-decisions", `${source.sourceFamily}.json`),
+    `split-decisions/${source.sourceFamily}.json`,
+    splitDecision(source),
+    source.sourceFamily,
+  );
 
   const attempts: BA1ObservationDiscoveryAttempt[] = [];
   let passedSelector: string | null = null;
   let currentPlan = plan;
 
+  try {
+    await timing.measure("navigation", { sourceFamily: source.sourceFamily }, () =>
+      runtime.navigate(source.entryUrl, documentRef));
+  } catch (error) {
+    const failure = failureReceipt(error, "navigation");
+    const discovery = Object.freeze({
+      passedSelector: null,
+      attempts: Object.freeze(attempts),
+    });
+    const outcome: BA1ObservationSourceOutcome = Object.freeze({
+      sourceFamily: source.sourceFamily,
+      siteId: source.siteId,
+      entryUrl: source.entryUrl,
+      partition: "TRAIN",
+      status: "navigation_failed",
+      pinnedSelector: null,
+      discovery,
+      rejection: "navigation_failed",
+      error: failure,
+    });
+    await saveArtifact(
+      timing,
+      join(outDir, "rejected", `${source.sourceFamily}.json`),
+      `rejected/${source.sourceFamily}.json`,
+      outcome,
+      source.sourceFamily,
+    );
+    return { plan: currentPlan, outcome };
+  }
+
   for (const selector of sourceSelectors(source)) {
     let operation: BA1RealSiteControlRead;
     let projection: BA1RealSiteProjectedObservation;
     try {
-      const observed = await runtime.beginProjection({
-        scopeSelector: selector,
-        requestedRole: "search-input-host",
-        access: "available",
-      });
+      const observed = await timing.measure(
+        "discovery",
+        { sourceFamily: source.sourceFamily, selector },
+        () => runtime.beginProjection({
+          scopeSelector: selector,
+          requestedRole: "search-input-host",
+          access: "available",
+        }),
+      );
       operation = observed.operation;
       projection = observed.projection;
     } catch (error) {
+      const failure = failureReceipt(error, "discovery", selector);
       attempts.push(Object.freeze({
         selector,
         rawCoverage: null,
@@ -484,6 +688,7 @@ async function captureSource(
         hiddenMeasuredCandidateCount: 0,
         passed: false,
         rejection: projectionRejection(error),
+        error: failure,
       }));
       continue;
     }
@@ -491,8 +696,12 @@ async function captureSource(
     const derivedCoverage = deriveBA1HarnessCoverage(operation, projection);
     const searchHostCount = provisionalSearchHostCount(projection.candidates);
     const hiddenCount = hiddenMeasuredCandidateCount(projection.candidates);
-    const rejection = discoveryRejection(derivedCoverage, searchHostCount, hiddenCount);
-    const passed = rejection === null;
+    const discoveryRejectionResult = discoveryRejection(
+      derivedCoverage,
+      searchHostCount,
+      hiddenCount,
+    );
+    const passed = discoveryRejectionResult === null;
     attempts.push(Object.freeze({
       selector,
       rawCoverage: projection.coverage,
@@ -502,35 +711,95 @@ async function captureSource(
       provisionalSearchHostCount: searchHostCount,
       hiddenMeasuredCandidateCount: hiddenCount,
       passed,
-      rejection,
+      rejection: discoveryRejectionResult,
+      error: null,
     }));
 
     if (!passed) continue;
     passedSelector = selector;
     currentPlan = pinSelector(currentPlan, source.sourceFamily, selector);
-    await writeJson(join(outDir, "source-plan.json"), currentPlan);
-
-    const admitted = await runtime.beginProjection({
-      scopeSelector: selector,
-      requestedRole: "search-input-host",
-      access: "available",
+    await saveArtifact(
+      timing,
+      join(outDir, "source-plan.json"),
+      "source-plan.json",
+      currentPlan,
+      source.sourceFamily,
+    );
+    const discovery = Object.freeze({
+      passedSelector,
+      attempts: Object.freeze(attempts),
     });
+    await saveArtifact(
+      timing,
+      join(outDir, "discovery", `${source.sourceFamily}.json`),
+      `discovery/${source.sourceFamily}.json`,
+      discovery,
+      source.sourceFamily,
+    );
+
+    let admitted: {
+      readonly operation: BA1RealSiteControlRead;
+      readonly projection: BA1RealSiteProjectedObservation;
+    };
+    try {
+      admitted = await timing.measure(
+        "admitted_projection",
+        { sourceFamily: source.sourceFamily, selector },
+        () => runtime.beginProjection({
+          scopeSelector: selector,
+          requestedRole: "search-input-host",
+          access: "available",
+        }),
+      );
+    } catch (error) {
+      const failure = failureReceipt(error, "admitted_projection", selector);
+      const outcome: BA1ObservationSourceOutcome = Object.freeze({
+        sourceFamily: source.sourceFamily,
+        siteId: source.siteId,
+        entryUrl: source.entryUrl,
+        partition: "TRAIN",
+        status: "projection_failed",
+        pinnedSelector: passedSelector,
+        discovery,
+        candidateGroupEnumerationComplete: false,
+        rejection: "projection_failed",
+        error: failure,
+      });
+      await saveArtifact(
+        timing,
+        join(outDir, "rejected", `${source.sourceFamily}.json`),
+        `rejected/${source.sourceFamily}.json`,
+        outcome,
+        source.sourceFamily,
+      );
+      return { plan: currentPlan, outcome };
+    }
+
     const admittedCoverage = deriveBA1HarnessCoverage(admitted.operation, admitted.projection);
+    const admittedSearchHostCount = provisionalSearchHostCount(admitted.projection.candidates);
+    const admittedHiddenCount = hiddenMeasuredCandidateCount(admitted.projection.candidates);
+    const admittedRejection = discoveryRejection(
+      admittedCoverage,
+      admittedSearchHostCount,
+      admittedHiddenCount,
+    );
+    const admissionPredicates: BA1ObservationAdmissionPredicates = Object.freeze({
+      provisionalSearchHostCount: admittedSearchHostCount,
+      hiddenMeasuredCandidateCount: admittedHiddenCount,
+    });
     const rawObservation: BA1RawObservationRecord = Object.freeze({
       navigation: Object.freeze({ url: source.entryUrl, documentRef }),
       operation: admitted.operation,
       projection: admitted.projection,
     });
-    const discovery = Object.freeze({
-      passedSelector,
-      attempts: Object.freeze(attempts),
-    });
 
-    await writeJson(join(outDir, "discovery", `${source.sourceFamily}.json`), discovery);
-    if (admittedCoverage.status === "complete") {
-      await writeJson(
+    if (admittedRejection === null) {
+      await saveArtifact(
+        timing,
         join(outDir, "raw", source.sourceFamily, "admitted.json"),
+        `raw/${source.sourceFamily}/admitted.json`,
         rawObservation,
+        source.sourceFamily,
       );
       return {
         plan: currentPlan,
@@ -544,31 +813,50 @@ async function captureSource(
           discovery,
           rawObservation,
           derivedCoverage: admittedCoverage,
+          admissionPredicates,
           candidateGroupEnumerationComplete: true,
           rejection: null,
         }),
       };
     }
 
-    await writeJson(
+    await saveArtifact(
+      timing,
+      join(outDir, "raw", source.sourceFamily, "recapture.json"),
+      `raw/${source.sourceFamily}/recapture.json`,
+      rawObservation,
+      source.sourceFamily,
+    );
+    const status: BA1ObservationSourceStatus = admittedRejection === "coverage_incomplete"
+      ? "observation_missing"
+      : "no_contrast";
+    const finalRejection: BA1ObservationSourceRejection = status === "observation_missing"
+      ? "incomplete_coverage"
+      : "contrast_missing";
+    const outcome: BA1ObservationSourceOutcome = Object.freeze({
+      sourceFamily: source.sourceFamily,
+      siteId: source.siteId,
+      entryUrl: source.entryUrl,
+      partition: "TRAIN",
+      status,
+      pinnedSelector: passedSelector,
+      discovery,
+      rawObservation,
+      derivedCoverage: admittedCoverage,
+      admissionPredicates,
+      candidateGroupEnumerationComplete: false,
+      rejection: finalRejection,
+    });
+    await saveArtifact(
+      timing,
       join(outDir, "rejected", `${source.sourceFamily}.json`),
-      { rawObservation, derivedCoverage: admittedCoverage },
+      `rejected/${source.sourceFamily}.json`,
+      outcome,
+      source.sourceFamily,
     );
     return {
       plan: currentPlan,
-      outcome: Object.freeze({
-        sourceFamily: source.sourceFamily,
-        siteId: source.siteId,
-        entryUrl: source.entryUrl,
-        partition: "TRAIN",
-        status: "observation_missing",
-        pinnedSelector: passedSelector,
-        discovery,
-        rawObservation,
-        derivedCoverage: admittedCoverage,
-        candidateGroupEnumerationComplete: false,
-        rejection: "incomplete_coverage",
-      }),
+      outcome,
     };
   }
 
@@ -591,42 +879,65 @@ async function captureSource(
     : status === "no_provisional_scope"
       ? "no_provisional_scope"
       : "projection_failed";
-  await writeJson(join(outDir, "discovery", `${source.sourceFamily}.json`), discovery);
-  await writeJson(join(outDir, "rejected", `${source.sourceFamily}.json`), {
+  const firstError = attempts.find(attempt => attempt.error !== null)?.error;
+  const outcome: BA1ObservationSourceOutcome = Object.freeze({
+    sourceFamily: source.sourceFamily,
+    siteId: source.siteId,
+    entryUrl: source.entryUrl,
+    partition: "TRAIN",
     status,
-    rejection,
+    pinnedSelector: null,
     discovery,
+    rejection,
+    ...(firstError === undefined || firstError === null ? {} : { error: firstError }),
   });
+  await saveArtifact(
+    timing,
+    join(outDir, "discovery", `${source.sourceFamily}.json`),
+    `discovery/${source.sourceFamily}.json`,
+    discovery,
+    source.sourceFamily,
+  );
+  await saveArtifact(
+    timing,
+    join(outDir, "rejected", `${source.sourceFamily}.json`),
+    `rejected/${source.sourceFamily}.json`,
+    outcome,
+    source.sourceFamily,
+  );
   return {
     plan: currentPlan,
-    outcome: Object.freeze({
-      sourceFamily: source.sourceFamily,
-      siteId: source.siteId,
-      entryUrl: source.entryUrl,
-      partition: "TRAIN",
-      status,
-      pinnedSelector: null,
-      discovery,
-      rejection,
-    }),
+    outcome,
   };
 }
 
 export async function runBA1ObservationDriver(
   options: BA1ObservationDriverOptions,
 ): Promise<BA1ObservationDriverResult> {
+  const runStartedNs = process.hrtime.bigint();
   if (typeof options.outDir !== "string" || options.outDir.length === 0) {
     throw new BA1ObservationDriverError("invalid_plan", "outDir must be a non-empty string");
   }
   const initialPlan = validateBA1ObservationDriverSourcePlan(options.sourcePlan);
   await mkdir(options.outDir, { recursive: true });
+  const timing = new BA1ObservationDriverTiming(options.outDir, runStartedNs);
+  await saveArtifact(
+    timing,
+    join(options.outDir, "source-plan.json"),
+    "source-plan.json",
+    initialPlan,
+  );
 
   const ownedRuntime = options.runtime === undefined
-    ? await createBA1RealSiteCdpRuntime()
+    ? await timing.measure("launch", {}, () => createBA1RealSiteCdpRuntime())
     : null;
+  if (options.runtime !== undefined) {
+    await timing.measure("launch", {}, async () => undefined);
+  }
   const runtime: BA1ObservationDriverRuntime = options.runtime ?? ownedRuntime as BA1RealSiteCdpRuntime;
   try {
-    await runtime.installProjectionBundle(await buildProjectionBundleScript());
+    await timing.measure("bundle_install", {}, async () =>
+      runtime.installProjectionBundle(await buildProjectionBundleScript()));
     const candidates = [...initialPlan.trainSlots, ...initialPlan.reserves];
     const targetCaptureCount = Math.min(TARGET_CAPTURE_COUNT, candidates.length);
     const outcomes: BA1ObservationSourceOutcome[] = [];
@@ -635,10 +946,37 @@ export async function runBA1ObservationDriver(
 
     for (const source of candidates) {
       if (capturedCount >= targetCaptureCount) break;
-      const captured = await captureSource(runtime, plan, source, options.outDir);
-      plan = captured.plan;
-      outcomes.push(captured.outcome);
-      if (captured.outcome.status === "captured") capturedCount += 1;
+      try {
+        const captured = await captureSource(runtime, plan, source, options.outDir, timing);
+        plan = captured.plan;
+        outcomes.push(captured.outcome);
+        if (captured.outcome.status === "captured") capturedCount += 1;
+      } catch (error) {
+        const failure = failureReceipt(error, "family");
+        const discovery = Object.freeze({
+          passedSelector: null,
+          attempts: Object.freeze([]),
+        });
+        const outcome: BA1ObservationSourceOutcome = Object.freeze({
+          sourceFamily: source.sourceFamily,
+          siteId: source.siteId,
+          entryUrl: source.entryUrl,
+          partition: "TRAIN",
+          status: "projection_failed",
+          pinnedSelector: null,
+          discovery,
+          rejection: "projection_failed",
+          error: failure,
+        });
+        outcomes.push(outcome);
+        await saveArtifact(
+          timing,
+          join(options.outDir, "rejected", `${source.sourceFamily}.json`),
+          `rejected/${source.sourceFamily}.json`,
+          outcome,
+          source.sourceFamily,
+        );
+      }
     }
 
     const status = capturedCount > 0
@@ -650,7 +988,12 @@ export async function runBA1ObservationDriver(
       capturedCount,
       sources: Object.freeze(outcomes),
     });
-    await writeJson(join(options.outDir, "driver-report.json"), result);
+    await saveArtifact(
+      timing,
+      join(options.outDir, "driver-report.json"),
+      "driver-report.json",
+      result,
+    );
     return result;
   } finally {
     if (ownedRuntime !== null) await ownedRuntime.close();
