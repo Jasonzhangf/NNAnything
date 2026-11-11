@@ -17,7 +17,7 @@
   "outputDir": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/dev/out",
   "evaluateDev": {
     "schema": "nnanything.unified.dev-evaluate-config.v1",
-    "candidatePackagePath": "/Volumes/Intel/playground/nnanything-runs/tsjs-fixed-candidate-resume-checker-prep-r1-20261110/execution/package/model-package.json",
+    "candidatePackagePath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/candidate-package.json",
     "devFamilyPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-request-aware-admission-config-r1-20261110/derived-dev",
     "admissionsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-request-aware-admission-config-r1-20261110/derived-dev/familyAdmissions.json",
     "consumerEntry": "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision",

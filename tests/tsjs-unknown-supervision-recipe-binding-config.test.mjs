@@ -30,10 +30,18 @@ const CONFIG_DIR = resolve(
 );
 const TRAIN_CONFIG_PATH = join(CONFIG_DIR, "train-warmstart.runner-config.json");
 const DEV_CONFIG_PATH = join(CONFIG_DIR, "dev-evaluate.runner-config.json");
+const RUN_ROOT = resolve(
+  "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110",
+);
+const TRAIN_CORPUS_UNION_PATH = join(RUN_ROOT, "config-evidence/train/corpus-union");
 const TRAIN_FAMILY_PATH = resolve(
   worktreeRoot,
   "training/samples/neural-cli/tsjs/train-runtime-helper-selector-r1",
 );
+const LEGACY_TRAIN_FAMILY_PATHS = [
+  "/Volumes/Intel/playground/nnanything-runs/tsjs-v2-corpus-admission-henry-20261108/staged/train-module-export-alias-a",
+  "/Volumes/Intel/playground/nnanything-runs/tsjs-v2-corpus-admission-henry-20261108/staged/train-closure-call-a",
+];
 const TRAIN_ADMISSIONS_PATH = resolve(
   worktreeRoot,
   "training/samples/neural-cli/tsjs/corpus-admissions-v1.json",
@@ -45,6 +53,7 @@ const DEV_ADMISSIONS_PATH = join(DEV_FAMILY_PATH, "familyAdmissions.json");
 const SOURCE_PACKAGE_PATH = resolve(
   "/Volumes/Intel/playground/nnanything-runs/tsjs-fixed-candidate-resume-checker-prep-r1-20261110/execution/package/model-package.json",
 );
+const NEW_TRAIN_OUTPUT_PACKAGE_PATH = join(RUN_ROOT, "config-evidence/train/candidate-package.json");
 const THRESHOLDS_PATH = resolve(
   worktreeRoot,
   "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
@@ -89,8 +98,15 @@ function targetTrainConfig(config) {
 }
 
 const hasAcceptedRunInputs = existsSync(DEV_FAMILY_PATH)
-  && existsSync(DEV_ADMISSIONS_PATH)
-  && existsSync(SOURCE_PACKAGE_PATH);
+  && existsSync(DEV_ADMISSIONS_PATH);
+
+function redirectWritablePaths(config, root) {
+  config.outputDir = join(root, "out");
+  config.dataGate.rowsPath = join(root, "data-gate-rows.jsonl");
+  config.corpus.studentRowsPath = join(root, "student-rows.jsonl");
+  config.corpus.supervisionRowsPath = join(root, "supervision-rows.jsonl");
+  config.corpus.packagePath = join(root, "candidate-package.json");
+}
 
 test("TRAIN config binds the accepted supervision without fitting", async () => {
   const config = await readJson(TRAIN_CONFIG_PATH);
@@ -98,7 +114,7 @@ test("TRAIN config binds the accepted supervision without fitting", async () => 
   assert.equal(config.command, "warmstart");
   assert.equal(config.phase, "posttraining");
   assert.equal(config.dataGate.partition, "TRAIN");
-  assert.equal(resolve(config.corpus.root), TRAIN_FAMILY_PATH);
+  assert.equal(resolve(config.corpus.root), TRAIN_CORPUS_UNION_PATH);
   assert.equal(resolve(config.corpus.admissionsPath), TRAIN_ADMISSIONS_PATH);
   assert.equal(config.training.optimizer, "full_batch_sgd");
   assert.equal(config.training.learningRate, 0.01);
@@ -115,6 +131,37 @@ test("TRAIN config binds the accepted supervision without fitting", async () => 
   assert.equal(admission.usableForIndependentVerification, false);
   assert.deepEqual(episodes.map(episode => episode.sampleId), ["tr-h01", "tr-h02", "tr-h03"]);
   assert.equal(supervision.length, episodes.length);
+
+  const legacyEpisodes = (
+    await Promise.all(LEGACY_TRAIN_FAMILY_PATHS.map(path => loadStepwiseEpisodeFamily(path)))
+  ).flat();
+  const legacySupervision = (
+    await Promise.all(LEGACY_TRAIN_FAMILY_PATHS.map(path => loadStepwiseSupervisionFamily(path)))
+  ).flat();
+  const legacyRecords = (
+    await Promise.all(
+      LEGACY_TRAIN_FAMILY_PATHS.map(path => readJsonl(join(path, "independent-supervision.jsonl"))),
+    )
+  ).flat();
+  assert.equal(legacyEpisodes.length, 15);
+  assert.equal(new Set(legacyEpisodes.map(episode => episode.sampleId)).size, 8);
+  assert.equal(legacySupervision.length, 15);
+  assert.equal(legacyRecords.length, 8);
+  assert.deepEqual(
+    legacyRecords
+      .map(row => [row.sampleId, row.gold.label])
+      .sort(),
+    [
+      ["a-module-negative-different-module", "false"],
+      ["a-module-negative-same-module-different", "false"],
+      ["a-module-negative-same-name-module", "false"],
+      ["a-module-positive-alias", "true"],
+      ["a-module-positive-reexport", "true"],
+      ["b-closure-negative-other-module", "false"],
+      ["b-closure-negative-shadow", "false"],
+      ["b-closure-positive-inner-call", "true"],
+    ],
+  );
 
   const groups = episodes.map(episode => convertEpisodeToStudentGroup(episode));
   const supervisionByGroup = new Map(supervision.map(row => [row.group_id, row]));
@@ -133,27 +180,60 @@ test("TRAIN config binds the accepted supervision without fitting", async () => 
   delete nonFittingConfig.warmStart;
   nonFittingConfig.command = "convert-samples";
   const nonFittingRoot = await mkdtemp(join(tmpdir(), "tsjs-unknown-binding-train-"));
+  redirectWritablePaths(nonFittingConfig, nonFittingRoot);
   const nonFittingConfigPath = join(nonFittingRoot, "train-nonfitting.runner-config.json");
   await writeFile(nonFittingConfigPath, JSON.stringify(nonFittingConfig), "utf8");
   try {
-    await rm(config.outputDir, { recursive: true, force: true });
     assert.equal(await runStandardRunnerCli(["convert-samples", "--config", nonFittingConfigPath]), 0);
     assert.equal(await runStandardRunnerCli(["validate-data", "--config", nonFittingConfigPath]), 0);
+
+    const report = await readJson(join(nonFittingConfig.outputDir, "run-report.json"));
+    assert.equal(report.command, "validate-data");
+    assert.equal(report.status, "READY");
+    assert.equal(report.dataGate.status, "READY");
+    assert.equal(report.dataGate.counts.totalRows, 18);
+    assert.equal(report.thisRun.optimizationSeconds, 0);
+
+    const studentRows = await readJsonl(nonFittingConfig.corpus.studentRowsPath);
+    const supervisionRows = await readJsonl(nonFittingConfig.corpus.supervisionRowsPath);
+    const dataGateRows = await readJsonl(nonFittingConfig.dataGate.rowsPath);
+    assert.equal(supervisionRows.length, 18);
+    assert.equal(dataGateRows.length, 18);
+    assert.ok(dataGateRows.every(row => row.partition === "TRAIN"));
+    assert.equal(studentRows.some(row => "gold" in row || "allowed" in row), false);
+    assert.equal(supervisionRows.some(row => "x" in row || "input" in row), false);
+
+    const sourceGroupCounts = new Map();
+    for (const row of dataGateRows) {
+      sourceGroupCounts.set(row.sourceGroup, (sourceGroupCounts.get(row.sourceGroup) ?? 0) + 1);
+    }
+    assert.deepEqual(
+      Object.fromEntries([...sourceGroupCounts.entries()].sort()),
+      {
+        "tsjs-train-closure-call-a": 3,
+        "tsjs-train-module-export-alias-a": 12,
+        "tsjs-train-runtime-helper-selector-r1": 3,
+      },
+    );
+
+    const legacyRows = dataGateRows.filter(
+      row => row.sourceGroup === "tsjs-train-module-export-alias-a"
+        || row.sourceGroup === "tsjs-train-closure-call-a",
+    );
+    assert.ok(legacyRows.some(row => row.gold === "c:judge:true"));
+    assert.ok(legacyRows.some(row => row.gold === "c:judge:false"));
+    assert.ok(legacyRows.some(row => row.gold.startsWith("c:advance:")));
+    assert.equal(
+      dataGateRows.filter(
+        row => row.sourceGroup === "tsjs-train-runtime-helper-selector-r1"
+          && row.gold === "c:judge:unknown",
+      ).length,
+      3,
+    );
+    assert.equal(dataGateRows.some(row => row.partition === "DEV"), false);
   } finally {
     await rm(nonFittingRoot, { recursive: true, force: true });
   }
-
-  const report = await readJson(join(config.outputDir, "run-report.json"));
-  assert.equal(report.command, "validate-data");
-  assert.equal(report.status, "READY");
-  assert.equal(report.dataGate.status, "READY");
-  assert.equal(report.thisRun.optimizationSeconds, 0);
-
-  const studentRows = await readJsonl(config.corpus.studentRowsPath);
-  const supervisionRows = await readJsonl(config.corpus.supervisionRowsPath);
-  assert.equal(supervisionRows.length, 3);
-  assert.equal(studentRows.some(row => "gold" in row || "allowed" in row), false);
-  assert.equal(supervisionRows.some(row => "x" in row || "input" in row), false);
 });
 
 test("DEV config binds accepted DEV truth and does not enter TRAIN supervision", {
@@ -167,6 +247,8 @@ test("DEV config binds accepted DEV truth and does not enter TRAIN supervision",
   assert.equal(config.evaluateDev.consumerEntry, "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision");
   assert.equal(resolve(config.evaluateDev.devFamilyPath), DEV_FAMILY_PATH);
   assert.equal(resolve(config.evaluateDev.admissionsPath), DEV_ADMISSIONS_PATH);
+  assert.equal(resolve(config.evaluateDev.candidatePackagePath), NEW_TRAIN_OUTPUT_PACKAGE_PATH);
+  assert.notEqual(resolve(config.evaluateDev.candidatePackagePath), SOURCE_PACKAGE_PATH);
 
   const admissions = await readJson(DEV_ADMISSIONS_PATH);
   const admission = admissions.familyAdmissions.find(
@@ -190,9 +272,6 @@ test("DEV config binds accepted DEV truth and does not enter TRAIN supervision",
     "runtime_dynamic_selector",
   ]);
 
-  const candidate = (await loadUnifiedModelPackageFromFile(config.evaluateDev.candidatePackagePath)).package;
-  assert.deepEqual(candidate.route, config.route);
-  assert.equal(candidate.encoderVersion, config.encoderVersion);
   assert.equal(config.evaluateDev.devFamilyPath.includes("train-runtime-helper-selector-r1"), false);
 });
 

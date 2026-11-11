@@ -16,7 +16,7 @@
   },
   "outputDir": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/out",
   "corpus": {
-    "root": "training/samples/neural-cli/tsjs/train-runtime-helper-selector-r1",
+    "root": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/corpus-union",
     "admissionsPath": "training/samples/neural-cli/tsjs/corpus-admissions-v1.json",
     "studentRowsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/student-rows.jsonl",
     "supervisionRowsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/supervision-rows.jsonl",
