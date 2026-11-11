@@ -26,8 +26,10 @@ import type {
 import type {
   TsJsCoverageRecord,
   TsJsParserRecord,
+  TsJsRuntimeCallableTable,
   TsJsRuntimeSelectorObservation,
   TsJsRuntimeSelectorRoleFact,
+  TsJsStaticSelectedSelectorObservation,
   TsJsSymbolTableRequest,
 } from "../filters/tsjs-symbol-table-policy.js";
 import { UNIFIED_INPUT_SCHEMA } from "./unified-encoder.js";
@@ -48,7 +50,10 @@ export interface RelationStepSourceContent {
 
 export interface RelationStepLocalFact {
   readonly factRef: string;
-  readonly role?: "selector_candidate_table" | "runtime_selector_dependency";
+  readonly role?:
+    | "selector_candidate_table"
+    | "runtime_selector_dependency"
+    | "static_selected_member";
   readonly state: string;
   readonly value: string | null;
   readonly evidenceRefs: readonly string[];
@@ -59,7 +64,8 @@ export type TsJsCompletionWorkKind =
   | "selector_structure"
   | "callable_identity"
   | "requested_target_mapping"
-  | "selector_scope";
+  | "selector_scope"
+  | "relation_completion";
 
 export type TsJsCompletionDisposition =
   | Readonly<{
@@ -79,12 +85,14 @@ export interface TsJsCompletionWorkItem {
 }
 
 export interface TsJsCompletionWork {
-  readonly contract: "tsjs.observed-dynamic-source-closure.v1";
+  readonly contract:
+    | "tsjs.observed-dynamic-source-closure.v1"
+    | "tsjs.observed-static-selected-read.v1";
   readonly scope: "source_local";
   readonly items: readonly TsJsCompletionWorkItem[];
 }
 
-export interface TsJsProducerSourceBinding {
+export interface TsJsDynamicProducerSourceBinding {
   readonly kind: "nnanything.tsjs.producer-source.v1";
   readonly producerRequest: TsJsSymbolTableRequest;
   readonly parser: TsJsParserRecord;
@@ -100,6 +108,27 @@ export interface TsJsProducerSourceBinding {
   readonly requestedModuleRef: string;
   readonly completionWork?: TsJsCompletionWork;
 }
+
+export interface TsJsStaticProducerSourceBinding {
+  readonly kind: "nnanything.tsjs.producer-source.static-selected.v1";
+  readonly producerRequest: TsJsSymbolTableRequest;
+  readonly parser: TsJsParserRecord;
+  readonly coverage: TsJsCoverageRecord;
+  readonly rawObservation: TsJsStaticSelectedSelectorObservation;
+  readonly sampleId: string;
+  readonly requestRef: string;
+  readonly stepId: string;
+  readonly fromStepId: string | null;
+  readonly callSiteRef: string;
+  readonly pendingRelationRef: string;
+  readonly requestedDeclarationRef: string;
+  readonly requestedModuleRef: string;
+  readonly completionWork?: TsJsCompletionWork;
+}
+
+export type TsJsProducerSourceBinding =
+  | TsJsDynamicProducerSourceBinding
+  | TsJsStaticProducerSourceBinding;
 
 export interface RelationStepReceipt {
   readonly receiptId: string;
