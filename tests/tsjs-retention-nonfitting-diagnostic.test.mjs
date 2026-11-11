@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  loadTsjsRetentionNonfittingDiagnosticConfig,
   runTsjsRetentionNonfittingDiagnostic,
   TSJS_RETENTION_NONFITTING_DIAGNOSTIC_CONFIG_SCHEMA,
   TSJS_RETENTION_NONFITTING_DIAGNOSTIC_REPORT_SCHEMA,
@@ -441,6 +442,94 @@ test("retention diagnostic rejects extra package slots and invalid tau", async (
     assert.match(badTau.report.error.message, /fixed 0\.1/);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("retention config loader validates without loading packages or rows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-retention-config-loader-"));
+  const configPath = join(root, "retention-nonfitting.runner-config.json");
+  const notAssessedComparisons = [
+    {
+      pairRef: "rc-p01",
+      status: "not_assessed",
+      reason: "no retained static-false arm for this contrast",
+    },
+    {
+      pairRef: "rc-p02",
+      status: "not_assessed",
+      reason: "no retained static-false arm for this contrast",
+    },
+    {
+      pairRef: "rc-p03",
+      status: "not_assessed",
+      reason: "no retained static-false arm for this contrast",
+    },
+  ];
+  try {
+    await writeJson(configPath, {
+      schema: TSJS_RETENTION_NONFITTING_DIAGNOSTIC_CONFIG_SCHEMA,
+      sourcePackagePath: join(root, "missing-source-package.json"),
+      renewedPackagePath: join(root, "missing-renewed-package.json"),
+      studentRowsPath: join(root, "missing-student-rows.jsonl"),
+      supervisionRowsPath: join(root, "missing-supervision-rows.jsonl"),
+      tau: 0.1,
+      notAssessedComparisons,
+    });
+    const config = await loadTsjsRetentionNonfittingDiagnosticConfig(configPath);
+    assert.equal(config.schema, TSJS_RETENTION_NONFITTING_DIAGNOSTIC_CONFIG_SCHEMA);
+    assert.equal(config.tau, 0.1);
+    assert.equal(config.comparisons, undefined);
+    assert.deepEqual(config.notAssessedComparisons, notAssessedComparisons);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("retention config loader rejects invalid not_assessed declarations", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-retention-config-loader-"));
+  const configPath = join(root, "retention-nonfitting.runner-config.json");
+  const base = {
+    schema: TSJS_RETENTION_NONFITTING_DIAGNOSTIC_CONFIG_SCHEMA,
+    sourcePackagePath: join(root, "missing-source-package.json"),
+    renewedPackagePath: join(root, "missing-renewed-package.json"),
+    studentRowsPath: join(root, "missing-student-rows.jsonl"),
+    supervisionRowsPath: join(root, "missing-supervision-rows.jsonl"),
+    tau: 0.1,
+  };
+  try {
+    await writeJson(configPath, {
+      ...base,
+      notAssessedComparisons: [
+        { pairRef: "rc-p01", status: "assessed", reason: "invalid status" },
+      ],
+    });
+    await assert.rejects(
+      () => loadTsjsRetentionNonfittingDiagnosticConfig(configPath),
+      error => error.code === "CONFIG_INVALID" && /status must be not_assessed/.test(error.message),
+    );
+
+    await writeJson(configPath, {
+      ...base,
+      comparisons: [
+        {
+          comparisonRef: "assessed-p01",
+          pairRef: "rc-p01",
+          leftGroupId: "left",
+          leftCandidateRef: "left-candidate",
+          rightGroupId: "right",
+          rightCandidateRef: "right-candidate",
+        },
+      ],
+      notAssessedComparisons: [
+        { pairRef: "rc-p01", status: "not_assessed", reason: "duplicate pair" },
+      ],
+    });
+    await assert.rejects(
+      () => loadTsjsRetentionNonfittingDiagnosticConfig(configPath),
+      error => error.code === "CONFIG_INVALID" && /both assessed and not_assessed/.test(error.message),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

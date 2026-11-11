@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   UNIFIED_ENCODER_VERSION,
@@ -46,6 +47,12 @@ export interface TsjsRetentionNonfittingComparison {
   readonly rightCandidateRef: string;
 }
 
+export interface TsjsRetentionNonfittingNotAssessedComparison {
+  readonly pairRef: string;
+  readonly status: "not_assessed";
+  readonly reason: string;
+}
+
 export interface TsjsRetentionNonfittingDiagnosticConfig {
   readonly schema: typeof TSJS_RETENTION_NONFITTING_DIAGNOSTIC_CONFIG_SCHEMA;
   readonly sourcePackagePath: string;
@@ -54,6 +61,7 @@ export interface TsjsRetentionNonfittingDiagnosticConfig {
   readonly supervisionRowsPath: string;
   readonly tau: 0.1;
   readonly comparisons?: readonly TsjsRetentionNonfittingComparison[];
+  readonly notAssessedComparisons?: readonly TsjsRetentionNonfittingNotAssessedComparison[];
 }
 
 export interface TsjsRetentionNonfittingDiagnosticError {
@@ -204,6 +212,7 @@ const CONFIG_KEYS = new Set([
   "supervisionRowsPath",
   "tau",
   "comparisons",
+  "notAssessedComparisons",
 ]);
 
 const COMPARISON_KEYS = new Set([
@@ -213,6 +222,12 @@ const COMPARISON_KEYS = new Set([
   "leftCandidateRef",
   "rightGroupId",
   "rightCandidateRef",
+]);
+
+const NOT_ASSESSED_COMPARISON_KEYS = new Set([
+  "pairRef",
+  "status",
+  "reason",
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -261,6 +276,29 @@ function parseComparison(value: unknown, index: number): TsjsRetentionNonfitting
   };
 }
 
+function parseNotAssessedComparison(
+  value: unknown,
+  index: number,
+): TsjsRetentionNonfittingNotAssessedComparison {
+  const raw = requireObject(value, `config.notAssessedComparisons[${index}]`);
+  rejectExtraKeys(
+    raw,
+    NOT_ASSESSED_COMPARISON_KEYS,
+    `config.notAssessedComparisons[${index}]`,
+  );
+  if (raw.status !== "not_assessed") {
+    throw new RetentionDiagnosticFailure(
+      "CONFIG_INVALID",
+      `config.notAssessedComparisons[${index}].status must be not_assessed`,
+    );
+  }
+  return {
+    pairRef: requireString(raw.pairRef, `config.notAssessedComparisons[${index}].pairRef`),
+    status: "not_assessed",
+    reason: requireString(raw.reason, `config.notAssessedComparisons[${index}].reason`),
+  };
+}
+
 function parseConfig(value: unknown): TsjsRetentionNonfittingDiagnosticConfig {
   const raw = requireObject(value, "config");
   rejectExtraKeys(raw, CONFIG_KEYS, "config");
@@ -280,6 +318,25 @@ function parseConfig(value: unknown): TsjsRetentionNonfittingDiagnosticConfig {
       : (() => {
           throw new RetentionDiagnosticFailure("CONFIG_INVALID", "config.comparisons must be an array");
         })();
+  const notAssessedComparisons = raw.notAssessedComparisons === undefined
+    ? undefined
+    : Array.isArray(raw.notAssessedComparisons)
+      ? raw.notAssessedComparisons.map(parseNotAssessedComparison)
+      : (() => {
+          throw new RetentionDiagnosticFailure(
+            "CONFIG_INVALID",
+            "config.notAssessedComparisons must be an array",
+          );
+        })();
+  const assessedPairRefs = new Set((comparisons ?? []).map(comparison => comparison.pairRef));
+  for (const comparison of notAssessedComparisons ?? []) {
+    if (assessedPairRefs.has(comparison.pairRef)) {
+      throw new RetentionDiagnosticFailure(
+        "CONFIG_INVALID",
+        `pairRef ${comparison.pairRef} cannot be both assessed and not_assessed`,
+      );
+    }
+  }
   return {
     schema: TSJS_RETENTION_NONFITTING_DIAGNOSTIC_CONFIG_SCHEMA,
     sourcePackagePath: requireString(raw.sourcePackagePath, "config.sourcePackagePath"),
@@ -288,7 +345,25 @@ function parseConfig(value: unknown): TsjsRetentionNonfittingDiagnosticConfig {
     supervisionRowsPath: requireString(raw.supervisionRowsPath, "config.supervisionRowsPath"),
     tau: 0.1,
     ...(comparisons === undefined ? {} : { comparisons }),
+    ...(notAssessedComparisons === undefined ? {} : { notAssessedComparisons }),
   };
+}
+
+export async function loadTsjsRetentionNonfittingDiagnosticConfig(
+  configPath: string,
+): Promise<TsjsRetentionNonfittingDiagnosticConfig> {
+  const resolvedPath = resolve(configPath);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(resolvedPath, "utf8")) as unknown;
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new RetentionDiagnosticFailure(
+      "CONFIG_INVALID",
+      `cannot load config ${resolvedPath}: ${message}`,
+    );
+  }
+  return parseConfig(parsed);
 }
 
 function resolvedOrNull(value: unknown): string | null {
