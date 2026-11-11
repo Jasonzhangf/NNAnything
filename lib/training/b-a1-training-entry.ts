@@ -47,6 +47,7 @@ import {
   loadUnifiedModelPackageFromFile,
   saveUnifiedModelPackageAtomic,
   type UnifiedModelPackage,
+  type UnifiedModelPackageResource,
   type UnifiedModelPackageResources,
 } from "./unified-model-package.js";
 import {
@@ -55,12 +56,15 @@ import {
   verifyUnifiedTrainingCheckpointReload,
   type UnifiedTrainingCheckpoint,
   type UnifiedTrainingCheckpointReloadReceipt,
+  type UnifiedWarmStartLineage,
 } from "./unified-training-checkpoint.js";
 import {
   UNIFIED_TRAIN_CONFIG_SCHEMA,
+  checkWarmStartEpochZeroEquality,
   verifyUnifiedTrainPackageReload,
   type UnifiedPackageReloadReceipt,
   type UnifiedTrainConfig,
+  type UnifiedWarmStartSource,
 } from "./unified-train-config.js";
 import {
   addCheckpointIoTiming,
@@ -153,6 +157,22 @@ export class BA1TrainDataError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BA1TrainDataError";
+  }
+}
+
+export type BA1WarmStartErrorCode =
+  | "WARMSTART_PATH_CONFLICT"
+  | "WARMSTART_SOURCE_INVALID"
+  | "WARMSTART_SOURCE_INCOMPATIBLE";
+
+export class BA1WarmStartError extends Error {
+  readonly code: BA1WarmStartErrorCode;
+  readonly optimizerSteps = 0 as const;
+
+  constructor(code: BA1WarmStartErrorCode, message: string) {
+    super(message);
+    this.name = "BA1WarmStartError";
+    this.code = code;
   }
 }
 
@@ -602,6 +622,123 @@ function tensorsMatch(left: UnifiedTensors, right: UnifiedTensors): boolean {
   return true;
 }
 
+function assertBA1WarmStartPathsDistinct(
+  sourcePackagePath: string,
+  targetPackagePath: string,
+  targetCheckpointPath: string | undefined,
+): void {
+  const pairs = [
+    ["source package", resolve(sourcePackagePath), "target package", resolve(targetPackagePath)],
+    ...(targetCheckpointPath === undefined
+      ? []
+      : [
+          ["source package", resolve(sourcePackagePath), "target checkpoint", resolve(targetCheckpointPath)],
+          ["target package", resolve(targetPackagePath), "target checkpoint", resolve(targetCheckpointPath)],
+        ] as const),
+  ] as const;
+  for (const [leftLabel, leftPath, rightLabel, rightPath] of pairs) {
+    if (leftPath === rightPath) {
+      throw new BA1WarmStartError(
+        "WARMSTART_PATH_CONFLICT",
+        `${leftLabel} and ${rightLabel} resolve to the same path: ${leftPath}`,
+      );
+    }
+  }
+}
+
+function assertBA1WarmStartCompatible(
+  source: UnifiedModelPackageResource,
+  config: BA1TrainConfig,
+): void {
+  const mismatches: string[] = [];
+  if (
+    source.package.route.domain !== config.route.domain
+    || source.package.route.decisionKind !== config.route.decisionKind
+  ) {
+    mismatches.push(
+      `route source=${JSON.stringify(source.package.route)} target=${JSON.stringify(config.route)}`,
+    );
+  }
+  if (source.package.inputSchema !== config.inputSchema) {
+    mismatches.push(
+      `inputSchema source=${source.package.inputSchema} target=${config.inputSchema}`,
+    );
+  }
+  if (source.package.encoderVersion !== config.encoderVersion) {
+    mismatches.push(
+      `encoderVersion source=${source.package.encoderVersion} target=${config.encoderVersion}`,
+    );
+  }
+  const architecture = source.package.architecture;
+  if (
+    architecture.input !== config.architecture.input
+    || architecture.hidden.length !== config.architecture.hidden.length
+    || architecture.hidden[0] !== config.architecture.hidden[0]
+    || architecture.hidden[1] !== config.architecture.hidden[1]
+    || architecture.output !== config.architecture.output
+    || architecture.activation !== config.architecture.activation
+  ) {
+    mismatches.push(
+      `architecture source=${JSON.stringify(architecture)} target=${JSON.stringify(config.architecture)}`,
+    );
+  }
+  if (source.package.resources.thresholdsSchema !== config.resources.thresholdsSchema) {
+    mismatches.push(
+      `thresholdsSchema source=${source.package.resources.thresholdsSchema} `
+      + `target=${config.resources.thresholdsSchema}`,
+    );
+  }
+  if (source.package.resources.missingModeSchema !== config.resources.missingModeSchema) {
+    mismatches.push(
+      `missingModeSchema source=${source.package.resources.missingModeSchema} `
+      + `target=${config.resources.missingModeSchema}`,
+    );
+  }
+  if (source.resolvedResources.slotMapPath === null) {
+    mismatches.push("slotMap source=missing target=required");
+  }
+  if (mismatches.length > 0) {
+    throw new BA1WarmStartError(
+      "WARMSTART_SOURCE_INCOMPATIBLE",
+      `B-A1 warm start source package ${source.packagePath} is incompatible: ${mismatches.join("; ")}`,
+    );
+  }
+}
+
+async function loadBA1WarmStartSource(
+  sourcePackagePath: string,
+  config: BA1TrainConfig,
+): Promise<UnifiedWarmStartSource> {
+  let source: UnifiedModelPackageResource;
+  try {
+    source = await loadUnifiedModelPackageFromFile(sourcePackagePath);
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new BA1WarmStartError(
+      "WARMSTART_SOURCE_INVALID",
+      `B-A1 warm start source package at ${resolve(sourcePackagePath)} is missing or invalid: ${message}`,
+    );
+  }
+  try {
+    await validateBA1ResourceContent(source.package.resources, dirname(source.packagePath));
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new BA1WarmStartError(
+      "WARMSTART_SOURCE_INCOMPATIBLE",
+      `B-A1 warm start source package ${source.packagePath} has an invalid resource contract: ${message}`,
+    );
+  }
+  assertBA1WarmStartCompatible(source, config);
+  return {
+    tensors: source.package.tensors,
+    modelId: source.package.modelId,
+    version: source.package.version,
+    route: { ...source.package.route },
+    encoderVersion: source.package.encoderVersion,
+    sourcePackagePath: source.packagePath,
+  };
+}
+
 async function verifyBA1PackageReloadInNewProcess(
   packagePath: string,
   expected: UnifiedModelPackage,
@@ -815,9 +952,18 @@ export async function trainBA1UnifiedRelationDecision(options: {
   readonly supervisionRowsPath: string;
   readonly packageOutPath: string;
   readonly checkpointOutPath?: string;
+  readonly warmStartFrom?: UnifiedWarmStartSource;
 }): Promise<BA1TrainResult> {
   const commandStartedNs = process.hrtime.bigint();
   validateBA1TrainConfig(options.config);
+
+  if (options.warmStartFrom !== undefined) {
+    assertBA1WarmStartPathsDistinct(
+      options.warmStartFrom.sourcePackagePath,
+      options.packageOutPath,
+      options.checkpointOutPath,
+    );
+  }
 
   // Resource content is a fixed route-owned gate. It must be verified before
   // any optimizer step or artifact write, using the same validation that the
@@ -826,6 +972,9 @@ export async function trainBA1UnifiedRelationDecision(options: {
   await validateBA1ResourceContent(options.config.resources, packageDir);
 
   const loadStartedNs = process.hrtime.bigint();
+  const warmStartSource = options.warmStartFrom === undefined
+    ? undefined
+    : await loadBA1WarmStartSource(options.warmStartFrom.sourcePackagePath, options.config);
   const studentGroups = await loadBA1StudentRowsFile(options.studentRowsPath);
   const supervisionRows = await loadBA1SupervisionRowsFile(options.supervisionRowsPath);
   const loadSeconds = monotonicSeconds(loadStartedNs);
@@ -835,8 +984,25 @@ export async function trainBA1UnifiedRelationDecision(options: {
   const dataValidationSeconds = monotonicSeconds(validationStartedNs);
 
   const trainConfig = buildUnifiedTrainConfig(options.config);
-  const tensors = createXavierTensors(options.config.seed) as MutableUnifiedTensors;
+  const tensors = warmStartSource === undefined
+    ? createXavierTensors(options.config.seed) as MutableUnifiedTensors
+    : cloneTensors(warmStartSource.tensors) as MutableUnifiedTensors;
   assertTensorsFinite(tensors, "initial tensors");
+  const warmStartLineage: UnifiedWarmStartLineage | undefined = warmStartSource === undefined
+    ? undefined
+    : {
+        kind: "package-warm-start",
+        sourceModelId: warmStartSource.modelId,
+        sourceVersion: warmStartSource.version,
+        sourcePackagePath: warmStartSource.sourcePackagePath,
+        sourceRoute: { ...warmStartSource.route },
+        sourceEncoderVersion: warmStartSource.encoderVersion,
+        epochZero: checkWarmStartEpochZeroEquality(
+          warmStartSource.tensors,
+          tensors,
+          groups.flatMap(group => group.candidates.map(candidate => candidate.input)),
+        ),
+      };
   const initialLoss = bA1ParameterLoss(groups, tensors);
 
   const epochs: BA1TrainEpochRecord[] = [];
@@ -936,6 +1102,7 @@ export async function trainBA1UnifiedRelationDecision(options: {
       violations,
       tensors,
       timing: persistedTiming,
+      ...(warmStartLineage === undefined ? {} : { warmStart: warmStartLineage }),
     });
     const saved = await saveUnifiedTrainingCheckpointAtomicWithTiming(
       options.checkpointOutPath,
