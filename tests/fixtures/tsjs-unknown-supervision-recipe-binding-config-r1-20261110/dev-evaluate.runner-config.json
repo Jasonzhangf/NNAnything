@@ -1,0 +1,26 @@
+{
+  "schema": "nnanything.unified.runner-config.v1",
+  "command": "evaluate-dev",
+  "route": {
+    "domain": "tsjs",
+    "decisionKind": "R"
+  },
+  "phase": "evaluation",
+  "encoderVersion": "nnanything.unified-step.encoder.v2",
+  "dataGate": {
+    "schema": "nnanything.unified.data-gate.v1",
+    "partition": "DEV",
+    "encoderVersion": "nnanything.unified-step.encoder.v2",
+    "thresholdsPath": "tests/fixtures/unified-64-slot/feature-thresholds-r-unified-step-encoder-v2.json",
+    "rowsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/dev/unused-data-rows.jsonl"
+  },
+  "outputDir": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/dev/out",
+  "evaluateDev": {
+    "schema": "nnanything.unified.dev-evaluate-config.v1",
+    "candidatePackagePath": "/Volumes/Intel/playground/nnanything-runs/tsjs-unknown-supervision-recipe-binding-config-r1-20261110/config-evidence/train/candidate-package.json",
+    "devFamilyPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-request-aware-admission-config-r1-20261110/derived-dev",
+    "admissionsPath": "/Volumes/Intel/playground/nnanything-runs/tsjs-request-aware-admission-config-r1-20261110/derived-dev/familyAdmissions.json",
+    "consumerEntry": "tsjs-unified-recursive:runTsJsUnifiedMultiStepDecision",
+    "runId": "tsjs-unknown-supervision-dev-r1"
+  }
+}

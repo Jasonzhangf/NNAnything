@@ -135,11 +135,14 @@ test("typed observations produce dynamic candidates without reading correction t
   );
 });
 
-test("partitionOf maps only explicit source partitions", () => {
+test("partitionOf maps explicit source partitions in either account casing", () => {
   assert.equal(partitionOf("train"), "TRAIN");
   assert.equal(partitionOf("dev"), "DEV");
   assert.equal(partitionOf("verification"), "VERIFICATION");
-  assert.throws(() => partitionOf("TRAIN"), TypeError);
+  assert.equal(partitionOf("TRAIN"), "TRAIN");
+  assert.equal(partitionOf("DEV"), "DEV");
+  assert.equal(partitionOf("VERIFICATION"), "VERIFICATION");
+  assert.throws(() => partitionOf("validation"), TypeError);
 });
 
 test("open enumeration cursor stays unencodable before training", () => {

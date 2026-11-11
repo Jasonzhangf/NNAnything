@@ -19,7 +19,7 @@
 
 import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -514,11 +514,16 @@ async function discoverUnifiedFamilyDirs(root: string): Promise<readonly string[
   const resolvedRoot = resolve(root);
   if (existsSync(join(resolvedRoot, "manifest.json"))) return [resolvedRoot];
   const entries = await readdir(resolvedRoot, { withFileTypes: true });
-  const dirs = entries
-    .filter(entry => entry.isDirectory())
-    .map(entry => join(resolvedRoot, entry.name))
-    .filter(candidate => existsSync(join(candidate, "manifest.json")))
-    .sort();
+  const dirs: string[] = [];
+  for (const entry of entries) {
+    const candidate = join(resolvedRoot, entry.name);
+    const isDirectory = entry.isDirectory()
+      || (entry.isSymbolicLink() && (await stat(candidate)).isDirectory());
+    if (isDirectory && existsSync(join(candidate, "manifest.json"))) {
+      dirs.push(candidate);
+    }
+  }
+  dirs.sort();
   if (dirs.length === 0) {
     throw new UnifiedTrainDataError(`no source family with manifest.json under ${resolvedRoot}`);
   }
