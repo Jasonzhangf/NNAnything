@@ -367,7 +367,7 @@ function validateTimingReceipt(rawReport: Record<string, unknown>): {
   return { complete: true, detail: null };
 }
 
-function scoresOf(
+export function scoresOf(
   group: EncodedGroup,
   tensors: UnifiedTensors,
 ): readonly { readonly candidateRef: string; readonly score: number }[] {
@@ -382,7 +382,7 @@ function scoresOf(
     });
 }
 
-function selectedCandidate(scores: readonly { readonly candidateRef: string; readonly score: number }[]): string {
+export function selectedCandidate(scores: readonly { readonly candidateRef: string; readonly score: number }[]): string {
   if (scores.length === 0) {
     throw new WarmStartAcceptanceFailure("WARMSTART_EVIDENCE_INVALID", "candidate score set is empty");
   }
