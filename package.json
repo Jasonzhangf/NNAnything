@@ -115,6 +115,8 @@
     "prepare:path-samples": "npm run build && node playground/cli/path-resolve/prepare.mjs",
     "demo:path-training": "npm run build && node playground/cli/path-resolve/train.mjs",
     "demo:command-training": "npm run build && node playground/cli/command-learning/train.mjs",
+    "prepare:tsjs-retention-contrast": "npm run build && node scripts/materialize-tsjs-retention-contrast.mjs",
+    "validate:tsjs-retention-contrast": "npm run build && node scripts/validate-tsjs-retention-contrast.mjs",
     "build:extension": "npm run build && node scripts/build-extension.mjs",
     "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit",
     "bump-version": "node scripts/bump-version.mjs"
