@@ -83,6 +83,7 @@ export interface BA1RealSiteProjectionOperation {
 
 export type BA1RealSiteNativeAction =
   | { readonly action: "click" }
+  | { readonly action: "focus" }
   | { readonly action: "replace-text"; readonly text: string }
   | { readonly action: "submit-enter"; readonly expectedText: string };
 
@@ -114,7 +115,7 @@ export type BA1RealSiteActionErrorCode =
 export interface BA1RealSiteActionReceipt {
   readonly schema: "nnanything.b-a1.real-site-action-receipt.v1";
   readonly actionId: string;
-  readonly action: "click" | "replace-text" | "submit-enter";
+  readonly action: "click" | "focus" | "replace-text" | "submit-enter";
   readonly control: {
     readonly documentRef: string;
     readonly observationId: string;
@@ -522,6 +523,10 @@ function parseNativeAction(value: unknown): BA1RealSiteNativeAction {
   if (kind === "click") {
     exactKeys(action, ["action"], "click action");
     return { action: "click" };
+  }
+  if (kind === "focus") {
+    exactKeys(action, ["action"], "focus action");
+    return { action: "focus" };
   }
   if (kind === "replace-text") {
     exactKeys(action, ["action", "text"], "replace-text action");
@@ -1079,6 +1084,7 @@ class CdpConnection {
       throw new BA1RealSiteCdpRuntimeError(
         "provider_replaced",
         "document changed before the projection request was sent",
+        { delivery: "not_sent" },
       );
     }
     let waiter: DocumentEpochWaiter | null = null;
@@ -1098,6 +1104,7 @@ class CdpConnection {
           throw new BA1RealSiteCdpRuntimeError(
             "provider_replaced",
             "document changed before evaluate used the main-frame context",
+            { delivery: "not_sent" },
           );
         }
         return await this.evaluate(expression, contextId);
@@ -1109,7 +1116,7 @@ class CdpConnection {
           throw new BA1RealSiteCdpRuntimeError(
             "provider_replaced",
             "document changed while evaluating a page action",
-            { cause: error instanceof Error ? error.message : String(error) },
+            { cause: error instanceof Error ? error.message : String(error), delivery: "unknown" },
           );
         }
         throw error;
@@ -1683,6 +1690,73 @@ class CdpConnection {
         focus,
         readback: { status: "not_applicable", value: null },
         effectKnowledge: focus === "target" ? "focused" : "none",
+        error: null,
+      });
+    }
+
+    if (action.action === "focus") {
+      let after: NativeActionTargetFacts | null = null;
+      try {
+        const focused = await this.pageAction(
+          "focus-target",
+          { elementRef: facts.elementRef },
+          expectedEpoch,
+        );
+        if (focused.kind === "target_focused") {
+          after = parseNativeActionFacts(focused.facts);
+        }
+      } catch (error) {
+        if (error instanceof BA1RealSiteCdpRuntimeError && error.code === "provider_replaced") {
+          const dispatch = deliveryStateOf(error);
+          return dispatch === "not_sent"
+            ? fail("STALE_BEFORE_DISPATCH", "document changed before focus dispatch", dispatch, {
+                target: targetReceipt,
+                focus: initialFocus,
+              })
+            : fail("UNKNOWN_DISPATCH", "document changed during focus dispatch", dispatch, {
+                target: targetReceipt,
+                focus: "unknown",
+                effectKnowledge: "unknown",
+              });
+        }
+        const pageCode = pageActionErrorCode(error);
+        const pageMessage = error instanceof Error ? error.message : String(error);
+        if (pageCode === "invalid_request") {
+          throw new TypeError(pageMessage);
+        }
+        if (pageCode === "target_stale") {
+          return fail("STALE_BEFORE_DISPATCH", pageMessage, "not_sent", {
+            target: targetReceipt,
+            focus: initialFocus,
+          });
+        }
+        const dispatch = deliveryStateOf(error);
+        return fail(
+          "DISPATCH_FAILED",
+          pageMessage,
+          dispatch,
+          {
+            target: targetReceipt,
+            focus: initialFocus,
+            effectKnowledge: dispatch === "unknown" ? "unknown" : "none",
+          },
+        );
+      }
+      if (after === null || !after.focused) {
+        return fail("FOCUS_NOT_ACQUIRED", "target focus was not acquired", "complete", {
+          target: targetReceipt,
+          focus: after === null ? "unknown" : "other",
+        });
+      }
+      return buildActionReceipt({
+        actionId,
+        action: action.action,
+        control,
+        target: targetReceipt,
+        dispatch: "complete",
+        focus: "target",
+        readback: { status: "not_applicable", value: null },
+        effectKnowledge: "focused",
         error: null,
       });
     }

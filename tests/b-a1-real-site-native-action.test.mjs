@@ -57,6 +57,70 @@ const ambiguousHtml = `
 const singleTriggerHtml = `
   <div id="scope"><button class="trigger" aria-label="Submit">Go</button></div>
 `;
+const focusWithoutScrollHtml = `
+  <style>
+    body { margin: 0; }
+    #scroll-space { height: 2400px; }
+    #focus-target {
+      position: absolute;
+      top: 1600px;
+      left: 16px;
+      padding: 8px;
+    }
+  </style>
+  <div id="scope">
+    <div id="scroll-space"></div>
+    <a id="focus-target" href="#search">Skip to search</a>
+  </div>
+  <script>
+    window.addEventListener("scroll", () => {
+      void fetch("/action-event?name=window-scroll").catch(() => undefined);
+    });
+  </script>
+`;
+const focusNavigationHtml = `
+  <div id="scope">
+    <button id="focus-navigates" type="button" aria-label="Focus navigates">Focus navigates</button>
+  </div>
+  <script>
+    document.getElementById("focus-navigates").addEventListener("focus", () => {
+      globalThis.__bA1FocusNavigated = true;
+    });
+  </script>
+`;
+const focusNavigationActionWrapper = `
+const originalFocusAction = globalThis.__nnanythingBA1RealSiteAction;
+globalThis.__nnanythingBA1RealSiteAction = request => {
+  if (request && request.op === "focus-target") {
+    originalFocusAction(request);
+    if (globalThis.__bA1FocusNavigated === true) {
+      location.assign("/focus-navigated");
+    }
+    return new Promise(() => {});
+  }
+  return originalFocusAction(request);
+};
+`;
+const openShadowActionHtml = `
+  <div id="scope"></div>
+  <script>
+    const host = document.getElementById("scope");
+    const root = host.attachShadow({ mode: "open" });
+    const dialog = document.createElement("dialog");
+    dialog.open = true;
+    dialog.style.display = "block";
+    dialog.style.position = "relative";
+    dialog.style.margin = "20px";
+    dialog.style.width = "320px";
+    dialog.style.height = "80px";
+    const input = document.createElement("input");
+    input.type = "search";
+    input.setAttribute("aria-label", "Search");
+    input.setAttribute("tabindex", "0");
+    dialog.append(input);
+    root.append(dialog);
+  </script>
+`;
 const absentScopeHtml = `
   <div id="scope"><button id="open" class="trigger" aria-label="Open">Open</button></div>
   <script>
@@ -286,6 +350,7 @@ async function buildProjectionScript(options = {}) {
 globalThis.__nnanythingBA1RealSiteProjection = BA1Projection.handleBA1RealSiteBrowserProjectionRequest;
 globalThis.__nnanythingBA1RealSiteAction = BA1Projection.handleBA1RealSiteBrowserActionRequest;
 ${observerLifecycleProbeScript(options.observerLifecycleProbe)}
+${options.actionWrapper ?? ""}
 ${options.invalidObserverResult === true ? `
 const validActionHandler = globalThis.__nnanythingBA1RealSiteAction;
 globalThis.__nnanythingBA1RealSiteAction = request => {
@@ -313,6 +378,7 @@ async function startFixtureServer() {
   let observerLifecycleResult = null;
   let replaceDone = false;
   let slowTargetRequestCount = 0;
+  let focusNavigationCount = 0;
   const deferredReplace = [];
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", origin === "" ? "http://127.0.0.1" : origin);
@@ -347,6 +413,12 @@ async function startFixtureServer() {
       response.end();
       return;
     }
+    if (url.pathname === "/focus-navigated") {
+      focusNavigationCount += 1;
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      response.end(targetHtml);
+      return;
+    }
     if (url.pathname === "/slow-resource") {
       const delayMs = Math.max(0, Math.min(5_000, Number(url.searchParams.get("delay") ?? 0)));
       setTimeout(() => {
@@ -372,6 +444,8 @@ async function startFixtureServer() {
     const pages = new Map([
       ["/blank", "<div id=\"scope\"></div>"],
       ["/positive", positiveHtml],
+      ["/focus-without-scroll", focusWithoutScrollHtml],
+      ["/open-shadow-action", openShadowActionHtml],
       ["/target", targetHtml],
       ["/same-document", sameDocumentHtml],
       ["/in-place", inPlaceRerenderHtml],
@@ -411,6 +485,7 @@ async function startFixtureServer() {
     },
     replaceDone: () => replaceDone,
     slowTargetRequestCount: () => slowTargetRequestCount,
+    focusNavigationCount: () => focusNavigationCount,
     observerLifecycleResult: () => observerLifecycleResult,
     clearObserverLifecycleResult: () => { observerLifecycleResult = null; },
     close: () => new Promise(resolve => server.close(resolve)),
@@ -705,6 +780,110 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     });
     assert.equal(clickReceipt.dispatch, "complete");
     assert.equal(clickReceipt.error, null);
+  });
+
+  await t.test("focus gives a complete receipt without scrolling the target into view", async () => {
+    await runtime.navigate(`${fixture.origin}/focus-without-scroll`, "doc-action-focus-without-scroll");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const receipt = await runtime.executeNativeAction({
+      target: {
+        kind: "unique-recipe-selector",
+        control: controlOf(projection.operation),
+        selector: "#focus-target",
+        expectedTag: "a",
+        expectedRole: "link",
+        expectedAccessibleName: "Skip to search",
+      },
+      action: { action: "focus" },
+    });
+
+    assert.equal(receipt.schema, "nnanything.b-a1.real-site-action-receipt.v1");
+    assert.equal(receipt.action, "focus");
+    assert.deepEqual(receipt.control, {
+      documentRef: projection.operation.identity.documentRef,
+      observationId: projection.operation.identity.observationId,
+      revision: projection.operation.identity.revision,
+      generation: projection.operation.generation,
+    });
+    assert.equal(receipt.target.candidateRef, null);
+    assert.equal(receipt.target.tag, "other");
+    assert.equal(receipt.target.type, null);
+    assert.ok(receipt.target.geometry.y >= 1500, "preventScroll must keep the target below the viewport");
+    assert.equal(receipt.target.visible, true);
+    assert.equal(receipt.target.enabled, true);
+    assert.equal(receipt.target.editable, false);
+    assert.equal(receipt.dispatch, "complete");
+    assert.equal(receipt.focus, "target");
+    assert.deepEqual(receipt.readback, { status: "not_applicable", value: null });
+    assert.equal(receipt.effectKnowledge, "focused");
+    assert.equal(receipt.error, null);
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(fixture.events().includes("window-scroll"), false, "focus must not scroll the document");
+  });
+
+  await t.test("focus reports a typed failure when the target cannot acquire focus", async () => {
+    await runtime.setDocumentContent(
+      '<div id="scope"><div id="not-focusable" aria-label="Not focusable">Text</div></div>',
+      "doc-action-focus-failure",
+    );
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    const receipt = await runtime.executeNativeAction({
+      target: {
+        kind: "unique-recipe-selector",
+        control: controlOf(projection.operation),
+        selector: "#not-focusable",
+        expectedTag: "div",
+        expectedRole: "div",
+        expectedAccessibleName: "Not focusable",
+      },
+      action: { action: "focus" },
+    });
+
+    assert.equal(receipt.action, "focus");
+    assert.equal(receipt.dispatch, "complete");
+    assert.equal(receipt.focus, "other");
+    assert.deepEqual(receipt.readback, { status: "not_applicable", value: null });
+    assert.equal(receipt.effectKnowledge, "none");
+    assert.equal(receipt.error?.code, "FOCUS_NOT_ACQUIRED");
+  });
+
+  await t.test("projected candidates inside an open shadow root stay within the declared host scope", async () => {
+    await runtime.navigate(`${fixture.origin}/open-shadow-action`, "doc-action-open-shadow-scope");
+    const projection = await runtime.beginProjection({
+      scopeSelector: "#scope",
+      openShadowRootChildSelector: "dialog",
+      requestedRole: "search-input-host",
+      access: "available",
+    });
+    assert.equal(projection.projection.candidates.length, 1);
+    assert.equal(projection.projection.outsideScopeRefs.length, 0);
+
+    const receipt = await runtime.executeNativeAction({
+      target: {
+        kind: "projected-candidate",
+        control: controlOf(projection.operation),
+        scopeSelector: "#scope",
+        candidateRef: projection.projection.candidates[0].ref,
+      },
+      action: { action: "replace-text", text: "shadow query" },
+    });
+
+    assert.equal(receipt.action, "replace-text");
+    assert.equal(receipt.dispatch, "complete");
+    assert.equal(receipt.focus, "target");
+    assert.equal(receipt.readback.status, "exact");
+    assert.equal(receipt.readback.value, "shadow query");
+    assert.equal(receipt.effectKnowledge, "text_written");
+    assert.equal(receipt.error, null);
   });
 
   await t.test("absent scope appearance and ambiguous scope are reported without retry", async () => {
@@ -1336,4 +1515,42 @@ test("B-A1 typed native action on the local Chrome public consumer", async t => 
     assert.equal(closeOutcome.status, "rejected");
   });
 
+});
+
+test("B-A1 focus-triggered navigation action receipt is never a zero-effect not_sent", async t => {
+  const fixture = await startFixtureServer();
+  const projectionScript = await buildProjectionScript();
+  const runtime = await createBA1RealSiteCdpRuntime();
+  t.after(async () => {
+    await runtime.close();
+    await fixture.close();
+  });
+  await runtime.installProjectionBundle(
+    await buildProjectionScript({ actionWrapper: focusNavigationActionWrapper }),
+  );
+  await runtime.navigate(`${fixture.origin}/blank`, "doc-action-focus-navigation");
+  await runtime.setDocumentContent(focusNavigationHtml, "doc-action-focus-navigation");
+  const projection = await runtime.beginProjection({
+    scopeSelector: "#scope",
+    requestedRole: "search-input-host",
+    access: "available",
+  });
+  const receipt = await runtime.executeNativeAction({
+    target: {
+      kind: "unique-recipe-selector",
+      control: controlOf(projection.operation),
+      selector: "#focus-navigates",
+      expectedTag: "button",
+      expectedRole: "button",
+      expectedAccessibleName: "Focus navigates",
+    },
+    action: { action: "focus" },
+  });
+
+  assert.equal(receipt.action, "focus");
+  assert.equal(receipt.dispatch, "unknown");
+  assert.equal(receipt.focus, "unknown");
+  assert.equal(receipt.effectKnowledge, "unknown");
+  assert.equal(receipt.error?.code, "UNKNOWN_DISPATCH");
+  await waitUntil(() => fixture.focusNavigationCount() > 0, "focus handler did not navigate");
 });

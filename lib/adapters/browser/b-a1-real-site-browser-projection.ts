@@ -135,6 +135,10 @@ export type BA1RealSiteBrowserActionResult =
       readonly facts: ActionTargetFacts;
     }
   | {
+      readonly kind: "target_focused";
+      readonly facts: ActionTargetFacts;
+    }
+  | {
       readonly kind: "scope_presence";
       readonly scopeCount: number;
       readonly eligibleInputCount: number;
@@ -307,7 +311,13 @@ function isWithinScope(element: Element, scopeRoot: Element): boolean {
   let cursor: Element | null = element;
   while (cursor !== null) {
     if (cursor === scopeRoot) return true;
-    cursor = cursor.parentElement;
+    const parent: Element | null = cursor.parentElement;
+    if (parent !== null) {
+      cursor = parent;
+      continue;
+    }
+    const root = cursor.getRootNode();
+    cursor = root instanceof ShadowRoot ? root.host : null;
   }
   return false;
 }
@@ -755,6 +765,8 @@ function implicitRoleOf(element: Element): string {
 
 function readTargetFacts(element: Element, elementRef: string): ActionTargetFacts {
   const rect = element.getBoundingClientRect();
+  const root = element.getRootNode();
+  const activeElement = root instanceof ShadowRoot ? root.activeElement : document.activeElement;
   const inputType = element instanceof HTMLInputElement
     ? (element.type === "search" ? "search" : element.type === "text" ? "text" : null)
     : null;
@@ -781,7 +793,7 @@ function readTargetFacts(element: Element, elementRef: string): ActionTargetFact
     visible: isVisible(element),
     enabled: isEnabled(element),
     editable,
-    focused: document.activeElement === element,
+    focused: activeElement === element,
     value,
   };
 }
@@ -1142,6 +1154,29 @@ export function handleBA1RealSiteBrowserActionRequest(
         requestId,
         ok: true,
         result: { kind: "target_read", facts: readTargetFacts(element, elementRef) },
+      };
+    }
+    if (op === "focus-target") {
+      requireExactKeys(request, ["schema", "requestId", "op", "elementRef"], "focus-target request");
+      const elementRef = requireNonEmptyString(request.elementRef, "focus-target request.elementRef");
+      const record = actionTargetRegistry.get(elementRef);
+      const element = record?.weak.deref();
+      if (element === undefined || !element.isConnected) {
+        throw Object.assign(new Error("target is disconnected or replaced"), {
+          actionCode: "target_stale" as const,
+        });
+      }
+      if (!("focus" in element) || typeof element.focus !== "function") {
+        throw Object.assign(new Error("target does not support focus"), {
+          actionCode: "action_failed" as const,
+        });
+      }
+      element.focus({ preventScroll: true });
+      return {
+        schema: BA1_REAL_SITE_BROWSER_ACTION_RESPONSE_SCHEMA,
+        requestId,
+        ok: true,
+        result: { kind: "target_focused", facts: readTargetFacts(element, elementRef) },
       };
     }
     if (op === "scope-presence") {
