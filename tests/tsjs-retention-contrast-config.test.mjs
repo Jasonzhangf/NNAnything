@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,11 @@ import {
 } from "../dist/training/unified-model-package.js";
 import { zeroTensors } from "../dist/training/unified-forward.js";
 import { UNIFIED_ENCODER_VERSION } from "../dist/training/unified-encoder.js";
+import {
+  convertEpisodeToStudentGroup,
+  loadStepwiseEpisodeFamily,
+  STEPWISE_STUDENT_OBSERVATIONS_FILE,
+} from "../dist/training/unified-student-converter.js";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const VALIDATOR_SCRIPT = join(
@@ -51,6 +56,156 @@ function oneHot(slot) {
   const vector = Array.from({ length: 64 }, () => 0);
   vector[slot] = 1;
   return vector;
+}
+
+function observationBinding(sampleId) {
+  const edgeRef = `edge:sources/${sampleId}/entry.ts:import:0`;
+  return {
+    edgeRef,
+    callSiteRef: null,
+    fromNodeRef: `syntax:${edgeRef}`,
+    edgeKind: "import",
+    sourceName: "forwarded",
+    sourceModule: {
+      state: "known",
+      value: "mod:sources/src/util.ts",
+      reason: null,
+      evidenceRefs: [`ev:${edgeRef}:source`],
+    },
+    targetName: "helper",
+    targetModule: {
+      state: "known",
+      value: `mod:sources/${sampleId}/entry.ts`,
+      reason: null,
+      evidenceRefs: [`ev:${edgeRef}:target`],
+    },
+    moduleSpecifierRaw: "./util",
+    sourceContent: {
+      state: "not_requested",
+      resultRefs: [],
+      reason: null,
+      evidenceRefs: [`ev:${edgeRef}:source`],
+    },
+    visibility: {
+      state: "known",
+      value: "reachable",
+      reason: null,
+      evidenceRefs: [`ev:${edgeRef}:source`],
+    },
+    hopDepth: 0,
+    evidenceRefs: [`ev:${edgeRef}:source`],
+  };
+}
+
+function sourceObservationRecord(sampleId) {
+  const binding = observationBinding(sampleId);
+  const pendingRelationRef = `pending:${sampleId}`;
+  const requestRef = `request:${sampleId}`;
+  return {
+    schemaVersion: "emma-tsjs-student-observation-v2",
+    sampleId,
+    family: "rc-r1",
+    partition: "train",
+    language: "ts",
+    entryFile: `sources/${sampleId}/entry.ts`,
+    request: {
+      requestRef,
+      requestedDeclaration: {
+        declarationRef: `decl:sources/${sampleId}/impl.ts#top:helper`,
+        moduleRef: `mod:sources/${sampleId}/impl.ts`,
+        name: "helper",
+        kind: "function",
+        sourceTargetRef: `sources/${sampleId}/impl.ts#top:helper`,
+      },
+      relationObligation: {
+        callSiteRef: `call:sources/${sampleId}/entry.ts:helper`,
+        calleeName: "helper",
+        pendingRelationRef,
+        requestRef,
+      },
+    },
+    steps: [{
+      stepId: "step:0",
+      localSyntax: {
+        observedBindings: [binding],
+        observedDeclarations: [],
+        moduleSpecifierRaw: "./util",
+        sourceContent: {
+          state: "not_requested",
+          resultRefs: [],
+          reason: null,
+          evidenceRefs: [`ev:${binding.edgeRef}:source`],
+        },
+        shadowFacts: [],
+      },
+      remainingObligations: [],
+      S_g: [
+        "c:judge:true",
+        "c:judge:false",
+        "c:judge:unknown",
+        "c:return",
+      ],
+      receipts: [{
+        receiptId: `receipt:${sampleId}:step0`,
+        action: "observe",
+        target: `sources/${sampleId}/entry.ts`,
+        result: { bindingEdge: binding.edgeRef },
+        evidenceRefs: [`ev:${binding.edgeRef}:source`],
+      }],
+      coverage: null,
+      notReady: false,
+    }],
+  };
+}
+
+async function writeSourceSample(root, sampleId) {
+  const sampleDir = join(root, "samples", sampleId);
+  await mkdir(sampleDir, { recursive: true });
+  await writeJson(join(sampleDir, "manifest.json"), {
+    sourceGroup: "tsjs-train-retention-contrast-r1",
+    language: "ts",
+    semanticStratum: "module_export",
+    partition: "train",
+    derivationFamily: { familyId: "rc-r1" },
+  });
+  await writeJsonl(
+    join(sampleDir, STEPWISE_STUDENT_OBSERVATIONS_FILE),
+    [sourceObservationRecord(sampleId)],
+  );
+  const episodes = await loadStepwiseEpisodeFamily(sampleDir);
+  assert.equal(episodes.length, 1);
+  return convertEpisodeToStudentGroup(episodes[0]);
+}
+
+function studentRowsForGroup(group) {
+  return group.candidates.map(candidate => ({
+    schema: "nnanything.unified.student-row.v1",
+    group_id: group.group_id,
+    sampleId: group.sampleId,
+    requestRef: group.requestRef,
+    stepId: group.stepId,
+    targetRef: group.targetRef,
+    pendingRelationRef: group.pendingRelationRef,
+    sourceGroup: group.sourceGroup,
+    language: group.language,
+    adapterRef: group.adapterRef,
+    derivationFamily: group.derivationFamily,
+    semanticStratum: group.semanticStratum,
+    stepContextRef: group.stepContextRef,
+    candidateGroupRef: group.candidateGroupRef,
+    featureSchemaVersion: group.featureSchemaVersion,
+    encoderVersion: group.encoderVersion,
+    partition: group.partition,
+    candidateEnumeration: group.candidateEnumeration,
+    coverageCursorRef: group.coverageCursorRef,
+    evidenceRefs: group.evidenceRefs,
+    failureMode: group.failureMode,
+    candidateRef: candidate.candidateRef,
+    optionSemantics: candidate.optionSemantics,
+    candidateKind: candidate.candidateKind,
+    x: candidate.input,
+    missingMode: candidate.missingMode,
+  }));
 }
 
 function studentRow(
@@ -169,12 +324,14 @@ async function writeFixtures() {
   }
 
   const falseSampleId = "rc-p01-false";
-  const falseGroupId = `group:${falseSampleId}`;
   const unknownSampleId = "rc-p01-unknown";
-  const unknownGroupId = `group:${unknownSampleId}`;
+  const falseGroup = await writeSourceSample(root, falseSampleId);
+  const unknownGroup = await writeSourceSample(root, unknownSampleId);
+  const falseGroupId = falseGroup.group_id;
+  const unknownGroupId = unknownGroup.group_id;
   const pairStudentRows = [
-    ...contrastStudentRows(falseGroupId, falseSampleId, 10),
-    ...contrastStudentRows(unknownGroupId, unknownSampleId, 13),
+    ...studentRowsForGroup(falseGroup),
+    ...studentRowsForGroup(unknownGroup),
   ];
   const pairSupervisionRows = [
     supervisionRow(falseGroupId, falseSampleId, ["c:judge:false"], {
@@ -302,7 +459,7 @@ test("fixed package validates denominator 20 without scoring", async () => {
     assert.equal(result.report.counts.finalGroups, 20);
     assert.equal(result.report.counts.finalSupervisionRows, 20);
     assert.equal(result.report.counts.contrastGroups, 2);
-    assert.equal(result.report.counts.studentRows, 42);
+    assert.equal(result.report.counts.studentRows, 44);
     assert.equal(result.report.counts.unsupportedControls, 2);
     assert.equal(result.report.counts.denominator, 20);
     assert.equal(result.report.pairs.length, 1);
@@ -340,6 +497,19 @@ test("fixed package validates denominator 20 without scoring", async () => {
       result.report.acceptanceGates.staticSelectedCompletion,
       "unsupported_separate_prerequisite_before_fit",
     );
+  });
+});
+
+test("rejects altered arm features that no longer match source observations", async () => {
+  await withFixture(async fixture => {
+    const rows = await readJsonl(fixture.studentRowsPath);
+    const altered = rows.find(row => row.sampleId === "rc-p01-false");
+    altered.x[44] = altered.x[44] === 1 ? 0 : 1;
+    await writeJsonl(fixture.studentRowsPath, rows);
+    const result = await runTsjsRetentionContrastConfigValidation(
+      fixture.config,
+    );
+    assertFailure(result, "ARM_SOURCE_FIDELITY_MISMATCH");
   });
 });
 

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   buildEncodedGroups,
@@ -10,7 +10,11 @@ import {
   loadUnifiedModelPackageFromFile,
   type UnifiedModelPackage,
 } from "./unified-model-package.js";
-import type { StudentGroup } from "./unified-student-converter.js";
+import {
+  convertEpisodeToStudentGroup,
+  loadStepwiseEpisodeFamily,
+  type StudentGroup,
+} from "./unified-student-converter.js";
 import type { SupervisionRow } from "./unified-supervision-converter.js";
 
 export const TSJS_RETENTION_CONTRAST_CONFIG_SCHEMA =
@@ -736,6 +740,44 @@ function validateArm(input: {
   };
 }
 
+async function assertArmSourceFidelity(input: {
+  readonly studentRowsPath: string;
+  readonly arm: TsjsRetentionContrastArm;
+  readonly finalGroup: StudentGroup;
+}): Promise<void> {
+  const sampleDir = join(
+    dirname(resolve(input.studentRowsPath)),
+    "samples",
+    input.arm.sampleId,
+  );
+  let episodes;
+  try {
+    episodes = await loadStepwiseEpisodeFamily(sampleDir);
+  } catch (caught) {
+    const message = caught instanceof Error ? caught.message : String(caught);
+    throw new RetentionContrastConfigFailure(
+      "ARM_SOURCE_INVALID",
+      `cannot load persisted source observations for ${input.arm.sampleId}: ${message}`,
+      { sampleId: input.arm.sampleId, sampleDir },
+    );
+  }
+  if (episodes.length !== 1) {
+    throw new RetentionContrastConfigFailure(
+      "ARM_SOURCE_INVALID",
+      `contrast arm ${input.arm.sampleId} has ${episodes.length} source episodes, expected 1`,
+      { sampleId: input.arm.sampleId, sampleDir },
+    );
+  }
+  const sourceGroup = convertEpisodeToStudentGroup(episodes[0]!);
+  if (!isDeepStrictEqual(sourceGroup, input.finalGroup)) {
+    throw new RetentionContrastConfigFailure(
+      "ARM_SOURCE_FIDELITY_MISMATCH",
+      `contrast arm ${input.arm.sampleId} rows do not match their persisted source observations`,
+      { sampleId: input.arm.sampleId, sampleDir },
+    );
+  }
+}
+
 function errorFromCaught(caught: unknown): {
   readonly code: string;
   readonly message: string;
@@ -827,7 +869,8 @@ export async function runTsjsRetentionContrastConfigValidation(
     );
 
     const expectedArmGroupIds = new Set<string>();
-    pairs = config.contrastPairs.map(pair => {
+    const pairReports: TsjsRetentionContrastPairReport[] = [];
+    for (const pair of config.contrastPairs) {
       const falseArm = validateArm({
         arm: pair.falseArm,
         groups: finalStudentGroups,
@@ -840,8 +883,19 @@ export async function runTsjsRetentionContrastConfigValidation(
       });
       expectedArmGroupIds.add(falseArm.groupId);
       expectedArmGroupIds.add(unknownArm.groupId);
-      return { pairRef: pair.pairRef, falseArm, unknownArm };
-    });
+      await assertArmSourceFidelity({
+        studentRowsPath: config.studentRowsPath,
+        arm: pair.falseArm,
+        finalGroup: finalStudent.get(falseArm.groupId)!,
+      });
+      await assertArmSourceFidelity({
+        studentRowsPath: config.studentRowsPath,
+        arm: pair.unknownArm,
+        finalGroup: finalStudent.get(unknownArm.groupId)!,
+      });
+      pairReports.push({ pairRef: pair.pairRef, falseArm, unknownArm });
+    }
+    pairs = pairReports;
 
     // Run the unsupported-control scan before the generic unexpected-group
     // scan so an admitted alias/nested control reports the specific
