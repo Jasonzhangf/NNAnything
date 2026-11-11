@@ -299,6 +299,8 @@ must include these additional custody-only fields:
   "scoreBlind": true,
   "approvedGold": false,
   "machineAdmitted": false,
+  "approvalStatus": null,
+  "approvalEvidence": [],
   "splitDecisionRef": "<split-decisions/<sourceGroupId>.json>"
 }
 ```
@@ -308,6 +310,34 @@ selected input host. `supportingActionEvidence` keeps post-input submit
 observations separate and never converts them into a second selected target.
 These fields remain custody-only and do not enter the converter supervision
 row or `BA1EvaluatorGold`.
+
+### 3.3 Exact approved custody status marker
+
+The contract previously defined `pending` serialization and `approvedGold`,
+but did not define the exact positive approved status token. The custody record
+must carry these two custody-only fields:
+
+- `approvalStatus`: exact positive status token. The only approved value is
+  `"approved"`. `null`, `"pending"`, `"rejected"`, `"conflicting"`, or an
+  absent field are not approved.
+- `approvalEvidence`: non-empty array of evidence references supporting the
+  approval. An empty or absent array is not approved.
+
+A custody record is approved gold only when all three hold:
+`approvedGold === true`, `approvalStatus === "approved"`, and
+`approvalEvidence` is non-empty. `reviewStatus != "pending"` is never treated
+as approval by itself; `reviewStatus` values `pending`, `rejected`,
+`conflicting`, or absent remain rejected before model execution.
+
+Pending serialization keeps the approval fields unapproved:
+
+```json
+"approvalStatus": null,
+"approvalEvidence": []
+```
+
+These approval fields remain custody-only and do not enter the converter
+supervision row or `BA1EvaluatorGold`.
 
 A record with `reviewStatus:"pending"` is reviewable proposal material, not
 approved gold. It must keep `approvedGold:false` and
