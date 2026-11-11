@@ -2353,7 +2353,9 @@ function linkRuntimeSelectorFacts(
           const imported = matchingImports[0];
           if (imported === undefined) continue;
           if (callerFunction.localBindingNames.includes(callSite.calleeName)) {
-            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [imported.ref, ...callEvidence]));
+            if (callSite.selector.kind === "identifier") {
+              gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [imported.ref, ...callEvidence]));
+            }
             continue;
           }
           const resolved = resolveRuntimeImport(caller.file, imported.moduleSpecifier, statusByFile, indexByFile, [imported.ref]);
@@ -2372,7 +2374,9 @@ function linkRuntimeSelectorFacts(
           helperFunction = candidates[0] ?? null;
         } else {
           if (callerFunction.localBindingNames.includes(callSite.calleeName)) {
-            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+            if (callSite.selector.kind === "identifier") {
+              gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+            }
             continue;
           }
           helperFile = caller;
@@ -2385,11 +2389,9 @@ function linkRuntimeSelectorFacts(
         }
 
         if (helperFile === null || helperFunction === null) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
-          continue;
-        }
-        if (callSite.selector.kind === "non_identifier") {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          }
           continue;
         }
         if (callSite.selector.kind === "identifier") {
@@ -2412,23 +2414,35 @@ function linkRuntimeSelectorFacts(
           callerFunction.hasNestedFunction ||
           callerFunction.hasUnsupportedWrite
         ) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
+          }
           continue;
         }
         if (helperFunction.hasControlPath || helperFunction.hasNestedFunction) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          }
           continue;
         }
         const shape = helperFunction.helperShape;
         if (shape === null) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          }
           continue;
         }
         if (
           helperFunction.localBindingNames.includes(helperFunction.name) ||
           helperFunction.localBindingNames.includes(shape.tableName)
         ) {
-          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          if (callSite.selector.kind === "identifier") {
+            gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", [helperFunction.ref, ...callEvidence]));
+          }
+          continue;
+        }
+        if (callSite.selector.kind === "non_identifier") {
+          gaps.push(runtimeGap(callSite.callSiteRef, "unsupported_selector_shape", callEvidence));
           continue;
         }
 

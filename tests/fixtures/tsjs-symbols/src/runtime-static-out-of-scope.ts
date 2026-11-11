@@ -1,4 +1,4 @@
-declare function outsideCandidate(value: string): (value: number) => number;
 export function runOutsideCandidate(value: number) {
-  return outsideCandidate(value);
+  const localHelper = (key: string) => key;
+  return localHelper("right")(value);
 }

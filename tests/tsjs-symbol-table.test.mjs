@@ -250,9 +250,18 @@ export function runStaticNested(flag: boolean, value: number) {
 `);
 
   writeFileSync(join(ROOT, "src", "runtime-static-out-of-scope.ts"),
-`declare function outsideCandidate(value: string): (value: number) => number;
+`export function runOutsideCandidate(value: number) {
+  const localHelper = (key: string) => key;
+  return localHelper("right")(value);
+}
+`);
+
+  writeFileSync(join(ROOT, "src", "runtime-static-no-table.ts"),
+`function outsideCandidate(value: string) {
+  return value;
+}
 export function runOutsideCandidate(value: number) {
-  return outsideCandidate(value);
+  return outsideCandidate("right")(value);
 }
 `);
 
@@ -1094,6 +1103,13 @@ test("static literal P7: out-of-scope calls make no new claim", async () => {
 
   assert.equal(out.result.staticSelectedSelectorObservations.length, 0);
   assert.equal(out.result.runtimeSelectorGaps.length, 0);
+
+  const noTable = await runTsJsSymbolTable(request(["src/runtime-static-no-table.ts"]));
+  assert.equal(noTable.status, "ok", JSON.stringify(noTable));
+  if (noTable.status !== "ok") return;
+
+  assert.equal(noTable.result.staticSelectedSelectorObservations.length, 0);
+  assert.equal(noTable.result.runtimeSelectorGaps.length, 0);
 });
 
 test("static literal P8: existing negative selector paths stay gaps", async () => {
