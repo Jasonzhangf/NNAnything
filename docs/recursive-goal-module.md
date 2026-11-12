@@ -2,7 +2,11 @@
 
 ## 当前基础构建增量（2026-11-12）
 
-无副作用失败隔离切片：非 planning、未受 retry 策略管理的原子子帧返回合法 typed failed 回执，明确 effects=none 且没有验证错误时，保留原错、failed execution 和原回执，退出该叶帧并继续同父帧的独立 ready 工作。新材料只触发失败目标的纯评价，不重新选技能或重放失败动作。父目标随后重新评价；必要目标确已达成可以完成，但历史原错仍保留。受执行依赖阻塞的后继不派发；无新材料和 ready 工作时返回 no_progress。同状态 continuation 不重放既有动作。根原子失败、planning/retry、未知副作用、异常回执和待验证 effects 保持原边界。嵌套子树耗尽后跨祖先继续、局部缺技能恢复仍未在此切片实现，不据此宣称通用错误恢复全部完成。
+无副作用失败隔离切片：非 planning、未受 retry 策略管理的原子子帧返回合法 typed failed 回执，明确 effects=none 且没有验证错误时，保留原错、failed execution 和原回执，退出该叶帧并继续独立 ready 工作。新材料只触发失败目标的纯评价，不重新选技能或重放失败动作。保留 dispatch 前的义务快照，失败回执自身携带的可信后验也须被消费，不能等待另一个兄弟节点才评价。父目标随后重新评价；必要目标确已达成可以完成，但历史原错仍保留。受执行依赖阻塞的后继不派发；无新材料和 ready 工作时返回 no_progress。同状态 continuation 不重放既有动作。
+
+若有限展开已关闭的复合子树，其剩余阻塞均可追溯到上述无副作用失败或对应未执行依赖，则保留子树、cursor、原错和义务快照，退回祖先继续独立路径。祖先结果改变材料后，再进入原子树做纯事实重评与后续调度；不重建或重放失败叶节点。该范围不包括混合的其他错误、未知副作用或待验证 effects。根原子失败、planning/retry、异常回执仍保持原边界。局部缺技能恢复和完整 verbose 另行验收，不据此宣称通用恢复全部完成。
+
+固定 CLI 组合验收入口为 `node playground/recursive-goal/foundation-cli-acceptance.mjs`。它通过公开 CLI 和递归模块查询自有临时目录，区分存在、明确 ENOENT 和拒绝访问。引擎 read 授权与更窄的 CLI adapter 授权分别检查；adapter 许可不能越过引擎拒绝。缺失路径的原生失败回执保留，查询可因可信的不存在证据而完成；权限拒绝不能当作不存在。该入口只验证固定观测与引擎连接，不加载模型，不证明训练效果，也不恢复 nn-code。
 
 公开完成摘要 `projectRecursiveGoalCompletion(report)` 是同步、只读的 report 投影，不执行技能或重新评价。根评价 satisfied 且必要子树闭合才返回 complete；否则，存在从根沿 required 条件可达、且已经评价 satisfied 的必要条件时返回 partial，其余返回 incomplete。闭合复用 runtime 的必要条件与 pendingVerification 边界：正常 completed 报告已通过该门禁；其他报告从 continuation 的条件定义和 frameControls 核对必要子树。根评价不能绕过未完成的必要子目标或待验证副作用。预算或执行错误保留在 control/errors 中，不覆盖已证明的成果。固定执行成功、空回执或任意 unsatisfied 均不能证明目标完成；确定没有须由领域评价器证明查询已完整回答。
 

@@ -959,7 +959,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
       return;
     }
-    if (this.isolatedFailedChildren(frame).length > 0) {
+    if (this.isolatedFailedChildren(frame).length > 0 || this.blockedIsolationChildren(frame).length > 0) {
       frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
     }
     if (this.planningMode) {
@@ -2147,13 +2147,21 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
     const isolated = this.isolatedFailedChildren(frame);
+    const subtrees = this.blockedIsolationChildren(frame);
+    for (const subtree of subtrees) {
+      if (this.obligationChanged(subtree)) {
+        subtree.phase = "await_children";
+        this.stack.push(subtree);
+        return;
+      }
+    }
     for (const child of isolated) {
       if (this.obligationChanged(child)) {
         await this.evaluateFrame(child, true);
         return;
       }
     }
-    if (isolated.length > 0 && this.obligationChanged(frame)) {
+    if ((isolated.length > 0 || subtrees.length > 0) && this.obligationChanged(frame)) {
       frame.phase = "evaluate";
       return;
     }
@@ -2169,7 +2177,19 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       }, "stalled", "no_progress");
       return;
     }
-    if (isolated.length > 0) {
+    if (isolated.length > 0 || subtrees.length > 0) {
+      const parent = this.parentFrame(frame);
+      const cause = this.blockedIsolationCause(frame);
+      if (parent !== null && cause !== null) {
+        frame.errorId = cause.errorId;
+        frame.progressBaseline = null;
+        this.synchronizeFailedParentCondition(frame, cause, frame.fact);
+        this.propagateDiagnostic(frame, cause);
+        frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
+        this.stack.pop();
+        parent.phase = "await_children";
+        return;
+      }
       this.control = { outcome: "stalled", stopReason: "no_progress", frameId: frame.frameId };
       this.finished = true;
       return;
@@ -2479,7 +2499,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         if (this.primaryErrorId === null) this.primaryErrorId = primary.errorId;
         this.synchronizeFailedParentCondition(frame, primary, "unknown");
         this.propagateDiagnostic(frame, primary);
-        frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
+        // Keep the pre-dispatch snapshot: this receipt's own post is new material
+        // until the fact-only evaluator has consumed it.
         this.stack.pop();
         this.parentFrame(frame)!.phase = "await_children";
         return;
@@ -4441,6 +4462,40 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       evidence: this.evidence.filter(item => previous.evidenceRefs.includes(item.id)),
       conditions: previous.conditions,
     }), freezeSnapshot(this.obligationFacts(frame)));
+  }
+
+  private blockedIsolationChildren(frame: InternalFrame<G, B, C>): InternalFrame<G, B, C>[] {
+    const result: InternalFrame<G, B, C>[] = [];
+    for (const condition of frame.conditions.values()) {
+      if (condition.childFrameId === null) continue;
+      const child = this.frames.get(condition.childFrameId)!;
+      if (child.mode === "composite" && this.blockedIsolationCause(child) !== null) result.push(child);
+    }
+    return result;
+  }
+
+  /** Only park subtrees whose remaining blockers are the admitted no-effect failures. */
+  private blockedIsolationCause(frame: InternalFrame<G, B, C>): RecursiveGoalErrorDiagnostic | null {
+    if (frame.mode !== "composite" || !frame.derivationClosed || frame.pendingVerification !== null) return null;
+    const active = this.activeConditions(frame);
+    if (active.length === 0) return null;
+    let cause: RecursiveGoalErrorDiagnostic | null = null;
+    for (const condition of active) {
+      if (condition.childFrameId === null) return null;
+      const child = this.frames.get(condition.childFrameId)!;
+      let childCause: RecursiveGoalErrorDiagnostic | null = null;
+      if (this.isIsolatedFailure(child)) {
+        childCause = this.errorById(child.errorId!);
+      } else if (child.unexecutedReason === "dependency_not_met" && child.errorId !== null &&
+          [...this.frames.values()].some(owner => owner.errorId === child.errorId && this.isIsolatedFailure(owner))) {
+        childCause = this.errorById(child.errorId);
+      } else {
+        childCause = this.blockedIsolationCause(child);
+      }
+      if (childCause === null) return null;
+      cause ??= childCause;
+    }
+    return cause;
   }
 
   private createObligationSnapshot(

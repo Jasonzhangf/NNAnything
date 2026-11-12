@@ -104,6 +104,9 @@ function isolationHarness({
   failA,
   bAdditionalCompleted = [],
   withDependentC = false,
+  onlyA = false,
+  failedAPost = false,
+  nested = false,
 }) {
   const fixture = createFixtureAdapter({
     evaluate: probeEvaluation,
@@ -111,9 +114,15 @@ function isolationHarness({
       if (input.skill.id !== "compose-probe") {
         throw new TypeError(`unexpected derive target ${input.skill.id}`);
       }
-      const conditions = [
-        condition("a", "a", input),
-        condition("b", "b", input),
+      const inner = nested && input.goal.level === "inner";
+      const first = nested && !inner
+        ? condition("inner", "a", input, {
+            goal: { kind: "probe-root", capability: ROOT_CAPABILITY, level: "inner" },
+            selectorId: "root-selector", mode: "composite",
+          })
+        : condition("a", "a", input);
+      const conditions = [first,
+        ...(onlyA || inner ? [] : [condition("b", "b", input)]),
       ];
       if (withDependentC) {
         conditions.push(
@@ -128,8 +137,10 @@ function isolationHarness({
     },
     executeAtomic: (input) => {
       if (input.skill.id === "probe-a" && failA) {
+        const post = failedAPost ? branchReceipt("a", input.state.completed) : null;
         return failedAtomicReceipt({
           runId: "run-a",
+          ...(post === null ? {} : { newState: post.newState, evidence: post.evidence }),
           executionErrors: [
             diagnostic({
               diagnosticId: "probe-a-execution-error",
@@ -492,6 +503,52 @@ test("dependent C stays unexecuted while independent B runs after A fails", asyn
   assert.equal(cFrame.unexecutedReason, "dependency_not_met");
   assert.equal(report.control.outcome, "stalled");
   assert.equal(report.control.stopReason, "no_progress");
+  assertResponseReferencesClosed(response);
+});
+
+test("a failed child consumes its own trusted post without needing another sibling", async () => {
+  const { request, deps, fixture } = isolationHarness({ failA: true, onlyA: true, failedAPost: true });
+  const response = await runRecursiveGoal(request, deps);
+  const report = responseReport(response);
+  assert.equal(report.control.outcome, "completed");
+  assert.equal(fixture.calls.executeAtomic, 1);
+  const child = report.frames.find(frame => frame.fulfillsConditionId === "a");
+  assert.equal(child.fact, "satisfied");
+  assert.equal(child.execution, "failed");
+  assert.equal(report.atomicResults[0].outcome, "failed");
+  assert.equal(report.primaryErrorId, child.errorId);
+  assert.ok(report.errors.some(error => error.source.nativeCode === "E_PROBE_A_FAILURE"));
+  assertResponseReferencesClosed(response);
+});
+
+test("an exhausted nested failure subtree lets its ancestor run independent B", async () => {
+  const { request, deps, fixture } = isolationHarness({ failA: true, nested: true });
+  const response = await runRecursiveGoal(request, deps);
+  const report = responseReport(response);
+  assert.deepEqual(report.atomicResults.map(item => item.skillId), ["probe-a", "probe-b"]);
+  assert.equal(report.control.stopReason, "no_progress");
+  assert.notEqual(report.rootEvaluation.result, "satisfied");
+  const before = fixture.calls.executeAtomic;
+  const resumed = await runRecursiveGoal({ ...request, continuation: report.continuation }, deps);
+  assert.equal(fixture.calls.executeAtomic, before);
+  assert.equal(responseReport(resumed).control.stopReason, "no_progress");
+  assertResponseReferencesClosed(response);
+  assertResponseReferencesClosed(resumed);
+});
+
+test("ancestor B supplies new facts that close a parked subtree without replaying its failed leaf", async () => {
+  const { request, deps, fixture } = isolationHarness({
+    failA: true, nested: true, bAdditionalCompleted: ["a"],
+  });
+  const response = await runRecursiveGoal(request, deps);
+  const report = responseReport(response);
+  assert.equal(report.control.outcome, "completed");
+  assert.deepEqual(report.atomicResults.map(item => item.skillId), ["probe-a", "probe-b"]);
+  assert.equal(fixture.calls.executeAtomic, 2);
+  const leaf = report.frames.find(frame => frame.fulfillsConditionId === "a");
+  assert.equal(leaf.execution, "failed");
+  assert.equal(leaf.fact, "satisfied");
+  assert.equal(report.primaryErrorId, leaf.errorId);
   assertResponseReferencesClosed(response);
 });
 
