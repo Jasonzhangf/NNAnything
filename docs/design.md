@@ -1,5 +1,7 @@
 # NNAnything 总体设计
 
+2026-11-12 基础先行增量见[基础构建计划与详细设计](foundation-build-design.md)。该设计采用用户最新确认的推理 State、当前可评价结果、目标到 Action 映射、局部回评及完成语义；既有章节尚未逐项同步的差异按该文列为待修合同，不冒称行为已验收。
+
 版本：修订6架构基线。L1 能动切片已交付并验收，当前用户授权基础工作流资产设计与目录分类（nnanything-design-workflow-assets），2026-10-17。先定义通用框架，再确定最小基础节点，组合网页与训练workflow；以后扩展其他场景。以filter节点、事件I/O和统一workflow为主轴，画布是可选呈现。黑白名单、DOM拆分、判断及operation供使用者组合，不固定业务流程，详见[事件与呈现](canvas-events.md)及[节点与Workflow](node-workflows.md)。保留单标签、按序批处理和[Focus入口](focus-and-labeling.md)。
 
 本文件是总体方案入口。具体目录、配置、节点与四层优先级以[实施计划](implementation-plan.md)、[节点合同](node-contract.md)和[项目治理](project-governance.md)为准；最新工作流真源见 [workflows/README.md](../workflows/README.md)，三类基础采样节点合同卡唯一真源见 [lib/nodes/README.md](../lib/nodes/README.md)。下方D1-D5为未来长期责任地图，不是当前执行授权。research保留详细依据，设计review不等于电路训练或产品可用。
