@@ -304,6 +304,8 @@ export type Selection =
   | {
       readonly kind: "selected";
       readonly skillId: string;
+      /** Domain-owned data for this atomic choice; execution must not reselect it. */
+      readonly decision?: Readonly<Record<string, unknown>>;
     }
   | {
       readonly kind: "no_capability";
@@ -371,6 +373,7 @@ export interface AtomicInput<G, S, B, E> {
   readonly bindings: B;
   readonly state: S;
   readonly evidence: readonly EvidenceRecord<E>[];
+  readonly decision?: Readonly<Record<string, unknown>>;
   readonly retry?: RetrySelectionView;
 }
 
@@ -1574,12 +1577,18 @@ export function readSelection(
 ): Selection {
   if (!isRecord(value)) throw new TypeError("selection must be an object");
   if (value.kind === "selected") {
-    assertExactKeys(value, ["kind", "skillId"], [], "selection");
+    assertExactKeys(value, ["kind", "skillId"], ["decision"], "selection");
     const skillId = nonEmptyString(value.skillId, "selection.skillId");
     if (!candidateSkillIds.includes(skillId)) {
       throw new TypeError("selection.skillId is outside the selector candidate vocabulary");
     }
-    return { kind: "selected", skillId };
+    if (Object.hasOwn(value, "decision") && !isRecord(value.decision)) {
+      throw new TypeError("selection.decision must be a data object");
+    }
+    return {
+      kind: "selected", skillId,
+      ...(Object.hasOwn(value, "decision") ? { decision: value.decision as Readonly<Record<string, unknown>> } : {}),
+    };
   }
   if (value.kind === "no_capability") {
     assertExactKeys(value, ["kind", "searchedSkillIds"], [], "selection");

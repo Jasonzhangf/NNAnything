@@ -1629,10 +1629,14 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
 
     let selection: ReturnType<typeof readSelection>;
     try {
-      selection = readSelection(
+      selection = freezeSnapshot(readSelection(
         raw,
         candidates.map(skill => skill.id),
-      );
+      ));
+      if (selection.kind === "selected" && selection.decision !== undefined &&
+          this.deps.skillsById.get(selection.skillId)?.mode !== "atomic") {
+        throw new TypeError("selection.decision is supported only for atomic skills");
+      }
     } catch (error) {
       this.stopWithNewDiagnostic(
         frame,
@@ -1802,7 +1806,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frame.phase = "derive";
       return;
     }
-    await this.dispatchAtomic(frame, skill, retryView);
+    await this.dispatchAtomic(frame, skill, retryView, selection.decision);
   }
 
   private async deriveConditions(frame: InternalFrame<G, B, C>): Promise<void> {
@@ -2118,6 +2122,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     frame: InternalFrame<G, B, C>,
     skill: EnabledSkill,
     selectedRetryView?: RetrySelectionView,
+    decision?: Readonly<Record<string, unknown>>,
   ): Promise<void> {
     if (
       this.planningMode &&
@@ -2189,6 +2194,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         bindings: this.callbackBindings(frame.bindings),
         state: this.callbackState(),
         evidence: this.callbackEvidence(),
+        ...(decision === undefined ? {} : { decision }),
         ...(atomicRetryView === undefined ? {} : { retry: atomicRetryView }),
       });
     } catch (error) {

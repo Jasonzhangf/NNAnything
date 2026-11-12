@@ -13,7 +13,7 @@ const userApprovalQuote = '第一部分你已经落盘了吗?需要改成治理�
 
 const objectRows = [
   ['G', '| G / 根目标 |'],
-  ['S', '| S / 真实状态 |'],
+  ['S', '| S / 推理状态 |'],
   ['K', '| K / 技能 |'],
   ['C', '| C / 候选 |'],
   ['W', '| W / 模型包 |'],
@@ -652,7 +652,7 @@ test('referenced source files are read from disk, not inferred from non-empty st
   await withFixture(async fixture => {
     const contract = baseContract(fixture);
     contract.definitions.objects = contract.definitions.objects.map(item => item.id === 'S'
-      ? { ...item, source: source(join(fixture.root, 'absent.md'), '| S / 真实状态 |') }
+      ? { ...item, source: source(join(fixture.root, 'absent.md'), '| S / 推理状态 |') }
       : item);
     const contractPath = await writeContract(fixture, contract);
     const result = runGate('design', contractPath);

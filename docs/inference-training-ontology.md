@@ -4,17 +4,19 @@
 
 本文件细化 `design.md` §1.1、`nn-code-redesign-symbols-tsjs-design.md`、`model-evolution.md`，不另建四元素定义。既有用户约束继续有效。新增实现方案必须沿研究员设计、Alice 审计、执行者实现流程。
 
+2026-11-12 按逐条确认同步 S/A/E 定义。批准原文在 `/Volumes/Intel/playground/nnanything-runs/nncode-training-full-audit-20261109/semantic-confirmation.md`。本次更新不继承旧 Review 对新正文的接受，也不改变 `behavior_verified=false`。动作绑定的具体工程门禁为公开测试 `tests/recursive-goal-selected-action.test.mjs`：在 bind → run → report 的 run 内，从 selected 到 atomic dispatch 必须传递同一对象及参数；合法带 decision 的原子动作和旧无载荷动作均应执行；执行时丢对象或换对象被断言拦截。适用对象为当前 frame 的一次原子选择，owner 为 recursive-goal；正反回执落在本次 foundation-execution run，最终接受以独立 Review 为准。
+
 ## 1. 对象、身份与事实来源
 
 | ID / 对象 | 定义与身份 | 必需属性 / 禁止混入 | owner / 观测入口 |
 | --- | --- | --- | --- |
 | G / 根目标 | 一次结构化请求中保持不变的目标；请求引用、目标对象及条件共同确定身份 | 范围、关系条件、展开深度、返回条件、阈值；不得随当前候选改写目标 | 调用者；请求与 continuation |
-| S / 真实状态 | 当前已发生且有来源的观测集合；对象引用、观测来源与观测时刻区分实例 | known/unknown、覆盖范围、来源；不得含未来结果或把预测当事实 | adapter；真实进程/DOM/source receipt |
+| S / 推理状态 | 当前路径与 Goal 的推进状态；按请求、frame 和当前义务区分实例 | 可推进路径、可拆 Goal、待评价和待返回结果；观测、判断及预测作为不同来源材料，不得用材料集合代替推进状态 | engine；frame、condition、cursor 与真实 step 回执 |
 | K / 技能 | 固定格式的能力声明，技能引用及参数合同标识其含义 | typed 参数、前置条件、effects、结果合同；技能可动态增减，但不得注入任意执行代码 | 注册能力提供者；技能清单 |
 | C / 候选 | 当前 Goal/State/技能下的一次可选决策 | 独立目标/动作引用、合法性依据、参数引用；不得含 gold 或预选答案 | 固定引擎；StepContext candidateGroup |
 | W / 模型包 | 当前请求显式捕获的权重与编码合同 | 64 维输入、两层隐藏层、格式一致；不得静默换 profile 或手填答案 | 模型 loader；加载回执 |
-| A / 动作 | 对一个候选的单次执行请求；不能等同目标完成 | 技能引用、参数、授权 effects；不得生成任意 shell 或把 parser 结果当训练结果 | engine 调用 adapter；执行回执 |
-| E / 评价与证据 | 对 G 的条件在真实 S 上的满足判断；不是独立的新基础元素 | 对象、条件、来源、unknown 与覆盖；模型分数不是满足度 | evaluator；逐条件证据和最终报告 |
+| A / 动作 | 当前目标或子目标到所需操作的映射；不能等同目标完成 | Goal 关联、技能引用、对象和参数、授权 effects；不得执行时换成另一个选择 | engine 调用 adapter；执行回执 |
+| E / 评价与证据 | 对当前 step 可评价结果的评价；其余保留待评价 | 对象、条件、来源、unknown 与覆盖；模型分数不是满足度，子完成不代表根完成 | evaluator；逐条件证据和最终报告 |
 | D / 样本 | 关联来源家族中的观测与独立监督 | 来源分区、监督来源、训练/开发/验证用途；未知不得补 false，有效错误不得丢弃 | 研究员及数据 owner；样本、admission 回执 |
 | T / 训练候选 | 某次固定 recipe 从声明起点拟合并回载的模型包 | loss 目标、起始权重、耗时、停止原因、旧能力回归；不得自动采用 | trainer/evaluator；原始训练与回载回执 |
 
@@ -23,15 +25,15 @@
 ```mermaid
 flowchart TD
  G[根目标 G] --> C[当前合法候选 C]
- S[真实状态 S] --> C
+ S[推理推进状态 S] --> C
  K[动态技能清单 K] --> C
  C --> I[固定编码与单次模型决策]
  W[显式模型包 W] --> I
  I --> A[当前动作 A]
- A --> N[真实后验 S next]
+ A --> N[真实返回与后验材料]
  G --> E[条件评价与证据 E]
  N --> E
- S --> D[独立监督及来源分区 D]
+ N --> D[独立监督及来源分区 D]
  D --> T[隔离训练候选 T]
  classDef data fill:#F1EAFE,color:#0F172A;
  classDef action fill:#E8F1FF,color:#0F172A;
@@ -42,9 +44,9 @@ flowchart TD
 | 关系 ID | 方向 / 基数 | 可检查事实 | 必须 / 不得 |
 | --- | --- | --- | --- |
 | R1 constrains | G → C，一对多 | 请求与候选参数、effects | 保留根条件；不得按候选修改根 |
-| R2 supports | S → E，多对多 | receipt 对象、范围、时刻与条件对应 | 精确关联；同名或共享任意 receipt 不等于同一声明 |
+| R2 supports | S 的当前可评价材料 → E，多对多 | receipt 对象、范围、时刻与条件对应 | 可评价子集先评价；同名或共享任意 receipt 不等于同一声明 |
 | R3 selects | W + C → A，每步至多一个执行选择 | 实际 StepContext、模型输出、执行日志 | 真实模型决策；不得 adapter 预先交最终答案冒充模型 |
-| R4 observes | A → S next，一对多或观测失败 | 原子执行后验、原错 | 区分执行与观察失败；不得 exit0 推出目标满足 |
+| R4 observes | A → 真实返回材料 → 推进状态更新，一对多或观测失败 | 原子执行后验、原错、frame 变化 | 区分执行与观察失败；不得 exit0 推出目标满足 |
 | R5 decomposes | G → 子条件，一对多 | 引擎义务与父子证据 | 引擎推进，子目标证据反向满足父；不得模型自改控制预算 |
 | R6 derives | D → T，多对一 | 分区、配方与拟合输入 | 训练/开发/独立验证按来源隔离；不得验证反例仍称未见 |
 | R7 compares | T → E，一对多 | 独立评价、旧能力回归与实际 consumer | 原始失败保留；不得总分遮蔽旧能力退化 |
@@ -76,13 +78,13 @@ flowchart TD
       },
       {
         "id": "S",
-        "identity": "对象引用、观测来源与观测时刻区分实例",
-        "owner": "adapter",
-        "attributes": ["known/unknown", "覆盖范围", "来源"],
-        "perception": "真实进程/DOM/source receipt",
-        "mustHave": ["known/unknown", "覆盖范围", "来源"],
+        "identity": "请求、frame 和当前义务区分推进状态",
+        "owner": "engine",
+        "attributes": ["可推进路径", "可拆 Goal", "待评价和待返回结果"],
+        "perception": "frame、condition、cursor 与真实 step 回执",
+        "mustHave": ["推理推进状态", "材料来源区分"],
         "mustNotHave": ["不得含未来结果", "不得把预测当事实"],
-        "source": { "path": "docs/inference-training-ontology.md", "quote": "| S / 真实状态 |" }
+        "source": { "path": "docs/inference-training-ontology.md", "quote": "| S / 推理状态 |" }
       },
       {
         "id": "K",
@@ -116,9 +118,9 @@ flowchart TD
       },
       {
         "id": "A",
-        "identity": "对一个候选的单次执行请求",
+        "identity": "当前目标或子目标到所需操作的映射",
         "owner": "engine 调用 adapter",
-        "attributes": ["技能引用", "参数", "授权 effects"],
+        "attributes": ["Goal 关联", "技能引用", "对象和参数", "授权 effects"],
         "perception": "执行回执",
         "mustHave": ["技能引用", "参数", "授权 effects"],
         "mustNotHave": ["不得生成任意 shell", "不得把 parser 结果当训练结果"],
@@ -126,7 +128,7 @@ flowchart TD
       },
       {
         "id": "E",
-        "identity": "对 G 的条件在真实 S 上的满足判断",
+        "identity": "对当前 step 可评价结果的评价",
         "owner": "evaluator",
         "attributes": ["对象", "条件", "来源", "unknown", "覆盖"],
         "perception": "逐条件证据和最终报告",
@@ -273,8 +275,8 @@ flowchart TD
         "owner": "adapter + shared converter",
         "precondition": ["当前范围的真实源"],
         "input": ["当前范围的真实源"],
-        "output": ["统一语义状态"],
-        "transition": { "from": "原始观测", "to": "统一语义状态" },
+        "output": ["统一观测材料"],
+        "transition": { "from": "原始观测", "to": "统一观测材料" },
         "effects": [],
         "perception": "源到观测的公开投影回执",
         "mustHave": [],
@@ -310,8 +312,8 @@ flowchart TD
       {
         "id": "B5",
         "owner": "evaluator + engine",
-        "precondition": ["真实后验及根条件"],
-        "input": ["真实后验及根条件"],
+        "precondition": ["当前 step 有可评价结果"],
+        "input": ["当前可评价结果及对应 Goal 条件"],
         "output": ["证据、剩余义务、continuation 或终点"],
         "transition": { "from": "后验", "to": "证据、剩余义务、continuation 或终点" },
         "effects": [],
@@ -762,7 +764,7 @@ flowchart TD
       "decision": "ACCEPT",
       "scope": "inference-training-ontology-contract",
       "source": {
-        "path": "/Volumes/Intel/playground/nnanything-runs/nncode-training-full-audit-20261109/governance-gate-finding-review.md",
+        "path": "/Volumes/Intel/playground/nnanything-runs/nncode-training-full-audit-20261109/foundation-execution-20261112/action-review/acceptance.md",
         "quote": "Decision: ACCEPT\nScope: inference-training-ontology-contract"
       }
     }
@@ -778,17 +780,17 @@ flowchart TD
 | 行为 ID / owner | 前提与输入 | 输出及状态迁移 | effects / 禁止 |
 | --- | --- | --- | --- |
 | B1 绑定 / engine | 结构化 G、S、K、W 合同兼容 | 未绑定 → 已绑定上下文 | 无外部 effect；拒绝缺合同，不静默降级 |
-| B2 观测投影 / adapter + shared converter | 当前范围的真实源 | 原始观测 → 统一语义状态 | 允许已授权读取；不做请求驱动的事实伪造 |
+| B2 观测投影 / adapter + shared converter | 当前范围的真实源 | 原始观测 → 统一观测材料 | 允许已授权读取；不做请求驱动的事实伪造 |
 | B3 单次选择 / student | 实际当前 C 与 x64 | 待选择 → 一个决策或未决 | 无执行 effect；不推进深度、不闭合根目标 |
 | B4 分解与执行 / engine + adapter | 决策合法且前置/权限满足 | 已选择 → 执行回执及后验 | 仅声明的 effects；候选非法或缺技能显式返回 |
-| B5 评价 / evaluator + engine | 真实后验及根条件 | 后验 → 证据、剩余义务、continuation 或终点 | 不修改 gold/阈值；unknown 不等于 false |
+| B5 评价 / evaluator + engine | 当前 step 的可评价结果及对应 Goal 条件 | 可评价子集 → 评价证据及推进状态；其余保留待评价 | 不修改 gold/阈值；unknown 不等于 false；不把一步完成当根完成 |
 | B6 准备 / researcher | 原始来源与独立监督 | 原始资料 → 已准入分区 | 无拟合；缺监督不能以 pending 模板冒充就绪 |
 | B7 拟合 / 固定 trainer | 已审 recipe、准入资料及起始权重 | 已准入 → 未采用候选 | 仅离线权重；后训练继承旧知识，不从零冒充 |
 | B8 比较 / evaluator | 新进程回载候选及独立资料 | 候选 → 采用判据证据或拒绝/未完成 | 当前只交候选证据，不产品接线、不安装 |
 
 ## 3. 推理单步事件 DAG
 
-复用 `recursive-goal.graph.json` 的 bind/run/report。下面细化 run 的语义，不增加第二套执行引擎。完整循环位于 DAG 外：报告返回 continuation，下一次执行产生新的一步。文件系统原生命令的递归仍由原生命令执行。
+复用 `recursive-goal.graph.json` 的 bind/run/report。下面细化 run 内一个步骤的语义，不增加第二套执行引擎。run 内控制器可以在同次请求继续多步；显式 continuation 用于需要跨调用续接的情形，不要求每步返回调用者。单步 DAG 不加回边。文件系统原生命令的递归仍由原生命令执行。
 
 ```mermaid
 flowchart TD
@@ -823,7 +825,7 @@ flowchart TD
 
 ## 4. 状态迁移路径
 
-下列为审计语义名称，不声称代码已使用这些 enum。状态含三个正交字段：执行 disposition、知识 known/unknown、目标 satisfaction。unknown 关系可以是合法任务输出，但不自动表示根目标已满足。
+下列为单步审计语义名称，不声称代码已使用这些 enum。执行 disposition、知识 known/unknown、目标 satisfaction 是分别保留的结果属性，不能替代路径与 Goal 的推进状态。可续的步骤交回 run 调度，不因此结束整个请求。unknown 关系可以是合法任务输出，但不自动表示根目标已满足；最终完成投影依照基础构建合同，区分 complete、partial 与 incomplete。
 
 ```mermaid
 flowchart TD
