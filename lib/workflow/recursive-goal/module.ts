@@ -1669,6 +1669,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
     if (selection.kind === "defer") {
+      if (this.suspendUnexecutedChild(frame, selection.reason)) return;
       this.stopWithNewDiagnostic(
         frame,
         {
@@ -2011,6 +2012,28 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
   }
 
+  private suspendUnexecutedChild(frame: InternalFrame<G, B, C>, reason: string): boolean {
+    const parent = this.parentFrame(frame);
+    if (parent === null || frame.execution !== "not_started" || frame.pendingVerification !== null ||
+        frame.conditions.size > 0 || frame.dispatchRefs.length > 0) return false;
+    const diagnostic = this.diagnostics.create({
+      code: "policy_deferred", stage: "selection", owner: "adapter",
+      message: `selector deferred: ${reason}`, category: "policy_deferred",
+      origin: { frameId: frame.frameId, skillId: null, conditionId: frame.fulfillsConditionId },
+      effectKnowledge: "none",
+    });
+    this.addDiagnostic(diagnostic);
+    frame.errorId = diagnostic.errorId;
+    frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
+    // A suspended, pre-selection frame is not an active selection stack entry.
+    frame.progressBaseline = null;
+    this.synchronizeFrameConditionExecution(frame, "not_started", diagnostic.errorId);
+    this.propagateDiagnostic(frame, diagnostic);
+    this.stack.pop();
+    parent.phase = "await_children";
+    return true;
+  }
+
   private async awaitChildren(frame: InternalFrame<G, B, C>): Promise<void> {
     const active = this.activeConditions(frame);
     if (active.length === 0) {
@@ -2019,8 +2042,27 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
 
     let wantsMore = false;
+    let deferredChild: InternalFrame<G, B, C> | null = null;
+    let resumableChild: InternalFrame<G, B, C> | null = null;
     for (const condition of active) {
-      if (condition.childFrameId !== null) continue;
+      if (condition.childFrameId !== null) {
+        const child = this.frames.get(condition.childFrameId)!;
+        if (child.errorId !== null && this.errorById(child.errorId)?.code === "policy_deferred" &&
+            child.execution === "not_started" && child.obligationSnapshot !== null) {
+          deferredChild = child;
+          const prior = child.obligationSnapshot;
+          const unchanged = this.deps.comparators.sameFacts(
+            freezeSnapshot({
+              state: this.stateByRef(prior.stateRef),
+              evidence: this.evidence.filter(item => prior.evidenceRefs.includes(item.id)),
+              conditions: prior.conditions,
+            }),
+            freezeSnapshot(this.obligationFacts(child)),
+          );
+          if (!unchanged && resumableChild === null) resumableChild = child;
+        }
+        continue;
+      }
       const dependencies = condition.dependsOn.map(id => frame.conditions.get(id));
       if (dependencies.some(dependency => dependency === undefined)) {
         if (!frame.derivationClosed) {
@@ -2080,8 +2122,24 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       }
     }
 
+    if (resumableChild !== null) {
+      resumableChild.errorId = null;
+      frame.conditions.get(resumableChild.fulfillsConditionId!)!.errorId = null;
+      frame.errorId = null;
+      resumableChild.phase = "evaluate";
+      this.stack.push(resumableChild);
+      return;
+    }
     if (wantsMore || !frame.derivationClosed) {
       frame.phase = "derive";
+      return;
+    }
+    if (deferredChild !== null) {
+      this.stopWithNewDiagnostic(frame, {
+        code: "no_progress", stage: "aggregation",
+        message: "remaining deferred paths have no changed facts or independent work",
+        category: "deferred_paths_unchanged",
+      }, "stalled", "no_progress");
       return;
     }
     this.stopWithNewDiagnostic(

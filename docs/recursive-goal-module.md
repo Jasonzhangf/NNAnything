@@ -13,6 +13,8 @@
 
 选择到原子执行的最小接点拟采用可选 `decision` 数据载荷；没有多对象选择需求的旧 adapter 保持原调用形状。当前 frame/Goal 关联由 callback context 提供，载荷保留对象和参数引用。该载荷只服务选定原子动作，不承担 continuation 或组合拆解状态。需要跨步保存的组合决策另沿现有 typed frame 合同设计，不能静默丢弃载荷。
 
+局部暂缓修复切片：子 frame 尚未执行且 selector 返回 defer 时，记录原始暂缓诊断，将当前义务材料存入既有 obligationSnapshot，退回父 frame 扫描独立义务；不把该暂缓设置为整次请求 finished。父 frame 优先推进尚未执行的独立项；旧暂缓项只在现有 sameFacts 比较认定材料改变时重入 evaluate。相同材料不反复调用 selector。没有剩余可推进项时返回 no_progress，保留暂缓原因和已完成成果。根 frame defer、已执行后的不确定 effects 和实际执行错误保持各自原合同，不能据此切片宣称全部错误隔离已经完成。公开正反入口为 `tests/recursive-goal-local-deferral.test.mjs`；控制 owner 仍为 run 内 frame，不新建阻塞队列或计次预算。
+
 2026-10-24领域决策新实验：[L2四语义头](l2-four-head-experiment.md)通过既有adapter接点设计关系、分解、评价及当前选择；本模块的帧、证据、权限、预算、恢复和错误合同不变。H_R不替换supports的纯类型兼容检查；H_D/H_E/H_A分别接derive/evaluate/select。内部单步责任图是design，无新增运行算子或已训练模型，不据此声称当前controller已接四头。未知与有范围的失败证伪按显式State/证据返回，不能从日志恢复控制。
 
 状态：2026-10-20。v1递归行为保留，`0.2.0` 3N2E已接有界规划、真实结果对照、checkpoint与失败先验恢复，有限合成域和真实cwd consumer已有验收。第13节保留旧`0.1.0`历史证据；新实现证据另列，不混用分母。整体Review、main集成及资源收口由[note.md](../note.md)维护。
