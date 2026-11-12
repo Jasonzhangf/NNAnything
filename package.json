@@ -127,7 +127,9 @@
     "validate:tsjs-retention-contrast": "npm run build && node scripts/validate-tsjs-retention-contrast.mjs",
     "build:extension": "npm run build && node scripts/build-extension.mjs",
     "typecheck:ui": "tsc -p playground/overlay/tsconfig.json --noEmit",
-    "bump-version": "node scripts/bump-version.mjs"
+    "bump-version": "node scripts/bump-version.mjs",
+    "gate:ontology": "node scripts/check-ontology-governance.mjs",
+    "test:ontology": "node --test tests/audit/inference-ontology-governance.test.mjs"
   },
   "dependencies": {
     "flowed": "1.15.0",
