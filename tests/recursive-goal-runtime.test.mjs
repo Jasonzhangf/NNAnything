@@ -276,8 +276,8 @@ test("typed atomic failure returns its source, effect boundary, root cause, and 
     (frame) => frame.fulfillsConditionId === "after-fail-child",
   );
 
-  assert.equal(report.control.outcome, "error");
-  assert.equal(report.control.stopReason, "fatal_error");
+  assert.equal(report.control.outcome, "stalled");
+  assert.equal(report.control.stopReason, "no_progress");
   assert.ok(original, "typed execution diagnostic must be returned");
   assert.equal(original.stage, "execution");
   assert.equal(original.source.category, "fixture.execution");

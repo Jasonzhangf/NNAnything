@@ -2,6 +2,12 @@
 
 ## 当前基础构建增量（2026-11-12）
 
+无副作用失败隔离切片：非 planning、未受 retry 策略管理的原子子帧返回合法 typed failed 回执，明确 effects=none 且没有验证错误时，保留原错、failed execution 和原回执，退出该叶帧并继续同父帧的独立 ready 工作。新材料只触发失败目标的纯评价，不重新选技能或重放失败动作。父目标随后重新评价；必要目标确已达成可以完成，但历史原错仍保留。受执行依赖阻塞的后继不派发；无新材料和 ready 工作时返回 no_progress。同状态 continuation 不重放既有动作。根原子失败、planning/retry、未知副作用、异常回执和待验证 effects 保持原边界。嵌套子树耗尽后跨祖先继续、局部缺技能恢复仍未在此切片实现，不据此宣称通用错误恢复全部完成。
+
+公开完成摘要 `projectRecursiveGoalCompletion(report)` 是同步、只读的 report 投影，不执行技能或重新评价。根评价 satisfied 且必要子树闭合才返回 complete；否则，存在从根沿 required 条件可达、且已经评价 satisfied 的必要条件时返回 partial，其余返回 incomplete。闭合复用 runtime 的必要条件与 pendingVerification 边界：正常 completed 报告已通过该门禁；其他报告从 continuation 的条件定义和 frameControls 核对必要子树。根评价不能绕过未完成的必要子目标或待验证副作用。预算或执行错误保留在 control/errors 中，不覆盖已证明的成果。固定执行成功、空回执或任意 unsatisfied 均不能证明目标完成；确定没有须由领域评价器证明查询已完整回答。
+
+摘要保留原 report 引用，调用者可读取原始 atomicResults、states、evidence、effects 及 continuation。completedItems 包含条件 owner、条件 ID、stage/persistent 与原评价证据；不把父子条目相加计算进度。stage 的既有完成记录保留，persistent 采用最后报告事实。not_applicable 及其子树不计部分完成。完整条件定义只存在于 continuation 时，conditionAccounting 才为 available；没有定义时不猜测条件性质，根评价仍可证明 complete。remainingItems 包含未完成根及报告中的未解决条件；它不是尚未拆解工作的完整目录，根已完成时保留的替代路径不推翻 complete。模块故障的部分 report 不是本接口输入。该摘要不是完整 verbose 推理链。
+
 本节同步用户已确认语义，具体实施和验收见[基础构建设计](foundation-build-design.md)。下面历史 runtime 说明保留其实际版本边界，不能据本节把新语义标为已验收。
 
 - 推理 State 由 frame、condition、stack、cursor 等推进状态承担；泛型 `S` 是领域观测材料。事实、待判断与预测分开。

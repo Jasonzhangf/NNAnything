@@ -854,7 +854,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
   }
 
-  private async evaluateFrame(frame: InternalFrame<G, B, C>): Promise<void> {
+  private async evaluateFrame(frame: InternalFrame<G, B, C>, factsOnly = false): Promise<void> {
     const verificationProof = this.pendingVerificationProof(frame);
     if (frame.pendingVerification !== null && verificationProof === null) {
       frame.phase = "select";
@@ -907,7 +907,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         }
         frame.pendingVerification = null;
       }
-      this.consumeProgress(frame, receipt);
+      if (!factsOnly) this.consumeProgress(frame, receipt);
       frame.lastEvaluation = receipt;
       frame.lastEvaluationAtTransition = this.transitionsUsed;
       frame.progressBaseline = {
@@ -946,6 +946,22 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
 
+    if (factsOnly) {
+      const parent = this.parentFrame(frame);
+      const condition = parent?.conditions.get(frame.fulfillsConditionId!);
+      if (condition !== undefined) {
+        condition.fact = receipt.result;
+        condition.satisfaction = receipt.satisfaction;
+        condition.observedEvaluatorId = receipt.evaluatorId;
+        condition.evidenceRefs = [...receipt.evidenceRefs];
+      }
+      frame.progressBaseline = null;
+      frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
+      return;
+    }
+    if (this.isolatedFailedChildren(frame).length > 0) {
+      frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
+    }
     if (this.planningMode) {
       try {if(!(await this.reconcilePlanning(frame,receipt))) return;}
       catch(error) {
@@ -2130,6 +2146,17 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.stack.push(resumableChild);
       return;
     }
+    const isolated = this.isolatedFailedChildren(frame);
+    for (const child of isolated) {
+      if (this.obligationChanged(child)) {
+        await this.evaluateFrame(child, true);
+        return;
+      }
+    }
+    if (isolated.length > 0 && this.obligationChanged(frame)) {
+      frame.phase = "evaluate";
+      return;
+    }
     if (wantsMore || !frame.derivationClosed) {
       frame.phase = "derive";
       return;
@@ -2140,6 +2167,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         message: "remaining deferred paths have no changed facts or independent work",
         category: "deferred_paths_unchanged",
       }, "stalled", "no_progress");
+      return;
+    }
+    if (isolated.length > 0) {
+      this.control = { outcome: "stalled", stopReason: "no_progress", frameId: frame.frameId };
+      this.finished = true;
       return;
     }
     this.stopWithNewDiagnostic(
@@ -2436,6 +2468,22 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           atomicResultRefs: [dispatchId],
         });
       if (original === null) this.addDiagnostic(primary);
+      if (!this.planningMode && !this.retryPolicyAppliesToFrame(frame) &&
+          this.parentFrame(frame) !== null && frame.conditions.size === 0 &&
+          frame.pendingVerification === null && receipt.outcome === "failed" &&
+          projection.executionErrorIds.length > 0 && receipt.effect.knowledge === "none") {
+        frame.execution = "failed";
+        frame.errorId = primary.errorId;
+        frame.fact = "unknown";
+        frame.progressBaseline = null;
+        if (this.primaryErrorId === null) this.primaryErrorId = primary.errorId;
+        this.synchronizeFailedParentCondition(frame, primary, "unknown");
+        this.propagateDiagnostic(frame, primary);
+        frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
+        this.stack.pop();
+        this.parentFrame(frame)!.phase = "await_children";
+        return;
+      }
       const stopOnly = await this.refreshFactsBeforeAtomicStop(frame, receipt, projection.result, primary);
       await this.finishAtomicFailure(frame, primary, frame.fact, stopOnly, receipt);
       return;
@@ -2991,7 +3039,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         stopReason: "root_evaluation",
         frameId: frame.frameId,
       };
-      if(!this.planningMode) this.primaryErrorId = null;
+      if(!this.planningMode && ![...this.frames.values()].some(item => this.isIsolatedFailure(item))) this.primaryErrorId = null;
       else this.rootFrame.execution="completed";
       this.finished = true;
       return;
@@ -4363,6 +4411,36 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       }
     }
     return null;
+  }
+
+  private isIsolatedFailure(frame: InternalFrame<G, B, C>): boolean {
+    if (this.planningMode || this.retryPolicyAppliesToFrame(frame) || frame.parentFrameId === null ||
+        frame.execution !== "failed" || frame.conditions.size > 0 || frame.pendingVerification !== null) return false;
+    const dispatchId = frame.atomicResultRefs.at(-1);
+    const atomic = this.atomicResults.find(item => item.dispatchId === dispatchId);
+    return atomic !== undefined && atomic.outcome === "failed" &&
+      atomic.executionErrorIds.length > 0 && atomic.verificationErrorIds.length === 0 &&
+      atomic.effect.knowledge === "none" && atomic.effect.confirmedEffects.length === 0;
+  }
+
+  private isolatedFailedChildren(frame: InternalFrame<G, B, C>): InternalFrame<G, B, C>[] {
+    const children: InternalFrame<G, B, C>[] = [];
+    for (const condition of frame.conditions.values()) {
+      if (condition.childFrameId === null) continue;
+      const child = this.frames.get(condition.childFrameId)!;
+      if (this.isIsolatedFailure(child)) children.push(child);
+    }
+    return children;
+  }
+
+  private obligationChanged(frame: InternalFrame<G, B, C>): boolean {
+    const previous = frame.obligationSnapshot;
+    if (previous === null) return true;
+    return !this.deps.comparators.sameFacts(freezeSnapshot({
+      state: this.stateByRef(previous.stateRef),
+      evidence: this.evidence.filter(item => previous.evidenceRefs.includes(item.id)),
+      conditions: previous.conditions,
+    }), freezeSnapshot(this.obligationFacts(frame)));
   }
 
   private createObligationSnapshot(
