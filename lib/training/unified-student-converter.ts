@@ -36,6 +36,7 @@ import {
   type TsJsCompletionWorkItem,
   type TsJsCompletionWorkKind,
   type TsJsDynamicProducerSourceBinding,
+  type TsJsLexicalProducerSourceBinding,
   type TsJsProducerSourceBinding,
   type TsJsStaticProducerSourceBinding,
   type TsJsTargetMismatchProducerSourceBinding,
@@ -1408,11 +1409,40 @@ function staticProducerSourceBinding(
   };
 }
 
+function lexicalProducerSourceBinding(
+  input: TsJsStepwiseBridgeInput,
+  result: TsJsSymbolTableResult,
+  observation: TsJsLexicalCallSiteBindingObservation,
+): TsJsLexicalProducerSourceBinding {
+  const sourceName = observation.sourceName ?? observation.calleeName;
+  const sourceSymbols = observation.sourceModuleFile === null
+    ? []
+    : result.symbols.filter(symbol =>
+        symbol.file === observation.sourceModuleFile && symbol.name === sourceName);
+  return {
+    kind: "nnanything.tsjs.producer-source.lexical.v1",
+    producerRequest: input.producerRequest,
+    parser: result.parser,
+    coverage: result.coverage,
+    rawObservation: observation,
+    sourceSymbols,
+    sampleId: input.sampleId,
+    requestRef: input.request.requestRef,
+    stepId: input.stepId,
+    fromStepId: input.fromStepId,
+    callSiteRef: observation.callSiteRef,
+    pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+    requestedDeclarationRef: input.request.requestedDeclaration.declarationRef,
+    requestedModuleRef: input.request.requestedDeclaration.moduleRef ?? "",
+  };
+}
+
 function projectTsJsLexicalBindingToStepwiseRecord(
   input: TsJsStepwiseBridgeInput,
   result: TsJsSymbolTableResult,
   observation: TsJsLexicalCallSiteBindingObservation,
 ): Record<string, unknown> {
+  const producerSource = lexicalProducerSourceBinding(input, result, observation);
   if (observation.bindingKind === "unresolved") {
     return {
       schemaVersion: STEPWISE_STUDENT_OBSERVATION_SCHEMA,
@@ -1448,7 +1478,7 @@ function projectTsJsLexicalBindingToStepwiseRecord(
           },
         },
         remainingObligations: input.remainingObligations,
-        receipts: [lexicalReceipt(input, observation.callerReadReceipt)],
+        receipts: [lexicalReceipt(input, observation.callerReadReceipt, producerSource)],
         localCandidateCursor: input.localCandidateCursor,
         coverage: lexicalCoverage(input, result, observation),
         notReady: result.coverage.partial || result.coverage.truncated,
@@ -1491,7 +1521,7 @@ function projectTsJsLexicalBindingToStepwiseRecord(
         },
       },
       remainingObligations: input.remainingObligations,
-      receipts: [lexicalReceipt(input, observation.callerReadReceipt)],
+      receipts: [lexicalReceipt(input, observation.callerReadReceipt, producerSource)],
       localCandidateCursor: input.localCandidateCursor,
       coverage: lexicalCoverage(input, result, observation),
       notReady: result.coverage.partial || result.coverage.truncated,
@@ -1560,13 +1590,22 @@ function projectTsJsLexicalBindingEdge(
     return { edge, declaration: null };
   }
   const symbol = matches[0]!;
+  // Adapt proven top-level declaration structure to the shared request identity.
+  // Raw span identities remain in producer output and in declaration evidence.
+  const isTopLevelFunction = symbol.kind === "function"
+    && symbol.declaredIn === "file"
+    && symbol.lexicalScope.length === 0
+    && symbol.ownerType === null
+    && symbol.ownerKind === null;
   const declaration: DeclarationIdentity = {
-    declarationRef: symbol.symbolId,
+    declarationRef: isTopLevelFunction
+      ? `decl:${symbol.file}#top:${symbol.name}`
+      : symbol.symbolId,
     moduleRef: `module:${observation.sourceModuleFile}`,
     name: sourceName,
     role: "import",
     kind: symbol.kind,
-    evidenceRefs: observation.evidenceRefs,
+    evidenceRefs: [...observation.evidenceRefs, symbol.symbolId],
   };
   return { edge, declaration };
 }
@@ -1574,6 +1613,7 @@ function projectTsJsLexicalBindingEdge(
 function lexicalReceipt(
   input: TsJsStepwiseBridgeInput,
   receipt: TsJsReadReceipt,
+  producerSource: TsJsLexicalProducerSourceBinding,
 ): RelationStepReceipt {
   return {
     receiptId: receipt.receiptId,
@@ -1587,6 +1627,7 @@ function lexicalReceipt(
     outcome: receipt.outcome,
     result: receipt.result,
     evidenceRefs: receipt.evidenceRefs,
+    producerSource,
   };
 }
 
@@ -2149,9 +2190,67 @@ function parseProducerSourceBinding(
       raw.kind !== "nnanything.tsjs.producer-source.v1"
       && raw.kind !== "nnanything.tsjs.producer-source.static-selected.v1"
       && raw.kind !== "nnanything.tsjs.target-mismatch-source.v1"
+      && raw.kind !== "nnanything.tsjs.producer-source.lexical.v1"
     )
   ) {
     throw new TypeError(`sample ${sampleId} ${stepId} receipt.producerSource is invalid`);
+  }
+  if (raw.kind === "nnanything.tsjs.producer-source.lexical.v1") {
+    if (
+      !isRecord(raw.producerRequest)
+      || !isRecord(raw.parser)
+      || !isRecord(raw.coverage)
+      || !isRecord(raw.rawObservation)
+      || !Array.isArray(raw.sourceSymbols)
+    ) {
+      throw new TypeError(
+        `sample ${sampleId} ${stepId} lexical producerSource fields are incomplete`,
+      );
+    }
+    const rawObservation = raw.rawObservation;
+    if (
+      rawObservation.schemaVersion !== "nnanything.tsjs.lexical-call-site-binding.v1"
+      || typeof rawObservation.callSiteRef !== "string"
+      || typeof rawObservation.callerFile !== "string"
+      || typeof rawObservation.bindingKind !== "string"
+      || !isRecord(rawObservation.callerReadReceipt)
+    ) {
+      throw new TypeError(
+        `sample ${sampleId} ${stepId} lexical producerSource.rawObservation is incomplete`,
+      );
+    }
+    if (
+      raw.sourceSymbols.some(symbol =>
+        !isRecord(symbol)
+        || typeof symbol.symbolId !== "string"
+        || typeof symbol.file !== "string"
+        || typeof symbol.name !== "string"
+        || typeof symbol.kind !== "string"
+        || !Array.isArray(symbol.lexicalScope))
+    ) {
+      throw new TypeError(
+        `sample ${sampleId} ${stepId} lexical producerSource.sourceSymbols is invalid`,
+      );
+    }
+    if (raw.fromStepId !== null && typeof raw.fromStepId !== "string") {
+      throw new TypeError(`sample ${sampleId} ${stepId} producerSource.fromStepId is invalid`);
+    }
+    return {
+      kind: "nnanything.tsjs.producer-source.lexical.v1",
+      producerRequest: raw.producerRequest as unknown as TsJsSymbolTableRequest,
+      parser: raw.parser as unknown as TsJsParserRecord,
+      coverage: raw.coverage as unknown as TsJsCoverageRecord,
+      rawObservation: rawObservation as unknown as TsJsLexicalCallSiteBindingObservation,
+      sourceSymbols: raw.sourceSymbols as unknown as TsJsLexicalProducerSourceBinding["sourceSymbols"],
+      sampleId: requireString(raw.sampleId, `sample ${sampleId} ${stepId} producerSource.sampleId`),
+      requestRef: requireString(raw.requestRef, `sample ${sampleId} ${stepId} producerSource.requestRef`),
+      stepId: requireString(raw.stepId, `sample ${sampleId} ${stepId} producerSource.stepId`),
+      fromStepId: raw.fromStepId,
+      callSiteRef: requireString(raw.callSiteRef, `sample ${sampleId} ${stepId} producerSource.callSiteRef`),
+      pendingRelationRef: requireString(raw.pendingRelationRef, `sample ${sampleId} ${stepId} producerSource.pendingRelationRef`),
+      requestedDeclarationRef: requireString(raw.requestedDeclarationRef, `sample ${sampleId} ${stepId} producerSource.requestedDeclarationRef`),
+      requestedModuleRef: requireString(raw.requestedModuleRef, `sample ${sampleId} ${stepId} producerSource.requestedModuleRef`),
+    };
   }
   if (raw.kind === "nnanything.tsjs.target-mismatch-source.v1") {
     if (!isRecord(raw.rawObservation)) {
@@ -2566,6 +2665,9 @@ function validateTsJsCompletionWork(
   if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
     return validateTsJsTargetMismatchCompletionWork(source, fail);
   }
+  if (source.kind === "nnanything.tsjs.producer-source.lexical.v1") {
+    return;
+  }
   if (source.completionWork !== undefined
     && source.completionWork.contract !== "tsjs.observed-dynamic-source-closure.v1") {
     fail("dynamic completion contract mismatch");
@@ -2781,6 +2883,220 @@ function validateTsJsTargetMismatchCompletionWork(
   }
 }
 
+function validateTsJsLexicalProducerSourceBinding(
+  input: Parameters<typeof validateTsJsProducerSourceBinding>[0],
+  source: TsJsLexicalProducerSourceBinding,
+  fail: (reason: string) => never,
+): void {
+  const raw = source.rawObservation;
+  const callerReceipt = raw.callerReadReceipt;
+  const sourceReceipt = raw.sourceModuleReadReceipt;
+  if (source.sampleId !== input.sampleId) fail("lexical sampleId mismatch");
+  if (source.stepId !== input.stepId) fail("lexical stepId mismatch");
+  if (source.requestRef !== input.requestRef) fail("lexical requestRef mismatch");
+  if (source.pendingRelationRef !== input.pendingRelationRef) {
+    fail("lexical pendingRelationRef mismatch");
+  }
+  if (source.callSiteRef !== input.callSiteRef || raw.callSiteRef !== input.callSiteRef) {
+    fail("lexical callSiteRef mismatch");
+  }
+  if (source.requestedDeclarationRef !== input.requestedDeclarationRef) {
+    fail("lexical requestedDeclarationRef mismatch");
+  }
+  if (source.requestedModuleRef !== input.requestedModuleRef) {
+    fail("lexical requestedModuleRef mismatch");
+  }
+  if (source.fromStepId !== (input.receipt.fromStepId ?? null)) {
+    fail("lexical fromStepId mismatch");
+  }
+  if (source.parser.semanticBinding !== false) {
+    fail("lexical parser.semanticBinding must remain false");
+  }
+  if (raw.requestRef !== null || raw.callerModuleRef !== `module:${raw.callerFile}`) {
+    fail("lexical raw request or caller identity mismatch");
+  }
+  if (
+    input.receipt.receiptId !== callerReceipt.receiptId
+    || input.receipt.actionRef !== callerReceipt.actionRef
+    || input.receipt.action !== callerReceipt.action
+    || input.receipt.target !== callerReceipt.targetRef
+    || input.receipt.origin !== callerReceipt.origin
+    || input.receipt.outcome !== callerReceipt.outcome
+    || !sameStringArray(
+      Array.isArray(input.receipt.result)
+        ? input.receipt.result as readonly string[]
+        : [],
+      callerReceipt.result,
+    )
+    || !sameStringArray(input.receipt.evidenceRefs, callerReceipt.evidenceRefs)
+  ) {
+    fail("lexical caller receipt projection mismatch");
+  }
+  if (
+    callerReceipt.action !== "read_source"
+    || callerReceipt.origin !== "source_observation"
+    || callerReceipt.outcome !== "success"
+    || callerReceipt.targetRef !== raw.callerModuleRef
+    || !sameStringArray(callerReceipt.modules.map(module => module.file), [raw.callerFile])
+    || !sameStringArray(
+      callerReceipt.result,
+      [`source-read:${raw.callerFile}:module:${raw.callerFile}`],
+    )
+    || !callerReceipt.evidenceRefs.includes(callerReceipt.receiptId)
+    || input.sourceContent?.state !== "observed"
+    || !sameStringArray(input.sourceContent.resultRefs, callerReceipt.result)
+    || !sameStringArray(input.sourceContent.evidenceRefs, [callerReceipt.receiptId])
+  ) {
+    fail("lexical caller source content mismatch");
+  }
+  if (
+    input.currentRelation?.binding.state !== "not_observed"
+    || input.currentRelation.binding.reason !== "not_requested"
+    || !sameStringArray(input.currentRelation.binding.evidenceRefs, raw.evidenceRefs)
+  ) {
+    fail("lexical currentRelation must remain not_observed/not_requested");
+  }
+  if (input.observedLocalFacts.length !== 0) {
+    fail("lexical observedLocalFacts must remain empty");
+  }
+  const successfulFiles = successfulProducerFiles(source.producerRequest, source.coverage);
+  if (
+    input.coverage === null
+    || !sameStringArray(input.coverage.coveredModules ?? [], successfulFiles)
+    || input.coverage.note !== "lexical_call_site_binding_source_observed"
+    || input.coverage.targetModuleReached !== (raw.sourceModuleFile !== null
+      && successfulFiles.includes(raw.sourceModuleFile))
+  ) {
+    fail("lexical coverage projection mismatch");
+  }
+
+  if (raw.bindingKind !== "import") {
+    if (sourceReceipt !== null || source.sourceSymbols.length !== 0) {
+      fail("lexical non-import source evidence mismatch");
+    }
+    if (
+      raw.bindingKind === "unresolved"
+      && (
+        input.observedBindings.length !== 0
+        || input.observedDeclarations.length !== 0
+      )
+    ) {
+      fail("unresolved lexical binding must not project an edge or declaration");
+    }
+    if (
+      raw.bindingKind !== "unresolved"
+      && (
+        input.observedBindings.length !== 1
+        || input.observedBindings[0]?.edgeKind !== raw.bindingKind
+        || input.observedDeclarations.length !== 0
+      )
+    ) {
+      fail("non-import lexical binding projection mismatch");
+    }
+    return;
+  }
+
+  if (
+    raw.sourceName === null
+    || raw.targetName === null
+    || raw.moduleSpecifierRaw === null
+    || raw.sourceModuleFile === null
+    || raw.sourceModuleRef === null
+    || raw.targetModuleRef === null
+    || raw.importDeclarationRef === null
+    || sourceReceipt === null
+  ) {
+    fail("lexical import identity is incomplete");
+  }
+  if (
+    raw.sourceName !== input.requestedDeclaration.name
+    || raw.sourceModuleRef !== `module:${raw.sourceModuleFile}`
+    || raw.targetModuleRef !== raw.callerModuleRef
+    || !successfulFiles.includes(raw.callerFile)
+    || !successfulFiles.includes(raw.sourceModuleFile)
+    || source.coverage.parseErrorFiles.some(entry =>
+      entry.file === raw.callerFile || entry.file === raw.sourceModuleFile)
+  ) {
+    fail("lexical import target or read coverage mismatch");
+  }
+  if (
+    sourceReceipt.action !== "read_source"
+    || sourceReceipt.origin !== "source_observation"
+    || sourceReceipt.outcome !== "success"
+    || sourceReceipt.targetRef !== raw.sourceModuleRef
+    || !sameStringArray(
+      sourceReceipt.modules.map(module => module.file),
+      [raw.sourceModuleFile],
+    )
+    || !sameStringArray(
+      sourceReceipt.result,
+      [`source-read:${raw.sourceModuleFile}:module:${raw.sourceModuleFile}`],
+    )
+    || !sourceReceipt.evidenceRefs.includes(sourceReceipt.receiptId)
+  ) {
+    fail("lexical source-module receipt mismatch");
+  }
+  if (
+    source.sourceSymbols.length === 0
+    || new Set(source.sourceSymbols.map(symbol => symbol.symbolId)).size
+      !== source.sourceSymbols.length
+    || source.sourceSymbols.some(symbol =>
+      symbol.file !== raw.sourceModuleFile || symbol.name !== raw.sourceName)
+  ) {
+    fail("lexical source symbols mismatch");
+  }
+  const edge = input.observedBindings.length === 1 ? input.observedBindings[0]! : null;
+  if (
+    edge === null
+    || edge.edgeRef !== `edge:${raw.callSiteRef}:import`
+    || edge.callSiteRef !== raw.callSiteRef
+    || edge.fromNodeRef !== raw.callerModuleRef
+    || edge.edgeKind !== "import"
+    || edge.sourceName !== raw.sourceName
+    || edge.targetName !== raw.targetName
+    || edge.sourceModule.state !== "known"
+    || edge.sourceModule.value !== raw.sourceModuleRef
+    || edge.targetModule.state !== "known"
+    || edge.targetModule.value !== raw.targetModuleRef
+    || edge.moduleSpecifierRaw !== raw.moduleSpecifierRaw
+    || edge.sourceContent.state !== "observed"
+    || !sameStringArray(edge.sourceContent.resultRefs, [sourceReceipt.receiptId])
+    || !sameStringArray(edge.sourceContent.evidenceRefs, sourceReceipt.evidenceRefs)
+    || !sameStringArray(edge.evidenceRefs, raw.evidenceRefs)
+    || !edge.evidenceRefs.includes(raw.importDeclarationRef)
+    || !edge.evidenceRefs.includes(sourceReceipt.receiptId)
+  ) {
+    fail("lexical import edge projection mismatch");
+  }
+  if (source.sourceSymbols.length === 1) {
+    const symbol = source.sourceSymbols[0]!;
+    const topLevel = symbol.kind === "function"
+      && symbol.declaredIn === "file"
+      && symbol.lexicalScope.length === 0
+      && symbol.ownerType === null
+      && symbol.ownerKind === null;
+    const expectedRef = topLevel
+      ? `decl:${symbol.file}#top:${symbol.name}`
+      : symbol.symbolId;
+    const declaration = input.observedDeclarations.length === 1
+      ? input.observedDeclarations[0]!
+      : null;
+    if (
+      declaration === null
+      || declaration.declarationRef !== expectedRef
+      || declaration.moduleRef !== raw.sourceModuleRef
+      || declaration.name !== raw.sourceName
+      || declaration.role !== "import"
+      || declaration.kind !== symbol.kind
+      || !declaration.evidenceRefs.includes(symbol.symbolId)
+    ) {
+      fail("lexical declaration projection mismatch");
+    }
+  } else if (input.observedDeclarations.length !== 0) {
+    fail("ambiguous lexical symbols must not project a declaration");
+  }
+}
+
 function validateTsJsProducerSourceBinding(input: {
   readonly sampleId: string;
   readonly stepId: string;
@@ -2794,6 +3110,8 @@ function validateTsJsProducerSourceBinding(input: {
   readonly sourceContent: RelationStepSourceContent | null;
   readonly currentRelation: CurrentRelationProjection | null;
   readonly observedLocalFacts: readonly StepwiseObservedLocalFact[];
+  readonly observedBindings: readonly BindingEdge[];
+  readonly observedDeclarations: readonly DeclarationIdentity[];
   readonly receipt: RelationStepReceipt;
   readonly previous: Observed<PreviousExecutionProjection | null> | undefined;
 }): void {
@@ -2809,6 +3127,13 @@ function validateTsJsProducerSourceBinding(input: {
   }
   if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
     return validateTsJsTargetMismatchProducerSourceBinding(input, source, fail);
+  }
+  if (source.kind === "nnanything.tsjs.producer-source.lexical.v1") {
+    return validateTsJsLexicalProducerSourceBinding({
+      ...input,
+      observedBindings: input.observedBindings ?? [],
+      observedDeclarations: input.observedDeclarations ?? [],
+    }, source, fail);
   }
   if (source.kind !== "nnanything.tsjs.producer-source.v1") fail("kind mismatch");
   if (source.sampleId !== input.sampleId) fail("sampleId mismatch");
@@ -3740,6 +4065,8 @@ export async function loadStepwiseEpisodeFamily(
           sourceContent,
           currentRelation,
           observedLocalFacts,
+          observedBindings: localSyntax.observedBindings as readonly BindingEdge[],
+          observedDeclarations: localSyntax.observedDeclarations as readonly DeclarationIdentity[],
           receipt,
           previous: previousExecution,
         });

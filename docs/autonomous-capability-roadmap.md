@@ -4,6 +4,16 @@
 
 本文更新此前切片的默认范围：广义CLI适配与网页对象自动绑定现在是明确后续目标，不能再用旧文档“本轮不做”把它们永久排除；但也不能把这次授权解释成任意shell执行、账号写操作、权限变更或自动采用已实现。旧切片的准确运行边界继续有效。
 
+## 2026-11-13 TS/JS 实际后训练结果
+
+已用原 first-fit 权重完成独立 post-projection 后训练，候选为 `0.1.2-post-projection-r1`，仍 `uncalibrated/not_applied`。本轮训练 R 共享 scorer，D/E/A 未训练。旧 TRAIN 的引用、非引用及继续查找行为保留；动态不确定组由原先误判 false 改为 unknown。新词法对照能区分同声明与同名异模块。其词法判断在修正输入后的旧权重上也成立，因此不把 bridge 的身份修复计为新增训练能力。
+
+固定 loss 从初始 `0.5799938288431852` 降至保存权重重新前向计算的 `0.10065258155392573`。原包继承与独立进程回载通过。优化实际耗时约三秒；预算上限只解释停止原因，不代表目标达成。
+
+首次真实 consumer 的词法判断正确，但读取/绑定证据未准入，查询为 incomplete；该失败保留。补齐词法来源证据接线后，同一保存候选在真实源码入口分别返回 complete_true 和 complete_false。此结论仅覆盖直接具名 import 到顶层函数的 TRAIN 对照，不是新语言泛化。旧 DEV 的同名异模块与常量属性用例仍失败；动态 helper 回归通过。历史独立来源的单步选择正确，但一项 unknown 完成证据缺失。不得据此宣布完整 CLI 交付或采用候选。
+
+证据入口：`/Volumes/Intel/playground/nnanything-runs/nncode-training-full-audit-20261109/training-delivery-20261113/progress.md`；训练事实见其 `tsjs-post-projection-training-r1-20261113/fitter-report.md`，首次真实评价见 `evaluation-result.md`，词法完成复验见 `runtime-consumer-preparation/completion-candidate/report.md`。浏览器本轮只完成真实页面采证，没有获得合格的新 TRAIN 对照，未启动新的浏览器拟合。
+
 ## 共同的完成定义
 
 调用者给结构化根Goal、satisfactionThreshold、允许范围、权限、可用技能/版本与运行限制；不逐步提供head、子Goal顺序、目标对象ref、页面selector或正确答案。框架自行观察、生成当前必要子条件、从启用技能选择一步、绑定对象与参数、执行、重观测并收回根目标。固定预算/重试控制、权限、受信引用与真实根评价保持确定性。未完成/缺能力/缺证据/拒绝/错误分开，不能机械执行完就称达成。

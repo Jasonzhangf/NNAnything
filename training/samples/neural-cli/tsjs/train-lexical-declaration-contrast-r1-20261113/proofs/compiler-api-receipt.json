@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "nnanything.tsjs.compiler-api-receipt.v1",
+  "compilerVersion": "5.9.3",
+  "invocation": "ts.createProgram + ts.TypeChecker.getSymbolAtLocation/getAliasedSymbol",
+  "files": [
+    "sources/caller.ts",
+    "sources/primary.ts",
+    "sources/secondary.ts"
+  ],
+  "call": {
+    "calleeName": "normalize",
+    "location": {
+      "file": "sources/caller.ts",
+      "startLine": 2,
+      "startColumn": 23,
+      "endLine": 2,
+      "endColumn": 35
+    }
+  },
+  "import": {
+    "moduleSpecifierRaw": "./primary",
+    "importedName": "normalizeReading",
+    "localAlias": "normalize"
+  },
+  "resolution": {
+    "inputDeclaration": "decl:sources/primary.ts#top:normalizeReading",
+    "inputModule": "module:sources/primary.ts",
+    "inputName": "normalizeReading",
+    "inputLocation": {
+      "file": "sources/primary.ts",
+      "startLine": 1,
+      "startColumn": 17,
+      "endLine": 1,
+      "endColumn": 33
+    }
+  },
+  "primaryDeclaration": {
+    "declarationRef": "decl:sources/primary.ts#top:normalizeReading",
+    "moduleRef": "module:sources/primary.ts",
+    "name": "normalizeReading",
+    "location": {
+      "file": "sources/primary.ts",
+      "startLine": 1,
+      "startColumn": 17,
+      "endLine": 1,
+      "endColumn": 33
+    }
+  },
+  "secondaryDeclaration": {
+    "declarationRef": "decl:sources/secondary.ts#top:normalizeReading",
+    "moduleRef": "module:sources/secondary.ts",
+    "name": "normalizeReading",
+    "location": {
+      "file": "sources/secondary.ts",
+      "startLine": 1,
+      "startColumn": 17,
+      "endLine": 1,
+      "endColumn": 33
+    }
+  },
+  "proof": {
+    "sameDeclarationForPrimaryRequest": true,
+    "sameNameDifferentModuleForSecondaryRequest": true
+  },
+  "diagnostics": []
+}

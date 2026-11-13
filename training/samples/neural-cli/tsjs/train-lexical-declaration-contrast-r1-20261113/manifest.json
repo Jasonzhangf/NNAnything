@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "neural-cli-source-family-v1",
+  "sourceGroup": "tsjs-train-lexical-declaration-contrast-r1-20261113",
+  "language": "typescript",
+  "semanticStratum": "module_export",
+  "partition": "TRAIN",
+  "derivationFamily": {
+    "familyId": "tsjs-lexical-declaration-contrast-v1",
+    "independentVerificationEligible": false
+  },
+  "sourceRefs": [
+    "sources/caller.ts",
+    "sources/primary.ts",
+    "sources/secondary.ts"
+  ],
+  "sampleCount": 2
+}

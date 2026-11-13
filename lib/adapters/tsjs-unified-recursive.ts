@@ -54,6 +54,7 @@ import {
 } from "../training/unified-model-package.js";
 import {
   relationStepContext,
+  type TsJsLexicalProducerSourceBinding,
   type RelationStepEpisode,
   type TsJsProducerSourceBinding,
   type TsJsStaticProducerSourceBinding,
@@ -63,6 +64,7 @@ import type {
   TsJsStaticSelectedSelectorObservation,
   TsJsTargetMismatchObservation,
 } from "../filters/tsjs-symbol-table-policy.js";
+import { canonicalRepoFileFromModuleRef } from "../filters/tsjs-symbol-table-policy.js";
 import {
   deriveTsJsObservedCompletionRequirements,
   deriveTsJsStaticRelationCompletionItem,
@@ -328,6 +330,8 @@ export interface TsJsObservedDynamicCompletionAssessment {
   readonly producer_backed: boolean;
   readonly evidenceRefs: readonly string[];
   readonly gaps: readonly TsJsObservedCompletionGap[];
+  readonly actualDeclarationRef?: string | null;
+  readonly relationMatchesRequested?: boolean;
 }
 
 export interface TsJsObservedCompletionState {
@@ -2578,6 +2582,284 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function lexicalReadRecord(input: {
+  readonly stateRef: string;
+  readonly receipt: TsJsLexicalProducerSourceBinding["rawObservation"]["callerReadReceipt"];
+  readonly source: TsJsLexicalProducerSourceBinding;
+}): TsJsInitialEvidenceRecord {
+  const { receipt, source, stateRef } = input;
+  return {
+    id: receipt.receiptId,
+    stateRef,
+    validity: "valid",
+    payload: {
+      kind: "source_read_receipt",
+      receiptId: receipt.receiptId,
+      actionRef: receipt.actionRef,
+      origin: receipt.origin,
+      outcome: receipt.outcome,
+      targetRef: receipt.targetRef,
+      fromStepId: source.fromStepId,
+      pendingRelationRef: source.pendingRelationRef,
+      resultRefs: receipt.result,
+      evidenceRefs: receipt.evidenceRefs,
+      requestRef: source.requestRef,
+      stepId: source.stepId,
+      callSiteRef: source.callSiteRef,
+      requestedDeclarationRef: source.requestedDeclarationRef,
+      requestedModuleRef: source.requestedModuleRef,
+      modules: receipt.modules,
+    },
+  };
+}
+
+function admittedLexicalProducerReadRecords(input: {
+  readonly requestId: string;
+  readonly episode: RelationStepEpisode;
+  readonly stateRef: string;
+  readonly receipt: NonNullable<RelationStepEpisode["receipts"]>[number];
+  readonly source: TsJsLexicalProducerSourceBinding;
+}): { readonly records: readonly TsJsInitialEvidenceRecord[]; readonly reasons: readonly string[] } {
+  const { requestId, episode, stateRef, receipt, source } = input;
+  const reasons: string[] = [];
+  const raw = source.rawObservation;
+  const callerReceipt = raw.callerReadReceipt;
+  const sourceReceipt = raw.sourceModuleReadReceipt;
+  const currentRelation = episode.currentRelation;
+  const receiptResult = Array.isArray(receipt.result)
+    ? receipt.result.filter((ref): ref is string => typeof ref === "string")
+    : [];
+
+  if (source.requestRef !== requestId || episode.requestId !== requestId) {
+    reasons.push("lexical producer source request mismatch");
+  }
+  if (source.sampleId !== episode.sampleId) {
+    reasons.push("lexical producer source sample mismatch");
+  }
+  if (source.stepId !== episode.stepId) {
+    reasons.push("lexical producer source step mismatch");
+  }
+  if (source.fromStepId !== (receipt.fromStepId ?? null)) {
+    reasons.push("lexical producer source predecessor mismatch");
+  }
+  if (
+    source.requestedDeclarationRef !== episode.targetRef
+    || source.requestedModuleRef !== (episode.requestedDeclaration?.moduleRef ?? null)
+  ) {
+    reasons.push("lexical producer source requested target mismatch");
+  }
+  if (
+    source.callSiteRef !== episode.callSiteRef
+    || source.callSiteRef !== currentRelation?.callSiteRef
+    || source.callSiteRef !== raw.callSiteRef
+  ) {
+    reasons.push("lexical producer source call-site mismatch");
+  }
+  if (
+    source.pendingRelationRef !== episode.pendingRelationRef
+    || source.pendingRelationRef !== currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== receipt.pendingRelationRef
+  ) {
+    reasons.push("lexical producer source pending relation mismatch");
+  }
+  if (
+    currentRelation?.binding.state !== "not_observed"
+    || currentRelation.binding.reason !== "not_requested"
+  ) {
+    reasons.push("lexical currentRelation is not the preserved not_observed projection");
+  }
+  if (
+    receipt.receiptId !== callerReceipt.receiptId
+    || receipt.actionRef !== callerReceipt.actionRef
+    || receipt.action !== callerReceipt.action
+    || receipt.target !== callerReceipt.targetRef
+    || receipt.origin !== callerReceipt.origin
+    || receipt.outcome !== callerReceipt.outcome
+    || !sameStringArray(receiptResult, callerReceipt.result)
+    || !sameStringArray(receipt.evidenceRefs, callerReceipt.evidenceRefs)
+  ) {
+    reasons.push("lexical caller receipt mismatch");
+  }
+  if (
+    callerReceipt.action !== "read_source"
+    || callerReceipt.origin !== "source_observation"
+    || callerReceipt.outcome !== "success"
+    || callerReceipt.targetRef !== `module:${raw.callerFile}`
+    || !sameStringArray(callerReceipt.modules.map(module => module.file), [raw.callerFile])
+    || !sameStringArray(
+      callerReceipt.result,
+      [`source-read:${raw.callerFile}:module:${raw.callerFile}`],
+    )
+    || !callerReceipt.evidenceRefs.includes(callerReceipt.receiptId)
+    || episode.sourceContent?.state !== "observed"
+    || !sameStringArray(episode.sourceContent.resultRefs, callerReceipt.result)
+    || !episode.sourceContent.evidenceRefs.includes(callerReceipt.receiptId)
+  ) {
+    reasons.push("lexical caller read is not observed");
+  }
+
+  const successfulFiles = successfulProducerFiles(source.producerRequest, source.coverage);
+  if (
+    !successfulFiles.includes(raw.callerFile)
+    || source.coverage.scopeFilesFailed.some(entry => entry.file === raw.callerFile)
+    || source.coverage.skipped.some(entry => entry.file === raw.callerFile)
+    || source.coverage.parseErrorFiles.some(entry => entry.file === raw.callerFile)
+    || source.coverage.truncated
+  ) {
+    reasons.push("lexical caller read coverage mismatch");
+  }
+
+  const records: TsJsInitialEvidenceRecord[] = [];
+  if (reasons.length === 0) {
+    records.push(lexicalReadRecord({
+      stateRef,
+      receipt: callerReceipt,
+      source,
+    }));
+  }
+
+  if (raw.bindingKind !== "import") {
+    if (raw.bindingKind === "unresolved") {
+      reasons.push("lexical source relationship is unresolved");
+    } else {
+      reasons.push(`lexical source relationship is ${raw.bindingKind}`);
+    }
+    return { records, reasons: uniqueRefs(reasons) };
+  }
+
+  if (
+    raw.sourceName === null
+    || raw.targetName === null
+    || raw.moduleSpecifierRaw === null
+    || raw.sourceModuleFile === null
+    || raw.sourceModuleRef === null
+    || raw.targetModuleRef === null
+    || raw.importDeclarationRef === null
+    || sourceReceipt === null
+  ) {
+    reasons.push("lexical import identity is incomplete");
+    return { records, reasons: uniqueRefs(reasons) };
+  }
+  if (
+    !successfulFiles.includes(raw.sourceModuleFile)
+    || source.coverage.scopeFilesFailed.some(entry => entry.file === raw.sourceModuleFile)
+    || source.coverage.skipped.some(entry => entry.file === raw.sourceModuleFile)
+    || source.coverage.parseErrorFiles.some(entry => entry.file === raw.sourceModuleFile)
+  ) {
+    reasons.push("lexical source read coverage mismatch");
+  }
+  if (
+    sourceReceipt.action !== "read_source"
+    || sourceReceipt.origin !== "source_observation"
+    || sourceReceipt.outcome !== "success"
+    || sourceReceipt.targetRef !== raw.sourceModuleRef
+    || !sameStringArray(
+      sourceReceipt.modules.map(module => module.file),
+      [raw.sourceModuleFile],
+    )
+    || !sameStringArray(
+      sourceReceipt.result,
+      [`source-read:${raw.sourceModuleFile}:module:${raw.sourceModuleFile}`],
+    )
+    || !sourceReceipt.evidenceRefs.includes(sourceReceipt.receiptId)
+  ) {
+    reasons.push("lexical source receipt mismatch");
+  }
+  if (
+    source.sourceSymbols.length === 0
+    || new Set(source.sourceSymbols.map(symbol => symbol.symbolId)).size
+      !== source.sourceSymbols.length
+    || source.sourceSymbols.some(symbol =>
+      symbol.file !== raw.sourceModuleFile || symbol.name !== raw.sourceName)
+  ) {
+    reasons.push("lexical source symbols mismatch");
+  }
+
+  const edge = (episode.observedBindings ?? []).length === 1
+    ? episode.observedBindings![0]!
+    : null;
+  if (
+    edge === null
+    || edge.edgeRef !== `edge:${raw.callSiteRef}:import`
+    || edge.callSiteRef !== raw.callSiteRef
+    || edge.fromNodeRef !== raw.callerModuleRef
+    || edge.edgeKind !== "import"
+    || edge.sourceName !== raw.sourceName
+    || edge.targetName !== raw.targetName
+    || edge.sourceModule.state !== "known"
+    || edge.sourceModule.value !== raw.sourceModuleRef
+    || edge.targetModule.state !== "known"
+    || edge.targetModule.value !== raw.targetModuleRef
+    || edge.moduleSpecifierRaw !== raw.moduleSpecifierRaw
+    || edge.sourceContent.state !== "observed"
+    || !sameStringArray(edge.sourceContent.resultRefs, [sourceReceipt.receiptId])
+    || !sameStringArray(edge.evidenceRefs, raw.evidenceRefs)
+    || !edge.evidenceRefs.includes(raw.importDeclarationRef)
+  ) {
+    reasons.push("lexical import edge mismatch");
+  }
+
+  const declarations = episode.observedDeclarations ?? [];
+  if (source.sourceSymbols.length === 1) {
+    const symbol = source.sourceSymbols[0]!;
+    const topLevel = symbol.kind === "function"
+      && symbol.declaredIn === "file"
+      && symbol.lexicalScope.length === 0
+      && symbol.ownerType === null
+      && symbol.ownerKind === null;
+    const expectedRef = topLevel
+      ? `decl:${symbol.file}#top:${symbol.name}`
+      : symbol.symbolId;
+    const declaration = declarations.length === 1 ? declarations[0]! : null;
+    if (
+      declaration === null
+      || declaration.declarationRef !== expectedRef
+      || declaration.moduleRef !== raw.sourceModuleRef
+      || declaration.name !== raw.sourceName
+      || declaration.role !== "import"
+      || declaration.kind !== symbol.kind
+      || !declaration.evidenceRefs.includes(symbol.symbolId)
+    ) {
+      reasons.push("lexical declaration projection mismatch");
+    }
+  } else if (declarations.length !== 0) {
+    reasons.push("ambiguous lexical symbols must not project a declaration");
+  }
+
+  if (reasons.length > 0) {
+    return { records: [], reasons: uniqueRefs(reasons) };
+  }
+  if (edge === null || sourceReceipt === null || raw.importDeclarationRef === null) {
+    return {
+      records: [],
+      reasons: ["lexical import evidence is incomplete"],
+    };
+  }
+  records.push(lexicalReadRecord({
+    stateRef,
+    receipt: sourceReceipt,
+    source,
+  }));
+  records.push({
+    id: raw.importDeclarationRef,
+    stateRef,
+    validity: "valid",
+    payload: {
+      kind: "import_binding_observation",
+      edgeRef: edge.edgeRef,
+      edgeKind: edge.edgeKind,
+      fromNodeRef: edge.fromNodeRef,
+      sourceName: edge.sourceName,
+      targetName: edge.targetName,
+      sourceModuleRef: raw.sourceModuleRef,
+      targetModuleRef: raw.targetModuleRef,
+      moduleSpecifierRaw: raw.moduleSpecifierRaw,
+      evidenceRefs: raw.evidenceRefs,
+    },
+  });
+  return { records, reasons: [] };
+}
+
 function admittedProducerReadRecords(input: {
   readonly requestId: string;
   readonly episode: RelationStepEpisode;
@@ -2597,6 +2879,15 @@ function admittedProducerReadRecords(input: {
   }
   if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
     return admittedTargetMismatchProducerReadRecords({
+      requestId,
+      episode,
+      stateRef,
+      receipt,
+      source,
+    });
+  }
+  if (source.kind === "nnanything.tsjs.producer-source.lexical.v1") {
+    return admittedLexicalProducerReadRecords({
       requestId,
       episode,
       stateRef,
@@ -3349,8 +3640,16 @@ export function admitInitialEvidence(
     }
     for (const record of readAdmission.records) addRecord(record);
   }
+  const lexicalImportEdges = new Set(receipts.flatMap(receipt => {
+    const source = receipt.producerSource;
+    return source?.kind === "nnanything.tsjs.producer-source.lexical.v1"
+      && source.rawObservation.bindingKind === "import"
+      ? [`edge:${source.callSiteRef}:import`]
+      : [];
+  }));
   for (const binding of startEpisode.observedBindings ?? []) {
     if (binding.edgeKind !== "import") continue;
+    if (lexicalImportEdges.has(binding.edgeRef)) continue;
     const importAdmission = admittedImportRecord(startEpisode, stateRef, binding);
     if (importAdmission.record === null) {
       reasons.push(
@@ -3415,6 +3714,399 @@ function observedCompletionGap(
     reason,
     evidenceRefs: uniqueRefs(evidenceRefs),
     ...(item === undefined ? {} : { kind: item.kind, subjectRef: item.subjectRef }),
+  };
+}
+
+export function assessTsJsLexicalCompletion(
+  episodes: readonly RelationStepEpisode[],
+  state: TsJsObservedCompletionState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): TsJsObservedDynamicCompletionAssessment {
+  const executed = executedEpisodesOf(
+    state as unknown as MultiStepState,
+    episodes,
+  );
+  const producerEpisodes = executed.filter(episode =>
+    (episode.receipts ?? []).some(receipt =>
+      receipt.producerSource?.kind === "nnanything.tsjs.producer-source.lexical.v1"));
+  if (producerEpisodes.length === 0) {
+    return {
+      status: "not_applicable",
+      producer_backed: false,
+      evidenceRefs: [],
+      gaps: [],
+    };
+  }
+  if (producerEpisodes.length !== 1) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: [],
+      gaps: [observedCompletionGap(
+        "producer_branch_ambiguous",
+        `lexical branch requires one producer-backed episode, got ${producerEpisodes.length}`,
+      )],
+    };
+  }
+  const episode = producerEpisodes[0]!;
+  const lexicalReceipts = (episode.receipts ?? []).filter(
+    receipt => receipt.producerSource?.kind === "nnanything.tsjs.producer-source.lexical.v1",
+  );
+  if (lexicalReceipts.length !== 1) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: episode.evidenceRefs,
+      gaps: [observedCompletionGap(
+        "producer_branch_ambiguous",
+        `lexical episode requires one producer receipt, got ${lexicalReceipts.length}`,
+      )],
+    };
+  }
+  const receipt = lexicalReceipts[0]!;
+  const source = receipt.producerSource;
+  if (source?.kind !== "nnanything.tsjs.producer-source.lexical.v1") {
+    return {
+      status: "not_applicable",
+      producer_backed: false,
+      evidenceRefs: [],
+      gaps: [],
+    };
+  }
+  const raw = source.rawObservation;
+  const callerReceipt = raw.callerReadReceipt;
+  const sourceReceipt = raw.sourceModuleReadReceipt;
+  const gaps: TsJsObservedCompletionGap[] = [];
+  const requested = episode.requestedDeclaration ?? null;
+  const currentRelation = episode.currentRelation;
+
+  if (
+    state.context.stepId !== episode.stepId
+    || state.context.requestRef !== episode.requestId
+    || state.context.goal.targetRef !== episode.targetRef
+    || source.sampleId !== episode.sampleId
+    || source.requestRef !== episode.requestId
+    || source.stepId !== episode.stepId
+    || source.fromStepId !== (receipt.fromStepId ?? null)
+    || source.callSiteRef !== episode.callSiteRef
+    || source.callSiteRef !== currentRelation?.callSiteRef
+    || source.callSiteRef !== state.context.currentRelation?.callSiteRef
+    || source.callSiteRef !== raw.callSiteRef
+    || source.pendingRelationRef !== episode.pendingRelationRef
+    || source.pendingRelationRef !== currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== state.context.currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== receipt.pendingRelationRef
+    || source.requestedDeclarationRef !== episode.targetRef
+    || source.requestedModuleRef !== (requested?.moduleRef ?? null)
+    || receipt.receiptId !== callerReceipt.receiptId
+    || receipt.actionRef !== callerReceipt.actionRef
+    || receipt.action !== callerReceipt.action
+    || receipt.origin !== callerReceipt.origin
+    || receipt.outcome !== callerReceipt.outcome
+    || receipt.target !== callerReceipt.targetRef
+    || !sameStringArray(
+      Array.isArray(receipt.result) ? receipt.result as readonly string[] : [],
+      callerReceipt.result,
+    )
+    || !sameStringArray(receipt.evidenceRefs, callerReceipt.evidenceRefs)
+  ) {
+    gaps.push(observedCompletionGap(
+      "producer_binding_mismatch",
+      "lexical producer source does not match the exact request/event/episode tuple",
+      [source.callSiteRef, callerReceipt.receiptId],
+    ));
+  }
+  if (raw.bindingKind !== "import" || sourceReceipt === null) {
+    gaps.push(observedCompletionGap(
+      "source_not_observed",
+      `lexical relationship is ${raw.bindingKind}, not one observed import`,
+      [raw.observationRef, callerReceipt.receiptId],
+    ));
+  }
+  if (
+    currentRelation?.binding.state !== "not_observed"
+    || currentRelation.binding.reason !== "not_requested"
+    || !sameStringArray(currentRelation.binding.evidenceRefs, raw.evidenceRefs)
+  ) {
+    gaps.push(observedCompletionGap(
+      "selector_scope_invalid",
+      "lexical relation state must remain not_observed/not_requested",
+      raw.evidenceRefs,
+    ));
+  }
+  if (
+    episode.sourceContent?.state !== "observed"
+    || !sameStringArray(episode.sourceContent.resultRefs, callerReceipt.result)
+    || !episode.sourceContent.evidenceRefs.includes(callerReceipt.receiptId)
+    || episode.coverage?.note !== "lexical_call_site_binding_source_observed"
+  ) {
+    gaps.push(observedCompletionGap(
+      "source_not_observed",
+      "lexical caller source content is not truthfully observed",
+      [callerReceipt.receiptId],
+    ));
+  }
+
+  const successfulFiles = successfulProducerFiles(source.producerRequest, source.coverage);
+  if (
+    !successfulFiles.includes(raw.callerFile)
+    || source.coverage.truncated
+    || source.coverage.scopeFilesFailed.some(entry =>
+      entry.file === raw.callerFile || entry.file === raw.sourceModuleFile)
+    || source.coverage.skipped.some(entry =>
+      entry.file === raw.callerFile || entry.file === raw.sourceModuleFile)
+    || source.coverage.parseErrorFiles.some(entry =>
+      entry.file === raw.callerFile || entry.file === raw.sourceModuleFile)
+  ) {
+    gaps.push(observedCompletionGap(
+      "source_not_observed",
+      "lexical work has a failed, skipped, truncated, or unparsed related source file",
+      [callerReceipt.receiptId, sourceReceipt?.receiptId ?? ""],
+    ));
+  }
+
+  const readRecordFor = (
+    read: NonNullable<TsJsLexicalProducerSourceBinding["rawObservation"]["sourceModuleReadReceipt"]>
+      | TsJsLexicalProducerSourceBinding["rawObservation"]["callerReadReceipt"],
+  ): TsJsInitialEvidenceRecord | null => {
+    const matches = initialEvidence.filter(record =>
+      record.validity === "valid"
+      && record.payload.kind === "source_read_receipt"
+      && record.id === read.receiptId);
+    if (matches.length !== 1) return null;
+    const record = matches[0]!;
+    if (
+      record.payload.kind !== "source_read_receipt"
+      || record.payload.receiptId !== read.receiptId
+      || record.payload.actionRef !== read.actionRef
+      || record.payload.origin !== read.origin
+      || record.payload.outcome !== read.outcome
+      || record.payload.targetRef !== read.targetRef
+      || record.payload.requestRef !== source.requestRef
+      || record.payload.stepId !== source.stepId
+      || record.payload.callSiteRef !== source.callSiteRef
+      || record.payload.requestedDeclarationRef !== source.requestedDeclarationRef
+      || record.payload.requestedModuleRef !== source.requestedModuleRef
+      || record.payload.pendingRelationRef !== source.pendingRelationRef
+      || !sameStringArray(record.payload.resultRefs, read.result)
+      || !sameStringArray(
+        (record.payload.modules ?? []).map(module => module.file),
+        read.modules.map(module => module.file),
+      )
+    ) return null;
+    return record;
+  };
+  const callerRead = readRecordFor(callerReceipt);
+  const sourceRead = sourceReceipt === null ? null : readRecordFor(sourceReceipt);
+  if (callerRead === null) {
+    gaps.push(observedCompletionGap(
+      "read_record_missing",
+      `lexical caller read requires one admitted record for ${callerReceipt.receiptId}`,
+      [callerReceipt.receiptId],
+    ));
+  }
+  if (sourceReceipt !== null && sourceRead === null) {
+    gaps.push(observedCompletionGap(
+      "read_record_missing",
+      `lexical source read requires one admitted record for ${sourceReceipt.receiptId}`,
+      [sourceReceipt.receiptId],
+    ));
+  }
+
+  if (
+    raw.sourceName === null
+    || raw.targetName === null
+    || raw.moduleSpecifierRaw === null
+    || raw.sourceModuleFile === null
+    || raw.sourceModuleRef === null
+    || raw.targetModuleRef === null
+    || raw.importDeclarationRef === null
+    || sourceReceipt === null
+  ) {
+    gaps.push(observedCompletionGap(
+      "callable_identity_invalid",
+      "lexical import identity is incomplete",
+      [raw.observationRef],
+    ));
+  }
+
+  const edge = (episode.observedBindings ?? []).length === 1
+    ? episode.observedBindings![0]!
+    : null;
+  if (
+    edge === null
+    || edge.edgeRef !== `edge:${raw.callSiteRef}:import`
+    || edge.callSiteRef !== raw.callSiteRef
+    || edge.fromNodeRef !== raw.callerModuleRef
+    || edge.edgeKind !== "import"
+    || edge.sourceName !== raw.sourceName
+    || edge.targetName !== raw.targetName
+    || edge.sourceModule.state !== "known"
+    || edge.sourceModule.value !== raw.sourceModuleRef
+    || edge.targetModule.state !== "known"
+    || edge.targetModule.value !== raw.targetModuleRef
+    || edge.moduleSpecifierRaw !== raw.moduleSpecifierRaw
+    || edge.sourceContent.state !== "observed"
+    || sourceReceipt === null
+    || raw.importDeclarationRef === null
+    || !sameStringArray(edge.sourceContent.resultRefs, [sourceReceipt.receiptId])
+    || !sameStringArray(
+      edge.sourceContent.evidenceRefs,
+      sourceReceipt.evidenceRefs,
+    )
+    || !sameStringArray(edge.evidenceRefs, raw.evidenceRefs)
+    || !edge.evidenceRefs.includes(raw.importDeclarationRef)
+  ) {
+    gaps.push(observedCompletionGap(
+      "callable_identity_invalid",
+      "lexical import edge does not retain the exact call and source read",
+      [raw.callSiteRef, ...(sourceReceipt?.evidenceRefs ?? [])],
+    ));
+  }
+
+  const importRecords = raw.importDeclarationRef === null
+    ? []
+    : initialEvidence.filter(record =>
+        record.validity === "valid"
+        && record.payload.kind === "import_binding_observation"
+        && record.id === raw.importDeclarationRef);
+  if (
+    importRecords.length !== 1
+    || importRecords[0]?.payload.kind !== "import_binding_observation"
+    || edge === null
+    || importRecords[0].payload.edgeRef !== edge.edgeRef
+    || importRecords[0].payload.fromNodeRef !== edge.fromNodeRef
+    || importRecords[0].payload.sourceName !== edge.sourceName
+    || importRecords[0].payload.targetName !== edge.targetName
+    || importRecords[0].payload.sourceModuleRef !== edge.sourceModule.value
+    || importRecords[0].payload.targetModuleRef !== edge.targetModule.value
+    || importRecords[0].payload.moduleSpecifierRaw !== edge.moduleSpecifierRaw
+    || !sameStringArray(importRecords[0].payload.evidenceRefs, raw.evidenceRefs)
+  ) {
+    gaps.push(observedCompletionGap(
+      "read_record_mismatch",
+      "lexical import binding record does not retain the admitted edge",
+      [raw.importDeclarationRef ?? ""],
+    ));
+  }
+
+  let actualDeclarationRef: string | null = null;
+  if (
+    source.sourceSymbols.length !== 1
+    || new Set(source.sourceSymbols.map(symbol => symbol.symbolId)).size
+      !== source.sourceSymbols.length
+  ) {
+    gaps.push(observedCompletionGap(
+      "callable_identity_invalid",
+      "lexical completion requires one unique observed source symbol",
+      [raw.observationRef],
+    ));
+  } else {
+    const symbol = source.sourceSymbols[0]!;
+    const topLevel = symbol.kind === "function"
+      && symbol.declaredIn === "file"
+      && symbol.lexicalScope.length === 0
+      && symbol.ownerType === null
+      && symbol.ownerKind === null;
+    if (
+      !topLevel
+      || symbol.file !== raw.sourceModuleFile
+      || symbol.name !== raw.sourceName
+    ) {
+      gaps.push(observedCompletionGap(
+        "callable_identity_invalid",
+        "lexical completion requires one top-level function declaration",
+        [symbol.symbolId],
+      ));
+    } else {
+      actualDeclarationRef = `decl:${symbol.file}#top:${symbol.name}`;
+      const declarations = (episode.observedDeclarations ?? []).filter(declaration =>
+        declaration.declarationRef === actualDeclarationRef);
+      const declaration = declarations.length === 1 ? declarations[0]! : null;
+      if (
+        declaration === null
+        || declaration.moduleRef !== raw.sourceModuleRef
+        || declaration.name !== symbol.name
+        || declaration.role !== "import"
+        || declaration.kind !== symbol.kind
+        || !declaration.evidenceRefs.includes(symbol.symbolId)
+      ) {
+        gaps.push(observedCompletionGap(
+          "callable_identity_invalid",
+          "lexical declaration does not reconstruct from the observed symbol",
+          [symbol.symbolId, actualDeclarationRef],
+        ));
+      }
+    }
+  }
+
+  if (
+    requested === null
+    || requested.name !== raw.sourceName
+    || requested.kind !== "function"
+    || requested.declarationRef.length === 0
+  ) {
+    gaps.push(observedCompletionGap(
+      "requested_target_mapping_invalid",
+      "lexical request does not identify one same-name function declaration",
+      [raw.observationRef, source.requestedDeclarationRef],
+    ));
+  }
+  if (
+    episode.remainingObligations === undefined
+    || episode.remainingObligations.length !== 0
+    || episode.localCandidateCursor === undefined
+    || episode.localCandidateCursor.state !== "closed"
+    || episode.localCandidateCursor.pendingRelationRef !== source.pendingRelationRef
+    || !enumerationClosed(state as unknown as MultiStepState)
+  ) {
+    gaps.push(observedCompletionGap(
+      "work_state_open",
+      "lexical completion requires closed cursor and empty pending work",
+      [
+        callerReceipt.receiptId,
+        ...(episode.localCandidateCursor?.evidenceRefs ?? []),
+      ],
+    ));
+  }
+
+  const uniqueGaps = gaps.filter((gap, index) =>
+    gaps.findIndex(candidate =>
+      candidate.code === gap.code
+      && candidate.reason === gap.reason
+      && sameStringArray(candidate.evidenceRefs, gap.evidenceRefs)) === index);
+  const relationMatchesRequested = actualDeclarationRef !== null
+    && requested !== null
+    && requested.declarationRef === actualDeclarationRef
+    && canonicalRepoFileFromModuleRef(requested.moduleRef)
+      === canonicalRepoFileFromModuleRef(raw.sourceModuleRef)
+    && requested.name === raw.sourceName
+    && requested.kind === "function";
+  if (uniqueGaps.length > 0) {
+    return {
+      status: "incomplete",
+      producer_backed: true,
+      evidenceRefs: uniqueRefs([
+        callerReceipt.receiptId,
+        ...uniqueGaps.flatMap(gap => gap.evidenceRefs),
+      ]),
+      gaps: uniqueGaps,
+      actualDeclarationRef,
+      relationMatchesRequested,
+    };
+  }
+  return {
+    status: "supported",
+    producer_backed: true,
+    evidenceRefs: uniqueRefs([
+      callerReceipt.receiptId,
+      ...(sourceReceipt === null ? [] : [sourceReceipt.receiptId]),
+      ...(raw.importDeclarationRef === null ? [] : [raw.importDeclarationRef]),
+      ...source.sourceSymbols.map(symbol => symbol.symbolId),
+    ]),
+    gaps: [],
+    actualDeclarationRef,
+    relationMatchesRequested,
   };
 }
 
@@ -4874,6 +5566,23 @@ function staticSelectedMismatchWitness(
     : [];
 }
 
+function lexicalMismatchWitness(
+  episodes: readonly RelationStepEpisode[],
+  state: MultiStepState,
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
+): readonly string[] {
+  const assessment = assessTsJsLexicalCompletion(
+    episodes,
+    state,
+    initialEvidence,
+  );
+  return assessment.producer_backed
+    && assessment.status === "supported"
+    && assessment.relationMatchesRequested === false
+    ? assessment.evidenceRefs
+    : [];
+}
+
 function rootCompletionOf(
   episodes: readonly RelationStepEpisode[],
   state: MultiStepState,
@@ -4882,7 +5591,7 @@ function rootCompletionOf(
   initialEvidence: readonly TsJsInitialEvidenceRecord[],
 ): TsJsRootCompletion {
   const predicted = rootTerminalPrediction(state);
-  const structural = evaluateMultiStepRoot(state, evidence, goal);
+  const structural = evaluateMultiStepRoot(state, evidence, goal, episodes, initialEvidence);
   const availableRefs = [...structural.evidenceRefs];
   const missingGap: TsJsRootGap = { code: "ROOT_EVIDENCE_MISSING", refs: availableRefs };
   if (!state.terminal) {
@@ -4921,10 +5630,15 @@ function rootCompletionOf(
         };
   }
   if (state.terminalKind === "judge" && state.terminalJudgement === "judge=false") {
-    const shadow = negativeShadowWitness(episodes, state, initialEvidence);
-    const negative = shadow.length > 0
-      ? shadow
-      : targetMismatchWitness(episodes, state, initialEvidence);
+    const lexical = lexicalMismatchWitness(episodes, state, initialEvidence);
+    const shadow = lexical.length > 0
+      ? []
+      : negativeShadowWitness(episodes, state, initialEvidence);
+    const negative = lexical.length > 0
+      ? lexical
+      : shadow.length > 0
+        ? shadow
+        : targetMismatchWitness(episodes, state, initialEvidence);
     const completed = negative.length > 0
       ? negative
       : staticSelectedMismatchWitness(episodes, state, initialEvidence);
@@ -4982,14 +5696,9 @@ function evaluateMultiStepRoot(
   state: MultiStepState,
   evidence: readonly { readonly id: string; readonly stateRef: string; readonly validity: string }[],
   goal: DecisionGoal,
+  episodes: readonly RelationStepEpisode[],
+  initialEvidence: readonly TsJsInitialEvidenceRecord[],
 ): StructuralRootEvaluation {
-  const realReads = [...state.readEvidenceRefs];
-  const validIds = new Set(
-    evidence
-      .filter(item => item.validity === "valid" && realReads.includes(item.id))
-      .map(item => item.id),
-  );
-  const evidenceRefs = realReads.filter(id => validIds.has(id));
   if (!state.terminal) {
     return {
       result: "unsatisfied",
@@ -4998,6 +5707,40 @@ function evaluateMultiStepRoot(
       evidenceRefs: [],
     };
   }
+  const lexical = assessTsJsLexicalCompletion(episodes, state, initialEvidence);
+  if (lexical.producer_backed) {
+    const validIds = new Set(
+      evidence
+        .filter(item => item.validity === "valid")
+        .map(item => item.id),
+    );
+    const evidenceRefs = lexical.evidenceRefs.filter(id => validIds.has(id));
+    const verified = state.terminalKind === "judge"
+      && state.terminalJudgement === "judge=true"
+      && lexical.status === "supported"
+      && lexical.relationMatchesRequested === true
+      && evidenceRefs.length > 0;
+    return verified
+      ? {
+          result: "satisfied",
+          satisfaction: 100,
+          necessaryConditionsMet: true,
+          evidenceRefs,
+        }
+      : {
+          result: "unsatisfied",
+          satisfaction: 0,
+          necessaryConditionsMet: false,
+          evidenceRefs,
+        };
+  }
+  const realReads = [...state.readEvidenceRefs];
+  const validIds = new Set(
+    evidence
+      .filter(item => item.validity === "valid" && realReads.includes(item.id))
+      .map(item => item.id),
+  );
+  const evidenceRefs = realReads.filter(id => validIds.has(id));
   const terminalAccepts = state.terminalKind === "control_return"
     || (state.terminalKind === "judge" && state.terminalJudgement === "judge=true");
   const everyReadHasValidEvidence = state.readObservations.length > 0
@@ -5228,7 +5971,13 @@ export async function runTsJsUnifiedMultiStepDecision(
         || input.skill.id === MULTI_STEP_RELATION_CONTROL_SKILL_ID),
     evaluate: async (input: EvaluationInput<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence>): Promise<EvaluationReceipt> => ({
       evaluatorId: MULTI_STEP_ROOT_EVALUATOR_ID,
-      ...evaluateMultiStepRoot(input.state, input.evidence, input.goal),
+      ...evaluateMultiStepRoot(
+        input.state,
+        input.evidence,
+        input.goal,
+        episodes,
+        admittedInitialEvidence,
+      ),
     }),
     select: async (input: SelectionInput<DecisionGoal, MultiStepState, DecisionBindings, MultiStepDecisionEvidence>): Promise<Selection> => {
       if (input.state.terminal) {

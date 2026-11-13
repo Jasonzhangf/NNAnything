@@ -340,8 +340,23 @@ test("unread source module is refused with no edge; read source resolves the dec
       assert.equal(judge.bindingProjection?.resolution.status, "resolved");
       assert.equal(
         judge.bindingProjection?.resolution.declarationRef,
-        factorySymbol.symbolId,
+        "decl:sources/factory.ts#top:createStepper",
       );
+      assert.ok(judge.bindingProjection.declarationRefs[0].evidenceRefs.includes(factorySymbol.symbolId));
+    }
+    assert.equal(factorySymbol.symbolId.startsWith("decl:"), false);
+    for (const item of encodeUnifiedCandidateGroup(context)) {
+      if (item.candidateRef.startsWith("c:judge")) assert.deepEqual(item.vector.slice(60), [1, 0, 0, 0]);
+    }
+    const sameRequest = bridgeInput(present.request, presentObservation.callSiteRef);
+    sameRequest.request.requestedDeclaration.declarationRef = "decl:sources/factory.ts#top:createStepper";
+    sameRequest.request.requestedDeclaration.moduleRef = "module:sources/factory.ts";
+    const sameBridge = await observeTsJsStepwiseRequest(sameRequest);
+    assert.deepEqual(sameBridge.reasons, []);
+    assert.deepEqual(sameBridge.record.steps[0].localSyntax.observedDeclarations, presentRecord.steps[0].localSyntax.observedDeclarations);
+    const sameEpisodes = await loadRecord(sameBridge.record);
+    for (const item of encodeUnifiedCandidateGroup(relationStepContext(sameEpisodes[0]))) {
+      if (item.candidateRef.startsWith("c:judge")) assert.deepEqual(item.vector.slice(60), [1, 1, 1, 0]);
     }
     for (const candidate of context.candidateGroup.candidates) {
       if (candidate.optionSemantics.startsWith("judge=")) continue;
@@ -350,6 +365,21 @@ test("unread source module is refused with no edge; read source resolves the dec
     // The harness supplies the selected identity only. No verdict is injected.
     assert.equal(JSON.stringify(presentRecord).includes("judge=false"), false);
     assert.equal(JSON.stringify(presentRecord).includes("\"verdict\""), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("nested same-name declarations are not collapsed into a top-level identity", async () => {
+  const root = await fixtureRepo();
+  try {
+    await writeFile(join(root, "sources/factory.ts"), FACTORY + "export function outer() { function createStepper() { return 0; } return createStepper; }\n");
+    const built = await produce(root, "sources/entry-direct.ts", ["sources/entry-direct.ts", "sources/factory.ts"]);
+    const symbols = built.producer.result.symbols.filter(s => s.file === "sources/factory.ts" && s.name === "createStepper");
+    assert.equal(symbols.length, 2);
+    const record = await buildLexicalRecord(built.request, lexicalObservation(built.producer, "createStepper"), "sources/entry-direct.ts");
+    const episodes = await loadRecord(record);
+    for (const judge of judgeCandidates(episodes[0])) assert.equal(judge.bindingProjection, null);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

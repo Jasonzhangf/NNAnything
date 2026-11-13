@@ -25,11 +25,13 @@ import type {
 } from "./unified-encoder.js";
 import type {
   TsJsCoverageRecord,
+  TsJsLexicalCallSiteBindingObservation,
   TsJsParserRecord,
   TsJsRuntimeCallableTable,
   TsJsRuntimeSelectorObservation,
   TsJsRuntimeSelectorRoleFact,
   TsJsStaticSelectedSelectorObservation,
+  TsJsSymbolRecord,
   TsJsTargetMismatchObservation,
   TsJsSymbolTableRequest,
 } from "../filters/tsjs-symbol-table-policy.js";
@@ -143,10 +145,28 @@ export interface TsJsTargetMismatchProducerSourceBinding {
   readonly completionWork?: TsJsCompletionWork;
 }
 
+export interface TsJsLexicalProducerSourceBinding {
+  readonly kind: "nnanything.tsjs.producer-source.lexical.v1";
+  readonly producerRequest: TsJsSymbolTableRequest;
+  readonly parser: TsJsParserRecord;
+  readonly coverage: TsJsCoverageRecord;
+  readonly rawObservation: TsJsLexicalCallSiteBindingObservation;
+  readonly sourceSymbols: readonly TsJsSymbolRecord[];
+  readonly sampleId: string;
+  readonly requestRef: string;
+  readonly stepId: string;
+  readonly fromStepId: string | null;
+  readonly callSiteRef: string;
+  readonly pendingRelationRef: string;
+  readonly requestedDeclarationRef: string;
+  readonly requestedModuleRef: string;
+}
+
 export type TsJsProducerSourceBinding =
   | TsJsDynamicProducerSourceBinding
   | TsJsStaticProducerSourceBinding
-  | TsJsTargetMismatchProducerSourceBinding;
+  | TsJsTargetMismatchProducerSourceBinding
+  | TsJsLexicalProducerSourceBinding;
 
 export interface RelationStepReceipt {
   readonly receiptId: string;
