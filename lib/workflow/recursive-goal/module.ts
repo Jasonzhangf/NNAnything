@@ -1,4 +1,10 @@
 import { fileURLToPath } from "node:url";
+import {
+  RecursiveGoalTraceRecorder,
+  type RecursiveGoalTraceCause,
+  type RecursiveGoalTraceInputRefs,
+  type RecursiveGoalTraceTerminalSummary,
+} from "./trace.js";
 import {resolvePlanningDecision} from "./decision-contracts.js";
 import {readFailureAttribution, readPlanningEntryAssessment, type FailurePrior, type GoalGraphPlan, type PathCandidate, type PlanNode, type PlanEdge} from "./planning-contracts.js";
 
@@ -56,6 +62,7 @@ import {
   type ErrorPropagation,
   type EvaluationReceipt,
   type EvidenceRecord,
+  type EvaluationInput,
   type FrameResult,
   type RecursiveGoalAdapter,
   type RecursiveGoalAtomicOutcome,
@@ -267,6 +274,159 @@ export async function runRecursiveGoal<G, S, B, E, F, R, C>(
   request: unknown,
   deps: RecursiveGoalDependencies<G, S, B, E, F, R, C>,
 ): Promise<RecursiveGoalResponse<G, S, B, E, F, R, C>> {
+  if (deps.trace === undefined) return runRecursiveGoalInternal(request, deps);
+  const traceOptions = deps.trace;
+  const trace = new RecursiveGoalTraceRecorder<G, S, B, E, F, R, C>(
+    traceOptions,
+    requestIdFromUnknown(request),
+  );
+  trace.setTransition(0);
+  const resumed = isRecord(request) && request.continuation != null;
+  trace.emit("segment_started", null, () => ({
+    requestId: requestIdFromUnknown(request),
+    resumed,
+    prefix:
+      traceOptions.prefix === undefined
+        ? null
+        : {
+            segmentId: traceOptions.prefix.segmentId,
+            terminalEventId: traceOptions.prefix.terminalEventId,
+          },
+    prefixExternal: true,
+  }));
+  const response = await runRecursiveGoalInternal(request, deps, trace);
+  if (response.kind === "request_rejected") {
+    trace.emit("diagnostic", response.error.origin.frameId, () => ({
+      imported: false,
+      diagnostic: response.error,
+    }));
+  }
+  const terminal = traceTerminalSummary(response);
+  const finalSummaryEventRef = trace.emit(
+    "final_summary",
+    null,
+    () => terminal,
+  );
+  if (finalSummaryEventRef !== null) {
+    trace.emit(
+      "segment_ended",
+      null,
+      () => terminal,
+      [
+        {
+          eventRef: finalSummaryEventRef,
+          relation: "terminal_summary",
+        },
+      ],
+    );
+  }
+  const captureSummary = trace.summary(resumed);
+  const summary =
+    finalSummaryEventRef === null && captureSummary.failure !== null
+      ? {
+          ...captureSummary,
+          terminalEventId: null,
+          missingCoverage: [
+            ...captureSummary.missingCoverage,
+            "terminal_summary",
+          ],
+        }
+      : captureSummary;
+  return { ...response, trace: summary };
+}
+
+function traceTerminalSummary<G, S, B, E, F, R, C>(
+  response: RecursiveGoalResponse<G, S, B, E, F, R, C>,
+): RecursiveGoalTraceTerminalSummary {
+  if (response.kind === "request_rejected") {
+    return {
+      responseKind: response.kind,
+      control: null,
+      rootEvaluation: null,
+      remainingRequirements: [],
+      errorRefs: [response.error.errorId],
+      frames: [],
+      primaryErrorId: response.error.errorId,
+      cleanupReceiptRef: null,
+      collectionReceiptRef: null,
+      faultRef: null,
+      knownBoundary: null,
+    };
+  }
+  if (response.kind === "module_fault") {
+    const report = response.report;
+    return {
+      responseKind: response.kind,
+      control: report?.control ?? null,
+      rootEvaluation: report?.rootEvaluation ?? null,
+      remainingRequirements: remainingRequirementsFromFrames(report?.frames ?? []),
+      errorRefs: report?.errors.map(error => error.errorId) ?? [response.fault.errorId],
+      frames: traceFrameSummaries(
+        report?.frames ?? [],
+        report?.continuation?.frameControls ?? [],
+      ),
+      primaryErrorId: report?.primaryErrorId ?? response.fault.errorId,
+      cleanupReceiptRef: null,
+      collectionReceiptRef: null,
+      faultRef: response.fault.errorId,
+      knownBoundary: response.knownBoundary,
+    };
+  }
+  return {
+    responseKind: response.kind,
+    control: response.report.control,
+    rootEvaluation: response.report.rootEvaluation,
+    remainingRequirements:
+      response.report.continuation?.remainingRequirements ??
+      remainingRequirementsFromFrames(response.report.frames),
+    errorRefs: response.report.errors.map(error => error.errorId),
+    frames: traceFrameSummaries(
+      response.report.frames,
+      response.report.continuation?.frameControls ?? [],
+    ),
+    primaryErrorId: response.report.primaryErrorId,
+    cleanupReceiptRef: response.report.cleanup?.receiptId ?? null,
+    collectionReceiptRef: response.report.collection?.receiptId ?? null,
+    faultRef: null,
+    knownBoundary: null,
+  };
+}
+
+function remainingRequirementsFromFrames<
+  G,
+  B,
+  C,
+>(frames: readonly FrameResult<G, B, C>[]): RemainingRequirement[] {
+  return frames.flatMap(frame =>
+    frame.activeRequirements.map(conditionId => ({
+      frameId: frame.frameId,
+      conditionId,
+    })),
+  );
+}
+
+function traceFrameSummaries<G, B, C>(
+  frames: readonly FrameResult<G, B, C>[],
+  controls: readonly RecursiveGoalFrameControl<G, B>[] = [],
+): RecursiveGoalTraceTerminalSummary["frames"] {
+  return frames.map(frame => ({
+    frameRef: frame.frameId,
+    fact: frame.fact,
+    execution: frame.execution,
+    unexecutedReason: frame.unexecutedReason,
+    errorId: frame.errorId,
+    activeRequirementIds: [...frame.activeRequirements],
+    pendingVerificationDispatchRef:
+      controls.find(control => control.frameId === frame.frameId)
+        ?.pendingVerification?.dispatchId ?? null,
+  }));
+}
+
+async function runRecursiveGoalInternal<G, S, B, E, F, R, C>(
+  request: unknown,
+  deps: RecursiveGoalDependencies<G, S, B, E, F, R, C>,
+  trace?: RecursiveGoalTraceRecorder<G, S, B, E, F, R, C>,
+): Promise<RecursiveGoalResponse<G, S, B, E, F, R, C>> {
   const requestId = requestIdFromUnknown(request);
   const diagnostics = new RecursiveGoalDiagnosticFactory(requestId);
   let envelope: RecursiveGoalRequestEnvelope;
@@ -427,7 +587,7 @@ export async function runRecursiveGoal<G, S, B, E, F, R, C>(
     acceptedRoot,
     dependencies: normalized,
   };
-  const controller = new RecursiveGoalRuntime(admission, diagnostics);
+  const controller = new RecursiveGoalRuntime(admission, diagnostics, trace);
 
   try {
     const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -479,6 +639,8 @@ export async function runRecursiveGoal<G, S, B, E, F, R, C>(
       workflowFailureFrom(error),
       workflowFailureRefs(error),
     );
+  } finally {
+    controller.finalizeTrace();
   }
 }
 
@@ -526,11 +688,60 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private cachedCallbackEvidence: readonly EvidenceRecord<E>[] | null = null;
   private readonly pureFrozenNodes = new WeakSet<object>();
   private nonPureEvidenceCount = 0;
+  private readonly frameDefinitionEventRefs:
+    | Map<string, string>
+    | undefined;
+  private readonly acceptedSelectionEventRefs:
+    | Map<string, string>
+    | undefined;
+  private readonly evaluationInvocationEventRefs:
+    | Map<string, string>
+    | undefined;
+  private readonly evaluationReturnEventRefs:
+    | Map<string, string>
+    | undefined;
+  private readonly derivedConditionsEventRefs:
+    | Map<string, string>
+    | undefined;
+  private readonly blockedEventRefs: Map<string, string> | undefined;
+  private readonly evidenceViewEventRefs: Map<string, string> | undefined;
+  private readonly evidenceViewMemberIds:
+    | Map<string, readonly string[]>
+    | undefined;
+  private readonly conditionViewEventRefs: Map<string, string> | undefined;
+  private readonly conditionViewSnapshots:
+    | Map<string, readonly ConditionFact[]>
+    | undefined;
+  private latestObservationEventRef: string | null = null;
+  private latestAtomicReturnedEventRef: string | null = null;
+  private traceStateCount = 0;
+  private traceEvidenceCount = 0;
+  private traceAtomicCount = 0;
+  private traceDiagnosticCount = 0;
 
   constructor(
     admission: Admission<G, S, B, E, F, R, C>,
     diagnostics: RecursiveGoalDiagnosticFactory,
+    private readonly trace?: RecursiveGoalTraceRecorder<
+      G,
+      S,
+      B,
+      E,
+      F,
+      R,
+      C
+    >,
   ) {
+    this.frameDefinitionEventRefs = trace === undefined ? undefined : new Map();
+    this.acceptedSelectionEventRefs = trace === undefined ? undefined : new Map();
+    this.evaluationInvocationEventRefs = trace === undefined ? undefined : new Map();
+    this.evaluationReturnEventRefs = trace === undefined ? undefined : new Map();
+    this.derivedConditionsEventRefs = trace === undefined ? undefined : new Map();
+    this.blockedEventRefs = trace === undefined ? undefined : new Map();
+    this.evidenceViewEventRefs = trace === undefined ? undefined : new Map();
+    this.evidenceViewMemberIds = trace === undefined ? undefined : new Map();
+    this.conditionViewEventRefs = trace === undefined ? undefined : new Map();
+    this.conditionViewSnapshots = trace === undefined ? undefined : new Map();
     this.envelope = admission.envelope;
     this.validated = admission.validated;
     this.deps = admission.dependencies;
@@ -592,8 +803,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.relatedIssues = [];
       this.transitionsUsed = 0;
       this.derivedGoalsUsed = 0;
+      this.trace?.setTransition(0);
       this.rootFrame = this.createRootFrame();
       this.frames.set(this.rootFrame.frameId, this.rootFrame);
+      this.recordFrameDefinition(this.rootFrame, false);
+      this.recordTraceResources(false);
       this.stack.push(this.rootFrame);
       if (this.validated.retryPolicy !== undefined) {
         this.retryControl = {
@@ -633,12 +847,15 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       continuation.retryControl === undefined
         ? null
         : cloneRetryControl(continuation.retryControl);
+    this.trace?.setTransition(continuation.budgetUsed.transitionsUsed);
     this.restoreFrames(continuation);
     this.rootFrame = this.frames.get(this.acceptedRoot.rootFrameId)!;
     if (this.rootFrame === undefined) {
       throw new ModuleInvariantError("continuation root frame was not restored");
     }
     this.restoreStack(continuation);
+    this.recordTraceResources(true);
+    this.recordImportedTraceBaselines();
     if(this.planningActionBoundary?.nextPhase === "evaluate_actual") {
       const boundary=this.planningActionBoundary;
       const frame=this.frames.get(boundary.frameId)!;
@@ -763,6 +980,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       cause: this.diagnostics.capturedCause(error),
       effectKnowledge: aggregateEffectKnowledge(this.ledger),
     });
+    this.trace?.emit("diagnostic", diagnostic.origin.frameId, () => ({
+      imported: false,
+      diagnostic,
+    }));
     const report = this.partialReport(diagnostic);
     return {
       kind: "module_fault",
@@ -830,28 +1051,401 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         return;
       }
       const frame = this.currentFrame();
-      switch (frame.phase) {
-        case "evaluate":
-          await this.evaluateFrame(frame);
-          break;
-        case "select":
-          await this.selectSkill(frame);
-          break;
-        case "derive":
-          await this.deriveConditions(frame);
-          break;
-        case "await_children":
-          await this.awaitChildren(frame);
-          break;
-        case "aggregate":
-          await this.aggregateFrame(frame);
-          break;
-        default:
-          throw new ModuleInvariantError(
-            `unknown recursive goal frame phase ${String(frame.phase)}`,
-          );
+      const startedPhase = frame.phase;
+      const stepInputRefs =
+        this.trace === undefined
+          ? null
+          : this.traceInputRefs(frame, "step_started");
+      const stepActiveStackRefs =
+        this.trace === undefined ? [] : this.activeStackEventRefs();
+      const stepStartedEventRef =
+        this.trace === undefined || stepInputRefs === null
+          ? null
+          : this.trace.emit(
+              "step_started",
+              frame.frameId,
+              () => ({
+                phase: startedPhase,
+                inputRefs: stepInputRefs,
+                control: this.control,
+                activeStackEventRefs: stepActiveStackRefs,
+              }),
+            );
+      try {
+        switch (frame.phase) {
+          case "evaluate":
+            await this.evaluateFrame(frame);
+            break;
+          case "select":
+            await this.selectSkill(frame);
+            break;
+          case "derive":
+            await this.deriveConditions(frame);
+            break;
+          case "await_children":
+            await this.awaitChildren(frame);
+            break;
+          case "aggregate":
+            await this.aggregateFrame(frame);
+            break;
+          default:
+            throw new ModuleInvariantError(
+              `unknown recursive goal frame phase ${String(frame.phase)}`,
+            );
+        }
+      } finally {
+        const endedInputRefs =
+          this.trace === undefined ? null : this.traceInputRefs(frame, "step_ended");
+        this.trace?.emit(
+          "step_ended",
+          frame.frameId,
+          () => ({
+            startedPhase,
+            endedPhase: frame.phase,
+            inputRefs:
+              endedInputRefs ??
+              stepInputRefs ??
+              {
+                stateRef: `${frame.frameId}:trace:view:unavailable`,
+                evidenceViewRef: `${frame.frameId}:trace:view:unavailable`,
+                conditionViewRef: `${frame.frameId}:trace:view:unavailable`,
+              },
+            finished: this.finished,
+            control: this.control,
+            activeStackEventRefs: this.activeStackEventRefs(),
+          }),
+          stepStartedEventRef === null
+            ? []
+            : [{ eventRef: stepStartedEventRef, relation: "step" }],
+        );
       }
     }
+  }
+
+  private async observeEvaluation(
+    input: EvaluationInput<G, S, B, E>,
+    purpose: string,
+    inlineDefinition?: {
+      readonly goal: G;
+      readonly bindings: B;
+      readonly satisfactionThreshold: number;
+      readonly evaluatorId: string;
+    },
+  ): Promise<EvaluationReceipt> {
+    const frameRef = input.context.frameId;
+    const inputRefs =
+      this.trace === undefined
+        ? null
+        : this.traceInputRefs(
+            frameRef,
+            `evaluation:${purpose}`,
+            input.evidence,
+            input.conditions,
+          );
+    if (this.evaluationReturnEventRefs?.has(frameRef) === true) {
+      this.recordEvaluationDisposition(
+        frameRef,
+        false,
+        "superseded_by_new_invocation",
+      );
+    }
+    const frameDefinitionRef = this.frameDefinitionEventRefs?.get(frameRef);
+    const inputDefinition =
+      inlineDefinition === undefined
+        ? frameDefinitionRef === undefined
+          ? {
+              kind: "inline" as const,
+              goal: input.goal,
+              bindings: input.bindings,
+              satisfactionThreshold: input.satisfactionThreshold,
+              evaluatorId: this.frameById(frameRef).evaluatorId,
+            }
+          : { kind: "frame_definition" as const, eventRef: frameDefinitionRef }
+        : {
+            kind: "inline" as const,
+            goal: inlineDefinition.goal,
+            bindings: inlineDefinition.bindings,
+            satisfactionThreshold: inlineDefinition.satisfactionThreshold,
+            evaluatorId: inlineDefinition.evaluatorId,
+          };
+    const started =
+      this.trace?.emit("evaluation_started", frameRef, () => ({
+        purpose,
+        inputRefs: inputRefs!,
+        inputDefinition,
+        evaluatorId: inlineDefinition?.evaluatorId ?? this.frameById(frameRef).evaluatorId,
+      })) ?? null;
+    if (started !== null) {
+      this.evaluationInvocationEventRefs?.set(frameRef, started);
+    }
+    try {
+      const raw = await this.deps.adapter.evaluate(input);
+      const returned =
+        this.trace?.emit(
+          "evaluation_returned",
+          frameRef,
+          () => ({
+            purpose,
+            rawReturn: raw,
+            evaluation: raw,
+            invocationEventRef: started,
+          }),
+          started === null
+            ? []
+            : [{ eventRef: started, relation: "invocation" }],
+        ) ?? null;
+      if (returned !== null) {
+        this.evaluationReturnEventRefs?.set(frameRef, returned);
+      }
+      this.evaluationInvocationEventRefs?.delete(frameRef);
+      return raw;
+    } catch (error) {
+      this.trace?.emit(
+        "evaluation_failed",
+        frameRef,
+        () => ({
+          purpose,
+          message: errorMessage(error),
+          invocationEventRef: started,
+        }),
+        started === null
+          ? []
+          : [{ eventRef: started, relation: "invocation" }],
+      );
+      this.evaluationInvocationEventRefs?.delete(frameRef);
+      throw error;
+    }
+  }
+
+  private recordFrameDefinition(frame: InternalFrame<G, B, C>, imported: boolean): void {
+    const parentDerivationEventRef =
+      frame.parentFrameId === null
+        ? null
+        : this.derivedConditionsEventRefs?.get(frame.parentFrameId) ?? null;
+    const eventRef = this.trace?.emit(
+      "frame_defined",
+      frame.frameId,
+      () => ({
+        imported,
+        rootRef: frame.rootRef,
+        parentFrameRef: frame.parentFrameId,
+        conditionRef: frame.fulfillsConditionId,
+        goal: frame.goal,
+        bindings: frame.bindings,
+        satisfactionThreshold: frame.satisfactionThreshold,
+        evaluatorId: frame.evaluatorId,
+        selectorId: frame.selectorId,
+        parentDerivationEventRef,
+      }),
+      parentDerivationEventRef === null
+        ? []
+        : [
+            {
+              eventRef: parentDerivationEventRef,
+              relation: "parent_derivation",
+            },
+          ],
+    );
+    if (eventRef !== null && eventRef !== undefined) {
+      this.frameDefinitionEventRefs?.set(frame.frameId, eventRef);
+    }
+  }
+
+  private recordEvaluationDisposition(
+    frameRef: string,
+    applied: boolean,
+    purpose: string,
+    reason?: string,
+  ): void {
+    const evaluationEventRef = this.evaluationReturnEventRefs?.get(frameRef);
+    if (evaluationEventRef === undefined) return;
+    this.trace?.emit(
+      applied ? "evaluation_applied" : "evaluation_discarded",
+      frameRef,
+      () => ({
+        evaluationEventRef,
+        purpose,
+        ...(reason === undefined ? {} : { reason }),
+      }),
+      [{ eventRef: evaluationEventRef, relation: "returned_evaluation" }],
+    );
+    this.evaluationReturnEventRefs?.delete(frameRef);
+  }
+
+  private branchChangeCauses(frameRef: string): RecursiveGoalTraceCause[] {
+    const causes: RecursiveGoalTraceCause[] = [];
+    const blockedEventRef = this.blockedEventRefs?.get(frameRef);
+    if (blockedEventRef !== undefined) {
+      causes.push({ eventRef: blockedEventRef, relation: "blocked_event" });
+    }
+    if (this.latestObservationEventRef !== null) {
+      causes.push({
+        eventRef: this.latestObservationEventRef,
+        relation: "changed_observation",
+      });
+    }
+    return causes;
+  }
+
+  private traceAtomicReturned(
+    frame: InternalFrame<G, B, C>,
+    result: AtomicExecutionResult<F, R>,
+    observationAccepted: boolean,
+    dispatchEventRef: string | null | undefined,
+  ): string | null {
+    this.recordTraceResources(false);
+    const emitted = this.trace?.emit(
+      "atomic_returned",
+      frame.frameId,
+      () => ({
+        dispatchId: result.dispatchId,
+        atomicResultRef: result.dispatchId,
+        outcome: result.outcome,
+        executorInvoked: result.executorInvoked,
+        runId: result.runId,
+        sourceResult: result.sourceResult,
+        executionErrorIds: [...result.executionErrorIds],
+        verificationErrorIds: [...result.verificationErrorIds],
+        diagnosticRefs: [
+          ...result.executionErrorIds,
+          ...result.verificationErrorIds,
+        ],
+        effectKnowledge: result.effect.knowledge,
+        observationAccepted,
+      }),
+      dispatchEventRef === null || dispatchEventRef === undefined
+        ? []
+        : [{ eventRef: dispatchEventRef, relation: "dispatch" }],
+    );
+    if (emitted !== null && emitted !== undefined) {
+      this.latestAtomicReturnedEventRef = emitted;
+    }
+    return emitted ?? null;
+  }
+
+  finalizeTrace(): void {
+    if (this.trace === undefined) return;
+    this.recordTraceResources(false);
+    for (const frameRef of this.evaluationReturnEventRefs!.keys()) {
+      this.recordEvaluationDisposition(frameRef, false, "invocation_ended_without_application");
+    }
+  }
+
+  private recordTraceResources(imported: boolean): void {
+    if (this.trace === undefined) return;
+    while (this.traceDiagnosticCount < this.errors.length) {
+      const diagnostic = this.errors[this.traceDiagnosticCount++]!;
+      this.trace.emit("diagnostic", diagnostic.origin.frameId, () => ({
+        imported,
+        diagnostic,
+      }));
+    }
+    while (this.traceStateCount < this.states.length) {
+      const resource = this.states[this.traceStateCount++]!;
+      this.trace.emit("resource_defined", null, () => ({ imported, resourceType: "state", resource }));
+    }
+    while (this.traceEvidenceCount < this.evidence.length) {
+      const resource = this.evidence[this.traceEvidenceCount++]!;
+      this.trace.emit("resource_defined", null, () => ({ imported, resourceType: "evidence", resource }));
+    }
+    while (this.traceAtomicCount < this.atomicResults.length) {
+      const resource = this.atomicResults[this.traceAtomicCount++]!;
+      this.trace.emit("resource_defined", resource.frameId, () => ({ imported, resourceType: "atomic", resource }));
+    }
+  }
+
+  private recordImportedTraceBaselines(): void {
+    if (this.trace === undefined) return;
+    for (const frame of this.frames.values()) {
+      this.traceInputRefs(
+        frame,
+        "imported_baseline",
+        this.currentEvidence(),
+        this.conditionFacts(frame),
+        true,
+      );
+    }
+  }
+
+  private traceInputRefs(
+    frame: InternalFrame<G, B, C> | string,
+    purpose: string,
+    evidence: readonly EvidenceRecord<E>[] = this.currentEvidence(),
+    conditions: readonly ConditionFact[] =
+      typeof frame === "string" ? [] : this.conditionFacts(frame),
+    imported = false,
+  ): RecursiveGoalTraceInputRefs {
+    const frameRef = typeof frame === "string" ? frame : frame.frameId;
+    if (this.trace === undefined) {
+      return {
+        stateRef: this.currentStateRecord().id,
+        evidenceViewRef: `${frameRef}:trace:view:unavailable`,
+        conditionViewRef: `${frameRef}:trace:view:unavailable`,
+      };
+    }
+    this.recordTraceResources(false);
+    const memberIds = evidence.map(item => item.id);
+    let evidenceViewRef = this.evidenceViewEventRefs?.get(frameRef) ?? null;
+    if (
+      evidenceViewRef === null ||
+      !sameStringArray(this.evidenceViewMemberIds?.get(frameRef), memberIds)
+    ) {
+      const emitted = this.trace?.emit("evidence_view_defined", frameRef, () => ({
+        imported,
+        purpose,
+        memberIds,
+      })) ?? null;
+      if (emitted !== null) {
+        evidenceViewRef = emitted;
+        this.evidenceViewEventRefs?.set(frameRef, emitted);
+        this.evidenceViewMemberIds?.set(frameRef, [...memberIds]);
+      }
+    }
+
+    const snapshot = freezeSnapshot(
+      conditions.map(condition => ({
+        ...condition,
+        evidenceRefs: [...condition.evidenceRefs],
+      })),
+    );
+    let conditionViewRef = this.conditionViewEventRefs?.get(frameRef) ?? null;
+    if (
+      conditionViewRef === null ||
+      !sameConditionFacts(this.conditionViewSnapshots?.get(frameRef), snapshot)
+    ) {
+      const emitted = this.trace?.emit("condition_view_defined", frameRef, () => ({
+        imported,
+        purpose,
+        conditions: snapshot,
+      })) ?? null;
+      if (emitted !== null) {
+        conditionViewRef = emitted;
+        this.conditionViewEventRefs?.set(frameRef, emitted);
+        this.conditionViewSnapshots?.set(frameRef, snapshot);
+      }
+    }
+    return {
+      stateRef: this.currentStateRecord().id,
+      evidenceViewRef:
+        evidenceViewRef ?? `${frameRef}:trace:view:unavailable`,
+      conditionViewRef:
+        conditionViewRef ?? `${frameRef}:trace:view:unavailable`,
+    };
+  }
+
+  private activeStackEventRefs(): string[] {
+    return this.stack.flatMap(frame => {
+      const eventRef = this.frameDefinitionEventRefs?.get(frame.frameId);
+      return eventRef === undefined ? [] : [eventRef];
+    });
+  }
+
+  private frameById(frameRef: string): InternalFrame<G, B, C> {
+    const frame = this.frames.get(frameRef);
+    if (frame === undefined) {
+      throw new ModuleInvariantError(`trace references missing frame ${frameRef}`);
+    }
+    return frame;
   }
 
   private async evaluateFrame(frame: InternalFrame<G, B, C>, factsOnly = false): Promise<void> {
@@ -865,7 +1459,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     let receipt: EvaluationReceipt;
     let raw: unknown;
     try {
-      raw = await this.deps.adapter.evaluate({
+      raw = await this.observeEvaluation({
         context: this.context(frame),
         goal: this.callbackGoal(frame.goal),
         satisfactionThreshold: frame.satisfactionThreshold,
@@ -873,7 +1467,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         state: this.callbackState(),
         evidence: this.callbackEvidence(),
         conditions: this.callbackConditions(frame),
-      });
+      }, factsOnly ? "facts_only" : "frame");
       receipt = readEvaluationReceipt(raw, frame.satisfactionThreshold);
       if (receipt.evaluatorId !== frame.evaluatorId) {
         throw new TypeError(
@@ -917,6 +1511,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       };
       frame.pendingProgressCheck = false;
       frame.fact = receipt.result;
+      this.recordEvaluationDisposition(frame.frameId, true, factsOnly ? "facts_only" : "frame");
       frame.evidenceRefs = mergeStrings(frame.evidenceRefs, receipt.evidenceRefs);
       if (frame.frameId === this.rootFrame.frameId) {
         this.rootEvaluation = {
@@ -944,6 +1539,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         "fatal_error",
       );
       return;
+    } finally {
+      this.recordEvaluationDisposition(frame.frameId, false, factsOnly ? "facts_only" : "frame");
     }
 
     if (factsOnly) {
@@ -1429,6 +2026,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   }
 
   private async selectSkill(frame: InternalFrame<G, B, C>): Promise<void> {
+    this.acceptedSelectionEventRefs?.delete(frame.frameId);
     const selector = this.deps.selectorsById.get(frame.selectorId);
     if (selector === undefined) {
       this.stopWithNewDiagnostic(
@@ -1572,6 +2170,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     if (!(await this.preparePlanning(frame, candidates))) return;
     if (!this.beginTransition(frame, "selection")) return;
     const planningView = this.planningSelectionView(frame);
+    const selectionInputRefs =
+      this.trace === undefined ? null : this.traceInputRefs(frame, "selection");
     let raw: unknown;
     try {
       raw = await this.deps.adapter.select({
@@ -1592,6 +2192,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         ...(planningView === null ? {} : { planning: planningView }),
       });
     } catch (error) {
+      this.trace?.emit("selection_failed", frame.frameId, () => ({
+        selectorId: selector.id,
+        message: errorMessage(error),
+        inputRefs: selectionInputRefs!,
+      }));
       this.stopWithNewDiagnostic(
         frame,
         {
@@ -1607,12 +2212,44 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       );
       return;
     }
+    const selectionReturnedEventRef =
+      this.trace?.emit(
+        "selection_returned",
+        frame.frameId,
+        () => ({
+          selectorId: selector.id,
+          rawReturn: raw,
+          selection: raw,
+          candidates: this.callbackSkills(candidates),
+          inputRefs: selectionInputRefs!,
+        }),
+      ) ?? null;
+    const returnedSelectionCauses: RecursiveGoalTraceCause[] =
+      selectionReturnedEventRef === null
+        ? []
+        : [
+            {
+              eventRef: selectionReturnedEventRef,
+              relation: "returned_selection",
+            },
+          ];
 
     const selectedId =
       isRecord(raw) && raw.kind === "selected" && typeof raw.skillId === "string"
         ? raw.skillId
         : null;
     if (selectedId !== null && !candidates.some(skill => skill.id === selectedId)) {
+      this.trace?.emit(
+        "selection_rejected",
+        frame.frameId,
+        () => ({
+          rawReturn: raw,
+          message: `selector chose ${selectedId} outside its declared vocabulary`,
+          selectionEventRef:
+            selectionReturnedEventRef ?? `${frame.frameId}:selection:unavailable`,
+        }),
+        returnedSelectionCauses,
+      );
       this.stopWithNewDiagnostic(
         frame,
         {
@@ -1627,22 +2264,6 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       );
       return;
     }
-    if (isRecord(raw) && raw.kind === "no_capability") {
-      this.stopWithNewDiagnostic(
-        frame,
-        {
-          code: "policy_error",
-          stage: "selection",
-          message: "selector reported no capability although enabled coverage exists",
-          owner: "adapter",
-          category: "selection_head",
-        },
-        "error",
-        "fatal_error",
-      );
-      return;
-    }
-
     let selection: ReturnType<typeof readSelection>;
     try {
       selection = freezeSnapshot(readSelection(
@@ -1654,6 +2275,17 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         throw new TypeError("selection.decision is supported only for atomic skills");
       }
     } catch (error) {
+      this.trace?.emit(
+        "selection_rejected",
+        frame.frameId,
+        () => ({
+          rawReturn: raw,
+          message: errorMessage(error),
+          selectionEventRef:
+            selectionReturnedEventRef ?? `${frame.frameId}:selection:unavailable`,
+        }),
+        returnedSelectionCauses,
+      );
       this.stopWithNewDiagnostic(
         frame,
         {
@@ -1670,6 +2302,17 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
     if (selection.kind === "no_capability") {
+      this.trace?.emit(
+        "selection_disposed",
+        frame.frameId,
+        () => ({
+          selection,
+          selectionEventRef:
+            selectionReturnedEventRef ?? `${frame.frameId}:selection:unavailable`,
+          disposition: "no_capability",
+        }),
+        returnedSelectionCauses,
+      );
       this.stopWithNewDiagnostic(
         frame,
         {
@@ -1685,6 +2328,17 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
     if (selection.kind === "defer") {
+      this.trace?.emit(
+        "selection_disposed",
+        frame.frameId,
+        () => ({
+          selection,
+          selectionEventRef:
+            selectionReturnedEventRef ?? `${frame.frameId}:selection:unavailable`,
+          disposition: "deferred",
+        }),
+        returnedSelectionCauses,
+      );
       if (this.suspendUnexecutedChild(frame, selection.reason)) return;
       this.stopWithNewDiagnostic(
         frame,
@@ -1701,6 +2355,22 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       return;
     }
 
+    const acceptedSelectionEventRef = this.trace?.emit(
+      "selection_accepted",
+      frame.frameId,
+      () => ({
+        selection,
+        selectionEventRef:
+          selectionReturnedEventRef ?? `${frame.frameId}:selection:unavailable`,
+      }),
+      returnedSelectionCauses,
+    );
+    if (acceptedSelectionEventRef !== null) {
+      this.acceptedSelectionEventRefs?.set(
+        frame.frameId,
+        acceptedSelectionEventRef ?? `${frame.frameId}:selection:unavailable`,
+      );
+    }
     const skill = this.deps.skillsById.get(selection.skillId)!;
     if(this.planningMode && this.ledger.some(item=>item.skillId===skill.id && (item.dispatchState==="in_flight" || item.knowledge==="unknown" || item.knowledge==="mixed"))) {
       this.stopWithNewDiagnostic(frame,{code:"evidence_unavailable",stage:"effect",message:"unresolved atomic dispatch cannot be replayed",category:"planning_replay_guard"},"error","fatal_error");
@@ -1961,6 +2631,24 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
     frame.cursor = receipt.nextCursor;
     frame.derivationClosed = receipt.expansion === "closed";
+    const selectionEventRef =
+      this.acceptedSelectionEventRefs?.get(frame.frameId) ?? null;
+    const derivedEventRef = this.trace?.emit(
+      "conditions_derived",
+      frame.frameId,
+      () => ({
+        conditions: receipt.conditions,
+        cursor: receipt.nextCursor,
+        expansion: receipt.expansion,
+        selectionEventRef,
+      }),
+      selectionEventRef === null
+        ? []
+        : [{ eventRef: selectionEventRef, relation: "selected_action" }],
+    );
+    if (derivedEventRef !== null && derivedEventRef !== undefined) {
+      this.derivedConditionsEventRefs?.set(frame.frameId, derivedEventRef);
+    }
     frame.obligationSnapshot = this.createObligationSnapshot(
       frame,
       frame.selectedSkillId,
@@ -2045,6 +2733,18 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     frame.progressBaseline = null;
     this.synchronizeFrameConditionExecution(frame, "not_started", diagnostic.errorId);
     this.propagateDiagnostic(frame, diagnostic);
+    const blockedEventRef = this.trace?.emit(
+      "branch_changed",
+      frame.frameId,
+      () => ({
+        state: "blocked",
+        reason: "policy_deferred",
+        diagnosticRef: diagnostic.errorId,
+      }),
+    );
+    if (blockedEventRef !== null && blockedEventRef !== undefined) {
+      this.blockedEventRefs?.set(frame.frameId, blockedEventRef);
+    }
     this.stack.pop();
     parent.phase = "await_children";
     return true;
@@ -2139,6 +2839,17 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
 
     if (resumableChild !== null) {
+      this.trace?.emit(
+        "branch_changed",
+        resumableChild.frameId,
+        () => ({
+          state: "resumed",
+          reason: "facts_changed",
+          stateRef: this.currentStateRecord().id,
+          priorDiagnosticRef: resumableChild.errorId,
+        }),
+        this.branchChangeCauses(resumableChild.frameId),
+      );
       resumableChild.errorId = null;
       frame.conditions.get(resumableChild.fulfillsConditionId!)!.errorId = null;
       frame.errorId = null;
@@ -2150,6 +2861,16 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     const subtrees = this.blockedIsolationChildren(frame);
     for (const subtree of subtrees) {
       if (this.obligationChanged(subtree)) {
+        this.trace?.emit(
+          "branch_changed",
+          subtree.frameId,
+          () => ({
+            state: "resumed",
+            reason: "facts_changed",
+            stateRef: this.currentStateRecord().id,
+          }),
+          this.branchChangeCauses(subtree.frameId),
+        );
         subtree.phase = "await_children";
         this.stack.push(subtree);
         return;
@@ -2157,6 +2878,16 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     }
     for (const child of isolated) {
       if (this.obligationChanged(child)) {
+        this.trace?.emit(
+          "branch_changed",
+          child.frameId,
+          () => ({
+            state: "reevaluating",
+            reason: "facts_changed",
+            stateRef: this.currentStateRecord().id,
+          }),
+          this.branchChangeCauses(child.frameId),
+        );
         await this.evaluateFrame(child, true);
         return;
       }
@@ -2186,6 +2917,18 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         this.synchronizeFailedParentCondition(frame, cause, frame.fact);
         this.propagateDiagnostic(frame, cause);
         frame.obligationSnapshot = this.createObligationSnapshot(frame, frame.selectedSkillId);
+        const blockedEventRef = this.trace?.emit(
+          "branch_changed",
+          frame.frameId,
+          () => ({
+            state: "blocked",
+            reason: "nested_paths_exhausted",
+            diagnosticRef: cause.errorId,
+          }),
+        );
+        if (blockedEventRef !== null && blockedEventRef !== undefined) {
+          this.blockedEventRefs?.set(frame.frameId, blockedEventRef);
+        }
         this.stack.pop();
         parent.phase = "await_children";
         return;
@@ -2293,6 +3036,26 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     frame.dispatchRefs = mergeStrings(frame.dispatchRefs, [dispatchId]);
     frame.execution = "dispatched";
     this.synchronizeFrameConditionExecution(frame, "dispatched", null);
+    const dispatchInputRefs =
+      this.trace === undefined ? null : this.traceInputRefs(frame, "dispatch");
+    const selectionEventRef =
+      this.acceptedSelectionEventRefs?.get(frame.frameId) ?? null;
+    const dispatchEventRef = this.trace?.emit(
+      "dispatch_started",
+      frame.frameId,
+      () => ({
+        dispatchId,
+        skillId: skill.id,
+        skillVersion: skill.version,
+        decision: decision ?? null,
+        selectionEventRef:
+          selectionEventRef ?? `${frame.frameId}:selection:unavailable`,
+        inputRefs: dispatchInputRefs!,
+      }),
+      selectionEventRef === null
+        ? []
+        : [{ eventRef: selectionEventRef, relation: "selected_action" }],
+    );
 
     let raw: unknown;
     try {
@@ -2330,6 +3093,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frame.atomicResultRefs = mergeStrings(frame.atomicResultRefs, [
         projection.result.dispatchId,
       ]);
+      this.traceAtomicReturned(
+        frame,
+        projection.result,
+        false,
+        dispatchEventRef,
+      );
       this.markRootUnknownFromAtomicFailure([]);
       await this.finishAtomicFailure(
         frame,
@@ -2389,6 +3158,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frame.atomicResultRefs = mergeStrings(frame.atomicResultRefs, [
         projection.result.dispatchId,
       ]);
+      this.traceAtomicReturned(
+        frame,
+        projection.result,
+        false,
+        dispatchEventRef,
+      );
       this.markRootUnknownFromAtomicFailure([]);
       await this.finishAtomicFailure(
         frame,
@@ -2418,7 +3193,20 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
     frame.atomicResultRefs = mergeStrings(frame.atomicResultRefs, [
       projection.result.dispatchId,
     ]);
-    this.applyAtomicData(frame, receipt);
+    const observationAccepted =
+      receipt.newState !== null || receipt.evidence.length > 0;
+    const atomicReturnedEventRef = this.traceAtomicReturned(
+      frame,
+      projection.result,
+      observationAccepted,
+      dispatchEventRef,
+    );
+    this.applyAtomicData(
+      frame,
+      receipt,
+      projection.result,
+      atomicReturnedEventRef,
+    );
     frame.lastAtomicOutcome = receipt.outcome;
     frame.lastAttemptEffectKnowledge = receipt.effect.knowledge;
     frame.safeRetrySkill = skill.retry === "completed_no_effect";
@@ -2443,6 +3231,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       this.addDiagnostic(primary);
       this.markRootUnknownFromAtomicFailure(
         receipt.evidence.map(item => item.id),
+        atomicReturnedEventRef === null ? [] : [atomicReturnedEventRef],
       );
       if (receipt.effect.knowledge === "known") {
         frame.pendingVerification = {
@@ -2527,7 +3316,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       });
       this.addDiagnostic(primary);
       const stopOnly = await this.refreshFactsBeforeAtomicStop(frame, receipt, projection.result, primary);
-      if (!stopOnly) this.markRootUnknownFromAtomicFailure(receipt.evidence.map(item => item.id));
+      if (!stopOnly) {
+        this.markRootUnknownFromAtomicFailure(
+          receipt.evidence.map(item => item.id),
+          atomicReturnedEventRef === null ? [] : [atomicReturnedEventRef],
+        );
+      }
       await this.finishAtomicFailure(frame, primary, stopOnly ? frame.fact : "unknown", stopOnly);
       return;
     }
@@ -2579,6 +3373,9 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       failurePath.add(item.frameId);
     }
     const staged = new Map<string, EvaluationReceipt>();
+    const applied = new Set<string>();
+    let currentEvaluationFrameId: string | null = null;
+    let stagedApplied = false;
     const stack = [{ frame: this.rootFrame, leave: false }];
     const visited = new Set<string>();
     try {
@@ -2605,11 +3402,12 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           return updated === undefined ? condition : { ...condition, fact: updated.result,
             satisfaction: updated.satisfaction, evaluatorId: updated.evaluatorId, evidenceRefs: [...updated.evidenceRefs] };
         });
-        const evaluation = readEvaluationReceipt(await this.deps.adapter.evaluate({
+        currentEvaluationFrameId = target.frameId;
+        const evaluation = readEvaluationReceipt(await this.observeEvaluation({
           context: this.context(target), goal: this.callbackGoal(target.goal),
           satisfactionThreshold: target.satisfactionThreshold, bindings: this.callbackBindings(target.bindings),
           state: this.callbackState(), evidence: freezeSnapshot(evidence), conditions: freezeSnapshot(conditions),
-        }), target.satisfactionThreshold);
+        }, "failure_refresh"), target.satisfactionThreshold);
         if (this.deps.signal?.aborted === true) { this.stopCancelled(failed); return true; }
         if (evaluation.evaluatorId !== target.evaluatorId || !this.deps.evaluatorsById.has(evaluation.evaluatorId)
           || evaluation.evidenceRefs.some(id => !currentIds.has(id))
@@ -2619,12 +3417,15 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           throw new TypeError("failure fact evaluation lacks current evidence or required conditions");
         }
         staged.set(target.frameId, evaluation);
+        currentEvaluationFrameId = null;
       }
       for (const [id, evaluation] of staged) {
         const target = this.frames.get(id)!;
         target.lastEvaluation = evaluation;
         target.lastEvaluationAtTransition = this.transitionsUsed;
         target.fact = evaluation.result;
+        this.recordEvaluationDisposition(id, true, "failure_refresh");
+        applied.add(id);
         target.evidenceRefs = [...evaluation.evidenceRefs];
         const parent = this.parentFrame(target);
         const condition = target.fulfillsConditionId === null ? undefined : parent?.conditions.get(target.fulfillsConditionId);
@@ -2636,6 +3437,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       const root = staged.get(this.rootFrame.frameId)!;
       this.rootEvaluation = { state: "evaluated", result: root.result, satisfaction: root.satisfaction,
         evaluatorId: root.evaluatorId, evidenceRefs: [...root.evidenceRefs], evaluatedAtTransition: this.transitionsUsed };
+      stagedApplied = true;
     } catch (error) {
       this.addDiagnostic(this.diagnostics.create({
         code: "adapter_contract_invalid", stage: "evaluation", message: errorMessage(error),
@@ -2644,6 +3446,20 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         atomicResultRefs: [result.dispatchId], cause: this.diagnostics.capturedCause(error),
       }));
       if (this.deps.signal?.aborted === true) this.stopCancelled(failed);
+    } finally {
+      if (currentEvaluationFrameId !== null && !applied.has(currentEvaluationFrameId)) {
+        this.recordEvaluationDisposition(
+          currentEvaluationFrameId,
+          false,
+          "failure_refresh_result_not_applied",
+        );
+      }
+      if (!stagedApplied) {
+        for (const id of staged.keys()) {
+          if (applied.has(id)) continue;
+          this.recordEvaluationDisposition(id, false, "failure_refresh_batch_not_applied");
+        }
+      }
     }
     return true;
   }
@@ -2857,6 +3673,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
 
   private markRootUnknownFromAtomicFailure(
     evidenceRefs: readonly string[],
+    causeEventRefs: readonly string[] = [],
   ): void {
     const admittedRefs = mergeStrings(
       this.rootFrame.evidenceRefs,
@@ -2881,6 +3698,25 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       evidenceRefs: [...admittedRefs],
       evaluatedAtTransition: this.transitionsUsed,
     };
+    const causes =
+      causeEventRefs.length > 0
+        ? causeEventRefs
+        : this.latestAtomicReturnedEventRef === null
+          ? []
+          : [this.latestAtomicReturnedEventRef];
+    this.trace?.emit(
+      "control_projection",
+      this.rootFrame.frameId,
+      () => ({
+        projection: "root_unknown",
+        reason: "module_created_unknown_after_atomic_failure",
+        evaluation: receipt,
+      }),
+      causes.map(eventRef => ({
+        eventRef,
+        relation: "atomic_receipt" as const,
+      })),
+    );
   }
 
   private consumeProgress(
@@ -3226,6 +4062,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       throw new ModuleInvariantError(`duplicate child frame ${frameId}`);
     }
     this.frames.set(frameId, child);
+    this.recordFrameDefinition(child, false);
     this.ensureRetryFrame(child);
     condition.childFrameId = frameId;
     condition.execution = "not_started";
@@ -3274,7 +4111,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         let receipt: EvaluationReceipt;
         try {
           receipt = readEvaluationReceipt(
-            await this.deps.adapter.evaluate({
+            await this.observeEvaluation({
               context: this.context(child),
               goal: this.callbackGoal(child.goal),
               satisfactionThreshold: child.satisfactionThreshold,
@@ -3282,7 +4119,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
               state: this.callbackState(),
               evidence: this.callbackEvidence(),
               conditions: this.callbackConditions(child),
-            }),
+            }, "persistent_revalidation"),
             child.satisfactionThreshold,
           );
           if (receipt.evaluatorId !== child.evaluatorId) {
@@ -3290,6 +4127,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
           }
           const evidenceFailure = this.evaluationEvidenceFailure(receipt);
           if (evidenceFailure !== null) {
+            this.recordEvaluationDisposition(
+              child.frameId,
+              false,
+              "persistent_revalidation_not_applied",
+            );
             this.stopWithNewDiagnostic(
               child,
               evidenceFailure,
@@ -3299,6 +4141,11 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
             return false;
           }
         } catch (error) {
+          this.recordEvaluationDisposition(
+            child.frameId,
+            false,
+            "persistent_revalidation_not_applied",
+          );
           this.stopWithNewDiagnostic(
             child,
             {
@@ -3317,6 +4164,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         child.lastEvaluation = receipt;
         child.lastEvaluationAtTransition = this.transitionsUsed;
         child.fact = receipt.result;
+        this.recordEvaluationDisposition(child.frameId, true, "persistent_revalidation");
         child.evidenceRefs = mergeStrings(
           child.evidenceRefs,
           receipt.evidenceRefs,
@@ -3450,6 +4298,8 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private applyAtomicData(
     frame: InternalFrame<G, B, C>,
     receipt: AtomicReceipt<S, E, F, R>,
+    result: AtomicExecutionResult<F, R>,
+    atomicReturnedEventRef: string | null,
   ): void {
     if (receipt.newState !== null) {
       this.states.push(receipt.newState);
@@ -3466,6 +4316,26 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       frame.evidenceRefs,
       receipt.evidence.map(item => item.id),
     );
+    this.recordTraceResources(false);
+    if (
+      atomicReturnedEventRef !== null &&
+      (receipt.newState !== null || receipt.evidence.length > 0)
+    ) {
+      const observationEventRef = this.trace?.emit(
+        "observation_accepted",
+        frame.frameId,
+        () => ({
+          stateRef: receipt.newState?.id ?? this.currentStateRecord().id,
+          evidenceRefs: receipt.evidence.map(item => item.id),
+          atomicResultRef: result.dispatchId,
+          atomicReceiptEventRef: atomicReturnedEventRef,
+        }),
+        [{ eventRef: atomicReturnedEventRef, relation: "atomic_receipt" }],
+      );
+      if (observationEventRef !== null && observationEventRef !== undefined) {
+        this.latestObservationEventRef = observationEventRef;
+      }
+    }
   }
 
   private validateReceiptReferences(
@@ -3781,6 +4651,19 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
         lastAtomicOutcome: null,
       };
       this.frames.set(frameId, dependent);
+      this.recordFrameDefinition(dependent, false);
+      const blockedEventRef = this.trace?.emit(
+        "branch_changed",
+        frameId,
+        () => ({
+          state: "blocked",
+          reason: "dependency_not_met",
+          diagnosticRef: original.errorId,
+        }),
+      );
+      if (blockedEventRef !== null && blockedEventRef !== undefined) {
+        this.blockedEventRefs?.set(frameId, blockedEventRef);
+      }
       condition.childFrameId = frameId;
       condition.fact = "unknown";
       condition.execution = "not_started";
@@ -4077,6 +4960,10 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private addDiagnostic(diagnostic: RecursiveGoalErrorDiagnostic): void {
     if (!this.errors.some(error => error.errorId === diagnostic.errorId)) {
       this.errors.push(diagnostic);
+      this.trace?.emit("diagnostic", diagnostic.origin.frameId, () => ({
+        imported: false,
+        diagnostic,
+      }));
     }
     if (this.primaryErrorId === null) this.primaryErrorId = diagnostic.errorId;
   }
@@ -4174,6 +5061,14 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
 
   private planningDecision(decision: PlanningDecision): void {
     if (this.planningReport !== null) this.planningReport = {...this.planningReport, decision};
+    const frame = this.stack.at(-1);
+    if (this.trace !== undefined && frame !== undefined) {
+      const inputRefs = this.traceInputRefs(frame, "planning");
+      this.trace.emit("planning_changed", frame.frameId, () => ({
+        decision,
+        inputRefs,
+      }));
+    }
   }
 
   private async preparePlanning(frame: InternalFrame<G, B, C>, candidates: readonly EnabledSkill[]): Promise<boolean> {
@@ -4312,14 +5207,20 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
   private async evaluateCheckpoint(frame: InternalFrame<G,B,C>, spec: BoundedPlanningRequest<G,B>["checkpointSpecs"][number]): Promise<EvaluationReceipt|null> {
     if(!this.deps.evaluatorsById.has(spec.evaluatorId)) throw new TypeError("checkpoint evaluator is disabled");
     if(!this.beginTransition(frame,"evaluation")) return null;
-    const checked=readEvaluationReceipt(await this.deps.adapter.evaluate({context:this.context(frame),goal:spec.goal,bindings:spec.bindings,satisfactionThreshold:spec.satisfactionThreshold,state:this.callbackState(),evidence:this.callbackEvidence(),conditions:this.callbackConditions(frame)}),spec.satisfactionThreshold);
+    let accepted = false;
+    try {
+    const checked=readEvaluationReceipt(await this.observeEvaluation({context:this.context(frame),goal:spec.goal,bindings:spec.bindings,satisfactionThreshold:spec.satisfactionThreshold,state:this.callbackState(),evidence:this.callbackEvidence(),conditions:this.callbackConditions(frame)}, "checkpoint", {goal:spec.goal,bindings:spec.bindings,satisfactionThreshold:spec.satisfactionThreshold,evaluatorId:spec.evaluatorId}),spec.satisfactionThreshold);
     if(checked.evaluatorId!==spec.evaluatorId) throw new TypeError("checkpoint evaluator mismatch");
     if(checked.result!=="satisfied" || this.evaluationEvidenceFailure(checked)!==null || !checked.evidenceRefs.some(id=>this.evidence.some(e=>e.id===id && e.validity==="valid" && e.stateRef===this.currentStateRecord().id)) || spec.evidenceRequirementRefs.some(id=>!checked.evidenceRefs.includes(id))) return null;
     const closed=spec.obligations.every(ref=>{
       const owner=this.frames.get(ref.frameRef);
       return ref.rootRef===this.acceptedRoot.rootFrameId && owner!==undefined && (ref.conditionRef===null ? owner.fact==="satisfied" : owner.conditions.get(ref.conditionRef)?.fact==="satisfied");
     });
+    accepted = closed;
     return closed ? checked : null;
+    } finally {
+      this.recordEvaluationDisposition(frame.frameId, accepted, "checkpoint");
+    }
   }
 
   private planningEntryApplies(
@@ -4907,6 +5808,7 @@ class RecursiveGoalRuntime<G, S, B, E, F, R, C> {
       }
       frame.derivationClosed = control.expansion === "closed";
       this.frames.set(frame.frameId, frame);
+      this.recordFrameDefinition(frame, true);
     }
 
   }
@@ -5943,6 +6845,28 @@ function mergeStrings(
   right: readonly string[],
 ): string[] {
   return [...new Set([...left, ...right])];
+}
+
+function sameStringArray(
+  left: readonly string[] | undefined,
+  right: readonly string[],
+): boolean {
+  return (
+    left !== undefined &&
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
+}
+
+function sameConditionFacts(
+  left: readonly ConditionFact[] | undefined,
+  right: readonly ConditionFact[],
+): boolean {
+  return (
+    left !== undefined &&
+    left.length === right.length &&
+    left.every((value, index) => sameCopyableValue(value, right[index]))
+  );
 }
 
 function uniqueBy<T>(

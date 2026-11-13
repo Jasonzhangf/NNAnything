@@ -1,3 +1,4 @@
+import type { RecursiveGoalTraceOptions, RecursiveGoalTraceSummary } from "./trace.js";
 import {
   assertPlanningControlProgress,
   readBoundedPlanningOptions,
@@ -520,6 +521,7 @@ export interface RecursiveGoalAdapter<G, S, B, E, F, R, C> {
 }
 
 export interface RecursiveGoalDependencies<G, S, B, E, F, R, C> {
+  readonly trace?: RecursiveGoalTraceOptions<G, S, B, E, F, R, C>;
   readonly adapter: RecursiveGoalAdapter<G, S, B, E, F, R, C>;
   readonly enabledSkills: readonly EnabledSkill[];
   readonly enabledEvaluators: readonly EnabledEvaluator[];
@@ -852,9 +854,11 @@ export interface RecursiveGoalModuleFault<G, S, B, E, F, R, C> {
 }
 
 export type RecursiveGoalResponse<G, S, B, E, F, R, C> =
-  | RequestRejected
+  (RequestRejected
   | RecursiveGoalRunResult<G, S, B, E, F, R, C>
-  | RecursiveGoalModuleFault<G, S, B, E, F, R, C>;
+  | RecursiveGoalModuleFault<G, S, B, E, F, R, C>) & {
+    readonly trace?: RecursiveGoalTraceSummary;
+  };
 
 export interface RecursiveGoalObligationIdentity<G, B, S, E> {
   readonly goal: G;

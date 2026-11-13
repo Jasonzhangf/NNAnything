@@ -826,3 +826,29 @@ cleanup/collect 输入含 accepted root、可信 State/Evidence/effects/atomic r
 - `verification-public-api.log`：原子根一步完成、显式初始证据零动作完成、两个并发请求的根/ledger/预算隔离，3/3通过；这不是单次运行内部的动作并发调度。
 
 独立验证的逐项结论、整体Review与main交付回执由note.md单一入口维护。历史外置cwd probe的87/87只证明旧外部组合逻辑，不计算为上述新结果。组合选择器仍为显式有限规则；未训练递归层序、是否继续或任意高级Goal模型。调用者必须提供有界adapter；本模块不承诺进程崩溃后返回、永不返回callback的终止、跨进程exactly-once或并发重复恢复保护。
+
+## 14. Actual trace 使用与边界
+
+公开入口 `nnanything/recursive-goal` 的 `runRecursiveGoal(request, dependencies)` 支持可选 `dependencies.trace`。默认不开启 trace，不创建历史数组，也不改变 adapter 调用、调度、Goal 完成、effects 或 continuation。启用时，每次调用必须有独立的调用者 `segmentId`，并提供同步有界 `emit(event)`：
+
+```ts
+const response = await runRecursiveGoal(request, {
+  ...dependencies,
+  trace: {
+    segmentId: "caller-segment-001",
+    emit(event) {
+      writeJsonLine(event);
+    },
+  },
+});
+```
+
+事件复用 `EventEnvelope` 包装，载荷包含 schema、sequence、frameRef、previousEventRef、显式 `causes`、kind 和判别式 `details`。`causes` 只引用已经交付的先前事件，用关系说明数据或控制来源；时间顺序由 `previousEventRef` 表达，不由日志文本推断。事件类型覆盖 segment、step、frame/条件定义、评价调用/返回/提交/放弃、原始选择/接受/处置、dispatch、atomic receipt、接纳观测、分支阻塞/恢复、planning、诊断、资源和最终 summary。
+
+`response.trace.capture === "complete"` 只表示本段合同事件已全部交给同步 sink。它不表示 Goal 已完成，不表示外部存储已持久化，也不替代 `history`、`remainingRequirements`、effects 或原错误。调用者可以逐行写 JSONL；公开示例和独立有限 adapter 位于 [`playground/recursive-goal/trace-json.mjs`](../playground/recursive-goal/trace-json.mjs)，可用 `node playground/recursive-goal/trace-json.mjs` 生成可解析事件流。
+
+sink 必须同步返回。sink 或 trace 数据准备抛错后，记录器停止后续交付，原执行继续使用原控制、effects、root evaluation 和 primary error；response 的 trace summary 标为 `incomplete` 并保留失败类别、消息和最后交付/终止引用。sink 自己吞掉写入错误时，引擎只能确认事件已交给 sink，不能认证外部文件完整。
+
+续接仍使用原有 typed continuation，不通过 trace 重放 derive、selector、evaluator 或 atomic callback。调用者可以声明 `trace.prefix = { segmentId, terminalEventId }`，表示已有外部前缀；该指针只是调用者声明，不是已验证存储。续接有前缀时 `response.trace.history` 为 `linked_prefix`，没有前缀时为 `prefix_unavailable`。新调用从 admission 开始时为 `from_admission`。恢复的 frames、conditions、states、evidence、atomic results 和 errors 标为 imported baseline，不能据此冒充本段新执行。
+
+该 trace 是通用 recursive engine 的工程执行记录。合成 adapter 和 JSON 示例只证明有限引擎行为，不是训练模型推理，也不恢复 `nn-code`、产品接线、全局安装或任何模型采用。
