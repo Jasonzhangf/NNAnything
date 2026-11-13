@@ -77,6 +77,12 @@ export interface TsJsRequestAwareAdmissionCaseConfig {
   readonly calleeName: string;
   readonly requestedMemberName: string;
   readonly requestedRole: string;
+  // Explicit route. Only `lexical` consults `lexicalCallSiteBindings`; the
+  // default dynamic path is unchanged. The lexical route requires an explicit
+  // requested declaration identity, supplied independently of the producer.
+  readonly route?: "lexical";
+  readonly requestedDeclarationRef?: string;
+  readonly requestedModuleRef?: string;
   readonly stepId: string;
   readonly coverageContract: string;
   readonly workState: TsJsRequestAwareWorkState | null;
@@ -282,6 +288,19 @@ function parseCase(
     calleeName: requireString(raw.calleeName, `${label}.calleeName`),
     requestedMemberName: requireString(raw.requestedMemberName, `${label}.requestedMemberName`),
     requestedRole: requireString(raw.requestedRole, `${label}.requestedRole`),
+    ...(raw.route === "lexical"
+      ? {
+          route: "lexical" as const,
+          requestedDeclarationRef: requireString(
+            raw.requestedDeclarationRef,
+            `${label}.requestedDeclarationRef`,
+          ),
+          requestedModuleRef: requireString(
+            raw.requestedModuleRef,
+            `${label}.requestedModuleRef`,
+          ),
+        }
+      : {}),
     stepId: requireString(raw.stepId, `${label}.stepId`),
     coverageContract: requireString(raw.coverageContract, `${label}.coverageContract`),
     workState: parseWorkState(raw.workState, `${label}.workState`),
@@ -414,35 +433,83 @@ async function admitCase(
   if (producer.status !== "ok") {
     return { receipt: rejected(kase, "producer_rejected", [producer.message]), record: null };
   }
-  const observation = producer.result.runtimeSelectorObservations.find(
-    candidate => candidate.callSiteRef === kase.callSiteRef,
-  );
-  if (observation === undefined) {
-    return {
-      receipt: rejected(kase, "call_site_mismatch", [
-        `no producer observation for call site ${kase.callSiteRef}`,
-      ]),
-      record: null,
+  let requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>;
+  if (kase.route === "lexical") {
+    const observations = producer.result.lexicalCallSiteBindings.filter(
+      candidate => candidate.callSiteRef === kase.callSiteRef,
+    );
+    if (observations.length !== 1) {
+      return {
+        receipt: rejected(kase, "call_site_mismatch", [
+          observations.length === 0
+            ? `no lexical producer observation for observed call site ${kase.callSiteRef}`
+            : `multiple lexical producer observations for observed call site ${kase.callSiteRef}`,
+        ]),
+        record: null,
+      };
+    }
+    const lexical = observations[0]!;
+    if (lexical.bindingKind === "unresolved") {
+      return {
+        receipt: rejected(kase, "role_mismatch", [
+          `lexical producer reports ${lexical.unresolvedReason ?? "unresolved"} for ${kase.callSiteRef}`,
+        ]),
+        record: null,
+      };
+    }
+    requestedDeclaration = {
+      declarationRef: requireString(
+        kase.requestedDeclarationRef,
+        `${kase.caseId}.requestedDeclarationRef`,
+      ),
+      moduleRef: requireString(
+        kase.requestedModuleRef,
+        `${kase.caseId}.requestedModuleRef`,
+      ),
+      name: kase.requestedMemberName,
+      role: kase.requestedRole as NonNullable<RelationStepEpisode["requestedDeclaration"]>["role"],
+      kind: "function",
+      evidenceRefs: [],
     };
-  }
-  if (observation.sourceReadRef !== kase.sourceReadRef) {
-    return {
-      receipt: rejected(kase, "source_read_mismatch", [
-        `observation source read ${observation.sourceReadRef} does not match ${kase.sourceReadRef}`,
-      ]),
-      record: null,
-    };
-  }
-  const member = observation.callableTable?.members.find(
-    candidate => candidate.name === kase.requestedMemberName,
-  );
-  const identity = member?.callableIdentity ?? null;
-  if (member === undefined || identity === null) {
-    return {
-      receipt: rejected(kase, "requested_member_missing", [
-        `no typed callable member ${kase.requestedMemberName} on call site ${kase.callSiteRef}`,
-      ]),
-      record: null,
+  } else {
+    const observation = producer.result.runtimeSelectorObservations.find(
+      candidate => candidate.callSiteRef === kase.callSiteRef,
+    );
+    if (observation === undefined) {
+      return {
+        receipt: rejected(kase, "call_site_mismatch", [
+          `no producer observation for call site ${kase.callSiteRef}`,
+        ]),
+        record: null,
+      };
+    }
+    if (observation.sourceReadRef !== kase.sourceReadRef) {
+      return {
+        receipt: rejected(kase, "source_read_mismatch", [
+          `observation source read ${observation.sourceReadRef} does not match ${kase.sourceReadRef}`,
+        ]),
+        record: null,
+      };
+    }
+    const member = observation.callableTable?.members.find(
+      candidate => candidate.name === kase.requestedMemberName,
+    );
+    const identity = member?.callableIdentity ?? null;
+    if (member === undefined || identity === null) {
+      return {
+        receipt: rejected(kase, "requested_member_missing", [
+          `no typed callable member ${kase.requestedMemberName} on call site ${kase.callSiteRef}`,
+        ]),
+        record: null,
+      };
+    }
+    requestedDeclaration = {
+      declarationRef: identity.declarationRef,
+      moduleRef: `module:${identity.moduleRef}`,
+      name: member.name,
+      role: kase.requestedRole as NonNullable<RelationStepEpisode["requestedDeclaration"]>["role"],
+      kind: "function",
+      evidenceRefs: [],
     };
   }
   const bridge = await observeTsJsStepwiseRequest({
@@ -453,16 +520,10 @@ async function admitCase(
     derivationFamily: family.acceptedFamily,
     sampleId: kase.caseId,
     entryFile: kase.entryFile,
+    ...(kase.route === undefined ? {} : { route: kase.route }),
     request: {
       requestRef: kase.requestRef,
-      requestedDeclaration: {
-        declarationRef: identity.declarationRef,
-        moduleRef: `module:${identity.moduleRef}`,
-        name: member.name,
-        role: kase.requestedRole as NonNullable<RelationStepEpisode["requestedDeclaration"]>["role"],
-        kind: "function",
-        evidenceRefs: [],
-      },
+      requestedDeclaration,
       relationObligation: {
         requestRef: kase.requestRef,
         pendingRelationRef: kase.pendingRelationRef,
@@ -482,6 +543,49 @@ async function admitCase(
         ? bridge.reasons
         : ["bridge returned no record"]),
       record: null,
+    };
+  }
+  if (kase.route === "lexical") {
+    const lexicalEpisodes = await loadAdmittedEpisodes(bridge.record);
+    const lexicalStart = lexicalEpisodes[0];
+    if (lexicalStart === undefined) {
+      return {
+        receipt: rejected(kase, "admission_rejected", ["stepwise family produced no episode"]),
+        record: null,
+      };
+    }
+    const lexicalContext = relationStepContext(lexicalStart);
+    const judges = lexicalContext.candidateGroup.candidates.filter(candidate =>
+      candidate.optionSemantics.startsWith("judge=")
+    );
+    const resolved = judges.map(candidate => candidate.bindingProjection)
+      .filter(projection => projection !== null
+        && projection.resolution.status === "resolved");
+    if (judges.length !== 3 || resolved.length !== 3) {
+      return {
+        receipt: rejected(kase, "admission_rejected", [
+          "lexical route did not produce three resolved judge-candidate projections",
+        ]),
+        record: null,
+      };
+    }
+    return {
+      receipt: Object.freeze({
+        caseId: kase.caseId,
+        admitted: true,
+        requestRef: kase.requestRef,
+        stepId: kase.stepId,
+        callSiteRef: kase.callSiteRef,
+        sourceReadRef: kase.sourceReadRef,
+        pendingRelationRef: kase.pendingRelationRef,
+        coverageContract: kase.coverageContract,
+        workState: workStateSummary(kase.workState),
+        admittedEvidenceRefs: Object.freeze([
+          ...lexicalStart.evidenceRefs,
+        ]),
+        rejection: null,
+      }),
+      record: bridge.record,
     };
   }
   const steps = bridge.record.steps;

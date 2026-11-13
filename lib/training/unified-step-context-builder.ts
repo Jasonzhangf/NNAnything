@@ -33,6 +33,7 @@ import type {
   TsJsTargetMismatchObservation,
   TsJsSymbolTableRequest,
 } from "../filters/tsjs-symbol-table-policy.js";
+import { canonicalRepoFileFromModuleRef } from "../filters/tsjs-symbol-table-policy.js";
 import { UNIFIED_INPUT_SCHEMA } from "./unified-encoder.js";
 
 export const RELATION_SKILL_REF = "skill:relation.judge";
@@ -467,10 +468,69 @@ function currentRelationProjection(episode: RelationStepEpisode): CurrentRelatio
   return episode.currentRelation;
 }
 
+// The exact call-site acquisition from design 3.2. Only the lexical projector
+// carries an observed binding edge keyed on the span-derived callSiteRef, so
+// dynamic/staticSelected episodes keep their existing projection untouched.
+function exactLexicalEdge(episode: RelationStepEpisode): BindingEdge | null {
+  const callSiteRef = episode.callSiteRef ?? null;
+  if (callSiteRef === null || episode.requestedDeclaration == null) return null;
+  const matches = (episode.observedBindings ?? []).filter(edge =>
+    edge.callSiteRef === callSiteRef
+    && edge.visibility.state === "known"
+    && edge.visibility.value === "reachable"
+    && edge.sourceContent.state === "observed"
+    && edge.edgeKind !== "shadow"
+  );
+  if (matches.length !== 1) return null;
+  return matches[0]!;
+}
+
+function lexicalTerminalDeclaration(episode: RelationStepEpisode): DeclarationIdentity | null {
+  const edge = exactLexicalEdge(episode);
+  if (edge === null) return null;
+  if (edge.sourceModule.state !== "known") return null;
+  const sourceModuleFile = canonicalRepoFileFromModuleRef(edge.sourceModule.value ?? null);
+  if (sourceModuleFile === null) return null;
+  const declarations = (episode.observedDeclarations ?? []).filter(declaration =>
+    declaration.moduleRef !== null
+    && canonicalRepoFileFromModuleRef(declaration.moduleRef) === sourceModuleFile
+    && declaration.name === edge.sourceName
+    && declaration.evidenceRefs.some(ref => edge.evidenceRefs.includes(ref))
+  );
+  if (declarations.length !== 1) return null;
+  return declarations[0]!;
+}
+
 function relationProjection(episode: RelationStepEpisode): BindingProjection | null {
-  return episode.currentRelation?.binding.state === "known"
+  const direct = episode.currentRelation?.binding.state === "known"
     ? (episode.currentRelation.binding.value ?? null)
     : null;
+  if (direct !== null) {
+    const edge = exactLexicalEdge(episode);
+    if (edge === null) return direct;
+    if (direct.callSiteRef === null || direct.callSiteRef !== edge.callSiteRef) return null;
+    // Design 3.6: a copied call-site string is not proof. A direct projection
+    // on a lexical episode is valid only when its own evidence carries the
+    // source-module read receipt recorded by the selected edge.
+    const sourceReceiptId = edge.sourceContent.state === "observed"
+      ? edge.sourceContent.resultRefs[0] ?? null
+      : null;
+    if (sourceReceiptId === null || !direct.evidenceRefs.includes(sourceReceiptId)) return null;
+    const declaration = lexicalTerminalDeclaration(episode);
+    if (declaration === null || direct.resolution.status !== "resolved"
+      || direct.resolution.declarationRef !== declaration.declarationRef
+      || canonicalRepoFileFromModuleRef(direct.resolution.moduleRef)
+        !== canonicalRepoFileFromModuleRef(declaration.moduleRef)) return null;
+    const resolved = direct.declarationRefs.filter(item =>
+      item.declarationRef === declaration.declarationRef);
+    if (resolved.length !== 1 || resolved[0]!.name !== edge.sourceName
+      || canonicalRepoFileFromModuleRef(resolved[0]!.moduleRef)
+        !== canonicalRepoFileFromModuleRef(declaration.moduleRef)) return null;
+    return direct;
+  }
+  const declaration = lexicalTerminalDeclaration(episode);
+  if (declaration === null) return null;
+  return declarationProjection(declaration, episode.callSiteRef ?? null);
 }
 
 function localCursor(

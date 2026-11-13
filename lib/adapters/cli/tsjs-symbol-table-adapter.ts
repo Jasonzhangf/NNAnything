@@ -33,6 +33,9 @@ import {
   type TsJsParseErrorFile,
   type TsJsParserRecord,
   type TsJsInlineCallableIdentity,
+  type TsJsLexicalCallSiteBindingObservation,
+  type TsJsLexicalCallSiteBindingUnresolvedReason,
+  type TsJsReadReceipt,
   type TsJsRuntimeCallableTable,
   type TsJsRuntimeSelectorGap,
   type TsJsRuntimeSelectorObservation,
@@ -53,6 +56,7 @@ type ExtractedFile = Readonly<{
   parseErrors: readonly TsJsParseError[];
   moduleSystem: TsJsModuleSystem;
   runtimeSelectorIndex: RuntimeSelectorFileIndex;
+  lexicalIndex: LexicalFileIndex;
 }>;
 
 type RuntimeImportDraft = Readonly<{
@@ -915,6 +919,510 @@ function buildRuntimeSelectorFileIndex(
     tables: Object.freeze(tables),
     mutations: Object.freeze(mutations),
   });
+}
+
+// --- lexical call-site binding producer (request-blind) --------------------
+//
+// Implements design 3.1-3.4. The producer never reads request identity, gold,
+// or the legacy symbolic call handle. It keys the call site on the inner callee
+// span, resolves the nearest applicable lexical declaration first, and only
+// then falls back to a unique named import.
+
+type LexicalImportDraft = Readonly<{
+  localName: string;
+  importedName: string;
+  moduleSpecifierRaw: string;
+  importDeclarationRef: string;
+}>;
+
+type LexicalDeclDraft = Readonly<{
+  name: string;
+  ref: string;
+}>;
+
+type LexicalCallDraft = Readonly<{
+  calleeName: string;
+  calleeSpan: TsJsSpan;
+  outerSpan: TsJsSpan | null;
+  nearestScopeDeclarations: readonly LexicalDeclDraft[];
+}>;
+
+type LexicalFileIndex = Readonly<{
+  file: string;
+  textLength: number;
+  lineCount: number;
+  imports: readonly LexicalImportDraft[];
+  calls: readonly LexicalCallDraft[];
+}>;
+
+function bindingNameTextsOf(name: ts.BindingName): readonly string[] {
+  if (ts.isIdentifier(name)) return [name.text];
+  const out: string[] = [];
+  if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    for (const element of name.elements) {
+      if (ts.isBindingElement(element)) {
+        for (const text of bindingNameTextsOf(element.name)) out.push(text);
+      }
+    }
+  }
+  return out;
+}
+
+function lexicalDeclDraft(
+  name: string,
+  node: ts.Node,
+  sf: ts.SourceFile,
+  spanOf: (s: number, e: number) => TsJsSpan,
+): LexicalDeclDraft {
+  return Object.freeze({
+    name,
+    ref: runtimeRef("lexical", sf.fileName, spanOf(node.getStart(sf), node.getEnd())),
+  });
+}
+
+function collectLexicalImportsOf(
+  sf: ts.SourceFile,
+  spanOf: (s: number, e: number) => TsJsSpan,
+): readonly LexicalImportDraft[] {
+  const imports: LexicalImportDraft[] = [];
+  for (const statement of sf.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const clause = statement.importClause;
+    if (clause === undefined || clause.isTypeOnly) continue;
+    const importDeclarationRef = runtimeRef(
+      "import",
+      sf.fileName,
+      spanOf(statement.getStart(sf), statement.getEnd()),
+    );
+    if (clause.name !== undefined) {
+      imports.push(Object.freeze({
+        localName: clause.name.text,
+        importedName: "default",
+        moduleSpecifierRaw: statement.moduleSpecifier.text,
+        importDeclarationRef,
+      }));
+    }
+    if (clause.namedBindings !== undefined && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if (element.isTypeOnly) continue;
+        imports.push(Object.freeze({
+          localName: element.name.text,
+          importedName: element.propertyName?.text ?? element.name.text,
+          moduleSpecifierRaw: statement.moduleSpecifier.text,
+          importDeclarationRef,
+        }));
+      }
+    }
+  }
+  return Object.freeze(imports);
+}
+
+// Block-scoped kinds: function, class, enum, let, const. `var` is excluded and
+// collected separately by the enclosing function/module scope.
+function collectBlockScopedDecls(
+  statements: readonly ts.Statement[],
+  sf: ts.SourceFile,
+  spanOf: (s: number, e: number) => TsJsSpan,
+): readonly LexicalDeclDraft[] {
+  const out: LexicalDeclDraft[] = [];
+  for (const statement of statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name !== undefined) {
+      out.push(lexicalDeclDraft(statement.name.text, statement, sf, spanOf));
+    } else if (ts.isClassDeclaration(statement) && statement.name !== undefined) {
+      out.push(lexicalDeclDraft(statement.name.text, statement, sf, spanOf));
+    } else if (ts.isEnumDeclaration(statement)) {
+      out.push(lexicalDeclDraft(statement.name.text, statement, sf, spanOf));
+    } else if (ts.isVariableStatement(statement)) {
+      if ((statement.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0) continue;
+      for (const declaration of statement.declarationList.declarations) {
+        for (const name of bindingNameTextsOf(declaration.name)) {
+          out.push(lexicalDeclDraft(name, declaration, sf, spanOf));
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function collectVarDeclsRecursive(
+  root: ts.Node,
+  out: LexicalDeclDraft[],
+  sf: ts.SourceFile,
+  spanOf: (s: number, e: number) => TsJsSpan,
+): void {
+  const stack: ts.Node[] = [...childNodesOf(root)];
+  while (stack.length > 0) {
+    const child = stack.pop();
+    if (child === undefined) continue;
+    if (isRuntimeFunctionLikeNode(child)) continue;
+    if (
+      ts.isVariableStatement(child)
+      && (child.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+    ) {
+      for (const declaration of child.declarationList.declarations) {
+        for (const name of bindingNameTextsOf(declaration.name)) {
+          out.push(lexicalDeclDraft(name, declaration, sf, spanOf));
+        }
+      }
+    }
+    for (const grandchild of childNodesOf(child)) stack.push(grandchild);
+  }
+}
+
+function collectLexicalCallDrafts(
+  sf: ts.SourceFile,
+  spanOf: (s: number, e: number) => TsJsSpan,
+): readonly LexicalCallDraft[] {
+  const outerByInner = new Map<ts.Node, ts.CallExpression>();
+  for (const descendant of descendantsOf(sf)) {
+    if (ts.isCallExpression(descendant) && ts.isCallExpression(descendant.expression)) {
+      outerByInner.set(descendant.expression, descendant);
+    }
+  }
+
+  const scopeStack: Map<string, LexicalDeclDraft[]>[] = [];
+  const calls: LexicalCallDraft[] = [];
+
+  const resolveNearest = (name: string): readonly LexicalDeclDraft[] => {
+    for (let index = scopeStack.length - 1; index >= 0; index -= 1) {
+      const declarations = scopeStack[index]?.get(name);
+      if (declarations !== undefined && declarations.length > 0) return declarations;
+    }
+    return [];
+  };
+
+  const addDeclaration = (
+    map: Map<string, LexicalDeclDraft[]>,
+    declaration: LexicalDeclDraft,
+  ): void => {
+    const existing = map.get(declaration.name);
+    if (existing === undefined) {
+      map.set(declaration.name, [declaration]);
+      return;
+    }
+    existing.push(declaration);
+  };
+
+  // A function body block belongs to the function scope. Track such blocks so
+  // the iterative walk does not create a duplicate block scope for them.
+  const functionBodyBlocks = new Set<ts.Node>();
+
+  const scopeDeclarationsFor = (node: ts.Node): Map<string, LexicalDeclDraft[]> | null => {
+    if (ts.isSourceFile(node)) {
+      const scope = new Map<string, LexicalDeclDraft[]>();
+      for (const declaration of collectBlockScopedDecls(node.statements, node, spanOf)) {
+        addDeclaration(scope, declaration);
+      }
+      const hoisted: LexicalDeclDraft[] = [];
+      collectVarDeclsRecursive(node, hoisted, node, spanOf);
+      for (const declaration of hoisted) addDeclaration(scope, declaration);
+      return scope;
+    }
+    if (ts.isFunctionLike(node)) {
+      const scope = new Map<string, LexicalDeclDraft[]>();
+      if ("parameters" in node) {
+        for (const parameter of node.parameters) {
+          for (const name of bindingNameTextsOf(parameter.name)) {
+            addDeclaration(scope, lexicalDeclDraft(name, parameter, sf, spanOf));
+          }
+        }
+      }
+      const body = "body" in node ? (node as { body?: ts.ConciseBody }).body : undefined;
+      if (body !== undefined) {
+        if (ts.isBlock(body)) {
+          functionBodyBlocks.add(body);
+          for (const declaration of collectBlockScopedDecls(body.statements, sf, spanOf)) {
+            addDeclaration(scope, declaration);
+          }
+        }
+        const hoisted: LexicalDeclDraft[] = [];
+        collectVarDeclsRecursive(body, hoisted, sf, spanOf);
+        for (const declaration of hoisted) addDeclaration(scope, declaration);
+      }
+      return scope;
+    }
+    if (ts.isBlock(node)) {
+      if (functionBodyBlocks.has(node)) return null;
+      const scope = new Map<string, LexicalDeclDraft[]>();
+      for (const declaration of collectBlockScopedDecls(node.statements, sf, spanOf)) {
+        addDeclaration(scope, declaration);
+      }
+      return scope;
+    }
+    if (ts.isForStatement(node) || ts.isForInStatement(node) || ts.isForOfStatement(node)) {
+      const scope = new Map<string, LexicalDeclDraft[]>();
+      if (ts.isForStatement(node) && node.initializer !== undefined && ts.isVariableDeclarationList(node.initializer)) {
+        for (const declaration of node.initializer.declarations) {
+          for (const name of bindingNameTextsOf(declaration.name)) {
+            addDeclaration(scope, lexicalDeclDraft(name, declaration, sf, spanOf));
+          }
+        }
+      }
+      return scope;
+    }
+    if (ts.isCatchClause(node)) {
+      const scope = new Map<string, LexicalDeclDraft[]>();
+      if (node.variableDeclaration !== undefined) {
+        for (const name of bindingNameTextsOf(node.variableDeclaration.name)) {
+          addDeclaration(scope, lexicalDeclDraft(name, node.variableDeclaration, sf, spanOf));
+        }
+      }
+      return scope;
+    }
+    return null;
+  };
+
+  type WalkItem = { readonly phase: "enter"; readonly node: ts.Node } | { readonly phase: "leave" };
+  const stack: WalkItem[] = [{ phase: "enter", node: sf }];
+  while (stack.length > 0) {
+    const item = stack.pop();
+    if (item === undefined) continue;
+    if (item.phase === "leave") {
+      scopeStack.pop();
+      continue;
+    }
+    const node = item.node;
+    const scope = scopeDeclarationsFor(node);
+    if (scope !== null) {
+      scopeStack.push(scope);
+      stack.push({ phase: "leave" });
+    }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const calleeName = node.expression.text;
+      const calleeSpan = spanOf(node.getStart(sf, false), node.getEnd());
+      const outer = outerByInner.get(node);
+      calls.push(Object.freeze({
+        calleeName,
+        calleeSpan,
+        outerSpan: outer === undefined ? null : spanOf(outer.getStart(sf), outer.getEnd()),
+        nearestScopeDeclarations: resolveNearest(calleeName),
+      }));
+    }
+    const children = childNodesOf(node);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const child = children[index];
+      if (child !== undefined) stack.push({ phase: "enter", node: child });
+    }
+  }
+  return Object.freeze(calls);
+}
+
+function buildLexicalFileIndex(
+  sf: ts.SourceFile,
+  sourceText: string,
+  spanOf: (s: number, e: number) => TsJsSpan,
+): LexicalFileIndex {
+  return Object.freeze({
+    file: sf.fileName,
+    textLength: sourceText.length,
+    lineCount: computeLineStarts(sourceText).length,
+    imports: collectLexicalImportsOf(sf, spanOf),
+    calls: collectLexicalCallDrafts(sf, spanOf),
+  });
+}
+
+type LexicalModuleResolution =
+  | { readonly kind: "resolved"; readonly file: string }
+  | { readonly kind: "module_not_in_read_set" }
+  | { readonly kind: "ambiguous_module" };
+
+function resolveLexicalModuleSpecifier(
+  callerFile: string,
+  specifier: string,
+  readSet: ReadonlySet<string>,
+): LexicalModuleResolution {
+  if (!specifier.startsWith(".")) return { kind: "module_not_in_read_set" };
+  const slashIndex = callerFile.lastIndexOf("/");
+  const baseDir = slashIndex < 0 ? "" : callerFile.slice(0, slashIndex);
+  const parts = `${baseDir}/${specifier}`.split("/");
+  const out: string[] = [];
+  for (const part of parts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  const base = out.join("/");
+  if (base.length === 0) return { kind: "module_not_in_read_set" };
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.mts`,
+    `${base}.cts`,
+    `${base}.js`,
+    `${base}.jsx`,
+    `${base}.mjs`,
+    `${base}.cjs`,
+    `${base}/index.ts`,
+    `${base}/index.tsx`,
+    `${base}/index.js`,
+    `${base}/index.jsx`,
+  ];
+  const unique = [...new Set(candidates.filter(candidate => readSet.has(candidate)))];
+  if (unique.length === 0) return { kind: "module_not_in_read_set" };
+  if (unique.length > 1) return { kind: "ambiguous_module" };
+  return { kind: "resolved", file: unique[0]! };
+}
+
+function makeLexicalReadReceipt(
+  receiptRef: string,
+  targetFile: string,
+  indexByFile: ReadonlyMap<string, LexicalFileIndex>,
+): TsJsReadReceipt | null {
+  const index = indexByFile.get(targetFile);
+  if (index === undefined) return null;
+  return Object.freeze({
+    receiptId: receiptRef,
+    actionRef: `${receiptRef}:action`,
+    action: "read_source",
+    origin: "source_observation",
+    outcome: "success",
+    targetRef: `module:${targetFile}`,
+    result: Object.freeze([`source-read:${targetFile}:module:${targetFile}`]),
+    evidenceRefs: Object.freeze([receiptRef]),
+    modules: Object.freeze([
+      Object.freeze({
+        file: index.file,
+        textLength: index.textLength,
+        lineCount: index.lineCount,
+      }),
+    ]),
+  });
+}
+
+function linkLexicalCallSiteBindings(
+  indexes: readonly LexicalFileIndex[],
+  readSet: ReadonlySet<string>,
+): readonly TsJsLexicalCallSiteBindingObservation[] {
+  const indexByFile = new Map<string, LexicalFileIndex>();
+  for (const index of indexes) indexByFile.set(index.file, index);
+
+  const observations: TsJsLexicalCallSiteBindingObservation[] = [];
+  for (const index of indexes) {
+    const file = index.file;
+    for (const call of index.calls) {
+      const callSiteRef = runtimeRef("call", file, call.calleeSpan);
+      const outerCallSiteRef =
+        call.outerSpan === null ? null : runtimeRef("call", file, call.outerSpan);
+      const matchingImports = index.imports.filter(imported => imported.localName === call.calleeName);
+      const callerReceipt = makeLexicalReadReceipt(`source-read:${callSiteRef}:caller`, file, indexByFile);
+
+      const emitUnresolved = (reason: TsJsLexicalCallSiteBindingUnresolvedReason): void => {
+        if (callerReceipt === null) return;
+        observations.push(Object.freeze({
+          schemaVersion: "nnanything.tsjs.lexical-call-site-binding.v1",
+          observationRef: `lexbind:${callSiteRef}`,
+          requestRef: null,
+          callerFile: file,
+          callerModuleRef: `module:${file}`,
+          calleeName: call.calleeName,
+          calleeSpan: call.calleeSpan,
+          outerSpan: call.outerSpan,
+          callSiteRef,
+          outerCallSiteRef,
+          bindingKind: "unresolved",
+          sourceName: null,
+          targetName: null,
+          moduleSpecifierRaw: null,
+          sourceModuleFile: null,
+          sourceModuleRef: null,
+          targetModuleRef: null,
+          importDeclarationRef: null,
+          declarationRefs: Object.freeze([]),
+          evidenceRefs: Object.freeze([callSiteRef, callerReceipt.receiptId]),
+          unresolvedReason: reason,
+          callerReadReceipt: callerReceipt,
+          sourceModuleReadReceipt: null,
+        }));
+      };
+
+      if (callerReceipt === null) continue;
+      if (call.nearestScopeDeclarations.length > 1) {
+        emitUnresolved("ambiguous_lexical_binding");
+        continue;
+      }
+      if (call.nearestScopeDeclarations.length === 1) {
+        const declaration = call.nearestScopeDeclarations[0]!;
+        observations.push(Object.freeze({
+          schemaVersion: "nnanything.tsjs.lexical-call-site-binding.v1",
+          observationRef: `lexbind:${callSiteRef}`,
+          requestRef: null,
+          callerFile: file,
+          callerModuleRef: `module:${file}`,
+          calleeName: call.calleeName,
+          calleeSpan: call.calleeSpan,
+          outerSpan: call.outerSpan,
+          callSiteRef,
+          outerCallSiteRef,
+          bindingKind: matchingImports.length > 0 ? "shadow" : "local",
+          sourceName: call.calleeName,
+          targetName: call.calleeName,
+          moduleSpecifierRaw: null,
+          sourceModuleFile: null,
+          sourceModuleRef: null,
+          targetModuleRef: `module:${file}`,
+          importDeclarationRef: null,
+          declarationRefs: Object.freeze([declaration.ref]),
+          evidenceRefs: Object.freeze([callSiteRef, declaration.ref, callerReceipt.receiptId]),
+          unresolvedReason: null,
+          callerReadReceipt: callerReceipt,
+          sourceModuleReadReceipt: null,
+        }));
+        continue;
+      }
+      if (matchingImports.length === 0) {
+        emitUnresolved("no_import_binding");
+        continue;
+      }
+      if (matchingImports.length > 1) {
+        emitUnresolved("ambiguous_import_binding");
+        continue;
+      }
+
+      const imported = matchingImports[0]!;
+      const resolution = resolveLexicalModuleSpecifier(file, imported.moduleSpecifierRaw, readSet);
+      if (resolution.kind !== "resolved") {
+        emitUnresolved(resolution.kind === "ambiguous_module" ? "ambiguous_module" : "module_not_in_read_set");
+        continue;
+      }
+      const sourceModuleFile = resolution.file;
+      const sourceReadRef = `source-read:${callSiteRef}:source`;
+      observations.push(Object.freeze({
+        schemaVersion: "nnanything.tsjs.lexical-call-site-binding.v1",
+        observationRef: `lexbind:${callSiteRef}`,
+        requestRef: null,
+        callerFile: file,
+        callerModuleRef: `module:${file}`,
+        calleeName: call.calleeName,
+        calleeSpan: call.calleeSpan,
+        outerSpan: call.outerSpan,
+        callSiteRef,
+        outerCallSiteRef,
+        bindingKind: "import",
+        sourceName: imported.importedName,
+        targetName: imported.localName,
+        moduleSpecifierRaw: imported.moduleSpecifierRaw,
+        sourceModuleFile,
+        sourceModuleRef: `module:${sourceModuleFile}`,
+        targetModuleRef: `module:${file}`,
+        importDeclarationRef: imported.importDeclarationRef,
+        declarationRefs: Object.freeze([]),
+        evidenceRefs: Object.freeze([
+          callSiteRef,
+          imported.importDeclarationRef,
+          callerReceipt.receiptId,
+          sourceReadRef,
+        ]),
+        unresolvedReason: null,
+        callerReadReceipt: callerReceipt,
+        sourceModuleReadReceipt: makeLexicalReadReceipt(sourceReadRef, sourceModuleFile, indexByFile),
+      }));
+    }
+  }
+  return Object.freeze(observations);
 }
 
 function sourceHasEsmSyntax(sf: ts.SourceFile): boolean {
@@ -1927,6 +2435,7 @@ function extractSourceFileSymbols(
     parseErrors: Object.freeze(parseErrors),
     moduleSystem,
     runtimeSelectorIndex: buildRuntimeSelectorFileIndex(sf, sourceText, spanOf),
+    lexicalIndex: buildLexicalFileIndex(sf, sourceText, spanOf),
   });
 }
 
@@ -2598,6 +3107,7 @@ export async function runTsJsSymbolTable(
   const parseErrorFiles: TsJsParseErrorFile[] = [];
   const runtimeSelectorStatus = new Map<string, RuntimeFileStatus>();
   const runtimeSelectorIndexes = new Map<string, RuntimeSelectorFileIndex>();
+  const lexicalIndexes = new Map<string, LexicalFileIndex>();
   const partialReasons: string[] = [];
   let parsedCount = 0;
   let invocations = 0;
@@ -2625,6 +3135,7 @@ export async function runTsJsSymbolTable(
       extracted.parseErrors.length > 0 ? "parse_error" : "ok",
     );
     runtimeSelectorIndexes.set(relFile, extracted.runtimeSelectorIndex);
+    lexicalIndexes.set(relFile, extracted.lexicalIndex);
     for (const record of extracted.symbols) {
       symbolRecords.push(
         Object.freeze({
@@ -2679,6 +3190,10 @@ export async function runTsJsSymbolTable(
     runtimeSelectorStatus,
     runtimeSelectorIndexes,
   );
+  const lexicalCallSiteBindings = linkLexicalCallSiteBindings(
+    [...lexicalIndexes.values()],
+    new Set(lexicalIndexes.keys()),
+  );
 
   return Object.freeze({
     status: "ok",
@@ -2691,6 +3206,7 @@ export async function runTsJsSymbolTable(
       runtimeSelector.observations,
       runtimeSelector.gaps,
       runtimeSelector.staticSelectedObservations,
+      lexicalCallSiteBindings,
     ),
   });
 }

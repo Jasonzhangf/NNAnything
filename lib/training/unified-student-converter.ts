@@ -8,6 +8,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type {
+  BindingEdge,
   Candidate,
   CurrentRelationProjection,
   DeclarationIdentity,
@@ -41,6 +42,7 @@ import {
 } from "./unified-step-context-builder.js";
 import { runTsJsSymbolTable } from "../adapters/cli/tsjs-symbol-table-adapter.js";
 import {
+  canonicalRepoFileFromModuleRef,
   isSafeRepoRelative,
   normalizeRepoRelative,
   spanKey,
@@ -49,7 +51,9 @@ import {
 import type {
   TsJsCoverageRecord,
   TsJsInlineCallableIdentity,
+  TsJsLexicalCallSiteBindingObservation,
   TsJsParserRecord,
+  TsJsReadReceipt,
   TsJsRuntimeSelectorObservation,
   TsJsRuntimeCallableTable,
   TsJsRuntimeSelectorRoleFact,
@@ -130,6 +134,9 @@ export interface TsJsStepwiseBridgeInput {
   readonly derivationFamily: string;
   readonly sampleId: string;
   readonly entryFile: string;
+  // Explicit route marker. Only `lexical` consults the lexical call-site
+  // binding slot; every other request keeps the dynamic/staticSelected path.
+  readonly route?: string;
   readonly request: {
     readonly requestRef: string;
     readonly requestedDeclaration: NonNullable<RelationStepEpisode["requestedDeclaration"]>;
@@ -182,6 +189,26 @@ export function selectTsJsObservationForCallSite(input: {
     return { kind: "static_selected", observation: staticSelected[0]! };
   }
   return { kind: "none" };
+}
+
+export type TsJsLexicalObservationSelection =
+  | { readonly kind: "lexical"; readonly observation: TsJsLexicalCallSiteBindingObservation }
+  | { readonly kind: "none" }
+  | { readonly kind: "ambiguous" };
+
+// The lexical producer keys a call site on its span-derived ref only. Unlike
+// the dynamic/static-selected selector there is no binding.callSiteRef to gate
+// on, so the exact span ref is the whole selection key.
+export function selectTsJsLexicalBindingForCallSite(input: {
+  readonly lexical: readonly TsJsLexicalCallSiteBindingObservation[];
+  readonly callSiteRef: string;
+}): TsJsLexicalObservationSelection {
+  const matches = input.lexical.filter(
+    observation => observation.callSiteRef === input.callSiteRef,
+  );
+  if (matches.length === 0) return { kind: "none" };
+  if (matches.length > 1) return { kind: "ambiguous" };
+  return { kind: "lexical", observation: matches[0]! };
 }
 
 export function studentGroupId(input: {
@@ -285,45 +312,14 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
 
 export function moduleFileFromRef(moduleRef: string | null): string | null {
   if (moduleRef === null || !moduleRef.startsWith("module:")) return null;
-  const suffix = moduleRef.slice("module:".length);
-  if (
-    suffix.length === 0
-    || suffix.startsWith("module:")
-    || suffix.startsWith("/")
-    || suffix.includes(NUL)
-    || suffix.includes("://")
-    || /^[A-Za-z]:/.test(suffix)
-  ) {
-    return null;
-  }
-  const file = normalizeRepoRelative(suffix);
-  if (!isSafeRepoRelative(file) || file.includes(":")) return null;
-  return file;
+  return canonicalRepoFileFromModuleRef(moduleRef);
 }
 
-// The static-selected request shell uses `module:<file>` while the preserved
-// old-DEV request shell uses `mod:<file>`. The target-mismatch validator
-// compares the request target module against observed `mod:` refs, so it
-// decodes both schemes to one canonical repo-relative file.
+// The single canonical decoder for `module:` and `mod:` refs lives in the
+// policy owner. `moduleFileFromRef` remains the module:-only entry used by the
+// existing callers.
 function canonicalRequestedModuleFile(moduleRef: string | null): string | null {
-  const viaModule = moduleFileFromRef(moduleRef);
-  if (viaModule !== null) return viaModule;
-  if (moduleRef === null || !moduleRef.startsWith("mod:")) return null;
-  const suffix = moduleRef.slice("mod:".length).split("#", 1)[0]!;
-  if (
-    suffix.length === 0
-    || suffix.startsWith("mod:")
-    || suffix.startsWith("module:")
-    || suffix.startsWith("/")
-    || suffix.includes(NUL)
-    || suffix.includes("://")
-    || /^[A-Za-z]:/.test(suffix)
-  ) {
-    return null;
-  }
-  const file = normalizeRepoRelative(suffix);
-  if (!isSafeRepoRelative(file) || file.includes(":")) return null;
-  return file;
+  return canonicalRepoFileFromModuleRef(moduleRef);
 }
 
 export interface TsJsObservedCompletionRequirement {
@@ -1412,6 +1408,207 @@ function staticProducerSourceBinding(
   };
 }
 
+function projectTsJsLexicalBindingToStepwiseRecord(
+  input: TsJsStepwiseBridgeInput,
+  result: TsJsSymbolTableResult,
+  observation: TsJsLexicalCallSiteBindingObservation,
+): Record<string, unknown> {
+  if (observation.bindingKind === "unresolved") {
+    return {
+      schemaVersion: STEPWISE_STUDENT_OBSERVATION_SCHEMA,
+      sampleId: input.sampleId,
+      family: input.derivationFamily,
+      sourceGroup: input.sourceGroup,
+      partition: input.partition,
+      language: input.language,
+      semanticStratum: input.semanticStratum,
+      entryFile: input.entryFile,
+      request: input.request,
+      steps: [{
+        stepId: input.stepId,
+        localSyntax: {
+          observedBindings: [],
+          observedDeclarations: [],
+          observedLocalFacts: [],
+          sourceContent: {
+            state: "observed",
+            resultRefs: observation.callerReadReceipt.result,
+            reason: null,
+            evidenceRefs: [observation.callerReadReceipt.receiptId],
+          },
+          shadowFacts: [],
+        },
+        currentRelation: {
+          pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+          callSiteRef: observation.callSiteRef,
+          binding: {
+            state: "not_observed",
+            reason: "not_requested",
+            evidenceRefs: observation.evidenceRefs,
+          },
+        },
+        remainingObligations: input.remainingObligations,
+        receipts: [lexicalReceipt(input, observation.callerReadReceipt)],
+        localCandidateCursor: input.localCandidateCursor,
+        coverage: lexicalCoverage(input, result, observation),
+        notReady: result.coverage.partial || result.coverage.truncated,
+      }],
+    };
+  }
+
+  const { edge, declaration } = projectTsJsLexicalBindingEdge(result, observation);
+  return {
+    schemaVersion: STEPWISE_STUDENT_OBSERVATION_SCHEMA,
+    sampleId: input.sampleId,
+    family: input.derivationFamily,
+    sourceGroup: input.sourceGroup,
+    partition: input.partition,
+    language: input.language,
+    semanticStratum: input.semanticStratum,
+    entryFile: input.entryFile,
+    request: input.request,
+    steps: [{
+      stepId: input.stepId,
+      localSyntax: {
+        observedBindings: edge === null ? [] : [edge],
+        observedDeclarations: declaration === null ? [] : [declaration],
+        observedLocalFacts: [],
+        sourceContent: {
+          state: "observed",
+          resultRefs: observation.callerReadReceipt.result,
+          reason: null,
+          evidenceRefs: [observation.callerReadReceipt.receiptId],
+        },
+        shadowFacts: [],
+      },
+      currentRelation: {
+        pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+        callSiteRef: observation.callSiteRef,
+        binding: {
+          state: "not_observed",
+          reason: "not_requested",
+          evidenceRefs: observation.evidenceRefs,
+        },
+      },
+      remainingObligations: input.remainingObligations,
+      receipts: [lexicalReceipt(input, observation.callerReadReceipt)],
+      localCandidateCursor: input.localCandidateCursor,
+      coverage: lexicalCoverage(input, result, observation),
+      notReady: result.coverage.partial || result.coverage.truncated,
+    }],
+  };
+}
+
+function projectTsJsLexicalBindingEdge(
+  result: TsJsSymbolTableResult,
+  observation: TsJsLexicalCallSiteBindingObservation,
+): { edge: BindingEdge | null; declaration: DeclarationIdentity | null } {
+  if (observation.bindingKind === "unresolved") {
+    return { edge: null, declaration: null };
+  }
+  const sourceModuleRef =
+    observation.bindingKind === "import" ? observation.sourceModuleRef : null;
+  const sourceModuleReadReceipt = observation.sourceModuleReadReceipt;
+  const sourceObserved =
+    observation.bindingKind === "import"
+    && observation.sourceModuleFile !== null
+    && sourceModuleRef !== null
+    && sourceModuleReadReceipt !== null
+    && sourceModuleReadReceipt.outcome === "success"
+    && sourceModuleReadReceipt.modules.some(
+      module => module.file === observation.sourceModuleFile,
+    );
+  const sourceContent: BindingEdge["sourceContent"] = sourceObserved
+    ? {
+        state: "observed",
+        resultRefs: [sourceModuleReadReceipt!.receiptId],
+        reason: null,
+        evidenceRefs: sourceModuleReadReceipt!.evidenceRefs,
+      }
+    : { state: "not_requested", resultRefs: [], reason: null, evidenceRefs: [] };
+  const visibility: BindingEdge["visibility"] =
+    observation.bindingKind === "import"
+      ? { state: "known", value: "reachable", evidenceRefs: observation.evidenceRefs }
+      : observation.bindingKind === "shadow"
+        ? { state: "known", value: "shadowed", evidenceRefs: observation.evidenceRefs }
+        : { state: "known", value: "unknown", evidenceRefs: observation.evidenceRefs };
+  const edge: BindingEdge = {
+    edgeRef: `edge:${observation.callSiteRef}:${observation.bindingKind}`,
+    callSiteRef: observation.callSiteRef,
+    fromNodeRef: observation.callerModuleRef,
+    edgeKind: observation.bindingKind,
+    sourceName: observation.sourceName ?? observation.calleeName,
+    sourceModule: sourceModuleRef === null
+      ? { state: "not_observed", reason: "not_requested", evidenceRefs: observation.evidenceRefs }
+      : { state: "known", value: sourceModuleRef, evidenceRefs: observation.evidenceRefs },
+    targetName: observation.targetName ?? observation.calleeName,
+    targetModule: { state: "known", value: observation.callerModuleRef, evidenceRefs: observation.evidenceRefs },
+    moduleSpecifierRaw: observation.moduleSpecifierRaw,
+    sourceContent,
+    visibility,
+    hopDepth: observation.bindingKind === "import" ? 1 : 0,
+    evidenceRefs: observation.evidenceRefs,
+  };
+  if (!sourceObserved || observation.sourceModuleFile === null) {
+    return { edge, declaration: null };
+  }
+  const sourceName = observation.sourceName ?? observation.calleeName;
+  const matches = result.symbols.filter(
+    symbol => symbol.file === observation.sourceModuleFile && symbol.name === sourceName,
+  );
+  if (matches.length !== 1) {
+    return { edge, declaration: null };
+  }
+  const symbol = matches[0]!;
+  const declaration: DeclarationIdentity = {
+    declarationRef: symbol.symbolId,
+    moduleRef: `module:${observation.sourceModuleFile}`,
+    name: sourceName,
+    role: "import",
+    kind: symbol.kind,
+    evidenceRefs: observation.evidenceRefs,
+  };
+  return { edge, declaration };
+}
+
+function lexicalReceipt(
+  input: TsJsStepwiseBridgeInput,
+  receipt: TsJsReadReceipt,
+): RelationStepReceipt {
+  return {
+    receiptId: receipt.receiptId,
+    actionRef: receipt.actionRef,
+    action: receipt.action,
+    target: receipt.targetRef,
+    origin: receipt.origin,
+    fromStepId: input.fromStepId,
+    pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+    optionSemantics: "observe",
+    outcome: receipt.outcome,
+    result: receipt.result,
+    evidenceRefs: receipt.evidenceRefs,
+  };
+}
+
+function lexicalCoverage(
+  input: TsJsStepwiseBridgeInput,
+  result: TsJsSymbolTableResult,
+  observation: TsJsLexicalCallSiteBindingObservation,
+): {
+  coveredModules: readonly string[];
+  targetModuleReached: boolean;
+  note: string;
+} {
+  const coveredModules = successfulProducerFiles(input.producerRequest, result.coverage);
+  const sourceModuleFile = observation.sourceModuleFile;
+  return {
+    coveredModules,
+    targetModuleReached:
+      sourceModuleFile !== null && coveredModules.includes(sourceModuleFile),
+    note: "lexical_call_site_binding_source_observed",
+  };
+}
+
 function projectTsJsObservationToStepwiseRecord(
   input: TsJsStepwiseBridgeInput,
   result: TsJsSymbolTableResult,
@@ -1675,6 +1872,26 @@ export async function observeTsJsStepwiseRequest(
     return bridgeFailure(`producer rejected request: ${producer.reasonCode}`);
   }
   const result = producer.result;
+  if (input.route === "lexical") {
+    const lexicalSelection = selectTsJsLexicalBindingForCallSite({
+      lexical: result.lexicalCallSiteBindings,
+      callSiteRef: expectedCallSiteRef,
+    });
+    if (lexicalSelection.kind === "none") {
+      return bridgeFailure("lexical call-site binding observation not found");
+    }
+    if (lexicalSelection.kind === "ambiguous") {
+      return bridgeFailure("lexical call-site binding observation is ambiguous");
+    }
+    return {
+      record: projectTsJsLexicalBindingToStepwiseRecord(
+        canonicalInput,
+        result,
+        lexicalSelection.observation,
+      ),
+      reasons: [],
+    };
+  }
   const selection = selectTsJsObservationForCallSite({
     dynamic: result.runtimeSelectorObservations,
     staticSelected: result.staticSelectedSelectorObservations,
@@ -2154,12 +2371,15 @@ function parseCurrentRelation(
     `sample ${sampleId} ${stepId} currentRelation.callSiteRef`,
   );
   const binding = raw.binding;
-  if (!isRecord(binding) || !isRecord(binding.value)) {
+  if (!isRecord(binding)) {
     throw new TypeError(`sample ${sampleId} ${stepId} currentRelation.binding is invalid`);
   }
   const state = binding.state;
   if (state !== "known" && state !== "missing" && state !== "not_observed" && state !== "conflicting" && state !== "unsupported") {
     throw new TypeError(`sample ${sampleId} ${stepId} currentRelation.binding.state is invalid`);
+  }
+  if (state === "known" && !isRecord(binding.value)) {
+    throw new TypeError(`sample ${sampleId} ${stepId} currentRelation.binding is invalid`);
   }
   return {
     pendingRelationRef,

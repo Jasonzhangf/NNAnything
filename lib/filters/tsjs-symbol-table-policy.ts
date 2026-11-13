@@ -325,6 +325,56 @@ export type TsJsSymbolValidation =
   | Readonly<{ ok: true; request: TsJsSymbolTableRequest }>
   | Readonly<{ ok: false; error: TsJsSymbolRequestError }>;
 
+export type TsJsReadReceipt = Readonly<{
+  receiptId: string;
+  actionRef: string;
+  action: "read_source";
+  origin: "source_observation";
+  outcome: "success";
+  targetRef: string;
+  result: readonly string[];
+  evidenceRefs: readonly string[];
+  modules: readonly Readonly<{
+    file: string;
+    textLength: number;
+    lineCount: number;
+  }>[];
+}>;
+
+export type TsJsLexicalCallSiteBindingUnresolvedReason =
+  | "ambiguous_lexical_binding"
+  | "no_import_binding"
+  | "ambiguous_import_binding"
+  | "module_not_in_read_set"
+  | "ambiguous_module"
+  | "unsupported_callee_shape";
+
+export type TsJsLexicalCallSiteBindingObservation = Readonly<{
+  schemaVersion: "nnanything.tsjs.lexical-call-site-binding.v1";
+  observationRef: string;
+  requestRef: null;
+  callerFile: string;
+  callerModuleRef: string;
+  calleeName: string;
+  calleeSpan: TsJsSpan;
+  outerSpan: TsJsSpan | null;
+  callSiteRef: string;
+  outerCallSiteRef: string | null;
+  bindingKind: "import" | "local" | "shadow" | "unresolved";
+  sourceName: string | null;
+  targetName: string | null;
+  moduleSpecifierRaw: string | null;
+  sourceModuleFile: string | null;
+  sourceModuleRef: string | null;
+  targetModuleRef: string | null;
+  importDeclarationRef: string | null;
+  declarationRefs: readonly string[];
+  evidenceRefs: readonly string[];
+  unresolvedReason: TsJsLexicalCallSiteBindingUnresolvedReason | null;
+  callerReadReceipt: TsJsReadReceipt;
+  sourceModuleReadReceipt: TsJsReadReceipt | null;
+}>;
+
 export type TsJsSymbolTableResult = Readonly<{
   schema: string;
   language: TsJsLanguage;
@@ -336,6 +386,7 @@ export type TsJsSymbolTableResult = Readonly<{
   runtimeSelectorObservations: readonly TsJsRuntimeSelectorObservation[];
   staticSelectedSelectorObservations: readonly TsJsStaticSelectedSelectorObservation[];
   runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[];
+  lexicalCallSiteBindings: readonly TsJsLexicalCallSiteBindingObservation[];
   coverage: TsJsCoverageRecord;
   boundaries: Readonly<{
     projectModulePath: "unknown";
@@ -382,6 +433,35 @@ export function isSafeRepoRelative(value: string): boolean {
     if (part === "" || part === "." || part === "..") return false;
   }
   return true;
+}
+
+// The static-selected request shell uses `module:<file>` while the preserved
+// old-DEV request shell uses `mod:<file>`. Decode both schemes to one canonical
+// repo-relative file before any identity comparison.
+export function canonicalRepoFileFromModuleRef(moduleRef: string | null): string | null {
+  if (moduleRef === null) return null;
+  let suffix: string;
+  if (moduleRef.startsWith("module:")) {
+    suffix = moduleRef.slice("module:".length);
+  } else if (moduleRef.startsWith("mod:")) {
+    suffix = moduleRef.slice("mod:".length).split("#", 1)[0]!;
+  } else {
+    return null;
+  }
+  if (
+    suffix.length === 0
+    || suffix.startsWith("module:")
+    || suffix.startsWith("mod:")
+    || suffix.startsWith("/")
+    || suffix.includes(NUL)
+    || suffix.includes("://")
+    || /^[A-Za-z]:/.test(suffix)
+  ) {
+    return null;
+  }
+  const file = normalizeRepoRelative(suffix);
+  if (!isSafeRepoRelative(file) || file.includes(":")) return null;
+  return file;
 }
 
 export function isSafeScopePath(value: string): boolean {
@@ -550,6 +630,7 @@ export function projectTsJsSymbolTableResult(
   runtimeSelectorObservations: readonly TsJsRuntimeSelectorObservation[] = [],
   runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[] = [],
   staticSelectedSelectorObservations: readonly TsJsStaticSelectedSelectorObservation[] = [],
+  lexicalCallSiteBindings: readonly TsJsLexicalCallSiteBindingObservation[] = [],
 ): TsJsSymbolTableResult {
   return Object.freeze({
     schema: TSJS_SYMBOL_RESULT_SCHEMA,
@@ -566,6 +647,7 @@ export function projectTsJsSymbolTableResult(
       staticSelectedSelectorObservations.slice(),
     ),
     runtimeSelectorGaps: Object.freeze(runtimeSelectorGaps.slice()),
+    lexicalCallSiteBindings: Object.freeze(lexicalCallSiteBindings.slice()),
     coverage,
     boundaries: Object.freeze({
       projectModulePath: "unknown",
