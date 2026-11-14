@@ -1884,6 +1884,52 @@ function targetDeclarationReached(
   );
 }
 
+function actualDeclarationFromRead(
+  episode: RelationStepEpisode,
+  executedStepId: string,
+  verification: MultiStepBindingVerification,
+  observations: readonly MultiStepReadObservation[],
+  moduleFacts: readonly TsJsModuleFact[],
+): DeclarationIdentity | null {
+  if (verification.edgeKind !== "import") return null;
+  if (!verification.verified || verification.stepId !== executedStepId) return null;
+  if (verification.evidenceRefs.length === 0) return null;
+  const sourceModule = normalizeModulePath(verification.sourceModuleRef);
+  if (sourceModule === null) return null;
+  const selectedEdge = (episode.observedBindings ?? []).filter(edge =>
+    edge.edgeRef === verification.edgeRef
+    && sameBindingIdentity(relationBindingIdentity(edge), verification.expectedBinding));
+  if (selectedEdge.length !== 1) return null;
+  const edge = selectedEdge[0]!;
+  if (!edgeCallSiteRefMatches(episode, edge)) return null;
+  const reads = observations.filter(observation =>
+    observation.stepId === verification.stepId
+    && observation.moduleRefs.some(ref => sameModulePath(ref, sourceModule)));
+  if (reads.length !== 1) return null;
+  const read = reads[0]!;
+  const readFacts = uniqueModuleFacts([
+    ...read.moduleFacts,
+    ...moduleFactsForModule(moduleFacts, sourceModule),
+  ]);
+  const declarations = readFacts.filter(fact =>
+    fact.kind === "declaration" && fact.name === verification.sourceName);
+  const exports = readFacts.filter(fact =>
+    fact.kind === "export" && fact.name === verification.sourceName);
+  if (declarations.length !== 1 || exports.length !== 1) return null;
+  const observed = (episode.observedDeclarations ?? []).filter(declaration =>
+    declaration.declarationRef === `decl:${sourceModule}#top:${verification.sourceName}`);
+  if (observed.length !== 1) return null;
+  return {
+    ...observed[0]!,
+    evidenceRefs: uniqueStrings([...read.evidenceRefs, ...verification.evidenceRefs]),
+  };
+}
+
+function edgeCallSiteRefMatches(episode: RelationStepEpisode, edge: BindingEdge): boolean {
+  if (edge.callSiteRef === null) return true;
+  return edge.callSiteRef === (episode.callSiteRef ?? null);
+}
+
 function currentRelationFromRealFacts(
   episode: RelationStepEpisode,
   condition: RelationTargetCondition,
@@ -1892,18 +1938,71 @@ function currentRelationFromRealFacts(
   moduleFacts: readonly TsJsModuleFact[],
   verifications: readonly MultiStepBindingVerification[],
   evidenceRefs: readonly string[],
+  executedStepId: string,
+  verification: MultiStepBindingVerification | null,
 ): CurrentRelationProjection {
-  const reached = targetDeclarationReached(condition, observations, moduleFacts, verifications);
   const failed = verifications.find(verification => !verification.verified) ?? null;
   const callSiteRef = episode.callSiteRef ?? episode.currentRelation?.callSiteRef ?? "";
-  if (reached && condition.declarationRef !== null) {
+  const currentVerification = verification !== null && verification.phase === "executed"
+    && verification.stepId === executedStepId
+    && verification.edgeKind === "import"
+    ? verification
+    : null;
+  if (currentVerification === null) {
+    const reached = targetDeclarationReached(condition, observations, moduleFacts, verifications);
+    if (reached && condition.declarationRef !== null) {
+      const declaration: DeclarationIdentity = {
+        declarationRef: condition.declarationRef,
+        moduleRef: condition.moduleRef,
+        name: targetDeclarationName(condition) ?? "",
+        role: "export",
+        kind: condition.kind ?? "unknown",
+        evidenceRefs,
+      };
+      return {
+        pendingRelationRef: condition.relationRef,
+        callSiteRef,
+        binding: {
+          state: "known",
+          value: {
+            symbolRef: `symbol:${condition.declarationRef}`,
+            callSiteRef,
+            role: "export",
+            bindingMode: "bound",
+            resolution: {
+              status: "resolved",
+              declarationRef: condition.declarationRef,
+              moduleRef: condition.moduleRef,
+              evidenceRefs,
+            },
+            declarationRefs: [declaration],
+            scopeRef: null,
+            evidenceRefs,
+          },
+          evidenceRefs,
+        },
+      };
+    }
+  }
+  const actualDeclaration = currentVerification === null
+    ? null
+    : actualDeclarationFromRead(
+        episode,
+        executedStepId,
+        currentVerification,
+        observations,
+        moduleFacts,
+      );
+  if (actualDeclaration !== null) {
+    const actualModuleRef = actualDeclaration.moduleRef;
+    const actualSymbolRef = `symbol:${actualDeclaration.declarationRef}`;
     const declaration: DeclarationIdentity = {
-      declarationRef: condition.declarationRef,
-      moduleRef: condition.moduleRef,
-      name: targetDeclarationName(condition) ?? "",
-      role: "export",
-      kind: condition.kind ?? "unknown",
-      evidenceRefs,
+      declarationRef: actualDeclaration.declarationRef,
+      moduleRef: actualModuleRef,
+      name: actualDeclaration.name,
+      role: actualDeclaration.role,
+      kind: actualDeclaration.kind,
+      evidenceRefs: actualDeclaration.evidenceRefs,
     };
     return {
       pendingRelationRef: condition.relationRef,
@@ -1911,21 +2010,21 @@ function currentRelationFromRealFacts(
       binding: {
         state: "known",
         value: {
-          symbolRef: `symbol:${condition.declarationRef}`,
+          symbolRef: actualSymbolRef,
           callSiteRef,
-          role: "export",
+          role: actualDeclaration.role,
           bindingMode: "bound",
           resolution: {
             status: "resolved",
-            declarationRef: condition.declarationRef,
-            moduleRef: condition.moduleRef,
-            evidenceRefs,
+            declarationRef: actualDeclaration.declarationRef,
+            moduleRef: actualModuleRef,
+            evidenceRefs: actualDeclaration.evidenceRefs,
           },
           declarationRefs: [declaration],
           scopeRef: null,
-          evidenceRefs,
+          evidenceRefs: actualDeclaration.evidenceRefs,
         },
-        evidenceRefs,
+        evidenceRefs: actualDeclaration.evidenceRefs,
       },
     };
   }
@@ -1979,6 +2078,7 @@ function updatedBindingEdge(
 function deriveEpisodeFromRealFacts(
   nextEpisode: RelationStepEpisode,
   condition: RelationTargetCondition,
+  executedStepId: string,
   verification: MultiStepBindingVerification | null,
   facts: readonly string[],
   moduleFacts: readonly TsJsModuleFact[],
@@ -2079,6 +2179,8 @@ function deriveEpisodeFromRealFacts(
         moduleFacts,
         verifications,
         readEvidenceRefs,
+        executedStepId,
+        verification,
       ),
       coverage: {
         coveredModules: uniqueStrings(observations.flatMap(observation =>
@@ -6208,6 +6310,7 @@ export async function runTsJsUnifiedMultiStepDecision(
           const derived = deriveEpisodeFromRealFacts(
             nextEpisode,
             relationCondition,
+            stepId,
             bindingVerification,
             nextRealFacts,
             nextRealModuleFacts,
