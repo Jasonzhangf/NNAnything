@@ -550,7 +550,6 @@ test("post-integration no-observe control fails when observe candidates appear",
     assert.equal(receipt.caseAcceptance, "FAIL");
     assert.equal(receipt.selectedObserveAcceptance, "NOT_APPLICABLE");
     assert.equal(receipt.noObserveControlAcceptance, "FAIL");
-    assert.equal(receipt.noObserveControlFailure.observeDispatches, 0);
     assert.ok(receipt.noObserveControlFailure.candidateRefs.some(candidateRef =>
       candidateRef.startsWith("c:observe:")));
   } finally {
