@@ -911,3 +911,614 @@ test("A1 rejects projection identity fields from another request or candidate", 
     await rm(modelRoot, { recursive: true, force: true });
   }
 });
+
+test("A1 safe continuation: clean topology-only skeleton reaches the next judge", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-clean-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const captures = [];
+    const observeCalls = [];
+    const readCalls = [];
+    const fileExecutor = createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT });
+    const executor = {
+      async read(input) {
+        readCalls.push(cloneStepInput(input));
+        return fileExecutor.read(input);
+      },
+      async observe(input) {
+        observeCalls.push(cloneStepInput(input));
+        return fileExecutor.observe(input);
+      },
+    };
+
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-clean",
+      packagePath,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-clean",
+          sampleId: "a1-continuation-clean",
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-clean",
+          sampleId: "a1-continuation-clean",
+          observedBindings: [],
+          continuation: {
+            fromStepId: "step-observe",
+            optionSemantics: "observe",
+            pendingRelationRef: PENDING_RELATION_REF,
+            callSiteRef: CALL_SITE_REF,
+          },
+        }),
+      ],
+      grantedEffects: ["read_only"],
+      observe: {
+        kind: "constant_computed_property_v1",
+        readSet: {
+          repoRoot: SOURCE_ROOT,
+          callerFile: "entry.ts",
+          language: "typescript",
+          files: ["entry.ts", "factory.ts"],
+          grantedEffects: ["read_only"],
+        },
+      },
+      executor,
+      onStepSelection(capture) {
+        captures.push(structuredClone(capture));
+      },
+    });
+
+    assert.deepEqual(
+      captures.map(capture => chosenOf(capture).optionSemantics),
+      ["observe", "judge=true"],
+      JSON.stringify(result.recursiveGoal.report, null, 2),
+    );
+    assert.equal(observeCalls.length, 1);
+    assert.equal(readCalls.length, 0);
+    assert.equal(result.steps[0].nextStepId, "step-judge");
+
+    const judge = captures[1];
+    assert.ok(judge);
+    assert.equal(judge.stepId, "step-judge");
+    assert.equal(
+      judge.context.candidateGroup.candidateGroupRef,
+      "cg:a1-continuation-clean:step-judge:0",
+    );
+    assert.equal(judge.context.currentRelation.binding.state, "known");
+    assert.equal(
+      judge.context.currentRelation.binding.value.resolution.declarationRef,
+      "decl:factory.ts#top:createStepper",
+    );
+    assert.equal(judge.context.bindingEdges.length, 1);
+    assert.equal(judge.context.bindingEdges[0].sourceModule.value, "module:factory.ts");
+    assert.equal(judge.context.previousExecution.state, "known");
+    assert.equal(judge.context.previousExecution.value.fromStepId, "step-observe");
+    assert.equal(judge.context.previousExecution.value.targetRef, CALL_SITE_REF);
+    assert.notEqual(judge.context.previousExecution.value.targetRef, "module:factory.ts");
+    assert.equal(
+      judge.context.previousExecution.value.receiptRef,
+      result.steps[0].executionReceipt.receiptId,
+    );
+    assert.deepEqual(
+      judge.context.previousExecution.evidenceRefs,
+      result.steps[0].executionReceipt.evidenceRefs,
+    );
+    assert.equal(result.steps[0].executionReceipt.outcome, "success");
+    assert.equal(result.rootCompletion.queryCompletion, "incomplete");
+    assert.equal(result.rootCompletion.positiveRootSatisfied, false);
+
+    const finalState = result.recursiveGoal.report.states.at(-1)?.value;
+    assert.ok(finalState);
+    const clonedState = structuredClone(finalState);
+    structuredClone(result.recursiveGoal.report);
+    structuredClone(result.steps);
+    assert.ok(clonedState);
+    assert.ok(!JSON.stringify(clonedState).includes("bridge"));
+    assert.ok(!JSON.stringify(clonedState).includes("producerRequest"));
+    assert.ok(!JSON.stringify(clonedState).includes("producerResult"));
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test("A1 safe continuation: explicit typed not_observed inputs stay truthful", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-not-observed-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const captures = [];
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-not-observed",
+      packagePath,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-not-observed",
+          sampleId: "a1-continuation-not-observed",
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-not-observed",
+          sampleId: "a1-continuation-not-observed",
+          observedBindings: [],
+          previousExecution: {
+            state: "not_observed",
+            reason: "not_requested",
+            evidenceRefs: [],
+          },
+          continuation: {
+            fromStepId: "step-observe",
+            optionSemantics: "observe",
+            pendingRelationRef: PENDING_RELATION_REF,
+            callSiteRef: CALL_SITE_REF,
+          },
+        }),
+      ],
+      grantedEffects: ["read_only"],
+      observe: {
+        kind: "constant_computed_property_v1",
+        readSet: {
+          repoRoot: SOURCE_ROOT,
+          callerFile: "entry.ts",
+          language: "typescript",
+          files: ["entry.ts", "factory.ts"],
+          grantedEffects: ["read_only"],
+        },
+      },
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT }),
+      onStepSelection(capture) {
+        captures.push(structuredClone(capture));
+      },
+    });
+
+    assert.equal(captures.length, 2);
+    const judge = captures[1];
+    assert.ok(judge);
+    assert.equal(judge.context.previousExecution.state, "known");
+    assert.equal(judge.context.previousExecution.value.fromStepId, "step-observe");
+    assert.equal(judge.context.previousExecution.value.targetRef, CALL_SITE_REF);
+    assert.equal(judge.context.previousExecution.value.outcome, "success");
+    assert.equal(result.rootCompletion.queryCompletion, "incomplete");
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test("A1 safe continuation: missing topology link keeps observe and fails normally", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-missing-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const observeCalls = [];
+    const readCalls = [];
+    const fileExecutor = createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT });
+    const executor = {
+      async read(input) {
+        readCalls.push(cloneStepInput(input));
+        return fileExecutor.read(input);
+      },
+      async observe(input) {
+        observeCalls.push(cloneStepInput(input));
+        return fileExecutor.observe(input);
+      },
+    };
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-missing",
+      packagePath,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-missing",
+          sampleId: "a1-continuation-missing",
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-missing",
+          sampleId: "a1-continuation-missing",
+          observedBindings: [],
+        }),
+      ],
+      grantedEffects: ["read_only"],
+      observe: {
+        kind: "constant_computed_property_v1",
+        readSet: {
+          repoRoot: SOURCE_ROOT,
+          callerFile: "entry.ts",
+          language: "typescript",
+          files: ["entry.ts", "factory.ts"],
+          grantedEffects: ["read_only"],
+        },
+      },
+      executor,
+    });
+
+    assert.equal(observeCalls.length, 1);
+    assert.equal(readCalls.length, 0);
+    assert.equal(result.steps[0].executionReceipt.outcome, "success");
+    assert.equal(result.steps[0].nextStepId, null);
+    assert.equal(
+      result.recursiveGoal.report.errors[0]?.source?.nativeCode,
+      "NEXT_EPISODE_MISSING",
+    );
+    assert.equal(result.rootCompletion.queryCompletion, "incomplete");
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test("A1 safe continuation: self-link is not a next episode", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-self-link-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const selfLink = {
+      fromStepId: "step-observe",
+      optionSemantics: "observe",
+      pendingRelationRef: PENDING_RELATION_REF,
+      callSiteRef: CALL_SITE_REF,
+    };
+    const episodesFor = (reversed) => {
+      const observe = startEpisode({
+        requestId: "request:a1-continuation-self-link",
+        sampleId: "a1-continuation-self-link",
+        continuation: selfLink,
+      });
+      const judge = judgeEpisode({
+        requestId: "request:a1-continuation-self-link",
+        sampleId: "a1-continuation-self-link",
+        observedBindings: [],
+        continuation: {
+          fromStepId: "step-observe",
+          optionSemantics: "observe",
+          pendingRelationRef: "pending:unrelated",
+        },
+      });
+      return reversed ? [judge, observe] : [observe, judge];
+    };
+    for (const reversed of [false, true]) {
+      const captures = [];
+      const result = await runTsJsUnifiedMultiStepDecision({
+        requestId: "request:a1-continuation-self-link",
+        packagePath,
+        episodes: episodesFor(reversed),
+        grantedEffects: ["read_only"],
+        observe: {
+          kind: "constant_computed_property_v1",
+          readSet: {
+            repoRoot: SOURCE_ROOT,
+            callerFile: "entry.ts",
+            language: "typescript",
+            files: ["entry.ts", "factory.ts"],
+            grantedEffects: ["read_only"],
+          },
+        },
+        executor: createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT }),
+        onStepSelection(capture) {
+          captures.push(structuredClone(capture));
+        },
+      });
+
+      assert.equal(
+        result.recursiveGoal.report.errors[0]?.source?.nativeCode,
+        "NEXT_EPISODE_MISSING",
+      );
+      assert.equal(result.steps[0].nextStepId, null);
+      assert.ok(result.steps.every(step => step.nextStepId !== step.stepId));
+      assert.ok(captures.every(capture => capture.stepId !== "step-judge"));
+    }
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test("A1 safe continuation: identical topology keys are ambiguous", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-ambiguous-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const continuation = {
+      fromStepId: "step-observe",
+      optionSemantics: "observe",
+      pendingRelationRef: PENDING_RELATION_REF,
+      callSiteRef: CALL_SITE_REF,
+    };
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-ambiguous",
+      packagePath,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-ambiguous",
+          sampleId: "a1-continuation-ambiguous",
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-ambiguous",
+          sampleId: "a1-continuation-ambiguous",
+          stepId: "step-judge-a",
+          observedBindings: [],
+          continuation,
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-ambiguous",
+          sampleId: "a1-continuation-ambiguous",
+          stepId: "step-judge-b",
+          observedBindings: [],
+          continuation,
+        }),
+      ],
+      grantedEffects: ["read_only"],
+      observe: {
+        kind: "constant_computed_property_v1",
+        readSet: {
+          repoRoot: SOURCE_ROOT,
+          callerFile: "entry.ts",
+          language: "typescript",
+          files: ["entry.ts", "factory.ts"],
+          grantedEffects: ["read_only"],
+        },
+      },
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT }),
+    });
+
+    const error = result.recursiveGoal.report.errors[0];
+    assert.ok(error);
+    assert.match(JSON.stringify(error), /AMBIGUOUS_NEXT_EPISODE/);
+    assert.equal(result.rootCompletion.queryCompletion, "incomplete");
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test("A1 safe continuation: pending relation selects exactly one successor", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-pending-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const captures = [];
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-pending",
+      packagePath,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-pending",
+          sampleId: "a1-continuation-pending",
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-pending",
+          sampleId: "a1-continuation-pending",
+          stepId: "step-judge-match",
+          observedBindings: [],
+          continuation: {
+            fromStepId: "step-observe",
+            optionSemantics: "observe",
+            pendingRelationRef: PENDING_RELATION_REF,
+            callSiteRef: CALL_SITE_REF,
+          },
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-pending",
+          sampleId: "a1-continuation-pending",
+          stepId: "step-judge-other",
+          observedBindings: [],
+          continuation: {
+            fromStepId: "step-observe",
+            optionSemantics: "observe",
+            pendingRelationRef: "pending:other",
+            callSiteRef: CALL_SITE_REF,
+          },
+        }),
+      ],
+      grantedEffects: ["read_only"],
+      observe: {
+        kind: "constant_computed_property_v1",
+        readSet: {
+          repoRoot: SOURCE_ROOT,
+          callerFile: "entry.ts",
+          language: "typescript",
+          files: ["entry.ts", "factory.ts"],
+          grantedEffects: ["read_only"],
+        },
+      },
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT }),
+      onStepSelection(capture) {
+        captures.push(structuredClone(capture));
+      },
+    });
+
+    assert.deepEqual(
+      captures.map(capture => capture.stepId),
+      ["step-observe", "step-judge-match"],
+    );
+    assert.equal(result.steps[0].nextStepId, "step-judge-match");
+    assert.ok(captures.every(capture => capture.stepId !== "step-judge-other"));
+    assert.equal(result.rootCompletion.queryCompletion, "incomplete");
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test("A1 safe continuation: omitted call-site keeps a matching successor ambiguous", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-call-site-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const run = (successors) => runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-call-site",
+      packagePath,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-call-site",
+          sampleId: "a1-continuation-call-site",
+        }),
+        ...successors,
+      ],
+      grantedEffects: ["read_only"],
+      observe: {
+        kind: "constant_computed_property_v1",
+        readSet: {
+          repoRoot: SOURCE_ROOT,
+          callerFile: "entry.ts",
+          language: "typescript",
+          files: ["entry.ts", "factory.ts"],
+          grantedEffects: ["read_only"],
+        },
+      },
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT }),
+    });
+    const successor = (stepId, callSiteRef) => judgeEpisode({
+      requestId: "request:a1-continuation-call-site",
+      sampleId: "a1-continuation-call-site",
+      stepId,
+      observedBindings: [],
+      continuation: {
+        fromStepId: "step-observe",
+        optionSemantics: "observe",
+        pendingRelationRef: PENDING_RELATION_REF,
+        ...(callSiteRef === undefined ? {} : { callSiteRef }),
+      },
+    });
+
+    const ambiguous = await run([
+      successor("step-judge-site", CALL_SITE_REF),
+      successor("step-judge-optional"),
+    ]);
+    assert.match(
+      JSON.stringify(ambiguous.recursiveGoal.report.errors[0]),
+      /AMBIGUOUS_NEXT_EPISODE/,
+    );
+    const noMatch = await run([
+      successor("step-judge-other", "call:other.ts@1:1-1:2"),
+    ]);
+    assert.equal(
+      noMatch.recursiveGoal.report.errors[0]?.source?.nativeCode,
+      "NEXT_EPISODE_MISSING",
+    );
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});
+
+test("A1 safe continuation: prefilled known execution is rejected before execution", async () => {
+  const observeCalls = [];
+  const readCalls = [];
+  const fileExecutor = createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT });
+  const executor = {
+    async read(input) {
+      readCalls.push(cloneStepInput(input));
+      return fileExecutor.read(input);
+    },
+    async observe(input) {
+      observeCalls.push(cloneStepInput(input));
+      return fileExecutor.observe(input);
+    },
+  };
+  await assert.rejects(
+    () => runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-prefilled",
+      packagePath: CANDIDATE_PACKAGE,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-prefilled",
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-prefilled",
+          observedBindings: [],
+          previousExecution: {
+            state: "known",
+            value: {
+              actionRef: "action:future",
+              receiptRef: "receipt:future",
+              origin: "model_execution",
+              fromStepId: "step-observe",
+              pendingRelationRef: PENDING_RELATION_REF,
+              optionSemantics: "observe",
+              targetRef: CALL_SITE_REF,
+              outcome: "success",
+            },
+            evidenceRefs: [],
+          },
+          continuation: {
+            fromStepId: "step-observe",
+            optionSemantics: "observe",
+            pendingRelationRef: PENDING_RELATION_REF,
+            callSiteRef: CALL_SITE_REF,
+          },
+        }),
+      ],
+      grantedEffects: ["read_only"],
+      executor,
+    }),
+    /PREFILLED_PREVIOUS_EXECUTION/,
+  );
+  assert.equal(observeCalls.length, 0);
+  assert.equal(readCalls.length, 0);
+});
+
+test("A1 safe continuation: prefilled observation is rejected before execution", async () => {
+  await assert.rejects(
+    () => runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-prefilled-observation",
+      packagePath: CANDIDATE_PACKAGE,
+      episodes: [
+        startEpisode({
+          requestId: "request:a1-continuation-prefilled-observation",
+        }),
+        judgeEpisode({
+          requestId: "request:a1-continuation-prefilled-observation",
+          continuation: {
+            fromStepId: "step-observe",
+            optionSemantics: "observe",
+            pendingRelationRef: PENDING_RELATION_REF,
+            callSiteRef: CALL_SITE_REF,
+          },
+        }),
+      ],
+      grantedEffects: ["read_only"],
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT }),
+    }),
+    /PREFILLED_OBSERVATION/,
+  );
+});
+
+test("A1 safe continuation: entry order follows the declared predecessor", async () => {
+  const modelRoot = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-entry-"));
+  try {
+    const packagePath = await writeObserveThenTrueModel(modelRoot);
+    const captures = [];
+    const observe = startEpisode({
+      requestId: "request:a1-continuation-entry-order",
+      sampleId: "a1-continuation-entry-order",
+      stepId: "z-step-observe",
+    });
+    const judge = judgeEpisode({
+      requestId: "request:a1-continuation-entry-order",
+      sampleId: "a1-continuation-entry-order",
+      stepId: "a-step-judge",
+      observedBindings: [],
+      continuation: {
+        fromStepId: "z-step-observe",
+        optionSemantics: "observe",
+        pendingRelationRef: PENDING_RELATION_REF,
+        callSiteRef: CALL_SITE_REF,
+      },
+    });
+    const result = await runTsJsUnifiedMultiStepDecision({
+      requestId: "request:a1-continuation-entry-order",
+      packagePath,
+      episodes: [judge, observe],
+      grantedEffects: ["read_only"],
+      observe: {
+        kind: "constant_computed_property_v1",
+        readSet: {
+          repoRoot: SOURCE_ROOT,
+          callerFile: "entry.ts",
+          language: "typescript",
+          files: ["entry.ts", "factory.ts"],
+          grantedEffects: ["read_only"],
+        },
+      },
+      executor: createTsJsFileBackedStepExecutor({ sourceRoot: SOURCE_ROOT }),
+      onStepSelection(capture) {
+        captures.push(structuredClone(capture));
+      },
+    });
+
+    assert.deepEqual(
+      captures.map(capture => capture.stepId),
+      ["z-step-observe", "a-step-judge"],
+    );
+    assert.equal(captures[0].chosen.optionSemantics ?? chosenOf(captures[0]).optionSemantics, "observe");
+    assert.equal(result.rootCompletion.queryCompletion, "incomplete");
+  } finally {
+    await rm(modelRoot, { recursive: true, force: true });
+  }
+});

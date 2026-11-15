@@ -288,6 +288,14 @@ export interface RelationStepEpisode {
   readonly failureMode: string | null;
   readonly derivationFamily: string;
   readonly adapterRef: string;
+  readonly continuation?: RelationStepContinuation;
+}
+
+export interface RelationStepContinuation {
+  readonly fromStepId: string;
+  readonly optionSemantics: "observe" | "advance";
+  readonly pendingRelationRef: string;
+  readonly callSiteRef?: string;
 }
 
 function evidence(ref: string): EvidenceProjection {

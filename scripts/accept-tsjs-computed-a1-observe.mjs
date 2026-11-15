@@ -210,6 +210,21 @@ function runtimeErrors(result) {
   return result.recursiveGoal.report?.errors ?? [];
 }
 
+function hasContinuationOrAdmissionError(result) {
+  const forbiddenCodes = new Set([
+    "PREFILLED_PREVIOUS_EXECUTION",
+    "PREFILLED_OBSERVATION",
+    "CONTINUATION_ENTRY_AMBIGUOUS",
+    "NEXT_EPISODE_MISSING",
+    "AMBIGUOUS_NEXT_EPISODE",
+    "BRIDGE_ADMISSION_REJECTED",
+  ]);
+  return runtimeErrors(result).some(error => {
+    const nativeCode = error.source?.nativeCode ?? error.nativeCode ?? null;
+    return forbiddenCodes.has(nativeCode);
+  });
+}
+
 function recordedExecutorInput(input) {
   if (input.observe?.kind !== "constant_computed_property_v1") return input;
   const { bridge: _bridge, ...observe } = input.observe;
@@ -278,6 +293,112 @@ function capturedRun(result, executionError, captures, value, candidateScores) {
     && validCaptures(captures, value, candidateScores);
 }
 
+function sameStringArray(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]);
+}
+
+function sameDeclaration(left, right) {
+  return left?.declarationRef === right?.declarationRef
+    && left?.moduleRef === right?.moduleRef
+    && left?.name === right?.name
+    && left?.role === right?.role
+    && left?.kind === right?.kind
+    && sameStringArray(left?.evidenceRefs, right?.evidenceRefs);
+}
+
+function continuationJoin({
+  value,
+  captures,
+  dispatches,
+  result,
+  projection,
+  observeExecution,
+  admittedObservationRecords,
+}) {
+  const startEpisode = value.episodes[0];
+  const successors = value.episodes.filter(episode =>
+    episode.stepId !== startEpisode?.stepId
+    && episode.continuation?.fromStepId === startEpisode?.stepId);
+  if (successors.length !== 1) return false;
+  const nextEpisode = successors[0];
+  const continuation = nextEpisode?.continuation;
+  if (continuation === undefined) return false;
+
+  const observeStep = result?.steps?.find(step =>
+    step.stepId === startEpisode.stepId
+    && step.executionReceipt?.action === "submit_observe");
+  const observeReceipt = observeStep?.executionReceipt;
+  const nextCaptures = captures.filter(capture => capture.stepId === nextEpisode.stepId);
+  if (nextCaptures.length !== 1 || observeReceipt === undefined) return false;
+  const nextCapture = nextCaptures[0];
+  const previous = nextCapture?.context?.previousExecution;
+  const observeDispatch = dispatches.find(item => item.action === "observe");
+  const actualCallSiteRef = projection?.producerSource?.callSiteRef
+    ?? projection?.currentRelation?.callSiteRef
+    ?? null;
+  const sourceModuleRef = projection?.observedBindings?.[0]?.sourceModule?.state === "known"
+    ? projection.observedBindings[0].sourceModule.value ?? null
+    : null;
+  if (observeStep.nextStepId !== nextEpisode.stepId
+    || result.steps.filter(step => step.nextStepId !== null).length !== 1
+    || actualCallSiteRef === null
+    || sourceModuleRef === null
+    || actualCallSiteRef === sourceModuleRef
+    || observeDispatch?.input?.pendingRelationRef !== continuation.pendingRelationRef
+    || observeDispatch?.input?.observe?.targetRef !== actualCallSiteRef
+    || (continuation.callSiteRef !== undefined
+      && continuation.callSiteRef !== actualCallSiteRef)
+    || projection?.currentRelation?.callSiteRef !== actualCallSiteRef
+    || projection?.producerSource?.callSiteRef !== actualCallSiteRef
+    || previous?.state !== "known") return false;
+
+  const previousValue = previous.value;
+  if (previousValue?.actionRef !== observeReceipt.actionRef
+    || previousValue?.receiptRef !== observeReceipt.receiptId
+    || previousValue?.origin !== "model_execution"
+    || previousValue?.fromStepId !== startEpisode.stepId
+    || previousValue?.pendingRelationRef !== continuation.pendingRelationRef
+    || previousValue?.optionSemantics !== continuation.optionSemantics
+    || previousValue?.targetRef !== actualCallSiteRef
+    || previousValue?.outcome !== "success"
+    || !sameStringArray(previous.evidenceRefs, observeReceipt.evidenceRefs)
+    || nextCapture.context.action.previousActionRef !== observeReceipt.actionRef
+    || nextCapture.context.action.receiptRef !== observeReceipt.receiptId
+    || nextCapture.context.action.outcome !== "success") return false;
+
+  const admittedIds = new Set(
+    (admittedObservationRecords ?? []).map(record => record.id),
+  );
+  const bindingEdgesJoined = JSON.stringify(nextCapture.context.bindingEdges)
+    === JSON.stringify(projection.observedBindings);
+  const currentRelationJoined = JSON.stringify(nextCapture.context.currentRelation)
+    === JSON.stringify(projection.currentRelation);
+  const declarationsJoined = nextCapture.context.bindingProjections.length
+      === projection.observedDeclarations.length
+    && projection.observedDeclarations.every(declaration =>
+      nextCapture.context.bindingProjections.some(binding =>
+        binding.declarationRefs.some(candidate => sameDeclaration(candidate, declaration))));
+  const admittedEvidenceJoined = (admittedObservationRecords ?? []).length > 0
+    && admittedObservationRecords.every(record =>
+      record.validity === "valid" && record.stateRef === observeReceipt.postStateRef)
+    && projection.observedBindings.every(binding =>
+      binding.evidenceRefs.some(ref => admittedIds.has(ref)))
+    && projection.observedDeclarations.every(declaration =>
+      declaration.evidenceRefs.some(ref => admittedIds.has(ref)));
+  const requestedDeclarationPreserved =
+    JSON.stringify(nextCapture.context.goal.requestedDeclaration)
+    === JSON.stringify(nextEpisode.requestedDeclaration ?? null);
+  return bindingEdgesJoined
+    && currentRelationJoined
+    && declarationsJoined
+    && admittedEvidenceJoined
+    && requestedDeclarationPreserved
+    && sameStringArray(observeExecution?.evidenceRefs, observeReceipt.evidenceRefs);
+}
+
 function makeReceipt({
   args,
   value,
@@ -327,6 +448,16 @@ function makeReceipt({
       capture.stepId !== value.episodes[0].stepId
       && capture.context.previousExecution?.state === "known"
       && capture.context.previousExecution.value?.optionSemantics === "observe")
+    && !hasContinuationOrAdmissionError(result)
+    && continuationJoin({
+      value,
+      captures,
+      dispatches,
+      result,
+      projection,
+      observeExecution: firstObserveExecution,
+      admittedObservationRecords,
+    })
     && rootCompletion?.queryCompletion === "incomplete"
     && rootCompletion?.positiveRootSatisfied === false
       ? "PASS"

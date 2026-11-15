@@ -661,3 +661,110 @@ test("post-integration VERIFICATION control accepts exact unknown without observ
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("A1 safe continuation: public receipt requires the next observe-linked judge capture", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-a1-continuation-public-"));
+  try {
+    const { caseValue, sourceRoot } = await writeKnown01Fixture(root);
+    const positive = structuredClone(caseValue);
+    positive.caseId = "synthetic-a1-safe-continuation-positive";
+    positive.requestId = "request:synthetic-a1-safe-continuation-positive";
+    positive.packagePath = A1_CANDIDATE_PACKAGE;
+    positive.observe.readSet.repoRoot = sourceRoot;
+    positive.episodes = positive.episodes.map((episode, index) => ({
+      ...episode,
+      requestId: positive.requestId,
+      sampleId: "synthetic-a1-safe-continuation",
+      sourceGroup: "synthetic-a1-safe-continuation",
+      derivationFamily: "synthetic-a1-safe-continuation",
+      partition: "DEV",
+      ...(index === 1
+        ? {
+            observedBindings: [],
+            observedDeclarations: [],
+            currentRelation: null,
+            sourceContent: null,
+            receipts: [],
+            continuation: {
+              fromStepId: "step-observe",
+              optionSemantics: "observe",
+              pendingRelationRef: "pending:computed-observe-a1",
+              callSiteRef: "call:entry.ts@6:23-6:48",
+            },
+          }
+        : {}),
+    }));
+    const positiveCase = await writeCase(root, positive);
+    const positiveOut = join(root, "result-positive");
+    const positiveRun = spawnSync(process.execPath, [
+      HARNESS_ENTRY,
+      "--case", positiveCase,
+      "--package", A1_CANDIDATE_PACKAGE,
+      "--out", positiveOut,
+    ], { encoding: "utf8" });
+    const positiveReceipt = JSON.parse(
+      await readFile(join(positiveOut, "result.json"), "utf8"));
+    if (positiveReceipt.status === "UNAVAILABLE") {
+      assert.notEqual(positiveRun.status, 0);
+      return;
+    }
+    assert.equal(positiveRun.status, 0, positiveRun.stderr);
+    assert.equal(positiveReceipt.status, "CAPTURED");
+    assert.equal(positiveReceipt.caseAcceptance, "PASS");
+    assert.equal(positiveReceipt.acceptanceKind, "positive_observe");
+    assert.equal(positiveReceipt.dispatchCounts.observeDispatches, 1);
+    assert.equal(positiveReceipt.dispatchCounts.readDispatches, 0);
+    assert.equal(positiveReceipt.executionError, null);
+    assert.equal(positiveReceipt.rootCompletion.queryCompletion, "incomplete");
+    assert.equal(positiveReceipt.rootCompletion.positiveRootSatisfied, false);
+    assert.equal(positiveReceipt.nextJudge.length, 1);
+    assert.equal(positiveReceipt.nextJudge[0].nextStepId, "step-judge");
+    assert.equal(positiveReceipt.nextJudge[0].capture.stepId, "step-judge");
+    assert.equal(
+      positiveReceipt.nextJudge[0].capture.context.previousExecution.value.targetRef,
+      "call:entry.ts@6:23-6:48",
+    );
+    assert.equal(
+      positiveReceipt.finalRuntimeState.context.previousExecution.value.targetRef,
+      "call:entry.ts@6:23-6:48",
+    );
+    assert.ok(!JSON.stringify(positiveReceipt.finalRuntimeState).includes("bridge"));
+    assert.ok(!JSON.stringify(positiveReceipt.finalRuntimeState).includes("producerRequest"));
+    assert.ok(!JSON.stringify(positiveReceipt.finalRuntimeState).includes("producerResult"));
+    structuredClone(positiveReceipt);
+    JSON.parse(await readFile(join(positiveOut, "result.json"), "utf8"));
+
+    const missing = structuredClone(positive);
+    missing.caseId = "synthetic-a1-safe-continuation-missing";
+    missing.requestId = "request:synthetic-a1-safe-continuation-missing";
+    missing.episodes = missing.episodes.map(episode => ({
+      ...episode,
+      requestId: missing.requestId,
+      ...(episode.stepId === "step-judge" ? { continuation: undefined } : {}),
+    }));
+    const missingCase = await writeCase(root, missing);
+    const missingOut = join(root, "result-missing");
+    const missingRun = spawnSync(process.execPath, [
+      HARNESS_ENTRY,
+      "--case", missingCase,
+      "--package", A1_CANDIDATE_PACKAGE,
+      "--out", missingOut,
+    ], { encoding: "utf8" });
+    const missingReceipt = JSON.parse(
+      await readFile(join(missingOut, "result.json"), "utf8"));
+    assert.equal(missingRun.status, 1, missingRun.stderr);
+    assert.equal(missingReceipt.status, "CAPTURED");
+    assert.equal(missingReceipt.caseAcceptance, "FAIL");
+    assert.equal(missingReceipt.dispatchCounts.observeDispatches, 1);
+    assert.equal(missingReceipt.dispatchCounts.readDispatches, 0);
+    assert.ok(missingReceipt.runtimeErrors.some(error =>
+      error.source?.nativeCode === "NEXT_EPISODE_MISSING"));
+    assert.deepEqual(missingReceipt.nextJudge, []);
+    assert.equal(missingReceipt.rootCompletion.queryCompletion, "incomplete");
+    assert.equal(missingReceipt.executionError, null);
+    structuredClone(missingReceipt);
+    JSON.parse(await readFile(join(missingOut, "result.json"), "utf8"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

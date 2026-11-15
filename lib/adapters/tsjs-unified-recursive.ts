@@ -3070,6 +3070,32 @@ function mergeComputedObserveProjection(
 }
 
 function multiStepStartStepId(episodes: readonly RelationStepEpisode[]): string {
+  const continuationEpisodes = episodes.filter(episode => episode.continuation !== undefined);
+  if (continuationEpisodes.length > 0) {
+    const predecessors = new Set(
+      continuationEpisodes.map(episode => episode.continuation!.fromStepId),
+    );
+    const roots = episodes.filter(episode =>
+      predecessors.has(episode.stepId)
+      && (episode.continuation === undefined
+        || episode.continuation.fromStepId === episode.stepId));
+    if (roots.length !== 1) {
+      throw new TypeError(
+        `CONTINUATION_ENTRY_AMBIGUOUS: expected one start episode, found ${roots.length}`,
+      );
+    }
+    if (!(roots[0]!.remainingObligations ?? []).some(obligation =>
+      obligation.kind === "observe" || obligation.kind === "advance")) {
+      throw new TypeError(
+        `CONTINUATION_ENTRY_AMBIGUOUS: start episode ${roots[0]!.stepId} has no executable obligation`,
+      );
+    }
+    if (continuationEpisodes.some(episode =>
+      !episodes.some(candidate => candidate.stepId === episode.continuation!.fromStepId))) {
+      throw new TypeError("CONTINUATION_ENTRY_AMBIGUOUS: continuation predecessor is missing");
+    }
+    return roots[0]!.stepId;
+  }
   const all = new Set(episodes.map(episode => episode.stepId));
   for (const episode of episodes) {
     const previous = episode.previousExecution;
@@ -3165,6 +3191,69 @@ function nextStepCandidateMatches(
     }
   }
   return false;
+}
+
+/**
+ * Topology-only resolver for the new computed continuation path. The declared
+ * link is the only selection key; visited/current-step exclusion is the
+ * self-link boundary. This branch never falls back to implicit matching.
+ */
+function multiStepResolveContinuationEpisode(
+  currentStepId: string,
+  optionSemantics: "observe" | "advance",
+  pendingRelationRef: string,
+  callSiteRef: string | null,
+  visited: ReadonlySet<string>,
+  episodes: readonly RelationStepEpisode[],
+): RelationStepEpisode | null {
+  const matches = episodes.filter(episode => {
+    if (episode.stepId === currentStepId || visited.has(episode.stepId)) return false;
+    const continuation = episode.continuation;
+    if (continuation === undefined) return false;
+    return continuation.fromStepId === currentStepId
+      && continuation.optionSemantics === optionSemantics
+      && continuation.pendingRelationRef === pendingRelationRef
+      && (continuation.callSiteRef === undefined || continuation.callSiteRef === callSiteRef);
+  });
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    throw new TypeError(
+      `AMBIGUOUS_NEXT_EPISODE: ${matches.length} topology continuations matched step ${currentStepId}`,
+    );
+  }
+  return null;
+}
+
+function hasPrefilledKnownPreviousExecution(
+  episodes: readonly RelationStepEpisode[],
+): boolean {
+  return episodes.some(episode =>
+    episode.continuation !== undefined
+    && episode.previousExecution?.state === "known");
+}
+
+function hasPrefilledComputedObservation(
+  episode: RelationStepEpisode,
+): boolean {
+  return (
+    (episode.observedBindings?.length ?? 0) > 0
+    || (episode.observedDeclarations?.length ?? 0) > 0
+    || (episode.receipts?.length ?? 0) > 0
+    || episode.currentRelation?.binding.state === "known"
+    || episode.sourceContent?.state === "observed"
+  );
+}
+
+function validateA1ContinuationRequest(episodes: readonly RelationStepEpisode[]): void {
+  const hasContinuation = episodes.some(episode => episode.continuation !== undefined);
+  if (!hasContinuation) return;
+  if (hasPrefilledKnownPreviousExecution(episodes)) {
+    throw new TypeError("PREFILLED_PREVIOUS_EXECUTION: continuation input cannot contain known execution");
+  }
+  const continuationEpisodes = episodes.filter(episode => episode.continuation !== undefined);
+  if (continuationEpisodes.some(hasPrefilledComputedObservation)) {
+    throw new TypeError("PREFILLED_OBSERVATION: continuation input cannot contain computed observation");
+  }
 }
 
 function multiStepPreviousExecutionIncompatibility(
@@ -6766,6 +6855,7 @@ export async function runTsJsUnifiedMultiStepDecision(
   if (episodes.some(episode => episode.requestId !== sampleRequestId)) {
     throw new TypeError("multi-step episodes must belong to one request");
   }
+  validateA1ContinuationRequest(episodes);
 
   const startId = multiStepStartStepId(episodes);
   const startEpisode = episodes.find(episode => episode.stepId === startId)!;
@@ -6998,6 +7088,8 @@ export async function runTsJsUnifiedMultiStepDecision(
       let execution: TsJsUnifiedStepExecution;
       let nextEpisode: RelationStepEpisode | null = null;
       let executedSourceModuleForNext: string | null = null;
+      let continuationMode = false;
+      let executedCallSite: string | null = null;
       let bindingVerification: MultiStepBindingVerification | null = null;
       let readObservation: MultiStepReadObservation | null = null;
       let nextRealFacts = state.realFacts;
@@ -7221,16 +7313,39 @@ export async function runTsJsUnifiedMultiStepDecision(
           }
         }
         if (terminalKind === null) {
-          nextEpisode = multiStepResolveNextEpisode(
-            stepId,
-            actionKind === "submit_read" ? "advance" : "observe",
-            chosen.candidate.edgeRef,
-            executedSourceModule,
-            new Set(state.stepSequence),
-            episodes,
-          );
+          const actionOptionSemantics = actionKind === "submit_read" ? "advance" : "observe";
+          continuationMode = episodes.some(episode => episode.continuation !== undefined);
+          executedCallSite = continuationMode
+            ? execution.observeProjection?.producerSource.callSiteRef
+              ?? execution.observeProjection?.currentRelation.callSiteRef
+              ?? null
+            : null;
+          if (continuationMode) {
+            nextEpisode = multiStepResolveContinuationEpisode(
+              stepId,
+              actionOptionSemantics,
+              pendingRelationRef,
+              executedCallSite,
+              new Set(state.stepSequence),
+              episodes,
+            );
+            if (nextEpisode !== null && !computedObserve) {
+              throw new TypeError(
+                "A1 topology continuation currently supports only computed observe steps",
+              );
+            }
+          } else {
+            nextEpisode = multiStepResolveNextEpisode(
+              stepId,
+              actionOptionSemantics,
+              chosen.candidate.edgeRef,
+              executedSourceModule,
+              new Set(state.stepSequence),
+              episodes,
+            );
+          }
           if (nextEpisode === null) {
-            if (computedObserve) {
+            if (computedObserve || continuationMode) {
               missingComputedNextEpisode = true;
             } else {
               terminalKind = "exhausted";
@@ -7243,7 +7358,7 @@ export async function runTsJsUnifiedMultiStepDecision(
             stepId,
             pendingRelationRef,
             optionSemantics: actionKind === "submit_read" ? "advance" : "observe",
-            targetRef: executedSourceModule,
+            targetRef: continuationMode ? executedCallSite : executedSourceModule,
           });
           if (incompatibility !== null) {
             return multiStepAtomicFailure(
@@ -7407,7 +7522,9 @@ export async function runTsJsUnifiedMultiStepDecision(
           fromStepId: stepId,
           pendingRelationRef,
           optionSemantics: actionKind === "submit_read" ? "advance" : "observe",
-          targetRef: executedSourceModuleForNext ?? chosen.candidate.targetRef ?? pendingRelationRef,
+          targetRef: continuationMode && executedCallSite !== null
+            ? executedCallSite
+            : executedSourceModuleForNext ?? chosen.candidate.targetRef ?? pendingRelationRef,
           outcome: "success",
           evidenceRefs: execution.evidenceRefs,
         };
