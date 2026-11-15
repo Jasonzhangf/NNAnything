@@ -13,6 +13,7 @@ const ALLOWED_ARGS = new Set(["--case", "--package", "--out"]);
 const A1_WORKTREE = "/Volumes/Intel/playground/nnanything/tsjs-computed-observe-a1-20261115";
 const CASE_SCHEMA = "nnanything.tsjs.computed-a1-acceptance-case.v1";
 const ACCEPTED_PARTITIONS = new Set(["DEV", "VERIFICATION"]);
+const ACCEPTED_EXPECTATIONS = new Set(["positive_observe", "no_observe_control"]);
 
 function errorRecord(error) {
   return {
@@ -72,6 +73,11 @@ function validateCase(value, cliPackagePath) {
   }
   if (typeof value.sourceRoot !== "string" || value.sourceRoot.length === 0) {
     throw new TypeError("case sourceRoot must be a nonempty path");
+  }
+  if (!ACCEPTED_EXPECTATIONS.has(value.expectation)) {
+    throw new TypeError(
+      "case expectation must be positive_observe or no_observe_control",
+    );
   }
   if (!Array.isArray(value.episodes)
     || value.episodes.length < 1
@@ -339,11 +345,7 @@ function makeReceipt({
     && finalStateValue?.terminalJudgement === "judge=unknown"
       ? "PASS"
       : "FAIL";
-  const acceptanceKind = captured
-    ? hasObserveCandidate
-      ? "positive_observe"
-      : "no_observe_control"
-    : "UNVERIFIED";
+  const acceptanceKind = captured ? value.expectation : "UNVERIFIED";
   const caseAcceptance = captured
     ? acceptanceKind === "positive_observe"
       ? selectedObserveAcceptance

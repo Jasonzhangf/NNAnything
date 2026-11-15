@@ -44,6 +44,7 @@ function known01CaseFixture(repoRoot, partition = "DEV") {
   return {
     schema: "nnanything.tsjs.computed-a1-acceptance-case.v1",
     caseId: "tsjs-computed-a1-known-01",
+    expectation: "positive_observe",
     requestId: "request:tsjs-computed-a1-known-01",
     sourceRoot: repoRoot,
     packagePath: CANDIDATE_PACKAGE,
@@ -209,6 +210,7 @@ async function writeNoObserveControlFixture(root) {
   const controlCase = {
     ...caseValue,
     caseId: "tsjs-computed-a1-verification-no-observe-control",
+    expectation: "no_observe_control",
     requestId: "request:tsjs-computed-a1-verification-no-observe-control",
     packagePath: A1_CANDIDATE_PACKAGE,
     episodes: [{
@@ -225,6 +227,36 @@ async function writeNoObserveControlFixture(root) {
     caseValue: controlCase,
     sourceRoot,
   };
+}
+
+async function writeMissingObserveCandidateFixture(root) {
+  const { caseValue } = await writeKnown01Fixture(root);
+  const missingCandidateEpisode = structuredClone(caseValue.episodes[0]);
+  missingCandidateEpisode.stepId = "step-missing-observe-candidate";
+  missingCandidateEpisode.partition = "VERIFICATION";
+  missingCandidateEpisode.targetRef = "pending:computed-missing-observe-candidate";
+  missingCandidateEpisode.pendingRelationRef = "pending:computed-missing-observe-candidate";
+  missingCandidateEpisode.remainingObligations = [];
+  missingCandidateEpisode.localCandidateCursor = {
+    pendingRelationRef: "pending:computed-missing-observe-candidate",
+    state: "closed",
+    evidenceRefs: [],
+  };
+  const missingCandidateCase = {
+    ...caseValue,
+    caseId: "tsjs-computed-a1-verification-missing-observe-candidate",
+    expectation: "positive_observe",
+    requestId: "request:tsjs-computed-a1-verification-missing-observe-candidate",
+    packagePath: A1_CANDIDATE_PACKAGE,
+    episodes: [{
+      ...missingCandidateEpisode,
+      requestId: "request:tsjs-computed-a1-verification-missing-observe-candidate",
+      sampleId: "tsjs-computed-a1-verification-missing-observe-candidate",
+      sourceGroup: "tsjs-computed-a1-verification-missing-observe-candidate",
+      derivationFamily: "tsjs-computed-a1-verification-missing-observe-candidate",
+    }],
+  };
+  return { casePath: await writeCase(root, missingCandidateCase) };
 }
 
 function findCapture(captures, candidateRef) {
@@ -275,6 +307,7 @@ test("harness rejects structurally invalid case input without calling the runtim
     const casePath = await writeCase(root, {
       schema: "nnanything.tsjs.computed-a1-acceptance-case.v1",
       caseId: "invalid-case",
+      expectation: "positive_observe",
       requestId: "request:invalid-case",
       sourceRoot: root,
       packagePath: CANDIDATE_PACKAGE,
@@ -435,6 +468,91 @@ test("post-integration KNOWN-01 keeps the saved judge=unknown failure and reject
     assert.ok(!runtimeFacts.includes("producerRequest"));
     assert.ok(!runtimeFacts.includes("producerResult"));
     assert.ok(!runtimeFacts.includes("observeAdmissions"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("post-integration positive expectation fails when the runtime omits observe candidates", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-a1-acceptance-missing-observe-"));
+  try {
+    const { casePath } = await writeMissingObserveCandidateFixture(root);
+    const out = join(root, "result");
+    const run = spawnSync(process.execPath, [
+      HARNESS_ENTRY, "--case", casePath, "--package", A1_CANDIDATE_PACKAGE, "--out", out,
+    ], { encoding: "utf8" });
+    const runtimeText = await readFile(
+      new URL("../dist/adapters/tsjs-unified-recursive.js", `file://${HERE}/`),
+      "utf8");
+    if (!runtimeText.includes("constant_computed_property_v1")) {
+      assert.notEqual(run.status, 0);
+      const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+      assert.equal(receipt.status, "UNAVAILABLE");
+      return;
+    }
+    assert.equal(run.status, 1, run.stderr);
+    const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+    assert.equal(receipt.status, "CAPTURED");
+    assert.equal(receipt.acceptanceKind, "positive_observe");
+    assert.equal(receipt.caseAcceptance, "FAIL");
+    assert.equal(receipt.selectedObserveAcceptance, "FAIL");
+    assert.equal(receipt.noObserveControlAcceptance, "NOT_APPLICABLE");
+    assert.equal(receipt.dispatchCounts.observeDispatches, 0);
+    assert.equal(receipt.dispatchCounts.readDispatches, 0);
+    assert.ok(receipt.selectedObserveFailure);
+    const captures = JSON.parse(
+      await readFile(join(out, "selection-captures.json"), "utf8"));
+    assert.ok(captures[0].candidates.every(candidate =>
+      !candidate.candidateRef.startsWith("c:observe:")));
+    const runResult = JSON.parse(await readFile(join(out, "run-result.json"), "utf8"));
+    assert.ok(!JSON.stringify({ captures, runResult }).includes("positive_observe"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("post-integration no-observe control fails when observe candidates appear", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-a1-acceptance-unexpected-observe-"));
+  try {
+    const { caseValue } = await writeKnown01Fixture(root);
+    const casePath = await writeCase(root, {
+      ...caseValue,
+      caseId: "tsjs-computed-a1-verification-unexpected-observe",
+      expectation: "no_observe_control",
+      requestId: "request:tsjs-computed-a1-verification-unexpected-observe",
+      packagePath: A1_CANDIDATE_PACKAGE,
+      episodes: caseValue.episodes.map(episode => ({
+        ...episode,
+        requestId: "request:tsjs-computed-a1-verification-unexpected-observe",
+        sampleId: "tsjs-computed-a1-verification-unexpected-observe",
+        sourceGroup: "tsjs-computed-a1-verification-unexpected-observe",
+        derivationFamily: "tsjs-computed-a1-verification-unexpected-observe",
+        partition: "VERIFICATION",
+      })),
+    });
+    const out = join(root, "result");
+    const run = spawnSync(process.execPath, [
+      HARNESS_ENTRY, "--case", casePath, "--package", A1_CANDIDATE_PACKAGE, "--out", out,
+    ], { encoding: "utf8" });
+    const runtimeText = await readFile(
+      new URL("../dist/adapters/tsjs-unified-recursive.js", `file://${HERE}/`),
+      "utf8");
+    if (!runtimeText.includes("constant_computed_property_v1")) {
+      assert.notEqual(run.status, 0);
+      const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+      assert.equal(receipt.status, "UNAVAILABLE");
+      return;
+    }
+    assert.equal(run.status, 1, run.stderr);
+    const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+    assert.equal(receipt.status, "CAPTURED");
+    assert.equal(receipt.acceptanceKind, "no_observe_control");
+    assert.equal(receipt.caseAcceptance, "FAIL");
+    assert.equal(receipt.selectedObserveAcceptance, "NOT_APPLICABLE");
+    assert.equal(receipt.noObserveControlAcceptance, "FAIL");
+    assert.equal(receipt.noObserveControlFailure.observeDispatches, 0);
+    assert.ok(receipt.noObserveControlFailure.candidateRefs.some(candidateRef =>
+      candidateRef.startsWith("c:observe:")));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
