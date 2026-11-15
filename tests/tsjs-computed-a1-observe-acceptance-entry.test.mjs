@@ -336,27 +336,26 @@ test("harness rejects structurally invalid case input without calling the runtim
   }
 });
 
-test("harness fails closed as UNAVAILABLE before the accepted A1 runtime is integrated", async () => {
-  const root = await mkdtemp(join(tmpdir(), "tsjs-a1-acceptance-unavailable-"));
+test("harness captures the integrated A1 runtime without fabricating progress", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-a1-acceptance-integrated-"));
   try {
     const { casePath } = await writeKnown01Fixture(root);
     const out = join(root, "result");
     const run = spawnSync(process.execPath, [
       HARNESS_ENTRY, "--case", casePath, "--package", CANDIDATE_PACKAGE, "--out", out,
     ], { encoding: "utf8" });
-    assert.notEqual(run.status, 0);
+    assert.equal(run.status, 1);
     const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
-    assert.equal(receipt.status, "UNAVAILABLE");
-    assert.equal(receipt.dependency, "A1_RUNTIME_NOT_INTEGRATED");
-    assert.equal(receipt.missingField, "request.observe");
-    assert.equal(receipt.missingKind, "constant_computed_property_v1");
-    assert.equal(receipt.dependencySource, "/Volumes/Intel/playground/nnanything/tsjs-computed-observe-a1-20261115");
-    assert.equal(receipt.dependencyStatus, "read_only_accepted_evidence_not_integrated");
+    assert.equal(receipt.status, "CAPTURED");
+    assert.equal(receipt.caseAcceptance, "FAIL");
+    assert.equal(receipt.dependency, undefined);
+    assert.equal(receipt.missingField, undefined);
     assert.deepEqual(receipt.stepIds, ["step-observe", "step-judge"]);
-    assert.ok(receipt.receipt.at(-1));
-    await assert.rejects(() => readFile(join(out, "run-result.json")));
-    await assert.rejects(() => readFile(join(out, "selection-captures.json")));
-    await assert.rejects(() => readFile(join(out, "candidate-scores.json")));
+    assert.ok(Array.isArray(receipt.selectionCaptures));
+    assert.ok(receipt.selectionCaptures.length > 0);
+    assert.ok((await readFile(join(out, "run-result.json"), "utf8")).length > 0);
+    assert.ok((await readFile(join(out, "selection-captures.json"), "utf8")).length > 0);
+    assert.ok((await readFile(join(out, "candidate-scores.json"), "utf8")).length > 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -467,7 +466,12 @@ test("post-integration KNOWN-01 keeps the saved judge=unknown failure and reject
     });
     assert.ok(!runtimeFacts.includes("producerRequest"));
     assert.ok(!runtimeFacts.includes("producerResult"));
-    assert.ok(!runtimeFacts.includes("observeAdmissions"));
+    const runtimeStates = runResult.result.recursiveGoal.report.states;
+    assert.ok(Array.isArray(runtimeStates));
+    assert.ok(runtimeStates.length > 0);
+    assert.ok(runtimeStates.every(state =>
+      Array.isArray(state.value.observeAdmissions)
+      && state.value.observeAdmissions.length === 0));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
