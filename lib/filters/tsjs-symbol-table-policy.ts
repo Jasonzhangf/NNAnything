@@ -191,6 +191,49 @@ export type TsJsStaticSelectedSelectorObservation = Readonly<{
   sourceReadReceipt: TsJsRuntimeSelectorObservation["sourceReadReceipt"];
 }>;
 
+export type TsJsConstantComputedPropertyObservation = Readonly<{
+  schemaVersion: "nnanything.tsjs.constant-computed-property-observation.v1";
+  observationRef: string;
+  callSiteRef: string;
+  sourceReadRef: string;
+  selection: Readonly<{
+    selectionKind: "constant_computed_property";
+    selectorExpressionRef: string;
+    selectorExpressionKind: "string_concat";
+    selectorOperandRefs: readonly [string, string];
+    selectorValue: string;
+    tableRef: string;
+    selectedMemberName: string;
+    selectedMemberRef: string;
+    importDeclarationRef: string;
+    sourceModuleFile: string;
+    sourceModuleRef: string;
+    selectedDeclarationRef: string;
+    selectedModuleRef: string;
+  }>;
+  binding: Readonly<{
+    symbolRef: string;
+    callSiteRef: string;
+    role: "member";
+    bindingMode: "bound";
+    resolution: Readonly<{
+      status: "resolved";
+      declarationRef: string;
+      moduleRef: string;
+      evidenceRefs: readonly string[];
+    }>;
+    declarationRefs: readonly string[];
+    scopeRef: null;
+    evidenceRefs: readonly string[];
+  }>;
+  facts: readonly [
+    TsJsRuntimeSelectorRoleFact & Readonly<{ role: "selector_candidate_table" }>,
+    TsJsRuntimeSelectorRoleFact & Readonly<{ role: "static_selected_member" }>,
+  ];
+  callableTable: TsJsRuntimeCallableTable;
+  sourceReadReceipt: TsJsRuntimeSelectorObservation["sourceReadReceipt"];
+}>;
+
 export type TsJsTargetMismatchReadReceipt = Readonly<{
   receiptId: string;
   actionRef: string;
@@ -271,7 +314,9 @@ export type TsJsRuntimeSelectorGap = Readonly<{
     | "ambiguous_selector_chain"
     | "unsupported_selector_shape"
     | "static_selected_member_missing"
-    | "static_alias_unsupported";
+    | "static_alias_unsupported"
+    | "constant_computed_property_missing"
+    | "constant_computed_property_unsupported";
   evidenceRefs: readonly string[];
 }>;
 
@@ -311,8 +356,8 @@ export type TsJsSymbolTableRequest = Readonly<{
   language: TsJsLanguage;
   scope: readonly string[];
   files: readonly string[];
-  symbol: string | null;
-  file: string | null;
+  symbol?: string | null;
+  file?: string | null;
 }>;
 
 export type TsJsSymbolRequestError = Readonly<{
@@ -385,6 +430,7 @@ export type TsJsSymbolTableResult = Readonly<{
   dynamicMemberBoundaries: readonly TsJsDynamicMemberBoundary[];
   runtimeSelectorObservations: readonly TsJsRuntimeSelectorObservation[];
   staticSelectedSelectorObservations: readonly TsJsStaticSelectedSelectorObservation[];
+  constantComputedPropertyObservations: readonly TsJsConstantComputedPropertyObservation[];
   runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[];
   lexicalCallSiteBindings: readonly TsJsLexicalCallSiteBindingObservation[];
   coverage: TsJsCoverageRecord;
@@ -631,6 +677,7 @@ export function projectTsJsSymbolTableResult(
   runtimeSelectorGaps: readonly TsJsRuntimeSelectorGap[] = [],
   staticSelectedSelectorObservations: readonly TsJsStaticSelectedSelectorObservation[] = [],
   lexicalCallSiteBindings: readonly TsJsLexicalCallSiteBindingObservation[] = [],
+  constantComputedPropertyObservations: readonly TsJsConstantComputedPropertyObservation[] = [],
 ): TsJsSymbolTableResult {
   return Object.freeze({
     schema: TSJS_SYMBOL_RESULT_SCHEMA,
@@ -638,13 +685,16 @@ export function projectTsJsSymbolTableResult(
     repo: request.repo,
     scope: request.scope,
     parser,
-    symbols: Object.freeze(filterTsJsSymbols(symbols, request.symbol, request.file)),
+    symbols: Object.freeze(filterTsJsSymbols(symbols, request.symbol ?? null, request.file ?? null)),
     dynamicMemberBoundaries: Object.freeze(
-      filterTsJsDynamicMemberBoundaries(dynamicMemberBoundaries, request.file),
+      filterTsJsDynamicMemberBoundaries(dynamicMemberBoundaries, request.file ?? null),
     ),
     runtimeSelectorObservations: Object.freeze(runtimeSelectorObservations.slice()),
     staticSelectedSelectorObservations: Object.freeze(
       staticSelectedSelectorObservations.slice(),
+    ),
+    constantComputedPropertyObservations: Object.freeze(
+      constantComputedPropertyObservations.slice(),
     ),
     runtimeSelectorGaps: Object.freeze(runtimeSelectorGaps.slice()),
     lexicalCallSiteBindings: Object.freeze(lexicalCallSiteBindings.slice()),

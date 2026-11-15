@@ -24,6 +24,7 @@ import type {
   RelationshipProjection,
 } from "./unified-encoder.js";
 import type {
+  TsJsConstantComputedPropertyObservation,
   TsJsCoverageRecord,
   TsJsLexicalCallSiteBindingObservation,
   TsJsParserRecord,
@@ -131,6 +132,23 @@ export interface TsJsStaticProducerSourceBinding {
   readonly completionWork?: TsJsCompletionWork;
 }
 
+export interface TsJsConstantComputedPropertyProducerSourceBinding {
+  readonly kind: "nnanything.tsjs.producer-source.constant-computed-property.v1";
+  readonly producerRequest: TsJsSymbolTableRequest;
+  readonly parser: TsJsParserRecord;
+  readonly coverage: TsJsCoverageRecord;
+  readonly rawObservation: TsJsConstantComputedPropertyObservation;
+  readonly sampleId: string;
+  readonly requestRef: string;
+  readonly executedStepId: string;
+  readonly previousExecutionStepId: string | null;
+  readonly candidateRef: string;
+  readonly callSiteRef: string;
+  readonly pendingRelationRef: string;
+  readonly requestedDeclarationRef: string;
+  readonly requestedModuleRef: string;
+}
+
 export interface TsJsTargetMismatchProducerSourceBinding {
   readonly kind: "nnanything.tsjs.target-mismatch-source.v1";
   readonly rawObservation: TsJsTargetMismatchObservation;
@@ -165,6 +183,7 @@ export interface TsJsLexicalProducerSourceBinding {
 export type TsJsProducerSourceBinding =
   | TsJsDynamicProducerSourceBinding
   | TsJsStaticProducerSourceBinding
+  | TsJsConstantComputedPropertyProducerSourceBinding
   | TsJsTargetMismatchProducerSourceBinding
   | TsJsLexicalProducerSourceBinding;
 
@@ -188,6 +207,20 @@ export interface RelationStepCoverage {
   readonly coveredModules?: readonly string[];
   readonly targetModuleReached?: boolean;
   readonly note?: string;
+}
+
+export interface TsJsUnifiedObserveProjection {
+  readonly executedStepId: string;
+  readonly previousExecutionStepId: string | null;
+  readonly candidateRef: string;
+  readonly currentRelation: CurrentRelationProjection;
+  readonly observedBindings: readonly BindingEdge[];
+  readonly observedDeclarations: readonly DeclarationIdentity[];
+  readonly observedLocalFacts: readonly RelationStepLocalFact[];
+  readonly sourceContent: RelationStepSourceContent;
+  readonly coverage: RelationStepCoverage;
+  readonly producerSource: TsJsConstantComputedPropertyProducerSourceBinding;
+  readonly receipt: RelationStepReceipt;
 }
 
 export function relationContextId(sampleId: string, stepId: string = DEFAULT_RELATION_STEP_ID): string {
@@ -305,7 +338,7 @@ function relationObserveSkill(): SkillDescriptor {
           name: "target",
           type: "call_site",
           required: true,
-          allowedTargetKinds: ["call_site", "source_module"],
+          allowedTargetKinds: ["call_site"],
           cardinality: "one",
         },
       ],
@@ -671,10 +704,15 @@ export function relationStepContext(episode: RelationStepEpisode): StepContext {
         });
       }
     } else {
-      const hasTargetArgument = projected.arguments.some(argument =>
-        argument.name === "target" && argument.valueRef !== null
+      const targetArguments = projected.arguments.filter(argument =>
+        argument.name === "target"
       );
-      if (hasTargetArgument) {
+      const hasLegalCallSiteTarget = targetArguments.length === 1
+        && projected.arguments.length === 1
+        && targetArguments[0]!.type === "call_site"
+        && typeof targetArguments[0]!.valueRef === "string"
+        && targetArguments[0]!.valueRef.length > 0;
+      if (hasLegalCallSiteTarget) {
         legalObserveObligationRefs.add(obligation.ref);
       } else {
         missingObligationRefs.add(obligation.ref);

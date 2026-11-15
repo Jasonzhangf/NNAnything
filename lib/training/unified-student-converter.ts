@@ -35,11 +35,13 @@ import {
   type TsJsCompletionWork,
   type TsJsCompletionWorkItem,
   type TsJsCompletionWorkKind,
+  type TsJsConstantComputedPropertyProducerSourceBinding,
   type TsJsDynamicProducerSourceBinding,
   type TsJsLexicalProducerSourceBinding,
   type TsJsProducerSourceBinding,
   type TsJsStaticProducerSourceBinding,
   type TsJsTargetMismatchProducerSourceBinding,
+  type TsJsUnifiedObserveProjection,
 } from "./unified-step-context-builder.js";
 import { runTsJsSymbolTable } from "../adapters/cli/tsjs-symbol-table-adapter.js";
 import {
@@ -51,6 +53,7 @@ import {
 } from "../filters/tsjs-symbol-table-policy.js";
 import type {
   TsJsCoverageRecord,
+  TsJsConstantComputedPropertyObservation,
   TsJsInlineCallableIdentity,
   TsJsLexicalCallSiteBindingObservation,
   TsJsParserRecord,
@@ -150,6 +153,7 @@ export interface TsJsStepwiseBridgeInput {
   };
   readonly stepId: string;
   readonly fromStepId: string | null;
+  readonly candidateRef?: string;
   readonly remainingObligations: NonNullable<RelationStepEpisode["remainingObligations"]>;
   readonly localCandidateCursor: LocalCandidateCursorProjection;
   readonly producerRequest: TsJsSymbolTableRequest;
@@ -163,12 +167,17 @@ export interface TsJsStepwiseBridgeOutcome {
 export type TsJsObservationSelection =
   | { readonly kind: "dynamic"; readonly observation: TsJsRuntimeSelectorObservation }
   | { readonly kind: "static_selected"; readonly observation: TsJsStaticSelectedSelectorObservation }
+  | {
+      readonly kind: "constant_computed_property";
+      readonly observation: TsJsConstantComputedPropertyObservation;
+    }
   | { readonly kind: "none" }
   | { readonly kind: "ambiguous" };
 
 export function selectTsJsObservationForCallSite(input: {
   readonly dynamic: readonly TsJsRuntimeSelectorObservation[];
   readonly staticSelected: readonly TsJsStaticSelectedSelectorObservation[];
+  readonly constantComputed?: readonly TsJsConstantComputedPropertyObservation[];
   readonly callSiteRef: string;
 }): TsJsObservationSelection {
   const dynamic = input.dynamic.filter(
@@ -181,15 +190,35 @@ export function selectTsJsObservationForCallSite(input: {
       observation.callSiteRef === input.callSiteRef
       && observation.binding.callSiteRef === input.callSiteRef,
   );
-  if (dynamic.length > 0 && staticSelected.length > 0) return { kind: "ambiguous" };
-  if (dynamic.length > 1 || staticSelected.length > 1) return { kind: "ambiguous" };
+  const constantComputed = (input.constantComputed ?? []).filter(
+    observation =>
+      observation.callSiteRef === input.callSiteRef
+      && observation.binding.callSiteRef === input.callSiteRef,
+  );
+  const branches = [
+    dynamic.length,
+    staticSelected.length,
+    constantComputed.length,
+  ].filter(count => count > 0);
+  if (branches.length === 0) {
+    return { kind: "none" };
+  }
+  if (branches.length !== 1 || branches[0] !== 1) {
+    return { kind: "ambiguous" };
+  }
   if (dynamic.length === 1) {
     return { kind: "dynamic", observation: dynamic[0]! };
   }
   if (staticSelected.length === 1) {
     return { kind: "static_selected", observation: staticSelected[0]! };
   }
-  return { kind: "none" };
+  if (constantComputed.length === 1) {
+    return {
+      kind: "constant_computed_property",
+      observation: constantComputed[0]!,
+    };
+  }
+  return { kind: "ambiguous" };
 }
 
 export type TsJsLexicalObservationSelection =
@@ -1363,6 +1392,116 @@ function validateStaticProducerObservation(
   return uniqueStrings(reasons);
 }
 
+function callerFileFromCallSiteRef(callSiteRef: string): string | null {
+  if (!callSiteRef.startsWith("call:")) return null;
+  const body = callSiteRef.slice("call:".length);
+  const spanStart = body.lastIndexOf("@");
+  if (spanStart <= 0) return null;
+  return body.slice(0, spanStart);
+}
+
+function validateConstantComputedProducerObservation(
+  observation: TsJsConstantComputedPropertyObservation,
+  callSiteRef: string,
+  successfulFiles: readonly string[],
+): readonly string[] {
+  const reasons: string[] = [];
+  const sourceReadRef = observation.sourceReadRef;
+  const callerFile = callerFileFromCallSiteRef(callSiteRef);
+  const selection = observation.selection;
+  if (
+    observation.schemaVersion
+      !== "nnanything.tsjs.constant-computed-property-observation.v1"
+    || observation.callSiteRef !== callSiteRef
+    || observation.binding.callSiteRef !== callSiteRef
+  ) {
+    reasons.push("producer constant computed-property observation identity mismatch");
+  }
+  if (
+    selection.selectionKind !== "constant_computed_property"
+    || selection.selectorExpressionKind !== "string_concat"
+    || selection.selectorExpressionRef.length === 0
+    || selection.selectorOperandRefs.length !== 2
+    || selection.tableRef.length === 0
+    || selection.selectedMemberRef.length === 0
+    || selection.importDeclarationRef.length === 0
+    || selection.sourceModuleFile.length === 0
+    || selection.sourceModuleRef !== `module:${selection.sourceModuleFile}`
+    || selection.selectedModuleRef !== selection.sourceModuleRef
+    || selection.selectedDeclarationRef.length === 0
+  ) {
+    reasons.push("producer constant computed-property selection shape mismatch");
+  }
+  if (
+    observation.callableTable.tableRef !== selection.tableRef
+    || observation.callableTable.members.filter(member =>
+      member.name === selection.selectedMemberName
+      && member.initializerRef === selection.selectedMemberRef
+      && member.callableIdentity === null).length !== 1
+  ) {
+    reasons.push("producer constant computed-property table selection mismatch");
+  }
+  if (
+    observation.binding.bindingMode !== "bound"
+    || observation.binding.resolution.status !== "resolved"
+    || observation.binding.resolution.declarationRef
+      !== selection.selectedDeclarationRef
+    || observation.binding.resolution.moduleRef !== selection.selectedModuleRef
+    || observation.binding.declarationRefs.length !== 1
+    || observation.binding.declarationRefs[0] !== selection.selectedDeclarationRef
+    || observation.binding.scopeRef !== null
+    || !observation.binding.evidenceRefs.includes(sourceReadRef)
+    || !observation.binding.resolution.evidenceRefs.includes(sourceReadRef)
+  ) {
+    reasons.push("producer constant computed-property binding shape mismatch");
+  }
+  const tableFacts = observation.facts.filter(
+    fact => fact.role === "selector_candidate_table",
+  );
+  const selectedFacts = observation.facts.filter(
+    fact => fact.role === "static_selected_member",
+  );
+  if (
+    observation.facts.length !== 2
+    || tableFacts.length !== 1
+    || selectedFacts.length !== 1
+    || observation.facts.some(fact =>
+      fact.state !== "known" || !fact.evidenceRefs.includes(sourceReadRef))
+    || !tableFacts[0]!.evidenceRefs.includes(selection.tableRef)
+    || !selectedFacts[0]!.evidenceRefs.includes(selection.selectedMemberRef)
+    || !selectedFacts[0]!.evidenceRefs.includes(selection.importDeclarationRef)
+  ) {
+    reasons.push("producer constant computed-property role facts are not source-backed");
+  }
+  const receipt = observation.sourceReadReceipt;
+  if (
+    receipt.receiptId !== sourceReadRef
+    || receipt.action !== "read_source"
+    || receipt.origin !== "source_observation"
+    || receipt.outcome !== "success"
+    || !receipt.evidenceRefs.includes(sourceReadRef)
+    || receipt.result.some(ref => !ref.startsWith("source-read:"))
+  ) {
+    reasons.push("producer constant computed-property source-read receipt mismatch");
+  }
+  const receiptFiles = receipt.modules.map(module => module.file);
+  if (
+    callerFile === null
+    || new Set(receiptFiles).size !== receiptFiles.length
+    || !receiptFiles.includes(callerFile)
+    || !receiptFiles.includes(selection.sourceModuleFile)
+    || receiptFiles.length !== new Set([callerFile, selection.sourceModuleFile]).size
+  ) {
+    reasons.push("producer constant computed-property receipt does not bind caller and source");
+  }
+  for (const module of receipt.modules) {
+    if (!successfulFiles.includes(module.file)) {
+      reasons.push(`producer observation module ${module.file} is not in the successful read set`);
+    }
+  }
+  return uniqueStrings(reasons);
+}
+
 function producerSourceBinding(
   input: TsJsStepwiseBridgeInput,
   result: TsJsSymbolTableResult,
@@ -1880,6 +2019,246 @@ function projectTsJsStaticSelectedObservationToStepwiseRecord(
   };
 }
 
+function constantComputedProducerSourceBinding(
+  input: TsJsStepwiseBridgeInput,
+  result: TsJsSymbolTableResult,
+  observation: TsJsConstantComputedPropertyObservation,
+): TsJsConstantComputedPropertyProducerSourceBinding {
+  return {
+    kind: "nnanything.tsjs.producer-source.constant-computed-property.v1",
+    producerRequest: input.producerRequest,
+    parser: result.parser,
+    coverage: result.coverage,
+    rawObservation: observation,
+    sampleId: input.sampleId,
+    requestRef: input.request.requestRef,
+    executedStepId: input.stepId,
+    previousExecutionStepId: input.fromStepId,
+    candidateRef: input.candidateRef ?? "",
+    callSiteRef: observation.callSiteRef,
+    pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+    requestedDeclarationRef: input.request.requestedDeclaration.declarationRef,
+    requestedModuleRef: input.request.requestedDeclaration.moduleRef ?? "",
+  };
+}
+
+function projectTsJsConstantComputedPropertyObservation(
+  input: TsJsStepwiseBridgeInput,
+  result: TsJsSymbolTableResult,
+  observation: TsJsConstantComputedPropertyObservation,
+): Readonly<{
+  record: Record<string, unknown>;
+  projection: TsJsUnifiedObserveProjection;
+}> {
+  const sourceReadReceipt = observation.sourceReadReceipt;
+  const sourceReadRef = observation.sourceReadRef;
+  const selection = observation.selection;
+  const callerFile = callerFileFromCallSiteRef(observation.callSiteRef);
+  if (callerFile === null) {
+    throw new TypeError("constant computed-property callSiteRef cannot identify its caller file");
+  }
+  const selectedDeclaration: DeclarationIdentity = {
+    declarationRef: selection.selectedDeclarationRef,
+    moduleRef: selection.selectedModuleRef,
+    name: selection.selectedMemberName,
+    role: "member",
+    kind: "function",
+    evidenceRefs: [
+      sourceReadRef,
+      selection.selectedMemberRef,
+      selection.importDeclarationRef,
+    ],
+  };
+  const observedLocalFacts: readonly RelationStepLocalFact[] = observation.facts.map(fact => ({
+    factRef: fact.factRef,
+    role: fact.role,
+    state: fact.state,
+    value: fact.value,
+    evidenceRefs: fact.evidenceRefs,
+  }));
+  const sourceContent: RelationStepSourceContent = {
+    state: "observed",
+    resultRefs: sourceReadReceipt.result,
+    reason: null,
+    evidenceRefs: uniqueStrings([
+      sourceReadRef,
+      selection.importDeclarationRef,
+      selection.selectedMemberRef,
+    ]),
+  };
+  const bindingSourceContent: BindingEdge["sourceContent"] = {
+    state: sourceContent.state,
+    resultRefs: sourceContent.resultRefs,
+    reason: null,
+    evidenceRefs: sourceContent.evidenceRefs,
+  };
+  const sourceEvidenceRefs = uniqueStrings([
+    sourceReadRef,
+    selection.selectorExpressionRef,
+    ...selection.selectorOperandRefs,
+    selection.tableRef,
+    selection.selectedMemberRef,
+    selection.importDeclarationRef,
+    selection.selectedDeclarationRef,
+  ]);
+  const observedBinding: BindingEdge = {
+    edgeRef: `edge:${observation.callSiteRef}:constant-computed-import`,
+    callSiteRef: observation.callSiteRef,
+    fromNodeRef: `module:${callerFile}`,
+    edgeKind: "import",
+    sourceName: selection.selectedMemberName,
+    sourceModule: {
+      state: "known",
+      value: selection.sourceModuleRef,
+      evidenceRefs: [sourceReadRef, selection.importDeclarationRef],
+    },
+    targetName: selection.selectedMemberName,
+    targetModule: {
+      state: "known",
+      value: `module:${callerFile}`,
+      evidenceRefs: [sourceReadRef],
+    },
+    moduleSpecifierRaw: null,
+    sourceContent: bindingSourceContent,
+    visibility: {
+      state: "known",
+      value: "reachable",
+      evidenceRefs: sourceEvidenceRefs,
+    },
+    hopDepth: 1,
+    evidenceRefs: sourceEvidenceRefs,
+  };
+  const currentRelation: CurrentRelationProjection = {
+    pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+    callSiteRef: observation.callSiteRef,
+    binding: {
+      state: "known",
+      value: {
+        symbolRef: observation.binding.symbolRef,
+        callSiteRef: observation.binding.callSiteRef,
+        role: observation.binding.role,
+        bindingMode: observation.binding.bindingMode,
+        resolution: {
+          status: "resolved",
+          declarationRef: selection.selectedDeclarationRef,
+          moduleRef: selection.selectedModuleRef,
+          evidenceRefs: observation.binding.resolution.evidenceRefs,
+        },
+        declarationRefs: [selectedDeclaration],
+        scopeRef: null,
+        evidenceRefs: observation.binding.evidenceRefs,
+      },
+      evidenceRefs: observation.binding.evidenceRefs,
+    },
+  };
+  const producerSource = constantComputedProducerSourceBinding(input, result, observation);
+  const receipt: RelationStepReceipt = {
+    receiptId: sourceReadReceipt.receiptId,
+    actionRef: sourceReadReceipt.actionRef,
+    action: sourceReadReceipt.action,
+    target: sourceReadReceipt.targetRef,
+    origin: sourceReadReceipt.origin,
+    fromStepId: input.stepId,
+    pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+    optionSemantics: "observe",
+    outcome: sourceReadReceipt.outcome,
+    result: sourceReadReceipt.result,
+    evidenceRefs: sourceReadReceipt.evidenceRefs,
+    producerSource,
+  };
+  const coverage: RelationStepCoverage = {
+    coveredModules: uniqueStrings(sourceReadReceipt.modules.map(module => module.file)),
+    targetModuleReached: sourceReadReceipt.modules.some(
+      module => module.file === selection.sourceModuleFile,
+    ),
+    note: "constant_computed_property_source_observed",
+  };
+  const projection: TsJsUnifiedObserveProjection = {
+    executedStepId: input.stepId,
+    previousExecutionStepId: input.fromStepId,
+    candidateRef: input.candidateRef ?? "",
+    currentRelation,
+    observedBindings: [observedBinding],
+    observedDeclarations: [selectedDeclaration],
+    observedLocalFacts,
+    sourceContent,
+    coverage,
+    producerSource,
+    receipt,
+  };
+  const previousExecution: Observed<PreviousExecutionProjection | null> = {
+    state: "known",
+    value: {
+      actionRef: sourceReadReceipt.actionRef,
+      receiptRef: sourceReadReceipt.receiptId,
+      origin: "source_observation",
+      fromStepId: input.stepId,
+      pendingRelationRef: input.request.relationObligation.pendingRelationRef,
+      optionSemantics: "observe",
+      targetRef: sourceReadReceipt.targetRef,
+      outcome: "success",
+    },
+    evidenceRefs: sourceReadReceipt.evidenceRefs,
+  };
+  return {
+    projection,
+    record: {
+      schemaVersion: STEPWISE_STUDENT_OBSERVATION_SCHEMA,
+      sampleId: input.sampleId,
+      family: input.derivationFamily,
+      sourceGroup: input.sourceGroup,
+      partition: input.partition,
+      language: input.language,
+      semanticStratum: input.semanticStratum,
+      entryFile: input.entryFile,
+      request: input.request,
+      steps: [{
+        stepId: input.stepId,
+        localSyntax: {
+          observedBindings: [observedBinding],
+          observedDeclarations: [selectedDeclaration],
+          observedLocalFacts,
+          sourceContent,
+          shadowFacts: [],
+        },
+        currentRelation,
+        remainingObligations: input.remainingObligations,
+        previousExecution,
+        receipts: [receipt],
+        localCandidateCursor: input.localCandidateCursor,
+        coverage,
+        notReady: result.coverage.partial || result.coverage.truncated,
+      }],
+    },
+  };
+}
+
+export function projectTsJsConstantComputedPropertyStepwiseRequest(
+  input: TsJsStepwiseBridgeInput,
+  result: TsJsSymbolTableResult,
+  observation: TsJsConstantComputedPropertyObservation,
+): Readonly<{
+  record: Record<string, unknown> | null;
+  projection: TsJsUnifiedObserveProjection | null;
+  reasons: readonly string[];
+}> {
+  const successfulFiles = successfulProducerFiles(input.producerRequest, result.coverage);
+  const reasons = validateConstantComputedProducerObservation(
+    observation,
+    input.request.relationObligation.callSiteRef,
+    successfulFiles,
+  );
+  if (reasons.length > 0) {
+    return { record: null, projection: null, reasons };
+  }
+  const projected = projectTsJsConstantComputedPropertyObservation(
+    input,
+    result,
+    observation,
+  );
+  return { record: projected.record, projection: projected.projection, reasons: [] };
+}
+
 export async function observeTsJsStepwiseRequest(
   input: TsJsStepwiseBridgeInput,
 ): Promise<TsJsStepwiseBridgeOutcome> {
@@ -1936,6 +2315,7 @@ export async function observeTsJsStepwiseRequest(
   const selection = selectTsJsObservationForCallSite({
     dynamic: result.runtimeSelectorObservations,
     staticSelected: result.staticSelectedSelectorObservations,
+    constantComputed: result.constantComputedPropertyObservations,
     callSiteRef: expectedCallSiteRef,
   });
   if (selection.kind === "none") {
@@ -1943,6 +2323,17 @@ export async function observeTsJsStepwiseRequest(
   }
   if (selection.kind === "ambiguous") {
     return bridgeFailure("producer observation callSiteRef is ambiguous");
+  }
+  if (selection.kind === "constant_computed_property") {
+    const projected = projectTsJsConstantComputedPropertyStepwiseRequest(
+      canonicalInput,
+      result,
+      selection.observation,
+    );
+    return {
+      record: projected.record,
+      reasons: projected.reasons,
+    };
   }
   const successfulFiles = successfulProducerFiles(canonicalInput.producerRequest, result.coverage);
   if (selection.kind === "dynamic") {
@@ -2189,11 +2580,65 @@ function parseProducerSourceBinding(
     || (
       raw.kind !== "nnanything.tsjs.producer-source.v1"
       && raw.kind !== "nnanything.tsjs.producer-source.static-selected.v1"
+      && raw.kind !== "nnanything.tsjs.producer-source.constant-computed-property.v1"
       && raw.kind !== "nnanything.tsjs.target-mismatch-source.v1"
       && raw.kind !== "nnanything.tsjs.producer-source.lexical.v1"
     )
   ) {
     throw new TypeError(`sample ${sampleId} ${stepId} receipt.producerSource is invalid`);
+  }
+  if (raw.kind === "nnanything.tsjs.producer-source.constant-computed-property.v1") {
+    if (
+      !isRecord(raw.producerRequest)
+      || !isRecord(raw.parser)
+      || !isRecord(raw.coverage)
+      || !isRecord(raw.rawObservation)
+      || typeof raw.executedStepId !== "string"
+      || (raw.previousExecutionStepId !== null
+        && typeof raw.previousExecutionStepId !== "string")
+      || typeof raw.candidateRef !== "string"
+      || typeof raw.callSiteRef !== "string"
+      || typeof raw.pendingRelationRef !== "string"
+      || typeof raw.requestedDeclarationRef !== "string"
+      || typeof raw.requestedModuleRef !== "string"
+    ) {
+      throw new TypeError(
+        `sample ${sampleId} ${stepId} constant producerSource fields are incomplete`,
+      );
+    }
+    const rawObservation = raw.rawObservation;
+    if (
+      rawObservation.schemaVersion
+        !== "nnanything.tsjs.constant-computed-property-observation.v1"
+      || typeof rawObservation.callSiteRef !== "string"
+      || typeof rawObservation.sourceReadRef !== "string"
+      || !isRecord(rawObservation.selection)
+      || !isRecord(rawObservation.binding)
+      || !Array.isArray(rawObservation.facts)
+      || !isRecord(rawObservation.callableTable)
+      || !isRecord(rawObservation.sourceReadReceipt)
+    ) {
+      throw new TypeError(
+        `sample ${sampleId} ${stepId} constant producerSource.rawObservation is incomplete`,
+      );
+    }
+    return {
+      kind: "nnanything.tsjs.producer-source.constant-computed-property.v1",
+      producerRequest: raw.producerRequest as unknown as TsJsSymbolTableRequest,
+      parser: raw.parser as unknown as TsJsParserRecord,
+      coverage: raw.coverage as unknown as TsJsCoverageRecord,
+      rawObservation:
+        rawObservation as unknown as TsJsConstantComputedPropertyObservation,
+      sampleId: requireString(raw.sampleId, `sample ${sampleId} ${stepId} producerSource.sampleId`),
+      requestRef: requireString(raw.requestRef, `sample ${sampleId} ${stepId} producerSource.requestRef`),
+      executedStepId: raw.executedStepId,
+      previousExecutionStepId: raw.previousExecutionStepId,
+      candidateRef: raw.candidateRef,
+      callSiteRef: raw.callSiteRef,
+      pendingRelationRef: raw.pendingRelationRef,
+      requestedDeclarationRef: raw.requestedDeclarationRef,
+      requestedModuleRef: raw.requestedModuleRef,
+    };
   }
   if (raw.kind === "nnanything.tsjs.producer-source.lexical.v1") {
     if (
@@ -2668,6 +3113,9 @@ function validateTsJsCompletionWork(
   if (source.kind === "nnanything.tsjs.producer-source.lexical.v1") {
     return;
   }
+  if (source.kind === "nnanything.tsjs.producer-source.constant-computed-property.v1") {
+    return;
+  }
   if (source.completionWork !== undefined
     && source.completionWork.contract !== "tsjs.observed-dynamic-source-closure.v1") {
     fail("dynamic completion contract mismatch");
@@ -3097,6 +3545,162 @@ function validateTsJsLexicalProducerSourceBinding(
   }
 }
 
+function validateTsJsConstantComputedProducerSourceBinding(
+  input: Parameters<typeof validateTsJsProducerSourceBinding>[0],
+  source: TsJsConstantComputedPropertyProducerSourceBinding,
+  fail: (reason: string) => never,
+): void {
+  if (source.sampleId !== input.sampleId) fail("constant sampleId mismatch");
+  if (source.executedStepId !== input.stepId) fail("constant executedStepId mismatch");
+  if (source.requestRef !== input.requestRef) fail("constant requestRef mismatch");
+  if (source.pendingRelationRef !== input.pendingRelationRef) {
+    fail("constant pendingRelationRef mismatch");
+  }
+  if (source.callSiteRef !== input.callSiteRef) fail("constant callSiteRef mismatch");
+  if (source.requestedDeclarationRef !== input.requestedDeclarationRef) {
+    fail("constant requestedDeclarationRef mismatch");
+  }
+  if (source.requestedModuleRef !== input.requestedModuleRef) {
+    fail("constant requestedModuleRef mismatch");
+  }
+  if (source.parser.semanticBinding !== false) {
+    fail("constant parser.semanticBinding must remain false");
+  }
+  const raw = source.rawObservation;
+  if (raw.callSiteRef !== input.callSiteRef) fail("constant raw callSiteRef mismatch");
+  if (raw.binding.callSiteRef !== input.callSiteRef) {
+    fail("constant raw binding callSiteRef mismatch");
+  }
+  const rawReceipt = raw.sourceReadReceipt;
+  if (
+    input.receipt.receiptId !== rawReceipt.receiptId
+    || input.receipt.actionRef !== rawReceipt.actionRef
+    || input.receipt.action !== rawReceipt.action
+    || input.receipt.target !== rawReceipt.targetRef
+    || input.receipt.origin !== rawReceipt.origin
+    || input.receipt.outcome !== rawReceipt.outcome
+    || input.receipt.fromStepId !== source.executedStepId
+    || input.receipt.pendingRelationRef !== source.pendingRelationRef
+    || input.receipt.optionSemantics !== "observe"
+    || !sameStringArray(
+      Array.isArray(input.receipt.result)
+        ? input.receipt.result as readonly string[]
+        : [],
+      rawReceipt.result,
+    )
+    || !sameStringArray(input.receipt.evidenceRefs, rawReceipt.evidenceRefs)
+  ) {
+    fail("constant receipt projection mismatch");
+  }
+  const selection = raw.selection;
+  if (
+    raw.schemaVersion
+      !== "nnanything.tsjs.constant-computed-property-observation.v1"
+    || selection.selectionKind !== "constant_computed_property"
+    || selection.selectorExpressionKind !== "string_concat"
+    || raw.callableTable.tableRef !== selection.tableRef
+    || raw.callableTable.members.filter(member =>
+      member.name === selection.selectedMemberName
+      && member.initializerRef === selection.selectedMemberRef
+      && member.callableIdentity === null).length !== 1
+    || raw.binding.bindingMode !== "bound"
+    || raw.binding.resolution.status !== "resolved"
+    || raw.binding.resolution.declarationRef !== selection.selectedDeclarationRef
+    || raw.binding.resolution.moduleRef !== selection.selectedModuleRef
+    || raw.binding.declarationRefs.length !== 1
+    || raw.binding.declarationRefs[0] !== selection.selectedDeclarationRef
+    || raw.binding.scopeRef !== null
+  ) {
+    fail("constant raw selection or binding mismatch");
+  }
+  if (
+    raw.facts.length !== 2
+    || raw.facts.filter(fact => fact.role === "selector_candidate_table").length !== 1
+    || raw.facts.filter(fact => fact.role === "static_selected_member").length !== 1
+    || raw.facts.some(fact =>
+      fact.state !== "known" || !fact.evidenceRefs.includes(raw.sourceReadRef))
+  ) {
+    fail("constant raw role facts mismatch");
+  }
+  const declaration = input.observedDeclarations.length === 1
+    ? input.observedDeclarations[0]!
+    : null;
+  if (
+    declaration === null
+    || declaration.declarationRef !== selection.selectedDeclarationRef
+    || declaration.moduleRef !== selection.selectedModuleRef
+    || declaration.name !== selection.selectedMemberName
+    || declaration.role !== "member"
+    || !declaration.evidenceRefs.includes(raw.sourceReadRef)
+    || !declaration.evidenceRefs.includes(selection.importDeclarationRef)
+  ) {
+    fail("constant declaration projection mismatch");
+  }
+  const edge = input.observedBindings.length === 1 ? input.observedBindings[0]! : null;
+  if (
+    edge === null
+    || edge.callSiteRef !== raw.callSiteRef
+    || edge.edgeKind !== "import"
+    || edge.targetModule.state !== "known"
+    || edge.targetModule.value !== selection.sourceModuleRef
+    || edge.sourceContent.state !== "observed"
+    || !sameStringArray(edge.sourceContent.resultRefs, rawReceipt.result)
+    || !edge.evidenceRefs.includes(selection.importDeclarationRef)
+    || !edge.evidenceRefs.includes(selection.selectedMemberRef)
+  ) {
+    fail("constant binding edge projection mismatch");
+  }
+  if (
+    input.currentRelation === null
+    || input.currentRelation.callSiteRef !== raw.callSiteRef
+    || input.currentRelation.binding.state !== "known"
+    || input.currentRelation.binding.value?.resolution.status !== "resolved"
+    || input.currentRelation.binding.value.resolution.declarationRef
+      !== selection.selectedDeclarationRef
+    || input.currentRelation.binding.value.resolution.moduleRef
+      !== selection.selectedModuleRef
+  ) {
+    fail("constant currentRelation projection mismatch");
+  }
+  const localFactRoles = input.observedLocalFacts
+    .map(fact => fact.role)
+    .filter((role): role is NonNullable<typeof role> => role !== undefined);
+  if (
+    localFactRoles.length !== 2
+    || localFactRoles.filter(role => role === "selector_candidate_table").length !== 1
+    || localFactRoles.filter(role => role === "static_selected_member").length !== 1
+  ) {
+    fail("constant local fact projection mismatch");
+  }
+  if (
+    input.sourceContent?.state !== "observed"
+    || !sameStringArray(input.sourceContent.resultRefs, rawReceipt.result)
+    || input.coverage === null
+    || !sameStringArray(
+      input.coverage.coveredModules ?? [],
+      uniqueStrings(rawReceipt.modules.map(module => module.file)),
+    )
+  ) {
+    fail("constant source coverage projection mismatch");
+  }
+  const producerRequestValidation = validateTsJsSymbolRequest(
+    rawProducerRequestForValidation(source.producerRequest),
+  );
+  if (!producerRequestValidation.ok) {
+    fail(`constant producer request is invalid: ${producerRequestValidation.error.reasonCode}`);
+  }
+  const successfulFiles = successfulProducerFiles(
+    producerRequestValidation.request,
+    source.coverage,
+  );
+  const observationReasons = validateConstantComputedProducerObservation(
+    raw,
+    input.callSiteRef,
+    successfulFiles,
+  );
+  if (observationReasons.length > 0) fail(observationReasons[0]!);
+}
+
 function validateTsJsProducerSourceBinding(input: {
   readonly sampleId: string;
   readonly stepId: string;
@@ -3124,6 +3728,9 @@ function validateTsJsProducerSourceBinding(input: {
   };
   if (source.kind === "nnanything.tsjs.producer-source.static-selected.v1") {
     return validateTsJsStaticProducerSourceBinding(input, source, fail);
+  }
+  if (source.kind === "nnanything.tsjs.producer-source.constant-computed-property.v1") {
+    return validateTsJsConstantComputedProducerSourceBinding(input, source, fail);
   }
   if (source.kind === "nnanything.tsjs.target-mismatch-source.v1") {
     return validateTsJsTargetMismatchProducerSourceBinding(input, source, fail);

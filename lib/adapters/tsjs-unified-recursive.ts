@@ -30,8 +30,9 @@ import type {
 } from "../workflow/recursive-goal/contracts.js";
 import { readAtomicReceipt } from "../workflow/recursive-goal/contracts.js";
 import { runRecursiveGoal } from "../workflow/recursive-goal/module.js";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import ts from "typescript";
 import type {
   BindingEdge,
@@ -57,12 +58,17 @@ import {
   type TsJsLexicalProducerSourceBinding,
   type RelationStepEpisode,
   type TsJsProducerSourceBinding,
+  type TsJsConstantComputedPropertyProducerSourceBinding,
   type TsJsStaticProducerSourceBinding,
   type TsJsTargetMismatchProducerSourceBinding,
+  type TsJsUnifiedObserveProjection,
 } from "../training/unified-step-context-builder.js";
 import type {
+  TsJsConstantComputedPropertyObservation,
   TsJsStaticSelectedSelectorObservation,
   TsJsTargetMismatchObservation,
+  TsJsSymbolTableRequest,
+  TsJsSymbolTableResult,
 } from "../filters/tsjs-symbol-table-policy.js";
 import { canonicalRepoFileFromModuleRef } from "../filters/tsjs-symbol-table-policy.js";
 import {
@@ -73,12 +79,15 @@ import {
   isTsJsCallableIdentityExact,
   matchingTsJsStaticCallableMembers,
   moduleFileFromRef,
+  projectTsJsConstantComputedPropertyStepwiseRequest,
+  selectTsJsObservationForCallSite,
   successfulProducerFiles,
 } from "../training/unified-student-converter.js";
 import {
   loadFeatureThresholdsFromFile,
   loadMissingModeTableFromFile,
 } from "../training/unified-thresholds.js";
+import { runTsJsSymbolTable } from "./cli/tsjs-symbol-table-adapter.js";
 
 const EVALUATOR_ID = "tsjs.unified.relation.root" as const;
 const SELECTOR_ID = "tsjs.unified.relation.selector" as const;
@@ -252,6 +261,15 @@ export type TsJsInitialEvidencePayload =
       readonly targetModuleRef: string;
       readonly moduleSpecifierRaw: string | null;
       readonly evidenceRefs: readonly string[];
+    }
+  | {
+      readonly kind: "declaration_identity_observation";
+      readonly declarationRef: string;
+      readonly moduleRef: string | null;
+      readonly name: string;
+      readonly role: DeclarationIdentity["role"];
+      readonly declarationKind: string;
+      readonly evidenceRefs: readonly string[];
     };
 
 export type TsJsInitialEvidenceRecord = EvidenceRecord<TsJsInitialEvidencePayload>;
@@ -284,7 +302,8 @@ export type TsJsRootGapCode =
   | "POSITIVE_RELATION_NOT_ESTABLISHED"
   | "POSITIVE_RELATION_NOT_DECIDABLE"
   | "NO_POSITIVE_RELATION_ANSWER"
-  | "ROOT_EVIDENCE_MISSING";
+  | "ROOT_EVIDENCE_MISSING"
+  | "A2_COMPLETION_WITNESS_NOT_IMPLEMENTED";
 
 export interface TsJsRootGap {
   readonly code: TsJsRootGapCode;
@@ -690,6 +709,7 @@ function readMultiStepEvidence(value: unknown): MultiStepDecisionEvidence {
   if (
     payload.kind === "source_read_receipt"
     || payload.kind === "import_binding_observation"
+    || payload.kind === "declaration_identity_observation"
   ) {
     return value as TsJsInitialEvidencePayload;
   }
@@ -1066,6 +1086,50 @@ const MULTI_STEP_RELATION_OBSERVE_SKILL_ID = "skill:relation.observe";
 const MULTI_STEP_RELATION_CONTROL_SKILL_ID = "skill:relation.control";
 const MULTI_STEP_EXECUTOR_MISSING = "EXECUTOR_MISSING" as const;
 
+export interface TsJsComputedObserveReadSet {
+  readonly repoRoot: string;
+  readonly callerFile: string;
+  readonly language: "typescript" | "javascript";
+  readonly files: readonly string[];
+  readonly grantedEffects: readonly ["read_only"];
+}
+
+export type TsJsUnifiedObserveBridge = (input: {
+  readonly requestId: string;
+  readonly sampleId: string;
+  readonly executedStepId: string;
+  readonly previousExecutionStepId: string | null;
+  readonly candidateRef: string;
+  readonly callSiteRef: string;
+  readonly pendingRelationRef: string;
+  readonly requestedDeclaration: DeclarationIdentity;
+  readonly producerRequest: TsJsSymbolTableRequest;
+  readonly producerResult: TsJsSymbolTableResult;
+  readonly observation: TsJsConstantComputedPropertyObservation;
+}) => Promise<
+  | Readonly<{
+      kind: "admitted";
+      projection: TsJsUnifiedObserveProjection;
+      admittedEvidence: readonly TsJsInitialEvidenceRecord[];
+    }>
+  | Readonly<{ kind: "rejected"; reasons: readonly string[] }>
+>;
+
+export type TsJsUnifiedObserveExecutionRequest =
+  | Readonly<{
+      kind: "legacy_observe";
+      targetRef: string;
+    }>
+  | Readonly<{
+      kind: "constant_computed_property_v1";
+      sampleId: string;
+      targetRef: string;
+      previousExecutionStepId: string | null;
+      requestedDeclaration: DeclarationIdentity;
+      readSet: TsJsComputedObserveReadSet;
+      bridge: TsJsUnifiedObserveBridge;
+    }>;
+
 export interface TsJsUnifiedStepReadInput {
   readonly requestId: string;
   readonly stepId: string;
@@ -1078,6 +1142,7 @@ export interface TsJsUnifiedStepReadInput {
   readonly specifier: string | null;
   readonly fromFile: string | null;
   readonly fromStepId: string | null;
+  readonly observe?: TsJsUnifiedObserveExecutionRequest;
 }
 
 export interface TsJsUnifiedStepExecution {
@@ -1094,6 +1159,8 @@ export interface TsJsUnifiedStepExecution {
     readonly targetModuleReached: boolean;
     readonly note: string | null;
   }> | null;
+  readonly observeProjection?: TsJsUnifiedObserveProjection;
+  readonly observeEvidence?: readonly TsJsInitialEvidenceRecord[];
   readonly failure: Readonly<{
     readonly code: string;
     readonly message: string;
@@ -1199,7 +1266,285 @@ export function createTsJsFileBackedStepExecutor(
       failure: null,
     };
   };
-  return { read, observe: read };
+  const observe = async (
+    input: TsJsUnifiedStepReadInput,
+  ): Promise<TsJsUnifiedStepExecution> => {
+    const request = input.observe;
+    if (request === undefined || request.kind === "legacy_observe") {
+      return read(input);
+    }
+    if (input.action !== "observe") {
+      return multiStepExecutorFailure(
+        "MODULE_UNRESOLVED",
+        `computed observe request received for ${input.action} action`,
+        null,
+      );
+    }
+    if (request.targetRef.length === 0 || input.targetRef !== request.targetRef) {
+      return multiStepExecutorFailure(
+        "MODULE_UNRESOLVED",
+        "computed observe target must be one exact call-site reference",
+        null,
+      );
+    }
+    const callerFile = callerFileFromCallSiteRef(request.targetRef);
+    if (
+      callerFile === null
+      || callerFile !== request.readSet.callerFile
+      || !request.readSet.files.includes(callerFile)
+    ) {
+      return multiStepExecutorFailure(
+        "MODULE_NOT_IN_READ_SET",
+        "computed observe caller is not in the explicit read set",
+        null,
+      );
+    }
+    const readSetFailure = await validateComputedObserveReadSet(request.readSet);
+    if (readSetFailure !== null) return readSetFailure;
+
+    const producerRequest: TsJsSymbolTableRequest = {
+      repo: request.readSet.repoRoot,
+      language: request.readSet.language,
+      scope: ["."],
+      files: request.readSet.files,
+    };
+    const producer = await runTsJsSymbolTable(producerRequest);
+    if (producer.status !== "ok") {
+      return multiStepExecutorFailure(
+        "PRODUCER_OBSERVATION_MISSING",
+        `computed producer request failed: ${producer.reasonCode}`,
+        null,
+      );
+    }
+    const selection = selectTsJsObservationForCallSite({
+      dynamic: producer.result.runtimeSelectorObservations,
+      staticSelected: producer.result.staticSelectedSelectorObservations,
+      constantComputed: producer.result.constantComputedPropertyObservations,
+      callSiteRef: request.targetRef,
+    });
+    if (selection.kind === "none") {
+      return multiStepExecutorFailure(
+        "PRODUCER_OBSERVATION_MISSING",
+        "computed producer did not observe the selected call site",
+        null,
+      );
+    }
+    if (selection.kind === "ambiguous") {
+      return multiStepExecutorFailure(
+        "PRODUCER_OBSERVATION_AMBIGUOUS",
+        "computed producer returned multiple observation variants for the call site",
+        null,
+      );
+    }
+    if (selection.kind !== "constant_computed_property") {
+      return multiStepExecutorFailure(
+        "PRODUCER_OBSERVATION_AMBIGUOUS",
+        `computed observe selected ${selection.kind} observation`,
+        null,
+      );
+    }
+    const observation = selection.observation;
+    const bridge = await request.bridge({
+      requestId: input.requestId,
+      sampleId: request.sampleId,
+      executedStepId: input.stepId,
+      previousExecutionStepId: request.previousExecutionStepId,
+      candidateRef: input.candidateRef,
+      callSiteRef: request.targetRef,
+      pendingRelationRef: input.pendingRelationRef,
+      requestedDeclaration: request.requestedDeclaration,
+      producerRequest,
+      producerResult: producer.result,
+      observation,
+    });
+    if (bridge.kind === "rejected") {
+      return multiStepExecutorFailure(
+        "BRIDGE_ADMISSION_REJECTED",
+        bridge.reasons.join("; "),
+        null,
+      );
+    }
+    const projectionFailure = validateConstantObserveExecution(
+      input,
+      request,
+      bridge.projection,
+      bridge.admittedEvidence,
+    );
+    if (projectionFailure !== null) {
+      return multiStepExecutorFailure(
+        "BRIDGE_ADMISSION_REJECTED",
+        projectionFailure,
+        null,
+      );
+    }
+    const projection = bridge.projection;
+    return {
+      outcome: "success",
+      observedFacts: [
+        `selected:${projection.observedDeclarations[0]!.declarationRef}`,
+        `module:${projection.observedDeclarations[0]!.moduleRef}`,
+        `source-read:${projection.producerSource.rawObservation.sourceReadRef}`,
+      ],
+      moduleFacts: [],
+      evidenceRefs: uniqueStrings([
+        ...projection.receipt.evidenceRefs,
+        ...bridge.admittedEvidence.map(record => record.id),
+      ]),
+      coverage: {
+        modules: projection.coverage.coveredModules ?? [],
+        targetModuleReached: projection.coverage.targetModuleReached ?? false,
+        note: projection.coverage.note ?? null,
+      },
+      observeProjection: bridge.projection,
+      observeEvidence: bridge.admittedEvidence,
+      failure: null,
+    };
+  };
+  return { read, observe };
+}
+
+function callerFileFromCallSiteRef(callSiteRef: string): string | null {
+  if (!callSiteRef.startsWith("call:")) return null;
+  const body = callSiteRef.slice("call:".length);
+  const spanStart = body.lastIndexOf("@");
+  if (spanStart <= 0) return null;
+  const file = body.slice(0, spanStart);
+  return file.length === 0 ? null : file;
+}
+
+function safeReadSetRelativePath(file: string): boolean {
+  if (file.length === 0 || isAbsolute(file) || file.startsWith("\\")) return false;
+  return !file.split(/[\\/]/).includes("..");
+}
+
+async function validateComputedObserveReadSet(
+  readSet: TsJsComputedObserveReadSet,
+): Promise<TsJsUnifiedStepExecution | null> {
+  if (readSet.files.length === 0 || !readSet.files.includes(readSet.callerFile)) {
+    return multiStepExecutorFailure(
+      "MODULE_NOT_IN_READ_SET",
+      "computed observe caller must be in readSet.files",
+      null,
+    );
+  }
+  let root: string;
+  try {
+    root = await realpath(readSet.repoRoot);
+  } catch (error) {
+    const nativeCode = typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : null;
+    return multiStepExecutorFailure(
+      nativeCode ?? "READ_FAILED",
+      error instanceof Error ? error.message : String(error),
+      nativeCode,
+    );
+  }
+  for (const file of readSet.files) {
+    if (!safeReadSetRelativePath(file)) {
+      return multiStepExecutorFailure(
+        "MODULE_NOT_IN_READ_SET",
+        `computed readSet file is not a safe repo-relative path: ${file}`,
+        null,
+      );
+    }
+    let resolved: string;
+    try {
+      resolved = await realpath(resolve(root, file));
+    } catch (error) {
+      const nativeCode = typeof (error as { code?: unknown }).code === "string"
+        ? (error as { code: string }).code
+        : null;
+      return multiStepExecutorFailure(
+        nativeCode ?? "READ_FAILED",
+        error instanceof Error ? error.message : String(error),
+        nativeCode,
+      );
+    }
+    const relativeToRoot = relative(root, resolved);
+    if (
+      relativeToRoot === ""
+      || relativeToRoot.startsWith("..")
+      || isAbsolute(relativeToRoot)
+    ) {
+      return multiStepExecutorFailure(
+        "MODULE_NOT_IN_READ_SET",
+        `computed readSet file escapes the repo root: ${file}`,
+        null,
+      );
+    }
+  }
+  return null;
+}
+
+function validateConstantObserveExecution(
+  input: TsJsUnifiedStepReadInput,
+  request: Extract<
+    TsJsUnifiedObserveExecutionRequest,
+    { readonly kind: "constant_computed_property_v1" }
+  >,
+  projection: TsJsUnifiedObserveProjection,
+  admittedEvidence: readonly TsJsInitialEvidenceRecord[],
+): string | null {
+  if (
+    projection.executedStepId !== input.stepId
+    || projection.producerSource.executedStepId !== input.stepId
+    || projection.previousExecutionStepId !== request.previousExecutionStepId
+    || projection.producerSource.previousExecutionStepId
+      !== request.previousExecutionStepId
+    || projection.candidateRef !== input.candidateRef
+    || projection.producerSource.candidateRef !== input.candidateRef
+    || projection.producerSource.sampleId !== request.sampleId
+    || projection.producerSource.requestRef !== input.requestId
+    || projection.currentRelation.pendingRelationRef !== input.pendingRelationRef
+    || projection.producerSource.pendingRelationRef !== input.pendingRelationRef
+    || projection.currentRelation.callSiteRef !== request.targetRef
+    || projection.producerSource.callSiteRef !== request.targetRef
+    || projection.receipt.fromStepId !== input.stepId
+    || projection.receipt.pendingRelationRef !== input.pendingRelationRef
+    || projection.receipt.optionSemantics !== "observe"
+    || projection.receipt.receiptId
+      !== projection.producerSource.rawObservation.sourceReadReceipt.receiptId
+  ) {
+    return "computed observe projection tuple mismatch";
+  }
+  const stateRef = admittedEvidence[0]?.stateRef;
+  if (
+    stateRef === undefined
+    || admittedEvidence.some(record => record.stateRef !== stateRef)
+  ) {
+    return "computed observe admissions are not bound to one state";
+  }
+  const admittedIds = new Set(admittedEvidence.map(record => record.id));
+  if (admittedIds.size !== admittedEvidence.length) {
+    return "computed observe admissions contain duplicate ids";
+  }
+  const sourceReadRecords = admittedEvidence.filter(record =>
+    record.payload.kind === "source_read_receipt");
+  const sourceModuleFile = projection.producerSource.rawObservation.selection.sourceModuleFile;
+  if (
+    admittedEvidence.length !== 4
+    || sourceReadRecords.length !== 2
+    || admittedEvidence.filter(record =>
+      record.payload.kind === "import_binding_observation").length !== 1
+    || admittedEvidence.filter(record =>
+      record.payload.kind === "declaration_identity_observation").length !== 1
+    || projection.observedDeclarations.length !== 1
+    || projection.observedBindings.length !== 1
+    || !sourceReadRecords.some(record =>
+      record.payload.kind === "source_read_receipt"
+      && record.payload.modules?.some(module => module.file === sourceModuleFile))
+    || !sourceReadRecords.some(record =>
+      record.payload.kind === "source_read_receipt"
+      && record.payload.modules?.some(module => module.file !== sourceModuleFile))
+  ) {
+    return "computed observe admission records are incomplete";
+  }
+  const expectedEvidence = constantComputedAdmissionRecords(projection, stateRef);
+  if (!isDeepStrictEqual(expectedEvidence, admittedEvidence)) {
+    return "computed observe admission records do not match the projection";
+  }
+  return null;
 }
 
 function resolveMultiStepContainingModulePath(
@@ -2279,6 +2624,8 @@ interface MultiStepState {
   readonly readObservations: readonly MultiStepReadObservation[];
   readonly bindingVerifications: readonly MultiStepBindingVerification[];
   readonly followUpFailures: readonly MultiStepBindingVerification[];
+  readonly observeAdmissions: readonly TsJsInitialEvidenceRecord[];
+  readonly computedObserveKind: "constant_computed_property_v1" | null;
   readonly terminal: boolean;
   readonly terminalKind:
     | "judge"
@@ -2371,6 +2718,10 @@ export interface TsJsUnifiedMultiStepDecisionRequest {
   readonly packagePath: string;
   readonly episodes: readonly RelationStepEpisode[];
   readonly grantedEffects: readonly string[] | ReadonlySet<string>;
+  readonly observe?: Readonly<{
+    readonly kind: "constant_computed_property_v1";
+    readonly readSet: TsJsComputedObserveReadSet;
+  }>;
   /** Optional real executor. Without it advance/observe fail with a typed error. */
   readonly executor?: TsJsUnifiedStepExecutor;
   /**
@@ -2478,6 +2829,8 @@ function multiStepReadInput(
   state: MultiStepState,
   candidate: Candidate,
   action: "advance" | "observe",
+  observeRequest?: TsJsUnifiedMultiStepDecisionRequest["observe"],
+  observeBridge?: TsJsUnifiedObserveBridge,
 ): TsJsUnifiedStepReadInput {
   const context = state.context;
   const binding = candidate.edgeRef !== null
@@ -2491,18 +2844,228 @@ function multiStepReadInput(
     : context.state.objectRefs.length > 0
       ? context.state.objectRefs[0]!
       : null;
+  const observeObligation = candidate.targetRef === null
+    ? undefined
+    : (context.remainingObligations ?? []).find(obligation =>
+        obligation.ref === candidate.targetRef);
+  const targetArgument = observeObligation?.arguments.find(argument =>
+    argument.name === "target");
+  const computedCallSiteRef = targetArgument?.type === "call_site"
+    && typeof targetArgument.valueRef === "string"
+    && targetArgument.valueRef.length > 0
+    ? targetArgument.valueRef
+    : null;
+  const previousExecutionStepId = context.previousExecution?.state === "known"
+    ? context.previousExecution.value?.fromStepId ?? null
+    : null;
+  const requestedDeclaration = context.goal.requestedDeclaration;
+  const observe = action === "observe"
+    && observeRequest?.kind === "constant_computed_property_v1"
+    && observeBridge !== undefined
+    && requestedDeclaration != null
+    ? {
+        kind: "constant_computed_property_v1" as const,
+        sampleId: state.sampleId,
+        targetRef: computedCallSiteRef ?? "",
+        previousExecutionStepId,
+        requestedDeclaration,
+        readSet: observeRequest.readSet,
+        bridge: observeBridge,
+      }
+    : undefined;
   return {
     requestId,
     stepId: context.stepId,
     action,
     candidateRef: candidate.candidateRef,
-    targetRef: candidate.targetRef,
+    targetRef: observe?.kind === "constant_computed_property_v1"
+      ? observe.targetRef
+      : candidate.targetRef,
     edgeRef: candidate.edgeRef,
     pendingRelationRef: context.localCandidateCursor?.pendingRelationRef ?? context.goal.targetRef,
-    moduleRef,
+    moduleRef: observe?.kind === "constant_computed_property_v1"
+      ? observe.readSet.callerFile
+      : moduleRef,
     specifier: binding?.moduleSpecifierRaw ?? null,
-    fromFile,
+    fromFile: observe?.kind === "constant_computed_property_v1"
+      ? observe.readSet.callerFile
+      : fromFile,
     fromStepId: context.stepId,
+    ...(observe === undefined ? {} : { observe }),
+  };
+}
+
+function multiStepObserveBridge(input: {
+  readonly requestId: string;
+  readonly state: MultiStepState;
+  readonly episode: RelationStepEpisode;
+  readonly postStateRef: string;
+}): TsJsUnifiedObserveBridge {
+  return async (bridgeInput) => {
+    const requestedDeclaration = input.state.context.goal.requestedDeclaration;
+    const cursor = input.state.context.localCandidateCursor;
+    if (requestedDeclaration == null || cursor === undefined) {
+      return {
+        kind: "rejected",
+        reasons: ["computed observe requires requested declaration and local candidate cursor"],
+      };
+    }
+    const projected = projectTsJsConstantComputedPropertyStepwiseRequest({
+      sourceGroup: input.episode.sourceGroup,
+      language: input.episode.language,
+      semanticStratum: input.episode.semanticStratum,
+      partition: input.episode.partition,
+      derivationFamily: input.episode.derivationFamily,
+      sampleId: input.state.sampleId,
+      entryFile: input.episode.entryFile,
+      request: {
+        requestRef: input.requestId,
+        requestedDeclaration,
+        relationObligation: {
+          requestRef: input.requestId,
+          pendingRelationRef: bridgeInput.pendingRelationRef,
+          callSiteRef: bridgeInput.callSiteRef,
+          calleeName: input.episode.calleeName ?? null,
+        },
+      },
+      stepId: bridgeInput.executedStepId,
+      fromStepId: bridgeInput.previousExecutionStepId,
+      candidateRef: bridgeInput.candidateRef,
+      remainingObligations: input.episode.remainingObligations ?? [],
+      localCandidateCursor: cursor,
+      producerRequest: bridgeInput.producerRequest,
+    }, bridgeInput.producerResult, bridgeInput.observation);
+    if (projected.projection === null) {
+      return { kind: "rejected", reasons: projected.reasons };
+    }
+    const admittedEvidence = constantComputedAdmissionRecords(
+      projected.projection,
+      input.postStateRef,
+    );
+    if (admittedEvidence.length !== 4) {
+      return {
+        kind: "rejected",
+        reasons: ["computed observe admission did not produce four records"],
+      };
+    }
+    return {
+      kind: "admitted",
+      projection: projected.projection,
+      admittedEvidence,
+    };
+  };
+}
+
+function constantComputedAdmissionRecords(
+  projection: TsJsUnifiedObserveProjection,
+  stateRef: string,
+): readonly TsJsInitialEvidenceRecord[] {
+  const source = projection.producerSource;
+  const raw = source.rawObservation;
+  const selection = raw.selection;
+  const edge = projection.observedBindings[0];
+  if (edge === undefined) return [];
+  const readRecords = constantComputedSourceReadAdmissionRecords(source, stateRef);
+  if (readRecords.length !== 2) return [];
+  return [
+    ...readRecords,
+    {
+      id: selection.importDeclarationRef,
+      stateRef,
+      validity: "valid",
+      payload: {
+        kind: "import_binding_observation",
+        edgeRef: edge.edgeRef,
+        edgeKind: edge.edgeKind,
+        fromNodeRef: edge.fromNodeRef,
+        sourceName: edge.sourceName,
+        targetName: edge.targetName,
+        sourceModuleRef: selection.sourceModuleRef,
+        targetModuleRef: selection.selectedModuleRef,
+        moduleSpecifierRaw: edge.moduleSpecifierRaw,
+        evidenceRefs: edge.evidenceRefs,
+      },
+    },
+    {
+      id: selection.selectedDeclarationRef,
+      stateRef,
+      validity: "valid",
+      payload: {
+        kind: "declaration_identity_observation",
+        declarationRef: selection.selectedDeclarationRef,
+        moduleRef: selection.selectedModuleRef,
+        name: selection.selectedMemberName,
+        role: "member",
+        declarationKind: "function",
+        evidenceRefs: projection.observedDeclarations[0]?.evidenceRefs ?? [],
+      },
+    },
+  ];
+}
+
+function constantComputedSourceReadAdmissionRecords(
+  source: TsJsConstantComputedPropertyProducerSourceBinding,
+  stateRef: string,
+): readonly TsJsInitialEvidenceRecord[] {
+  const raw = source.rawObservation;
+  const receipt = raw.sourceReadReceipt;
+  const callerFile = callerFileFromCallSiteRef(source.callSiteRef);
+  if (callerFile === null) return [];
+  const expectedFiles = uniqueStrings([callerFile, raw.selection.sourceModuleFile]);
+  if (
+    expectedFiles.length !== 2
+    || expectedFiles.some(file => !receipt.modules.some(module => module.file === file))
+  ) {
+    return [];
+  }
+  return expectedFiles.flatMap(file => {
+    const module = receipt.modules.find(candidate => candidate.file === file);
+    const resultRef = `${raw.sourceReadRef}:module:${file}`;
+    if (module === undefined || !receipt.result.includes(resultRef)) return [];
+    return [{
+      id: resultRef,
+      stateRef,
+      validity: "valid" as const,
+      payload: {
+        kind: "source_read_receipt" as const,
+        receiptId: receipt.receiptId,
+        actionRef: receipt.actionRef,
+        origin: receipt.origin,
+        outcome: receipt.outcome,
+        targetRef: receipt.targetRef,
+        fromStepId: source.previousExecutionStepId,
+        pendingRelationRef: source.pendingRelationRef,
+        resultRefs: [resultRef],
+        evidenceRefs: uniqueStrings([...receipt.evidenceRefs, resultRef]),
+        requestRef: source.requestRef,
+        stepId: source.executedStepId,
+        callSiteRef: source.callSiteRef,
+        requestedDeclarationRef: source.requestedDeclarationRef,
+        requestedModuleRef: source.requestedModuleRef,
+        modules: [module],
+      },
+    } satisfies TsJsInitialEvidenceRecord];
+  });
+}
+
+function mergeComputedObserveProjection(
+  episode: RelationStepEpisode,
+  projection: TsJsUnifiedObserveProjection,
+): RelationStepEpisode {
+  return {
+    ...episode,
+    currentRelation: projection.currentRelation,
+    observedBindings: projection.observedBindings,
+    observedDeclarations: projection.observedDeclarations,
+    observedLocalFacts: projection.observedLocalFacts,
+    sourceContent: projection.sourceContent,
+    coverage: projection.coverage,
+    receipts: [
+      ...(episode.receipts ?? []).filter(
+        receipt => receipt.receiptId !== projection.receipt.receiptId,
+      ),
+      projection.receipt,
+    ],
   };
 }
 
@@ -2997,6 +3560,15 @@ function admittedProducerReadRecords(input: {
       source,
     });
   }
+  if (source.kind === "nnanything.tsjs.producer-source.constant-computed-property.v1") {
+    return admittedConstantComputedProducerReadRecords({
+      requestId,
+      episode,
+      stateRef,
+      receipt,
+      source,
+    });
+  }
   const reasons: string[] = [];
   const raw = source.rawObservation;
   const rawReceipt = raw.sourceReadReceipt;
@@ -3175,6 +3747,243 @@ function admittedProducerReadRecords(input: {
         modules: rawReceipt.modules,
       },
     }],
+    reasons: [],
+  };
+}
+
+function admittedConstantComputedProducerReadRecords(input: {
+  readonly requestId: string;
+  readonly episode: RelationStepEpisode;
+  readonly stateRef: string;
+  readonly receipt: NonNullable<RelationStepEpisode["receipts"]>[number];
+  readonly source: TsJsConstantComputedPropertyProducerSourceBinding;
+}): { readonly records: readonly TsJsInitialEvidenceRecord[]; readonly reasons: readonly string[] } {
+  const { requestId, episode, stateRef, receipt, source } = input;
+  const reasons: string[] = [];
+  const raw = source.rawObservation;
+  const rawReceipt = raw.sourceReadReceipt;
+  const currentRelation = episode.currentRelation;
+  const currentBinding = currentRelation?.binding.state === "known"
+    ? currentRelation.binding.value
+    : null;
+  const previous = episode.previousExecution?.state === "known"
+    ? episode.previousExecution.value ?? null
+    : null;
+  const sourceReadRef = raw.sourceReadRef;
+  const receiptResult = Array.isArray(receipt.result)
+    ? receipt.result.filter((ref): ref is string => typeof ref === "string")
+    : [];
+
+  if (source.requestRef !== requestId || episode.requestId !== requestId) {
+    reasons.push("constant producer source request mismatch");
+  }
+  if (source.sampleId !== episode.sampleId) {
+    reasons.push("constant producer source sample mismatch");
+  }
+  if (source.executedStepId !== episode.stepId) {
+    reasons.push("constant producer source step mismatch");
+  }
+  if (source.previousExecutionStepId !== (receipt.fromStepId ?? null)) {
+    reasons.push("constant producer source predecessor mismatch");
+  }
+  if (
+    source.requestedDeclarationRef !== episode.targetRef
+    || source.requestedModuleRef !== (episode.requestedDeclaration?.moduleRef ?? null)
+  ) {
+    reasons.push("constant producer source requested target mismatch");
+  }
+  if (
+    source.callSiteRef !== episode.callSiteRef
+    || source.callSiteRef !== currentRelation?.callSiteRef
+    || source.callSiteRef !== raw.callSiteRef
+    || raw.binding.callSiteRef !== source.callSiteRef
+  ) {
+    reasons.push("constant producer source call-site mismatch");
+  }
+  if (
+    source.pendingRelationRef !== episode.pendingRelationRef
+    || source.pendingRelationRef !== currentRelation?.pendingRelationRef
+    || source.pendingRelationRef !== receipt.pendingRelationRef
+    || source.pendingRelationRef !== previous?.pendingRelationRef
+  ) {
+    reasons.push("constant producer source pending relation mismatch");
+  }
+  if (
+    sourceReadRef.length === 0
+    || rawReceipt.receiptId !== sourceReadRef
+    || rawReceipt.actionRef !== receipt.actionRef
+    || rawReceipt.action !== receipt.action
+    || rawReceipt.origin !== receipt.origin
+    || rawReceipt.outcome !== receipt.outcome
+    || rawReceipt.targetRef !== receipt.target
+    || !sameStringArray(receiptResult, rawReceipt.result)
+    || !sameStringArray(receipt.evidenceRefs, rawReceipt.evidenceRefs)
+  ) {
+    reasons.push("constant producer source receipt mismatch");
+  }
+  if (
+    !rawReceipt.evidenceRefs.includes(sourceReadRef)
+    || !sameStringArray(
+      Array.isArray(episode.sourceContent?.resultRefs)
+        ? episode.sourceContent.resultRefs.filter((ref): ref is string => typeof ref === "string")
+        : [],
+      rawReceipt.result,
+    )
+    || episode.sourceContent?.state !== "observed"
+    || !episode.sourceContent.evidenceRefs.includes(sourceReadRef)
+  ) {
+    reasons.push("constant producer source sourceContent mismatch");
+  }
+
+  const selection = raw.selection;
+  const selectedMember = raw.callableTable.members.find(
+    member => member.initializerRef === selection.selectedMemberRef,
+  );
+  if (
+    selectedMember === undefined
+    || selectedMember.name !== selection.selectedMemberName
+    || selectedMember.callableIdentity !== null
+  ) {
+    reasons.push("constant producer selected member mismatch");
+  }
+  if (
+    raw.binding.bindingMode !== "bound"
+    || raw.binding.resolution.status !== "resolved"
+    || raw.binding.resolution.declarationRef !== selection.selectedDeclarationRef
+    || raw.binding.resolution.moduleRef !== selection.selectedModuleRef
+    || raw.binding.declarationRefs.length !== 1
+    || raw.binding.declarationRefs[0] !== selection.selectedDeclarationRef
+    || raw.binding.scopeRef !== null
+    || !raw.binding.evidenceRefs.includes(sourceReadRef)
+    || !raw.binding.resolution.evidenceRefs.includes(sourceReadRef)
+  ) {
+    reasons.push("constant producer raw binding mismatch");
+  }
+  const selectedDeclaration = currentBinding?.declarationRefs.find(
+    declaration => declaration.declarationRef === selection.selectedDeclarationRef,
+  );
+  if (
+    currentBinding === null
+    || currentBinding === undefined
+    || selectedDeclaration === undefined
+    || selectedDeclaration.moduleRef !== selection.selectedModuleRef
+    || selectedDeclaration.name !== selection.selectedMemberName
+    || selectedDeclaration.role !== "member"
+    || selectedDeclaration.kind !== "function"
+    || currentBinding.symbolRef !== raw.binding.symbolRef
+    || currentBinding.callSiteRef !== raw.binding.callSiteRef
+    || currentBinding.role !== raw.binding.role
+    || currentBinding.bindingMode !== "bound"
+    || currentBinding.declarationRefs.length !== 1
+    || currentBinding.scopeRef !== null
+    || !sameStringArray(currentBinding.evidenceRefs, raw.binding.evidenceRefs)
+    || currentBinding.resolution.status !== "resolved"
+    || currentBinding.resolution.declarationRef !== raw.binding.resolution.declarationRef
+    || currentBinding.resolution.moduleRef !== selection.selectedModuleRef
+    || !sameStringArray(
+      currentBinding.resolution.evidenceRefs,
+      raw.binding.resolution.evidenceRefs,
+    )
+  ) {
+    reasons.push("constant producer source binding mismatch");
+  }
+
+  const rawFacts = raw.facts;
+  const projectedFacts = episode.observedLocalFacts ?? [];
+  if (
+    rawFacts.length !== 2
+    || rawFacts.filter(fact => fact.role === "selector_candidate_table").length !== 1
+    || rawFacts.filter(fact => fact.role === "static_selected_member").length !== 1
+    || rawFacts.some(fact =>
+      fact.state !== "known" || !fact.evidenceRefs.includes(sourceReadRef))
+    || projectedFacts.length !== rawFacts.length
+  ) {
+    reasons.push("constant producer source role facts mismatch");
+  } else {
+    for (const [index, fact] of rawFacts.entries()) {
+      const projected = projectedFacts[index];
+      if (
+        projected === undefined
+        || projected.factRef !== fact.factRef
+        || projected.role !== fact.role
+        || projected.state !== fact.state
+        || projected.value !== fact.value
+        || !sameStringArray(projected.evidenceRefs, fact.evidenceRefs)
+      ) {
+        reasons.push(`constant producer source role fact ${index} mismatch`);
+        break;
+      }
+    }
+  }
+  if (
+    previous === null
+    || previous === undefined
+    || previous.receiptRef !== rawReceipt.receiptId
+    || previous.actionRef !== rawReceipt.actionRef
+    || previous.origin !== rawReceipt.origin
+    || previous.targetRef !== rawReceipt.targetRef
+    || previous.fromStepId !== source.previousExecutionStepId
+    || previous.pendingRelationRef !== source.pendingRelationRef
+    || previous.outcome !== "success"
+  ) {
+    reasons.push("constant producer source previous execution mismatch");
+  }
+  const expectedModuleResultRefs = rawReceipt.modules.map(module =>
+    `${sourceReadRef}:module:${module.file}`);
+  const successfulFiles = successfulProducerFiles(source.producerRequest, source.coverage);
+  if (
+    rawReceipt.modules.some(module => module.textLength < 0 || module.lineCount < 0)
+    || !sameStringArray(rawReceipt.result, expectedModuleResultRefs)
+    || rawReceipt.modules.some(module => !successfulFiles.includes(module.file))
+  ) {
+    reasons.push("constant producer source modules mismatch");
+  }
+  if (reasons.length > 0) {
+    return { records: [], reasons: uniqueRefs(reasons) };
+  }
+  return {
+    records: [
+      ...constantComputedSourceReadAdmissionRecords(source, stateRef),
+      {
+        id: selection.importDeclarationRef,
+        stateRef,
+        validity: "valid",
+        payload: {
+          kind: "import_binding_observation",
+          edgeRef: `edge:${raw.callSiteRef}:constant-computed-import`,
+          edgeKind: "import",
+          fromNodeRef: null,
+          sourceName: selection.selectedMemberName,
+          targetName: selection.selectedMemberName,
+          sourceModuleRef: selection.sourceModuleRef,
+          targetModuleRef: selection.selectedModuleRef,
+          moduleSpecifierRaw: null,
+          evidenceRefs: [
+            sourceReadRef,
+            selection.importDeclarationRef,
+            selection.selectedMemberRef,
+          ],
+        },
+      },
+      {
+        id: selection.selectedDeclarationRef,
+        stateRef,
+        validity: "valid",
+        payload: {
+          kind: "declaration_identity_observation",
+          declarationRef: selection.selectedDeclarationRef,
+          moduleRef: selection.selectedModuleRef,
+          name: selection.selectedMemberName,
+          role: "member",
+          declarationKind: "function",
+          evidenceRefs: [
+            sourceReadRef,
+            selection.selectedMemberRef,
+            selection.importDeclarationRef,
+          ],
+        },
+      },
+    ],
     reasons: [],
   };
 }
@@ -5695,6 +6504,18 @@ function rootCompletionOf(
   const predicted = rootTerminalPrediction(state);
   const structural = evaluateMultiStepRoot(state, evidence, goal, episodes, initialEvidence);
   const availableRefs = [...structural.evidenceRefs];
+  if (state.computedObserveKind === "constant_computed_property_v1") {
+    return {
+      predictedJudgement: predicted,
+      positiveRootSatisfied: false,
+      positiveRootGaps: [{
+        code: "A2_COMPLETION_WITNESS_NOT_IMPLEMENTED",
+        refs: availableRefs,
+      }],
+      queryCompletion: "incomplete",
+      evidenceRefs: availableRefs,
+    };
+  }
   const missingGap: TsJsRootGap = { code: "ROOT_EVIDENCE_MISSING", refs: availableRefs };
   if (!state.terminal) {
     return {
@@ -5801,6 +6622,16 @@ function evaluateMultiStepRoot(
   episodes: readonly RelationStepEpisode[],
   initialEvidence: readonly TsJsInitialEvidenceRecord[],
 ): StructuralRootEvaluation {
+  if (state.computedObserveKind === "constant_computed_property_v1") {
+    return {
+      result: "unsatisfied",
+      satisfaction: 0,
+      necessaryConditionsMet: false,
+      evidenceRefs: evidence
+        .filter(item => item.validity === "valid")
+        .map(item => item.id),
+    };
+  }
   if (!state.terminal) {
     return {
       result: "unsatisfied",
@@ -5952,6 +6783,8 @@ export async function runTsJsUnifiedMultiStepDecision(
     readObservations: [],
     bindingVerifications: [],
     followUpFailures: [],
+    observeAdmissions: [],
+    computedObserveKind: request.observe?.kind ?? null,
     terminal: false,
     terminalKind: null,
     terminalJudgement: "none",
@@ -6172,8 +7005,10 @@ export async function runTsJsUnifiedMultiStepDecision(
       let nextReadObservations = state.readObservations;
       let nextBindingVerifications = state.bindingVerifications;
       let nextFollowUpFailures = state.followUpFailures;
+      let nextObserveAdmissions = state.observeAdmissions;
       let terminalKind: MultiStepState["terminalKind"] = null;
       let terminalJudgement: TsJsUnifiedTerminalJudgement = "none";
+      let missingComputedNextEpisode = false;
 
       if (actionKind === "submit_read" || actionKind === "submit_observe") {
         const executor = request.executor;
@@ -6189,7 +7024,58 @@ export async function runTsJsUnifiedMultiStepDecision(
             ),
           );
         }
-        const readInput = multiStepReadInput(request.requestId, state, chosen.candidate, actionKind === "submit_read" ? "advance" : "observe");
+        const computedObserve = actionKind === "submit_observe"
+          && state.computedObserveKind === "constant_computed_property_v1";
+        const currentEpisode = computedObserve
+          ? episodes.find(episode => episode.stepId === stepId) ?? null
+          : null;
+        if (
+          computedObserve
+          && (
+            request.observe?.kind !== "constant_computed_property_v1"
+            || currentEpisode === null
+          )
+        ) {
+          return multiStepAtomicFailure(
+            `${runId}:computed-observe-request`,
+            null,
+            multiStepDiagnostic(
+              "execution_failed",
+              "execution",
+              "computed observe requires the explicit readSet and current episode",
+            ),
+          );
+        }
+        const observeBridge = computedObserve && currentEpisode !== null
+          ? multiStepObserveBridge({
+              requestId: request.requestId,
+              state,
+              episode: currentEpisode,
+              postStateRef,
+            })
+          : undefined;
+        const readInput = multiStepReadInput(
+          request.requestId,
+          state,
+          chosen.candidate,
+          actionKind === "submit_read" ? "advance" : "observe",
+          request.observe,
+          observeBridge,
+        );
+        if (
+          computedObserve
+          && readInput.observe?.kind !== "constant_computed_property_v1"
+        ) {
+          return multiStepAtomicFailure(
+            `${runId}:computed-observe-request`,
+            null,
+            multiStepDiagnostic(
+              "execution_failed",
+              "execution",
+              "computed observe cannot fall back to legacy observe",
+            ),
+          );
+        }
         execution = actionKind === "submit_read"
           ? await executor.read(readInput)
           : await executor.observe(readInput);
@@ -6233,6 +7119,58 @@ export async function runTsJsUnifiedMultiStepDecision(
             ),
           );
         }
+        if (computedObserve) {
+          const observeRequest = readInput.observe;
+          const projection = execution.observeProjection;
+          const admittedEvidence = execution.observeEvidence;
+          if (
+            observeRequest?.kind !== "constant_computed_property_v1"
+            || projection === undefined
+            || admittedEvidence === undefined
+          ) {
+            return multiStepAtomicFailure(
+              `${runId}:computed-observe-admission`,
+              null,
+              multiStepDiagnostic(
+                "execution_failed",
+                "execution",
+                "computed observe did not return projection and admission evidence",
+                "BRIDGE_ADMISSION_REJECTED",
+              ),
+            );
+          }
+          const projectionFailure = validateConstantObserveExecution(
+            readInput,
+            observeRequest,
+            projection,
+            admittedEvidence,
+          );
+          const existingAdmissionIds = new Set(
+            state.observeAdmissions.map(record => record.id),
+          );
+          if (
+            projectionFailure !== null
+            || admittedEvidence.some(record =>
+              record.stateRef !== postStateRef
+              || record.validity !== "valid")
+            || admittedEvidence.some(record => existingAdmissionIds.has(record.id))
+          ) {
+            return multiStepAtomicFailure(
+              `${runId}:computed-observe-admission`,
+              null,
+              multiStepDiagnostic(
+                "execution_failed",
+                "execution",
+                projectionFailure ?? "computed observe admission tuple conflicts",
+                "BRIDGE_ADMISSION_REJECTED",
+              ),
+            );
+          }
+          nextObserveAdmissions = [
+            ...state.observeAdmissions,
+            ...admittedEvidence,
+          ];
+        }
         const binding = chosen.candidate.edgeRef !== null
           ? state.context.bindingEdges.find(edge => edge.edgeRef === chosen.candidate.edgeRef) ?? null
           : null;
@@ -6246,9 +7184,14 @@ export async function runTsJsUnifiedMultiStepDecision(
           const normalized = normalizeModulePath(moduleRef);
           return normalized === null ? [] : [normalized];
         }));
-        const executedSourceModule = binding !== null && binding.sourceModule.state === "known"
+        let executedSourceModule = binding !== null && binding.sourceModule.state === "known"
           ? binding.sourceModule.value ?? null
           : null;
+        if (execution.observeProjection !== undefined) {
+          executedSourceModule =
+            execution.observeProjection.observedDeclarations[0]?.moduleRef
+            ?? executedSourceModule;
+        }
         executedSourceModuleForNext = executedSourceModule;
         nextRealFacts = uniqueStrings([...state.realFacts, ...execution.observedFacts]);
         nextRealModuleFacts = uniqueModuleFacts([
@@ -6286,7 +7229,13 @@ export async function runTsJsUnifiedMultiStepDecision(
             new Set(state.stepSequence),
             episodes,
           );
-          if (nextEpisode === null) terminalKind = "exhausted";
+          if (nextEpisode === null) {
+            if (computedObserve) {
+              missingComputedNextEpisode = true;
+            } else {
+              terminalKind = "exhausted";
+            }
+          }
         }
         if (nextEpisode !== null) {
           const incompatibility = multiStepPreviousExecutionIncompatibility(nextEpisode, {
@@ -6319,6 +7268,12 @@ export async function runTsJsUnifiedMultiStepDecision(
             uniqueStrings([...state.readEvidenceRefs, ...execution.evidenceRefs]),
           );
           nextEpisode = derived.episode;
+          if (execution.observeProjection !== undefined) {
+            nextEpisode = mergeComputedObserveProjection(
+              nextEpisode,
+              execution.observeProjection,
+            );
+          }
           if (derived.followUpFailure !== null) {
             nextFollowUpFailures = [...state.followUpFailures, derived.followUpFailure];
             nextBindingVerifications = [
@@ -6372,6 +7327,26 @@ export async function runTsJsUnifiedMultiStepDecision(
         cursorClosed: state.context.localCandidateCursor?.state === "closed",
       };
 
+      if (missingComputedNextEpisode) {
+        return multiStepAtomicFailure(
+          `${runId}:next-episode-missing`,
+          {
+            stepId,
+            candidateChoice,
+            executionReceipt,
+            observedPostState,
+            nextStepId: null,
+            previousActionRef: state.context.action.previousActionRef,
+          },
+          multiStepDiagnostic(
+            "execution_failed",
+            "derivation",
+            `computed observe step ${stepId} has no linked next judge episode`,
+            "NEXT_EPISODE_MISSING",
+          ),
+        );
+      }
+
       const fromStepId = state.stepSequence.length === 0
         ? null
         : state.stepSequence[state.stepSequence.length - 1]!;
@@ -6393,6 +7368,9 @@ export async function runTsJsUnifiedMultiStepDecision(
       const followUpFailures = actionKind === "submit_read" || actionKind === "submit_observe"
         ? nextFollowUpFailures
         : state.followUpFailures;
+      const observeAdmissions = actionKind === "submit_observe"
+        ? nextObserveAdmissions
+        : state.observeAdmissions;
 
       let nextStepId: string | null = null;
       let nextStateValue: MultiStepState;
@@ -6410,6 +7388,8 @@ export async function runTsJsUnifiedMultiStepDecision(
           readObservations,
           bindingVerifications,
           followUpFailures,
+          observeAdmissions,
+          computedObserveKind: state.computedObserveKind,
           terminal: true,
           terminalKind: terminalKind ?? "exhausted",
           terminalJudgement,
@@ -6449,6 +7429,8 @@ export async function runTsJsUnifiedMultiStepDecision(
           readObservations,
           bindingVerifications,
           followUpFailures,
+          observeAdmissions,
+          computedObserveKind: state.computedObserveKind,
           terminal: false,
           terminalKind: null,
           terminalJudgement: "none",
