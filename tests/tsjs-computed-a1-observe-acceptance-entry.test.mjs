@@ -11,6 +11,9 @@ const HARNESS_PATH = join(HERE, "../scripts/accept-tsjs-computed-a1-observe.mjs"
 const HARNESS_ENTRY = HARNESS_PATH;
 const CANDIDATE_PACKAGE =
   "/Volumes/Intel/playground/nnanything-runs/nncode-training-full-audit-20261109/training-delivery-20261113/tsjs-post-projection-training-r1-20261113/candidate-package.json";
+const A1_CANDIDATE_PACKAGE =
+  process.env.NN_TSJS_A1_CANDIDATE_PACKAGE
+  ?? "/Volumes/Intel/playground/nnanything-runs/tsjs-computed-a1-training-preparation-20261115/fit/candidate/tsjs-computed-a1-observe-r1/candidate-package.json";
 
 async function writeCase(root, value) {
   const casePath = join(root, "case.json");
@@ -18,7 +21,7 @@ async function writeCase(root, value) {
   return casePath;
 }
 
-function known01CaseFixture(repoRoot) {
+function known01CaseFixture(repoRoot, partition = "DEV") {
   const callerSource = [
     'import { createStepper } from "./factory";',
     "",
@@ -63,7 +66,7 @@ function known01CaseFixture(repoRoot) {
         sourceGroup: "tsjs-computed-a1-known-01",
         language: "typescript",
         semanticStratum: "module_export",
-        partition: "DEV",
+        partition,
         entryFile: "entry.ts",
         targetRef: "pending:computed-observe-a1",
         observedFacts: [],
@@ -109,7 +112,7 @@ function known01CaseFixture(repoRoot) {
         sourceGroup: "tsjs-computed-a1-known-01",
         language: "typescript",
         semanticStratum: "module_export",
-        partition: "DEV",
+        partition,
         entryFile: "entry.ts",
         targetRef: "decl:factory.ts#top:createStepper",
         observedFacts: [],
@@ -188,6 +191,40 @@ async function writeKnown01Fixture(root) {
   const { _callerSource, _factorySource, ...caseValue } = fixture;
   const casePath = await writeCase(root, caseValue);
   return { casePath, caseValue, sourceRoot };
+}
+
+async function writeNoObserveControlFixture(root) {
+  const { caseValue, sourceRoot } = await writeKnown01Fixture(root);
+  const controlEpisode = structuredClone(caseValue.episodes[0]);
+  controlEpisode.stepId = "step-control";
+  controlEpisode.partition = "VERIFICATION";
+  controlEpisode.targetRef = "pending:computed-control";
+  controlEpisode.pendingRelationRef = "pending:computed-control";
+  controlEpisode.remainingObligations = [];
+  controlEpisode.localCandidateCursor = {
+    pendingRelationRef: "pending:computed-control",
+    state: "closed",
+    evidenceRefs: [],
+  };
+  const controlCase = {
+    ...caseValue,
+    caseId: "tsjs-computed-a1-verification-no-observe-control",
+    requestId: "request:tsjs-computed-a1-verification-no-observe-control",
+    packagePath: A1_CANDIDATE_PACKAGE,
+    episodes: [{
+      ...controlEpisode,
+      requestId: "request:tsjs-computed-a1-verification-no-observe-control",
+      sampleId: "tsjs-computed-a1-verification-no-observe-control",
+      sourceGroup: "tsjs-computed-a1-verification-no-observe-control",
+      derivationFamily: "tsjs-computed-a1-verification-no-observe-control",
+    }],
+  };
+  delete controlCase.observe;
+  return {
+    casePath: await writeCase(root, controlCase),
+    caseValue: controlCase,
+    sourceRoot,
+  };
 }
 
 function findCapture(captures, candidateRef) {
@@ -398,6 +435,107 @@ test("post-integration KNOWN-01 keeps the saved judge=unknown failure and reject
     assert.ok(!runtimeFacts.includes("producerRequest"));
     assert.ok(!runtimeFacts.includes("producerResult"));
     assert.ok(!runtimeFacts.includes("observeAdmissions"));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("post-integration VERIFICATION positive case preserves selected observe acceptance", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-a1-acceptance-verification-positive-"));
+  try {
+    const { caseValue, sourceRoot } = await writeKnown01Fixture(root);
+    const verificationCase = {
+      ...caseValue,
+      caseId: "tsjs-computed-a1-verification-positive",
+      requestId: "request:tsjs-computed-a1-verification-positive",
+      packagePath: A1_CANDIDATE_PACKAGE,
+      observe: {
+        ...caseValue.observe,
+        readSet: {
+          ...caseValue.observe.readSet,
+          repoRoot: sourceRoot,
+        },
+      },
+      episodes: caseValue.episodes.map(episode => ({
+        ...episode,
+        requestId: "request:tsjs-computed-a1-verification-positive",
+        sampleId: "tsjs-computed-a1-verification-positive",
+        sourceGroup: "tsjs-computed-a1-verification-positive",
+        derivationFamily: "tsjs-computed-a1-verification-positive",
+        partition: "VERIFICATION",
+      })),
+    };
+    const casePath = await writeCase(root, verificationCase);
+    const out = join(root, "result");
+    const run = spawnSync(process.execPath, [
+      HARNESS_ENTRY, "--case", casePath, "--package", A1_CANDIDATE_PACKAGE, "--out", out,
+    ], { encoding: "utf8" });
+    const runtimeText = await readFile(
+      new URL("../dist/adapters/tsjs-unified-recursive.js", `file://${HERE}/`),
+      "utf8");
+    if (!runtimeText.includes("constant_computed_property_v1")) {
+      assert.notEqual(run.status, 0);
+      const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+      assert.equal(receipt.status, "UNAVAILABLE");
+      return;
+    }
+    assert.equal(run.status, 0);
+    const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+    assert.equal(receipt.status, "CAPTURED");
+    assert.equal(receipt.partition, "VERIFICATION");
+    assert.deepEqual(receipt.partitions, ["VERIFICATION", "VERIFICATION"]);
+    assert.equal(receipt.acceptanceKind, "positive_observe");
+    assert.equal(receipt.caseAcceptance, "PASS");
+    assert.equal(receipt.selectedObserveAcceptance, "PASS");
+    assert.equal(receipt.noObserveControlAcceptance, "NOT_APPLICABLE");
+    assert.equal(receipt.dispatchCounts.observeDispatches, 1);
+    assert.equal(receipt.dispatchCounts.readDispatches, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("post-integration VERIFICATION control accepts exact unknown without observe dispatch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tsjs-a1-acceptance-verification-control-"));
+  try {
+    const { casePath } = await writeNoObserveControlFixture(root);
+    const out = join(root, "result");
+    const run = spawnSync(process.execPath, [
+      HARNESS_ENTRY, "--case", casePath, "--package", A1_CANDIDATE_PACKAGE, "--out", out,
+    ], { encoding: "utf8" });
+    const runtimeText = await readFile(
+      new URL("../dist/adapters/tsjs-unified-recursive.js", `file://${HERE}/`),
+      "utf8");
+    if (!runtimeText.includes("constant_computed_property_v1")) {
+      assert.notEqual(run.status, 0);
+      const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+      assert.equal(receipt.status, "UNAVAILABLE");
+      return;
+    }
+    assert.equal(run.status, 0);
+    const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+    assert.equal(receipt.status, "CAPTURED");
+    assert.equal(receipt.partition, "VERIFICATION");
+    assert.deepEqual(receipt.partitions, ["VERIFICATION"]);
+    assert.equal(receipt.acceptanceKind, "no_observe_control");
+    assert.equal(receipt.caseAcceptance, "PASS");
+    assert.equal(receipt.selectedObserveAcceptance, "NOT_APPLICABLE");
+    assert.equal(receipt.noObserveControlAcceptance, "PASS");
+    assert.equal(receipt.dispatchCounts.observeDispatches, 0);
+    assert.equal(receipt.dispatchCounts.readDispatches, 0);
+    const captures = JSON.parse(
+      await readFile(join(out, "selection-captures.json"), "utf8"));
+    assert.deepEqual(captures.map(capture => capture.chosen.candidateRef), [
+      "c:judge:unknown",
+    ]);
+    assert.ok(captures[0].candidates.every(candidate =>
+      !candidate.candidateRef.startsWith("c:observe:")));
+    const runResult = JSON.parse(await readFile(join(out, "run-result.json"), "utf8"));
+    assert.equal(runResult.result.steps.length, 1);
+    assert.equal(runResult.result.steps[0].executionReceipt.action, "submit_terminal_judgement");
+    assert.equal(runResult.result.steps[0].executionReceipt.terminalJudgement, "judge=unknown");
+    assert.ok(!JSON.stringify(runResult).includes("observeProjection"));
+    assert.ok(!JSON.stringify(runResult).includes("observeEvidence"));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -12,6 +12,7 @@ import { loadUnifiedModelPackageFromFile } from "../dist/training/unified-model-
 const ALLOWED_ARGS = new Set(["--case", "--package", "--out"]);
 const A1_WORKTREE = "/Volumes/Intel/playground/nnanything/tsjs-computed-observe-a1-20261115";
 const CASE_SCHEMA = "nnanything.tsjs.computed-a1-acceptance-case.v1";
+const ACCEPTED_PARTITIONS = new Set(["DEV", "VERIFICATION"]);
 
 function errorRecord(error) {
   return {
@@ -72,35 +73,49 @@ function validateCase(value, cliPackagePath) {
   if (typeof value.sourceRoot !== "string" || value.sourceRoot.length === 0) {
     throw new TypeError("case sourceRoot must be a nonempty path");
   }
-  if (!Array.isArray(value.episodes) || value.episodes.length !== 2) {
-    throw new TypeError("case episodes must contain the explicit start and next judge episodes");
+  if (!Array.isArray(value.episodes)
+    || value.episodes.length < 1
+    || value.episodes.length > 2) {
+    throw new TypeError(
+      "case episodes must contain one control step or an explicit start and next judge episode",
+    );
   }
-  if (value.observe?.kind !== "constant_computed_property_v1") {
-    throw new TypeError("case observe.kind must be constant_computed_property_v1");
-  }
-  const readSet = value.observe.readSet;
-  if (readSet === null || typeof readSet !== "object") {
-    throw new TypeError("case observe.readSet must be an object");
-  }
-  if (readSet.repoRoot !== value.sourceRoot
-    || typeof readSet.callerFile !== "string"
-    || !["typescript", "javascript"].includes(readSet.language)
-    || !Array.isArray(readSet.files)
-    || !readSet.files.includes(readSet.callerFile)
-    || JSON.stringify(readSet.grantedEffects) !== JSON.stringify(["read_only"])) {
-    throw new TypeError("case observe.readSet is not an explicit read-only file set");
+  if (value.observe !== undefined) {
+    if (value.observe?.kind !== "constant_computed_property_v1") {
+      throw new TypeError("case observe.kind must be constant_computed_property_v1");
+    }
+    const readSet = value.observe.readSet;
+    if (readSet === null || typeof readSet !== "object") {
+      throw new TypeError("case observe.readSet must be an object");
+    }
+    if (readSet.repoRoot !== value.sourceRoot
+      || typeof readSet.callerFile !== "string"
+      || !["typescript", "javascript"].includes(readSet.language)
+      || !Array.isArray(readSet.files)
+      || !readSet.files.includes(readSet.callerFile)
+      || JSON.stringify(readSet.grantedEffects) !== JSON.stringify(["read_only"])) {
+      throw new TypeError("case observe.readSet is not an explicit read-only file set");
+    }
   }
   const [start, next] = value.episodes;
   if (start?.requestId !== value.requestId
-    || next?.requestId !== value.requestId
-    || start?.sampleId !== next?.sampleId
-    || typeof start?.stepId !== "string"
-    || typeof next?.stepId !== "string"
-    || start.stepId === next.stepId) {
-    throw new TypeError("case episodes must be linked to one request/sample with distinct step IDs");
+    || value.episodes.some(episode =>
+      episode?.requestId !== value.requestId
+      || episode?.sampleId !== start?.sampleId
+      || typeof episode?.stepId !== "string")
+    || new Set(value.episodes.map(episode => episode.stepId)).size
+      !== value.episodes.length) {
+    throw new TypeError(
+      "case episodes must be linked to one request/sample with distinct step IDs",
+    );
   }
-  if (start.partition !== "DEV" || next.partition !== "DEV") {
-    throw new TypeError("case episodes must remain in the declared DEV partition");
+  if (value.episodes.some(episode => !ACCEPTED_PARTITIONS.has(episode.partition))) {
+    throw new TypeError(
+      "case episodes must remain in the declared DEV or VERIFICATION partition",
+    );
+  }
+  if (new Set(value.episodes.map(episode => episode.partition)).size !== 1) {
+    throw new TypeError("case episodes must preserve one partition");
   }
   if (value.packagePath !== undefined && resolve(value.packagePath) !== cliPackagePath) {
     throw new TypeError("case packagePath does not match --package");
@@ -262,10 +277,16 @@ function makeReceipt({
 }) {
   const finalState = result === null ? null : finalRuntimeState(result);
   const observeExecutions = dispatches.filter(item => item.action === "observe");
-  const selectedObserve = captures.some(capture =>
-    capture.candidates.some(candidate =>
-      candidate.candidateRef === capture.chosen.candidateRef
-      && candidate.optionSemantics === "observe"));
+  const firstCapture = captures[0] ?? null;
+  const firstObservationCandidates = firstCapture?.candidates ?? [];
+  const hasObserveCandidate = firstObservationCandidates.some(candidate =>
+    candidate.optionSemantics === "observe"
+    || (typeof candidate.candidateRef === "string"
+      && candidate.candidateRef.startsWith("c:observe:")));
+  const selectedObserve = firstCapture?.chosen?.candidateRef !== undefined
+    && firstObservationCandidates.some(candidate =>
+      candidate.candidateRef === firstCapture.chosen.candidateRef
+      && candidate.optionSemantics === "observe");
   const firstObserveExecution = observeExecutions[0]?.result;
   const projection = firstObserveExecution?.observeProjection;
   const admittedObservationRecords = firstObserveExecution?.observeEvidence;
@@ -273,6 +294,10 @@ function makeReceipt({
   const sourceReadReceipt = producerObservation?.sourceReadReceipt;
   const rootCompletion = result?.rootCompletion ?? null;
   const captured = capturedRun(result, executionError, captures, value, candidateScores);
+  const finalStateValue = result?.recursiveGoal?.report?.states?.at(-1)?.value;
+  const controlExecution = result?.steps?.length === 1
+    ? result.steps[0]?.executionReceipt
+    : null;
   const selectedObserveAcceptance = selectedObserve
     && observeExecutions.length > 0
     && firstObserveExecution?.outcome === "success"
@@ -294,6 +319,30 @@ function makeReceipt({
     && rootCompletion?.positiveRootSatisfied === false
       ? "PASS"
       : "FAIL";
+  const noObserveControlAcceptance = captured
+    && !hasObserveCandidate
+    && firstCapture?.chosen?.candidateRef === "c:judge:unknown"
+    && captures.length === 1
+    && observeExecutions.length === 0
+    && dispatches.every(item => item.action !== "read")
+    && controlExecution?.action === "submit_terminal_judgement"
+    && controlExecution?.terminalJudgement === "judge=unknown"
+    && controlExecution?.outcome === "success"
+    && finalStateValue?.terminal === true
+    && finalStateValue?.terminalKind === "judge"
+    && finalStateValue?.terminalJudgement === "judge=unknown"
+      ? "PASS"
+      : "FAIL";
+  const acceptanceKind = captured
+    ? hasObserveCandidate
+      ? "positive_observe"
+      : "no_observe_control"
+    : "UNVERIFIED";
+  const caseAcceptance = captured
+    ? acceptanceKind === "positive_observe"
+      ? selectedObserveAcceptance
+      : noObserveControlAcceptance
+    : "UNVERIFIED";
 
   const receipt = {
     schema: "nnanything.tsjs.computed-a1-acceptance-result.v1",
@@ -302,6 +351,8 @@ function makeReceipt({
     requestId: value.requestId,
     sampleId: value.episodes[0].sampleId,
     stepIds: value.episodes.map(episode => episode.stepId),
+    partition: value.episodes[0].partition,
+    partitions: value.episodes.map(episode => episode.partition),
     modelBinding: {
       packagePath: args.packagePath,
       ...(result?.modelBinding ?? captures[0]?.package ?? {}),
@@ -340,8 +391,20 @@ function makeReceipt({
     finalRuntimeState: finalState,
     runtimeErrors: result === null ? [] : runtimeErrors(result),
     executionError,
-    selectedObserveAcceptance: captured ? selectedObserveAcceptance : "UNVERIFIED",
+    acceptanceKind,
+    caseAcceptance,
+    selectedObserveAcceptance: captured
+      ? acceptanceKind === "positive_observe"
+        ? selectedObserveAcceptance
+        : "NOT_APPLICABLE"
+      : "UNVERIFIED",
+    noObserveControlAcceptance: captured
+      ? acceptanceKind === "no_observe_control"
+        ? noObserveControlAcceptance
+        : "NOT_APPLICABLE"
+      : "UNVERIFIED",
     selectedObserveFailure: captured && selectedObserveAcceptance === "FAIL"
+      && acceptanceKind === "positive_observe"
       ? {
           chosen: captures.map(capture => ({
             stepId: capture.stepId,
@@ -353,9 +416,22 @@ function makeReceipt({
           queryCompletion: rootCompletion?.queryCompletion ?? null,
         }
       : null,
+    noObserveControlFailure: captured
+      && acceptanceKind === "no_observe_control"
+      && noObserveControlAcceptance === "FAIL"
+      ? {
+          chosenCandidateRef: firstCapture?.chosen?.candidateRef ?? null,
+          candidateRefs: firstObservationCandidates.map(candidate =>
+            candidate.candidateRef),
+          observeDispatches: observeExecutions.length,
+          readDispatches: dispatches.filter(item => item.action === "read").length,
+          executionAction: controlExecution?.action ?? null,
+          terminalJudgement: controlExecution?.terminalJudgement ?? null,
+        }
+      : null,
     packagePath: args.packagePath,
   };
-  return { receipt, selectedObserveAcceptance };
+  return { receipt, caseAcceptance };
 }
 
 async function run() {
@@ -403,6 +479,8 @@ async function run() {
       requestId: caseValue.requestId,
       sampleId: caseValue.episodes[0].sampleId,
       stepIds: caseValue.episodes.map(episode => episode.stepId),
+      partition: caseValue.episodes[0].partition,
+      partitions: caseValue.episodes.map(episode => episode.partition),
       packagePath: args.packagePath,
       receipt: [{
         stage: "consumer_surface_check",
@@ -482,7 +560,7 @@ async function run() {
     executionError,
     result,
   });
-  const { receipt, selectedObserveAcceptance } = makeReceipt({
+  const { receipt, caseAcceptance } = makeReceipt({
     args,
     value: caseValue,
     captures,
@@ -493,7 +571,7 @@ async function run() {
   });
   await writeJson(join(args.out, "result.json"), structuredClone(receipt));
   if (receipt.status !== "CAPTURED") process.exitCode = 2;
-  else if (selectedObserveAcceptance !== "PASS") process.exitCode = 1;
+  else if (caseAcceptance !== "PASS") process.exitCode = 1;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

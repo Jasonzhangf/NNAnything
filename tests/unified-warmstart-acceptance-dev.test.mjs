@@ -982,6 +982,83 @@ test("warmstart-acceptance scores exact advance identity and retains non-relatio
   }
 });
 
+test("warmstart-acceptance aggregates exact observe action gold without changing its identity", async () => {
+  const observeRef =
+    "c:observe:obligation:observe:tsjs-computed-a1-train-p1";
+  const fixture = await makeSyntheticAcceptanceFixture([
+    syntheticAcceptanceRow({
+      rowId: "observe-row",
+      sourceGroup: "observe-family",
+      gold: observeRef,
+      allowed: [observeRef],
+      candidateInputs: [
+        { candidateRef: "c:judge:true", input: oneHot(0) },
+        { candidateRef: "c:judge:false", input: oneHot(1) },
+        { candidateRef: "c:judge:unknown", input: oneHot(1) },
+        { candidateRef: observeRef, input: oneHot(36) },
+        { candidateRef: "c:defer", input: oneHot(0) },
+      ],
+    }),
+  ]);
+  try {
+    assert.equal(
+      await runStandardRunnerCli(["warmstart-acceptance", "--config", fixture.configPath]),
+      0,
+    );
+    const report = await readJson(join(fixture.outputDir, "run-report.json"));
+    assert.equal(report.status, "accepted");
+    const group = report.groups.find(item => item.rowId === "observe-row");
+    assert.ok(group);
+    assert.equal(group.gold, observeRef);
+    assert.equal(group.goldLabel, "observe");
+    assert.equal(group.assessed, true);
+    assert.equal(group.candidate.selected, observeRef);
+    assert.equal(group.candidate.correct, true);
+    assert.ok(group.margin >= 0.1);
+    assert.equal(group.marginOk, true);
+
+    const bucket = report.aggregation.buckets.find(
+      item => item.sourceFamily === "observe-family",
+    );
+    assert.ok(bucket);
+    assert.equal(bucket.goldLabel, "observe");
+    assert.equal(bucket.decision.assessed, 1);
+    assert.equal(bucket.loss.rowCount, 1);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("warmstart-acceptance still rejects unapproved action-like gold labels", async () => {
+  const unapprovedRef = "c:action:unapproved";
+  const fixture = await makeSyntheticAcceptanceFixture([
+    syntheticAcceptanceRow({
+      rowId: "unapproved-action",
+      sourceGroup: "unapproved-action-family",
+      gold: unapprovedRef,
+      allowed: [unapprovedRef],
+      candidateInputs: [
+        { candidateRef: unapprovedRef, input: oneHot(36) },
+      ],
+    }),
+  ]);
+  try {
+    assert.equal(
+      await runStandardRunnerCli(["warmstart-acceptance", "--config", fixture.configPath]),
+      1,
+    );
+    const report = await readJson(join(fixture.outputDir, "run-report.json"));
+    assert.equal(report.status, "rejected");
+    assert.equal(report.error.code, "WARMSTART_EVIDENCE_INVALID");
+    assert.match(
+      report.error.message,
+      /unsupported gold label for aggregation: c:action:unapproved/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("warmstart-acceptance fails a wrong advance selection without relabeling it", async () => {
   const goldAdvance = "c:advance:edge:sources/src/entry-pos.ts:import:0";
   const selectedAdvance = "c:advance:edge:sources/src/util.ts:reexport:0";
