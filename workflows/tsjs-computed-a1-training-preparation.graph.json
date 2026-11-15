@@ -1,0 +1,194 @@
+{
+  "id": "tsjs-computed-a1-training-preparation-design",
+  "version": "0.1.0-design",
+  "inputs": [
+    {
+      "id": "preparation_request",
+      "schema": "Object"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "接收已审设计与来源分区",
+      "operator": "tsjs.computed-a1.preparation.accept-design",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "preparation_request"
+      ],
+      "output": {
+        "id": "accepted_manifest",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "校验来源与既有训练回放",
+      "operator": "tsjs.computed-a1.preparation.admit-sources",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "accepted_manifest"
+      ],
+      "output": {
+        "id": "source_admissions",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "固定观测前学生事实与候选组",
+      "operator": "tsjs.computed-a1.preparation.fix-pre-step",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "source_admissions"
+      ],
+      "output": {
+        "id": "pre_step_groups",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "采集带外生产证据",
+      "operator": "tsjs.computed-a1.preparation.collect-off-band-evidence",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "pre_step_groups"
+      ],
+      "output": {
+        "id": "producer_evidence",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "生成隔离监督并检查泄漏",
+      "operator": "tsjs.computed-a1.preparation.emit-supervision",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "producer_evidence"
+      ],
+      "output": {
+        "id": "supervision_receipt",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "验证公开消费入口与回放",
+      "operator": "tsjs.computed-a1.preparation.verify-consumer",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "supervision_receipt"
+      ],
+      "output": {
+        "id": "consumer_receipt",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    },
+    {
+      "id": "交付准备结果或具体缺口",
+      "operator": "tsjs.computed-a1.preparation.report",
+      "operator_version": "0.1.0-design",
+      "inputs": [
+        "consumer_receipt"
+      ],
+      "output": {
+        "id": "preparation_receipt",
+        "schema": "Object"
+      },
+      "input_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "output_selector": {
+        "include": [],
+        "exclude": []
+      },
+      "iterator": "Whole"
+    }
+  ],
+  "edges": [
+    {
+      "from": "接收已审设计与来源分区",
+      "to": "校验来源与既有训练回放",
+      "arc_id": "accepted_manifest"
+    },
+    {
+      "from": "校验来源与既有训练回放",
+      "to": "固定观测前学生事实与候选组",
+      "arc_id": "source_admissions"
+    },
+    {
+      "from": "固定观测前学生事实与候选组",
+      "to": "采集带外生产证据",
+      "arc_id": "pre_step_groups"
+    },
+    {
+      "from": "采集带外生产证据",
+      "to": "生成隔离监督并检查泄漏",
+      "arc_id": "producer_evidence"
+    },
+    {
+      "from": "生成隔离监督并检查泄漏",
+      "to": "验证公开消费入口与回放",
+      "arc_id": "supervision_receipt"
+    },
+    {
+      "from": "验证公开消费入口与回放",
+      "to": "交付准备结果或具体缺口",
+      "arc_id": "consumer_receipt"
+    }
+  ],
+  "outputs": [
+    "preparation_receipt"
+  ]
+}
