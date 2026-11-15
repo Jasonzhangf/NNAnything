@@ -204,6 +204,12 @@ function runtimeErrors(result) {
   return result.recursiveGoal.report?.errors ?? [];
 }
 
+function recordedExecutorInput(input) {
+  if (input.observe?.kind !== "constant_computed_property_v1") return input;
+  const { bridge: _bridge, ...observe } = input.observe;
+  return { ...input, observe };
+}
+
 function finalRuntimeState(result) {
   const report = result.recursiveGoal?.kind === "run_result"
     ? result.recursiveGoal.report
@@ -513,12 +519,20 @@ async function run() {
     const executor = {
       async read(input) {
         const execution = structuredClone(await fileExecutor.read(input));
-        dispatches.push({ action: "read", input, result: execution });
+        dispatches.push({
+          action: "read",
+          input: recordedExecutorInput(input),
+          result: execution,
+        });
         return structuredClone(execution);
       },
       async observe(input) {
         const execution = structuredClone(await fileExecutor.observe(input));
-        dispatches.push({ action: "observe", input, result: execution });
+        dispatches.push({
+          action: "observe",
+          input: recordedExecutorInput(input),
+          result: execution,
+        });
         return structuredClone(execution);
       },
     };

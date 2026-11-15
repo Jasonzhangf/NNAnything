@@ -440,7 +440,7 @@ test("post-integration KNOWN-01 keeps the saved judge=unknown failure and reject
   }
 });
 
-test("post-integration VERIFICATION positive case preserves selected observe acceptance", async () => {
+test("post-integration VERIFICATION positive preserves selected observe and the known next-episode gap", async () => {
   const root = await mkdtemp(join(tmpdir(), "tsjs-a1-acceptance-verification-positive-"));
   try {
     const { caseValue, sourceRoot } = await writeKnown01Fixture(root);
@@ -479,17 +479,21 @@ test("post-integration VERIFICATION positive case preserves selected observe acc
       assert.equal(receipt.status, "UNAVAILABLE");
       return;
     }
-    assert.equal(run.status, 0);
     const receipt = JSON.parse(await readFile(join(out, "result.json"), "utf8"));
+    assert.equal(run.status, 1, run.stderr);
     assert.equal(receipt.status, "CAPTURED");
     assert.equal(receipt.partition, "VERIFICATION");
     assert.deepEqual(receipt.partitions, ["VERIFICATION", "VERIFICATION"]);
     assert.equal(receipt.acceptanceKind, "positive_observe");
-    assert.equal(receipt.caseAcceptance, "PASS");
-    assert.equal(receipt.selectedObserveAcceptance, "PASS");
+    assert.equal(receipt.caseAcceptance, "FAIL");
+    assert.equal(receipt.selectedObserveAcceptance, "FAIL");
     assert.equal(receipt.noObserveControlAcceptance, "NOT_APPLICABLE");
     assert.equal(receipt.dispatchCounts.observeDispatches, 1);
     assert.equal(receipt.dispatchCounts.readDispatches, 0);
+    assert.ok(receipt.runtimeErrors.some(error =>
+      error.source?.nativeCode === "NEXT_EPISODE_MISSING"));
+    assert.equal(receipt.executionError, null);
+    assert.ok(receipt.selectedObserveFailure);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
