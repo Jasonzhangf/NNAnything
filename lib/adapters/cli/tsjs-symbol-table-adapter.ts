@@ -24,6 +24,7 @@ import {
   symbolIdFor,
   validateTsJsSymbolRequest,
   type TsJsCoverageRecord,
+  type TsJsConstantComputedPropertyObservation,
   type TsJsDeclaredIn,
   type TsJsDynamicMemberBoundary,
   type TsJsModuleSystem,
@@ -86,6 +87,22 @@ type RuntimeStaticAliasDraft = Readonly<{
   ref: string;
 }>;
 
+type RuntimeConstantSelectorDraft = Readonly<{
+  name: string;
+  expressionRef: string;
+  operandRefs: readonly [string, string];
+  value: string | null;
+  ref: string;
+}>;
+
+type RuntimeConstantComputedCallDraft = Readonly<{
+  callSiteRef: string;
+  outerStart: number;
+  tableName: string;
+  selectorName: string;
+  callRef: string;
+}>;
+
 type RuntimeWriteDraft = Readonly<{
   name: string;
   start: number;
@@ -140,6 +157,8 @@ type RuntimeSelectorFileIndex = Readonly<{
   functions: readonly RuntimeFunctionDraft[];
   tables: readonly RuntimeTableDraft[];
   mutations: readonly RuntimeWriteDraft[];
+  constantSelectors: readonly RuntimeConstantSelectorDraft[];
+  constantComputedCalls: readonly RuntimeConstantComputedCallDraft[];
 }>;
 
 type ScopeKind = "sourceFile" | "module" | "function" | "block";
@@ -814,6 +833,16 @@ function runtimeTableDraftFor(
   const members: RuntimeTableMemberDraft[] = [];
   let literalKeys = true;
   for (const property of objectLiteral.properties) {
+    if (ts.isShorthandPropertyAssignment(property)) {
+      const span = spanOf(property.name.getStart(sf), property.name.getEnd());
+      members.push({
+        name: property.name.text,
+        initializerRef: runtimeRef("member", sf.fileName, span),
+        callable: false,
+        callableIdentity: null,
+      });
+      continue;
+    }
     if (!ts.isPropertyAssignment(property)) {
       literalKeys = false;
       continue;
@@ -879,6 +908,87 @@ function collectRuntimeImports(sf: ts.SourceFile, spanOf: (start: number, end: n
   return Object.freeze(imports);
 }
 
+function constantStringOf(expression: ts.Expression): string | null {
+  const value = stripParensAndAssertions(expression);
+  if (ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) {
+    return value.text;
+  }
+  return null;
+}
+
+function runtimeTopLevelConstantSelectors(
+  sf: ts.SourceFile,
+  spanOf: (start: number, end: number) => TsJsSpan,
+): readonly RuntimeConstantSelectorDraft[] {
+  const selectors: RuntimeConstantSelectorDraft[] = [];
+  for (const statement of sf.statements) {
+    if (
+      !ts.isVariableStatement(statement)
+      || (statement.declarationList.flags & ts.NodeFlags.Const) === 0
+    ) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        !ts.isIdentifier(declaration.name)
+        || declaration.initializer === undefined
+      ) continue;
+      const expression = stripParensAndAssertions(declaration.initializer);
+      if (!ts.isBinaryExpression(expression) || expression.operatorToken.kind !== ts.SyntaxKind.PlusToken) {
+        continue;
+      }
+      const left = constantStringOf(expression.left);
+      const right = constantStringOf(expression.right);
+      const span = spanOf(expression.getStart(sf), expression.getEnd());
+      selectors.push(Object.freeze({
+        name: declaration.name.text,
+        expressionRef: runtimeRef("selector-expression", sf.fileName, span),
+        operandRefs: Object.freeze([
+          runtimeRef("selector-operand", sf.fileName, spanOf(expression.left.getStart(sf), expression.left.getEnd())),
+          runtimeRef("selector-operand", sf.fileName, spanOf(expression.right.getStart(sf), expression.right.getEnd())),
+        ]) as readonly [string, string],
+        value: left === null || right === null ? null : left + right,
+        ref: runtimeRef("selector-declaration", sf.fileName, spanOf(declaration.getStart(sf), declaration.getEnd())),
+      }));
+    }
+  }
+  return Object.freeze(selectors);
+}
+
+function runtimeTopLevelConstantComputedCalls(
+  sf: ts.SourceFile,
+  spanOf: (start: number, end: number) => TsJsSpan,
+): readonly RuntimeConstantComputedCallDraft[] {
+  const calls: RuntimeConstantComputedCallDraft[] = [];
+  const stack: ts.Node[] = [...childNodesOf(sf)];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === undefined) continue;
+    if (ts.isFunctionLike(node)) continue;
+    if (
+      ts.isCallExpression(node)
+      && ts.isCallExpression(node.expression)
+      && ts.isElementAccessExpression(node.expression.expression)
+    ) {
+      const member = node.expression.expression;
+      if (
+        ts.isIdentifier(member.expression)
+        && member.argumentExpression !== undefined
+        && ts.isIdentifier(member.argumentExpression)
+      ) {
+        const outerSpan = spanOf(node.getStart(sf), node.getEnd());
+        calls.push(Object.freeze({
+          callSiteRef: runtimeRef("call", sf.fileName, outerSpan),
+          outerStart: node.getStart(sf),
+          tableName: member.expression.text,
+          selectorName: member.argumentExpression.text,
+          callRef: runtimeRef("call-inner", sf.fileName, spanOf(node.expression.getStart(sf), node.expression.getEnd())),
+        }));
+      }
+    }
+    stack.push(...childNodesOf(node));
+  }
+  return Object.freeze(calls);
+}
+
 function buildRuntimeSelectorFileIndex(
   sf: ts.SourceFile,
   sourceText: string,
@@ -886,6 +996,8 @@ function buildRuntimeSelectorFileIndex(
 ): RuntimeSelectorFileIndex {
   const functions: RuntimeFunctionDraft[] = [];
   const tables: RuntimeTableDraft[] = [];
+  const constantSelectors = runtimeTopLevelConstantSelectors(sf, spanOf);
+  const constantComputedCalls = runtimeTopLevelConstantComputedCalls(sf, spanOf);
   const file = sf.fileName;
   for (const statement of sf.statements) {
     if (ts.isFunctionDeclaration(statement) && statement.name !== undefined) {
@@ -918,6 +1030,8 @@ function buildRuntimeSelectorFileIndex(
     functions: Object.freeze(functions),
     tables: Object.freeze(tables),
     mutations: Object.freeze(mutations),
+    constantSelectors,
+    constantComputedCalls,
   });
 }
 
@@ -2638,7 +2752,7 @@ function makeRuntimeSelectorTableFact(
       name: member.name,
       initializerRef: member.initializerRef,
     }))),
-    evidenceRefs: Object.freeze([sourceReadRef]),
+    evidenceRefs: Object.freeze([sourceReadRef, table.ref]),
   });
 }
 
@@ -2764,7 +2878,7 @@ function makeStaticSelectedSelectorObservation(
       scopeRef: null,
       evidenceRefs: Object.freeze([sourceReadRef]),
     }),
-    facts: Object.freeze([tableFact, selectedFact]),
+    facts: Object.freeze([tableFact, selectedFact] as const),
     callableTable: makeRuntimeCallableTable(table),
     sourceReadReceipt: makeRuntimeSelectorSourceReadReceipt(
       callSiteRef,
@@ -2772,6 +2886,240 @@ function makeStaticSelectedSelectorObservation(
       helper,
       indexByFile,
     ),
+  });
+}
+
+function makeConstantComputedPropertyObservation(input: {
+  readonly call: RuntimeConstantComputedCallDraft;
+  readonly caller: RuntimeSelectorFileIndex;
+  readonly source: RuntimeSelectorFileIndex;
+  readonly table: RuntimeTableDraft;
+  readonly member: RuntimeTableMemberDraft;
+  readonly selector: RuntimeConstantSelectorDraft;
+  readonly imported: RuntimeImportDraft;
+  readonly symbol: TsJsSymbolRecord;
+  readonly indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>;
+}): TsJsConstantComputedPropertyObservation {
+  const {
+    call,
+    caller,
+    source,
+    table,
+    member,
+    selector,
+    imported,
+    symbol,
+    indexByFile,
+  } = input;
+  const sourceReadRef = `source-read:${call.callSiteRef}`;
+  const selectedDeclarationRef = `decl:${source.file}#top:${symbol.name}`;
+  const selectedModuleRef = `module:${source.file}`;
+  const evidenceRefs = Object.freeze([
+    call.callSiteRef,
+    selector.expressionRef,
+    ...selector.operandRefs,
+    table.ref,
+    member.initializerRef,
+    imported.ref,
+    sourceReadRef,
+    symbol.symbolId,
+  ]);
+  const tableFact = makeRuntimeSelectorTableFact(sourceReadRef, table);
+  const selectedFact:
+    TsJsRuntimeSelectorRoleFact & Readonly<{ role: "static_selected_member" }> =
+    Object.freeze({
+    factRef: `fact:${sourceReadRef}:constant-computed`,
+    role: "static_selected_member",
+    state: "known",
+    value: JSON.stringify({
+      selectorValue: selector.value,
+      memberName: member.name,
+      memberRef: member.initializerRef,
+      importDeclarationRef: imported.ref,
+      sourceModuleRef: selectedModuleRef,
+      declarationRef: selectedDeclarationRef,
+    }),
+    evidenceRefs,
+  });
+  return Object.freeze({
+    schemaVersion: "nnanything.tsjs.constant-computed-property-observation.v1",
+    observationRef: `computed-observation:${call.callSiteRef}`,
+    callSiteRef: call.callSiteRef,
+    sourceReadRef,
+    selection: Object.freeze({
+      selectionKind: "constant_computed_property",
+      selectorExpressionRef: selector.expressionRef,
+      selectorExpressionKind: "string_concat",
+      selectorOperandRefs: selector.operandRefs,
+      selectorValue: selector.value ?? "",
+      tableRef: table.ref,
+      selectedMemberName: member.name,
+      selectedMemberRef: member.initializerRef,
+      importDeclarationRef: imported.ref,
+      sourceModuleFile: source.file,
+      sourceModuleRef: selectedModuleRef,
+      selectedDeclarationRef,
+      selectedModuleRef,
+    }),
+    binding: Object.freeze({
+      symbolRef: table.ref,
+      callSiteRef: call.callSiteRef,
+      role: "member",
+      bindingMode: "bound",
+      resolution: Object.freeze({
+        status: "resolved",
+        declarationRef: selectedDeclarationRef,
+        moduleRef: selectedModuleRef,
+        evidenceRefs,
+      }),
+      declarationRefs: Object.freeze([selectedDeclarationRef]),
+      scopeRef: null,
+      evidenceRefs,
+    }),
+    facts: Object.freeze([tableFact, selectedFact] as const),
+    callableTable: makeRuntimeCallableTable(table),
+    sourceReadReceipt: makeRuntimeSelectorSourceReadReceipt(
+      call.callSiteRef,
+      caller,
+      source,
+      indexByFile,
+    ),
+  });
+}
+
+function linkConstantComputedPropertyObservations(
+  requestedFiles: readonly string[],
+  statusByFile: ReadonlyMap<string, RuntimeFileStatus>,
+  indexByFile: ReadonlyMap<string, RuntimeSelectorFileIndex>,
+  symbols: readonly TsJsSymbolRecord[],
+): Readonly<{
+  observations: readonly TsJsConstantComputedPropertyObservation[];
+  gaps: readonly TsJsRuntimeSelectorGap[];
+}> {
+  const observations: TsJsConstantComputedPropertyObservation[] = [];
+  const gaps: TsJsRuntimeSelectorGap[] = [];
+  for (const file of requestedFiles) {
+    const caller = indexByFile.get(file);
+    if (caller === undefined || statusByFile.get(file) !== "ok") continue;
+    for (const call of caller.constantComputedCalls) {
+      const evidence = [call.callSiteRef, call.callRef];
+      const selectors = caller.constantSelectors.filter(selector => selector.name === call.selectorName);
+      if (selectors.length !== 1) {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          selectors.length === 0
+            ? "constant_computed_property_missing"
+            : "constant_computed_property_unsupported",
+          evidence,
+        ));
+        continue;
+      }
+      const selector = selectors[0]!;
+      if (selector.value === null) {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          "constant_computed_property_unsupported",
+          [selector.ref, selector.expressionRef, ...evidence],
+        ));
+        continue;
+      }
+      const tables = caller.tables.filter(table => table.name === call.tableName);
+      if (tables.length !== 1) {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          tables.length === 0
+            ? "constant_computed_property_missing"
+            : "constant_computed_property_unsupported",
+          evidence,
+        ));
+        continue;
+      }
+      const table = tables[0]!;
+      if (
+        !table.literalKeys
+        || table.members.length === 0
+        || new Set(table.members.map(member => member.name)).size !== table.members.length
+        || caller.mutations.some(mutation =>
+          mutation.name === table.name || mutation.name === selector.name)
+      ) {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          "constant_computed_property_unsupported",
+          [table.ref, selector.ref, ...evidence],
+        ));
+        continue;
+      }
+      const members = table.members.filter(member => member.name === selector.value);
+      if (members.length !== 1) {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          "constant_computed_property_missing",
+          [table.ref, selector.ref, ...evidence],
+        ));
+        continue;
+      }
+      const member = members[0]!;
+      const imports = caller.imports.filter(imported =>
+        imported.localName === member.name && imported.importedName !== "default");
+      if (imports.length !== 1 || imports[0]!.localName !== imports[0]!.importedName) {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          "constant_computed_property_unsupported",
+          [member.initializerRef, ...evidence],
+        ));
+        continue;
+      }
+      const imported = imports[0]!;
+      const resolved = resolveRuntimeImport(
+        caller.file,
+        imported.moduleSpecifier,
+        statusByFile,
+        indexByFile,
+        [imported.ref],
+      );
+      if (resolved.kind !== "ok") {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          resolved.kind,
+          [imported.ref, ...resolved.refs, ...evidence],
+        ));
+        continue;
+      }
+      const source = resolved.index;
+      const sourceSymbols = symbols.filter(symbol =>
+        symbol.file === source.file
+        && symbol.name === imported.importedName
+        && symbol.visibility === "exported"
+        && symbol.declaredIn === "file"
+        && symbol.lexicalScope.length === 0
+        && symbol.ownerType === null
+        && symbol.ownerKind === null);
+      if (sourceSymbols.length !== 1 || sourceSymbols[0]!.kind !== "function") {
+        gaps.push(runtimeGap(
+          call.callSiteRef,
+          sourceSymbols.length === 0
+            ? "constant_computed_property_missing"
+            : "constant_computed_property_unsupported",
+          [imported.ref, ...evidence],
+        ));
+        continue;
+      }
+      observations.push(makeConstantComputedPropertyObservation({
+        call,
+        caller,
+        source,
+        table,
+        member,
+        selector,
+        imported,
+        symbol: sourceSymbols[0]!,
+        indexByFile,
+      }));
+    }
+  }
+  return Object.freeze({
+    observations: Object.freeze(observations),
+    gaps: Object.freeze(gaps),
   });
 }
 
@@ -3194,6 +3542,12 @@ export async function runTsJsSymbolTable(
     [...lexicalIndexes.values()],
     new Set(lexicalIndexes.keys()),
   );
+  const constantComputedProperty = linkConstantComputedPropertyObservations(
+    uniqueFiles,
+    runtimeSelectorStatus,
+    runtimeSelectorIndexes,
+    symbolRecords,
+  );
 
   return Object.freeze({
     status: "ok",
@@ -3204,9 +3558,10 @@ export async function runTsJsSymbolTable(
       Object.freeze(boundaryRecords),
       coverage,
       runtimeSelector.observations,
-      runtimeSelector.gaps,
+      Object.freeze([...runtimeSelector.gaps, ...constantComputedProperty.gaps]),
       runtimeSelector.staticSelectedObservations,
       lexicalCallSiteBindings,
+      constantComputedProperty.observations,
     ),
   });
 }

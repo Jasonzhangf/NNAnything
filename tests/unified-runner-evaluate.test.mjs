@@ -1128,7 +1128,7 @@ test("an unsupported observed local-fact role is rejected by the converter", asy
     assert.equal(report.error.code, "EVALUATION_INVALID");
     assert.match(
       report.error.message,
-      /observedLocalFacts\[0\]\.role is invalid; expected selector_candidate_table or runtime_selector_dependency/,
+      /observedLocalFacts\[0\]\.role is invalid; expected selector_candidate_table, runtime_selector_dependency, or static_selected_member/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
