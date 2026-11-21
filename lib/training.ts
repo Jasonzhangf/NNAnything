@@ -4,4 +4,5 @@ export * from "./training/basic-kind-training.js";
 export * from "./training/basic-kind-numeric.js";
 export * from "./nodes/training.js";
 export * from "./training/nn-code-usage-samples.js";
+export { trainBA1UnifiedRelationDecision } from "./training/b-a1-training-entry.js";
 export { migrateBasicKindProfile, LEGACY_BASIC_KIND_PROFILE } from "./filters/basic-kinds.js";
