@@ -147,6 +147,18 @@ Alice route r1 已接受：保留 64 维输入、两层隐藏层、统一格式�
 
 本节是当前短期 MVP 的可验收定义，直接取代 2026-11-05 “待用户裁定”一节。用户于 Codex 线程 `01a1ae9f-debd-7852-947b-d0b68b913fb0` 的 userMessage `01a1b48e-28bb-7e91-90c6-d49ebb38c21d` 直接指示：长程目标是 NNAnything 的 nn-code 与浏览器训练和交付；按目标拉满 peer 工作，按分拆任务维护 longhorizon 订阅，并按完成度修正细节。本节只收敛当前 MVP，不改各领域既有算法/训练合同。
 
+### 2026-11-21 当前 MVP 目标与缺口
+
+本状态更新优先于下方较早的 owner/任务快照；它不改变两域原有完成门，也不把准备、候选或静态通过算作已交付能力。
+
+| 主线 | MVP 目标 | 当前已确认进度 | 当前缺口与下一步 |
+| --- | --- | --- | --- |
+| TS/JS 符号表训练 | 固定 TRAIN 入口完成拟合、保存、新进程回载，并由独立留出语义评价和旧能力回归确认可用行为。候选继续 `uncalibrated/not_applied`，直到采用合同通过。 | Iris 的 architect check（Collab 消息 `m1795268160419-29`）确认 fit/save/reload 已完成。 | 独立 holdout evaluation 尚未运行。启动该评价前沿已接受合同准备来源、分区和准入；保留验证隔离及旧能力回归，不以训练完成或回载成功替代语义验收。 |
+| TS/JS 继承 A1 执行记录 | 真实记录既有单次拟合、回载和 consumer 结果，保持原始失败与候选状态。 | 单次拟合已执行；KNOWN-01 consumer 出现 `DataCloneError`，原始 Node exit 缺失；候选未采用。 | 当前 Collab CLI 没有可登记历史执行证据的公开入口，`backfill-execute` 不适用。不得重拟合、伪造执行阶段或打开密封验证。待 AppSDK 的 `collab-runtime` source owner 发布正式证据登记入口后，用真实 runner receipt 续接生命周期。该任务状态不取代上方独立 holdout。 |
+| 浏览器 B-R 与 B-A1 | 先解决 B-R 基础保留表示缺口，再交付 B-A1 普通 text 搜索的自主目标到对象绑定与真实页面行为验收。显式绑定仅作基线。 | 既有 B-R 拟合评价被接受为真实失败，能力保持 `INCOMPLETE`。B-A1 已有设计与准备证据，但不等于训练或行为交付。 | B-R 仍是运行验收依赖。Iris 指出的 B-A1 下一片是 score-blind candidate/group label proposal 与 source-owner partition/admission adjudication；随后才能判断是否具备拟合准入。Iris 正在发布两项有界评估任务，收到正式合同后按合同推进；不得提前拟合。 |
+
+当前目标顺序：先推进不依赖未准入数据的独立评价与标签/来源裁定；逐项拿到合法准入和真实入口证据后，再运行其下游拟合与语义验收。按可用 owner 并行推进两域，但不派无关巡检来代替这些交付工作。任何候选保持未采用；整体 MVP 只有在两条主线各自的真实行为完成门通过后才算交付。
+
 ### NN-code MVP
 
 交付目标：TS/JS 符号表做成一条可用的训练闭环。设计子交付已由 Alice 接受并集成 main `c576a3f`；剩余是训练、保存、新进程回载、独立留出语义评价与旧 nn-code 能力回归。
